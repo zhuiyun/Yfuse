@@ -195,12 +195,12 @@ internal fun DrawScope.drawDiagonalSweep(
     )
 }
 
-const val REVEAL_MS = 480
+const val REVEAL_MS = Motion.ARRIVAL_REVEAL
 const val REVEAL_STEP = 0.07f
 const val REVEAL_MAX_INDEX = 5
 val REVEAL_LIFT = 9.dp
 private const val HERO_SETTLE_SCALE = 1.06f
-const val ATTENTION_SWEEP_MS = 520
+const val ATTENTION_SWEEP_MS = Motion.ATTENTION_SWEEP
 private const val ATTENTION_SWEEP_ALPHA = 0.22f
 private const val ARRIVAL_SWEEP_ALPHA_DARK = 0.07f
 private const val ARRIVAL_SWEEP_ALPHA_LIGHT = 0.09f

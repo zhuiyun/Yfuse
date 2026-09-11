@@ -12,8 +12,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -52,6 +50,8 @@ import com.yfuse.core.util.takeGraphemes
 import com.yfuse.core.util.takeGraphemesWithinUtf8Bytes
 import com.yfuse.core.util.withoutControlCharacters
 import com.yfuse.feature.watch.CopyableRoomCode
+import com.yfuse.core.designsystem.ThemeIcon as Icon
+import com.yfuse.core.designsystem.ThemeText as Text
 import com.yfuse.core.designsystem.flatGlass as glass
 
 /**

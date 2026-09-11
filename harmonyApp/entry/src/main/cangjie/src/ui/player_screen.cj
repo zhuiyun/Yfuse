@@ -9,6 +9,14 @@ import ohos.state_macro_manage.*
 @Component
 class PlayerScreen {
     var source: String = ""
+    var resumePositionMs: Int64 = 0
+    var onCheckpoint: (Int64, Bool, Bool) -> Unit = { _, _, _ => }
+    @State var restored: Bool = false
+
+    func aboutToDisappear(): Unit {
+        onCheckpoint(Int64(positionSeconds * 1000.0), true, true)
+        controller.pause()
+    }
     var onBack: () -> Unit = { => }
     @State var playing: Bool = false
     @State var controlsVisible: Bool = true
@@ -24,7 +32,7 @@ class PlayerScreen {
                 Column {
                     Text("播放器").fontSize(26).fontWeight(FontWeight.Bold)
                     Text("等待媒体源")
-                    Button("返回").onClick(() => { onBack() })
+                    Button("返回").onClick(() => { onCheckpoint(Int64(positionSeconds * 1000.0), true, true); onBack() })
                 }
             } else {
                 Video(src: source, controller: controller)
@@ -34,17 +42,22 @@ class PlayerScreen {
                     .controls(false)
                     .onPrepared({ event =>
                         durationSeconds = event.duration
+                        if (!restored) {
+                            restored = true
+                            let target = min(Float64(resumePositionMs) / 1000.0, durationSeconds)
+                            if (target > 0.0) { controller.setCurrentTime(Int32(target), None) }
+                        }
                         playing = true
                     })
-                    .onUpdate({ event => positionSeconds = event.time })
-                    .onFinish(() => { playing = false })
+                    .onUpdate({ event => positionSeconds = event.time; onCheckpoint(Int64(event.time * 1000.0), !playing, false) })
+                    .onFinish(() => { playing = false; onCheckpoint(Int64(durationSeconds * 1000.0), true, true) })
                     .onError(() => { playing = false; panel = 8 })
             }
 
             if (controlsVisible) {
                 Column {
                     Row {
-                        Button("‹").onClick(() => { onBack() })
+                        Button("‹").onClick(() => { onCheckpoint(Int64(positionSeconds * 1000.0), true, true); onBack() })
                         Text("正在播放").fontSize(18).fontWeight(FontWeight.Bold)
                         Blank()
                         Button(if (locked) { "解锁" } else { "锁定" }).onClick(() => { locked = !locked })
@@ -54,7 +67,7 @@ class PlayerScreen {
                     if (!locked) {
                         Column {
                             Slider(value: positionSeconds, min: 0.0, max: if (durationSeconds > 0.0) { durationSeconds } else { 1.0 })
-                                .onChange({ value, mode => positionSeconds = value; controller.setCurrentTime(Int32(value)) })
+                                .onChange({ value, mode => positionSeconds = value; controller.setCurrentTime(Int32(value), None) })
                             Row {
                                 Text(formatTime(positionSeconds))
                                 Blank()
@@ -62,12 +75,13 @@ class PlayerScreen {
                             }
                             Row {
                                 Button("弹幕").onClick(() => { panel = 7 })
-                                Button("-10").onClick(() => { controller.setCurrentTime(Int32(max(0.0, positionSeconds - 10.0))) })
+                                Button("-10").onClick(() => { controller.setCurrentTime(Int32(max(0.0, positionSeconds - 10.0)), None) })
                                 Button(if (playing) { "暂停" } else { "播放" }).onClick(() => {
                                     if (playing) { controller.pause() } else { controller.start() }
                                     playing = !playing
+                                    onCheckpoint(Int64(positionSeconds * 1000.0), !playing, true)
                                 })
-                                Button("+10").onClick(() => { controller.setCurrentTime(Int32(positionSeconds + 10.0)) })
+                                Button("+10").onClick(() => { controller.setCurrentTime(Int32(positionSeconds + 10.0), None) })
                                 Button("选集").onClick(() => { panel = 4 })
                             }
                             Row {
@@ -114,3 +128,5 @@ private func formatTime(value: Float64): String {
     let seconds = total % 60
     return if (hours > 0) { "${hours}:${minutes}:${seconds}" } else { "${minutes}:${seconds}" }
 }
+
+private func min(left: Float64, right: Float64): Float64 { if (left < right) { left } else { right } }

@@ -23,6 +23,7 @@ internal class AndroidPreparedEnhancedDemux(
 
 /** Exact authorization matching and expiry prevent speculative opens leaking across sources. */
 internal class AndroidPreparedMediaSlot<T>(
+    private val expiryMillis: Long = 30_000L,
     private val release: (T) -> Unit,
 ) {
     private val lock = Any()
@@ -34,17 +35,22 @@ internal class AndroidPreparedMediaSlot<T>(
         item: YMediaItem,
         value: T,
     ) {
-        val previous =
-            synchronized(lock) {
-                val previous = prepared
-                expiry?.cancel(false)
-                this.item = item
-                prepared = value
-                expiry = releaser.schedule({ expire(value) }, 30L, TimeUnit.SECONDS)
-                previous
-            }
-        previous?.let { runCatching { release(it) } }
+        exchange(item, value)?.let { runCatching { release(it) } }
     }
+
+    /** Lightweight ownership swap; the caller releases the old resource after leaving its lock. */
+    fun exchange(
+        item: YMediaItem,
+        value: T,
+    ): T? =
+        synchronized(lock) {
+            val previous = prepared
+            expiry?.cancel(false)
+            this.item = item
+            prepared = value
+            expiry = releaser.schedule({ expire(value) }, expiryMillis, TimeUnit.MILLISECONDS)
+            previous
+        }
 
     fun take(item: YMediaItem): T? =
         synchronized(lock) {

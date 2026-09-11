@@ -38,7 +38,7 @@ connected 测试明确保留本次隔离目标包和测试包，避免 AGP 卸�
 
 双 APK 身份及验签通过后即保留 `target.apk`、`test.apk` 和 `apk-identity.json`；身份文件包含目标/测试包名、runner、instrumentation 目标及两份 APK 的 SHA-256。`target-signature.txt`、`test-signature.txt` 保留验签日志；之后 connected 测试失败也不会删除已经验证的构建证据。成功汇总中同样记录 `test_apk_sha256` 和测试包身份。
 
-其余证据按实际执行进度保留：`device.json`、构建与仪器日志、R8 mapping 哈希、旅程 hash、测量前后电池信息，以及拉取成功的原始 JSON/trace。benchmark 模式的 `summary.json` 要求冷启动及首页滚动均存在，且各有 5 个非空有效测量轮次；空结果、重复结果、缺失测试和非有限数字都不能通过。只有启动测试通过不能作为完整宏基准基线。
+其余证据按实际执行进度保留：`device.json`、构建与仪器日志、R8 mapping 哈希、旅程 hash、测量前后电池信息，以及拉取成功的原始 JSON/trace。benchmark 模式的 `summary.json` 要求冷启动、首页滚动、搜索/我的/首页导航均存在，且各有 5 个非空有效测量轮次；空结果、重复结果、缺失测试和非有限数字都不能通过。只有启动测试通过不能作为完整宏基准基线。
 
 ```powershell
 python scripts/android_performance.py --serial RF8M223V4MD --sdk D:/AndroidSDK --output artifacts/android-performance/second-run --baseline artifacts/android-performance/first-run/summary.json --gradle-arg=--offline
@@ -56,7 +56,9 @@ python scripts/android_performance.py --mode profile --serial YOUR_API33_PHONE -
 
 脚本运行 `:macrobenchmark:connectedProfileAndroidTest`。`BaselineProfileGenerator.startup` 仅采集真实 MainActivity 启动，并输出 startup 规则；`homeJourney` 加入首页热路径，只进入 baseline 规则。成功后先验证存在有效的源名称规则和真实 MainActivity，再合并、去重并排除专用测试 activity，导出到本次 artifacts/profiles。指定 `--export-profiles` 才同时写入 `composeApp/src/main/baseline-prof.txt` 和 `startup-prof.txt`，交由 AGP 在 release 构建时消费。之后应重新构建并测量，不能预先保证 Profile 带来多少提升。
 
-**本轮使用的 SM-G973U 是 Android 9/API 28，未授权 root，目前已断开。该设备支持普通宏基准，但不能执行真实 BaselineProfileRule 采集。应用 Profile 尚未实际采集，仓库没有占位规则。** API 33+ 或已 root 的 API 28+ 设备才满足采集条件，脚本会提前拒绝不支持的设备。
+**本轮使用的 SM-G973U 是 Android 9/API 28，未授权 root。该设备支持普通宏基准，但不能执行真实 BaselineProfileRule 采集。应用 Profile 尚未实际采集，仓库没有占位规则。** API 33+ 或已 root 的 API 28+ 设备才满足采集条件，脚本会提前拒绝不支持的设备。
+
+2026-09-10 的扩展旅程运行中，启动测试通过，首页滚动遇到失效的 UI 对象，导航旅程等待不足；整轮未通过，未生成可用基线。已改为根据捕获的视口坐标滚动，并在各次导航前等待目标按钮，相关源码本地编译通过。用户随后要求停止手机测试，因此这些修正没有进行真机复测，不应据此声称性能提升或旅程通过。构建和仪器日志保留在 `audit/project-implementation-20260910/performance-expanded/`。Profile 生成器已加入导航旅程，但尚未采集规则。
 
 ## CI 与回归
 

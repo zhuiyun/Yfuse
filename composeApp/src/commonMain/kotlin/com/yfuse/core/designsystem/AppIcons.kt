@@ -245,22 +245,16 @@ object AppIcons {
             horizontalLineTo(14f)
         }.build()
 
-    /** Episode drawer — a thumbnail and a list, rather than an ambiguous hamburger. */
+    /** Episode drawer — three bullet rows, matching the player control stroke. */
     val EpisodeList =
         strokeVector("episode-list") {
-            roundRect(3.2f, 4.2f, 6.4f, 15.6f, 1.8f)
-            moveTo(12.6f, 6.7f)
-            horizontalLineTo(20.8f)
-            moveTo(12.6f, 12f)
-            horizontalLineTo(20.8f)
-            moveTo(12.6f, 17.3f)
-            horizontalLineTo(18f)
-        }.andSolidPath {
-            moveTo(5.6f, 9.3f)
-            lineTo(8.1f, 12f)
-            lineTo(5.6f, 14.7f)
-            close()
-        }.build()
+            moveTo(9f, 5.6f)
+            horizontalLineTo(20.2f)
+            moveTo(9f, 12f)
+            horizontalLineTo(20.2f)
+            moveTo(9f, 18.4f)
+            horizontalLineTo(20.2f)
+        }.andDots(4.6f to 5.6f, 4.6f to 12f, 4.6f to 18.4f).build()
 
     /**
      * Enter fullscreen — and nothing else. It carried 切换画面比例 until [AspectFit] took
@@ -340,20 +334,51 @@ object AppIcons {
             curveTo(17.1f, 14.9f, 17.9f, 14.6f, 18.5f, 13.9f)
         }.build()
 
+    /** Speech bubble with a vector 弹 glyph; independent of device fonts and font scaling. */
     val Danmaku =
         strokeVector("danmaku") {
-            roundRect(3.2f, 4.4f, 17.6f, 15.2f, 2.8f)
-        }.andPath {
-            moveTo(7.7f, 9.2f)
-            horizontalLineTo(17.9f)
-            moveTo(6.1f, 12.3f)
-            horizontalLineTo(15.6f)
-            moveTo(9.4f, 15.4f)
-            horizontalLineTo(18.1f)
-        }.andDots(5.4f to 9.2f, 18.3f to 12.3f, 6.9f to 15.4f)
-            .build()
+            moveTo(6f, 3.8f)
+            horizontalLineTo(18f)
+            curveTo(19.55f, 3.8f, 20.8f, 5.05f, 20.8f, 6.6f)
+            verticalLineTo(15f)
+            curveTo(20.8f, 16.55f, 19.55f, 17.8f, 18f, 17.8f)
+            horizontalLineTo(10.2f)
+            lineTo(6.2f, 20.6f)
+            verticalLineTo(17.8f)
+            horizontalLineTo(6f)
+            curveTo(4.45f, 17.8f, 3.2f, 16.55f, 3.2f, 15f)
+            verticalLineTo(6.6f)
+            curveTo(3.2f, 5.05f, 4.45f, 3.8f, 6f, 3.8f)
+            close()
+        }.andPath(width = 1.1f) {
+            // 弓: keep open counters readable at the same control size as 字幕 and 音轨.
+            moveTo(6.7f, 7.1f)
+            horizontalLineTo(9.5f)
+            verticalLineTo(9.5f)
+            horizontalLineTo(6.9f)
+            lineTo(6.6f, 11.9f)
+            horizontalLineTo(9.5f)
+            lineTo(9.2f, 14.8f)
+            curveTo(9.1f, 15.5f, 8.5f, 15.7f, 7.6f, 15.3f)
+            // 单.
+            moveTo(12.1f, 6.7f)
+            lineTo(12.8f, 7.8f)
+            moveTo(16.7f, 6.7f)
+            lineTo(16f, 7.8f)
+            moveTo(11.9f, 9.1f)
+            horizontalLineTo(17f)
+            verticalLineTo(12.4f)
+            horizontalLineTo(11.9f)
+            close()
+            moveTo(12f, 10.75f)
+            horizontalLineTo(16.9f)
+            moveTo(14.45f, 9.1f)
+            verticalLineTo(15.8f)
+            moveTo(11.3f, 14.3f)
+            horizontalLineTo(17.6f)
+        }.build()
 
-    /** Room chat — the same bubble as 弹幕, saying nothing rather than carrying lines. */
+    /** Room chat — a speech bubble with three dots. */
     val Chat =
         strokeVector("chat") {
             roundRect(3.2f, 4.6f, 17.6f, 12.8f, 3.2f)

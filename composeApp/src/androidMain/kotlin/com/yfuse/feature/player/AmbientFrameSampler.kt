@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.Rect
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.view.PixelCopy
 import android.view.SurfaceView
 import android.view.SurfaceHolder
@@ -19,17 +20,17 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.dp
-import com.yfuse.core.designsystem.AMBIENT_LIGHT_SAMPLE_MS
 import com.yfuse.core.designsystem.AmbientLight
 import com.yfuse.core.designsystem.ambientLightDiffers
 import com.yfuse.core.designsystem.ambientLightFromPixels
 import com.yfuse.core.designsystem.drawAmbientLight
+import com.yfuse.core.designsystem.ambientLightFalloffBrushes
 import com.yfuse.core.designsystem.LocalRouteVisible
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -46,8 +47,8 @@ import kotlin.math.roundToInt
  *
  * Every engine renders into a bare [SurfaceView] and Compose never sees a decoded frame, so the
  * only in-process way to know what colour the picture is right now is [PixelCopy] — a GPU
- * read-back of the surface, scaled straight into a 32×18 bitmap. The loop runs at most four
- * times a second; actual copy latency depends on the device and output mode.
+ * read-back of the surface, scaled straight into a 32×18 bitmap. Reads are at least 500ms
+ * apart and slow down on stable pictures; actual copy latency depends on the output mode.
  *
  * The copy fails on secure (DRM) surfaces and on some HDR/tunnelled outputs. After three misses
  * in a row [light] goes null and the caller falls back to the artwork colour, while this keeps
@@ -61,6 +62,10 @@ class AmbientFrameSampler {
 
     private var view: SurfaceView? = null
     private val handler = Handler(Looper.getMainLooper())
+    private val copies = AmbientCopyQueue()
+    private val policy = AmbientSamplingPolicy()
+    private var contentIdentity: Any? = null
+    private var hasContentIdentity = false
     private var revision by mutableIntStateOf(0)
     private var letterboxed = false
     private val surfaceCallback = object : SurfaceHolder.Callback {
@@ -74,6 +79,7 @@ class AmbientFrameSampler {
 
     private fun invalidate() {
         revision++
+        policy.reset()
         publish(null)
     }
 
@@ -112,9 +118,13 @@ class AmbientFrameSampler {
         val source = ambientCopyRect(
             letterboxed, picture, IntSize(target.width, target.height), IntSize(frame.width(), frame.height()),
         )?.let { Rect(it.left, it.top, it.right, it.bottom) }
-        return awaitAmbientCopy(
-            destination = Bitmap.createBitmap(WIDTH, HEIGHT, Bitmap.Config.ARGB_8888),
+        return copies.copy(
+            create = { Bitmap.createBitmap(WIDTH, HEIGHT, Bitmap.Config.ARGB_8888) },
             request = { bitmap, complete ->
+                if (requestRevision != revision || target !== view || !target.holder.surface.isValid) {
+                    throw IllegalArgumentException("Ambient source changed before copy")
+                }
+                policy.started(SystemClock.elapsedRealtime())
                 PixelCopy.request(target, source, bitmap, { complete(it == PixelCopy.SUCCESS) }, handler)
             },
             read = { bitmap ->
@@ -130,14 +140,16 @@ class AmbientFrameSampler {
         ).takeIf { requestRevision == revision && target === view }
     }
 
-    private fun publish(next: AmbientLight?) {
+    private fun publish(next: AmbientLight?): Boolean {
         val current = _light.value
-        if (next == null || current == null || ambientLightDiffers(current, next)) _light.value = next
+        val changed = if (next == null) current != null else current == null || ambientLightDiffers(current, next)
+        if (changed) _light.value = next
+        return changed
     }
 
     /**
-     * The reading loop. While [playing] it samples on the 250ms beat; paused playback takes one
-     * good read and stops, so a paused film costs nothing. [active] false clears the light.
+     * Paused playback takes one good read and stops. The policy and copy lane survive seeks,
+     * so cancelling an effect neither floods copies nor erases a valid colour on pause/resume.
      */
     @Composable
     fun Collect(
@@ -148,30 +160,32 @@ class AmbientFrameSampler {
         /** An item/version or engine switch invalidates a completed paused sample too. */
         contentKey: Any?,
     ) {
-        val lifecycleOwner = LocalLifecycleOwner.current
-        var lifecycleState by remember(lifecycleOwner) { mutableStateOf(lifecycleOwner.lifecycle.currentState) }
-        DisposableEffect(lifecycleOwner) {
-            val observer = LifecycleEventObserver { _, _ -> lifecycleState = lifecycleOwner.lifecycle.currentState }
-            lifecycleOwner.lifecycle.addObserver(observer)
-            onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-        }
-        val enabled = active && LocalRouteVisible.current && lifecycleState.isAtLeast(Lifecycle.State.STARTED)
+        val foreground = rememberAmbientRouteVisible()
+        val enabled = active && foreground
         LaunchedEffect(this, enabled, playing, contentKey, revision, if (playing) 0L else pausedPositionMs) {
-            publish(null)
+            if (!hasContentIdentity || contentIdentity != contentKey) {
+                contentIdentity = contentKey
+                hasContentIdentity = true
+                policy.reset()
+                publish(null)
+            }
             if (!enabled) {
+                policy.reset()
+                publish(null)
                 return@LaunchedEffect
             }
-            var misses = 0
+            var urgent = true
             while (isActive) {
+                delay(policy.waitMs(SystemClock.elapsedRealtime(), urgent))
+                urgent = false
+                policy.started(SystemClock.elapsedRealtime())
                 val read = sample()
                 if (read != null) {
-                    misses = 0
-                    publish(read)
+                    policy.succeeded(changed = publish(read))
                     if (!playing) break
-                } else if (++misses >= MAX_MISSES) {
+                } else if (policy.failed()) {
                     publish(null)
                 }
-                delay(if (misses >= MAX_MISSES) RETRY_MS else AMBIENT_LIGHT_SAMPLE_MS)
             }
         }
     }
@@ -179,9 +193,20 @@ class AmbientFrameSampler {
     private companion object {
         const val WIDTH = 32
         const val HEIGHT = 18
-        const val MAX_MISSES = 3
-        const val RETRY_MS = 2_000L
     }
+}
+
+/** Both sampling and the paced colour animation stop when the player is no longer visible. */
+@Composable
+internal fun rememberAmbientRouteVisible(): Boolean {
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var lifecycleState by remember(lifecycleOwner) { mutableStateOf(lifecycleOwner.lifecycle.currentState) }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, _ -> lifecycleState = lifecycleOwner.lifecycle.currentState }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    return LocalRouteVisible.current && lifecycleState.isAtLeast(Lifecycle.State.STARTED)
 }
 
 /**
@@ -210,20 +235,15 @@ internal fun AmbientLightLayer(
     Box(
         modifier
             .onSizeChanged { container = it }
-            .drawBehind {
-                if (picture == IntSize.Zero) return@drawBehind
-                drawAmbientLight(
-                    light = light.value,
-                    picture =
-                        androidx.compose.ui.geometry.Rect(
-                            left.toFloat(),
-                            top.toFloat(),
-                            (left + picture.width).toFloat(),
-                            (top + picture.height).toFloat(),
-                        ),
-                    bounds = size,
-                    guard = guard.roundToInt().toFloat(),
+            .drawWithCache {
+                val rect = androidx.compose.ui.geometry.Rect(
+                    left.toFloat(), top.toFloat(), (left + picture.width).toFloat(), (top + picture.height).toFloat(),
                 )
+                val falloffs = ambientLightFalloffBrushes(rect, size)
+                onDrawBehind {
+                    if (!ambientLightHasVisibleBars(container, picture, guard.roundToInt())) return@onDrawBehind
+                    drawAmbientLight(light.value, rect, size, guard.roundToInt().toFloat(), falloffs)
+                }
             },
     )
 }

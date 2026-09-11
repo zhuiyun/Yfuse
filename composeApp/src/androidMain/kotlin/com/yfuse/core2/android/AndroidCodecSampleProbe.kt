@@ -28,6 +28,7 @@ internal class AndroidCodecSampleProbe(
         decoderName: String,
         preparedExtractor: YPlatformExtractorSource? = null,
         returnPreparedExtractor: (YPlatformExtractorSource) -> Unit = { it.release() },
+        budget: AndroidProbeBudget? = null,
     ): YCodecConfigurationProbeResult {
         // Claim ownership before dispatch: the skipped branch returns the untouched extractor
         // only when no worker acquired it. After a timeout the worker performs all cleanup.
@@ -35,6 +36,7 @@ internal class AndroidCodecSampleProbe(
         return yCoreStartupStage("codec_sample_probe", item, decoderName) {
             AndroidCodecProbeLane.bounded.run(
                 timeoutMs = PROBE_TIMEOUT_MS,
+                budget = budget,
                 skipped = {
                     if (acquired.compareAndSet(false, true)) preparedExtractor?.let(returnPreparedExtractor)
                     YCodecConfigurationProbeResult.Inconclusive
@@ -43,7 +45,7 @@ internal class AndroidCodecSampleProbe(
                 if (!acquired.compareAndSet(false, true)) {
                     YCodecConfigurationProbeResult.Inconclusive
                 } else {
-                    probeOnOwner(item, decoderName, preparedExtractor, returnPreparedExtractor, expired)
+                    probeOnOwner(item, decoderName, preparedExtractor, returnPreparedExtractor, expired, budget)
                 }
             }
         }
@@ -55,8 +57,10 @@ internal class AndroidCodecSampleProbe(
         preparedExtractor: YPlatformExtractorSource?,
         returnPreparedExtractor: (YPlatformExtractorSource) -> Unit,
         expired: AtomicBoolean,
+        budget: AndroidProbeBudget?,
     ): YCodecConfigurationProbeResult {
-        val demuxer = preparedExtractor ?: AndroidMediaExtractorDemuxNode(appContext)
+        val demuxer = preparedExtractor ?: AndroidMediaExtractorDemuxNode(appContext, probeBudget = budget)
+        val cancellation = budget?.onCancel(demuxer::cancelPendingRead)
         val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(PROBE_TIMEOUT_MS)
         var selectedTrack: Int? = null
         var sourceUsable = false
@@ -166,6 +170,7 @@ internal class AndroidCodecSampleProbe(
             if (error is CancellationException) throw error
             YCodecConfigurationProbeResult.Inconclusive
         } finally {
+            cancellation?.close()
             runCatching { codec?.stop() }
             runCatching { codec?.release() }
             // Keep draining until the producer stops. Closing under the same lock also protects

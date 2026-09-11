@@ -15,10 +15,6 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -48,6 +44,7 @@ import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.MotionSwap
 import com.yfuse.core.designsystem.OverlayButtonRow
 import com.yfuse.core.designsystem.OverlayButtonTone
 import com.yfuse.core.designsystem.OverlayHeader
@@ -55,11 +52,14 @@ import com.yfuse.core.designsystem.OverlayOptionRow
 import com.yfuse.core.designsystem.OverlayOptionSpacing
 import com.yfuse.core.designsystem.PageHint
 import com.yfuse.core.designsystem.SKELETON_PHASE_STEP_MS
+import com.yfuse.core.designsystem.SkeletonHandoff
 import com.yfuse.core.designsystem.SkeletonPosterTile
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.glass
-import com.yfuse.core.designsystem.motionAwareItem
+import com.yfuse.core.designsystem.motionItem
+import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.selectionColor
 import com.yfuse.core.designsystem.skeletonSweep
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.LibraryResolution
@@ -67,6 +67,8 @@ import com.yfuse.core.model.LibrarySort
 import com.yfuse.core.model.MediaContainerKind
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.network.EmbyImages
+import com.yfuse.core.designsystem.ThemeIcon as Icon
+import com.yfuse.core.designsystem.ThemeText as Text
 
 /**
  * 「查看更多」 grid.
@@ -163,13 +165,15 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                 )
                 // The server's total, not the loaded count: paging means those differ, and
                 // a number that climbed as the user scrolled was reporting the wrong thing.
-                Text(
-                    "${state.totalCount.coerceAtLeast(
-                        state.loadedCount,
-                    )} ${if (state.directoryKind != null) "个" else "部"}",
-                    style = AppTypography.caption.medium,
-                    color = palette.sub2,
-                )
+                MotionSwap(
+                    state.totalCount.coerceAtLeast(state.loadedCount) to state.directoryKind,
+                ) { (count, directory) ->
+                    Text(
+                        "$count ${if (directory != null) "个" else "部"}",
+                        style = AppTypography.caption.medium,
+                        color = palette.sub2,
+                    )
+                }
                 if (state.sortable) {
                     Row(
                         Modifier
@@ -234,11 +238,12 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                 )
             }
 
-            Box(Modifier.fillMaxSize()) {
+            SkeletonHandoff(
+                loading = state.loading && state.loadedCount == 0,
+                modifier = Modifier.fillMaxSize(),
+                skeleton = { SkeletonGrid(bottomContentInset = bottomContentInset) },
+            ) {
                 when {
-                    state.loading && state.loadedCount == 0 ->
-                        SkeletonGrid(bottomContentInset = bottomContentInset)
-
                     state.error != null && state.loadedCount == 0 ->
                         ErrorState(
                             message = state.error!!,
@@ -272,7 +277,7 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                             modifier = Modifier.fillMaxSize(),
                         ) {
                             if (state.directoryKind != null) {
-                                items(
+                                motionItems(
                                     items = state.containers,
                                     key = { "${it.serverId}-${it.kind}-${it.id}" },
                                 ) { container ->
@@ -289,16 +294,16 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                                         year = container.itemCount?.let { "$it 项" },
                                         progress = null,
                                         onClick = { component.onOpenContainer(container) },
-                                        modifier = motionAwareItem(),
+                                        modifier = Modifier,
                                     )
                                 }
                             } else {
-                                items(state.items, key = { it.id }) { item ->
+                                motionItems(state.items, key = { it.id }) { item ->
                                     Box(
                                         // Appended pages fade in where they land rather than
                                         // appearing mid-scroll, and a sort change cross-dissolves
                                         // instead of swapping the grid between two frames.
-                                        modifier = motionAwareItem(),
+                                        modifier = Modifier,
                                     ) {
                                         PosterCard(
                                             baseUrl = baseUrl,
@@ -357,7 +362,7 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                                 }
                             }
                             if (state.loadingMore || state.loadMoreError != null) {
-                                item(
+                                motionItem(
                                     key = "grid-footer",
                                     span = { GridItemSpan(maxLineSpan) },
                                 ) {
@@ -528,15 +533,15 @@ private fun GenreFilterRow(
         contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        item(key = "genre-all") {
+        motionItem(key = "genre-all") {
             GenreChip("全部", selected == null) { onSelect(null) }
         }
-        items(genres, key = { it }) { genre ->
+        motionItems(genres, key = { it }) { genre ->
             // The facet arrives after the first page, so the row grows under the header.
             GenreChip(
                 label = genre,
                 selected = selected == genre,
-                modifier = motionAwareItem(),
+                modifier = Modifier,
                 onClick = { onSelect(genre) },
             )
         }
@@ -557,26 +562,26 @@ private fun ResolutionFilterRow(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        item(key = "resolution-label") {
+        motionItem(key = "resolution-label") {
             Text(
                 text = "规格",
                 style = AppTypography.caption.strong,
                 color = LocalPalette.current.sub2,
             )
         }
-        items(LibraryResolution.entries, key = { it.name }) { resolution ->
+        motionItems(LibraryResolution.entries, key = { it.name }) { resolution ->
             GenreChip(
                 label = resolution.label,
                 selected = selected == resolution,
-                modifier = motionAwareItem(),
+                modifier = Modifier,
                 onClick = { onSelect(resolution) },
             )
         }
-        item(key = "unplayed-only") {
+        motionItem(key = "unplayed-only") {
             GenreChip(
                 label = "只看未看",
                 selected = unplayedOnly,
-                modifier = motionAwareItem(),
+                modifier = Modifier,
                 onClick = { onUnplayedOnly(!unplayedOnly) },
             )
         }
@@ -595,7 +600,7 @@ private fun GenreChip(
     Text(
         label,
         style = if (selected) AppTypography.body.strong else AppTypography.body.medium,
-        color = if (selected) accent.accent else palette.body,
+        color = selectionColor(if (selected) accent.accent else palette.body),
         maxLines = 1,
         modifier =
             modifier
@@ -607,8 +612,8 @@ private fun GenreChip(
                 .touchTarget()
                 .glass(
                     shape = GlassShapes.chip,
-                    fill = if (selected) accent.container else palette.card2,
-                    border = if (selected) accent.border.copy(alpha = 0.34f) else palette.border,
+                    fill = selectionColor(if (selected) accent.container else palette.card2),
+                    border = selectionColor(if (selected) accent.border.copy(alpha = 0.34f) else palette.border),
                 ).padding(horizontal = 13.dp, vertical = 7.dp),
     )
 }
@@ -631,7 +636,7 @@ private fun SkeletonGrid(bottomContentInset: androidx.compose.ui.unit.Dp) {
     ) {
         // Phased along the diagonal the sweep travels, so the breath is one wave across
         // the grid. Three columns is the phone case; a wider grid just repeats the wave.
-        items(12) { index ->
+        motionItems(12) { index ->
             val row = index / SKELETON_GRID_COLUMNS
             val column = index % SKELETON_GRID_COLUMNS
             SkeletonPosterTile(Modifier.fillMaxWidth(), phaseMs = (row + column) * SKELETON_PHASE_STEP_MS)

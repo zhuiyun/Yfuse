@@ -15,47 +15,53 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.dp
-import com.yfuse.core.data.ServerSessionStartup
-import kotlinx.coroutines.delay
+import com.yfuse.core.data.AsyncServerSessionStartup
+import com.yfuse.core.data.SessionStartupPhase
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.first
 
 /** Application installs this before any account or server-dependent work starts. Main-thread owned. */
 object ServerSessionRecovery {
-    private var startup: ServerSessionStartup? = null
+    private var startup: AsyncServerSessionStartup? = null
+    private var startupScope: CoroutineScope? = null
 
     fun initialize(
         restore: () -> Unit,
         startServices: () -> Unit,
     ) {
-        startup = ServerSessionStartup(restore, startServices).also { it.start() }
+        startupScope?.cancel()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        startupScope = scope
+        startup = AsyncServerSessionStartup(scope, restore, startServices, Dispatchers.IO).also { it.start() }
+    }
+
+    suspend fun awaitReady() {
+        startup?.phase?.first { it == SessionStartupPhase.Ready }
     }
 
     fun showIfNeeded(activity: ComponentActivity): Boolean {
-        val pending = startup?.takeUnless { it.ready } ?: return false
+        val pending = startup?.takeUnless { it.phase.value == SessionStartupPhase.Ready } ?: return false
         activity.setContent {
-            var attempt by remember { mutableIntStateOf(0) }
-            var restoring by remember { mutableStateOf(true) }
+            val phase by pending.phase.collectAsState()
+            val restoring = phase == SessionStartupPhase.Restoring
             val retryFocus = remember { FocusRequester() }
-            LaunchedEffect(attempt) {
-                restoring = true
-                delay(500)
-                if (pending.start()) {
-                    activity.recreate()
-                } else {
-                    restoring = false
+            LaunchedEffect(phase) {
+                when (phase) {
+                    SessionStartupPhase.Ready -> activity.recreate()
+                    SessionStartupPhase.NeedsRetry -> retryFocus.requestFocus()
+                    SessionStartupPhase.Restoring -> Unit
                 }
-            }
-            LaunchedEffect(restoring) {
-                if (!restoring) retryFocus.requestFocus()
             }
             MaterialTheme(colorScheme = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()) {
                 Surface(Modifier.fillMaxSize()) {
@@ -69,7 +75,7 @@ object ServerSessionRecovery {
                         if (restoring) {
                             CircularProgressIndicator()
                         } else {
-                            Button(onClick = { attempt++ }, modifier = Modifier.focusRequester(retryFocus)) {
+                            Button(onClick = pending::start, modifier = Modifier.focusRequester(retryFocus)) {
                                 Text("重试")
                             }
                         }

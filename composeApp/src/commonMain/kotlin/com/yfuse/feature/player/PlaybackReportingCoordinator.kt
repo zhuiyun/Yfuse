@@ -47,6 +47,10 @@ class PlaybackReportingCoordinator(
     private val jobsLock = Any()
     private val jobs = mutableMapOf<String, Job>()
 
+    val droppedTerminalEvents get() = outbox.droppedTerminalEvents
+
+    fun acknowledgeDroppedReports(observedCount: Long) = outbox.acknowledgeDroppedReports(observedCount)
+
     init {
         // Stop active delivery promptly when consent is withdrawn. Re-enabling resumes durable
         // reports retained while disabled; startup handles the first value to avoid duplicate wakes.

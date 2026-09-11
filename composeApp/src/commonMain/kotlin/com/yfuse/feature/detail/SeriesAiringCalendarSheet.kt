@@ -18,10 +18,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -57,6 +54,8 @@ import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.artworkPageSurface
 import com.yfuse.core.designsystem.flatGlass
+import com.yfuse.core.designsystem.motionItem
+import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.overlayDismiss
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberDominantColor
@@ -70,6 +69,8 @@ import com.yfuse.core.util.currentIsoDate
 import com.yfuse.core.util.daysBetweenIso
 import com.yfuse.core.util.isoWeekdayLabel
 import kotlin.math.abs
+import com.yfuse.core.designsystem.ThemeIcon as Icon
+import com.yfuse.core.designsystem.ThemeText as Text
 
 private val SeriesCalendarHeroHeight = 148.dp
 private val SeriesCalendarFallbackArtwork = Color(0xFFDAD4E8)
@@ -511,7 +512,7 @@ private fun SeriesReminderPicker(
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 3.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    items(SeriesCalendarMinutes) { minutes ->
+                    motionItems(SeriesCalendarMinutes) { minutes ->
                         val minuteActive = beforeMinutes == minutes
                         Text(
                             if (minutes < 60) "$minutes 分钟" else "${minutes / 60} 小时",
@@ -646,7 +647,7 @@ private fun SeriesCalendarEpisodeContent(
                 contentPadding = PaddingValues(start = 14.dp, top = 6.dp, end = 14.dp, bottom = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(7.dp),
             ) {
-                item {
+                motionItem {
                     Row(
                         Modifier.fillMaxWidth().padding(horizontal = 2.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -664,7 +665,7 @@ private fun SeriesCalendarEpisodeContent(
                         )
                     }
                 }
-                item {
+                motionItem {
                     Column(
                         Modifier
                             .fillMaxWidth()
@@ -684,7 +685,7 @@ private fun SeriesCalendarEpisodeContent(
                     }
                 }
                 if (loading) {
-                    item {
+                    motionItem {
                         Row(
                             Modifier.fillMaxWidth().padding(vertical = 6.dp),
                             horizontalArrangement =
@@ -847,7 +848,7 @@ private fun SeriesIdentityCandidates(
         contentPadding = PaddingValues(14.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        item {
+        motionItem {
             Text(
                 "媒体库缺少可靠的 TMDB 标识。请选择一次，结果会保存到本机。",
                 style = AppTypography.body.regular,
@@ -855,7 +856,7 @@ private fun SeriesIdentityCandidates(
                 modifier = Modifier.padding(horizontal = 2.dp, vertical = 4.dp),
             )
         }
-        items(candidates, key = { it.tmdbId }) { candidate ->
+        motionItems(candidates, key = { it.tmdbId }) { candidate ->
             Row(
                 Modifier
                     .fillMaxWidth()

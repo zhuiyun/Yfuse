@@ -18,9 +18,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -39,12 +36,16 @@ import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.Poster
+import com.yfuse.core.designsystem.motionItem
+import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.overlayDismiss
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.solidGlass
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.Episode
 import com.yfuse.core.network.EmbyImages
+import com.yfuse.core.designsystem.ThemeIcon as Icon
+import com.yfuse.core.designsystem.ThemeText as Text
 
 /** Sticky-header/footer batch editor: bottom sheet on phones, bounded dialog on larger screens. */
 @Composable
@@ -86,10 +87,10 @@ internal fun EpisodeProgressManager(
                     contentPadding = PaddingValues(horizontal = 16.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    item { PresetChip("全选", accent, !saving) { onPreset(EpisodeSelectionPreset.All) } }
-                    item { PresetChip("选择已看", accent, !saving) { onPreset(EpisodeSelectionPreset.Watched) } }
-                    item { PresetChip("选择未看", accent, !saving) { onPreset(EpisodeSelectionPreset.Unwatched) } }
-                    item { PresetChip("反选", accent, !saving) { onPreset(EpisodeSelectionPreset.Invert) } }
+                    motionItem { PresetChip("全选", accent, !saving) { onPreset(EpisodeSelectionPreset.All) } }
+                    motionItem { PresetChip("选择已看", accent, !saving) { onPreset(EpisodeSelectionPreset.Watched) } }
+                    motionItem { PresetChip("选择未看", accent, !saving) { onPreset(EpisodeSelectionPreset.Unwatched) } }
+                    motionItem { PresetChip("反选", accent, !saving) { onPreset(EpisodeSelectionPreset.Invert) } }
                 }
                 Spacer(Modifier.height(10.dp))
                 LazyColumn(
@@ -97,7 +98,7 @@ internal fun EpisodeProgressManager(
                     contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    items(episodes, key = { it.id }) { episode ->
+                    motionItems(episodes, key = { it.id }) { episode ->
                         ProgressEpisodeRow(
                             episode = episode,
                             baseUrl = baseUrl,

@@ -86,24 +86,64 @@ account must own the update directory, must not have sudo access, and its
 authorized key should disable forwarding and interactive terminals. Do not
 reuse a personal SSH key.
 
-## One-time update-manifest signing key
+## Optional update-manifest signing key
 
-`update-v2.json` is signed with Ed25519. The app pins the public key at build time and a release
-build refuses any manifest that is unsigned, signed by another key, or served to a build with no
-key pinned. CI derives the embedded public key from `UPDATE_MANIFEST_SIGNING_KEY`; when the optional
-`yfuse.updateManifestPublicKey` property is set, the workflow also verifies that the two match.
+Update-manifest signing with Ed25519 is optional. With no public key configured, production
+APK/AAB packaging, signed CI artifact jobs, and update publishing use the standard update path.
+No extra Gradle opt-in is needed. The app still verifies the downloaded APK's hash, size,
+package identity, and signing certificate before installation.
 
-APK/AAB packaging does not require an update-manifest key. Artifact-only jobs (including
-branch, repair, repackage, and TV builds) inject the key when available and otherwise continue
-with an empty key. They may use the repository variable `YFUSE_UPDATE_MANIFEST_PUBLIC_KEY`
-without access to the private signing key. Configured keys must be valid Ed25519 and match
-any existing pin. Production APK signing and certificate checks remain required. Publishing
-a signed update manifest still requires `UPDATE_MANIFEST_SIGNING_KEY`. A build without a
-public key cannot verify signed update manifests; it can be installed manually.
-This does not repair the trust anchor inside an already installed APK: a build that shipped
-without a public key needs a one-time manual installation of a correctly signed replacement.
+When a public key is configured, the app requires a valid matching manifest signature.
+CI derives the embedded public key from `UPDATE_MANIFEST_SIGNING_KEY`; an optional
+`yfuse.updateManifestPublicKey` property or `YFUSE_UPDATE_MANIFEST_PUBLIC_KEY` repository variable
+must match it. Configured keys must be valid Ed25519. Artifact-only jobs (including branch,
+repair, repackage, and TV builds) can use the public key without the private signing key.
+
+The publish workflow supports these configurations:
+
+| Public key | Private signing key | Published manifest |
+| --- | --- | --- |
+| Empty | Empty | Standard `update.json` and `update-v2.json`, with no `signature` field |
+| Empty or matching | Configured | Signed manifests; CI derives and embeds the matching public key |
+| Configured | Empty | Rejected as inconsistent: the new APK would require a signature the publisher cannot create |
+
+Production APK signing and certificate checks remain required in every configuration.
+Existing installed versions retain their own update policy; an older version that rejects
+updates without a pinned key needs a one-time manual installation of the new signed APK.
+
+First export the public key from the **existing update-manifest private key**. An APK signing
+certificate, a calendar-feed key, or a newly generated unrelated key cannot verify existing
+update manifests. With OpenSSL available in PowerShell:
+
+```powershell
+$updateKeyPath = 'D:\secure\update-manifest.pem'
+$publicDerPath = Join-Path $env:TEMP ('yfuse-update-public-' + [guid]::NewGuid() + '.der')
+try {
+    & openssl pkey -in $updateKeyPath -pubout -outform DER -out $publicDerPath
+    if ($LASTEXITCODE -ne 0) { throw 'Could not export the existing update public key' }
+    $updatePublicKey = [Convert]::ToBase64String([IO.File]::ReadAllBytes($publicDerPath))
+    $updatePublicKey # Public SPKI only; put it in yfuse.updateManifestPublicKey or the CI variable.
+} finally {
+    if (Test-Path -LiteralPath $publicDerPath) { Remove-Item -LiteralPath $publicDerPath }
+}
+```
+
+Only for a first-time setup where no update-manifest signing key has ever been used, create
+the pair in a private directory. This command refuses to replace an existing file; then export
+the public key as above and configure future manifests to use this same private key:
+
+```powershell
+$updateKeyPath = 'D:\secure\update-manifest.pem'
+if (Test-Path -LiteralPath $updateKeyPath) { throw 'Keep the existing update signing key; export its public key instead' }
+& openssl genpkey -algorithm ed25519 -out $updateKeyPath
+if ($LASTEXITCODE -ne 0) { throw 'Could not create the first update signing key' }
+```
+
+Equivalent first-time setup in Bash:
 
 ```bash
+test ! -e update-manifest.pem || { echo 'Use the existing key'; exit 1; }
+umask 077
 openssl genpkey -algorithm ed25519 -out update-manifest.pem
 openssl pkey -in update-manifest.pem -pubout -outform DER | base64 -w0   # optional local pin
 ```
@@ -111,8 +151,11 @@ openssl pkey -in update-manifest.pem -pubout -outform DER | base64 -w0   # optio
 Store the PEM as the repository secret `UPDATE_MANIFEST_SIGNING_KEY`; the release workflow derives
 and embeds its public key automatically. You may also commit the derived public key as
 `yfuse.updateManifestPublicKey` for an additional consistency check. Keep the PEM somewhere the keystore also
-lives: losing it means every installed build stops accepting updates until a new key is
-shipped through the old, unsigned path. Rotation is the same two steps plus one release.
+lives. If it is lost, existing installations cannot trust a replacement key automatically;
+they need a manually installed package with the new public key and the same APK certificate.
+Planned rotation must distribute the new trust anchor through a package authorized by the old
+manifest key before the old private key is retired. Removing a pin from future builds does
+not change the verification policy of already-installed pinned clients.
 
 The signed payload is the manifest's `versionCode`, `versionName`, `apkUrl`, `sha256`, `size`
 and `notes` joined by newlines, in that order. `UpdateManifest.signedPayload()` in the app and

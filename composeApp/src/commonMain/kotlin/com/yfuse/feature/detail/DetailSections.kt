@@ -16,10 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -47,10 +44,13 @@ import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.Poster
 import com.yfuse.core.designsystem.liquidGlass
+import com.yfuse.core.designsystem.motionItemsIndexed
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.model.Person
 import com.yfuse.core.network.EmbyImages
+import com.yfuse.core.designsystem.ThemeIcon as Icon
+import com.yfuse.core.designsystem.ThemeText as Text
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -121,7 +121,7 @@ internal fun ArtworkSection(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
         ) {
-            itemsIndexed(tags, key = { _, tag -> tag }) { index, tag ->
+            motionItemsIndexed(tags, key = { _, tag -> tag }) { index, tag ->
                 FallbackImage(
                     urls =
                         listOf(
@@ -292,7 +292,7 @@ internal fun CastRow(
             horizontalArrangement = Arrangement.spacedBy(14.dp),
             contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
         ) {
-            itemsIndexed(
+            motionItemsIndexed(
                 people.take(20),
                 key = { index, person -> "person-${person.id}-$index" },
             ) { _, person ->

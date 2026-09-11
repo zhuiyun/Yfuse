@@ -1,7 +1,7 @@
 package com.yfuse.harmony.entry.provider
 
 import std.collection.*
-import encoding.json.*
+import stdx.encoding.json.*
 import com.yfuse.harmony.entry.data.*
 import com.yfuse.harmony.entry.network.*
 
@@ -46,7 +46,7 @@ public class QuickConnectApi {
 
     public func check(baseUrl: String, secret: String, completion: (ApiResult<HttpResponsePayload>) -> Unit): Unit {
         let query = ArrayList<(String, String)>()
-        query.append(("Secret", secret))
+        query.add(("Secret", secret))
         match (endpointPath(baseUrl, "/QuickConnect/Connect")) {
             case Failure(problem) => completion(ApiResult<HttpResponsePayload>.Failure(problem))
             case Success(url) => transport.execute(HttpRequestSpec(

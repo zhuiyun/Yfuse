@@ -28,7 +28,7 @@ public class TmdbRepository {
             case DiscoveryList.Calendar => "/3/tv/on_the_air"
         }
         let query = ArrayList<(String, String)>()
-        query.append(("language", "zh-CN")); query.append(("page", page.toString()))
+        query.add(("language", "zh-CN")); query.add(("page", page.toString()))
         let headers = HashMap<String, String>()
         headers["Authorization"] = "Bearer ${bearerToken}"
         headers["Accept"] = "application/json"

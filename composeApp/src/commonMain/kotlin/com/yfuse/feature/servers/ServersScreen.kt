@@ -1,9 +1,12 @@
+@file:OptIn(ExperimentalLayoutApi::class)
+
 package com.yfuse.feature.servers
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -11,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imeNestedScroll
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -24,8 +28,6 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -63,6 +65,7 @@ import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.formDivider
 import com.yfuse.core.designsystem.glass
+import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.semanticPrimaryButtonShadow
 import com.yfuse.core.designsystem.shadow
@@ -71,6 +74,8 @@ import com.yfuse.core.designsystem.waitingPulse
 import com.yfuse.core.model.MediaServerKind
 import com.yfuse.core.network.rememberLocalNetworkPermissionRequest
 import com.yfuse.core.network.validateEmbyServerEndpoint
+import com.yfuse.core.designsystem.ThemeIcon as Icon
+import com.yfuse.core.designsystem.ThemeText as Text
 
 /**
  * 添加服务器 — `padding:52px 18px 24px; gap:20px`.
@@ -104,13 +109,19 @@ fun ServersScreen(component: ServersComponent) {
         return
     }
 
-    Box(Modifier.fillMaxSize().statusBarsPadding().imePadding()) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .imePadding()
+            .imeNestedScroll(),
+    ) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(top = Dimens.contentTop, bottom = 118.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
-            item {
+            motionItem {
                 // Back chevron + title, `gap:12px`, title `800 19px`.
                 Row(
                     Modifier.fillMaxWidth().padding(horizontal = Dimens.pageHorizontal),
@@ -136,7 +147,7 @@ fun ServersScreen(component: ServersComponent) {
                 }
             }
 
-            item {
+            motionItem {
                 Column(Modifier.padding(horizontal = Dimens.pageHorizontal)) {
                     Text(
                         "手动输入地址",
@@ -269,7 +280,7 @@ fun ServersScreen(component: ServersComponent) {
                 }
             }
 
-            item {
+            motionItem {
                 Text(
                     "支持 Emby / Jellyfin / Plex · 登录后即可浏览媒体库",
                     style = AppTypography.caption.regular.copy(lineHeight = 17.6.sp),
@@ -487,6 +498,7 @@ private fun OnboardingScreen(
                 .fillMaxSize()
                 .statusBarsPadding()
                 .imePadding()
+                .imeNestedScroll()
                 .padding(start = 24.dp, top = 20.dp, end = 24.dp, bottom = 30.dp),
         ) {
             Row(

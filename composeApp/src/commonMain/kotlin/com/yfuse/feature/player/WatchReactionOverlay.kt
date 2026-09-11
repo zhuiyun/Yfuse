@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.key
@@ -23,6 +22,7 @@ import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
+import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.PlayerTokens
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.sync.WatchReactionBurst
@@ -31,9 +31,10 @@ import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.exp
 import kotlin.math.sin
+import com.yfuse.core.designsystem.ThemeText as Text
 
 /** How long a bubble takes to cross the strip it floats up. */
-private const val REACTION_MS = 2_600
+private const val REACTION_MS = Motion.WATCH_REACTION
 
 /** How far a bubble travels before it is gone. */
 private val RiseDistance = 180.dp

@@ -13,6 +13,71 @@ import kotlin.test.assertTrue
 
 class AndroidAssSubtitleRendererTest {
     @Test
+    fun period_translated_ass_uses_its_authored_clock_for_scripts_and_packets() {
+        verifyAuthoredClock(fullScript = true)
+        verifyAuthoredClock(fullScript = false)
+    }
+
+    private fun verifyAuthoredClock(fullScript: Boolean) {
+        val finished = CountDownLatch(1)
+        val closed = CountDownLatch(1)
+        val observed = Collections.synchronizedList(mutableListOf<Pair<Long, List<YSubtitleCue>>>())
+        val backend =
+            object : AssSubtitleBackend {
+                override fun open(
+                    source: YAssSubtitleSource,
+                    width: Int,
+                    height: Int,
+                    cacheMegabytes: Int,
+                    styleOverrides: List<String>,
+                ) = 1L
+
+                override fun render(
+                    handle: Long,
+                    positionUs: Long,
+                    revision: Long,
+                    cues: List<YSubtitleCue>,
+                ): List<YSubtitlePayload.BitmapArgb> {
+                    observed += positionUs to cues
+                    finished.countDown()
+                    return emptyList()
+                }
+
+                override fun close(handle: Long) {
+                    closed.countDown()
+                }
+            }
+        val pool = PlaybackMemoryPool(96L * 1024 * 1024)
+        val renderer = AndroidAssSubtitleRenderer(backend) { pool.acquire(PlaybackBufferKind.Subtitle, it) }
+        val source = YAssSubtitleSource(byteArrayOf(), fullScript = fullScript)
+        val packet = if (fullScript) null else "0,0,Default,,0,0,0,,dialogue".encodeToByteArray()
+        try {
+            renderer.submit(
+                listOf(
+                    YSubtitleCue(
+                        "period",
+                        61_000_000,
+                        64_000_000,
+                        YSubtitlePayload.AssEvent(source, packet),
+                        60_000_000,
+                    ),
+                ),
+                62_000_000,
+            )
+            assertTrue(finished.await(5, TimeUnit.SECONDS))
+            val (position, cues) = observed.single()
+            assertEquals(2_000_000L, position)
+            assertEquals(1_000_000L, cues.single().startUs)
+            assertEquals(4_000_000L, cues.single().endUs)
+            assertEquals(0L, cues.single().sourceTimeOffsetUs)
+            assertEquals(packet, (cues.single().payload as YSubtitlePayload.AssEvent).packet)
+        } finally {
+            renderer.close()
+            assertTrue(closed.await(5, TimeUnit.SECONDS))
+        }
+    }
+
+    @Test
     fun slow_font_render_conflates_clock_updates() {
         val started = CountDownLatch(1)
         val release = CountDownLatch(1)

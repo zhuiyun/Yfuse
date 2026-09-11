@@ -37,6 +37,11 @@ internal object FfmpegNativeBridge {
         available && runCatching { nativeAssRendererApiVersion() >= 2 }.getOrDefault(false)
     }
 
+    /** Older AARs discard successful empty bitmap displays and cannot clear PGS subtitles. */
+    val subtitleDisplaySetAvailable: Boolean by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        available && runCatching { nativeSubtitleDisplaySetApiVersion() >= 2 }.getOrDefault(false)
+    }
+
     fun trackFontName(
         handle: Long,
         index: Int,
@@ -170,13 +175,16 @@ internal object FfmpegNativeBridge {
         uri: String,
         headers: Map<String, String>,
         probeOnly: Boolean = false,
+        cancellationToken: Long = 0L,
     ): Long {
         check(available) { "YCore FFmpeg demux bridge is not installed" }
         val entries = headers.entries.toList()
         val names = entries.map { it.key }.toTypedArray()
         val values = entries.map { it.value }.toTypedArray()
         val status =
-            if (probeOnly) {
+            if (cancellationToken > 0L) {
+                nativeOpenCancellable(uri, names, values, probeOnly, cancellationToken)
+            } else if (probeOnly) {
                 // Older native artifacts predate the bounded probe entry point; the full open
                 // answers the same questions, only slower.
                 try {
@@ -210,6 +218,23 @@ internal object FfmpegNativeBridge {
 
     fun close(handle: Long) {
         if (handle != 0L && available) nativeClose(handle)
+    }
+
+    fun createCancellation(): Long = if (available) runCatching { nativeCreateCancellation() }.getOrDefault(0L) else 0L
+
+    fun cancelDemux(token: Long) {
+        if (token > 0L) nativeCancelDemux(token)
+    }
+
+    fun setDemuxDeadline(
+        token: Long,
+        remainingMs: Long,
+    ) {
+        if (token > 0L) nativeSetDemuxDeadline(token, remainingMs)
+    }
+
+    fun releaseCancellation(token: Long) {
+        if (token > 0L) nativeReleaseCancellation(token)
     }
 
     fun trackCount(handle: Long): Int = nativeTrackCount(handle)
@@ -370,6 +395,25 @@ internal object FfmpegNativeBridge {
 
     private external fun nativeClose(handle: Long)
 
+    private external fun nativeCreateCancellation(): Long
+
+    private external fun nativeCancelDemux(token: Long)
+
+    private external fun nativeSetDemuxDeadline(
+        token: Long,
+        remainingMs: Long,
+    )
+
+    private external fun nativeReleaseCancellation(token: Long)
+
+    private external fun nativeOpenCancellable(
+        uri: String,
+        headerNames: Array<String>,
+        headerValues: Array<String>,
+        probeOnly: Boolean,
+        cancellationToken: Long,
+    ): Long
+
     private external fun nativeTrackCount(handle: Long): Int
 
     private external fun nativeContainerName(handle: Long): String?
@@ -444,6 +488,8 @@ internal object FfmpegNativeBridge {
     private external fun nativeSoftwareDecoderApiVersion(): Int
 
     private external fun nativeAssRendererApiVersion(): Int
+
+    private external fun nativeSubtitleDisplaySetApiVersion(): Int
 
     private external fun nativeTrackFontName(
         handle: Long,

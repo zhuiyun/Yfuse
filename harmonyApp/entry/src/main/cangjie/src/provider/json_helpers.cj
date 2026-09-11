@@ -1,6 +1,6 @@
 package com.yfuse.harmony.entry.provider
 
-import encoding.json.*
+import stdx.encoding.json.*
 import std.collection.*
 import com.yfuse.harmony.entry.data.*
 
@@ -68,7 +68,7 @@ public func jsonBool(parent: JsonObject, key: String, fallback!: Bool = false): 
 public func jsonStringList(parent: JsonObject, key: String): ArrayList<String> {
     let result = ArrayList<String>()
     for (value in jsonArray(parent, key).getItems()) {
-        try { result.append(value.asString().getValue()) } catch (_: Exception) {}
+        try { result.add(value.asString().getValue()) } catch (_: Exception) {}
     }
     return result
 }

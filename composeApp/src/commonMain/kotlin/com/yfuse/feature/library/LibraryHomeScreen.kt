@@ -23,19 +23,16 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -48,7 +45,6 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
@@ -84,12 +80,16 @@ import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.MediaSharedElementKey
 import com.yfuse.core.designsystem.MediaSizing
 import com.yfuse.core.designsystem.Motion
+import com.yfuse.core.designsystem.MotionSwap
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.PageHint
+import com.yfuse.core.designsystem.RefreshIndicator
 import com.yfuse.core.designsystem.RefreshThresholdHaptics
 import com.yfuse.core.designsystem.ScrollToTopOnReselect
+import com.yfuse.core.designsystem.SkeletonArrivalScope
 import com.yfuse.core.designsystem.SkeletonRail
 import com.yfuse.core.designsystem.StatusBarIconStyle
+import com.yfuse.core.designsystem.arrivalSweep
 import com.yfuse.core.designsystem.carouselArtworkMotion
 import com.yfuse.core.designsystem.carouselCaptionEntry
 import com.yfuse.core.designsystem.carouselPageVisual
@@ -98,6 +98,7 @@ import com.yfuse.core.designsystem.fadeIntoPage
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.heroDurationLabel
 import com.yfuse.core.designsystem.heroMediaTypeLabel
+import com.yfuse.core.designsystem.heroScrollCollapse
 import com.yfuse.core.designsystem.heroTopScrim
 import com.yfuse.core.designsystem.livingPosterFrame
 import com.yfuse.core.designsystem.livingPosterHeroHeight
@@ -105,7 +106,12 @@ import com.yfuse.core.designsystem.loopingCarouselItemIndex
 import com.yfuse.core.designsystem.loopingCarouselSemantics
 import com.yfuse.core.designsystem.loopingCarouselTargetPage
 import com.yfuse.core.designsystem.mediaLazyItemKey
+import com.yfuse.core.designsystem.motionItem
+import com.yfuse.core.designsystem.motionItems
+import com.yfuse.core.designsystem.motionItemsIndexed
 import com.yfuse.core.designsystem.overlayAction
+import com.yfuse.core.designsystem.playerArtworkOnClick
+import com.yfuse.core.designsystem.playerArtworkSource
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberArtworkAccentTarget
 import com.yfuse.core.designsystem.rememberArtworkPageColor
@@ -113,9 +119,11 @@ import com.yfuse.core.designsystem.rememberArtworkPagePalette
 import com.yfuse.core.designsystem.rememberCarouselCaptionProgress
 import com.yfuse.core.designsystem.rememberCarouselPageColor
 import com.yfuse.core.designsystem.rememberLoopingCarouselState
+import com.yfuse.core.designsystem.rememberRefreshReveal
 import com.yfuse.core.designsystem.rememberRetainedArtworkPageColor
 import com.yfuse.core.designsystem.rememberScrolledPastHero
 import com.yfuse.core.designsystem.scrim
+import com.yfuse.core.designsystem.selectionColor
 import com.yfuse.core.designsystem.sharedMediaArtwork
 import com.yfuse.core.designsystem.sharedMediaOnClick
 import com.yfuse.core.designsystem.skeletonSweep
@@ -128,6 +136,8 @@ import com.yfuse.core.model.SavedServer
 import com.yfuse.core.network.EmbyImages
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import com.yfuse.core.designsystem.ThemeIcon as Icon
+import com.yfuse.core.designsystem.ThemeText as Text
 
 /**
  * The caption clears the whole dissolve band — white copy cannot follow the artwork into
@@ -246,7 +256,8 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
         )
 
     val pullState = rememberPullToRefreshState()
-    RefreshThresholdHaptics(pullState, refreshing = state.loading)
+    RefreshThresholdHaptics(pullState, refreshing = state.refreshing)
+    val refreshArrival = rememberRefreshReveal(state.refreshing)
 
     var serverMenuOpen by remember { mutableStateOf(false) }
     val listState = component.listState
@@ -264,7 +275,9 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
             freshnessNowEpochMs = System.currentTimeMillis()
         }
     }
-    val carouselVisible = listState.firstVisibleItemIndex == 0 && !listState.isScrollInProgress
+    val carouselVisible by remember(listState) {
+        derivedStateOf { listState.firstVisibleItemIndex == 0 && !listState.isScrollInProgress }
+    }
     LaunchedEffect(
         slides.size,
         carouselDragging,
@@ -343,187 +356,182 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                         isRefreshing = state.refreshing,
                         onRefresh = { store.accept(LibraryIntent.Retry) },
                         state = pullState,
+                        indicator = {
+                            RefreshIndicator(
+                                pullState,
+                                state.refreshing,
+                                Modifier.align(Alignment.TopCenter),
+                            )
+                        },
                         modifier = Modifier.fillMaxSize(),
                     ) {
-                        LazyColumn(
-                            // One page-wide sweep over the loading shelves, while any is loading.
-                            modifier = Modifier.fillMaxSize().skeletonSweep(),
-                            state = listState,
-                            contentPadding = PaddingValues(bottom = bottomContentInset),
-                        ) {
-                            if (slide != null) {
-                                item {
-                                    Box(
-                                        Modifier.fillMaxWidth().height(heroHeight).carouselTouchPause(carouselTouched),
-                                    ) {
-                                        // No second full-bleed copy on phones: it would show through the dissolve.
-                                        if (showSidePreview) {
-                                            LivingPosterAmbient(
-                                                urls = slideUrls,
-                                                modifier = Modifier.fillMaxSize().fadeIntoPage(),
-                                            )
-                                        }
-                                        HorizontalPager(
-                                            state = pagerState,
-                                            modifier =
-                                                Modifier
-                                                    .fillMaxSize()
-                                                    .loopingCarouselSemantics(pagerState.currentPage, slides.size),
-                                            contentPadding =
-                                                if (showSidePreview) {
-                                                    PaddingValues(
-                                                        start = LivingPosterDefaults.LEADING_INSET,
-                                                        end = LivingPosterDefaults.TRAILING_PEEK,
-                                                    )
-                                                } else {
-                                                    PaddingValues(0.dp)
-                                                },
-                                            pageSpacing =
-                                                if (showSidePreview) LivingPosterDefaults.PAGE_SPACING else 0.dp,
-                                            beyondViewportPageCount = if (showSidePreview) 1 else 0,
-                                            key = { page -> page },
-                                        ) { page ->
-                                            val animatedIndex = loopingCarouselItemIndex(page, slides.size)
-                                            val animatedItem = slides.getOrNull(animatedIndex) ?: slide
-                                            // Backdrop first, poster as the understudy: an item can
-                                            // carry a backdrop id whose image the server no longer has,
-                                            // and the hero used to go blank rather than fall back.
-                                            val animatedUrls =
-                                                listOf(
-                                                    EmbyImages.backdrop(
-                                                        baseUrl,
-                                                        animatedItem,
-                                                        accessToken = accessToken,
-                                                    ),
-                                                    EmbyImages.poster(
-                                                        baseUrl,
-                                                        animatedItem,
-                                                        accessToken = accessToken,
-                                                    ),
+                        SkeletonArrivalScope(state.loading && state.content.isEmpty) {
+                            LazyColumn(
+                                // One page-wide sweep over the loading shelves, while any is loading.
+                                modifier =
+                                    Modifier.fillMaxSize().skeletonSweep().arrivalSweep(refreshArrival),
+                                state = listState,
+                                verticalArrangement = Arrangement.spacedBy(Dimens.sectionGap),
+                                contentPadding = PaddingValues(bottom = bottomContentInset),
+                            ) {
+                                if (slide != null) {
+                                    motionItem {
+                                        Box(
+                                            Modifier
+                                                .fillMaxWidth()
+                                                .height(
+                                                    heroHeight,
+                                                ).heroScrollCollapse(
+                                                    listState,
+                                                    heroHeight,
+                                                ).carouselTouchPause(carouselTouched),
+                                        ) {
+                                            // No second full-bleed copy on phones: it would show through the dissolve.
+                                            if (showSidePreview) {
+                                                LivingPosterAmbient(
+                                                    urls = slideUrls,
+                                                    modifier = Modifier.fillMaxSize().fadeIntoPage(),
                                                 )
-                                            HeroCarousel(
-                                                item = animatedItem,
-                                                urls = animatedUrls,
-                                                accent = accent,
-                                                serverId = state.currentServer?.id,
-                                                serverName = state.currentServer?.serverName.orEmpty(),
-                                                settled = page == pagerState.settledPage,
-                                                pageOffset = {
-                                                    (pagerState.currentPage - page) +
-                                                        pagerState.currentPageOffsetFraction
-                                                },
-                                                artworkAspectRatio = artworkAspectRatio,
-                                                artworkFadeFraction = artworkFadeFraction,
-                                                onPageColor = retainedPageColor::update,
-                                                framed = showSidePreview,
+                                            }
+                                            HorizontalPager(
+                                                state = pagerState,
                                                 modifier =
                                                     Modifier
                                                         .fillMaxSize()
-                                                        .graphicsLayer {
-                                                            val visual =
-                                                                carouselPageVisual(
-                                                                    signedPageOffset =
-                                                                        (pagerState.currentPage - page) +
-                                                                            pagerState.currentPageOffsetFraction,
-                                                                    reduceMotion = reduceMotion,
-                                                                    preservePreviewEdge = showSidePreview,
-                                                                )
-                                                            scaleX = visual.scale
-                                                            scaleY = visual.scale
-                                                            alpha = visual.alpha
-                                                            translationX = size.width * visual.parallaxFraction
-                                                        },
-                                                onClick = { component.onOpenItem(animatedItem.id) },
-                                                onPlay = { component.onPlayItem(animatedItem.id) },
-                                                onToggleFavorite = {
-                                                    store.accept(
-                                                        LibraryIntent.ToggleFavorite(
-                                                            itemId = animatedItem.id,
-                                                            title = animatedItem.title,
-                                                            favorite = !animatedItem.isFavorite,
+                                                        .loopingCarouselSemantics(pagerState.currentPage, slides.size),
+                                                contentPadding =
+                                                    if (showSidePreview) {
+                                                        PaddingValues(
+                                                            start = LivingPosterDefaults.LEADING_INSET,
+                                                            end = LivingPosterDefaults.TRAILING_PEEK,
+                                                        )
+                                                    } else {
+                                                        PaddingValues(0.dp)
+                                                    },
+                                                pageSpacing =
+                                                    if (showSidePreview) LivingPosterDefaults.PAGE_SPACING else 0.dp,
+                                                beyondViewportPageCount = if (showSidePreview) 1 else 0,
+                                                key = { page -> page },
+                                            ) { page ->
+                                                val animatedIndex = loopingCarouselItemIndex(page, slides.size)
+                                                val animatedItem = slides.getOrNull(animatedIndex) ?: slide
+                                                // Backdrop first, poster as the understudy: an item can
+                                                // carry a backdrop id whose image the server no longer has,
+                                                // and the hero used to go blank rather than fall back.
+                                                val animatedUrls =
+                                                    listOf(
+                                                        EmbyImages.backdrop(
+                                                            baseUrl,
+                                                            animatedItem,
+                                                            accessToken = accessToken,
+                                                        ),
+                                                        EmbyImages.poster(
+                                                            baseUrl,
+                                                            animatedItem,
+                                                            accessToken = accessToken,
                                                         ),
                                                     )
-                                                },
-                                                onToggleServerMenu = {
-                                                    serverMenuOpen = !serverMenuOpen
-                                                },
-                                            )
-                                        }
-                                        if (slides.size > 1) {
-                                            Box(
-                                                Modifier
-                                                    .align(Alignment.BottomStart)
-                                                    .fillMaxWidth()
-                                                    .padding(
-                                                        start = indicatorStart,
-                                                        end = indicatorEnd,
-                                                        bottom = LivingPosterDefaults.INDICATOR_BOTTOM,
-                                                    ),
-                                            ) {
-                                                HeroPageIndicator(
-                                                    pageCount = slides.size,
-                                                    selectedPage =
-                                                        loopingCarouselItemIndex(pagerState.currentPage, slides.size),
-                                                    pageOffsetProvider = { pagerState.currentPageOffsetFraction },
-                                                    onPageSelected = { targetIndex ->
-                                                        interaction++
-                                                        carouselScope.launch {
-                                                            val targetPage =
-                                                                loopingCarouselTargetPage(
-                                                                    currentPage = pagerState.currentPage,
-                                                                    targetIndex = targetIndex,
-                                                                    itemCount = slides.size,
-                                                                )
-                                                            if (reduceMotion) {
-                                                                pagerState.scrollToPage(targetPage)
-                                                            } else {
-                                                                pagerState.animateScrollToPage(
-                                                                    page = targetPage,
-                                                                    animationSpec =
-                                                                        tween(
-                                                                            Motion.EMPHASIZED,
-                                                                            easing = Motion.Curve,
-                                                                        ),
-                                                                )
-                                                            }
-                                                        }
+                                                HeroCarousel(
+                                                    item = animatedItem,
+                                                    urls = animatedUrls,
+                                                    accent = accent,
+                                                    serverId = state.currentServer?.id,
+                                                    serverName = state.currentServer?.serverName.orEmpty(),
+                                                    settled = page == pagerState.settledPage,
+                                                    pageOffset = {
+                                                        (pagerState.currentPage - page) +
+                                                            pagerState.currentPageOffsetFraction
                                                     },
-                                                    onArtwork = false,
-                                                    modifier = Modifier.align(Alignment.Center),
+                                                    artworkAspectRatio = artworkAspectRatio,
+                                                    artworkFadeFraction = artworkFadeFraction,
+                                                    onPageColor = retainedPageColor::update,
+                                                    framed = showSidePreview,
+                                                    modifier =
+                                                        Modifier
+                                                            .fillMaxSize()
+                                                            .graphicsLayer {
+                                                                val visual =
+                                                                    carouselPageVisual(
+                                                                        signedPageOffset =
+                                                                            (pagerState.currentPage - page) +
+                                                                                pagerState.currentPageOffsetFraction,
+                                                                        reduceMotion = reduceMotion,
+                                                                        preservePreviewEdge = showSidePreview,
+                                                                    )
+                                                                scaleX = visual.scale
+                                                                scaleY = visual.scale
+                                                                alpha = visual.alpha
+                                                                translationX = size.width * visual.parallaxFraction
+                                                            },
+                                                    onClick = { component.onOpenItem(animatedItem.id) },
+                                                    onPlay = { component.onPlayItem(animatedItem.id) },
+                                                    onToggleFavorite = {
+                                                        store.accept(
+                                                            LibraryIntent.ToggleFavorite(
+                                                                itemId = animatedItem.id,
+                                                                title = animatedItem.title,
+                                                                favorite = !animatedItem.isFavorite,
+                                                            ),
+                                                        )
+                                                    },
+                                                    onToggleServerMenu = {
+                                                        serverMenuOpen = !serverMenuOpen
+                                                    },
                                                 )
+                                            }
+                                            if (slides.size > 1) {
+                                                Box(
+                                                    Modifier
+                                                        .align(Alignment.BottomStart)
+                                                        .fillMaxWidth()
+                                                        .padding(
+                                                            start = indicatorStart,
+                                                            end = indicatorEnd,
+                                                            bottom = LivingPosterDefaults.INDICATOR_BOTTOM,
+                                                        ),
+                                                ) {
+                                                    HeroPageIndicator(
+                                                        pageCount = slides.size,
+                                                        selectedPage =
+                                                            loopingCarouselItemIndex(
+                                                                pagerState.currentPage,
+                                                                slides.size,
+                                                            ),
+                                                        pageOffsetProvider = { pagerState.currentPageOffsetFraction },
+                                                        onPageSelected = { targetIndex ->
+                                                            interaction++
+                                                            carouselScope.launch {
+                                                                val targetPage =
+                                                                    loopingCarouselTargetPage(
+                                                                        currentPage = pagerState.currentPage,
+                                                                        targetIndex = targetIndex,
+                                                                        itemCount = slides.size,
+                                                                    )
+                                                                if (reduceMotion) {
+                                                                    pagerState.scrollToPage(targetPage)
+                                                                } else {
+                                                                    pagerState.animateScrollToPage(
+                                                                        page = targetPage,
+                                                                        animationSpec =
+                                                                            tween(
+                                                                                Motion.EMPHASIZED,
+                                                                                easing = Motion.Curve,
+                                                                            ),
+                                                                    )
+                                                                }
+                                                            }
+                                                        },
+                                                        onArtwork = false,
+                                                        modifier = Modifier.align(Alignment.Center),
+                                                    )
+                                                }
                                             }
                                         }
                                     }
                                 }
-                            }
 
-                            item {
-                                val liftPx = with(density) { HeroLift.roundToPx() }
-                                // One page colour only: the hero removes its own alpha and reveals the exact background below.
-                                Column(
-                                    Modifier
-                                        .fillMaxWidth()
-                                        // `offset` moves the drawing but keeps the measured height,
-                                        // so the lift used to leave 52dp of blank page hanging off
-                                        // the end of the list. Shrink the slot instead.
-                                        .layout { measurable, constraints ->
-                                            val placeable = measurable.measure(constraints)
-                                            layout(
-                                                placeable.width,
-                                                (placeable.height - liftPx).coerceAtLeast(0),
-                                            ) {
-                                                placeable.place(0, -liftPx)
-                                            }
-                                            // Match the visual lift exactly: a larger top inset left a
-                                            // full-width strip of bare page colour between the hero melt and
-                                            // the first library card, which read as a horizontal seam.
-                                        }.padding(top = HeroLift),
-                                    verticalArrangement = Arrangement.spacedBy(Dimens.sectionGap),
-                                ) {
-                                    if (
-                                        state.contentSource == LibraryContentSource.Cached &&
-                                        !state.content.isEmpty
-                                    ) {
+                                if (state.contentSource == LibraryContentSource.Cached && !state.content.isEmpty) {
+                                    motionItem(key = "library-freshness") {
                                         LibraryFreshnessBanner(
                                             updatedAtEpochMs = state.updatedAtEpochMs,
                                             nowEpochMs = freshnessNowEpochMs,
@@ -532,23 +540,18 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                             onRetry = { store.accept(LibraryIntent.Retry) },
                                         )
                                     }
-
-                                    if (state.loading && state.content.isEmpty) {
-                                        SkeletonRow()
-                                    }
-
-                                    if (
-                                        state.content.rows.isNotEmpty() ||
-                                        state.currentServer != null
-                                    ) {
+                                }
+                                if (state.loading && state.content.isEmpty) {
+                                    motionItem(key = "library-loading") { SkeletonRow() }
+                                }
+                                if (state.content.rows.isNotEmpty() || state.currentServer != null) {
+                                    motionItem(key = "library-categories") {
                                         CategoryCards(
                                             baseUrl = baseUrl,
                                             accessToken = accessToken,
                                             rows = state.content.rows,
                                             playlists = state.content.playlists,
-                                            onOpen = {
-                                                component.onSeeAll(it.libraryId, it.title)
-                                            },
+                                            onOpen = { component.onSeeAll(it.libraryId, it.title) },
                                             onOpenPlaylists = {
                                                 state.currentServer?.id?.let { serverId ->
                                                     component.onSeeAll(
@@ -562,8 +565,9 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                             },
                                         )
                                     }
-
-                                    if (state.content.resume.isNotEmpty()) {
+                                }
+                                if (state.content.resume.isNotEmpty()) {
+                                    motionItem(key = "library-resume") {
                                         PlaybackHistory(
                                             baseUrl = baseUrl,
                                             accessToken = accessToken,
@@ -572,25 +576,22 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                             onItemClick = { component.onOpenItem(it.id) },
                                         )
                                     }
-
-                                    state.content.rows.libraryShelfRows().forEach { row ->
+                                }
+                                state.content.rows.libraryShelfRows().forEach { row ->
+                                    motionItem(key = "library-shelf:${row.libraryId}:${row.title}") {
                                         CategorySection(
                                             baseUrl = baseUrl,
                                             accessToken = accessToken,
                                             serverId = state.currentServer?.id,
                                             row = row,
-                                            onSeeAll = {
-                                                component.onSeeAll(row.libraryId, row.title)
-                                            },
+                                            onSeeAll = { component.onSeeAll(row.libraryId, row.title) },
                                             onItemClick = { component.onOpenItem(it.id) },
                                         )
                                     }
-
-                                    state.content.counts?.let { counts ->
-                                        LibraryCountFooter(
-                                            movieCount = counts.movieCount,
-                                            seriesCount = counts.seriesCount,
-                                        )
+                                }
+                                state.content.counts?.let { counts ->
+                                    motionItem(key = "library-counts") {
+                                        LibraryCountFooter(counts.movieCount, counts.seriesCount)
                                     }
                                 }
                             }
@@ -653,17 +654,17 @@ private fun LibraryFreshnessBanner(
                 border = palette.border,
             ).padding(start = 14.dp, end = 8.dp, top = 12.dp, bottom = 8.dp),
     ) {
-        Text(
-            text = if (error == null) "缓存内容" else "离线内容",
-            style = AppTypography.body.strong,
-            color = palette.text,
-        )
-        Text(
-            text = detail,
-            style = AppTypography.caption.regular,
-            color = palette.sub,
-            modifier = Modifier.padding(top = 3.dp),
-        )
+        MotionSwap((error == null) to detail, Modifier.fillMaxWidth()) { (cached, message) ->
+            Column(Modifier.fillMaxWidth()) {
+                Text(if (cached) "缓存内容" else "离线内容", style = AppTypography.body.strong, color = palette.text)
+                Text(
+                    message,
+                    style = AppTypography.caption.regular,
+                    color = palette.sub,
+                    modifier = Modifier.padding(top = 3.dp),
+                )
+            }
+        }
         if (error != null && !loading) {
             Text(
                 text = "重试",
@@ -690,16 +691,18 @@ private fun LibraryCountFooter(
     movieCount: Int,
     seriesCount: Int,
 ) {
-    Text(
-        text = "电影 $movieCount 部 · 剧集 $seriesCount 部",
-        style = AppTypography.caption.medium,
-        color = LocalPalette.current.sub2,
-        textAlign = TextAlign.Center,
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = Dimens.pageHorizontal, vertical = 20.dp),
-    )
+    MotionSwap(movieCount to seriesCount, Modifier.fillMaxWidth()) { (movies, series) ->
+        Text(
+            text = "电影 $movies 部 · 剧集 $series 部",
+            style = AppTypography.caption.medium,
+            color = LocalPalette.current.sub2,
+            textAlign = TextAlign.Center,
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = Dimens.pageHorizontal, vertical = 20.dp),
+        )
+    }
 }
 
 /**
@@ -753,6 +756,7 @@ private fun HeroCarousel(
                 modifier =
                     Modifier
                         .sharedMediaArtwork(sharedKey)
+                        .playerArtworkSource(sharedKey, urls)
                         .fillMaxSize()
                         .carouselArtworkMotion(pageOffset, LocalAccessibilityOptions.current.reduceMotion),
             )
@@ -877,7 +881,7 @@ private fun HeroCarousel(
                 modifier = Modifier.carouselCaptionEntry(captionProgress, stage = 2),
                 favorite = item.isFavorite,
                 playActionLabel = libraryHeroPresentation.playActionLabel,
-                onPlay = onPlay,
+                onPlay = playerArtworkOnClick(sharedKey, onPlay),
                 onFavorite = onToggleFavorite,
             )
         }
@@ -940,18 +944,11 @@ private fun ServerSheet(
                         ).semantics { this.selected = isCurrent }
                         .glass(
                             shape = GlassShapes.chip,
-                            fill =
-                                if (isCurrent) {
-                                    themeAccent.container
-                                } else {
-                                    palette.card2
-                                },
+                            fill = selectionColor(if (isCurrent) themeAccent.container else palette.card2),
                             border =
-                                if (isCurrent) {
-                                    themeAccent.border.copy(alpha = 0.30f)
-                                } else {
-                                    palette.border
-                                },
+                                selectionColor(
+                                    if (isCurrent) themeAccent.border.copy(alpha = 0.30f) else palette.border,
+                                ),
                         ).padding(horizontal = 12.dp, vertical = 11.dp),
                     horizontalArrangement = Arrangement.spacedBy(11.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -1052,7 +1049,7 @@ private fun CategoryCards(
         contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        items(rows.distinctBy { it.libraryId }, key = { it.libraryId }) { row ->
+        motionItems(rows.distinctBy { it.libraryId }, key = { it.libraryId }) { row ->
             val cover = row.items.firstOrNull()
             val personalIcon =
                 when (row.libraryId) {
@@ -1074,7 +1071,7 @@ private fun CategoryCards(
             )
         }
 
-        item(key = "library-playlists") {
+        motionItem(key = "library-playlists") {
             val playlist = playlists.distinctBy { it.id }.firstOrNull()
             LibraryCategoryCard(
                 title = "播放列表",
@@ -1190,7 +1187,7 @@ private fun PlaybackHistory(
             contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            itemsIndexed(
+            motionItemsIndexed(
                 items = items,
                 key = { index, item ->
                     mediaLazyItemKey("library-history:${serverId.orEmpty()}", index, item.id)
@@ -1316,7 +1313,7 @@ private fun CategorySection(
             contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            itemsIndexed(
+            motionItemsIndexed(
                 items = row.items,
                 key = { index, item ->
                     mediaLazyItemKey(

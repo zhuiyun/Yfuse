@@ -6,7 +6,6 @@ import android.content.pm.PackageManager
 import android.graphics.drawable.ColorDrawable
 import android.os.Build
 import android.os.Bundle
-import android.os.SystemClock
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
@@ -48,6 +47,7 @@ import com.yfuse.update.AppUpdateManager
 import com.yfuse.update.AppUpdateOverlay
 import com.yfuse.update.LocalAppUpdateManager
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -62,7 +62,8 @@ class MainActivity : ComponentActivity() {
     private var jankMonitor: AppJankMonitor? = null
     private var calendarNotificationPermissionRequested = false
     private var downloadNotificationPermissionRequested = false
-    private var lastExitBackPressMs = 0L
+    private var exitRearmJob: Job? = null
+    private var exitBackCallback: OnBackPressedCallback? = null
     private var exitConfirmationToast: Toast? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -74,16 +75,13 @@ class MainActivity : ComponentActivity() {
             this,
             object : OnBackPressedCallback(true) {
                 override fun handleOnBackPressed() {
-                    val now = SystemClock.elapsedRealtime()
-                    if (now - lastExitBackPressMs <= EXIT_CONFIRMATION_WINDOW_MS) {
-                        exitConfirmationToast?.cancel()
-                        exitConfirmationToast = null
-                        lastExitBackPressMs = 0L
-                        finish()
-                        return
-                    }
-
-                    lastExitBackPressMs = now
+                    isEnabled = false
+                    exitRearmJob?.cancel()
+                    exitRearmJob =
+                        lifecycleScope.launch {
+                            delay(EXIT_CONFIRMATION_WINDOW_MS)
+                            isEnabled = true
+                        }
                     exitConfirmationToast?.cancel()
                     exitConfirmationToast =
                         Toast
@@ -93,7 +91,7 @@ class MainActivity : ComponentActivity() {
                                 Toast.LENGTH_SHORT,
                             ).also(Toast::show)
                 }
-            },
+            }.also { exitBackCallback = it },
         )
         preferHighRefreshRateForUi()
         enableEdgeToEdge()
@@ -325,7 +323,8 @@ class MainActivity : ComponentActivity() {
     override fun onStop() {
         // A second press must belong to the same foreground interaction. Opening the player,
         // switching apps, or locking the phone must not arm an immediate exit on return.
-        lastExitBackPressMs = 0L
+        exitRearmJob?.cancel()
+        exitBackCallback?.isEnabled = true
         exitConfirmationToast?.cancel()
         exitConfirmationToast = null
         jankMonitor?.stop()

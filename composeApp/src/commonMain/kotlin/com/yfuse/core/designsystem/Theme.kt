@@ -6,6 +6,7 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
@@ -101,7 +102,7 @@ fun ThemeMode.resolveDark(systemDark: Boolean): Boolean =
         ThemeMode.Light -> false
     }
 
-val LocalPalette = staticCompositionLocalOf { LightPalette }
+val LocalPalette = compositionLocalOf { LightPalette }
 
 /**
  * Fixed semantic emphasis colours for interactive controls.
@@ -118,7 +119,7 @@ data class AccentColors(
     val border: Color,
 )
 
-private const val MinimumAccentContrast = 4.5f
+private const val MINIMUM_ACCENT_CONTRAST = 4.5f
 private val DarkAccentSurface = Color(0xFF182235)
 private val DarkAccentInk = Color(0xFF0B111C)
 
@@ -144,8 +145,8 @@ fun resolveAccentColors(
             val candidate = lerp(base, adjustmentTarget, step / 20f)
             val container = lerp(surface, candidate, containerBlend)
             candidate.takeIf {
-                contrastRatio(it, surface) >= MinimumAccentContrast &&
-                    contrastRatio(it, container) >= MinimumAccentContrast
+                contrastRatio(it, surface) >= MINIMUM_ACCENT_CONTRAST &&
+                    contrastRatio(it, container) >= MINIMUM_ACCENT_CONTRAST
             }
         } ?: adjustmentTarget
     val container = lerp(surface, accent, containerBlend)
@@ -161,7 +162,7 @@ fun resolveAccentColors(
 }
 
 val LocalAccentColors =
-    staticCompositionLocalOf {
+    compositionLocalOf {
         resolveAccentColors(Brand.Primary, dark = false) // design-system: brand-identity
     }
 
@@ -191,7 +192,7 @@ internal object AccentColor {
  * The colour of whatever the page currently on screen is showing, or null where it shows no
  * artwork at all. Published by the screens that already derive one — see [ArtworkAccent].
  */
-val LocalArtworkAccent = staticCompositionLocalOf<Color?> { null }
+val LocalArtworkAccent = compositionLocalOf<Color?> { null }
 
 /**
  * Runs [content] with semantic emphasis derived from [color]. Pages without artwork keep
@@ -296,11 +297,7 @@ fun YfuseTheme(
 ) {
     val targetPalette = if (dark) DarkPalette else LightPalette
     val targetAccent = remember(dark, accent) { resolveAccentColors(accent, dark) }
-    val (palette, accentColors) =
-        rememberThemeCrossfade(
-            target = ThemeColors(targetPalette, targetAccent),
-            reduceMotion = accessibility.reduceMotion,
-        )
+    val colors = remember(targetPalette, targetAccent) { ThemeColors(targetPalette, targetAccent) }
     val density = LocalDensity.current
     val adjustedDensity =
         if (accessibility.largeText) {
@@ -309,19 +306,38 @@ fun YfuseTheme(
             density
         }
     CompositionLocalProvider(
-        LocalPalette provides palette,
-        LocalAccentColors provides accentColors,
         LocalAccessibilityOptions provides accessibility,
         LocalGlassStyle provides glassStyle,
         LocalDialogAnimation provides dialogAnimation,
         LocalDensity provides adjustedDensity,
         LocalHaptics provides rememberHaptics(),
     ) {
+        TargetThemeColors(dark, colors) { DialogBackdropHost(content) }
+    }
+}
+
+/** Publish targets once. Finite colour motion is owned by the consuming text/material node. */
+@Composable
+private fun TargetThemeColors(
+    dark: Boolean,
+    colors: ThemeColors,
+    content: @Composable () -> Unit,
+) {
+    val shown = colors
+    val scheme =
+        remember(dark, shown.accent) {
+            if (dark) darkScheme(shown.accent) else lightScheme(shown.accent)
+        }
+    CompositionLocalProvider(
+        LocalThemeColorTarget provides colors,
+        LocalPalette provides shown.palette,
+        LocalAccentColors provides shown.accent,
+    ) {
         MaterialTheme(
-            colorScheme = if (dark) darkScheme(accentColors) else lightScheme(accentColors),
+            colorScheme = scheme,
             typography = AppTypography.material,
             shapes = AppShapes.material,
-            content = { DialogBackdropHost(content) },
+            content = content,
         )
     }
 }

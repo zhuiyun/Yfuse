@@ -6,8 +6,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
@@ -33,8 +31,10 @@ import com.yfuse.core.designsystem.OverlayButton
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.OverlayOptionRow
 import com.yfuse.core.designsystem.dialogPosterSource
+import com.yfuse.core.designsystem.motionItemsIndexed
 import com.yfuse.core.designsystem.overlayDismiss
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.ThemeText as Text
 
 @Composable
 internal fun DialogAnimationSheet(
@@ -60,7 +60,7 @@ internal fun DialogAnimationSheet(
             Text("已开启“减少动画”，当前预览与实际弹窗均直接显示。", color = LocalPalette.current.sub, style = AppTypography.caption.regular)
         }
         LazyColumn(Modifier.weight(1f, fill = false)) {
-            itemsIndexed(DialogAnimation.entries, key = { _, animation -> animation.name }) { index, animation ->
+            motionItemsIndexed(DialogAnimation.entries, key = { _, animation -> animation.name }) { index, animation ->
                 if (index == 0 ||
                     animation == DialogAnimation.Hologram ||
                     animation == DialogAnimation.Magnetic ||

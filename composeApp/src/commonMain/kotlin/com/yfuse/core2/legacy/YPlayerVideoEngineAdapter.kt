@@ -124,7 +124,7 @@ internal fun YPlayer.asPlaybackStateFlow(): StateFlow<PlaybackState> =
     if (this is LegacyYPlayerAdapter) {
         presentationState
     } else {
-        ReverseMappedStateFlow(state, YPlayerState::toLegacyPlaybackState)
+        ReverseMappedStateFlow(state, LegacyPlaybackStateMapper()::map)
     }
 
 @OptIn(ExperimentalForInheritanceCoroutinesApi::class)
@@ -132,17 +132,53 @@ private class ReverseMappedStateFlow<Source, Target>(
     private val source: StateFlow<Source>,
     private val transform: (Source) -> Target,
 ) : StateFlow<Target> {
-    override val value: Target get() = transform(source.value)
+    private data class Mapping<S, T>(
+        val source: S,
+        val target: T,
+    )
+
+    private val mappingLock = Any()
+    private var mapping: Mapping<Source, Target>? = null
+
+    private fun mapped(value: Source): Target =
+        synchronized(mappingLock) {
+            mapping?.takeIf { it.source == value }?.let { return@synchronized it.target }
+            transform(value).also { mapping = Mapping(value, it) }
+        }
+
+    override val value: Target get() = mapped(source.value)
 
     override val replayCache: List<Target> get() = listOf(value)
 
     override suspend fun collect(collector: FlowCollector<Target>): Nothing =
         source.collect { value ->
-            collector.emit(transform(value))
+            collector.emit(mapped(value))
         }
 }
 
-private fun YPlayerState.toLegacyPlaybackState(): PlaybackState =
+private class LegacyPlaybackStateMapper {
+    private var audioSource: List<YTrack>? = null
+    private var subtitleSource: List<YTrack>? = null
+    private var audio: List<EngineTrack> = emptyList()
+    private var subtitles: List<EngineTrack> = emptyList()
+
+    fun map(state: YPlayerState): PlaybackState {
+        if (audioSource != state.audioTracks) {
+            audioSource = state.audioTracks
+            audio = state.audioTracks.map(YTrack::toEngineTrack)
+        }
+        if (subtitleSource != state.subtitleTracks) {
+            subtitleSource = state.subtitleTracks
+            subtitles = state.subtitleTracks.map(YTrack::toEngineTrack)
+        }
+        return state.toLegacyPlaybackState(audio, subtitles)
+    }
+}
+
+private fun YPlayerState.toLegacyPlaybackState(
+    audio: List<EngineTrack>,
+    subtitles: List<EngineTrack>,
+): PlaybackState =
     PlaybackState(
         playing = playing,
         buffering = buffering,
@@ -153,8 +189,8 @@ private fun YPlayerState.toLegacyPlaybackState(): PlaybackState =
         videoHeight = diagnostics.videoHeight,
         currentIndex = currentIndex,
         itemCount = itemCount,
-        audioTracks = audioTracks.map(YTrack::toEngineTrack),
-        subtitleTracks = subtitleTracks.map(YTrack::toEngineTrack),
+        audioTracks = audio,
+        subtitleTracks = subtitles,
         secondarySubtitleTrackId = secondarySubtitleTrackId,
         secondarySubtitleOffsetMs = secondarySubtitleOffsetMs,
         discNavigation = discNavigation,

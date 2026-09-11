@@ -2,6 +2,7 @@ package com.yfuse.core2.android
 
 import com.yfuse.core2.api.YExternalSubtitleSource
 import com.yfuse.core2.subtitle.YSubtitlePayload
+import com.yfuse.core2.subtitle.YSubtitleTimeBase
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -68,6 +69,13 @@ class AndroidExternalSubtitleCancellationTest {
                 assertEquals(
                     "New episode",
                     (assertNotNull(result.subtitle).cues.single().payload as YSubtitlePayload.Text).plainText,
+                )
+                assertEquals(
+                    YSubtitleTimeBase.Presentation,
+                    result.subtitle
+                        ?.cues
+                        ?.single()
+                        ?.timeBase,
                 )
                 assertTrue(completed.tryReceive().isFailure, "Cancelled items must not publish completions")
             } finally {

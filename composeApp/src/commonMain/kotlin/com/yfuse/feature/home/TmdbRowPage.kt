@@ -16,10 +16,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -31,11 +28,14 @@ import com.yfuse.core.designsystem.BackOverlay
 import com.yfuse.core.designsystem.CaptionedPoster
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.solidGlass
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.network.TmdbImages
+import com.yfuse.core.designsystem.ThemeIcon as Icon
+import com.yfuse.core.designsystem.ThemeText as Text
 
 /**
  * Smallest poster column this grid will draw.
@@ -115,7 +115,7 @@ internal fun TmdbRowPage(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
-                    items(items, key = { "${it.mediaType}:${it.id}" }) { item ->
+                    motionItems(items, key = { "${it.mediaType}:${it.id}" }) { item ->
                         CaptionedPoster(
                             url = TmdbImages.poster(item.posterPath),
                             fallbackUrls =

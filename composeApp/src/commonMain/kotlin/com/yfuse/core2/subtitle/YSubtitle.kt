@@ -90,11 +90,17 @@ sealed interface YSubtitlePayload {
     }
 }
 
+/** Embedded packets use their child source clock; sidecar files use the whole-title clock. */
+enum class YSubtitleTimeBase { Source, Presentation }
+
 data class YSubtitleCue(
     val id: String,
     val startUs: Long,
     val endUs: Long,
     val payload: YSubtitlePayload,
+    /** Translation from the authored script clock to the public presentation clock. */
+    val sourceTimeOffsetUs: Long = 0L,
+    val timeBase: YSubtitleTimeBase = YSubtitleTimeBase.Source,
 ) {
     init {
         require(startUs >= 0L) { "Subtitle start must be non-negative" }

@@ -525,7 +525,19 @@ internal class YVideoDecoderConfigurationException(
     val mime: String,
     val profile: Int?,
     val failures: List<YVideoDecoderAttemptFailure>,
-) : RuntimeException("No local MediaCodec decoder accepted $mime")
+) : RuntimeException(
+        "No local MediaCodec decoder accepted $mime; profile=${profile ?: "unknown"}; " +
+            failures.take(8).joinToString(" | ") { failure ->
+                "decoder=${failure.decoderName.safeDecoderDiagnostic()} " +
+                    "type=${failure.errorType.safeDecoderDiagnostic()} " +
+                    "code=${failure.errorCode ?: "unknown"} " +
+                    "detail=${failure.diagnosticInfo?.safeDecoderDiagnostic() ?: "unknown"} " +
+                    "recoverable=${failure.recoverable} transient=${failure.transient}"
+            },
+    )
+
+private fun String.safeDecoderDiagnostic(): String =
+    take(160).map { if (it.isLetterOrDigit() || it in "._:-") it else '_' }.joinToString("")
 
 internal fun orderedVideoDecoderNames(
     plannedDecoderName: String?,

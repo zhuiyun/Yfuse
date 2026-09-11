@@ -15,12 +15,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -43,6 +39,9 @@ import com.yfuse.core.designsystem.GlassLift
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.liquidGlass
+import com.yfuse.core.designsystem.motionItem
+import com.yfuse.core.designsystem.motionItems
+import com.yfuse.core.designsystem.motionItemsIndexed
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.solidGlass
@@ -52,8 +51,10 @@ import com.yfuse.core.model.ServerSource
 import com.yfuse.core.model.SourceInfo
 import com.yfuse.core.model.compareMediaVersionsBestFirst
 import com.yfuse.core.model.compareSourceInfoBestFirst
+import com.yfuse.core.designsystem.ThemeIcon as Icon
+import com.yfuse.core.designsystem.ThemeText as Text
 
-/**
+/*
  * The sections of 详情页 that describe a *file* rather than a title.
  *
  * 媒体信息, 版本, 音轨/字幕 and 资源 all answer the same underlying question — which copy
@@ -206,7 +207,7 @@ internal fun MediaInfoSection(
                 contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
             ) {
                 version.video?.let { video ->
-                    item(key = "video") {
+                    motionItem(key = "video") {
                         SpecCard(
                             icon = AppIcons.Play,
                             title = "视频",
@@ -233,7 +234,7 @@ internal fun MediaInfoSection(
                         )
                     }
                 }
-                itemsIndexed(version.audioTracks) { index, audio ->
+                motionItemsIndexed(version.audioTracks) { index, audio ->
                     SpecCard(
                         icon = AppIcons.Volume,
                         title = if (version.audioTracks.size > 1) "音频 ${index + 1}" else "音频",
@@ -387,7 +388,7 @@ internal fun VersionSection(
             contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            items(versions, key = { it.id }) { version ->
+            motionItems(versions, key = { it.id }) { version ->
                 VersionCard(
                     version = version,
                     selected = version.id == selected.id,
@@ -485,7 +486,7 @@ private fun TrackChipRow(
     ) {
         // Positional keys on purpose: a file can carry two tracks the server tags with the
         // same language, so the value is not unique and cannot be one.
-        items(options) { option ->
+        motionItems(options) { option ->
             val active = option.value == selected
             Text(
                 option.label,
@@ -651,7 +652,7 @@ internal fun SourceSection(
                 contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                itemsIndexed(
+                motionItemsIndexed(
                     availableSources,
                     key = { index, entry -> "source-${entry.serverId}-${entry.itemId}-$index" },
                 ) { _, entry ->

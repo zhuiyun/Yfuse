@@ -1,10 +1,12 @@
 package com.yfuse.harmony.entry.network
 
-import encoding.url.*
+import stdx.encoding.url.*
 import std.collection.*
 import std.unicode.*
 import com.yfuse.harmony.entry.data.*
+import std.deriving.*
 
+@Derive[Equatable]
 public enum TransportDecision {
     | Secure
     | Cleartext

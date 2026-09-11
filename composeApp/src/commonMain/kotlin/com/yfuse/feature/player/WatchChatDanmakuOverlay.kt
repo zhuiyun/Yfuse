@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -38,6 +37,7 @@ import com.yfuse.core.designsystem.rememberAccentColorsForSurface
 import com.yfuse.core.sync.WatchChatMessage
 import com.yfuse.core.sync.sticker
 import kotlin.math.roundToInt
+import com.yfuse.core.designsystem.ThemeText as Text
 
 private const val MAX_LANES = 6
 private const val MAX_ACTIVE_MESSAGES = 24

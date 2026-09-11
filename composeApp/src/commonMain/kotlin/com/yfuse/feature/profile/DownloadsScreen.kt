@@ -1,19 +1,13 @@
 package com.yfuse.feature.profile
 
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -23,10 +17,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -35,17 +25,24 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawOutline
+import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.yfuse.app.TabBarInset
 import com.yfuse.core.designsystem.AppIcons
@@ -62,8 +59,10 @@ import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.Semantic
 import com.yfuse.core.designsystem.SettingTint
 import com.yfuse.core.designsystem.glass
-import com.yfuse.core.designsystem.motionAwareItem
+import com.yfuse.core.designsystem.motionItem
+import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.rememberDecorativePhase
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.offline.DownloadStatus
 import com.yfuse.core.offline.OfflineIndexStatus
@@ -72,6 +71,8 @@ import com.yfuse.core.offline.OfflineMediaManager
 import com.yfuse.core.offline.OfflineQueueSummary
 import com.yfuse.core.offline.rememberOfflineStorageDirectoryPicker
 import com.yfuse.core.offline.summarizeOfflineQueue
+import com.yfuse.core.designsystem.ThemeIcon as Icon
+import com.yfuse.core.designsystem.ThemeText as Text
 
 enum class DownloadFilter(
     val label: String,
@@ -155,7 +156,7 @@ internal fun DownloadsScreen(
         contentPadding = PaddingValues(top = SettingsHeaderTop, bottom = TabBarInset),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        item {
+        motionItem {
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -205,7 +206,7 @@ internal fun DownloadsScreen(
         }
 
         operationError?.let { message ->
-            item(key = "download-operation-error") {
+            motionItem(key = "download-operation-error") {
                 Row(
                     Modifier.fillMaxWidth().padding(horizontal = Dimens.pageHorizontal),
                     verticalAlignment = Alignment.CenterVertically,
@@ -234,9 +235,65 @@ internal fun DownloadsScreen(
         // The one setting the page owns, as the settings row it is everywhere else in 我的 —
         // rather than a "下载策略" card that also held a sort control disguised as a status
         // line and a pair of queue buttons for a queue that is usually empty.
-        item {
+        motionItem {
             Section(title = "下载设置") {
                 SettingsCard {
+                    SettingRow(
+                        title = "离线视频容量上限",
+                        value =
+                            com.yfuse.core.offline
+                                .offlineVideoBudgetLabel(policy.storageBudgetBytes),
+                        embedded = true,
+                        onClick = {
+                            val options = com.yfuse.core.offline.offlineVideoBudgetOptions
+                            val next = options[(options.indexOf(policy.storageBudgetBytes) + 1) % options.size]
+                            manager.setDownloadBudget(
+                                next,
+                                policy.autoDownloadChargingOnly,
+                                policy.windowStartMinute,
+                                policy.windowEndMinute,
+                            )
+                        },
+                    )
+                    SettingsDivider()
+                    SwitchRow(
+                        "自动追更仅在充电时下载",
+                        policy.autoDownloadChargingOnly,
+                        embedded = true,
+                        onChange = {
+                            manager.setDownloadBudget(
+                                policy.storageBudgetBytes,
+                                it,
+                                policy.windowStartMinute,
+                                policy.windowEndMinute,
+                            )
+                        },
+                    )
+                    SettingsDivider()
+                    SettingRow(
+                        title = "允许下载时段",
+                        value =
+                            com.yfuse.core.offline.offlineDownloadWindowLabel(
+                                policy.windowStartMinute,
+                                policy.windowEndMinute,
+                            ),
+                        embedded = true,
+                        onClick = {
+                            val options = com.yfuse.core.offline.offlineDownloadWindowOptions
+                            val next =
+                                options[
+                                    (options.indexOf(policy.windowStartMinute to policy.windowEndMinute) + 1) %
+                                        options.size,
+                                ]
+                            manager.setDownloadBudget(
+                                policy.storageBudgetBytes,
+                                policy.autoDownloadChargingOnly,
+                                next.first,
+                                next.second,
+                            )
+                        },
+                    )
+                    SettingsDivider()
                     SettingRow(
                         title = "保存位置",
                         value = "${policy.storageLabel ?: "应用内部存储"} ›",
@@ -298,7 +355,7 @@ internal fun DownloadsScreen(
                                 )
                             }
                             LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                items(listOf(1, 3, 5, 10)) { count ->
+                                motionItems(listOf(1, 3, 5, 10)) { count ->
                                     DownloadChip(
                                         label = count.toString(),
                                         active = policy.autoDownloadItemLimit == count,
@@ -329,7 +386,7 @@ internal fun DownloadsScreen(
                             Text("1–3 个任务", style = AppTypography.caption.regular, color = palette.sub2)
                         }
                         LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            items((1..3).toList()) { count ->
+                            motionItems((1..3).toList()) { count ->
                                 DownloadChip(
                                     label = count.toString(),
                                     active = policy.maxConcurrentDownloads == count,
@@ -345,12 +402,12 @@ internal fun DownloadsScreen(
         }
 
         if (items.isNotEmpty()) {
-            item {
+            motionItem {
                 LazyRow(
                     contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    items(DownloadFilter.entries) { value ->
+                    motionItems(DownloadFilter.entries) { value ->
                         val active = filter == value
                         DownloadChip(
                             label = value.label,
@@ -363,7 +420,7 @@ internal fun DownloadsScreen(
                     // Sorting belongs with filtering: both decide what the list under them
                     // looks like, and it used to sit in another card's header where it read
                     // as a label rather than a control.
-                    item {
+                    motionItem {
                         DownloadChip(
                             label = "排序 · ${sort.label}",
                             active = false,
@@ -383,7 +440,7 @@ internal fun DownloadsScreen(
 
         // Queue-wide actions, only while there is a queue to act on.
         if (canPauseAll || canResumeAll) {
-            item {
+            motionItem {
                 val queueActions =
                     Modifier
                         .fillMaxWidth()
@@ -411,7 +468,7 @@ internal fun DownloadsScreen(
         }
 
         if (selectedItems.isNotEmpty()) {
-            item {
+            motionItem {
                 val batchSurface =
                     Modifier
                         .fillMaxWidth()
@@ -455,7 +512,7 @@ internal fun DownloadsScreen(
         }
 
         if (shown.isEmpty()) {
-            item {
+            motionItem {
                 Column(
                     Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 52.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -475,7 +532,7 @@ internal fun DownloadsScreen(
                 }
             }
         } else {
-            items(shown, key = { it.id }, contentType = { "download-task" }) { item ->
+            motionItems(shown, key = { it.id }, contentType = { "download-task" }) { item ->
                 DownloadTaskRow(
                     item = item,
                     selected = item.id in selected,
@@ -490,7 +547,7 @@ internal fun DownloadsScreen(
                         manager.remove(item.id)
                         selected = selected - item.id
                     },
-                    modifier = motionAwareItem().padding(horizontal = Dimens.pageHorizontal),
+                    modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),
                 )
             }
         }
@@ -694,70 +751,82 @@ private fun DownloadProgressTrack(
     val initiallyCompleted = remember { completed }
     if (initiallyCompleted) return
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
-    val progress by animateFloatAsState(
-        targetValue = item.progress.coerceIn(0f, 1f),
-        animationSpec = Motion.settle(reduceMotion),
-        label = "downloadProgress",
-    )
-    val collapse by animateFloatAsState(
-        targetValue = if (completed) 1f else 0f,
-        animationSpec = tween(if (reduceMotion) 0 else DOWNLOAD_COMPLETE_MS, easing = Motion.Curve),
-        label = "downloadComplete",
-    )
-    val flowing = item.status == DownloadStatus.Downloading && !reduceMotion
-    val transition = rememberInfiniteTransition(label = "downloadFlow")
-    val flow by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(DOWNLOAD_FLOW_MS, easing = LinearEasing)),
-        label = "downloadFlowPhase",
-    )
-    Box(Modifier.fillMaxWidth().height(4.dp)) {
-        Box(
-            Modifier
-                .fillMaxWidth((1f - collapse).coerceIn(0f, 1f))
-                .fillMaxHeight()
-                .clip(AppShapes.track)
-                .background(trackColor),
-        ) {
-            Box(
-                Modifier
-                    .fillMaxWidth(progress)
-                    .fillMaxHeight()
-                    .background(accent)
-                    .drawWithContent {
-                        drawContent()
-                        if (!flowing || size.width <= 0f) return@drawWithContent
-                        // One soft highlight travelling the filled length, never the empty part.
-                        val band = size.width * 0.35f
-                        val head = -band + (size.width + 2f * band) * flow
-                        drawRect(
-                            brush =
-                                Brush.horizontalGradient(
-                                    0f to Color.Transparent,
-                                    0.5f to Color.White.copy(alpha = 0.38f),
-                                    1f to Color.Transparent,
-                                    startX = head - band,
-                                    endX = head,
-                                ),
-                        )
-                    },
-            )
-        }
-        Box(
-            Modifier
-                .size(4.dp)
-                .graphicsLayer {
-                    alpha = collapse
-                    scaleX = collapse
-                    scaleY = collapse
-                }.background(Brand.Online, CircleShape),
+    val progress =
+        animateFloatAsState(
+            targetValue = item.progress.coerceIn(0f, 1f),
+            animationSpec = Motion.settle(reduceMotion),
+            label = "downloadProgress",
         )
-    }
+    val collapse =
+        animateFloatAsState(
+            targetValue = if (completed) 1f else 0f,
+            animationSpec = tween(if (reduceMotion) 0 else Motion.DOWNLOAD_COMPLETE, easing = Motion.Curve),
+            label = "downloadComplete",
+        )
+    val flowing = item.status == DownloadStatus.Downloading && !reduceMotion
+    val flow =
+        rememberDecorativePhase(
+            enabled = flowing,
+            periodMillis = Motion.DOWNLOAD_FLOW,
+            label = "downloadFlow",
+        )
+    Box(
+        Modifier.fillMaxWidth().height(4.dp).drawWithCache {
+            var cachedWidth = Float.NaN
+            var cachedOutline: Outline? = null
+            val path = Path()
+            onDrawBehind {
+                val amount = collapse.value.coerceIn(0f, 1f)
+                val rtl = layoutDirection == LayoutDirection.Rtl
+                val geometry = downloadTrackGeometry(size.width, progress.value, amount, rtl)
+                if (geometry.trackWidth > 0f) {
+                    if (cachedWidth != geometry.trackWidth) {
+                        cachedWidth = geometry.trackWidth
+                        val outline =
+                            AppShapes.track.createOutline(
+                                Size(cachedWidth, size.height),
+                                layoutDirection,
+                                this,
+                            )
+                        cachedOutline = outline
+                        path.reset()
+                        when (outline) {
+                            is Outline.Generic -> path.addPath(outline.path)
+                            is Outline.Rectangle -> path.addRect(outline.rect)
+                            is Outline.Rounded -> path.addRoundRect(outline.roundRect)
+                        }
+                    }
+                    translate(left = geometry.trackLeft) {
+                        drawOutline(checkNotNull(cachedOutline), trackColor)
+                        clipPath(path) {
+                            val fillLeft = geometry.fillLeft - geometry.trackLeft
+                            drawRect(accent, Offset(fillLeft, 0f), Size(geometry.fillWidth, size.height))
+                            if (flowing && geometry.fillWidth > 0f) {
+                                val band = geometry.fillWidth * 0.35f
+                                val head = fillLeft - band + (geometry.fillWidth + 2f * band) * flow.value
+                                clipRect(left = fillLeft, right = fillLeft + geometry.fillWidth) {
+                                    drawRect(
+                                        Brush.horizontalGradient(
+                                            0f to Color.Transparent,
+                                            0.5f to Color.White.copy(alpha = 0.38f),
+                                            1f to Color.Transparent,
+                                            startX = head - band,
+                                            endX = head,
+                                        ),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+                // The original completion dot occupies the 4dp start box and scales about its centre.
+                val radius = size.height / 2f
+                val centerX = if (rtl) size.width - radius else radius
+                if (amount > 0f) drawCircle(Brand.Online, radius * amount, Offset(centerX, radius), alpha = amount)
+            }
+        },
+    )
 }
-
-private const val DOWNLOAD_COMPLETE_MS = 380
-private const val DOWNLOAD_FLOW_MS = 1_400
 
 private fun downloadStatusText(item: OfflineMedia): String =
     when (item.status) {

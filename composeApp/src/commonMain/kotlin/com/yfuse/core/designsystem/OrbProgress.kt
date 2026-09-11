@@ -9,7 +9,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -46,21 +46,21 @@ fun OrbProgress(
     contentDescription: String? = "加载中",
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
-    val transition = rememberInfiniteTransition(label = "orb")
-    val cometTurn by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(ORB_COMET_MS, easing = LinearEasing)),
-        label = "orbComet",
-    )
-    val breathPhase by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(ORB_BREATH_MS, easing = LinearEasing), RepeatMode.Restart),
-        label = "orbBreath",
-    )
-    val turn = if (reduceMotion) 0f else cometTurn
-    val coreScale = if (reduceMotion) 1f else orbCoreScale(breathPhase)
+    val transition = if (reduceMotion || !LocalRouteVisible.current) null else rememberInfiniteTransition(label = "orb")
+    val cometTurn =
+        transition?.animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(tween(ORB_COMET_MS, easing = LinearEasing)),
+            label = "orbComet",
+        ) ?: rememberUpdatedState(0f)
+    val breathPhase =
+        transition?.animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(tween(ORB_BREATH_MS, easing = LinearEasing), RepeatMode.Restart),
+            label = "orbBreath",
+        ) ?: rememberUpdatedState(0f)
     val head = lerp(color, Color.White, 0.55f)
     val coreEdge = lerp(color, Color.Black, 0.25f)
     Canvas(
@@ -71,6 +71,8 @@ fun OrbProgress(
                 if (contentDescription != null) this.contentDescription = contentDescription
             },
     ) {
+        val turn = cometTurn.value
+        val coreScale = orbCoreScale(breathPhase.value)
         val radius = this.size.minDimension / 2f
         val stroke = radius * ORB_RING_FRACTION
         val centre = Offset(radius, radius)
@@ -119,7 +121,7 @@ internal fun orbCoreScale(phase: Float): Float {
     return 1f + ORB_CORE_SWELL * wave
 }
 
-internal const val ORB_COMET_MS = 1_200
+internal const val ORB_COMET_MS = Motion.ORB_COMET
 internal const val ORB_BREATH_MS = SKELETON_PULSE_MS_INT
 private const val ORB_RING_FRACTION = 0.2f
 private const val ORB_CORE_FRACTION = 0.36f

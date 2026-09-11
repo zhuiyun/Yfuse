@@ -11,9 +11,17 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.IntOffset
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.Motion
@@ -27,7 +35,7 @@ import com.yfuse.core.designsystem.Motion
 private const val CHROME_MS = Motion.STANDARD
 
 /** How far the transport trails the title bar in, and leads it out. */
-private const val CHROME_STAGGER_MS = 40
+private const val CHROME_STAGGER_MS = Motion.PLAYER_CHROME_STAGGER
 
 /**
  * Which edge a piece of player chrome belongs to, and therefore where it comes from.
@@ -83,7 +91,7 @@ internal fun ChromeVisibility(
                     scaleIn(
                         tween(CHROME_MS, easing = Motion.Curve),
                         initialScale = 0.94f,
-                        transformOrigin = TransformOrigin(1f, 1f),
+                        transformOrigin = TransformOrigin.Center,
                     )
         }
     val exit =
@@ -97,15 +105,46 @@ internal fun ChromeVisibility(
                     scaleOut(
                         tween(CHROME_MS, easing = Motion.Curve),
                         targetScale = 0.94f,
-                        transformOrigin = TransformOrigin(1f, 1f),
+                        transformOrigin = TransformOrigin.Center,
                     )
         }
 
     AnimatedVisibility(
         visible = visible,
-        modifier = modifier,
+        modifier =
+            modifier.then(
+                if (visible) {
+                    Modifier
+                } else {
+                    Modifier.clearAndSetSemantics {}.pointerInput(Unit) {
+                        awaitPointerEventScope {
+                            while (true) awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
+                        }
+                    }
+                },
+            ),
         enter = enter,
         exit = exit,
         content = content,
     )
+}
+
+private class RetainedChrome<T>(
+    var value: T?,
+)
+
+/** Retains only the small panel identity while ChromeVisibility completes its exit. */
+@Composable
+internal fun <T : Any> ChromeContent(
+    value: T?,
+    modifier: Modifier = Modifier,
+    edge: ChromeEdge = ChromeEdge.None,
+    content: @Composable BoxScope.(T) -> Unit,
+) {
+    val retained = remember { RetainedChrome(value) }
+    SideEffect { if (value != null) retained.value = value }
+    val shown = value ?: retained.value
+    ChromeVisibility(visible = value != null, modifier = modifier, edge = edge) {
+        Box(Modifier.fillMaxSize()) { if (shown != null) content(shown) }
+    }
 }

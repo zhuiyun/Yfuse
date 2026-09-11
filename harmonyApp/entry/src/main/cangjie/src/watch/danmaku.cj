@@ -42,7 +42,7 @@ public class DanmakuScheduler {
         while (nextIndex < items.size) {
             let item = items[nextIndex]
             if (item.timeMs > positionMs + 100) { break }
-            if (item.timeMs >= positionMs - 500 && filter.allows(item)) { result.append(item) }
+            if (item.timeMs >= positionMs - 500 && filter.allows(item)) { result.add(item) }
             nextIndex++
         }
         return result

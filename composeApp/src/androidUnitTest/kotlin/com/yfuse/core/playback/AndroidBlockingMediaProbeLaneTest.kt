@@ -1,12 +1,15 @@
 package com.yfuse.core.playback
 
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executor
 import java.util.concurrent.Executors
+import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
@@ -14,6 +17,27 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class AndroidBlockingMediaProbeLaneTest {
+    @Test
+    fun inline_continuation_can_start_the_next_probe_without_skipping_or_losing_ownership() =
+        runBlocking {
+            val tasks = LinkedBlockingQueue<Runnable>()
+            val lane = AndroidBlockingMediaProbeLane(Executor { tasks.add(it) })
+            val results =
+                async(Dispatchers.Unconfined) {
+                    listOf(
+                        lane.run(1_000L, { "busy" }) { "first" },
+                        lane.run(1_000L, { "busy" }) { "second" },
+                    )
+                }
+
+            tasks.remove().run()
+            // The first caller resumed inline, and its next task now owns the lane. The first
+            // executor wrapper's finally must not clear that new ownership.
+            assertEquals("busy", lane.run(1_000L, { "busy" }) { "unexpected third probe" })
+            tasks.poll()?.run()
+            assertEquals(listOf("first", "second"), withTimeout(2_000L) { results.await() })
+        }
+
     @Test
     fun timeout_returns_while_vendor_is_blocked_and_repeated_requests_never_add_workers() =
         runBlocking {

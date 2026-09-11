@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalLayoutApi::class)
+
 package com.yfuse.feature.player
 
 import androidx.compose.animation.core.Animatable
@@ -10,9 +12,11 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imeNestedScroll
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -191,6 +195,7 @@ internal fun PlayerSidePanel(
             // Taps inside the panel must not reach the catcher behind it.
             .noRippleClickable { }
             .imePadding()
+            .imeNestedScroll()
             .padding(horizontal = 14.dp, vertical = 16.dp),
         verticalArrangement = verticalArrangement,
         content = {
@@ -313,6 +318,7 @@ internal fun PlayerPopupPanel(
             // Taps inside the popup must not reach the dismiss catcher behind it.
             .noRippleClickable { }
             .imePadding()
+            .imeNestedScroll()
             .then(
                 if (animation == DialogAnimation.MagneticDrag &&
                     !reduceMotion

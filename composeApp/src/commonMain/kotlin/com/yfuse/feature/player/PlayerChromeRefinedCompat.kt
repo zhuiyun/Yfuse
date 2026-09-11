@@ -16,7 +16,7 @@ import com.yfuse.core.designsystem.AmbientLight
  */
 @Composable
 internal fun RefinedBottomBar(
-    state: PlaybackState,
+    state: PlaybackTransportState,
     seekLocked: Boolean,
     onPlayPause: () -> Unit,
     onPrevious: () -> Unit,

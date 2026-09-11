@@ -3,6 +3,8 @@ plugins {
     alias(libs.plugins.kotlin.android)
 }
 
+kotlin { jvmToolchain(17) }
+
 android {
     namespace = "com.yfuse.macrobenchmark"
     compileSdk = 36

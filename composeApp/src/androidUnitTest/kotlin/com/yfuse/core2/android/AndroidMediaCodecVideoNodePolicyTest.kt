@@ -4,6 +4,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class AndroidMediaCodecVideoNodePolicyTest {
     @Test
@@ -92,6 +93,9 @@ class AndroidMediaCodecVideoNodePolicyTest {
         assertEquals(32, failure.profile)
         assertEquals("c2.vendor.dolby.decoder", failure.failures.single().decoderName)
         assertEquals(-22, failure.failures.single().errorCode)
+        assertTrue(failure.message.orEmpty().contains("decoder=c2.vendor.dolby.decoder"))
+        assertTrue(failure.message.orEmpty().contains("code=-22"))
+        assertTrue(failure.message.orEmpty().contains("detail=android.media.MediaCodec.error_neg_22"))
     }
 
     @Test

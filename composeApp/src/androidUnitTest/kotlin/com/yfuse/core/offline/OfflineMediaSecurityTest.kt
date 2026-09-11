@@ -671,4 +671,18 @@ class OfflineMediaSecurityTest {
             downloadRevision = revision,
             status = DownloadStatus.Downloading,
         )
+
+    @Test
+    fun download_budget_and_window_survive_policy_reload() {
+        val settings = MapSettings()
+        val policy =
+            OfflineDownloadPolicy(
+                storageBudgetBytes = 5L * 1024 * 1024 * 1024,
+                autoDownloadChargingOnly = true,
+                windowStartMinute = 1320,
+                windowEndMinute = 420,
+            )
+        persistOfflineDownloadPolicy(settings, policy)
+        assertEquals(policy, loadOfflineDownloadPolicy(settings))
+    }
 }

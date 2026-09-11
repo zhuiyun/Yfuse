@@ -5,8 +5,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -17,6 +15,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.yfuse.core.designsystem.ThemeIcon as Icon
+import com.yfuse.core.designsystem.ThemeText as Text
 
 /**
  * The double-D, drawn rather than shipped as an asset.
@@ -24,9 +24,8 @@ import androidx.compose.ui.unit.sp
  * Two D's back to back, straight edges facing each other across a gap, curves outward.
  * A 32×24 viewBox so the glyph is wider than tall the way the real mark is; tint it like
  * any other icon and it sits on artwork or on the page equally.
+ * The silhouette uses counters; two solid half-discs read as brackets.
  */
-
-/** The official double-D silhouette uses counters; two solid half-discs read as brackets. */
 private val DolbyDoubleD: ImageVector =
     ImageVector
         .Builder(

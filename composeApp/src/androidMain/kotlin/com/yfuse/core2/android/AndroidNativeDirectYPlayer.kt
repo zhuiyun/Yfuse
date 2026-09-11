@@ -37,9 +37,9 @@ import com.yfuse.core2.network.YBufferController
 import com.yfuse.core2.recovery.requiresPcmAudioPath
 import com.yfuse.core2.render.YFrameRateSwitchMode
 import com.yfuse.core2.render.videoFrameRateHint
-import com.yfuse.core2.subtitle.YEmbeddedSubtitleDecoder
 import com.yfuse.core2.subtitle.YSubtitleCue
 import com.yfuse.core2.subtitle.YSubtitleFormat
+import com.yfuse.core2.subtitle.appendUntimedTextSubtitlePacket
 import com.yfuse.core2.sync.YAvSync
 import com.yfuse.core2.sync.YClockSnapshot
 import com.yfuse.core2.sync.YMediaClock
@@ -47,6 +47,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExecutorCoroutineDispatcher
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.cancel
@@ -57,6 +58,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.nio.ByteBuffer
 import java.util.concurrent.Executors
@@ -80,7 +82,17 @@ internal class AndroidNativeDirectYPlayer(
     private val requireDolbyVisionIdentity: Boolean = false,
     private val preferredRemoteBufferTargetUs: Long? = null,
     private val preparedExtractor: ((YMediaItem) -> YPlatformExtractorSource?)? = null,
-) : YPlayer {
+    private val videoHandoff: AndroidVideoDecoderHandoff? = null,
+) : YPlayer,
+    AndroidSerializedPlayerRelease {
+    @Volatile
+    private var videoHandoffRequested = false
+
+    /** The router calls this only for an adjacent, prepared SDR/PCM direct-play route. */
+    fun prepareVideoHandoff() {
+        videoHandoffRequested = videoHandoff != null && mutableState.value.diagnostics.videoOutputVerified
+    }
+
     private val appContext = context.applicationContext
     private val mutableState =
         MutableStateFlow(
@@ -287,6 +299,22 @@ internal class AndroidNativeDirectYPlayer(
         submit(Command.Prepare)
     }
 
+    override val releaseCompleted: Boolean get() = worker.isCompleted
+
+    override suspend fun releaseAndJoin() {
+        release()
+        val completed =
+            withContext(NonCancellable) {
+                withTimeoutOrNull(5_000L) {
+                    worker.join()
+                    true
+                }
+            }
+        check(completed == true) {
+            "Previous direct decoder did not finish releasing; replacement was not started"
+        }
+    }
+
     override fun release() {
         if (released) return
         releasedAtMs = System.nanoTime() / 1_000_000L
@@ -451,7 +479,8 @@ internal class AndroidNativeDirectYPlayer(
                 context = context,
                 onBlockingReadStateChanged = ::onTransportBlockingReadStateChanged,
             )
-        private val videoDecoder = AndroidMediaCodecVideoNode()
+        private var videoDecoder = AndroidMediaCodecVideoNode()
+        private var audioDrainStartedNs: Long? = null
         private val audioDecoder = AndroidMediaCodecAudioNode()
         private val audioRenderer = AndroidAudioTrackRenderNode(context)
         private val encodedAudioRenderer = AndroidEncodedAudioTrackRenderNode()
@@ -2039,6 +2068,19 @@ internal class AndroidNativeDirectYPlayer(
 
         private fun finishIfEnded() {
             if (!isEnded()) return
+            // Decoder EOS means all PCM was submitted, not that AudioTrack played its tail.
+            // Explicit credits skips intentionally bypass this natural-end drain.
+            if (!isAudioPassthrough() && audioInputFormat != null && audioRenderer.hasPendingPcm()) {
+                val now = System.nanoTime()
+                val started = audioDrainStartedNs ?: now.also { audioDrainStartedNs = it }
+                if (now - started < 2_000_000_000L) return
+                AppLog.warning(
+                    category = "player.core2",
+                    event = "next_item_audio_drain_timeout",
+                    message = "PCM tail did not drain within the bounded end-of-item window",
+                )
+            }
+            audioDrainStartedNs = null
             // Do not manufacture completion by snapping an early EOF to the declared duration.
             // The router compares this real output position with duration before auto-next.
             val renderedEndUs =
@@ -2075,6 +2117,7 @@ internal class AndroidNativeDirectYPlayer(
             )
 
         private fun resetEndState() {
+            audioDrainStartedNs = null
             videoEosGate.reset()
             surfaceCompletion.reset()
             inputEnded = false
@@ -2398,13 +2441,24 @@ internal class AndroidNativeDirectYPlayer(
                     stage = YPlaybackFailureStage.VideoDecoderConfigure,
                     safeDetail = "NativeDirect MediaCodec configure",
                 ) {
-                    videoDecoder.configure(
-                        format = format,
-                        surface = surface,
-                        decoderName = decoderName,
-                        mediaCrypto = drmBinding?.mediaCrypto,
-                        isolateFrameTimestamps = true,
-                    )
+                    val reused =
+                        if (drmBinding == null && !isAudioPassthrough()) {
+                            videoHandoff?.take(videoDecoderReuseKey(format, decoderName), surface)
+                        } else {
+                            null
+                        }
+                    if (reused != null) {
+                        videoDecoder.release()
+                        videoDecoder = reused
+                    } else {
+                        videoDecoder.configure(
+                            format = format,
+                            surface = surface,
+                            decoderName = decoderName,
+                            mediaCrypto = drmBinding?.mediaCrypto,
+                            isolateFrameTimestamps = true,
+                        )
+                    }
                 }
                 runtimeCapabilityKey?.let(runtimeCapabilities::recordConfigured)
             } catch (failure: Throwable) {
@@ -2685,14 +2739,13 @@ internal class AndroidNativeDirectYPlayer(
             val cues = if (trackIndex == secondarySubtitleTrackIndex) secondarySubtitleCues else subtitleCues
             val bytes = ByteArray(data.remaining())
             data.duplicate().get(bytes)
-            YEmbeddedSubtitleDecoder
-                .decode(
-                    data = bytes,
-                    format = format,
-                    startUs = presentationTimeUs,
-                    durationUs = null,
-                    id = "$trackIndex:$presentationTimeUs",
-                )?.let(cues::add)
+            appendUntimedTextSubtitlePacket(
+                cues = cues,
+                data = bytes,
+                format = format,
+                presentationTimeUs = presentationTimeUs,
+                id = "$trackIndex:$presentationTimeUs",
+            )
             val oldestRetainedUs = currentPositionUs() - SUBTITLE_HISTORY_US
             cues.removeAll { cue -> cue.endUs < oldestRetainedUs }
         }
@@ -2722,11 +2775,31 @@ internal class AndroidNativeDirectYPlayer(
             runCatching(audioRenderer::release)
             runCatching(encodedAudioRenderer::release)
             runCatching(audioDecoder::release)
-            runCatching(videoDecoder::release)
+            val retainedVideo =
+                runCatching {
+                    val surface = surfaceOutput?.surface
+                    val key = videoFormat?.let { videoDecoderReuseKey(it, decoderName) }
+                    if (videoHandoffRequested &&
+                        videoConfigured &&
+                        drmBinding == null &&
+                        !isAudioPassthrough() &&
+                        key != null &&
+                        surface?.isValid == true &&
+                        videoHandoff != null
+                    ) {
+                        videoHandoff.offer(key, surface, videoDecoder)
+                        videoDecoder = AndroidMediaCodecVideoNode()
+                        true
+                    } else {
+                        false
+                    }
+                }.getOrDefault(false)
+            videoHandoffRequested = false
+            if (!retainedVideo) runCatching(videoDecoder::release)
             runCatching { drmSession?.close() }
             drmBinding = null
             drmSession = null
-            frameRateManager.clear()
+            if (!retainedVideo) frameRateManager.clear()
             runCatching(demux::release)
             prepared = false
             videoConfigured = false

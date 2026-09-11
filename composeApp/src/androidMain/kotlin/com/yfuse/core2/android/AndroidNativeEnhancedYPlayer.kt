@@ -25,15 +25,19 @@ import com.yfuse.core2.strategy.YRenderPath
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.net.URI
 
@@ -53,7 +57,9 @@ internal class AndroidNativeEnhancedYPlayer(
     private val requireDolbyVisionIdentity: Boolean = false,
     private val preferredRemoteBufferTargetUs: Long? = null,
     private val initialDecision: YCore2RouteDecision? = null,
-) : YPlayer {
+    private val initialProbeBudget: AndroidProbeBudget? = null,
+) : YPlayer,
+    AndroidSerializedPlayerRelease {
     private val appContext = context.applicationContext
     private val capabilityProvider = AndroidYCapabilityProvider(context)
     private val externalSubtitleLoader = AndroidExternalSubtitleLoader(context)
@@ -96,6 +102,35 @@ internal class AndroidNativeEnhancedYPlayer(
 
     @Volatile
     private var releasedAtMs: Long? = null
+
+    @Volatile private var activeSession: AndroidEnhancedPlaybackSession? = null
+
+    @Volatile private var proxy: AndroidYCoreHttpProxy? = null
+
+    @Volatile private var activeProbeBudget: AndroidProbeBudget? = null
+
+    @Volatile private var pendingProbeBudget: AndroidProbeBudget? = initialProbeBudget
+
+    fun retryWithProbeBudget(budget: AndroidProbeBudget?) {
+        pendingProbeBudget = budget
+        retry()
+    }
+
+    override val releaseCompleted: Boolean get() = worker.isCompleted
+
+    override suspend fun releaseAndJoin() {
+        release()
+        check(
+            withContext(NonCancellable) {
+                withTimeoutOrNull(5_000L) {
+                    worker.join()
+                    true
+                }
+            } == true,
+        ) {
+            "Previous enhanced decoder did not finish releasing; replacement was not started"
+        }
+    }
 
     override fun prepare() {
         if (released) return
@@ -268,6 +303,9 @@ internal class AndroidNativeEnhancedYPlayer(
         if (released) return
         releasedAtMs = System.nanoTime() / 1_000_000L
         released = true
+        activeProbeBudget?.cancel("released")
+        activeSession?.cancelPendingRead()
+        proxy?.close()
         commands.close()
         wakeSignal.trySend(Unit)
         worker.invokeOnCompletion { playbackDispatcher.close() }
@@ -304,14 +342,13 @@ internal class AndroidNativeEnhancedYPlayer(
                     forwardCacheTargetUs = preferredRemoteBufferTargetUs ?: 60_000_000L,
                 )
             }.getOrNull()
-        var proxy: AndroidYCoreHttpProxy? = null
         val session =
             AndroidEnhancedPlaybackSession(
                 context = appContext,
                 runtimeCapabilities = AndroidRuntimeCapabilityRegistry(appContext),
                 frameRateSwitchMode = frameRateSwitchMode,
                 preferredRemoteBufferTargetUs = preferredRemoteBufferTargetUs,
-            )
+            ).also { activeSession = it }
         var surfaceOutput: AndroidSurfaceVideoOutput? = null
         var currentIndex = request.startIndex
         var requestedPlay = request.autoPlay
@@ -363,130 +400,154 @@ internal class AndroidNativeEnhancedYPlayer(
                 return
             }
             val item = request.items[currentIndex]
-            val decision =
-                pendingInitialDecision
-                    .takeIf { currentIndex == request.startIndex }
-                    .also { pendingInitialDecision = null } ?: routeEvaluator.evaluate(
-                    item,
-                    allowAudioPassthrough = allowAudioPassthrough,
-                )
-            val playbackPlan = forcedPlan ?: decision?.plan
-            checkNotNull(playbackPlan) { "Media item has no executable YCore enhanced plan" }
-            if (forcedPlan == null) {
-                check(decision?.nativeEnhancedExecutable == true) {
-                    "Media item is not eligible for YCore NativeEnhanced"
+            val inheritedBudget = pendingProbeBudget.also { pendingProbeBudget = null }
+            val budget = inheritedBudget ?: AndroidProbeBudget()
+            activeProbeBudget = budget
+            val cancellation =
+                budget.onCancel {
+                    session.cancelPendingRead()
+                    proxy?.close()
                 }
-            } else {
-                check(playbackPlan.demuxPath == YDemuxPath.Enhanced) {
-                    "Forced YCore plan must use the enhanced demux path"
-                }
-                check(
-                    playbackPlan.route in
-                        setOf(
-                            YPlaybackRoute.NativeEnhanced,
-                            YPlaybackRoute.GpuEnhanced,
-                            YPlaybackRoute.SoftwareFallback,
-                        ),
-                ) {
-                    "Only YCore enhanced, GPU and software plans may be forced"
-                }
-            }
-            val preparedDemux = routeEvaluator.takePreparedEnhancedDemux(item)
-            if (preparedDemux != null) {
-                session.close()
-                proxy?.close()
-                proxy = preparedDemux.proxy
-            } else if (proxy == null) {
-                proxy = newProxy()
-            }
-            val result =
-                session.open(
-                    source = proxy?.enhancedSource(item) ?: enhancedDemuxSource(item),
-                    plan = playbackPlan,
-                    surface = output,
-                    startPositionUs = positionUs.coerceAtLeast(0L),
-                    runtimeCapabilityKey = decision?.runtimeCapabilityKey(),
-                    requireDolbyVisionIdentity = requireDolbyVisionIdentity,
-                    expectedAudio = (item.sourceHints?.audioTrackCount ?: 0) > 0,
-                    sourceHints = item.sourceHints,
-                    allowAudioPassthrough = allowAudioPassthrough,
-                    preparedDemux = preparedDemux,
-                )
-            prepared = true
-            secondaryExternalSubtitleId = null
-            secondaryTrackId = null
-            activePlan = playbackPlan
-            speed = mutableState.value.speed
-            session.setSpeed(speed)
-            session.setAudioDelayMs(audioDelayMs)
-            val tracks = result.toAudioTracks(session.selectedAudioTrackId())
-            externalSubtitleSession.reset(item.allExternalSubtitles, item.headers)
-            externalSubtitles = externalSubtitleSession.tracks
-            selectedExternalSubtitleId = externalSubtitleSession.defaultId
-            if (selectedExternalSubtitleId != null) session.selectSubtitleTrack(null)
-            val subtitleTracks =
-                result.toSubtitleTracks() +
-                    externalSubtitles.map { subtitle ->
-                        subtitle.track.copy(selected = subtitle.track.id == selectedExternalSubtitleId)
+            try {
+                budget.ensureActive()
+                currentCoroutineContext().ensureActive()
+                val decision =
+                    pendingInitialDecision
+                        .takeIf { currentIndex == request.startIndex }
+                        .also { pendingInitialDecision = null } ?: routeEvaluator.evaluate(
+                        item,
+                        allowAudioPassthrough = allowAudioPassthrough,
+                        budget = budget,
+                    )
+                budget.ensureActive()
+                currentCoroutineContext().ensureActive()
+                val playbackPlan = forcedPlan ?: decision?.plan
+                checkNotNull(playbackPlan) { "Media item has no executable YCore enhanced plan" }
+                if (forcedPlan == null) {
+                    check(decision?.nativeEnhancedExecutable == true) {
+                        "Media item is not eligible for YCore NativeEnhanced"
                     }
-            val video = result.tracks.firstOrNull { it.type == YDemuxTrackType.Video }?.video
-            val audio = result.tracks.firstOrNull { it.id == session.selectedAudioTrackId() }?.audio
-            activeDolbyProfile = video?.dolbyVisionConfig?.profile
-            mutableState.updateState {
-                it.copy(
-                    phase = YPlaybackPhase.Ready,
-                    playing = false,
-                    buffering = requestedPlay,
-                    durationMs = (result.durationUs ?: 0L) / MICROS_PER_MILLISECOND,
-                    currentIndex = currentIndex,
-                    itemCount = request.items.size,
-                    audioTracks = tracks,
-                    subtitleTracks = subtitleTracks,
-                    secondarySubtitleCues = emptyList(),
-                    secondarySubtitleTrackId = null,
-                    subtitleCues =
-                        selectedExternalSubtitleId
-                            ?.let { id -> externalSubtitles.firstOrNull { it.track.id == id }?.cues }
-                            .orEmpty(),
-                    error = null,
-                    errorCategory = null,
-                    diagnostics =
-                        it.diagnostics.copy(
-                            route = playbackPlan.route,
-                            container = result.container.name,
-                            demuxer = "FFmpeg / libavformat",
-                            videoCodec = video?.mimeType.orEmpty(),
-                            videoWidth = video?.width ?: 0,
-                            videoHeight = video?.height ?: 0,
-                            frameRate = video?.frameRate ?: 0f,
-                            audioCodec = audio?.mimeType.orEmpty(),
-                            bitrateBitsPerSecond = result.bitRateBitsPerSecond ?: 0L,
-                            dynamicRange = video?.hdrType?.name.orEmpty(),
-                            videoOutput = "等待首帧",
-                            audioOutput = if (tracks.isEmpty()) "无音频轨" else "等待 PCM 输出",
-                            videoOutputVerified = false,
-                            audioOutputVerified = false,
-                            dolbyVisionOutput = false,
-                            dolbyVisionRpuApplied = false,
-                            dolbyVisionEnhancementLayerDelivered = false,
-                            dolbyVisionFelComposed = false,
-                            immersiveAudioCarrierOutput = false,
-                            dolbyAtmosSourceDetected = audio?.codec.isDolbyAtmosSource(),
-                            dolbyAtmosOutputMode = YDolbyAtmosOutputMode.None,
-                            audioOutputRoute = "",
-                            audioOutputRouteVerified = false,
-                            dolbyAtmosOutput = false,
-                            spatialAudioOutput = false,
-                            headTrackingAvailable = false,
-                            reason = playbackPlan.reason,
-                        ),
-                )
+                } else {
+                    check(playbackPlan.demuxPath == YDemuxPath.Enhanced) {
+                        "Forced YCore plan must use the enhanced demux path"
+                    }
+                    check(
+                        playbackPlan.route in
+                            setOf(
+                                YPlaybackRoute.NativeEnhanced,
+                                YPlaybackRoute.GpuEnhanced,
+                                YPlaybackRoute.SoftwareFallback,
+                            ),
+                    ) {
+                        "Only YCore enhanced, GPU and software plans may be forced"
+                    }
+                }
+                val preparedDemux = routeEvaluator.takePreparedEnhancedDemux(item)
+                if (preparedDemux != null) {
+                    session.close()
+                    proxy?.close()
+                    proxy = preparedDemux.proxy
+                } else if (proxy == null) {
+                    proxy = newProxy()
+                }
+                val result =
+                    session.open(
+                        source = proxy?.enhancedSource(item) ?: enhancedDemuxSource(item),
+                        plan = playbackPlan,
+                        surface = output,
+                        startPositionUs = positionUs.coerceAtLeast(0L),
+                        runtimeCapabilityKey = decision?.runtimeCapabilityKey(),
+                        requireDolbyVisionIdentity = requireDolbyVisionIdentity,
+                        expectedAudio = (item.sourceHints?.audioTrackCount ?: 0) > 0,
+                        sourceHints = item.sourceHints,
+                        allowAudioPassthrough = allowAudioPassthrough,
+                        preparedDemux = preparedDemux,
+                        probeBudget = budget,
+                    )
+                budget.ensureActive()
+                currentCoroutineContext().ensureActive()
+                session.clearProbeDeadline()
+                prepared = true
+                secondaryExternalSubtitleId = null
+                secondaryTrackId = null
+                activePlan = playbackPlan
+                speed = mutableState.value.speed
+                session.setSpeed(speed)
+                session.setAudioDelayMs(audioDelayMs)
+                val tracks = result.toAudioTracks(session.selectedAudioTrackId())
+                externalSubtitleSession.reset(item.allExternalSubtitles, item.headers)
+                externalSubtitles = externalSubtitleSession.tracks
+                selectedExternalSubtitleId = externalSubtitleSession.defaultId
+                if (selectedExternalSubtitleId != null) session.selectSubtitleTrack(null)
+                val subtitleTracks =
+                    result.toSubtitleTracks() +
+                        externalSubtitles.map { subtitle ->
+                            subtitle.track.copy(selected = subtitle.track.id == selectedExternalSubtitleId)
+                        }
+                val video = result.tracks.firstOrNull { it.type == YDemuxTrackType.Video }?.video
+                val audio = result.tracks.firstOrNull { it.id == session.selectedAudioTrackId() }?.audio
+                activeDolbyProfile = video?.dolbyVisionConfig?.profile
+                mutableState.updateState {
+                    it.copy(
+                        phase = YPlaybackPhase.Ready,
+                        playing = false,
+                        buffering = requestedPlay,
+                        durationMs = (result.durationUs ?: 0L) / MICROS_PER_MILLISECOND,
+                        currentIndex = currentIndex,
+                        itemCount = request.items.size,
+                        audioTracks = tracks,
+                        subtitleTracks = subtitleTracks,
+                        secondarySubtitleCues = emptyList(),
+                        secondarySubtitleTrackId = null,
+                        subtitleCues =
+                            selectedExternalSubtitleId
+                                ?.let { id -> externalSubtitles.firstOrNull { it.track.id == id }?.cues }
+                                .orEmpty(),
+                        error = null,
+                        errorCategory = null,
+                        diagnostics =
+                            it.diagnostics.copy(
+                                route = playbackPlan.route,
+                                container = result.container.name,
+                                demuxer = "FFmpeg / libavformat",
+                                videoCodec = video?.mimeType.orEmpty(),
+                                videoWidth = video?.width ?: 0,
+                                videoHeight = video?.height ?: 0,
+                                frameRate = video?.frameRate ?: 0f,
+                                audioCodec = audio?.mimeType.orEmpty(),
+                                bitrateBitsPerSecond = result.bitRateBitsPerSecond ?: 0L,
+                                dynamicRange = video?.hdrType?.name.orEmpty(),
+                                videoOutput = "等待首帧",
+                                audioOutput = if (tracks.isEmpty()) "无音频轨" else "等待 PCM 输出",
+                                videoOutputVerified = false,
+                                audioOutputVerified = false,
+                                dolbyVisionOutput = false,
+                                dolbyVisionRpuApplied = false,
+                                dolbyVisionEnhancementLayerDelivered = false,
+                                dolbyVisionFelComposed = false,
+                                immersiveAudioCarrierOutput = false,
+                                dolbyAtmosSourceDetected = audio?.codec.isDolbyAtmosSource(),
+                                dolbyAtmosOutputMode = YDolbyAtmosOutputMode.None,
+                                audioOutputRoute = "",
+                                audioOutputRouteVerified = false,
+                                dolbyAtmosOutput = false,
+                                spatialAudioOutput = false,
+                                headTrackingAvailable = false,
+                                reason = playbackPlan.reason,
+                            ),
+                    )
+                }
+                if (requestedPlay) session.play()
+            } finally {
+                cancellation.close()
+                activeProbeBudget = null
+                if (inheritedBudget == null) budget.close()
             }
-            if (requestedPlay) session.play()
         }
 
         var lastAudioDiagnosticNs = 0L
         var lastAudioRendering = false
+        var lastSubtitleDiagnosticNs = 0L
 
         fun publishSnapshot(force: Boolean = false) {
             if (!prepared || released) return
@@ -494,6 +555,19 @@ internal class AndroidNativeEnhancedYPlayer(
             if (!force && now - lastPublishNs < STATE_PUBLISH_INTERVAL_NS) return
             lastPublishNs = now
             val snapshot = session.snapshot()
+            if (snapshot.subtitleDiagnostics.isNotEmpty() &&
+                (force || now - lastSubtitleDiagnosticNs >= 10_000_000_000L)
+            ) {
+                lastSubtitleDiagnosticNs = now
+                AppLog.info(
+                    category = "player.core2",
+                    event = "subtitle_display_summary",
+                    message = "YCore subtitle display state",
+                    attributes =
+                        snapshot.subtitleDiagnostics +
+                            mapOf("positionMs" to (snapshot.positionUs / MICROS_PER_MILLISECOND).toString()),
+                )
+            }
             val rebuffers =
                 rebufferTracker.observe(
                     now / 1_000_000L,
@@ -696,6 +770,10 @@ internal class AndroidNativeEnhancedYPlayer(
             )
             prepared = false
             runCatching { session.close() }
+            // A cancelled private proxy has stopped admitting routes. Never retain that object
+            // across Retry, where localUrl would otherwise return the unproxied upstream URI.
+            proxy?.close()
+            proxy = null
             requestedPlay = false
             mutableState.updateState {
                 it.copy(
@@ -921,7 +999,9 @@ internal class AndroidNativeEnhancedYPlayer(
             finishRebuffer()
             externalSubtitleSession.close()
             session.release()
+            activeSession = null
             proxy?.close()
+            proxy = null
         }
     }
 

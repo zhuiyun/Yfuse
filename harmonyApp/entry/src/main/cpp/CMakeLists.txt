@@ -7,12 +7,13 @@ add_library(ycore SHARED
     "${YCORE_ROOT}/src/ycore.cpp"
     "${YCORE_ROOT}/src/ycore_build.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/ysecure_huks.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/ypreferences.cpp"
 )
 target_include_directories(ycore PUBLIC "${YCORE_ROOT}/include")
 target_compile_features(ycore PUBLIC cxx_std_17)
 target_compile_definitions(ycore PRIVATE YCORE_HARMONY=1 YCORE_BUILDING_LIBRARY=1)
 set_target_properties(ycore PROPERTIES CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN YES)
-target_link_libraries(ycore PRIVATE libasset_ndk.z.so)
+target_link_libraries(ycore PRIVATE libasset_ndk.z.so libohpreferences.so)
 
 set(YFUSE_MEDIA_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../third_party/harmony-media")
 option(YFUSE_ENABLE_FFMPEG "Enable bundled FFmpeg demux/codec integration" OFF)

@@ -19,12 +19,8 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -41,6 +37,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.yfuse.core.designsystem.AnimatedColorContent
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.ArtworkPageTheme
@@ -49,6 +46,7 @@ import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HeroPageFade
+import com.yfuse.core.designsystem.InlineLoadingContent
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OrbProgress
@@ -58,8 +56,12 @@ import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.fadeIntoPage
 import com.yfuse.core.designsystem.heroTopScrim
 import com.yfuse.core.designsystem.liftOverHero
+import com.yfuse.core.designsystem.motionItem
+import com.yfuse.core.designsystem.motionItems
+import com.yfuse.core.designsystem.motionItemsIndexed
 import com.yfuse.core.designsystem.pressable
-import com.yfuse.core.designsystem.rememberAnimatedArtworkAccent
+import com.yfuse.core.designsystem.rememberAnimatedColorState
+import com.yfuse.core.designsystem.rememberArtworkAccentTarget
 import com.yfuse.core.designsystem.rememberArtworkPageColor
 import com.yfuse.core.designsystem.rememberRetainedArtworkPageColor
 import com.yfuse.core.designsystem.rememberScrolledPastHero
@@ -69,6 +71,8 @@ import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.designsystem.waitingPulse
 import com.yfuse.core.model.ServerSource
 import com.yfuse.core.network.TmdbImages
+import com.yfuse.core.designsystem.ThemeIcon as Icon
+import com.yfuse.core.designsystem.ThemeText as Text
 
 /** Full TMDB detail page; Emby availability only controls the play action. */
 @Composable
@@ -90,7 +94,7 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
     val heroUrl = heroUrls.firstOrNull { it != null }
     var resolvedHeroUrl by remember(item.id) { mutableStateOf<String?>(null) }
     val accent =
-        rememberAnimatedArtworkAccent(
+        rememberArtworkAccentTarget(
             url = resolvedHeroUrl ?: heroUrl,
             fallback = Brand.Primary, // design-system: brand-identity
             darkTheme = inheritedPalette.isDark,
@@ -121,7 +125,7 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
             artworkAccent = accent,
         ) {
             val palette = LocalPalette.current
-            val themeAccent = LocalAccentColors.current.accent
+            val themeAccentState = rememberAnimatedColorState(LocalAccentColors.current.accent)
             val listState = rememberLazyListState()
             val lightPageReached by rememberScrolledPastHero(listState, heroHeight)
             StatusBarIconStyle(darkIcons = lightPageReached && !palette.isDark)
@@ -136,7 +140,7 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                 state = listState,
                 contentPadding = PaddingValues(bottom = Dimens.contentBottom),
             ) {
-                item {
+                motionItem {
                     Box(Modifier.fillMaxWidth().height(heroHeight)) {
                         FallbackImage(
                             urls = heroUrls,
@@ -166,7 +170,7 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                     }
                 }
 
-                item {
+                motionItem {
                     Column(
                         Modifier
                             .fillMaxWidth()
@@ -235,12 +239,14 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                             }
                         }
 
-                        TmdbPlayDock(
-                            playable = state.playable,
-                            resolving = state.resolvingPlay,
-                            accent = themeAccent,
-                            onPlay = component::play,
-                        )
+                        AnimatedColorContent(themeAccentState) { themeAccent ->
+                            TmdbPlayDock(
+                                playable = state.playable,
+                                resolving = state.resolvingPlay,
+                                accent = themeAccent,
+                                onPlay = component::play,
+                            )
+                        }
 
                         if (item.mediaType == "tv") {
                             Row(
@@ -274,12 +280,14 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                                         color = palette.sub2,
                                     )
                                 }
-                                Icon(
-                                    if (following) AppIcons.Check else AppIcons.Add,
-                                    contentDescription = null,
-                                    tint = themeAccent,
-                                    modifier = Modifier.size(18.dp),
-                                )
+                                AnimatedColorContent(themeAccentState) { themeAccent ->
+                                    Icon(
+                                        if (following) AppIcons.Check else AppIcons.Add,
+                                        contentDescription = null,
+                                        tint = themeAccent,
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                }
                             }
                         }
 
@@ -287,11 +295,13 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                                 it.reachable && it.source != null && it.itemId != null
                             }
                         ) {
-                            TmdbSourceStrip(
-                                sources = state.sources,
-                                accent = themeAccent,
-                                onSelect = component::playSource,
-                            )
+                            AnimatedColorContent(themeAccentState) { themeAccent ->
+                                TmdbSourceStrip(
+                                    sources = state.sources,
+                                    accent = themeAccent,
+                                    onSelect = component::playSource,
+                                )
+                            }
                         }
 
                         state.error?.let { error ->
@@ -331,7 +341,7 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
 
                         if (detail.genres.isNotEmpty()) {
                             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                items(detail.genres, key = { it }) { genre ->
+                                motionItems(detail.genres, key = { it }) { genre ->
                                     Text(
                                         genre,
                                         style = AppTypography.body.strong,
@@ -349,7 +359,7 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                 Text("演职人员", style = AppTypography.section.strong, color = palette.text)
                                 LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                                    items(detail.cast, key = { it.id }) { person ->
+                                    motionItems(detail.cast, key = { it.id }) { person ->
                                         Column(
                                             Modifier.width(70.dp),
                                             horizontalAlignment = Alignment.CenterHorizontally,
@@ -400,7 +410,9 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                                 Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.Center,
                             ) {
-                                OrbProgress(size = 18.dp, color = themeAccent)
+                                AnimatedColorContent(themeAccentState) { themeAccent ->
+                                    OrbProgress(size = 18.dp, color = themeAccent)
+                                }
                             }
                         }
                     }
@@ -424,7 +436,7 @@ private fun TmdbSourceStrip(
     LazyRow(
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        itemsIndexed(
+        motionItemsIndexed(
             availableSources,
             key = { index, entry -> "tmdb-source-${entry.serverId}-${entry.itemId}-$index" },
         ) { _, entry ->
@@ -505,9 +517,7 @@ private fun TmdbPlayDock(
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (resolving) {
-                    OrbProgress(size = 15.dp, color = Color.White)
-                } else {
+                InlineLoadingContent(loading = resolving, slotSize = 15.dp, color = Color.White) {
                     Icon(AppIcons.Play, null, tint = Color.White, modifier = Modifier.size(14.dp))
                 }
                 Spacer(Modifier.width(8.dp))

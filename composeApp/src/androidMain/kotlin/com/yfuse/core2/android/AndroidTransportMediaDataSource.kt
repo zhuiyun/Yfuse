@@ -13,7 +13,11 @@ import com.yfuse.core2.network.YSourceProtocol
 import com.yfuse.core2.network.YTransportCredentials
 import com.yfuse.core2.network.YTransportFailureKind
 import com.yfuse.core2.network.mediaRangeRetryDelayMs
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import java.io.File
 import java.io.IOException
@@ -47,6 +51,8 @@ internal class AndroidTransportMediaDataSource(
     private val onBlockingReadStateChanged: ((Boolean) -> Unit)? = null,
     blockSizeOverride: Int? = null,
     private val rangeReadBudgetMs: Long = 30_000L,
+    /** Only bounded background warmers opt in; playback keeps non-blocking cache admission. */
+    private val persistReadBlocks: Boolean = false,
     memoryLeaseOverride: PlaybackMemoryLease? = null,
     private val allowsSpeculativeWork: () -> Boolean = { AndroidPlaybackMemoryBudget.allowsSpeculativeWork },
     private val refreshMemoryPressure: () -> Unit = AndroidPlaybackMemoryBudget::refreshPressure,
@@ -57,6 +63,14 @@ internal class AndroidTransportMediaDataSource(
     /** Cancels only the current read. A later seek/read uses a fresh transport and coroutine. */
     fun cancelPendingRead() {
         foregroundRead?.cancel()
+    }
+
+    /** Permanently stops admission before cancelling I/O; final cache disposal stays on its owner. */
+    fun cancelReads() {
+        closed = true
+        closedLatch.countDown()
+        cancelPendingRead()
+        prefetchExecutor.shutdownNow()
     }
 
     private val cachePlan =
@@ -188,6 +202,7 @@ internal class AndroidTransportMediaDataSource(
 
     @Volatile
     private var closed = false
+    private val resourcesClosed = AtomicBoolean(false)
 
     /** Released by [close] so a retry wait on the extractor thread ends immediately. */
     private val closedLatch = CountDownLatch(1)
@@ -407,7 +422,13 @@ internal class AndroidTransportMediaDataSource(
             if (completeBlock) {
                 cache(blockIndex, loaded.bytes)
                 if (loaded.bytes.isNotEmpty() && !loaded.fromDiskCache) {
-                    diskCache?.enqueueWriteBlock(blockIndex, loaded.bytes, knownSize.takeIf { it >= 0L })
+                    diskCache?.let { persistent ->
+                        if (persistReadBlocks) {
+                            persistent.writeBlock(blockIndex, loaded.bytes, knownSize.takeIf { it >= 0L })
+                        } else {
+                            persistent.enqueueWriteBlock(blockIndex, loaded.bytes, knownSize.takeIf { it >= 0L })
+                        }
+                    }
                 }
             } else if (loaded.bytes.isNotEmpty()) {
                 // A startup slice is addressed by its real offset and is never a persistent block.
@@ -1064,6 +1085,9 @@ internal class AndroidTransportMediaDataSource(
         return knownSize
     }
 
+    /** Optional warmers await their bounded writes; normal playback never blocks on this. */
+    fun awaitCacheWrites(timeoutMs: Long): Boolean = diskCache?.awaitPendingWrites(timeoutMs) ?: true
+
     /**
      * Not `@Synchronized` on purpose. [readAt] holds this instance's monitor for the whole of a
      * blocking range fetch, so a synchronized close would wait for a stalled origin before it
@@ -1071,8 +1095,9 @@ internal class AndroidTransportMediaDataSource(
      * Shutdown is therefore signalled and the sockets are closed first; the monitor is only taken
      * afterwards, to drop the cached blocks once the reader has unwound.
      */
+
     override fun close() {
-        if (closed) return
+        if (!resourcesClosed.compareAndSet(false, true)) return
         closed = true
         cancelPendingRead()
         closedLatch.countDown()
@@ -1319,17 +1344,23 @@ private class YForegroundRangeRead {
     }
 
     fun cancel() {
-        abandoned.set(true)
+        if (!abandoned.compareAndSet(false, true)) return
         cancelLatch.countDown()
         job.cancel()
         val active = synchronized(this) { transport }
-        active?.let { runCatching { runBlocking { it.close() } } }
+        // A UI exit/deadline only signals shutdown. The transport remains owned by cleanup until
+        // its blocking close completes; waiting for that close here can stall the main thread.
+        active?.let { transport ->
+            foregroundRangeCleanup.launch { runCatching { transport.close() } }
+        }
     }
 
     fun finish() {
         job.complete()
     }
 }
+
+private val foregroundRangeCleanup = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
 private class YRangeReadException(
     val failureKind: YTransportFailureKind,

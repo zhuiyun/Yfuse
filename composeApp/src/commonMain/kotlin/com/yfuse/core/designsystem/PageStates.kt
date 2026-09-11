@@ -12,8 +12,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -25,9 +23,11 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.MotionDurationScale
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
@@ -38,8 +38,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.flow.first
 import kotlin.math.PI
 import kotlin.math.cos
+import com.yfuse.core.designsystem.ThemeIcon as Icon
+import com.yfuse.core.designsystem.ThemeText as Text
 
 @Composable
 fun ErrorState(
@@ -136,12 +139,12 @@ private fun AccentChipButton(
 @Composable
 fun skeletonFill(): Color = if (LocalPalette.current.isDark) Color.White.copy(alpha = 0.08f) else Color(0x2996A0B4)
 
-internal const val SKELETON_PULSE_MS_INT = 1_600
-private const val SKELETON_PULSE_MS = 1_600f
+internal const val SKELETON_PULSE_MS_INT = Motion.SKELETON_PULSE
+private const val SKELETON_PULSE_MS = Motion.SKELETON_PULSE * 1f
 private const val SKELETON_PULSE_FLOOR = 0.45f
 
 /** One sweep crosses in the first [SKELETON_SWEEP_ACTIVE] of the period, then rests. */
-internal const val SKELETON_SWEEP_MS = 2_800f
+internal const val SKELETON_SWEEP_MS = Motion.SKELETON_SWEEP * 1f
 private const val SKELETON_SWEEP_ACTIVE = 0.7f
 
 @Stable
@@ -198,7 +201,13 @@ fun SkeletonPulseProvider(content: @Composable () -> Unit) {
             clock.millis.longValue = -1L
             return@LaunchedEffect
         }
+        val durationScale = coroutineContext[MotionDurationScale]
         while (true) {
+            if (durationScale?.scaleFactor == 0f) {
+                clock.alpha.floatValue = 1f
+                clock.millis.longValue = -1L
+                snapshotFlow { durationScale.scaleFactor }.first { it > 0f }
+            }
             withInfiniteAnimationFrameMillis { millis ->
                 clock.alpha.floatValue = skeletonPulseAt(millis)
                 clock.millis.longValue = millis
@@ -311,6 +320,6 @@ fun SkeletonRail(
 }
 
 /** Phase between neighbouring placeholders in a row or along a grid diagonal. */
-const val SKELETON_PHASE_STEP_MS = 110
+const val SKELETON_PHASE_STEP_MS = Motion.SKELETON_PHASE_STEP
 private const val SWEEP_ALPHA_DARK = 0.07f
 private const val SWEEP_ALPHA_LIGHT = 0.09f

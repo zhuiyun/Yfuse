@@ -2,6 +2,7 @@ package com.yfuse.core2.android
 
 import android.content.Context
 import com.yfuse.core.data.PlaybackNetworkClass
+import com.yfuse.core.logging.AppLog
 import com.yfuse.core.network.currentPlaybackNetworkClass
 import com.yfuse.core2.adaptive.YAdaptiveBandwidthEstimator
 import com.yfuse.core2.adaptive.YAdaptiveEncryptionMethod
@@ -750,6 +751,7 @@ internal class AndroidYCoreHttpProxy(
         // Stop admission and close client sockets before cancelling upstream I/O. No worker wait
         // belongs here: range sources retain their cache/memory leases until their finally runs.
         runCatching { server.close() }
+        activeRangeSources.forEach(AndroidTransportMediaDataSource::cancelReads)
         requests.close()
         manifestDiscovery.close()
         presentations.clear()
@@ -785,7 +787,20 @@ internal class AndroidYCoreHttpProxy(
 
     private fun acceptLoop() {
         while (!closed.get()) {
-            val socket = runCatching { server.accept() }.getOrNull() ?: break
+            val socket =
+                try {
+                    server.accept()
+                } catch (error: Exception) {
+                    if (!closed.get()) {
+                        AppLog.error(
+                            "player.proxy",
+                            "accept_failed",
+                            "Playback proxy stopped accepting connections unexpectedly",
+                            throwable = error,
+                        )
+                    }
+                    break
+                }
             val registration = requests.register { runCatching { socket.close() } }
             if (registration == null) continue
             runCatching {

@@ -1,6 +1,6 @@
 package com.yfuse.harmony.entry.storage
 
-import encoding.json.*
+import stdx.encoding.json.*
 import std.collection.*
 import com.yfuse.harmony.entry.data.*
 
@@ -82,7 +82,7 @@ public class JsonRegistryCodec <: RegistryCodec {
                 }
                 for (routeValue in routeValues.getItems()) {
                     let route = routeValue.asObject()
-                    routes.append(ServerRoute(
+                    routes.add(ServerRoute(
                         optionalString(route, "id"),
                         optionalString(route, "name"),
                         optionalString(route, "url")
@@ -103,7 +103,7 @@ public class JsonRegistryCodec <: RegistryCodec {
                     health: healthFromName(optionalString(source, "health")),
                     localCleartextConfirmed: optionalBool(source, "localCleartextConfirmed")
                 )
-                if (!server.id.isEmpty() && !server.secretRef.isEmpty()) { result.append(server) }
+                if (!server.id.isEmpty() && !server.secretRef.isEmpty()) { result.add(server) }
             }
             return ApiResult<(ArrayList<SavedServer>, String)>.Success((result, optionalString(root, "defaultServerId")))
         } catch (_: Exception) {

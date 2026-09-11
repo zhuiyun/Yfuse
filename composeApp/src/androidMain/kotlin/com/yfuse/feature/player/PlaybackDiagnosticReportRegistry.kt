@@ -10,6 +10,7 @@ import java.io.File
 import java.io.InputStream
 import java.security.MessageDigest
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 import java.util.zip.ZipFile
 
@@ -38,7 +39,7 @@ internal object PlaybackDiagnosticReportRegistry {
             ?.let { stored ->
                 latest.set(
                     Snapshot(
-                        content = redactDiagnosticText(stored).take(MAX_REPORT_CHARS),
+                        content = restorePlaybackReportOrigin(redactDiagnosticText(stored)).take(MAX_REPORT_CHARS),
                         observedAtEpochMs = preferences.getLong(KEY_OBSERVED_AT, 0L),
                         currentProcess = false,
                     ),
@@ -50,12 +51,20 @@ internal object PlaybackDiagnosticReportRegistry {
             ?.filter(String::isNotBlank)
             ?.toList()
             ?.takeLast(MAX_TIMELINE_ENTRIES)
-            ?.forEach(timeline::addLast)
+            ?.forEach { entry ->
+                synchronized(timelineLock) {
+                    timeline.addLast(
+                        restorePlaybackTimelineOrigin(redactDiagnosticText(entry)).take(MAX_TIMELINE_ENTRY_CHARS),
+                    )
+                }
+            }
         DiagnosticLogStore.registerExportArtifact("playback-report.txt") {
             val snapshot = latest.get()
             buildString {
                 appendLine("Yfuse playback diagnostic")
                 appendLine("app.version=${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
+                appendLine("app.build.revision=${BuildConfig.BUILD_REVISION}")
+                appendLine("app.version.scope=exporting-package")
                 appendLine(
                     "session.origin=" +
                         when {
@@ -86,19 +95,45 @@ internal object PlaybackDiagnosticReportRegistry {
         }
     }
 
+    private data class ReportInput(
+        val diagnostics: PlaybackDiagnostics,
+        val subtitleSelection: String,
+        val selectedEngine: PlayerEngine,
+        val fallbackChain: List<PlayerEngine>,
+        val nativeOnly: Boolean,
+    )
+
+    private var lastReportInput: ReportInput? = null
+    private val sequence = AtomicLong()
+    private var lastAppliedSequence = 0L
+
+    fun nextSequence(): Long = sequence.incrementAndGet()
+
+    @Synchronized
     fun update(
         state: PlaybackState,
         selectedEngine: PlayerEngine,
         fallbackChain: List<PlayerEngine>,
         nativeOnly: Boolean = false,
+        updateSequence: Long = nextSequence(),
     ) {
+        if (updateSequence <= lastAppliedSequence) return
+        lastAppliedSequence = updateSequence
         val diagnostics = state.diagnostics
+        recordTimeline(state, selectedEngine, nativeOnly)
+        val subtitleSelection = playbackSubtitleDiagnosticSelection(state)
+        val input = ReportInput(diagnostics, subtitleSelection, selectedEngine, fallbackChain.toList(), nativeOnly)
+        if (input == lastReportInput) return
         val evidence = diagnostics.outputEvidence
         val mpv = diagnostics.mpvDolbyRuntimeEvidence()
-        recordTimeline(state, selectedEngine, nativeOnly)
         val report =
             redactDiagnosticText(
                 buildString {
+                    appendLine("session.metadata=2")
+                    appendLine("session.appVersion=${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
+                    appendLine("session.appBuild=${BuildConfig.BUILD_REVISION}")
+                    appendLine("session.process=${DiagnosticLogStore.processSessionId}")
+                    appendLine("subtitle.selection=$subtitleSelection")
                     appendLine(
                         "engine.selected=" +
                             if (nativeOnly) YCORE2_NATIVE_ENGINE_LABEL else selectedEngine.name,
@@ -161,6 +196,7 @@ internal object PlaybackDiagnosticReportRegistry {
                     appendLine("mpv.evidence.generation=${mpv.generation}")
                 },
             ).take(MAX_REPORT_CHARS)
+        lastReportInput = input
         val previous = latest.get()
         if (previous.currentProcess && previous.content == report) return
         val now = System.currentTimeMillis()
@@ -200,6 +236,7 @@ internal object PlaybackDiagnosticReportRegistry {
                 diagnostics.networkRecoveryAttempts,
                 diagnostics.networkRecoverySuccesses,
                 evidence.surfaceRebuildCount,
+                playbackSubtitleDiagnosticSelection(state),
             ).joinToString("|")
         synchronized(timelineLock) {
             if (fingerprint == lastTimelineFingerprint) return
@@ -207,6 +244,10 @@ internal object PlaybackDiagnosticReportRegistry {
             val entry =
                 redactDiagnosticText(
                     buildString {
+                        append("timelineVersion=2 appVersion=${BuildConfig.VERSION_NAME}_${BuildConfig.VERSION_CODE}")
+                        append(
+                            " appBuild=${BuildConfig.BUILD_REVISION} process=${DiagnosticLogStore.processSessionId} ",
+                        )
                         append("at=")
                         append(System.currentTimeMillis())
                         append(" positionMs=")
@@ -237,6 +278,8 @@ internal object PlaybackDiagnosticReportRegistry {
                         append(diagnostics.networkRecoveryAttempts)
                         append(" surfaceRebuilds=")
                         append(evidence.surfaceRebuildCount)
+                        append(" subtitles=")
+                        append(playbackSubtitleDiagnosticSelection(state))
                         diagnostics.fallbackReason?.takeIf(String::isNotBlank)?.let { reason ->
                             append(" fallback=")
                             append(reason)
@@ -342,6 +385,41 @@ internal object PlaybackDiagnosticReportRegistry {
     private const val MAX_REPORT_CHARS = 64 * 1024
     private const val MAX_TIMELINE_ENTRIES = 80
     private const val MAX_TIMELINE_ENTRY_CHARS = 768
+}
+
+/** Old persisted lines do not carry enough evidence to assign them to the exporting build. */
+internal fun restorePlaybackTimelineOrigin(entry: String): String =
+    if (
+        entry.startsWith("timelineVersion=") &&
+        listOf(" appVersion=", " appBuild=", " process=").all(entry::contains)
+    ) {
+        entry
+    } else {
+        "timelineVersion=legacy-unknown appVersion=unknown appBuild=unknown process=unknown $entry"
+    }
+
+internal fun restorePlaybackReportOrigin(report: String): String =
+    if (
+        report.startsWith("session.metadata=") &&
+        listOf("\nsession.appVersion=", "\nsession.appBuild=", "\nsession.process=").all(report::contains)
+    ) {
+        report
+    } else {
+        "session.metadata=legacy-unknown\nsession.appVersion=unknown\nsession.appBuild=unknown\nsession.process=unknown\n$report"
+    }
+
+/** Track ordinals and format/language only: external-track IDs and labels can contain URLs. */
+internal fun playbackSubtitleDiagnosticSelection(state: PlaybackState): String {
+    fun format(index: Int): String {
+        val track = state.subtitleTracks.getOrNull(index) ?: return "off-or-unavailable"
+
+        fun token(value: String?) =
+            value?.takeIf { it.matches(Regex("[A-Za-z0-9][A-Za-z0-9_./+-]{0,63}")) } ?: "unknown"
+        return "$index:${token(track.language)}:${token(track.codec)}"
+    }
+    val primary = state.subtitleTracks.indexOfFirst { it.selected }
+    val secondary = state.subtitleTracks.indexOfFirst { it.id == state.secondarySubtitleTrackId }
+    return "primary[${format(primary)}],secondary[${format(secondary)}]"
 }
 
 /**

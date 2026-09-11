@@ -424,7 +424,7 @@ val TabBarInset = Dimens.contentBottom
  * 开启「减弱动态效果」后全部降为瞬时切换（see [AccessibilityPreferences] consumers).
  */
 object Motion {
-    /** `cubic-bezier(.32,.72,0,1)` — the single easing used by every transition. */
+    /** `cubic-bezier(.32,.72,0,1)` — the default easing; tuned dialog curves are kept in [Dialog]. */
     val Curve =
         androidx.compose.animation.core
             .CubicBezierEasing(0.32f, 0.72f, 0f, 1f)
@@ -438,6 +438,55 @@ object Motion {
 
     const val STATE_HANDOFF = 150
     const val DISCLOSURE = 160
+
+    // Decorative periods and individually tuned arrivals retain their existing timing.
+    const val DETAIL_LOADING_BLOOM = 6_000
+    const val DOWNLOAD_FLOW = 1_400
+    const val DOWNLOAD_COMPLETE = 380
+    const val THEME_CROSSFADE = 380
+    const val ORB_COMET = 1_200
+    const val ARTWORK_REVEAL = 400
+    const val POSTER_FADE = 180
+    const val NEXT_UP_INTERPOLATION = 500
+    const val SEARCH_REVEAL = 1100
+    const val SEARCH_ROW_STAGGER = 55
+    const val WAIT_HALF_CYCLE = 850
+    const val ARRIVAL_REVEAL = 480
+    const val ATTENTION_SWEEP = 520
+    const val BURST = 420
+    const val BURST_RELEASE = 200
+    const val SKELETON_PULSE = 1_600
+    const val SKELETON_SWEEP = 2_800
+    const val SKELETON_PHASE_STEP = 110
+    const val PLAYER_SEEK_FEEDBACK = 420
+    const val AMBIENT_LIGHT_FADE = 600
+    const val CONTINUITY_ENTER = 140
+    const val CONTINUITY_EXIT = 320
+    const val OLED_PROTECTION = 450
+    const val PLAYER_CHROME_STAGGER = 40
+    const val WATCH_REACTION = 2_600
+    const val STICKER_CLOCK = 60_000
+    const val TAB_SWEEP = 520
+    const val TAB_SWEEP_DELAY = 90
+
+    /** Shared dialog timing slots; stored enum names and all existing durations stay intact. */
+    object Dialog {
+        const val ENTER_QUICK = 360
+        const val ENTER_STANDARD = 380
+        const val ENTER_EMPHASIZED = 400
+        const val ENTER_EXTENDED = 420
+        const val EXIT_QUICK = 240
+        const val EXIT_COMPACT = 250
+        const val EXIT_STANDARD = 260
+        const val EXIT_EMPHASIZED = 280
+        const val EXIT_EXTENDED = 300
+        val EnterCurve =
+            androidx.compose.animation.core
+                .CubicBezierEasing(0.2f, 0.45f, 0.25f, 1f)
+        val ExitCurve =
+            androidx.compose.animation.core
+                .CubicBezierEasing(0.4f, 0f, 0.75f, 0.65f)
+    }
 
     // ------------------------------------------------------------ 弹簧
     //
@@ -500,7 +549,26 @@ object Motion {
         if (reduceMotion) {
             snap()
         } else {
-            spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMedium)
+            spring(dampingRatio = 0.76f, stiffness = 460f)
+        }
+
+    /** The dragged liquid edge is tighter than its tail; release retains the tuned weight. */
+    fun liquidTabEdge(
+        reduceMotion: Boolean,
+        dragging: Boolean,
+        leading: Boolean,
+    ): FiniteAnimationSpec<Float> =
+        if (reduceMotion) {
+            snap()
+        } else {
+            val stiffness =
+                when {
+                    dragging && leading -> 700f
+                    dragging -> 240f
+                    leading -> 300f
+                    else -> 155f
+                }
+            spring(dampingRatio = 0.92f, stiffness = stiffness)
         }
 
     /** 推进（详情 / 类型 / 下载）— 右侧 30px 滑入 + 淡入. */

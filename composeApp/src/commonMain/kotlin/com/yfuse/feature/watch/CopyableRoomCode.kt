@@ -2,7 +2,6 @@ package com.yfuse.feature.watch
 
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -18,10 +17,12 @@ import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.contentHandoff
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.util.rememberShareHandler
 import kotlinx.coroutines.delay
+import com.yfuse.core.designsystem.ThemeText as Text
 
 /** A consistent room-code affordance used anywhere the full code is presented. */
 @Composable
@@ -66,6 +67,7 @@ fun CopyableRoomCode(
         )
         Text(
             text = if (copied) "已复制房间码" else "点击或长按复制房间码",
+            modifier = Modifier.contentHandoff(copied),
             style = AppTypography.caption.medium,
             color = if (copied) accent.accent else palette.sub2,
             textAlign = TextAlign.Center,

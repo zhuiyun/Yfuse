@@ -275,6 +275,8 @@ val verifyStandaloneYCoreArtifact by tasks.registering {
             "ycore-tone-map-source=scripts/native/ycore_tone_map.h",
             "ycore-libass=0.17.4",
             "ycore-libass-api=2",
+            "ycore-subtitle-display-set-api=2",
+            "ycore-demux-cancellation-api=1",
             "ycore-disc-api=2",
             "ycore-bdmv-vfs=read-only-saf",
             "ycore-gpu-api=2",
@@ -774,9 +776,9 @@ kotlin {
 }
 
 /**
- * Ed25519 public key (base64 SubjectPublicKeyInfo) that update manifests must be signed with.
- * Empty means no signing is configured: debug builds then accept unsigned manifests with a
- * warning, release builds refuse them. The publish workflow refuses to release without it.
+ * Optional Ed25519 public key (base64 SubjectPublicKeyInfo) for update-manifest signatures.
+ * An empty key keeps the standard update path available. APK signing and downloaded-package
+ * certificate verification remain independent requirements.
  */
 val updateManifestPublicKey: String =
     providers
@@ -786,6 +788,9 @@ val updateManifestPublicKey: String =
         .orElse(providers.environmentVariable("YFUSE_UPDATE_MANIFEST_PUBLIC_KEY"))
         .getOrElse("")
         .trim()
+
+apply(from = rootProject.file("gradle/diagnostic-build.gradle.kts"))
+val diagnosticBuildRevision = extra["yfuseDiagnosticBuildRevision"] as String
 
 // TMDB token comes from local.properties (gitignored) so it never lands in git.
 val tmdbToken: String =
@@ -949,6 +954,7 @@ android {
 
         buildConfigField("String", "TMDB_TOKEN", "\"$tmdbToken\"")
         buildConfigField("String", "UPDATE_MANIFEST_PUBLIC_KEY", "\"$updateManifestPublicKey\"")
+        buildConfigField("String", "BUILD_REVISION", "\"$diagnosticBuildRevision\"")
         buildConfigField("boolean", "YFUSE_MDK_INCLUDED", includeMdk.toString())
         buildConfigField("boolean", "YFUSE_NATIVE_ONLY_RUNTIME", nativeOnlyRuntime.toString())
         buildConfigField("boolean", "YFUSE_YCORE_GPU_INCLUDED", packagedYCoreGpu.toString())
@@ -1242,5 +1248,28 @@ tasks.configureEach {
         dependsOn(verifyProductionMdkRights)
         dependsOn(verifyProductionYCoreGpu)
         dependsOn(verifyReleaseMetadata)
+    }
+}
+
+// Successful verification is reusable only for exactly the same inputs and validation code.
+// --rerun-tasks still forces every check; failure never writes a success marker.
+listOf(
+    verifyCustomMpvArtifact,
+    verifyStandaloneYCoreArtifact,
+    verifyYCoreGpuCompanionArtifact,
+    verifyMdkArtifact,
+    verifyMediaTestManifest,
+    verifyBehavioralTestBoundaries,
+).forEach { verification ->
+    verification.configure {
+        inputs.file(layout.projectDirectory.file("build.gradle.kts"))
+        val marker = layout.buildDirectory.file("verification/$name.success")
+        outputs.file(marker)
+        doLast {
+            marker.get().asFile.apply {
+                parentFile.mkdirs()
+                writeText("verified\n")
+            }
+        }
     }
 }

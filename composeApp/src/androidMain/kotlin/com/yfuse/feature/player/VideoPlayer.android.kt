@@ -29,6 +29,9 @@ actual fun PendingPlayerLauncher(
                     startPlaybackRequested = startPlaybackRequested,
                 ).also { createdIntent ->
                     launchIntent = createdIntent
+                    com.yfuse.core.designsystem.PlayerArtworkOrigins.issueLaunch()?.let {
+                        createdIntent.putExtra(PLAYER_ARTWORK_TOKEN, it)
+                    }
                     context.startActivity(createdIntent)
                 }
         }.onSuccess {
@@ -86,6 +89,9 @@ actual fun PlayerLauncher(
                     startPlaybackRequested = startPlaybackRequested,
                 ).also { createdIntent ->
                     launchIntent = createdIntent
+                    com.yfuse.core.designsystem.PlayerArtworkOrigins.issueLaunch()?.let {
+                        createdIntent.putExtra(PLAYER_ARTWORK_TOKEN, it)
+                    }
                     context.startActivity(createdIntent)
                 }
         }.onSuccess {

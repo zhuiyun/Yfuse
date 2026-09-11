@@ -6,10 +6,10 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableLongStateOf
@@ -24,6 +24,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.rememberTextMeasurer
@@ -42,6 +43,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlin.math.max
+import com.yfuse.core.designsystem.ThemeText as Text
 
 private const val MAX_CACHED_DANMAKU_ENTRIES = 2_048
 private const val FIXED_DURATION_MS = 4_000L
@@ -327,7 +329,9 @@ fun DanmakuOverlay(
                 ) {
                     HashMap<Int, Int>()
                 }
-            val timeBucket = renderedPositionMs.floorDiv(WINDOW_BUCKET_MS)
+            val timeBucket by remember {
+                derivedStateOf { renderedPositionMs.floorDiv(WINDOW_BUCKET_MS) }
+            }
             val placements =
                 remember(
                     comments,
@@ -386,21 +390,8 @@ fun DanmakuOverlay(
                     } else {
                         FIXED_DURATION_MS
                     }
-                val elapsed = renderedPositionMs - comment.timeMs
-                if (elapsed !in 0..duration) return@forEach
-
                 key(placement.input.index, comment.timeMs, comment.displayText) {
                     val measuredWidth = placement.input.width.dp
-                    val x =
-                        when (comment.kind) {
-                            DanmakuKind.Scroll -> {
-                                val progress = (elapsed.toFloat() / duration).coerceIn(0f, 1f)
-                                maxWidth - (maxWidth + measuredWidth) * progress
-                            }
-                            DanmakuKind.Top,
-                            DanmakuKind.Bottom,
-                            -> (maxWidth - measuredWidth).coerceAtLeast(0.dp) / 2f
-                        }
                     val y = laneHeight * placement.lane.toFloat()
                     Text(
                         text = comment.displayText,
@@ -411,7 +402,22 @@ fun DanmakuOverlay(
                         style = textStyle,
                         // Offsetting in the layout phase keeps each frame's move from
                         // re-measuring the text; only placement changes.
-                        modifier = Modifier.offset { IntOffset(x.roundToPx(), y.roundToPx()) },
+                        modifier =
+                            Modifier
+                                .offset {
+                                    val elapsed = renderedPositionMs - comment.timeMs
+                                    val x =
+                                        when (comment.kind) {
+                                            DanmakuKind.Scroll -> {
+                                                val progress = (elapsed.toFloat() / duration).coerceIn(0f, 1f)
+                                                maxWidth - (maxWidth + measuredWidth) * progress
+                                            }
+                                            else -> (maxWidth - measuredWidth).coerceAtLeast(0.dp) / 2f
+                                        }
+                                    IntOffset(x.roundToPx(), y.roundToPx())
+                                }.graphicsLayer {
+                                    alpha = if (renderedPositionMs - comment.timeMs in 0..duration) 1f else 0f
+                                },
                     )
                 }
             }

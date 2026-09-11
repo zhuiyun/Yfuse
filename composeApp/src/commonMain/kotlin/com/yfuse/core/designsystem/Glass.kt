@@ -267,25 +267,27 @@ private fun Modifier.glassMaterial(
         } else {
             materialBorder
         }
-    val surface =
-        when {
-            accessibility.reduceTransparency -> {
-                val opaque = reducedTransparencyFill(fill, palette)
-                Brush.linearGradient(listOf(opaque, opaque))
+    val animatedFill = rememberThemeConsumerColor(fill)
+    val animatedBorder = rememberThemeConsumerColor(resolvedBorder ?: Color.Transparent)
+    return clip(shape).drawWithCache {
+        val outline = shape.createOutline(size, layoutDirection, this)
+        val stroke = Stroke(Dimens.hairline.toPx() * 2f)
+        // The cache observes paint state, so steady surfaces reuse their brush between draws.
+        val color = animatedFill.value
+        val surface =
+            when {
+                accessibility.reduceTransparency -> {
+                    val opaque = reducedTransparencyFill(color, palette)
+                    Brush.linearGradient(listOf(opaque, opaque))
+                }
+                frosted -> frostedSurfaceBrush(color, palette, weight.frostDensity)
+                else -> liquidSurfaceBrush(color, palette, weight)
             }
-
-            frosted -> frostedSurfaceBrush(fill, palette, weight.frostDensity)
-            else -> liquidSurfaceBrush(fill, palette, weight)
+        onDrawBehind {
+            drawOutline(outline, brush = surface)
+            if (resolvedBorder != null) drawOutline(outline, animatedBorder.value, style = stroke)
         }
-    return clip(shape)
-        .background(surface)
-        .let { modifier ->
-            if (resolvedBorder != null) {
-                modifier.border(Dimens.hairline, resolvedBorder, shape)
-            } else {
-                modifier
-            }
-        }
+    }
 }
 
 /**
@@ -360,73 +362,16 @@ fun Modifier.liquidGlass(
     over: Color = if (LocalPalette.current.isDark) LocalPalette.current.background else Color.White,
     sheen: Float = 1f,
 ): Modifier {
-    val palette = LocalPalette.current
-    val accessibility = LocalAccessibilityOptions.current
-    if (LocalMutedGlass.current) return mutedGlassControl(shape, fill, border)
-    val materialBorder = resolveGlassMaterialBorder(border, palette)
-    if (accessibility.reduceTransparency) {
-        val flat = reducedTransparencyFill(fill, palette, over)
-        val edge = reducedTransparencyBorder(materialBorder, palette)
-        return this
-            .clip(shape)
-            .background(flat)
-            .let { modifier ->
-                if (edge != null) modifier.border(Dimens.hairline, edge, shape) else modifier
-            }
-    }
-    // 毛玻璃 uses the same diffused mist and density ramp as every other surface. It never
-    // inherits liquid glass's specular sweep or raised button body.
-    if (frostedGlass()) {
-        if (fill.alpha <= 0.001f && materialBorder == null) return this.clip(shape)
-        val frost = frostedSurfaceBrush(fill, palette, GlassSurfaceWeight.Strong.frostDensity)
-        val frostBorder = frostedMaterialBorder(materialBorder, palette)
-        return this
-            .clip(shape)
-            .background(frost)
-            .let { modifier ->
-                if (frostBorder != null) {
-                    modifier.border(Dimens.hairline, frostBorder, shape)
-                } else {
-                    modifier
-                }
-            }
-    }
-    // The theme is the wrong signal here — the play key is pale glass under both, and 返回
-    // is dense glass over artwork on the light one. What the fill composites to is the right
-    // one, so that is what the ramps are keyed off.
-    val pale = fill.compositeOver(over).luminance() > 0.42f
-    val depth = if (pale) Color(0xFF8CA1C1) else Color(0xFF04070E)
-    val body =
-        Brush.verticalGradient(
-            0f to
-                lerp(fill, Color.White, if (pale) 0.38f else 0.16f)
-                    .copy(alpha = (fill.alpha * 1.18f).coerceAtMost(1f)),
-            0.50f to fill,
-            1f to
-                lerp(fill, depth, if (pale) 0.16f else 0.30f)
-                    .copy(alpha = (fill.alpha * 0.96f).coerceAtMost(1f)),
-        )
-    val gloss =
-        cssLinearGradient(
-            145f,
-            0f to Color.White.copy(alpha = (if (pale) 0.58f else 0.28f) * sheen),
-            0.20f to Color.White.copy(alpha = (if (pale) 0.14f else 0.06f) * sheen),
-            0.52f to Color.Transparent,
-            1f to Color.White.copy(alpha = (if (pale) 0.20f else 0.10f) * sheen),
-        )
-    return this
-        .clip(shape)
-        .drawWithCache {
-            val outline = shape.createOutline(size, layoutDirection, this)
-            val stroke = Stroke(Dimens.hairline.toPx() * 2f)
-            onDrawBehind {
-                drawOutline(outline, brush = body)
-                drawOutline(outline, brush = gloss)
-                if (materialBorder != null) {
-                    drawOutline(outline, color = materialBorder, style = stroke)
-                }
-            }
-        }
+    val animatedFill = rememberThemeConsumerColor(fill)
+    val animatedBorder = rememberThemeConsumerColor(border ?: Color.Transparent)
+    val animatedOver = rememberThemeConsumerColor(over)
+    return liquidGlass(
+        shape,
+        { animatedFill.value },
+        { if (border != null) animatedBorder.value else null },
+        { animatedOver.value },
+        sheen,
+    )
 }
 
 /**
@@ -670,3 +615,90 @@ fun Modifier.shadow(
     shadow: CssShadow,
     shape: Shape,
 ): Modifier = cssShadow(shadow.offsetX, shadow.offsetY, shadow.blur, shadow.spread, shadow.color, shape)
+
+/** Shared paint math for fixed and animated material; geometry never depends on the frame colour. */
+private fun liquidGlassBrushes(
+    fill: Color,
+    over: Color,
+    sheen: Float,
+): Pair<Brush, Brush> {
+    // The theme is the wrong signal here — the play key is pale glass under both, and 返回
+    // is dense glass over artwork on the light one. What the fill composites to is the right
+    // one, so that is what the ramps are keyed off.
+    val pale = fill.compositeOver(over).luminance() > 0.42f
+    val depth = if (pale) Color(0xFF8CA1C1) else Color(0xFF04070E)
+    val body =
+        Brush.verticalGradient(
+            0f to
+                lerp(fill, Color.White, if (pale) 0.38f else 0.16f)
+                    .copy(alpha = (fill.alpha * 1.18f).coerceAtMost(1f)),
+            0.50f to fill,
+            1f to
+                lerp(fill, depth, if (pale) 0.16f else 0.30f)
+                    .copy(alpha = (fill.alpha * 0.96f).coerceAtMost(1f)),
+        )
+    val gloss =
+        cssLinearGradient(
+            145f,
+            0f to Color.White.copy(alpha = (if (pale) 0.58f else 0.28f) * sheen),
+            0.20f to Color.White.copy(alpha = (if (pale) 0.14f else 0.06f) * sheen),
+            0.52f to Color.Transparent,
+            1f to Color.White.copy(alpha = (if (pale) 0.20f else 0.10f) * sheen),
+        )
+    return body to gloss
+}
+
+/** Animated material inputs are read during drawing, not by the enclosing screen composition. */
+@Composable
+fun Modifier.liquidGlass(
+    shape: Shape,
+    fill: () -> Color,
+    border: () -> Color?,
+    over: () -> Color,
+    sheen: Float = 1f,
+): Modifier {
+    val palette = LocalPalette.current
+    val reduceTransparency = LocalAccessibilityOptions.current.reduceTransparency
+    val muted = LocalMutedGlass.current
+    val frosted = frostedGlass()
+    return clip(shape).drawWithCache {
+        val outline = shape.createOutline(size, layoutDirection, this)
+        val stroke = Stroke(Dimens.hairline.toPx() * 2f)
+        val mutedStroke = Stroke(1.dp.toPx())
+        onDrawBehind {
+            val body = fill()
+            val requestedBorder = border()
+            val edge = resolveGlassMaterialBorder(requestedBorder, palette)
+            when {
+                muted -> {
+                    val neutral = if (palette.isDark) Color(0xFF353B45) else Color(0xFFBEC3CB)
+                    drawOutline(
+                        outline,
+                        if (reduceTransparency) neutral else body.copy(alpha = body.alpha.coerceAtMost(0.10f)),
+                    )
+                    if (requestedBorder !=
+                        null
+                    ) {
+                        drawOutline(outline, Color.White.copy(alpha = 0.10f), style = mutedStroke)
+                    }
+                }
+                reduceTransparency -> {
+                    drawOutline(outline, reducedTransparencyFill(body, palette, over()))
+                    reducedTransparencyBorder(edge, palette)?.let { drawOutline(outline, it, style = stroke) }
+                }
+                frosted -> {
+                    if (body.alpha > 0.001f || edge != null) {
+                        drawOutline(outline, frostedSurfaceBrush(body, palette, GlassSurfaceWeight.Strong.frostDensity))
+                        frostedMaterialBorder(edge, palette)?.let { drawOutline(outline, it, style = stroke) }
+                    }
+                }
+                else -> {
+                    val (ramp, gloss) = liquidGlassBrushes(body, over(), sheen)
+                    drawOutline(outline, ramp)
+                    drawOutline(outline, gloss)
+                    if (edge != null) drawOutline(outline, edge, style = stroke)
+                }
+            }
+        }
+    }
+}

@@ -2,7 +2,9 @@ package com.yfuse.harmony.entry.offline
 
 import std.collection.*
 import com.yfuse.harmony.entry.data.*
+import std.deriving.*
 
+@Derive[Equatable]
 public enum OfflineState { | Queued | Resolving | Downloading | Paused | Verifying | Completed | Failed }
 
 public class DownloadRecord {

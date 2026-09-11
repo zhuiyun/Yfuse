@@ -54,6 +54,7 @@ class HomeComponent(
 ) : ComponentContext by componentContext {
     private val scope = componentScope(lifecycle)
     private var calendarJob: Job? = null
+    private var calendarGeneration = 0L
     private var calendarOpenJob: Job? = null
     private val _calendar = MutableStateFlow(HomeCalendarState())
     val calendar: StateFlow<HomeCalendarState> = _calendar.asStateFlow()
@@ -79,7 +80,7 @@ class HomeComponent(
             .map { data -> data.servers.map { it.id } }
             .distinctUntilChanged()
             .drop(1)
-            .onEach { refreshCalendar() }
+            .onEach { refreshCalendar(forceRefresh = true) }
             .launchIn(scope)
         store.labels
             .onEach { label ->
@@ -93,6 +94,8 @@ class HomeComponent(
     }
 
     fun refreshCalendar(forceRefresh: Boolean = false) {
+        if (!forceRefresh && calendarJob?.isActive == true) return
+        val generation = ++calendarGeneration
         calendarJob?.cancel()
         _calendar.update { it.copy(loading = true, error = null) }
         calendarJob =
@@ -104,20 +107,26 @@ class HomeComponent(
                     calendarRepository.homeCalendar(
                         forceRefresh = forceRefresh,
                         onPreview = { preview ->
-                            if (preview.isNotEmpty()) {
+                            if (generation == calendarGeneration && preview.isNotEmpty()) {
                                 _calendar.value = HomeCalendarState(days = preview, loading = false)
                             }
                         },
                     )
-                }.onSuccess { _calendar.value = HomeCalendarState(days = it, loading = false) }
-                    .onFailure { error ->
-                        _calendar.update { current ->
-                            current.copy(
-                                loading = false,
-                                error = (error.message ?: "追剧日历加载失败").takeIf { current.days.isEmpty() },
-                            )
-                        }
+                }.onSuccess {
+                    if (generation ==
+                        calendarGeneration
+                    ) {
+                        _calendar.value = HomeCalendarState(days = it, loading = false)
                     }
+                }.onFailure { error ->
+                    if (generation != calendarGeneration) return@onFailure
+                    _calendar.update { current ->
+                        current.copy(
+                            loading = false,
+                            error = (error.message ?: "追剧日历加载失败").takeIf { current.days.isEmpty() },
+                        )
+                    }
+                }
             }
     }
 

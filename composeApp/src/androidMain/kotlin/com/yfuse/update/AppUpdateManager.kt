@@ -20,6 +20,7 @@ import com.yfuse.core.logging.AppLog
 import com.yfuse.core.security.verifyEd25519Signature
 import com.yfuse.feature.player.PlaybackRemotePolicyRegistry
 import com.yfuse.feature.player.PlaybackRemotePolicyUnpublishedException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -191,11 +192,8 @@ internal enum class UpdateManifestTrust {
     /** Signature present and valid for the pinned key. */
     Signed,
 
-    /** No key is pinned in this build and it is a debug build: accepted, loudly. */
-    UnverifiedDebug,
-
-    /** No key is pinned in a release build: nothing can be trusted, refuse. */
-    RejectedNoKey,
+    /** No optional manifest key is configured; download and APK checks still apply. */
+    UnverifiedNoKey,
 
     /** A key is pinned but the manifest carries no signature. */
     RejectedUnsigned,
@@ -205,17 +203,16 @@ internal enum class UpdateManifestTrust {
 }
 
 /**
- * Decides whether a manifest may drive an install. TLS to a bare IP only proves the host
- * answered; this is the trust root that says the file came from the release pipeline.
+ * Applies manifest signature verification when this build pins a key. Builds without a key
+ * accept the configured update source and still verify the downloaded APK before installation.
  */
 internal fun UpdateManifest.trustVerdict(
     pinnedPublicKeyBase64: String,
-    releaseBuild: Boolean,
     verify: (publicKeyBase64: String, payload: ByteArray, signatureBase64: String) -> Boolean,
 ): UpdateManifestTrust {
     val key = pinnedPublicKeyBase64.trim()
     if (key.isEmpty()) {
-        return if (releaseBuild) UpdateManifestTrust.RejectedNoKey else UpdateManifestTrust.UnverifiedDebug
+        return UpdateManifestTrust.UnverifiedNoKey
     }
     val signature = signature?.trim()?.takeIf { it.isNotEmpty() } ?: return UpdateManifestTrust.RejectedUnsigned
     return if (verify(key, signedPayload(), signature)) {
@@ -227,10 +224,20 @@ internal fun UpdateManifest.trustVerdict(
 
 internal fun UpdateManifestTrust.rejectionMessage(): String? =
     when (this) {
-        UpdateManifestTrust.Signed, UpdateManifestTrust.UnverifiedDebug -> null
-        UpdateManifestTrust.RejectedNoKey -> "此版本未内置升级签名公钥，无法校验升级来源"
+        UpdateManifestTrust.Signed, UpdateManifestTrust.UnverifiedNoKey -> null
         UpdateManifestTrust.RejectedUnsigned -> "升级信息未签名，已拒绝"
         UpdateManifestTrust.RejectedInvalidSignature -> "升级信息签名无效，已拒绝"
+    }
+
+internal class UpdateManifestRejectedException(
+    val verdict: UpdateManifestTrust,
+) : IllegalStateException(verdict.rejectionMessage())
+
+internal fun updateCheckFailureMessage(error: Throwable): String =
+    if (error is UpdateManifestRejectedException) {
+        error.verdict.rejectionMessage() ?: "升级信息验证失败"
+    } else {
+        "暂时无法连接升级服务器"
     }
 
 /**
@@ -245,6 +252,18 @@ internal data class UpdateDownloadRecord(
     val manifest: UpdateManifest,
     val validator: String? = null,
 )
+
+/** Reapply this build's policy when restoring a record written by an older installed build. */
+internal fun UpdateDownloadRecord.validateForRestore(
+    sourceUrl: String,
+    pinnedPublicKeyBase64: String,
+    verify: (String, ByteArray, String) -> Boolean,
+): UpdateDownloadRecord {
+    manifest.validateForUpdateSource(sourceUrl)
+    val verdict = manifest.trustVerdict(pinnedPublicKeyBase64, verify)
+    if (verdict.rejectionMessage() != null) throw UpdateManifestRejectedException(verdict)
+    return this
+}
 
 /**
  * Constrains the unsigned update manifest before any APK bytes are downloaded.
@@ -811,6 +830,7 @@ class AppUpdateManager(
                     withContext(Dispatchers.IO) {
                         runCatching { PlaybackRemotePolicyRegistry.refreshFromNetwork() }
                             .onFailure { error ->
+                                if (error is CancellationException) throw error
                                 if (error is PlaybackRemotePolicyUnpublishedException) {
                                     AppLog.info(
                                         category = "player.remote_policy",
@@ -957,6 +977,7 @@ class AppUpdateManager(
                         )
                     }
                 }.onFailure { error ->
+                    if (error is CancellationException) throw error
                     // Startup remains usable when the private update host is offline.
                     AppLog.warning(
                         category = "update",
@@ -976,7 +997,7 @@ class AppUpdateManager(
                         // stale check fails, so never replace it with Error here.
                         return@onFailure
                     }
-                    publishCheckFailureIfCurrent(checkSnapshot, previous)
+                    publishCheckFailureIfCurrent(checkSnapshot, previous, updateCheckFailureMessage(error))
                 }
             }
     }
@@ -1055,10 +1076,11 @@ class AppUpdateManager(
     private fun publishCheckFailureIfCurrent(
         snapshot: UpdateCheckSnapshot,
         previous: UpdateState,
+        message: String,
     ): Boolean {
         if (!isUpdateCheckSnapshotCurrent(snapshot)) return false
         _state.value = previous as? UpdateState.Ready
-            ?: UpdateState.Error("暂时无法连接升级服务器")
+            ?: UpdateState.Error(message)
         return true
     }
 
@@ -1133,6 +1155,11 @@ class AppUpdateManager(
     @Synchronized
     fun download(manifest: UpdateManifest) {
         if (_state.value is UpdateState.Downloading) return
+        runCatching { manifest.validateForUpdateSource(UPDATE_MANIFEST).requireTrusted() }
+            .onFailure { error ->
+                _state.value = UpdateState.Error(error.message ?: "升级信息验证失败", manifest)
+                return
+            }
         pauseRequested = false
         requestGeneration += 1
         val matchingRecord =
@@ -1348,7 +1375,7 @@ class AppUpdateManager(
         generation: Int,
     ): Boolean =
         withContext(Dispatchers.IO) {
-            manifest.validateForUpdateSource(UPDATE_MANIFEST)
+            manifest.validateForUpdateSource(UPDATE_MANIFEST).requireTrusted()
             val directory = updateDirectory()
             val target = File(directory, updatePackageFileName(manifest.versionCode))
             val partial = File(directory, "${target.name}.part")
@@ -1672,50 +1699,55 @@ class AppUpdateManager(
     }
 
     /**
-     * Refuses a manifest the pinned key did not sign. Debug builds without a key log and go on,
-     * so a developer can point at a scratch server; release builds never do.
+     * Verifies the optional manifest signature consistently for debug and release builds.
+     * Missing keys do not block checks, downloads, or restoration of interrupted downloads.
      */
     private fun UpdateManifest.requireTrusted(): UpdateManifest {
         val verdict =
             trustVerdict(
                 pinnedPublicKeyBase64 = BuildConfig.UPDATE_MANIFEST_PUBLIC_KEY,
-                releaseBuild = !BuildConfig.DEBUG,
                 verify = ::verifyEd25519Signature,
             )
-        if (verdict == UpdateManifestTrust.UnverifiedDebug) {
-            AppLog.warning(
+        if (verdict == UpdateManifestTrust.UnverifiedNoKey) {
+            AppLog.info(
                 category = "update",
-                event = "manifest_unverified_debug",
-                message = "Update manifest accepted without a signature (debug build, no pinned key)",
+                event = "manifest_accepted_without_key",
+                message = "No manifest key configured; update source, download integrity and APK checks still apply",
             )
         }
-        verdict.rejectionMessage()?.let { reason ->
+        verdict.rejectionMessage()?.let {
             AppLog.warning(
                 category = "update",
                 event = "manifest_rejected",
                 message = "Update manifest rejected",
                 attributes = mapOf("verdict" to verdict.name),
             )
-            throw IllegalStateException(reason)
+            throw UpdateManifestRejectedException(verdict)
         }
         return this
     }
 
     fun install(apk: File) {
+        val ready = (_state.value as? UpdateState.Ready)?.takeIf { it.apk == apk } ?: return
+        val manifest = ready.manifest
+        runCatching { manifest.validateForUpdateSource(UPDATE_MANIFEST).requireTrusted() }
+            .onFailure { error ->
+                pendingInstall = null
+                _state.value = UpdateState.Error(error.message ?: "升级信息验证失败", manifest)
+                return
+            }
         pendingInstall = apk
         // The system installer also checks this, but only after the user has already tapped
-        // through; a package that would replace us with a different signer is refused here,
-        // with the file removed so a later "install" cannot pick it up again.
-        if (!apkSignerMatchesInstalledApp(appContext, apk)) {
+        // through. Verify the package identity, actual version and signer before launching it.
+        if (!apkMatchesInstalledUpdate(appContext, apk, manifest.versionCode)) {
             AppLog.error(
                 category = "update",
-                event = "installer_signer_mismatch",
-                message = "Downloaded package is not signed by the installed application's key",
+                event = "installer_package_mismatch",
+                message = "Downloaded APK package, version or signer does not match the expected update",
             )
             pendingInstall = null
             runCatching { apk.delete() }
-            val manifest = (_state.value as? UpdateState.Ready)?.manifest
-            _state.value = UpdateState.Error("安装包签名与当前应用不一致，已拒绝安装", manifest)
+            _state.value = UpdateState.Error("安装包包名、版本或签名不匹配，已拒绝安装", manifest)
             return
         }
         if (!appContext.packageManager.canRequestPackageInstalls()) {
@@ -1787,6 +1819,22 @@ class AppUpdateManager(
      */
     private fun restoreInterruptedDownload() {
         val record = downloadRecord() ?: return
+        runCatching {
+            record.validateForRestore(
+                sourceUrl = UPDATE_MANIFEST,
+                pinnedPublicKeyBase64 = BuildConfig.UPDATE_MANIFEST_PUBLIC_KEY,
+                verify = ::verifyEd25519Signature,
+            )
+        }.onFailure { error ->
+            clearDownloadRecord()
+            AppLog.warning(
+                category = "update",
+                event = "download_record_rejected",
+                message = "Stored update download record no longer satisfies this build's update policy",
+                throwable = error,
+            )
+            return
+        }
         if (record.manifest.versionCode <= BuildConfig.VERSION_CODE) {
             clearDownloadRecord()
             return
@@ -2024,20 +2072,35 @@ private fun allocatableUpdateBytes(
 private fun URL.portOrDefault(): Int = port.takeIf { it >= 0 } ?: defaultPort
 
 /**
- * True when every signing certificate of [apk] is one the installed application is signed
- * with. Unreadable packages count as a mismatch: the installer would refuse them anyway, and
- * treating "unknown" as "fine" is exactly the gap this check closes.
+ * Checks the archive's package, actual version and signing certificates before launching the
+ * installer. A manifest cannot relabel another app or an older APK as the expected update.
  */
-internal fun apkSignerMatchesInstalledApp(
+internal fun apkMatchesInstalledUpdate(
     context: Context,
     apk: File,
+    expectedVersionCode: Int,
 ): Boolean =
     runCatching {
         val packageManager = context.packageManager
-        val installed = packageManager.signerDigests(packageManager.getPackageInfo(context.packageName, SIGNING_FLAGS))
+        val installed = packageManager.getPackageInfo(context.packageName, SIGNING_FLAGS)
         val archive = packageManager.getPackageArchiveInfo(apk.absolutePath, SIGNING_FLAGS)
-        val candidate = archive?.let(packageManager::signerDigests).orEmpty()
-        installed.isNotEmpty() && candidate.isNotEmpty() && candidate.all { it in installed }
+        isExpectedUpdatePackage(
+            installed =
+                UpdatePackageIdentity(
+                    packageName = context.packageName,
+                    versionCode = installed.updateVersionCode,
+                    signerDigests = packageManager.signerDigests(installed),
+                ),
+            candidate =
+                archive?.let {
+                    UpdatePackageIdentity(
+                        packageName = it.packageName.orEmpty(),
+                        versionCode = it.updateVersionCode,
+                        signerDigests = packageManager.signerDigests(it),
+                    )
+                },
+            expectedVersionCode = expectedVersionCode,
+        )
     }.getOrDefault(false)
 
 private val SIGNING_FLAGS: Int =

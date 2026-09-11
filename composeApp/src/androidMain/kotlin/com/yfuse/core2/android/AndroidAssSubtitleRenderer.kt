@@ -100,6 +100,11 @@ internal class AndroidAssSubtitleRenderer(
         var bitmap: List<YSubtitlePayload.BitmapArgb> = emptyList()
     }
 
+    private data class SourceClock(
+        val source: YAssSubtitleSource,
+        val offsetUs: Long,
+    )
+
     private val gate = Any()
     private val executor =
         Executors.newSingleThreadExecutor {
@@ -114,7 +119,7 @@ internal class AndroidAssSubtitleRenderer(
     private var lastFailureKind: String? = null
     private var draining = false
     private var closed = false
-    private val tracks = mutableMapOf<YAssSubtitleSource, Track>()
+    private val tracks = mutableMapOf<SourceClock, Track>()
     private val output = MutableStateFlow<List<YSubtitlePayload.BitmapArgb>>(emptyList())
     val bitmaps: StateFlow<List<YSubtitlePayload.BitmapArgb>> = output
 
@@ -217,29 +222,51 @@ internal class AndroidAssSubtitleRenderer(
     }
 
     private fun render(request: Request): List<YSubtitlePayload.BitmapArgb> {
-        val groups = request.cues.groupBy { (it.payload as YSubtitlePayload.AssEvent).source }
+        val groups =
+            request.cues.groupBy {
+                SourceClock((it.payload as YSubtitlePayload.AssEvent).source, it.sourceTimeOffsetUs)
+            }
         tracks.keys.filter { it !in groups }.forEach { source -> tracks.remove(source)?.let(::releaseTrack) }
-        return groups.flatMap { (source, cues) ->
-            var track = tracks[source]
+        return groups.flatMap { (clock, cues) ->
+            val source = clock.source
+            var track = tracks[clock]
             if (track != null) {
                 val desired = dimensions(source, request, track.memory.limitBytes)
                 if (desired.first != track.width ||
                     desired.second != track.height ||
                     request.styleOverrides != track.styleOverrides
                 ) {
-                    tracks.remove(source)
+                    tracks.remove(clock)
                     releaseTrack(track)
                     track = null
                 }
             }
-            val active = track ?: openTrack(source, request).also { tracks[source] = it }
+            val active = track ?: openTrack(source, request).also { tracks[clock] = it }
             val visible = cues.filter { request.positionUs >= it.startUs && request.positionUs < it.endUs }
             if (visible != active.cues) {
                 active.cues = visible
                 active.revision++
             }
             // Keep a full script's original events even in gaps; libass selects the clock interval.
-            backend.render(active.handle, request.positionUs, active.revision, visible)?.let { active.bitmap = it }
+            val sourceCues =
+                if (clock.offsetUs == 0L) {
+                    visible
+                } else {
+                    visible.map {
+                        it.copy(
+                            startUs = (it.startUs - clock.offsetUs).coerceAtLeast(0L),
+                            endUs = (it.endUs - clock.offsetUs).coerceAtLeast(1L),
+                            sourceTimeOffsetUs = 0L,
+                        )
+                    }
+                }
+            backend
+                .render(
+                    active.handle,
+                    (request.positionUs - clock.offsetUs).coerceAtLeast(0L),
+                    active.revision,
+                    sourceCues,
+                )?.let { active.bitmap = it }
             if (visible.isEmpty()) emptyList() else active.bitmap
         }
     }

@@ -2,6 +2,7 @@ package com.yfuse.feature.search
 
 import com.yfuse.core.data.CrossServerMediaHit
 import com.yfuse.core.data.aggregateCrossServerMedia
+import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.model.MediaItem
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -14,7 +15,7 @@ class SearchResultsHandoffTest {
         val order = SearchRevealOrder()
         val firstHits = listOf(CrossServerMediaHit("first", "First", movie("original")))
         val original = aggregateCrossServerMedia(firstHits).single()
-        val elapsed = 150f / 680f
+        val elapsed = 150f / Motion.SEARCH_REVEAL.toFloat()
         val before = order.progress(elapsed, original.identity, index = 1)
         assertTrue(before > 0.1f)
 
@@ -32,14 +33,14 @@ class SearchResultsHandoffTest {
         // The old position-based delay nearly hid this half-visible card again.
         assertTrue(searchRevealProgress(elapsed, newIndex) < before / 10f)
         assertEquals(before, order.progress(elapsed, original.identity, newIndex))
-        assertTrue(order.progress(200f / 680f, original.identity, newIndex) >= before)
+        assertTrue(order.progress(200f / Motion.SEARCH_REVEAL.toFloat(), original.identity, newIndex) >= before)
         assertEquals(1f, order.progress(1f, original.identity, newIndex))
     }
 
     @Test
     fun server_groups_keep_their_delay_when_earlier_servers_finish() {
         val order = SearchRevealOrder()
-        val elapsed = 150f / 680f
+        val elapsed = 150f / Motion.SEARCH_REVEAL.toFloat()
         val before = order.progress(elapsed, "server-results-second", index = 1)
         // Completion order differs from the configured server order.
         order.progress(elapsed, "server-results-first", index = 1)
@@ -51,7 +52,7 @@ class SearchResultsHandoffTest {
     @Test
     fun later_rows_join_the_shared_clock_and_a_new_handoff_uses_the_new_order() {
         val order = SearchRevealOrder()
-        val elapsed = 150f / 680f
+        val elapsed = 150f / Motion.SEARCH_REVEAL.toFloat()
         order.progress(elapsed, "original", index = 1)
         assertEquals(searchRevealProgress(elapsed, 5), order.progress(elapsed, "late", index = 5))
         for (index in 1..20) {
@@ -63,17 +64,17 @@ class SearchResultsHandoffTest {
 
     @Test
     fun first_result_is_visible_before_the_later_rows_begin_to_enter() {
-        val earlyTime = 150f / 680f
+        val earlyTime = 150f / Motion.SEARCH_REVEAL.toFloat()
         assertTrue(searchRevealProgress(earlyTime, 1) > 0.1f)
         assertEquals(0f, searchRevealProgress(earlyTime, 5))
-        assertTrue(searchRevealProgress(400f / 680f, 5) > 0f)
+        assertTrue(searchRevealProgress(400f / Motion.SEARCH_REVEAL.toFloat(), 5) > 0f)
         for (index in listOf(0, 1, 5, 30)) {
             assertEquals(1f, searchRevealProgress(1f, index))
         }
     }
 
     @Test
-    fun sweep_is_only_for_loading_to_results_not_filtering_errors_or_restored_content() {
+    fun phase_only_sweep_distinguishes_loading_from_cached_results() {
         SearchResultsPhase.entries.forEach { before ->
             SearchResultsPhase.entries.forEach { after ->
                 val handoff = SearchResultsHandoff(before)
@@ -107,7 +108,7 @@ class SearchResultsHandoffTest {
     }
 
     @Test
-    fun pagination_server_updates_and_refresh_with_retained_results_do_not_replay() {
+    fun phase_only_calls_need_a_presentation_key_to_identify_in_place_changes() {
         val original = results()
         val handoff = SearchResultsHandoff(original.resultsPhase())
         val group = original.groups.single()
@@ -176,6 +177,40 @@ class SearchResultsHandoffTest {
         assertTrue(handoff.shouldReveal(filtered.resultsPhase(), moving = true))
         handoff.committed(filtered.resultsPhase())
         assertTrue(handoff.shouldReveal(original.resultsPhase(), moving = true))
+    }
+
+    @Test
+    fun actual_result_and_filter_changes_replay_without_a_loading_phase() {
+        val original = results()
+        val key = original.presentationKey()
+        val handoff = SearchResultsHandoff(original.resultsPhase(), key)
+        val expanded =
+            original.copy(
+                groups = listOf(original.groups.single().copy(items = listOf(movie("first"), movie("second")))),
+            )
+        assertTrue(handoff.shouldReveal(expanded.resultsPhase(), true, expanded.presentationKey()))
+        assertTrue(handoff.shouldSweep(expanded.resultsPhase(), true, expanded.presentationKey()))
+        handoff.committed(expanded.resultsPhase(), expanded.presentationKey())
+        assertFalse(handoff.shouldReveal(expanded.resultsPhase(), true, expanded.presentationKey()))
+        val filtered = expanded.copy(sort = SearchSort.Name)
+        assertTrue(handoff.shouldReveal(filtered.resultsPhase(), true, filtered.presentationKey()))
+    }
+
+    @Test
+    fun typing_and_transport_flags_do_not_change_presentation_identity() {
+        val original = results()
+        assertEquals(original.presentationKey(), original.copy(query = "new typing", loading = true).presentationKey())
+        assertEquals(
+            original.presentationKey(),
+            original.copy(groups = listOf(original.groups.single().copy(loadingMore = true))).presentationKey(),
+        )
+    }
+
+    @Test
+    fun later_visible_rows_keep_the_full_fifty_five_millisecond_step() {
+        val row = 9
+        assertEquals(0f, searchRevealProgress((row * 55 - 1f) / Motion.SEARCH_REVEAL, row))
+        assertTrue(searchRevealProgress((row * 55 + 50f) / Motion.SEARCH_REVEAL, row) > 0f)
     }
 
     private fun results(): SearchState =

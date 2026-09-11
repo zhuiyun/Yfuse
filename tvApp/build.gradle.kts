@@ -37,6 +37,9 @@ fun ProviderFactory.strictBooleanProperty(name: String): Boolean =
         }
     } ?: false
 
+apply(from = rootProject.file("gradle/diagnostic-build.gradle.kts"))
+val diagnosticBuildRevision = extra["yfuseDiagnosticBuildRevision"] as String
+
 val versionProperties =
     Properties().apply {
         val versionFile = rootProject.file("version.properties")
@@ -159,6 +162,7 @@ android {
         versionName = tvVersionName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
+        buildConfigField("String", "BUILD_REVISION", "\"$diagnosticBuildRevision\"")
         buildConfigField("String", "TMDB_TOKEN", "\"$tmdbToken\"")
         buildConfigField("String", "UPDATE_MANIFEST_PUBLIC_KEY", "\"$updateManifestPublicKey\"")
         buildConfigField("boolean", "YFUSE_MDK_INCLUDED", "false")

@@ -1,37 +1,307 @@
 {
   "schemaVersion": 1,
+  "statusVocabulary": {
+    "implemented": "Reachable by a user on a running build and verified. Requires an `evidence` field.",
+    "logicOnly": "Real Cangjie or C++ logic exists and its collaborators are implemented, but no user-reachable path calls it.",
+    "contractOnly": "Only interfaces, enums or state models exist. No behavior is implemented.",
+    "placeholderUi": "A screen exists but renders hardcoded content. No state, data or action is wired.",
+    "sdkAdapter": "Logic exists but a required port has no implementation, so the feature cannot run.",
+    "capabilityGated": "Blocked by a declared capability gate; the build must keep it disabled.",
+    "physicalValidation": "Implemented and reachable, awaiting physical-device evidence.",
+    "sourceWired": "UI and production adapters are connected in source, but matching SDK compilation and running-build evidence are missing."
+  },
+  "summary": {
+    "note": "Emby/Jellyfin login, Native Preferences metadata persistence, real item lists/details, same-origin system playback URLs and local/server progress calls are now wired through ConnectedMediaScreen. This source slice has NOT been compiled as a HAP or verified on Harmony hardware. Host tests cover 33 existing pure-logic cases; network/provider/storage/support still require stdx and matching UI SDK. Other feature gaps remain listed; no feature is promoted to implemented.",
+    "reviewedAt": "2026-09-10",
+    "reviewedAgainst": "harmonyApp/entry/src/main/cangjie/src"
+  },
   "features": [
-    {"id":"provider.emby","status":"implemented","sources":["harmonyApp/entry/src/main/cangjie/src/provider/provider_api.cj","harmonyApp/entry/src/main/cangjie/src/provider/provider_codec.cj"]},
-    {"id":"provider.jellyfin","status":"implemented","sources":["harmonyApp/entry/src/main/cangjie/src/provider/provider_api.cj","harmonyApp/entry/src/main/cangjie/src/provider/provider_codec.cj"]},
-    {"id":"provider.plex","status":"implemented","sources":["harmonyApp/entry/src/main/cangjie/src/provider/provider_api.cj","harmonyApp/entry/src/main/cangjie/src/provider/provider_codec.cj"]},
-    {"id":"server.multi","status":"implemented","sources":["harmonyApp/entry/src/main/cangjie/src/storage/server_registry.cj"]},
-    {"id":"server.quickConnect","status":"implemented","sources":["harmonyApp/entry/src/main/cangjie/src/provider/server_onboarding.cj"]},
-    {"id":"server.lanDiscovery","status":"sdkAdapter","sources":["harmonyApp/entry/src/main/cangjie/src/provider/server_onboarding.cj"]},
-    {"id":"home.livingPoster","status":"implemented","sources":["harmonyApp/entry/src/main/cangjie/src/ui/screens.cj"]},
-    {"id":"home.dynamicArtworkColor","status":"implemented","sources":["harmonyApp/entry/src/main/cangjie/src/design/artwork_color.cj"]},
-    {"id":"library.filterSort","status":"implemented","sources":["harmonyApp/entry/src/main/cangjie/src/app/screen_states.cj","harmonyApp/entry/src/main/cangjie/src/ui/catalog_screens.cj"]},
-    {"id":"search.allServers","status":"implemented","sources":["harmonyApp/entry/src/main/cangjie/src/provider/aggregate_search.cj"]},
-    {"id":"detail.multiSource","status":"implemented","sources":["harmonyApp/entry/src/main/cangjie/src/provider/provider_codec.cj","harmonyApp/entry/src/main/cangjie/src/ui/secondary_screens.cj"]},
-    {"id":"calendar.tmdb","status":"implemented","sources":["harmonyApp/entry/src/main/cangjie/src/provider/tmdb_repository.cj","harmonyApp/entry/src/main/cangjie/src/ui/secondary_screens.cj"]},
-    {"id":"player.directPlayFirst","status":"implemented","sources":["harmonyApp/entry/src/main/cangjie/src/player/playback_policy.cj"]},
-    {"id":"player.engineHandover","status":"implemented","sources":["ycore-native/src/ycore.cpp","ycore-native/tests/ycore_test.cpp"]},
-    {"id":"player.trickplay","status":"implemented","sources":["harmonyApp/entry/src/main/cangjie/src/ui/player_screen.cj"]},
-    {"id":"player.dualSubtitle","status":"implemented","sources":["harmonyApp/entry/src/main/cangjie/src/player/subtitles.cj"]},
-    {"id":"player.assPgs","status":"capabilityGated","gate":"player.nativeSurface","sources":["harmonyApp/entry/src/main/cangjie/src/player/subtitles.cj","harmonyApp/entry/src/main/cpp/CMakeLists.txt"]},
-    {"id":"player.hdrRouting","status":"implemented","sources":["harmonyApp/entry/src/main/cangjie/src/player/output_routing.cj"]},
-    {"id":"player.dolbyVisionRouting","status":"physicalValidation","gate":"player.dolbyVision","sources":["harmonyApp/entry/src/main/cangjie/src/player/output_routing.cj"]},
-    {"id":"player.audioPassthrough","status":"physicalValidation","gate":"player.encodedAudio","sources":["harmonyApp/entry/src/main/cangjie/src/player/output_routing.cj"]},
-    {"id":"player.isoBdmv","status":"capabilityGated","gate":"player.opticalDisc","sources":["harmonyApp/entry/src/main/cangjie/src/player/disc_navigation.cj","harmonyApp/entry/src/main/cpp/CMakeLists.txt"]},
-    {"id":"player.pip","status":"sdkAdapter","sources":["harmonyApp/entry/src/main/cangjie/src/player/system_integration.cj"]},
-    {"id":"player.background","status":"sdkAdapter","sources":["harmonyApp/entry/src/main/cangjie/src/player/system_integration.cj"]},
-    {"id":"player.castDlna","status":"sdkAdapter","sources":["harmonyApp/entry/src/main/cangjie/src/cast/dlna.cj"]},
-    {"id":"offline.download","status":"sdkAdapter","sources":["harmonyApp/entry/src/main/cangjie/src/offline/downloads.cj"]},
-    {"id":"sync.playback","status":"implemented","sources":["harmonyApp/entry/src/main/cangjie/src/sync/encrypted_sync.cj"]},
-    {"id":"sync.encryptedAccount","status":"capabilityGated","gate":"security.assetStore","sources":["harmonyApp/entry/src/main/cangjie/src/sync/encrypted_sync.cj","harmonyApp/entry/src/main/cangjie/src/storage/secure_store.cj"]},
-    {"id":"watch.room","status":"implemented","sources":["harmonyApp/entry/src/main/cangjie/src/watch/watch_together.cj"]},
-    {"id":"watch.chatDanmaku","status":"implemented","sources":["harmonyApp/entry/src/main/cangjie/src/watch/danmaku.cj","harmonyApp/entry/src/main/cangjie/src/watch/watch_together.cj"]},
-    {"id":"watch.stickersReactions","status":"implemented","sources":["harmonyApp/entry/src/main/cangjie/src/watch/watch_together.cj"]},
-    {"id":"diagnostics.export","status":"sdkAdapter","sources":["harmonyApp/entry/src/main/cangjie/src/support/diagnostics_export.cj"]},
-    {"id":"updates.inApp","status":"sdkAdapter","sources":["harmonyApp/entry/src/main/cangjie/src/support/update_manager.cj"]}
+    {
+      "id": "provider.emby",
+      "status": "sourceWired",
+      "note": "ConnectedMediaScreen calls login, paginated item search, detail and playback source resolution. Same-origin playback URL authorization is applied. Requires matching Cangjie SDK/stdx build and server/device validation.",
+      "sources": [
+        "harmonyApp/entry/src/main/cangjie/src/provider/provider_api.cj",
+        "harmonyApp/entry/src/main/cangjie/src/provider/provider_codec.cj",
+        "harmonyApp/entry/src/main/cangjie/src/ui/connected_media_screen.cj",
+        "harmonyApp/entry/src/main/cangjie/src/provider/connected_session.cj"
+      ]
+    },
+    {
+      "id": "provider.jellyfin",
+      "status": "sourceWired",
+      "note": "Connected to the same real login/library/detail/playback slice with a distinct provider selection. Requires matching Cangjie SDK/stdx build and server/device validation.",
+      "sources": [
+        "harmonyApp/entry/src/main/cangjie/src/provider/provider_api.cj",
+        "harmonyApp/entry/src/main/cangjie/src/provider/provider_codec.cj",
+        "harmonyApp/entry/src/main/cangjie/src/ui/connected_media_screen.cj",
+        "harmonyApp/entry/src/main/cangjie/src/provider/connected_session.cj"
+      ]
+    },
+    {
+      "id": "provider.plex",
+      "status": "logicOnly",
+      "note": "PlexProviderApi builds identity, hub, metadata and decision requests. The PIN exchange has no polling loop and no UI caller.",
+      "sources": [
+        "harmonyApp/entry/src/main/cangjie/src/provider/provider_api.cj",
+        "harmonyApp/entry/src/main/cangjie/src/provider/provider_codec.cj"
+      ]
+    },
+    {
+      "id": "server.multi",
+      "status": "sourceWired",
+      "note": "NativeStringPreferenceStore now supplies durable metadata through native Preferences with close/reopen verification. Asset Store holds tokens. Reauthentication stages a fresh secret and rolls back metadata/default on failure. Requires HAP and restart validation.",
+      "sources": [
+        "harmonyApp/entry/src/main/cangjie/src/storage/server_registry.cj",
+        "harmonyApp/entry/src/main/cangjie/src/storage/registry_codec.cj",
+        "harmonyApp/entry/src/main/cangjie/src/ui/connected_media_screen.cj",
+        "harmonyApp/entry/src/main/cangjie/src/provider/connected_session.cj",
+        "harmonyApp/entry/src/main/cangjie/src/storage/native_preferences.cj",
+        "harmonyApp/entry/src/main/cpp/ypreferences.cpp"
+      ]
+    },
+    {
+      "id": "server.quickConnect",
+      "status": "logicOnly",
+      "note": "QuickConnectApi builds the initiate, check and authenticate requests. There is no polling loop, no expiry timer and no screen that starts the flow.",
+      "sources": [
+        "harmonyApp/entry/src/main/cangjie/src/provider/server_onboarding.cj"
+      ]
+    },
+    {
+      "id": "server.lanDiscovery",
+      "status": "sdkAdapter",
+      "note": "Only the LanDiscoveryPort interface exists. No mDNS or multicast adapter is written.",
+      "sources": [
+        "harmonyApp/entry/src/main/cangjie/src/provider/server_onboarding.cj"
+      ]
+    },
+    {
+      "id": "home.livingPoster",
+      "status": "placeholderUi",
+      "note": "HomeScreen renders four fixed rails of cards labelled 媒体内容. There is no hero rotation, no artwork, no data source and no dissolve.",
+      "sources": [
+        "harmonyApp/entry/src/main/cangjie/src/ui/screens.cj"
+      ]
+    },
+    {
+      "id": "home.dynamicArtworkColor",
+      "status": "logicOnly",
+      "note": "artworkBottomPageColor is a complete weighted-sampling algorithm with the correct page-surface-only scope. Nothing calls it and no artwork is ever decoded.",
+      "sources": [
+        "harmonyApp/entry/src/main/cangjie/src/design/artwork_color.cj"
+      ]
+    },
+    {
+      "id": "library.filterSort",
+      "status": "placeholderUi",
+      "note": "LibraryViewState carries sort, ascending and genre fields but implements no sorting or filtering. The 筛选 and 排序 buttons in the catalog screen have no handlers.",
+      "sources": [
+        "harmonyApp/entry/src/main/cangjie/src/app/screen_states.cj",
+        "harmonyApp/entry/src/main/cangjie/src/ui/catalog_screens.cj"
+      ]
+    },
+    {
+      "id": "search.allServers",
+      "status": "logicOnly",
+      "note": "AggregateSearchRepository fans out per server with a generation guard and partial-failure grouping, and SearchViewState debounces correctly. SearchScreen ignores both and renders three fixed cards of the typed text. Host tests cover the generation guard, empty results and history de-duplication.",
+      "sources": [
+        "harmonyApp/entry/src/main/cangjie/src/provider/aggregate_search.cj",
+        "harmonyApp/entry/src/main/cangjie/src/app/screen_states.cj"
+      ]
+    },
+    {
+      "id": "detail.multiSource",
+      "status": "logicOnly",
+      "note": "decodeSources parses media sources per provider. DetailScreen hardcodes 继续 · 00:42:10 and two fixed quality buttons with no handlers.",
+      "sources": [
+        "harmonyApp/entry/src/main/cangjie/src/provider/provider_codec.cj",
+        "harmonyApp/entry/src/main/cangjie/src/ui/secondary_screens.cj"
+      ]
+    },
+    {
+      "id": "calendar.tmdb",
+      "status": "logicOnly",
+      "note": "TmdbRepository builds the discovery and on-the-air requests and fails closed without credentials. CalendarScreen renders two fixed rows and never calls it.",
+      "sources": [
+        "harmonyApp/entry/src/main/cangjie/src/provider/tmdb_repository.cj",
+        "harmonyApp/entry/src/main/cangjie/src/ui/secondary_screens.cj"
+      ]
+    },
+    {
+      "id": "player.directPlayFirst",
+      "status": "logicOnly",
+      "note": "decidePlaybackRoute prefers the system route and refuses native without a surface. No caller supplies requirements because no playback path produces a media source. Host tests cover system-first selection and the refusal to pick the native engine without a surface.",
+      "sources": [
+        "harmonyApp/entry/src/main/cangjie/src/player/playback_policy.cj",
+        "harmonyApp/entry/src/main/cangjie/src/player/routed_yplayer.cj"
+      ]
+    },
+    {
+      "id": "player.engineHandover",
+      "status": "logicOnly",
+      "note": "The portable C++ coordinator compiles under -Werror and its host tests pass in verify-harmony-port.py. No Harmony playback surface reaches it, and NativeYPlayer is never constructed.",
+      "sources": [
+        "ycore-native/src/ycore.cpp",
+        "ycore-native/tests/ycore_test.cpp"
+      ]
+    },
+    {
+      "id": "player.trickplay",
+      "status": "placeholderUi",
+      "note": "The player screen has a seek Slider bound to position. There are no trickplay tiles, no thumbnail fetch and no scrub preview of any kind.",
+      "sources": [
+        "harmonyApp/entry/src/main/cangjie/src/ui/player_screen.cj"
+      ]
+    },
+    {
+      "id": "player.dualSubtitle",
+      "status": "logicOnly",
+      "note": "DualSubtitleState resolves both cue lists at a position and clamps the offset to thirty seconds. No track is ever loaded and the subtitle panel buttons have no handlers. Host tests cover both cue lists at a position and the thirty-second offset clamp.",
+      "sources": [
+        "harmonyApp/entry/src/main/cangjie/src/player/subtitles.cj"
+      ]
+    },
+    {
+      "id": "player.assPgs",
+      "status": "capabilityGated",
+      "gate": "player.nativeSurface",
+      "note": "subtitleRoute returns Unsupported for ASS and PGS because the public Cangjie ArkUI wrapper exposes no NativeWindow host. This is correct fail-closed behavior and must stay disabled. Host tests confirm ASS and PGS return Unsupported without a NativeWindow.",
+      "sources": [
+        "harmonyApp/entry/src/main/cangjie/src/player/subtitles.cj",
+        "harmonyApp/entry/src/main/cpp/CMakeLists.txt"
+      ]
+    },
+    {
+      "id": "player.hdrRouting",
+      "status": "logicOnly",
+      "note": "dynamicRangeDecision maps HDR10, HLG and Dolby Vision onto direct, tone-map or server-transcode outcomes. Nothing queries device output capabilities, so the function is never called. Host tests cover the HDR10, HLG and tone-map fallback order.",
+      "sources": [
+        "harmonyApp/entry/src/main/cangjie/src/player/output_routing.cj"
+      ]
+    },
+    {
+      "id": "player.dolbyVisionRouting",
+      "status": "logicOnly",
+      "gate": "player.dolbyVision",
+      "note": "Only the routing branch exists. There is no playback path, so device evidence cannot be collected yet. Downgraded from physicalValidation, which wrongly implied a working implementation awaiting a device. Host tests cover the requirement for both a capable sink and a capable decoder.",
+      "sources": [
+        "harmonyApp/entry/src/main/cangjie/src/player/output_routing.cj"
+      ]
+    },
+    {
+      "id": "player.audioPassthrough",
+      "status": "logicOnly",
+      "gate": "player.encodedAudio",
+      "note": "audioDecision maps five encoded codecs onto passthrough or PCM. No sink capability is ever queried and no output is ever opened. Downgraded from physicalValidation for the same reason as Dolby Vision. Host tests cover per-codec passthrough and the never-forced rule.",
+      "sources": [
+        "harmonyApp/entry/src/main/cangjie/src/player/output_routing.cj"
+      ]
+    },
+    {
+      "id": "player.isoBdmv",
+      "status": "capabilityGated",
+      "gate": "player.opticalDisc",
+      "note": "preflightDisc refuses without libbluray, FFmpeg and a NativeWindow, and asks for a local download when Range access is missing. DiscNavigator and RandomAccessSource have no implementations. Correct fail-closed behavior. Host tests cover every preflight branch, including the Range-less download path.",
+      "sources": [
+        "harmonyApp/entry/src/main/cangjie/src/player/disc_navigation.cj",
+        "harmonyApp/entry/src/main/cpp/CMakeLists.txt"
+      ]
+    },
+    {
+      "id": "player.pip",
+      "status": "sdkAdapter",
+      "note": "PlaybackSystemCoordinator routes remote commands through YPlayer, but PlaybackSystemPort has no implementation, so no picture-in-picture window is ever requested.",
+      "sources": [
+        "harmonyApp/entry/src/main/cangjie/src/player/system_integration.cj"
+      ]
+    },
+    {
+      "id": "player.background",
+      "status": "sdkAdapter",
+      "note": "Same unimplemented PlaybackSystemPort. There is no background session, no lock-screen metadata and no audio-focus handling.",
+      "sources": [
+        "harmonyApp/entry/src/main/cangjie/src/player/system_integration.cj"
+      ]
+    },
+    {
+      "id": "player.castDlna",
+      "status": "sdkAdapter",
+      "note": "CastCoordinator correctly routes credentialed streams through a proxy instead of putting tokens in DIDL URLs. All three ports, discovery, session and proxy, have no implementation.",
+      "sources": [
+        "harmonyApp/entry/src/main/cangjie/src/cast/dlna.cj"
+      ]
+    },
+    {
+      "id": "offline.download",
+      "status": "sdkAdapter",
+      "note": "DownloadCoordinator implements resume, ETag invalidation, contiguous-chunk enforcement and checksum verification. DownloadSourceResolver and DownloadSink have no implementations and the downloads screen is an empty state.",
+      "sources": [
+        "harmonyApp/entry/src/main/cangjie/src/offline/downloads.cj",
+        "harmonyApp/entry/src/main/cangjie/src/ui/secondary_screens.cj"
+      ]
+    },
+    {
+      "id": "sync.playback",
+      "status": "sourceWired",
+      "note": "System Video updates write a bounded, server/item-isolated local checkpoint and report progress every 15 media seconds plus pause/exit. Network failures remain visible. Offline pending server retries and account-wide sync remain incomplete; SDK compilation is unverified.",
+      "sources": [
+        "harmonyApp/entry/src/main/cangjie/src/sync/encrypted_sync.cj",
+        "harmonyApp/entry/src/main/cangjie/src/ui/connected_media_screen.cj",
+        "harmonyApp/entry/src/main/cangjie/src/provider/connected_session.cj",
+        "harmonyApp/entry/src/main/cangjie/src/storage/playback_progress.cj",
+        "harmonyApp/entry/src/main/cangjie/src/ui/player_screen.cj"
+      ]
+    },
+    {
+      "id": "sync.encryptedAccount",
+      "status": "capabilityGated",
+      "gate": "security.assetStore",
+      "note": "AssetStoreSecretStore is a real FFI implementation over ysecure_huks.cpp with no plaintext fallback, and its symbols are checked by verify-harmony-port.py. Durability across reboot and lock still needs a signed physical-device build.",
+      "sources": [
+        "harmonyApp/entry/src/main/cangjie/src/sync/encrypted_sync.cj",
+        "harmonyApp/entry/src/main/cangjie/src/storage/secure_store.cj"
+      ]
+    },
+    {
+      "id": "watch.room",
+      "status": "logicOnly",
+      "note": "WatchRoomState implements host-authoritative drift correction and sequence rejection in 58 lines. There is no transport, no room lifecycle, no invite flow and no screen. Host tests cover drift correction thresholds and sequence rejection.",
+      "sources": [
+        "harmonyApp/entry/src/main/cangjie/src/watch/watch_together.cj"
+      ]
+    },
+    {
+      "id": "watch.chatDanmaku",
+      "status": "logicOnly",
+      "note": "DanmakuScheduler advances by position and resets on backward seeks, and DanmakuFilter applies blocked words. No danmaku source is fetched and nothing renders overlays. Host tests cover scheduling, the backlog window and blocked words.",
+      "sources": [
+        "harmonyApp/entry/src/main/cangjie/src/watch/danmaku.cj"
+      ]
+    },
+    {
+      "id": "watch.stickersReactions",
+      "status": "contractOnly",
+      "note": "The only artifact is a Reaction case on the RoomEvent enum. There is no sticker catalog, no tray and no overlay.",
+      "sources": [
+        "harmonyApp/entry/src/main/cangjie/src/watch/watch_together.cj"
+      ]
+    },
+    {
+      "id": "diagnostics.export",
+      "status": "sdkAdapter",
+      "note": "DiagnosticSnapshot redacts Emby, Plex and Authorization headers before serializing. DiagnosticExportPort has no implementation, so nothing can be written or shared.",
+      "sources": [
+        "harmonyApp/entry/src/main/cangjie/src/support/diagnostics_export.cj"
+      ]
+    },
+    {
+      "id": "updates.inApp",
+      "status": "sdkAdapter",
+      "note": "UpdateManager correctly delegates installation to the trusted store rather than sideloading a HAP. TrustedUpdatePort has no implementation, so no check ever runs.",
+      "sources": [
+        "harmonyApp/entry/src/main/cangjie/src/support/update_manager.cj"
+      ]
+    }
   ]
 }

@@ -12,6 +12,24 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class LibraryCacheTest {
+    @Test
+    fun separated_cache_opens_lazily_and_does_not_write_general_preferences() {
+        val general = MapSettings()
+        val feeds = MapSettings()
+        var opens = 0
+        val cache =
+            LibraryCache(general, storage = {
+                opens++
+                feeds
+            })
+        assertEquals(0, opens)
+        cache.write("server", HomeContent(rows = listOf(HomeRow("library", "Movies", listOf(item("one"))))), 42L)
+        assertEquals(1, opens)
+        assertTrue(general.keys.isEmpty())
+        assertEquals(42L, cache.readSnapshot("server")?.updatedAtEpochMs)
+        assertEquals(1, opens)
+    }
+
     private fun item(id: String) =
         MediaItem(
             id = id,

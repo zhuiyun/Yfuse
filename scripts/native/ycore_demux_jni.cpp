@@ -4,6 +4,7 @@
 #include <atomic>
 #include <cerrno>
 #include <cctype>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -23,6 +24,7 @@ extern "C" {
 #include <libavcodec/packet.h>
 #include <libavformat/avformat.h>
 #include <libavutil/avutil.h>
+#include <libavutil/common.h>
 #include <libavutil/dict.h>
 #include <libavutil/dovi_meta.h>
 #include <libavutil/display.h>
@@ -86,6 +88,8 @@ constexpr int kSampleFlagEncrypted = 1 << 1;
 constexpr jlong kNoTimestamp = std::numeric_limits<jlong>::min();
 constexpr uint32_t kSubtitlePayloadMagic = 0x42555359;
 constexpr uint32_t kSubtitlePayloadVersion = 1;
+// v2 preserves empty display sets and the composition PTS relative to the completing packet.
+constexpr uint32_t kSubtitleDisplaySetPayloadVersion = 2;
 constexpr size_t kMaxSubtitlePayloadBytes = 32U * 1024U * 1024U;
 constexpr size_t kMaxSoftwareVideoFrameBytes = 128U * 1024U * 1024U;
 constexpr size_t kMaxSoftwareAudioFrameBytes = 8U * 1024U * 1024U;
@@ -170,6 +174,34 @@ std::atomic<int64_t> g_next_disc_source_id{1};
 
 struct DemuxSession;
 
+// Cancellation has its own registry/lifetime: open has no demux handle yet, and cancelling
+// must never dereference or destroy a session concurrently with av_read_frame/open/close.
+struct DemuxCancellation {
+    std::atomic<bool> cancelled{false};
+    std::atomic<int64_t> deadline_ms{0};
+};
+std::mutex g_demux_cancellations_mutex;
+std::unordered_map<int64_t, std::shared_ptr<DemuxCancellation>> g_demux_cancellations;
+std::atomic<int64_t> g_next_demux_cancellation_id{1};
+
+int64_t monotonic_ms() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+std::shared_ptr<DemuxCancellation> find_demux_cancellation(jlong id) {
+    std::lock_guard<std::mutex> lock(g_demux_cancellations_mutex);
+    const auto found = g_demux_cancellations.find(id);
+    return found == g_demux_cancellations.end() ? nullptr : found->second;
+}
+
+int interrupt_demux(void* opaque) {
+    const auto* token = static_cast<DemuxCancellation*>(opaque);
+    if (!token) return 0;
+    const int64_t deadline = token->deadline_ms.load();
+    return token->cancelled.load() || (deadline > 0 && monotonic_ms() >= deadline);
+}
+
 // Open demux sessions are handed to Kotlin as small positive ids, never as the session pointer.
 // Android 11+ tags every arm64 heap pointer in its top byte (0xb4...), so a raw `DemuxSession*`
 // cast to jlong is negative and the Kotlin bridge read every successful open as a packed
@@ -197,6 +229,7 @@ struct SoftwareDecoder {
 };
 
 struct DemuxSession {
+    std::shared_ptr<DemuxCancellation> cancellation;
     AVFormatContext* format = nullptr;
     AVIOContext* custom_io = nullptr;
     std::shared_ptr<BlurayIo> disc;
@@ -1871,7 +1904,8 @@ jlong open_session(
     jstring uri,
     jobjectArray header_names,
     jobjectArray header_values,
-    bool probe_only) {
+    bool probe_only,
+    std::shared_ptr<DemuxCancellation> cancellation = nullptr) {
     if (!uri) {
         throw_illegal_argument(env, "Media URI is required");
         return 0;
@@ -1888,6 +1922,7 @@ jlong open_session(
 
     g_last_open_failure.clear();
     auto session = std::make_unique<DemuxSession>();
+    session->cancellation = std::move(cancellation);
     int64_t disc_source_id = 0;
     const bool disc_source = ycore_disc::parse_source_id(source, &disc_source_id);
     session->remote_source = is_remote_source(source);
@@ -1927,6 +1962,16 @@ jlong open_session(
         av_dict_set(&options, "probesize", kProbeSizeBytes, 0);
         av_dict_set(&options, "analyzeduration", kProbeAnalyzeDurationUs, 0);
         av_dict_set(&options, "fflags", "nobuffer", 0);
+    }
+    if (!session->format) session->format = avformat_alloc_context();
+    if (!session->format) {
+        av_dict_free(&options);
+        return open_failure_status(AVERROR(ENOMEM), session->remote_source, kOpenStageOpenInput);
+    }
+    session->format->interrupt_callback = {interrupt_demux, session->cancellation.get()};
+    if (interrupt_demux(session->cancellation.get())) {
+        av_dict_free(&options);
+        return open_failure_status(AVERROR_EXIT, session->remote_source, kOpenStageOpenInput);
     }
     int error =
         disc_source
@@ -1976,6 +2021,40 @@ jlong native_open_probe(
 
 void native_close(JNIEnv*, jclass, jlong handle) {
     delete release_handle(handle);
+}
+
+jlong native_create_cancellation(JNIEnv*, jclass) {
+    const auto token = std::make_shared<DemuxCancellation>();
+    const int64_t id = g_next_demux_cancellation_id.fetch_add(1);
+    if (id <= 0) return 0;
+    std::lock_guard<std::mutex> lock(g_demux_cancellations_mutex);
+    g_demux_cancellations.emplace(id, token);
+    return id;
+}
+
+void native_cancel_demux(JNIEnv*, jclass, jlong id) {
+    const auto token = find_demux_cancellation(id);
+    if (token) token->cancelled.store(true);
+}
+
+void native_set_demux_deadline(JNIEnv*, jclass, jlong id, jlong remaining_ms) {
+    const auto token = find_demux_cancellation(id);
+    if (token) token->deadline_ms.store(remaining_ms > 0 ? monotonic_ms() + remaining_ms : 0);
+}
+
+void native_release_cancellation(JNIEnv*, jclass, jlong id) {
+    std::lock_guard<std::mutex> lock(g_demux_cancellations_mutex);
+    g_demux_cancellations.erase(id);
+}
+
+jlong native_open_cancellable(JNIEnv* env, jclass, jstring uri, jobjectArray names,
+    jobjectArray values, jboolean probe_only, jlong cancellation_id) {
+    const auto token = find_demux_cancellation(cancellation_id);
+    if (!token) {
+        throw_illegal_argument(env, "Demux cancellation token is required");
+        return 0;
+    }
+    return open_session(env, uri, names, values, probe_only == JNI_TRUE, token);
 }
 
 jstring native_last_open_failure(JNIEnv* env, jclass) {
@@ -2423,7 +2502,7 @@ jbyteArray native_decode_subtitle(
         throw_illegal_state(env, "FFmpeg subtitle decode failed: " + ffmpeg_error(error));
         return nullptr;
     }
-    if (!got_subtitle || subtitle.num_rects == 0) {
+    if (!got_subtitle) {
         avsubtitle_free(&subtitle);
         return nullptr;
     }
@@ -2437,7 +2516,7 @@ jbyteArray native_decode_subtitle(
             canvas_height = std::max(canvas_height, rect->y + rect->h);
         }
     }
-    if (canvas_width <= 0 || canvas_height <= 0) {
+    if (subtitle.num_rects > 0 && (canvas_width <= 0 || canvas_height <= 0)) {
         avsubtitle_free(&subtitle);
         return nullptr;
     }
@@ -2445,13 +2524,18 @@ jbyteArray native_decode_subtitle(
     std::vector<uint8_t> output;
     output.reserve(256);
     append_u32(&output, kSubtitlePayloadMagic);
-    append_u32(&output, kSubtitlePayloadVersion);
+    append_u32(&output, kSubtitleDisplaySetPayloadVersion);
     append_u32(&output, static_cast<uint32_t>(canvas_width));
     append_u32(&output, static_cast<uint32_t>(canvas_height));
     append_u32(&output, subtitle.start_display_time);
     append_u32(&output, subtitle.end_display_time);
     const size_t rect_count_offset = output.size();
     append_u32(&output, 0);
+    const int64_t pts_offset_us = subtitle.pts != AV_NOPTS_VALUE && presentation_time_us != kNoTimestamp
+        ? av_sat_sub64(subtitle.pts, presentation_time_us) : 0;
+    append_u32(&output, static_cast<uint32_t>(pts_offset_us));
+    append_u32(&output, static_cast<uint32_t>(static_cast<uint64_t>(pts_offset_us) >> 32));
+    const bool clear_display = subtitle.num_rects == 0;
     uint32_t rect_count = 0;
     for (unsigned int i = 0; i < subtitle.num_rects; ++i) {
         const AVSubtitleRect* rect = subtitle.rects[i];
@@ -2460,7 +2544,7 @@ jbyteArray native_decode_subtitle(
         }
     }
     avsubtitle_free(&subtitle);
-    if (rect_count == 0 || output.size() > static_cast<size_t>(std::numeric_limits<jsize>::max())) {
+    if ((!clear_display && rect_count == 0) || output.size() > static_cast<size_t>(std::numeric_limits<jsize>::max())) {
         return nullptr;
     }
     write_u32(&output, rect_count_offset, rect_count);
@@ -2477,6 +2561,10 @@ jbyteArray native_decode_subtitle(
 
 jint native_software_decoder_api_version(JNIEnv*, jclass) {
     return kSoftwareDecoderApiVersion;
+}
+
+jint native_subtitle_display_set_api_version(JNIEnv*, jclass) {
+    return kSubtitleDisplaySetPayloadVersion;
 }
 
 
@@ -3078,6 +3166,7 @@ static const JNINativeMethod kMethods[] = {
     {"nativeCloseAssRenderer", "(J)V", reinterpret_cast<void*>(native_close_ass_renderer)},
     {"nativeDiscApiVersion", "()I", reinterpret_cast<void*>(native_disc_api_version)},
     {"nativeAssRendererApiVersion", "()I", reinterpret_cast<void*>(native_ass_renderer_api_version)},
+    {"nativeSubtitleDisplaySetApiVersion", "()I", reinterpret_cast<void*>(native_subtitle_display_set_api_version)},
     {"nativeDemuxHandleContractVersion", "()I", reinterpret_cast<void*>(native_demux_handle_contract_version)},
     {"nativeRegisterBluRaySource", "(Ljava/lang/Object;)J", reinterpret_cast<void*>(native_register_bluray_source)},
     {"nativeUnregisterBluRaySource", "(J)V", reinterpret_cast<void*>(native_unregister_bluray_source)},
@@ -3089,6 +3178,11 @@ static const JNINativeMethod kMethods[] = {
     {"nativeOpen", "(Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;)J", reinterpret_cast<void*>(native_open)},
     {"nativeOpenProbe", "(Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;)J", reinterpret_cast<void*>(native_open_probe)},
     {"nativeClose", "(J)V", reinterpret_cast<void*>(native_close)},
+    {"nativeCreateCancellation", "()J", reinterpret_cast<void*>(native_create_cancellation)},
+    {"nativeCancelDemux", "(J)V", reinterpret_cast<void*>(native_cancel_demux)},
+    {"nativeSetDemuxDeadline", "(JJ)V", reinterpret_cast<void*>(native_set_demux_deadline)},
+    {"nativeReleaseCancellation", "(J)V", reinterpret_cast<void*>(native_release_cancellation)},
+    {"nativeOpenCancellable", "(Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;ZJ)J", reinterpret_cast<void*>(native_open_cancellable)},
     {"nativeLastOpenFailure", "()Ljava/lang/String;", reinterpret_cast<void*>(native_last_open_failure)},
     {"nativeTrackCount", "(J)I", reinterpret_cast<void*>(native_track_count)},
     {"nativeContainerName", "(J)Ljava/lang/String;", reinterpret_cast<void*>(native_container_name)},

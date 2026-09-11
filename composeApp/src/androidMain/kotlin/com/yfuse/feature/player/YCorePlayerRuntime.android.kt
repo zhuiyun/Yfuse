@@ -4,6 +4,7 @@ import android.os.Build
 import android.os.SystemClock
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
@@ -11,6 +12,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.Snapshot
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core.playback.PlaybackFailureMemory
@@ -102,7 +104,7 @@ internal fun rememberDeepPlaybackProbe(
 }
 
 @Composable
-internal fun rememberYCoreRuntimeAssessment(
+internal fun rememberYCoreRuntimeAssessmentState(
     player: YPlayer,
     engineKind: PlayerEngine,
     engineLabel: String = engineKind.name,
@@ -114,10 +116,11 @@ internal fun rememberYCoreRuntimeAssessment(
     runtimeEnvironment: PlaybackRuntimeEnvironment,
     castAuthoritative: Boolean,
     state: PlaybackState,
+    stateSource: State<PlaybackState>,
     networkRecoveryAttempts: Int = 0,
     networkRecoverySuccesses: Int = 0,
     sessionRevision: Int = 0,
-): YCoreRuntimeAssessment {
+): State<YCoreRuntimeAssessment> {
     val qoeReporter =
         remember {
             runCatching { GlobalContext.get().get<PlaybackQoeReporter>() }.getOrNull()
@@ -133,6 +136,7 @@ internal fun rememberYCoreRuntimeAssessment(
             sessionRevision,
             effectiveEngineLearningEnabled,
         ) {
+            val initial = Snapshot.withoutReadObservation { stateSource.value }
             createYCorePlaybackSession(
                 engine = engineKind,
                 probe = probe,
@@ -141,13 +145,13 @@ internal fun rememberYCoreRuntimeAssessment(
                 performanceMemory = performanceMemory,
                 recordEngineLearning = effectiveEngineLearningEnabled,
                 startedAtEpochMs = SystemClock.elapsedRealtime(),
-                initialPositionMs = state.positionMs,
-                initialBufferEvents = state.diagnostics.bufferEvents,
-                initialDroppedFrames = state.diagnostics.droppedFrames,
+                initialPositionMs = initial.positionMs,
+                initialBufferEvents = initial.diagnostics.bufferEvents,
+                initialDroppedFrames = initial.diagnostics.droppedFrames,
             )
         }
-    var assessment by remember(session) { mutableStateOf(session.initialAssessment) }
-    val latestState by rememberUpdatedState(state)
+    val assessment = remember(session) { mutableStateOf(session.initialAssessment) }
+    val latestState by stateSource
     val latestProbe by rememberUpdatedState(probe)
     val latestRuntimeEnvironment by rememberUpdatedState(runtimeEnvironment)
     val latestNetworkRecoveryAttempts by rememberUpdatedState(networkRecoveryAttempts)
@@ -175,7 +179,7 @@ internal fun rememberYCoreRuntimeAssessment(
                         runtimeEnvironment = latestRuntimeEnvironment,
                     ),
                 )
-            assessment = observed
+            assessment.value = observed
             if (observed.runtimeFault != null) {
                 // A local runtime restart may reopen the source slightly behind the last rendered
                 // frame. Mark only this internal recovery so danmaku can hold its consumed

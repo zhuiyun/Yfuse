@@ -15,8 +15,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -31,12 +29,14 @@ import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.GlassLift
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HapticSignal
+import com.yfuse.core.designsystem.InlineLoadingContent
 import com.yfuse.core.designsystem.LocalPalette
-import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.waitingPulse
+import com.yfuse.core.designsystem.ThemeIcon as Icon
+import com.yfuse.core.designsystem.ThemeText as Text
 
 private const val EmbyTicksPerSecond = 10_000_000L
 
@@ -117,9 +117,7 @@ internal fun DetailActionDock(
                         ),
                     contentAlignment = Alignment.Center,
                 ) {
-                    if (resolving) {
-                        OrbProgress(size = 15.dp, color = actionInk)
-                    } else {
+                    InlineLoadingContent(loading = resolving, slotSize = 15.dp, color = actionInk) {
                         Icon(
                             AppIcons.Play,
                             contentDescription = null,
@@ -302,9 +300,12 @@ private fun GlassActionButton(
                 ),
             contentAlignment = Alignment.Center,
         ) {
-            if (loading) {
-                OrbProgress(size = 15.dp, color = if (active) stateColors.foreground else palette.body)
-            } else {
+            InlineLoadingContent(
+                loading = loading,
+                slotSize = 16.dp,
+                orbSize = 15.dp,
+                color = if (active) stateColors.foreground else palette.body,
+            ) {
                 BurstIcon(
                     icon = icon,
                     active = active,

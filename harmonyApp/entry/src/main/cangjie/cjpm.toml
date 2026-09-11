@@ -12,7 +12,7 @@
 [dependencies]
 
 [package]
-  cjc-version = "0.53.18"
+  cjc-version = "1.0.5"
   compile-option = ""
   description = "Yfuse HarmonyOS native application"
   link-option = "-lycore"

@@ -304,9 +304,30 @@ class MpvVideoEngine(
             }
         }
 
+    private val mutableSubtitleText = MutableStateFlow(MpvSubtitleText())
+    internal val subtitleText = mutableSubtitleText.asStateFlow()
+
+    private fun updateSubtitleLayout(
+        instance: MPVLib,
+        tracks: List<EngineTrack>,
+        primary: String?,
+        secondary: String?,
+    ) {
+        val stack = mpvCanStackSubtitles(tracks, primary, secondary)
+        if (mutableSubtitleText.value.stacked != stack) {
+            instance.setPropertyString("sub-visibility", if (stack) "no" else "yes")
+            instance.setPropertyString("secondary-sub-visibility", if (stack) "no" else "yes")
+            mutableSubtitleText.update { it.copy(stacked = stack) }
+        }
+    }
+
     private val observer =
         object : MPVLib.EventObserver {
             override fun eventProperty(property: String) {
+                when (property) {
+                    "sub-text" -> mutableSubtitleText.update { it.copy(primary = "") }
+                    "secondary-sub-text" -> mutableSubtitleText.update { it.copy(secondary = "") }
+                }
                 if (property == "hwdec-current") {
                     _state.update {
                         it.copy(
@@ -544,7 +565,9 @@ class MpvVideoEngine(
             ) {
                 // aid/sid are read as strings because either can be "no".
                 when (property) {
-                    "aid", "sid" -> readTracks()
+                    "aid", "sid", "secondary-sid" -> readTracks()
+                    "sub-text" -> mutableSubtitleText.update { it.copy(primary = value) }
+                    "secondary-sub-text" -> mutableSubtitleText.update { it.copy(secondary = value) }
                     "video-codec" ->
                         _state.update {
                             it.copy(
@@ -599,6 +622,7 @@ class MpvVideoEngine(
             override fun event(eventId: Int) {
                 when (eventId) {
                     MPVLib.MpvEvent.MPV_EVENT_START_FILE -> {
+                        mutableSubtitleText.update { it.copy(primary = "", secondary = "") }
                         videoReadinessGate.onStartFile()
                         surfaceRecoveryAttempts.set(0L)
                         markFileLoadProgress()
@@ -899,6 +923,8 @@ class MpvVideoEngine(
             instance.observeProperty("aid", MPVLib.MpvFormat.MPV_FORMAT_STRING)
             instance.observeProperty("sid", MPVLib.MpvFormat.MPV_FORMAT_STRING)
             instance.observeProperty("secondary-sid", MPVLib.MpvFormat.MPV_FORMAT_STRING)
+            instance.observeProperty("sub-text", MPVLib.MpvFormat.MPV_FORMAT_STRING)
+            instance.observeProperty("secondary-sub-text", MPVLib.MpvFormat.MPV_FORMAT_STRING)
             startAudioRouteMonitoring()
 
             instance.attachSurface(surface)
@@ -1465,6 +1491,7 @@ class MpvVideoEngine(
             val count = instance.getPropertyInt("track-list/count") ?: 0
             val selectedAudio = instance.getPropertyString("aid")
             val selectedSubtitle = instance.getPropertyString("sid")
+            val secondarySubtitle = instance.getPropertyString("secondary-sid")?.takeUnless { it == "no" }
             val audio = mutableListOf<EngineTrack>()
             val subtitles = mutableListOf<EngineTrack>()
 
@@ -1488,7 +1515,14 @@ class MpvVideoEngine(
                     )
             }
 
-            _state.update { it.copy(audioTracks = audio, subtitleTracks = subtitles) }
+            updateSubtitleLayout(instance, subtitles, selectedSubtitle, secondarySubtitle)
+            _state.update {
+                it.copy(
+                    audioTracks = audio,
+                    subtitleTracks = subtitles,
+                    secondarySubtitleTrackId = secondarySubtitle,
+                )
+            }
         }.onFailure {
             safeLogcat(Log.WARN, TAG, "reading track-list failed", it)
             AppLog.warning(

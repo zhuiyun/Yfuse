@@ -3,7 +3,7 @@ package com.yfuse.feature.player
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
-import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
@@ -23,7 +23,6 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
@@ -32,9 +31,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -47,9 +45,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawOutline
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.key.Key
@@ -79,13 +80,16 @@ import com.yfuse.core.designsystem.DolbyChip
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalHaptics
+import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.PlayerTokens
-import com.yfuse.core.designsystem.ambientLightAccent
+import com.yfuse.core.designsystem.ambientSeekAccent
 import com.yfuse.core.designsystem.cssLinearGradient
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.rememberAnimatedArtworkAccent
 import kotlin.math.abs
+import com.yfuse.core.designsystem.ThemeIcon as Icon
+import com.yfuse.core.designsystem.ThemeText as Text
 
 /**
  * Player top chrome after the control hierarchy was simplified.
@@ -167,6 +171,7 @@ internal fun RefinedTopBar(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             PlayerClock()
+            PlayerBatteryStatus()
             Spacer(Modifier.width(6.dp))
             if (watchConnected) {
                 CircleControl(
@@ -216,7 +221,7 @@ internal fun RefinedTopBar(
  */
 @Composable
 internal fun RefinedBottomBar(
-    state: PlaybackState,
+    state: PlaybackTransportState,
     seekLocked: Boolean,
     onPlayPause: () -> Unit,
     onPrevious: () -> Unit,
@@ -244,7 +249,7 @@ internal fun RefinedBottomBar(
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     var scrubbed by remember { mutableStateOf<Float?>(null) }
-    val duration = state.durationMs.coerceAtLeast(1L)
+    val latestTransport by rememberUpdatedState(state)
     val fraction = scrubbed ?: playbackProgressFraction(state.positionMs, state.durationMs)
     val bufferedFraction =
         playbackProgressFraction(state.bufferedPositionMs, state.durationMs)
@@ -256,16 +261,11 @@ internal fun RefinedBottomBar(
             darkTheme = true,
             identity = artworkIdentity,
         )
-    // The ambient accent already moves bucket by bucket; this tween only smooths the hand-over
-    // when the light switches on or off, or a dark frame drops it back to the artwork accent.
-    // Reading the light here recomposes only this bar, and only while it is shown.
-    val ambientAccent = ambientLight?.value?.let(::ambientLightAccent)
-    val progressAccent by
-        animateColorAsState(
-            targetValue = ambientAccent ?: artworkAccent,
-            animationSpec = tween(if (reduceMotion) 0 else Motion.ACCENT, easing = Motion.Curve),
-            label = "progress-accent",
-        )
+    // Read only from the seek bar's draw nodes. The ambient transition already owns the clock.
+    val progressAccent =
+        remember(ambientLight, artworkAccent) {
+            { ambientSeekAccent(ambientLight?.value, artworkAccent.value) }
+        }
 
     Column(
         modifier
@@ -285,7 +285,7 @@ internal fun RefinedBottomBar(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Box(Modifier.height(44.dp), contentAlignment = Alignment.Center) {
-                RefinedTimeText(shownPosition)
+                RefinedTimeText(shownPosition.coerceAtLeast(0L) / 1_000L)
             }
             Column(Modifier.weight(1f)) {
                 val preview = trickplay
@@ -356,7 +356,7 @@ internal fun RefinedBottomBar(
                 )
             }
             Box(Modifier.height(44.dp), contentAlignment = Alignment.Center) {
-                RefinedTimeText(state.durationMs)
+                RefinedTimeText(state.durationMs.coerceAtLeast(0L) / 1_000L)
             }
         }
 
@@ -368,17 +368,18 @@ internal fun RefinedBottomBar(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             TransportRow(
-                state = state,
+                state = state.buttons,
                 locked = seekLocked,
                 onPlayPause = onPlayPause,
                 onPrevious = onPrevious,
                 onNext = onNext,
                 onSeekBackward = {
-                    onSeek((state.positionMs - REFINED_SEEK_STEP_MS).coerceAtLeast(0L))
+                    onSeek((latestTransport.positionMs - REFINED_SEEK_STEP_MS).coerceAtLeast(0L))
                 },
                 onSeekForward = {
-                    val target = state.positionMs + REFINED_SEEK_STEP_MS
-                    onSeek(if (state.durationMs > 0L) target.coerceAtMost(state.durationMs) else target)
+                    val latest = latestTransport
+                    val target = latest.positionMs + REFINED_SEEK_STEP_MS
+                    onSeek(if (latest.durationMs > 0L) target.coerceAtMost(latest.durationMs) else target)
                 },
             )
 
@@ -388,9 +389,11 @@ internal fun RefinedBottomBar(
             ) {
                 CircleControl(AppIcons.Subtitle, "字幕", 26.dp, 12.dp, onClick = onOpenSubtitles)
                 CircleControl(AppIcons.AudioTrack, "音轨", 26.dp, 12.dp, onClick = onOpenAudio)
-                ChromeLabeledAction(
+                CircleControl(
                     icon = AppIcons.Danmaku,
-                    label = "弹幕",
+                    description = if (danmakuEnabled) "弹幕，已开启" else "弹幕，已关闭",
+                    size = 26.dp,
+                    iconSize = 12.dp,
                     active = danmakuEnabled,
                     onClick = onOpenDanmaku,
                 )
@@ -414,9 +417,11 @@ internal fun RefinedBottomBar(
                     )
                 }
                 if (hasEpisodes) {
-                    ChromeLabeledAction(
+                    CircleControl(
                         icon = AppIcons.EpisodeList,
-                        label = "选集",
+                        description = "选集",
+                        size = 26.dp,
+                        iconSize = 12.dp,
                         onClick = onOpenEpisodes,
                     )
                 }
@@ -460,41 +465,6 @@ internal fun CompactAutoSkipPill(
 }
 
 @Composable
-private fun ChromeLabeledAction(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    label: String,
-    active: Boolean = false,
-    onClick: () -> Unit,
-) {
-    val fill = if (active) Color.White.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.08f)
-    Row(
-        Modifier
-            .height(30.dp)
-            .glass(
-                shape = AppShapes.pill,
-                fill = fill,
-                border = Color.White.copy(alpha = if (active) 0.52f else 0.24f),
-            ).noRippleClickable(onClick)
-            .padding(horizontal = 9.dp),
-        horizontalArrangement = Arrangement.spacedBy(5.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            icon,
-            contentDescription = label,
-            tint = Color.White,
-            modifier = Modifier.size(13.dp),
-        )
-        Text(
-            label,
-            style = AppTypography.caption.strong,
-            color = Color.White.copy(alpha = 0.94f),
-            maxLines = 1,
-        )
-    }
-}
-
-@Composable
 private fun RefinedSpeedControl(
     speed: Float,
     onClick: () -> Unit,
@@ -521,9 +491,9 @@ private fun RefinedSpeedControl(
 }
 
 @Composable
-private fun RefinedTimeText(timeMs: Long) {
+private fun RefinedTimeText(seconds: Long) {
     Text(
-        formatTime(timeMs.coerceAtLeast(0L)),
+        formatTime(seconds * 1_000L),
         style = AppTypography.caption.regular,
         color = PlayerTokens.timeTextLandscape,
         maxLines = 1,
@@ -550,7 +520,7 @@ private fun StandardSeekBar(
     positionMs: Long,
     durationMs: Long,
     progressMarkers: List<PlaybackProgressMarker>,
-    accent: Color,
+    accent: () -> Color,
     onScrubTo: (Float) -> Unit,
     onCommit: (Float) -> Unit,
     onCancel: () -> Unit,
@@ -582,9 +552,6 @@ private fun StandardSeekBar(
         animationSpec = Motion.pressSpec(pressed = dragging, reduceMotion = reduceMotion),
         label = "artwork-seek-interaction",
     )
-    val playedStart = lerp(accent, Color.Black, 0.14f)
-    val playedEnd = lerp(accent, Color.White, 0.24f)
-    val bufferedTint = lerp(accent, Color.Gray, 0.62f)
     // Under a finger the track thickens to nearly twice itself: the thing being dragged
     // should look like it can take the weight.
     val trackHeight = 3.5.dp + 2.5.dp * interaction
@@ -622,13 +589,13 @@ private fun StandardSeekBar(
         modifier
             .height(44.dp)
             .onSizeChanged { widthPx = it.width.coerceAtLeast(1) }
-            .then(
-                if (focused) {
-                    Modifier.border(1.dp, accent.copy(alpha = 0.72f), AppShapes.thumb)
-                } else {
-                    Modifier
-                },
-            ).semantics {
+            .drawWithCache {
+                val outline = AppShapes.thumb.createOutline(size, layoutDirection, this)
+                val stroke = Stroke(1.dp.toPx())
+                onDrawBehind {
+                    if (focused) drawOutline(outline, accent().copy(alpha = 0.72f), style = stroke)
+                }
+            }.semantics {
                 stateDescription = "播放进度 ${formatTime(positionMs)} / ${formatTime(durationMs)}"
                 progressBarRangeInfo = ProgressBarRangeInfo(shownFraction, 0f..1f)
                 if (enabled) setProgress { commit(it) } else disabled()
@@ -681,26 +648,48 @@ private fun StandardSeekBar(
             },
         contentAlignment = Alignment.CenterStart,
     ) {
+        // Both rails keep fixed geometry; progress invalidates paint, not child measurement.
+        val played = rememberUpdatedState(shownFraction)
+        val buffered = remember(durationMs) { Animatable(bufferedFraction.coerceIn(0f, 1f)) }
+        val moving = !reduceMotion && LocalRouteVisible.current
+        LaunchedEffect(bufferedFraction, durationMs, moving) {
+            val target = bufferedFraction.coerceIn(0f, 1f)
+            if (!moving || target < buffered.value) {
+                buffered.snapTo(target)
+            } else {
+                buffered.animateTo(target, tween(Motion.STANDARD, easing = Motion.Curve))
+            }
+        }
         Box(
             Modifier
                 .fillMaxWidth()
                 .height(trackHeight)
                 .clip(AppShapes.track)
-                .background(Color.White.copy(alpha = 0.16f)),
-        ) {
-            Box(
-                Modifier
-                    .fillMaxHeight()
-                    .fillMaxWidth(bufferedFraction.coerceIn(shownFraction, 1f))
-                    .background(bufferedTint.copy(alpha = 0.50f)),
-            )
-            Box(
-                Modifier
-                    .fillMaxHeight()
-                    .fillMaxWidth(shownFraction)
-                    .background(Brush.horizontalGradient(listOf(playedStart, playedEnd))),
-            )
-        }
+                .drawBehind {
+                    val color = accent()
+                    val playedWidth = size.width * played.value
+                    drawRect(Color.White.copy(alpha = 0.16f))
+                    drawRect(
+                        lerp(color, Color.Gray, 0.62f).copy(alpha = 0.50f),
+                        size =
+                            androidx.compose.ui.geometry.Size(
+                                size.width * buffered.value.coerceIn(played.value, 1f),
+                                size.height,
+                            ),
+                    )
+                    if (playedWidth > 0f) {
+                        drawRect(
+                            Brush.horizontalGradient(
+                                listOf(lerp(color, Color.Black, 0.14f), lerp(color, Color.White, 0.24f)),
+                                endX = playedWidth,
+                            ),
+                            size =
+                                androidx.compose.ui.geometry
+                                    .Size(playedWidth, size.height),
+                        )
+                    }
+                },
+        )
 
         progressMarkers.forEach { marker ->
             val markerFraction =
@@ -717,10 +706,8 @@ private fun StandardSeekBar(
                                     .coerceIn(0, (widthPx - 1).coerceAtLeast(0)),
                             y = 7.dp.roundToPx(),
                         )
-                    }.background(
-                        if (marker.emphasized) accent else accent.copy(alpha = 0.70f),
-                        AppShapes.track,
-                    ),
+                    }.clip(AppShapes.track)
+                    .drawBehind { drawRect(if (marker.emphasized) accent() else accent().copy(alpha = 0.70f)) },
             )
         }
 
@@ -737,7 +724,7 @@ private fun StandardSeekBar(
                         y = 0,
                     )
                 }.graphicsLayer { alpha = if (enabled) 0.28f + 0.18f * interaction else 0.10f }
-                .background(accent, CircleShape),
+                .drawBehind { drawCircle(accent()) },
         )
 
         Box(
@@ -754,7 +741,16 @@ private fun StandardSeekBar(
                     )
                 }.graphicsLayer { alpha = if (enabled) 1f else 0.45f }
                 .background(Color.White, CircleShape)
-                .border(2.dp, playedEnd, CircleShape),
+                .drawWithCache {
+                    val stroke = Stroke(2.dp.toPx())
+                    onDrawBehind {
+                        drawCircle(
+                            lerp(accent(), Color.White, 0.24f),
+                            radius = (size.minDimension - stroke.width) / 2f,
+                            style = stroke,
+                        )
+                    }
+                },
         )
 
         if (showTimeBubble) {

@@ -13,8 +13,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.State
@@ -39,8 +37,10 @@ import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalRouteVisible
+import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.PlayerTokens
 import com.yfuse.core.designsystem.glass
+import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.sc
 import com.yfuse.core.sync.WatchSticker
@@ -51,10 +51,11 @@ import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.sin
+import com.yfuse.core.designsystem.ThemeText as Text
 
 /** One clock for every visible preset in the tray; standalone sent stickers may own one. */
 private val LocalStickerClock = compositionLocalOf<State<Float>?> { null }
-private const val SHARED_CLOCK_MS = 60_000
+private const val SHARED_CLOCK_MS = Motion.STICKER_CLOCK
 
 /**
  * One sticker, moving.
@@ -252,7 +253,7 @@ internal fun WatchStickerTray(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                items(
+                motionItems(
                     items = WatchStickerCategory.entries,
                     key = WatchStickerCategory::name,
                 ) { category ->
@@ -308,7 +309,7 @@ internal fun WatchStickerTray(
             ) {
                 // Lazy composition keeps off-screen glyph layers absent; LocalStickerClock
                 // means every visible glyph reads one phase source instead of owning a clock.
-                items(
+                motionItems(
                     items = WatchStickers.inCategory(selectedCategory.value),
                     key = WatchSticker::id,
                 ) { sticker ->

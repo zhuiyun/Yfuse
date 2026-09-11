@@ -2,7 +2,6 @@ package com.yfuse.app
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
@@ -35,8 +34,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -103,6 +100,7 @@ import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.OfficialNavDisplay
 import com.yfuse.core.designsystem.OfficialNavMotion
 import com.yfuse.core.designsystem.OverlayVisibility
+import com.yfuse.core.designsystem.SearchDockOrigin
 import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.SkeletonPulseProvider
 import com.yfuse.core.designsystem.YfuseTheme
@@ -117,14 +115,15 @@ import com.yfuse.core.designsystem.overlayGlass
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberBackdropState
 import com.yfuse.core.designsystem.resolveDark
+import com.yfuse.core.designsystem.searchDockSource
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.touchTarget
-import com.yfuse.core.designsystem.useNavigationRail
 import com.yfuse.feature.home.HomeTabComponent
 import com.yfuse.feature.home.HomeTabScreen
 import com.yfuse.feature.library.LibraryComponent
 import com.yfuse.feature.library.LibraryScreen
 import com.yfuse.feature.player.ActivePlayback
+import com.yfuse.feature.player.PlaybackReportingWarning
 import com.yfuse.feature.profile.ProfileTabComponent
 import com.yfuse.feature.profile.ProfileTabScreen
 import com.yfuse.feature.search.SearchComponent
@@ -133,8 +132,8 @@ import com.yfuse.feature.servers.ServersTabScreen
 import com.yfuse.feature.watch.InviteResolution
 import com.yfuse.feature.watch.WatchInviteSheet
 import com.yfuse.feature.watch.WatchRoomInfoDialog
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.launch
+import com.yfuse.core.designsystem.ThemeIcon as Icon
+import com.yfuse.core.designsystem.ThemeText as Text
 
 private data class TabItem(
     val tab: Tab,
@@ -186,6 +185,7 @@ val TabBarInset = Dimens.contentBottom
 
 @Composable
 fun App(root: RootComponent) {
+    BindBackgroundServices(root)
     val mode by root.themePreferences.mode.collectAsState()
     val accent by root.themePreferences.accent.collectAsState()
     val reduceTransparency by root.themePreferences.reduceTransparency.collectAsState()
@@ -220,6 +220,7 @@ fun App(root: RootComponent) {
         val profileStack by root.profile.stack.subscribeAsState()
         val miniPlayback by ActivePlayback.state.collectAsState()
         val reportingCoordinator = root.dependencies.playbackReportingCoordinator
+        PlaybackReportingWarning(reportingCoordinator)
         LaunchedEffect(reportingCoordinator) {
             reportingCoordinator.flushPending()
         }
@@ -344,13 +345,7 @@ fun App(root: RootComponent) {
                     imageUri = backgroundImage.takeUnless { reduceTransparency },
                     dim = backgroundDim,
                 ) {
-                    BoxWithConstraints(Modifier.fillMaxSize()) {
-                        val expandedNavigation = useNavigationRail(maxWidth, maxHeight)
-                        // A rail reserves horizontal space only while the rail itself belongs to
-                        // the current route. Detail/grid/player pages hide root navigation and must
-                        // immediately reclaim the full width; otherwise the stale inset is visible
-                        // as a plain strip beside artwork-backed pages.
-                        val navigationRailActive = expandedNavigation && showBottomBar
+                    Box(Modifier.fillMaxSize()) {
                         val onSelectTab: (Tab) -> Unit = { tab ->
                             if (tab == active) {
                                 root.reselectTab(tab, atRoot)
@@ -378,12 +373,11 @@ fun App(root: RootComponent) {
                         Box(
                             Modifier
                                 .fillMaxSize()
-                                .padding(start = if (navigationRailActive) 104.dp else 0.dp)
                                 // Only root pages with the bottom dock need scroll-to-collapse.
                                 // Secondary pages own the whole screen and have no root navigation
                                 // to collapse or expand.
                                 .then(
-                                    if (expandedNavigation || !showBottomBar) {
+                                    if (!showBottomBar) {
                                         Modifier
                                     } else {
                                         Modifier.nestedScroll(navScroll)
@@ -418,34 +412,25 @@ fun App(root: RootComponent) {
                         }
 
                         if (showBottomBar && !overlays.any) {
-                            if (expandedNavigation) {
-                                GlassNavigationRail(
-                                    active = active,
-                                    onSelect = onSelectTab,
-                                    backdrop = backdrop,
-                                    modifier = Modifier.align(Alignment.CenterStart),
-                                )
-                            } else {
-                                BottomNavigationDock(
-                                    active = active,
-                                    collapsed = navCollapsed,
-                                    onSelect = onSelectTab,
-                                    onExpand = {
-                                        // A tap during fling is explicit navigation intent. Keep
-                                        // the expanded dock pinned until that fling finishes or
-                                        // the user starts a new direct scroll gesture.
-                                        navCollapseGuard.onManualExpand()
-                                        navCollapsed = false
-                                    },
-                                    onSearch = { onSelectTab(Tab.Search) },
-                                    backdrop = backdrop,
-                                    cueKey = pendingInvite?.roomCode,
-                                    modifier =
-                                        Modifier
-                                            .align(Alignment.BottomCenter)
-                                            .navigationBarsPadding(),
-                                )
-                            }
+                            BottomNavigationDock(
+                                active = active,
+                                collapsed = navCollapsed,
+                                onSelect = onSelectTab,
+                                onExpand = {
+                                    // A tap during fling is explicit navigation intent. Keep
+                                    // the expanded dock pinned until that fling finishes or
+                                    // the user starts a new direct scroll gesture.
+                                    navCollapseGuard.onManualExpand()
+                                    navCollapsed = false
+                                },
+                                onSearch = { onSelectTab(Tab.Search) },
+                                backdrop = backdrop,
+                                cueKey = pendingInvite?.roomCode,
+                                modifier =
+                                    Modifier
+                                        .align(Alignment.BottomCenter)
+                                        .navigationBarsPadding(),
+                            )
                             // One slot above the tab bar, and the two things that can occupy it
                             // never coexist: while a player is alive the mini player carries the
                             // room note itself, and the room bar is for exactly the case where it
@@ -454,16 +439,11 @@ fun App(root: RootComponent) {
                                 Modifier
                                     .align(Alignment.BottomCenter)
                                     .navigationBarsPadding()
-                                    .padding(start = if (expandedNavigation) 104.dp else 0.dp)
                                     .widthIn(max = 520.dp)
                                     .padding(horizontal = Dimens.tabBarInset)
                                     .padding(
                                         bottom =
-                                            if (expandedNavigation) {
-                                                Dimens.tabBarInset
-                                            } else {
-                                                Dimens.tabBarHeight + 22.dp
-                                            },
+                                            Dimens.tabBarHeight + 22.dp,
                                     )
                             // Video backgrounding is represented by Android PiP. The old long,
                             // music-like mini controller duplicated transport controls and only
@@ -949,12 +929,16 @@ private fun SearchButton(
     Box(
         Modifier
             .size(Dimens.tabBarHeight)
+            .searchDockSource()
             .pressable(
                 pressedScale = 0.96f,
                 haptic = HapticSignal.Select,
                 role = Role.Tab,
                 onClickLabel = "搜索",
-                onClick = onClick,
+                onClick = {
+                    if (!selected) SearchDockOrigin.begin()
+                    onClick()
+                },
             ).semantics(mergeDescendants = true) { this.selected = selected }
             .navigationGlass(backdrop, CircleShape)
             .drawBehind {
@@ -1021,56 +1005,18 @@ internal fun GlassTabBar(
     // Two independently sprung edges make the selected glass pull slightly in the direction
     // of travel. The draw phase caps that stretch, so a jump across the bar never turns the
     // indicator into a stripe spanning unrelated icons.
-    val initialIndex = selectedIndex.coerceAtLeast(0).toFloat()
-    val indicatorLeft = remember { Animatable(tabPillTargetLeft(initialIndex)) }
-    val indicatorRight = remember { Animatable(tabPillTargetRight(initialIndex)) }
-    LaunchedEffect(selectedIndex, reduceMotion, enhanced) {
-        if (selectedIndex < 0) return@LaunchedEffect
-        val targetIndex = selectedIndex.toFloat()
-        val targetLeft = tabPillTargetLeft(targetIndex)
-        val targetRight = tabPillTargetRight(targetIndex)
-        if (reduceMotion || enhanced) {
-            indicatorLeft.snapTo(targetLeft)
-            indicatorRight.snapTo(targetRight)
-        } else {
-            val currentCenter = (indicatorLeft.value + indicatorRight.value) / 2f
-            val movingRight = targetIndex + 0.5f >= currentCenter
-            coroutineScope {
-                launch {
-                    indicatorLeft.animateTo(
-                        targetValue = targetLeft,
-                        animationSpec =
-                            if (movingRight) {
-                                Motion.tabIndicatorTrailing()
-                            } else {
-                                Motion.tabIndicatorLeading()
-                            },
-                    )
-                }
-                launch {
-                    indicatorRight.animateTo(
-                        targetValue = targetRight,
-                        animationSpec =
-                            if (movingRight) {
-                                Motion.tabIndicatorLeading()
-                            } else {
-                                Motion.tabIndicatorTrailing()
-                            },
-                    )
-                }
-            }
-        }
-    }
-    val indicatorAlpha by animateFloatAsState(
-        targetValue = if (hasSelection) 1f else 0f,
-        animationSpec =
-            if (reduceMotion) {
-                snap()
-            } else {
-                tween(Motion.QUICK, easing = Motion.Curve)
-            },
-        label = "tabIndicatorAlpha",
-    )
+    val defaultMotion = if (enhanced) null else rememberDefaultTabMotion(selectedIndex, reduceMotion)
+    val indicatorAlpha =
+        animateFloatAsState(
+            targetValue = if (hasSelection) 1f else 0f,
+            animationSpec =
+                if (reduceMotion) {
+                    snap()
+                } else {
+                    tween(Motion.QUICK, easing = Motion.Curve)
+                },
+            label = "tabIndicatorAlpha",
+        )
     Row(
         modifier
             .fillMaxWidth()
@@ -1085,15 +1031,15 @@ internal fun GlassTabBar(
             // After the material and before the buttons: the island belongs to the glass, not
             // over the icons.
             .drawBehind {
-                if (indicatorAlpha <= 0f) return@drawBehind
+                if (indicatorAlpha.value <= 0f) return@drawBehind
                 val cell = size.width / tabs.size
                 // The selected region nearly fills its cell — a broad island, not a small
                 // Material indicator — so it stays legible over artwork-heavy roots and the
                 // quiet ones alike.
                 val bounds =
                     tabIndicatorBounds(
-                        rawLeft = liquidMotion?.left?.value ?: indicatorLeft.value,
-                        rawRight = liquidMotion?.right?.value ?: indicatorRight.value,
+                        rawLeft = liquidMotion?.left?.value ?: checkNotNull(defaultMotion).left.value,
+                        rawRight = liquidMotion?.right?.value ?: checkNotNull(defaultMotion).right.value,
                         tabCount = tabs.size,
                         maxScale = if (enhanced) 1.8f else TAB_PILL_MAX_SCALE,
                     )
@@ -1102,7 +1048,7 @@ internal fun GlassTabBar(
                 val pillHeight = size.height * 0.86f * (1f - if (enhanced) stretch * 0.12f else 0f)
                 val left = cell * if (rtl) tabs.size - bounds.left - bounds.width else bounds.left
                 val top = (size.height - pillHeight) / 2f
-                val alpha = indicatorAlpha.coerceIn(0f, 1f)
+                val alpha = indicatorAlpha.value.coerceIn(0f, 1f)
                 if (liquid) {
                     drawLensIsland(
                         rect = Rect(left, top, left + pillWidth, top + pillHeight),
@@ -1182,84 +1128,6 @@ private fun RowScope.TabButton(
     }
 }
 
-/** Expanded-width navigation keeps targets compact instead of stretching four across 840dp. */
-@Composable
-private fun GlassNavigationRail(
-    active: Tab,
-    onSelect: (Tab) -> Unit,
-    backdrop: BackdropState,
-    modifier: Modifier = Modifier,
-) {
-    Column(
-        modifier
-            .padding(start = Dimens.tabBarInset, top = 72.dp, bottom = 72.dp)
-            .width(76.dp)
-            .heightIn(max = 480.dp)
-            .fillMaxHeight()
-            .selectableGroup()
-            .navigationGlass(backdrop, GlassShapes.tabBar)
-            .padding(horizontal = 6.dp, vertical = 10.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.SpaceEvenly,
-    ) {
-        (tabs + TabItem(Tab.Search, "搜索", AppIcons.SearchTab)).forEach { item ->
-            RailTabButton(
-                item = item,
-                selected = active == item.tab,
-                onClick = { onSelect(item.tab) },
-            )
-        }
-    }
-}
-
-@Composable
-private fun RailTabButton(
-    item: TabItem,
-    selected: Boolean,
-    onClick: () -> Unit,
-) {
-    val palette = LocalPalette.current
-    val accent = LocalAccentColors.current
-    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
-    val liquid = liquidNavigationGlass()
-    val navigationGlass = navigationGlassVisuals(palette, accent)
-    val tint by animateColorAsState(
-        targetValue = if (selected) accent.accent else palette.text,
-        animationSpec = Motion.settle<Color>(reduceMotion),
-        label = "railTabTint",
-    )
-    val islandAlpha by animateFloatAsState(
-        targetValue = if (selected) 1f else 0f,
-        animationSpec = Motion.settle<Float>(reduceMotion),
-        label = "railTabIsland",
-    )
-    Column(
-        Modifier
-            .width(64.dp)
-            .heightIn(min = 58.dp)
-            .clip(GlassShapes.card)
-            .drawBehind {
-                if (islandAlpha <= 0f) return@drawBehind
-                val rect = Rect(Offset.Zero, size)
-                if (liquid) {
-                    drawLensIsland(rect, dark = palette.isDark, accent = accent.accent, alpha = islandAlpha)
-                } else {
-                    val selection = navigationGlass.selection
-                    drawRect(color = selection.copy(alpha = selection.alpha * islandAlpha))
-                }
-            }.pressable(
-                pressedScale = 0.96f,
-                haptic = HapticSignal.Select,
-                role = Role.Tab,
-                onClick = onClick,
-            ).semantics(mergeDescendants = true) { this.selected = selected },
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        LiquidGlassTabIcon(item = item, tint = tint, compact = true, selected = selected)
-    }
-}
-
 /**
  * A tab glyph in its optical box.
  *
@@ -1277,7 +1145,7 @@ private fun LiquidGlassTabIcon(
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val emphasis by animateFloatAsState(
         targetValue = if (selected) 1f else 0f,
-        animationSpec = if (reduceMotion) snap() else spring(dampingRatio = 0.76f, stiffness = 460f),
+        animationSpec = Motion.tabIcon(reduceMotion),
         label = "tabSelectionScale",
     )
     val boxSize = if (compact) 34.dp else 38.dp
@@ -1323,9 +1191,9 @@ internal fun tabIndicatorBounds(
     return TabIndicatorBounds(left = left, width = width)
 }
 
-private fun tabPillTargetLeft(index: Float): Float = index + (1f - TAB_PILL_WIDTH_FRACTION) / 2f
+internal fun tabPillTargetLeft(index: Float): Float = index + (1f - TAB_PILL_WIDTH_FRACTION) / 2f
 
-private fun tabPillTargetRight(index: Float): Float = index + (1f + TAB_PILL_WIDTH_FRACTION) / 2f
+internal fun tabPillTargetRight(index: Float): Float = index + (1f + TAB_PILL_WIDTH_FRACTION) / 2f
 
 internal fun rootTabMotion(
     previous: Tab,

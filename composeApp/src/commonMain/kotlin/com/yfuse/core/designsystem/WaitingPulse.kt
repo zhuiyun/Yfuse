@@ -6,6 +6,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.MotionDurationScale
 import androidx.compose.ui.draw.drawBehind
@@ -20,6 +21,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 
 /**
  * The "a request is in flight" pulse: a soft glow wandering left and right inside the
@@ -50,10 +52,13 @@ fun Modifier.waitingPulse(
         if (!waiting) return@LaunchedEffect
         delay(WAITING_PULSE_DELAY_MS)
         shown.value = true
+        val durationScale = coroutineContext[MotionDurationScale]
         while (true) {
-            if (coroutineContext[MotionDurationScale]?.scaleFactor == 0f) {
+            if (durationScale?.scaleFactor == 0f) {
                 pulse.snapTo(0f)
-                return@LaunchedEffect
+                shown.value = false
+                snapshotFlow { durationScale.scaleFactor }.first { it > 0f }
+                shown.value = true
             }
             pulse.animateTo(1f, tween(WAITING_PULSE_LEG_MS, easing = Motion.Curve))
             pulse.animateTo(0f, tween(WAITING_PULSE_LEG_MS, easing = Motion.Curve))
@@ -90,5 +95,5 @@ fun Modifier.waitingPulse(
     }
 }
 
-const val WAITING_PULSE_LEG_MS = 850
-const val WAITING_PULSE_DELAY_MS = 180L
+const val WAITING_PULSE_LEG_MS = Motion.WAIT_HALF_CYCLE
+const val WAITING_PULSE_DELAY_MS = Motion.STANDARD * 1L

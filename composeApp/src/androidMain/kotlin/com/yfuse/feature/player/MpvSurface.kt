@@ -30,10 +30,12 @@ fun MpvSurface(
     modifier: Modifier = Modifier,
     /** 氛围光 reads this surface; mpv letterboxes inside it, so the sampler is given the picture rect. */
     ambientSampler: AmbientFrameSampler? = null,
+    subtitleControls: SubtitleControlState = SubtitleControlState(),
 ) {
     val playbackPreferences = remember { GlobalContext.get().get<PlaybackPreferences>() }
     val frameRatePreference by playbackPreferences.frameRateMatch.collectAsState()
     val playbackState by engine.state.collectAsState()
+    val subtitles by engine.subtitleText.collectAsState()
     val surfaceState = remember { mutableStateOf<Surface?>(null) }
     val frameRateMode = frameRatePreference.toPlayerMode()
     var layoutSize by remember { mutableStateOf(IntSize.Zero) }
@@ -103,6 +105,14 @@ fun MpvSurface(
             modifier = Modifier.fillMaxSize(),
         )
 
+        if (subtitles.stacked) {
+            val appearance = subtitleControls.appearance.withBrightness(subtitleControls.brightness)
+            BottomSubtitleStack(
+                subtitleControls.position,
+                primary = { BottomSubtitleText(subtitles.primary, subtitleControls.scale, appearance) },
+                secondary = { BottomSubtitleText(subtitles.secondary, subtitleControls.secondaryScale, appearance) },
+            )
+        }
         DiscNavigationOverlay(engine = engine, layoutSize = layoutSize)
     }
 }

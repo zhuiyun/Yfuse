@@ -60,6 +60,9 @@ def measured_documents():
         {"className": "com.yfuse.macrobenchmark.HomeJourneyBenchmark", "name": "homeScrollFrames", "sampledMetrics": {
             "frameDurationCpuMs": {"runs": [[8, 10, 12]] * 5},
         }},
+        {"className": "com.yfuse.macrobenchmark.NavigationJourneyBenchmark", "name": "searchAndTabTransitions", "sampledMetrics": {
+            "frameDurationCpuMs": {"runs": [[7, 9, 11]] * 5},
+        }},
     ]}]
 
 

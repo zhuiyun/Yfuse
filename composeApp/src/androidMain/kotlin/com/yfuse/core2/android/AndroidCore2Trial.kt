@@ -411,6 +411,7 @@ private fun PlayerMediaItem.toCore2MediaItem(
         headers = headers,
         providerKey = serverId,
         playbackSessionId = playSessionId,
+        allowNextItemPreparation = canPreloadSource && !usingServerTranscode,
         cacheIdentity = yCoreCacheIdentity(),
         cacheMaximumBytes = cacheMaximumBytes.coerceAtLeast(0L),
         drmConfiguration = drmConfiguration ?: version?.drmConfiguration,

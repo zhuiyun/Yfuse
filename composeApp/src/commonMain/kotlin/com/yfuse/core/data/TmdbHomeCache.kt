@@ -12,9 +12,13 @@ import kotlinx.serialization.json.Json
 
 /** Last successful recommendation page, used while TMDB is temporarily unreachable. */
 class TmdbHomeCache(
-    private val settings: Settings,
+    storage: Lazy<Settings>,
     private val today: () -> String = { currentIsoDate() },
 ) {
+    constructor(settings: Settings, today: () -> String = { currentIsoDate() }) : this(lazy { settings }, today)
+
+    private val settings by storage
+
     private companion object {
         const val KEY = "tmdb.home.cache.v1"
         const val MAX_CACHE_AGE_DAYS = 7

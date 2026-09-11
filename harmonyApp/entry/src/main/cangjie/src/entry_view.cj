@@ -8,6 +8,11 @@ import ohos.state_macro_manage.*
 @Entry
 @Component
 class EntryView {
+    @State var connectedPlaying: Bool = false
+    let homeSession = createConnectedMediaSession()
+    let librarySession = createConnectedMediaSession()
+    let serversSession = createConnectedMediaSession()
+    let searchSession = createConnectedMediaSession()
     @State var selectedTab: Int64 = 0
     @State var homeRoute: Int64 = 0
     @State var libraryRoute: Int64 = 0
@@ -24,7 +29,7 @@ class EntryView {
                 SecondaryContent()
             }
 
-            if (atRoot()) {
+            if (atRoot() && !connectedPlaying) {
                 Row {
                     NavButton("首页", 0)
                     NavButton("库", 1)
@@ -42,22 +47,18 @@ class EntryView {
     @Builder
     func RootContent() {
         if (selectedTab == 0) {
-            HomeScreen(
-                onOpenDetail: () => { homeRoute = 1 },
-                onPlay: () => { playerSource = ""; homeRoute = 2 },
-                onOpenTmdb: () => { homeRoute = 3 },
-                onOpenCalendar: () => { homeRoute = 4 }
-            )
+            ConnectedMediaScreen(mode: 0, session: homeSession,
+                onOpenTmdb: { => homeRoute = 3 }, onOpenCalendar: { => homeRoute = 4 },
+                onPlayingChanged: { value => connectedPlaying = value })
         } else if (selectedTab == 1) {
-            LibraryScreen(
-                onOpenGrid: () => { libraryRoute = 1 },
-                onOpenDetail: () => { libraryRoute = 2 },
-                onPlay: () => { playerSource = ""; libraryRoute = 3 }
-            )
+            ConnectedMediaScreen(mode: 1, session: librarySession,
+                onPlayingChanged: { value => connectedPlaying = value })
         } else if (selectedTab == 2) {
-            ServersScreen(onOpenEditor: () => { serversRoute = 1 })
+            ConnectedMediaScreen(mode: 2, session: serversSession,
+                onPlayingChanged: { value => connectedPlaying = value })
         } else if (selectedTab == 3) {
-            SearchScreen(onOpenDetail: () => { searchRoute = 1 })
+            ConnectedMediaScreen(mode: 3, session: searchSession,
+                onPlayingChanged: { value => connectedPlaying = value })
         } else {
             ProfileScreen(
                 onOpenDownloads: () => { profileRoute = 1 },

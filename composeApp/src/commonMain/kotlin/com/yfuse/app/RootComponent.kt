@@ -41,7 +41,7 @@ class RootComponent(
     registry: ServerRegistry,
     val themePreferences: ThemePreferences,
     searchHistory: SearchHistory,
-    syncManager: ServerSyncManager,
+    private val syncManager: ServerSyncManager,
     val dependencies: AppDependencies,
 ) : ComponentContext by componentContext {
     enum class Tab { Home, Browse, Servers, Search, Profile }
@@ -65,7 +65,12 @@ class RootComponent(
     private val watchTogether: WatchTogetherClient = dependencies.watchTogether
     private val inviteResolver: WatchInviteResolver = dependencies.inviteResolver
 
-    init {
+    private var backgroundServicesStarted = false
+
+    /** Called by the visible shell after its first frame; network monitors do not block construction. */
+    fun startBackgroundServices() {
+        if (backgroundServicesStarted) return
+        backgroundServicesStarted = true
         syncManager.start(scope)
         dependencies.serverHealthMonitor.start(scope)
     }

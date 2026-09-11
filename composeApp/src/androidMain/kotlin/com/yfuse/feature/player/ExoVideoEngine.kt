@@ -108,6 +108,7 @@ class ExoVideoEngine(
     private val audioPassthroughMode = outputPreferences.audioPassthrough.value.toPlayerMode()
     private val spatialAudioProbe = AndroidSpatialAudioProbe(context)
     private val dualSubtitleCueMerger = ExoDualSubtitleCueMerger()
+    internal val subtitleChannels get() = dualSubtitleCueMerger.channels
     private val secondarySubtitles =
         ExoSecondarySubtitleController(
             context = context,

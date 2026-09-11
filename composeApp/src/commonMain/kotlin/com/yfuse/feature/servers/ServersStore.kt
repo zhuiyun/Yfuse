@@ -256,6 +256,7 @@ sealed interface PlexAccountUiState {
 }
 
 data class ServersState(
+    val initialized: Boolean = false,
     val servers: List<SavedServer> = emptyList(),
     val defaultServerId: String? = null,
     val dialogVisible: Boolean = false,
@@ -1149,7 +1150,7 @@ class ServersStoreFactory(
     private object ReducerImpl : Reducer<ServersState, Msg> {
         override fun ServersState.reduce(msg: Msg): ServersState =
             when (msg) {
-                is Msg.Data -> copy(servers = msg.servers, defaultServerId = msg.defaultId)
+                is Msg.Data -> copy(initialized = true, servers = msg.servers, defaultServerId = msg.defaultId)
                 Msg.DialogOpen ->
                     copy(
                         dialogVisible = true,

@@ -136,14 +136,25 @@ class UpdateManifestPolicyTest {
         val reject: (String, ByteArray, String) -> Boolean = { _, _, _ -> false }
 
         val blank = signed.copy(signature = " ")
-        assertEquals(UpdateManifestTrust.UnverifiedDebug, unsigned.trustVerdict("", false, accept))
-        assertEquals(UpdateManifestTrust.RejectedNoKey, unsigned.trustVerdict("", true, accept))
-        assertEquals(UpdateManifestTrust.RejectedUnsigned, unsigned.trustVerdict("key", true, accept))
-        assertEquals(UpdateManifestTrust.RejectedUnsigned, blank.trustVerdict("key", true, accept))
-        assertEquals(UpdateManifestTrust.RejectedInvalidSignature, signed.trustVerdict("key", true, reject))
-        assertEquals(UpdateManifestTrust.Signed, signed.trustVerdict("key", true, accept))
-        assertEquals(UpdateManifestTrust.Signed, signed.trustVerdict("key", false, accept))
+        assertEquals(UpdateManifestTrust.RejectedUnsigned, unsigned.trustVerdict("key", accept))
+        assertEquals(UpdateManifestTrust.RejectedUnsigned, blank.trustVerdict("key", accept))
+        assertEquals(UpdateManifestTrust.RejectedInvalidSignature, signed.trustVerdict("key", reject))
+        assertEquals(UpdateManifestTrust.Signed, signed.trustVerdict("key", accept))
         assertNull(UpdateManifestTrust.Signed.rejectionMessage())
         assertNotNull(UpdateManifestTrust.RejectedInvalidSignature.rejectionMessage())
+    }
+
+    @Test
+    fun an_optional_key_does_not_block_unsigned_or_previously_signed_manifests() {
+        val unsigned = manifest("https://updates.example.com/yfuse/Yfuse-latest.apk")
+        val mustNotVerify: (String, ByteArray, String) -> Boolean = { _, _, _ ->
+            error("Signature verification requires a configured key")
+        }
+
+        for (signature in listOf(null, "", " ", "previously-published-signature")) {
+            val verdict = unsigned.copy(signature = signature).trustVerdict("  ", mustNotVerify)
+            assertEquals(UpdateManifestTrust.UnverifiedNoKey, verdict)
+            assertNull(verdict.rejectionMessage())
+        }
     }
 }

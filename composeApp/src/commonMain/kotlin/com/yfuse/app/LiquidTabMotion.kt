@@ -2,8 +2,6 @@ package com.yfuse.app
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.snap
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.runtime.Composable
@@ -64,18 +62,16 @@ internal fun rememberLiquidTabMotion(
     }
     // The leading edge follows the finger; the tail retains a little weight. On release both
     // settle more slowly, allowing the stretched lens to become round again.
-    val leading = if (dragIndex != null) 700f else 300f
-    val trailing = if (dragIndex != null) 240f else 155f
     val left =
         animateFloatAsState(
             target + 0.09f,
-            if (reduceMotion) snap() else spring(0.92f, if (rightward) trailing else leading),
+            Motion.liquidTabEdge(reduceMotion, dragging = dragIndex != null, leading = !rightward),
             label = "liquidTabLeft",
         )
     val right =
         animateFloatAsState(
             target + 0.91f,
-            if (reduceMotion) snap() else spring(0.92f, if (rightward) leading else trailing),
+            Motion.liquidTabEdge(reduceMotion, dragging = dragIndex != null, leading = rightward),
             label = "liquidTabRight",
         )
     val sweep = remember { Animatable(1f) }
@@ -88,7 +84,7 @@ internal fun rememberLiquidTabMotion(
         sweep.snapTo(1f)
         if (changed && selected >= 0 && dragIndex == null && !reduceMotion) {
             sweep.snapTo(0f)
-            sweep.animateTo(1f, tween(520, delayMillis = 90, easing = Motion.Curve))
+            sweep.animateTo(1f, tween(Motion.TAB_SWEEP, delayMillis = Motion.TAB_SWEEP_DELAY, easing = Motion.Curve))
         }
     }
     val gestures =

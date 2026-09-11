@@ -68,3 +68,9 @@ watchTogetherServer/calendarRenderer/node_modules/
 watchTogetherServer/calendarRenderer/renderer.environment
 watchTogetherServer/calendarRenderer/storage-state.json
 watchTogetherServer/calendarRenderer/renderer-state/storage-state.json
+
+# Local build caches and linked checkouts (reports under audit remain reviewable)
+/.gradle-tmp/
+/.worktrees/
+/.codex-calendar-optimization/
+/audit/**/before/

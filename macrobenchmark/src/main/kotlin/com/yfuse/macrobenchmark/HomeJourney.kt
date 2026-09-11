@@ -3,7 +3,6 @@ package com.yfuse.macrobenchmark
 import android.content.Intent
 import androidx.benchmark.macro.MacrobenchmarkScope
 import androidx.test.uiautomator.By
-import androidx.test.uiautomator.Direction
 import androidx.test.uiautomator.Until
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -33,15 +32,22 @@ internal fun MacrobenchmarkScope.startHomeFixture() {
 
 /** Scroll the actual tagged LazyColumn and prove that later fixture shelves became visible. */
 internal fun MacrobenchmarkScope.scrollHomeJourney() {
-    val feed = device.findObject(By.res("home-feed")) ?: error("Production home list is missing")
-    feed.setGestureMargin(device.displayWidth / 5)
+    val bounds = (device.findObject(By.res("home-feed")) ?: error("Production home list is missing")).visibleBounds
+    assertTrue("Production home viewport is empty", bounds.width() > 0 && bounds.height() > 0)
+    val x = bounds.centerX()
+    val lower = bounds.top + (bounds.height() * 0.8f).toInt()
+    val upper = bounds.top + (bounds.height() * 0.35f).toInt()
     var reachedThirdShelf = false
     repeat(6) {
-        // Nested Compose shelves can report a child scroll boundary for this gesture.
-        // Keep the journey bounded and validate the visible content, not that return value.
-        feed.scroll(Direction.DOWN, 0.5f)
+        // Compose rebuilds accessibility nodes during image/colour transitions. The viewport
+        // remains fixed, so inject into its captured bounds instead of retaining a stale node.
+        device.swipe(x, lower, x, upper, 120)
+        device.waitForIdle()
         if (device.hasObject(By.text("本地片架 3"))) reachedThirdShelf = true
     }
     assertTrue("Gestures never reached the third populated shelf", reachedThirdShelf)
-    repeat(2) { feed.scroll(Direction.UP, 0.65f) }
+    repeat(2) {
+        device.swipe(x, upper, x, lower, 120)
+        device.waitForIdle()
+    }
 }

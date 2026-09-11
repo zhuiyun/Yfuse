@@ -71,6 +71,8 @@ FFMPEG_REVISION="$(manifest_value ffmpeg)"
   fail "YCore HDR tone-map provenance is missing"
 [[ "$(manifest_value ycore-libass)" == "0.17.4" ]] || fail "unexpected libass revision"
 [[ "$(manifest_value ycore-libass-api)" == "2" ]] || fail "YCore dynamic libass renderer API v2 is missing"
+[[ "$(manifest_value ycore-subtitle-display-set-api)" == "2" ]] || fail "YCore bitmap subtitle display-set API v2 is missing"
+[[ "$(manifest_value ycore-demux-cancellation-api)" == "1" ]] || fail "YCore demux cancellation API v1 is missing"
 [[ "$(manifest_value ycore-disc-api)" == "2" ]] || fail "YCore disc API v2 (HDMV overlay/input) is missing"
 [[ "$(manifest_value ycore-bdmv-vfs)" == "read-only-saf" ]] ||
   fail "YCore read-only filesystem/SAF BDMV VFS is missing"
@@ -160,6 +162,10 @@ for bridge in "${bridges[@]}"; do
   done
   grep -F 'nativeAssRendererApiVersion' "$bridge_strings" >/dev/null ||
     fail "$abi bridge is missing the registered libass renderer API"
+  for method in nativeSubtitleDisplaySetApiVersion nativeCreateCancellation nativeOpenCancellable nativeCancelDemux; do
+    grep -F "$method" "$bridge_strings" >/dev/null ||
+      fail "$abi bridge is missing the registered subtitle/cancellation method $method"
+  done
   grep -F 'Unable to create libass subtitle track' "$bridge_strings" >/dev/null ||
     fail "$abi bridge does not contain the executable ASS/SSA render path"
   if grep -E 'avcodec_(send_frame|receive_packet)' "$symbols" >/dev/null; then

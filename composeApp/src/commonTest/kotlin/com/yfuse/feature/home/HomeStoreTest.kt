@@ -57,6 +57,46 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class HomeStoreTest {
+    @Test
+    fun quick_home_revisits_reuse_refresh_but_explicit_refresh_still_fetches() =
+        runTest(scheduler) {
+            var requests = 0
+            val registry =
+                testRegistry().apply {
+                    addOrUpdate(
+                        SavedServer("one", "http://one", "One", "u", "User", "token"),
+                    )
+                }
+            val store =
+                HomeStoreFactory(
+                    storeFactory = DefaultStoreFactory(),
+                    tmdb = unavailableTmdb(),
+                    emby =
+                        testRepo(dispatcher = UnconfinedTestDispatcher(testScheduler)) { request ->
+                            requests++
+                            homeRoutes(request)
+                        },
+                    registry = registry,
+                    cache = TmdbHomeCache(MapSettings()),
+                    cacheDispatcher = UnconfinedTestDispatcher(testScheduler),
+                ).create()
+            try {
+                advanceUntilIdle()
+                store.accept(HomeIntent.RefreshLibrary)
+                advanceUntilIdle()
+                val afterReturn = requests
+                assertTrue(afterReturn > 0)
+                repeat(3) { store.accept(HomeIntent.RefreshLibrary) }
+                advanceUntilIdle()
+                assertEquals(afterReturn, requests)
+                store.accept(HomeIntent.Refresh)
+                advanceUntilIdle()
+                assertTrue(requests > afterReturn)
+            } finally {
+                store.dispose()
+            }
+        }
+
     /**
      * One clock for the store and for the test that awaits it.
      *

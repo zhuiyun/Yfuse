@@ -309,8 +309,7 @@ jobs:
             public_key="$derived"
           fi
           if [[ -z "$public_key" ]]; then
-            echo 'No update-manifest key configured; continuing APK packaging.'
-            printf 'YFUSE_UPDATE_MANIFEST_PUBLIC_KEY=\n' >> "$GITHUB_ENV"
+            echo '::notice::No update-manifest public key configured; continuing with standard APK verification'
             exit 0
           fi
           if [[ ! "$public_key" =~ ^MCowBQYDK2VwAyEA[A-Za-z0-9+/]{43}=$ ]]; then

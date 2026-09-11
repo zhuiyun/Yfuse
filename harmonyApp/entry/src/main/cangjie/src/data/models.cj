@@ -1,7 +1,9 @@
 package com.yfuse.harmony.entry.data
 
 import std.collection.*
+import std.deriving.*
 
+@Derive[Equatable]
 public enum ProviderKind {
     | Emby
     | Jellyfin

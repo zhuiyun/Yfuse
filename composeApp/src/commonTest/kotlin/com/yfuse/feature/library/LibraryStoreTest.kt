@@ -30,6 +30,33 @@ import kotlin.test.assertTrue
 
 class LibraryStoreTest {
     @Test
+    fun unavailable_cache_storage_does_not_block_live_library() =
+        runTest {
+            val registry =
+                testRegistry().apply {
+                    addOrUpdate(
+                        SavedServer("one", "http://one", "One", "u", "User", "token"),
+                    )
+                }
+            val store =
+                LibraryStoreFactory(
+                    DefaultStoreFactory(),
+                    testRepo(dispatcher = UnconfinedTestDispatcher(testScheduler)) { homeRoutes(it) },
+                    registry,
+                    LibraryCache(MapSettings(), storage = { error("cache unavailable") }),
+                    mainContext = UnconfinedTestDispatcher(testScheduler),
+                    workContext = UnconfinedTestDispatcher(testScheduler),
+                ).create()
+            try {
+                advanceUntilIdle()
+                assertEquals(LibraryContentSource.Live, store.state.contentSource)
+                assertTrue(!store.state.content.isEmpty)
+            } finally {
+                store.dispose()
+            }
+        }
+
+    @Test
     fun slow_counts_do_not_hide_previews_and_switching_server_replaces_progress() =
         runTest {
             val registry =
@@ -51,6 +78,7 @@ class LibraryStoreTest {
                     registry,
                     LibraryCache(MapSettings()),
                     mainContext = UnconfinedTestDispatcher(testScheduler),
+                    workContext = UnconfinedTestDispatcher(testScheduler),
                 ).create()
             try {
                 runCurrent()
@@ -86,6 +114,7 @@ class LibraryStoreTest {
                     LibraryCache(MapSettings()),
                     nowEpochMs = { 1_700_000_000_000L },
                     mainContext = UnconfinedTestDispatcher(testScheduler),
+                    workContext = UnconfinedTestDispatcher(testScheduler),
                 ).create()
 
             val s = store.states.first { !it.loading && !it.content.isEmpty }
@@ -110,6 +139,7 @@ class LibraryStoreTest {
                     testRegistry(),
                     LibraryCache(MapSettings()),
                     mainContext = UnconfinedTestDispatcher(testScheduler),
+                    workContext = UnconfinedTestDispatcher(testScheduler),
                 ).create()
             val s = store.states.first()
             assertEquals(null, s.currentServer)
@@ -172,6 +202,7 @@ class LibraryStoreTest {
                     registry,
                     LibraryCache(MapSettings()),
                     mainContext = UnconfinedTestDispatcher(testScheduler),
+                    workContext = UnconfinedTestDispatcher(testScheduler),
                 ).create()
 
             oldRequestStarted.await()
@@ -246,6 +277,7 @@ class LibraryStoreTest {
                     registry,
                     LibraryCache(MapSettings()),
                     mainContext = UnconfinedTestDispatcher(testScheduler),
+                    workContext = UnconfinedTestDispatcher(testScheduler),
                 ).create()
 
             oldRequestStarted.await()
@@ -319,6 +351,7 @@ class LibraryStoreTest {
                     registry,
                     cache,
                     mainContext = UnconfinedTestDispatcher(testScheduler),
+                    workContext = UnconfinedTestDispatcher(testScheduler),
                 ).create()
 
             store.states.first { !it.loading && it.content.counts?.movieCount == 99 }
@@ -392,6 +425,7 @@ class LibraryStoreTest {
                     cache,
                     nowEpochMs = { liveUpdatedAt },
                     mainContext = UnconfinedTestDispatcher(testScheduler),
+                    workContext = UnconfinedTestDispatcher(testScheduler),
                 ).create()
 
             requestStarted.await()
@@ -431,6 +465,7 @@ class LibraryStoreTest {
                     registry,
                     cache,
                     mainContext = UnconfinedTestDispatcher(testScheduler),
+                    workContext = UnconfinedTestDispatcher(testScheduler),
                 ).create()
 
             val failed = store.states.first { !it.loading && it.error != null }
@@ -470,6 +505,7 @@ class LibraryStoreTest {
                     registry,
                     cache,
                     mainContext = UnconfinedTestDispatcher(testScheduler),
+                    workContext = UnconfinedTestDispatcher(testScheduler),
                 ).create()
 
             store.states.first { it.currentServer?.id == first.id && !it.loading && it.error != null }

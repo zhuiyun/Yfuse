@@ -1,6 +1,6 @@
 package com.yfuse.harmony.entry.provider
 
-import encoding.json.*
+import stdx.encoding.json.*
 import std.collection.*
 import com.yfuse.harmony.entry.data.*
 
@@ -129,7 +129,7 @@ public class EmbyCompatibleCodec <: ProviderCodec {
             case Failure(problem) => ApiResult<MediaPage>.Failure(problem)
             case Success(root) =>
                 let result = ArrayList<MediaItemModel>()
-                for (value in jsonArray(root, "Items").getItems()) { result.append(embyItem(server, jsonObjectOrEmpty(value))) }
+                for (value in jsonArray(root, "Items").getItems()) { result.add(embyItem(server, jsonObjectOrEmpty(value))) }
                 ApiResult<MediaPage>.Success(MediaPage(result, totalCount: jsonInt(root, "TotalRecordCount", fallback: result.size), startIndex: startIndex))
         }
     }
@@ -140,7 +140,7 @@ public class EmbyCompatibleCodec <: ProviderCodec {
             case Success(root) =>
                 let sources = ArrayList<MediaSourceModel>()
                 for (value in jsonArray(root, "MediaSources").getItems()) {
-                    sources.append(embySource(server, jsonString(root, "Id"), jsonObjectOrEmpty(value)))
+                    sources.add(embySource(server, jsonString(root, "Id"), jsonObjectOrEmpty(value)))
                 }
                 let userData = match (jsonObject(root, "UserData")) { case Some(value) => value; case None => JsonObject() }
                 ApiResult<MediaDetailModel>.Success(MediaDetailModel(
@@ -158,7 +158,7 @@ public class EmbyCompatibleCodec <: ProviderCodec {
             case Failure(problem) => ApiResult<ArrayList<MediaSourceModel>>.Failure(problem)
             case Success(root) =>
                 let sources = ArrayList<MediaSourceModel>()
-                for (value in jsonArray(root, "MediaSources").getItems()) { sources.append(embySource(server, itemId, jsonObjectOrEmpty(value))) }
+                for (value in jsonArray(root, "MediaSources").getItems()) { sources.add(embySource(server, itemId, jsonObjectOrEmpty(value))) }
                 ApiResult<ArrayList<MediaSourceModel>>.Success(sources)
         }
     }
@@ -209,7 +209,7 @@ public class PlexCodec <: ProviderCodec {
             case Success(root) =>
                 let container = plexContainer(root)
                 let result = ArrayList<MediaItemModel>()
-                for (value in jsonArray(container, "Metadata").getItems()) { result.append(plexMetadata(server, jsonObjectOrEmpty(value))) }
+                for (value in jsonArray(container, "Metadata").getItems()) { result.add(plexMetadata(server, jsonObjectOrEmpty(value))) }
                 ApiResult<MediaPage>.Success(MediaPage(result, totalCount: jsonInt(container, "totalSize", fallback: result.size), startIndex: startIndex))
         }
     }
@@ -239,7 +239,7 @@ public class PlexCodec <: ProviderCodec {
                         for (partValue in jsonArray(media, "Part").getItems()) {
                             let part = jsonObjectOrEmpty(partValue)
                             let key = jsonString(part, "key")
-                            result.append(MediaSourceModel(
+                            result.add(MediaSourceModel(
                                 jsonString(part, "id", fallback: itemId),
                                 jsonString(media, "videoResolution", fallback: jsonString(part, "container")),
                                 if (key.startsWith("http")) { key } else { server.baseUrl + key },

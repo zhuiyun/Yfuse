@@ -3,7 +3,6 @@ package com.yfuse.feature.profile
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -19,6 +18,7 @@ import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.sc
 import com.yfuse.update.LocalAppUpdateManager
 import com.yfuse.update.UpdateState
+import com.yfuse.core.designsystem.ThemeText as Text
 
 @Composable
 actual fun AppUpdateTools() {

@@ -19,8 +19,11 @@ import com.yfuse.core.account.AccountRepository
 import com.yfuse.core.cast.initializeCastApplicationContext
 import com.yfuse.core.data.AndroidCalendarLocalStore
 import com.yfuse.core.data.DiagnosticPreferences
+import com.yfuse.core.data.LibraryCache
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.UserAgentPreferences
+import com.yfuse.core.data.androidFeedCacheSettings
+import com.yfuse.core.data.observeFeedCacheCleanup
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.logging.DiagnosticLogStore
 import com.yfuse.core.logging.SafeLogcatOutputGate
@@ -85,7 +88,6 @@ class TvApplication :
         val diagnostics = DiagnosticPreferences(settings)
         SafeLogcatOutputGate.initialize(diagnostics)
         DiagnosticLogStore.initialize(this)
-        AndroidNativeCrashMonitor.initialize(this)
         PlaybackRemotePolicyRegistry.initialize(this)
         PlaybackDiagnosticReportRegistry.initialize(this)
 
@@ -94,6 +96,7 @@ class TvApplication :
                 modules(
                     appModule(
                         settings = settings,
+                        feedCacheSettings = androidFeedCacheSettings(this@TvApplication),
                         appVersion = BuildConfig.VERSION_NAME,
                         diagnosticPreferences = diagnostics,
                         calendarLocalStore = AndroidCalendarLocalStore(this@TvApplication),
@@ -110,9 +113,18 @@ class TvApplication :
                 )
             }
         ServerSessionRecovery.initialize(
-            restore = { koinApplication.koin.get<ServerRegistry>() },
+            restore = {
+                // Classify historical crashes before any native engine can be constructed.
+                AndroidNativeCrashMonitor.initialize(this@TvApplication)
+                koinApplication.koin.get<ServerRegistry>()
+            },
             startServices = {
                 graph = TvApplicationGraph(koinApplication.koin)
+                observeFeedCacheCleanup(
+                    applicationScope,
+                    koinApplication.koin.get<ServerRegistry>(),
+                    koinApplication.koin.get<LibraryCache>(),
+                )
 
                 koinApplication.koin.get<AccountRepository>().start()
                 koinApplication.koin.get<PlaybackSyncManager>().start()

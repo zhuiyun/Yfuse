@@ -26,4 +26,12 @@ class OfflineWakeWorkTest {
         assertEquals(BackoffPolicy.EXPONENTIAL, request.workSpec.backoffPolicy)
         assertEquals(WorkRequest.MIN_BACKOFF_MILLIS, request.workSpec.backoffDelayDuration)
     }
+
+    @Test
+    fun charging_constraint_only_applies_to_automatic_download_work() {
+        val automatic = offlineAutoSyncRequest(wifiOnly = true, chargingOnly = true)
+        assertTrue(automatic.workSpec.constraints.requiresCharging())
+        assertEquals(NetworkType.UNMETERED, automatic.workSpec.constraints.requiredNetworkType)
+        assertEquals(false, offlineWakeRequest(wifiOnly = true).workSpec.constraints.requiresCharging())
+    }
 }

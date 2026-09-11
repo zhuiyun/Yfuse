@@ -27,11 +27,11 @@ import com.yfuse.core2.dolby.YDolbyVisionConfig
 import com.yfuse.core2.hdr.YHdrStaticMetadata
 import com.yfuse.core2.subtitle.YAssSubtitleSource
 import com.yfuse.core2.subtitle.YSubtitleCue
+import com.yfuse.core2.subtitle.YSubtitleDecodeResult
 import com.yfuse.core2.subtitle.YSubtitleFont
 import com.yfuse.core2.subtitle.YSubtitleFormat
 import com.yfuse.core2.subtitle.YSubtitlePayload
 import com.yfuse.core2.sync.YMediaTimestampTimeline
-import kotlinx.coroutines.CancellationException
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
@@ -53,6 +53,9 @@ internal class AndroidFfmpegDemuxer :
 
     private val timeline = YMediaTimestampTimeline()
     private var handle = 0L
+
+    @Volatile
+    private var cancellationToken = 0L
     private var openResult: YDemuxOpenResult? = null
     private var packetBuffer = ByteBuffer.allocateDirect(INITIAL_PACKET_BUFFER_BYTES)
     private var prefetchedSample: YCompressedSample? = null
@@ -62,14 +65,30 @@ internal class AndroidFfmpegDemuxer :
 
     val available: Boolean get() = FfmpegNativeBridge.available
 
-    override fun open(source: YDemuxSource): YDemuxOpenResult {
+    override fun open(source: YDemuxSource): YDemuxOpenResult = open(source, null)
+
+    fun open(
+        source: YDemuxSource,
+        budget: AndroidProbeBudget?,
+    ): YDemuxOpenResult {
         close()
         check(available) { "YCore FFmpeg enhanced demux is unavailable" }
+        cancellationToken = FfmpegNativeBridge.createCancellation()
+        val cancellation = budget?.onCancel(::cancelPendingRead)
         var openedHandle = 0L
         return try {
+            budget?.ensureActive()
+            budget?.remainingMs()?.let { FfmpegNativeBridge.setDemuxDeadline(cancellationToken, it) }
             discSource = source.uri.startsWith("ycorebd://", ignoreCase = true)
             val request = ffmpegSourceRequest(source)
-            openedHandle = FfmpegNativeBridge.open(request.uri, request.headers, probeOnly = source.probeOnly)
+            openedHandle =
+                FfmpegNativeBridge.open(
+                    request.uri,
+                    request.headers,
+                    probeOnly = source.probeOnly,
+                    cancellationToken = cancellationToken,
+                )
+            budget?.ensureActive()
             handle = openedHandle
             val tracks =
                 (0 until FfmpegNativeBridge.trackCount(handle))
@@ -86,16 +105,25 @@ internal class AndroidFfmpegDemuxer :
                 FfmpegNativeBridge.selectTracks(handle, intArrayOf())
             }
         } catch (throwable: Throwable) {
-            if (throwable is CancellationException) throw throwable
             if (openedHandle != 0L) FfmpegNativeBridge.close(openedHandle)
+            FfmpegNativeBridge.releaseCancellation(cancellationToken)
+            cancellationToken = 0L
             handle = 0L
             openResult = null
             prefetchedSample = null
             discSource = false
             timeline.reset()
+            budget?.ensureActive()
             throw throwable
+        } finally {
+            cancellation?.close()
         }
     }
+
+    /** Thread-safe signal only. The owner thread remains solely responsible for native close. */
+    fun cancelPendingRead() = FfmpegNativeBridge.cancelDemux(cancellationToken)
+
+    fun clearProbeDeadline() = FfmpegNativeBridge.setDemuxDeadline(cancellationToken, 0L)
 
     override fun selectTracks(trackIds: Set<YTrackId>) {
         val result = requireOpenResult()
@@ -188,7 +216,7 @@ internal class AndroidFfmpegDemuxer :
         )
     }
 
-    override fun decodeSubtitle(sample: YCompressedSample): List<YSubtitleCue> {
+    override fun decodeSubtitle(sample: YCompressedSample): YSubtitleDecodeResult {
         val track =
             requireOpenResult().tracks.firstOrNull { it.id == sample.trackId }
                 ?: error("Subtitle sample does not belong to this demux session")
@@ -212,12 +240,14 @@ internal class AndroidFfmpegDemuxer :
                     )
                 }
             val startUs = sample.presentationTimeUs.coerceAtLeast(0L)
-            return listOf(
-                YSubtitleCue(
-                    id = "${track.id.value}:$startUs",
-                    startUs = startUs,
-                    endUs = startUs + (sample.durationUs?.takeIf { it > 0L } ?: 5_000_000L),
-                    payload = YSubtitlePayload.AssEvent(source, sample.data),
+            return YSubtitleDecodeResult.Append(
+                listOf(
+                    YSubtitleCue(
+                        id = "${track.id.value}:$startUs",
+                        startUs = startUs,
+                        endUs = startUs + (sample.durationUs?.takeIf { it > 0L } ?: 5_000_000L),
+                        payload = YSubtitlePayload.AssEvent(source, sample.data),
+                    ),
                 ),
             )
         }
@@ -230,8 +260,14 @@ internal class AndroidFfmpegDemuxer :
                 // original timestamp while keeping the cue emitted below on the normalized clock.
                 presentationTimeUs = timeline.sourceTimeUs(sample.presentationTimeUs),
                 durationUs = sample.durationUs,
-            ) ?: return emptyList()
-        return decoded.toBitmapSubtitleCues(sample)
+            ) ?: return YSubtitleDecodeResult.NoOutput
+        val display = decoded.toBitmapSubtitleDisplay(sample)
+        return if (track.subtitle?.format in BITMAP_SUBTITLE_FORMATS) {
+            display
+        } else {
+            // Legacy ASS bitmap rendering still has ordinary timed-event semantics.
+            YSubtitleDecodeResult.Append(display.cues)
+        }
     }
 
     private fun loadAssFonts(): List<YSubtitleFont> {
@@ -248,7 +284,7 @@ internal class AndroidFfmpegDemuxer :
     }
 
     override fun supportsSubtitleFormat(format: YSubtitleFormat): Boolean =
-        format in BITMAP_SUBTITLE_FORMATS ||
+        (format in BITMAP_SUBTITLE_FORMATS && FfmpegNativeBridge.subtitleDisplaySetAvailable) ||
             (format in ASS_SUBTITLE_FORMATS && FfmpegNativeBridge.assRendererAvailable)
 
     val softwareDecodeAvailable: Boolean get() = FfmpegNativeBridge.softwareDecodeAvailable
@@ -306,6 +342,8 @@ internal class AndroidFfmpegDemuxer :
         timeline.reset()
         packetBuffer.clear()
         if (previous != 0L) FfmpegNativeBridge.close(previous)
+        FfmpegNativeBridge.releaseCancellation(cancellationToken)
+        cancellationToken = 0L
     }
 
     private fun readTrack(index: Int): YDemuxTrack? {
@@ -482,60 +520,85 @@ internal fun ffmpegSourceRequest(source: YDemuxSource): YFfmpegSourceRequest {
     return YFfmpegSourceRequest(uri = normalizedUri, headers = headers)
 }
 
-internal fun ByteArray.toBitmapSubtitleCues(sample: YCompressedSample): List<YSubtitleCue> {
+internal fun ByteArray.toBitmapSubtitleCues(sample: YCompressedSample): List<YSubtitleCue> =
+    toBitmapSubtitleDisplay(sample).cues
+
+internal fun ByteArray.toBitmapSubtitleDisplay(sample: YCompressedSample): YSubtitleDecodeResult.DisplaySet {
     val input = ByteBuffer.wrap(this).order(ByteOrder.LITTLE_ENDIAN)
     require(input.remaining() >= SUBTITLE_PAYLOAD_HEADER_BYTES) { "FFmpeg subtitle payload is truncated" }
     require(input.int == SUBTITLE_PAYLOAD_MAGIC) { "FFmpeg subtitle payload has an invalid signature" }
-    require(input.int == SUBTITLE_PAYLOAD_VERSION) { "FFmpeg subtitle payload version is unsupported" }
-    val canvasWidth = input.positiveSubtitleDimension()
-    val canvasHeight = input.positiveSubtitleDimension()
+    val version = input.int
+    require(version in 1..SUBTITLE_PAYLOAD_VERSION) { "FFmpeg subtitle payload version is unsupported" }
+    val canvasWidth = input.int
+    val canvasHeight = input.int
     val startOffsetUs = input.unsignedIntToLong() * MICROS_PER_MILLISECOND
-    val endOffsetUs = input.unsignedIntToLong() * MICROS_PER_MILLISECOND
+    val endOffsetMs = input.unsignedIntToLong()
+    val endOffsetUs = endOffsetMs * MICROS_PER_MILLISECOND
     val rectCount = input.int
-    require(rectCount in 1..MAX_SUBTITLE_RECTS) { "FFmpeg subtitle rectangle count is invalid" }
-    val startUs = sample.presentationTimeUs.coerceAtLeast(0L) + startOffsetUs
+    require(rectCount in 0..MAX_SUBTITLE_RECTS) { "FFmpeg subtitle rectangle count is invalid" }
+    // v2 carries AVSubtitle.pts relative to the input packet. A PGS END packet can have a
+    // different PTS from the earlier presentation-composition segment it completes.
+    val ptsOffsetUs =
+        if (version >= 2) {
+            require(input.remaining() >= Long.SIZE_BYTES) { "FFmpeg subtitle timestamp is truncated" }
+            input.long
+        } else {
+            0L
+        }
+    val baseUs = Math.addExact(sample.presentationTimeUs, ptsOffsetUs)
+    val startUs = Math.addExact(baseUs, startOffsetUs).coerceAtLeast(0L)
+    require(startUs < Long.MAX_VALUE) { "FFmpeg subtitle timestamp is invalid" }
+    if (rectCount == 0) {
+        require(!input.hasRemaining()) { "FFmpeg subtitle payload has trailing data" }
+        return YSubtitleDecodeResult.DisplaySet(startUs, emptyList())
+    }
+    require(canvasWidth in 1..MAX_SUBTITLE_DIMENSION && canvasHeight in 1..MAX_SUBTITLE_DIMENSION) {
+        "FFmpeg subtitle dimension is invalid"
+    }
     val fallbackDurationUs = sample.durationUs?.takeIf { it > 0L } ?: DEFAULT_BITMAP_SUBTITLE_DURATION_US
     val endUs =
-        if (endOffsetUs > startOffsetUs) {
-            sample.presentationTimeUs.coerceAtLeast(0L) + endOffsetUs
-        } else {
-            startUs + fallbackDurationUs
+        when {
+            endOffsetMs == 0xffff_ffffL -> Long.MAX_VALUE
+            endOffsetUs > startOffsetUs -> Math.addExact(baseUs, endOffsetUs)
+            else -> Math.addExact(startUs, fallbackDurationUs)
         }
-    return List(rectCount) { rectIndex ->
-        require(input.remaining() >= SUBTITLE_RECT_HEADER_BYTES) { "FFmpeg subtitle rectangle is truncated" }
-        val x = input.nonNegativeSubtitleCoordinate()
-        val y = input.nonNegativeSubtitleCoordinate()
-        val width = input.positiveSubtitleDimension()
-        val height = input.positiveSubtitleDimension()
-        input.int // authored flags are retained in native diagnostics, not presentation policy
-        val pixelCount = input.int
-        input.int // reserved
-        require(pixelCount == width * height && pixelCount <= MAX_SUBTITLE_PIXELS) {
-            "FFmpeg subtitle rectangle pixel count is invalid"
+    val cues =
+        List(rectCount) { rectIndex ->
+            require(input.remaining() >= SUBTITLE_RECT_HEADER_BYTES) { "FFmpeg subtitle rectangle is truncated" }
+            val x = input.nonNegativeSubtitleCoordinate()
+            val y = input.nonNegativeSubtitleCoordinate()
+            val width = input.positiveSubtitleDimension()
+            val height = input.positiveSubtitleDimension()
+            input.int // authored flags are retained in native diagnostics, not presentation policy
+            val pixelCount = input.int
+            input.int // reserved
+            require(pixelCount == width * height && pixelCount <= MAX_SUBTITLE_PIXELS) {
+                "FFmpeg subtitle rectangle pixel count is invalid"
+            }
+            require(input.remaining() >= pixelCount * Int.SIZE_BYTES) { "FFmpeg subtitle pixels are truncated" }
+            require(x + width <= canvasWidth && y + height <= canvasHeight) {
+                "FFmpeg subtitle rectangle exceeds its authored canvas"
+            }
+            val pixels = IntArray(pixelCount) { input.int }
+            YSubtitleCue(
+                id = "${sample.trackId.value}:${sample.presentationTimeUs}:$rectIndex",
+                startUs = startUs,
+                endUs = endUs.coerceAtLeast(startUs + 1L),
+                payload =
+                    YSubtitlePayload.BitmapArgb(
+                        width = width,
+                        height = height,
+                        x = x,
+                        y = y,
+                        canvasWidth = canvasWidth,
+                        canvasHeight = canvasHeight,
+                        pixels = pixels,
+                    ),
+            )
+        }.also {
+            require(!input.hasRemaining()) { "FFmpeg subtitle payload has trailing data" }
         }
-        require(input.remaining() >= pixelCount * Int.SIZE_BYTES) { "FFmpeg subtitle pixels are truncated" }
-        require(x + width <= canvasWidth && y + height <= canvasHeight) {
-            "FFmpeg subtitle rectangle exceeds its authored canvas"
-        }
-        val pixels = IntArray(pixelCount) { input.int }
-        YSubtitleCue(
-            id = "${sample.trackId.value}:${sample.presentationTimeUs}:$rectIndex",
-            startUs = startUs,
-            endUs = endUs.coerceAtLeast(startUs + 1L),
-            payload =
-                YSubtitlePayload.BitmapArgb(
-                    width = width,
-                    height = height,
-                    x = x,
-                    y = y,
-                    canvasWidth = canvasWidth,
-                    canvasHeight = canvasHeight,
-                    pixels = pixels,
-                ),
-        )
-    }.also {
-        require(!input.hasRemaining()) { "FFmpeg subtitle payload has trailing data" }
-    }
+    return YSubtitleDecodeResult.DisplaySet(startUs, cues)
 }
 
 private fun ByteBuffer.positiveSubtitleDimension(): Int =
@@ -786,7 +849,7 @@ private const val AUDIO_PROFILE_INDEX = 2
 private const val DOLBY_CONFIG_FIELDS = 9
 private const val HDR_STATIC_INFO_FIELDS = 12
 private const val SUBTITLE_PAYLOAD_MAGIC = 0x42555359
-private const val SUBTITLE_PAYLOAD_VERSION = 1
+private const val SUBTITLE_PAYLOAD_VERSION = 2
 private const val SUBTITLE_PAYLOAD_HEADER_BYTES = 7 * Int.SIZE_BYTES
 private const val SUBTITLE_RECT_HEADER_BYTES = 7 * Int.SIZE_BYTES
 private const val MAX_SUBTITLE_RECTS = 64

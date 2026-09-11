@@ -67,15 +67,40 @@ def check_contracts() -> None:
         missing = sorted(target_ids - set(coverage_ids))
         extra = sorted(set(coverage_ids) - target_ids)
         fail(f"implementation coverage mismatch; missing={missing}, extra={extra}")
-    valid_statuses = {"implemented", "sdkAdapter", "capabilityGated", "physicalValidation"}
+    # "implemented" once covered 22 features that no screen could reach, because the vocabulary
+    # had no way to say "the code exists but nothing calls it". These statuses separate what
+    # exists to build on from what a user can actually do.
+    valid_statuses = {
+        "implemented",
+        "logicOnly",
+        "contractOnly",
+        "placeholderUi",
+        "sdkAdapter",
+        "capabilityGated",
+        "physicalValidation",
+        "sourceWired",
+    }
+    if set(coverage["statusVocabulary"]) != valid_statuses:
+        fail("coverage status vocabulary does not match the statuses this check enforces")
     for item in coverage["features"]:
-        if item["status"] not in valid_statuses:
+        status = item["status"]
+        if status not in valid_statuses:
             fail(f"invalid coverage status for {item['id']}")
         for source_path in item["sources"]:
             if not (ROOT / source_path).is_file():
                 fail(f"coverage source does not exist for {item['id']}: {source_path}")
-        if item["status"] in {"capabilityGated", "physicalValidation"} and item.get("gate") not in gate_ids:
+        gate = item.get("gate")
+        if gate is not None and gate not in gate_ids:
+            fail(f"unknown coverage gate for {item['id']}: {gate}")
+        if status in {"capabilityGated", "physicalValidation"} and gate is None:
             fail(f"coverage gate missing for {item['id']}")
+        # Claiming a feature works requires naming the evidence; every other status must say
+        # what is missing. Restoring "implemented" is therefore a visible, reviewable act.
+        if status == "implemented":
+            if not item.get("evidence"):
+                fail(f"coverage claims {item['id']} is implemented without evidence")
+        elif not item.get("note"):
+            fail(f"coverage status {status} for {item['id']} needs a note stating what is missing")
 
     artwork = tokens["artworkSurface"]
     if "Never alter the full artwork bitmap" not in artwork["scope"]:
@@ -230,6 +255,13 @@ def check_cangjie_sources() -> None:
     subprocess.run([sys.executable, str(ROOT / "scripts/validate-cangjie-sources.py")], check=True)
 
 
+def check_cangjie_host_build() -> None:
+    # Compiles and runs every package that does not import `ohos.*`. Skips itself when no host
+    # Cangjie compiler is installed, so this stays runnable on a machine that only has Android
+    # tooling; it is the only executable evidence the Cangjie side has.
+    subprocess.run([sys.executable, str(ROOT / "scripts/verify-cangjie-host.py")], check=True)
+
+
 def check_fixtures() -> None:
     auth = load_json("parity/fixtures/emby-auth.json")
     emby = load_json("parity/fixtures/emby-items.json")
@@ -255,6 +287,7 @@ def main() -> int:
         ("Harmony scaffold", check_scaffold),
         ("provider fixtures and media matrix", check_fixtures),
         ("Cangjie source structure", check_cangjie_sources),
+        ("Cangjie host build and tests", check_cangjie_host_build),
         ("portable YCore", check_native_core),
     ]
     for label, check in checks:

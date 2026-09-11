@@ -11,6 +11,8 @@ import com.yfuse.core2.demux.YSubtitlePacketDecoder
 import com.yfuse.core2.demux.YSubtitleTrackFormat
 import com.yfuse.core2.demux.YTrackId
 import com.yfuse.core2.subtitle.YSubtitleCue
+import com.yfuse.core2.subtitle.YSubtitleCueBuffer
+import com.yfuse.core2.subtitle.YSubtitleDecodeResult
 import com.yfuse.core2.subtitle.YSubtitleFormat
 import com.yfuse.core2.subtitle.YSubtitlePayload
 import java.util.concurrent.CountDownLatch
@@ -21,6 +23,76 @@ import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 class AndroidDemuxReadAheadNodeTest {
+    @Test
+    fun future_subtitle_memory_pressure_does_not_hold_av_packets_behind_the_shared_queue() {
+        val subtitleTrack = YTrackId(2)
+        val packets =
+            List(6) { YCompressedSample(subtitleTrack, byteArrayOf(1), it * 10_000_000L) } +
+                listOf(YCompressedSample(TRACK, byteArrayOf(2), 0L), YCompressedSample(YTrackId(1), byteArrayOf(3), 0L))
+        val fake =
+            object : YDemuxer by FakeDemuxer(packets), YSubtitlePacketDecoder {
+                override fun open(source: YDemuxSource) =
+                    YDemuxOpenResult(
+                        YContainer.Matroska,
+                        tracks =
+                            listOf(
+                                YDemuxTrack(
+                                    subtitleTrack,
+                                    YDemuxTrackType.Subtitle,
+                                    subtitle = YSubtitleTrackFormat(YSubtitleFormat.Pgs, "application/pgs"),
+                                ),
+                            ),
+                    )
+
+                override fun supportsSubtitleFormat(format: YSubtitleFormat) = format == YSubtitleFormat.Pgs
+
+                override fun decodeSubtitle(sample: YCompressedSample) =
+                    YSubtitleDecodeResult.DisplaySet(
+                        sample.presentationTimeUs,
+                        listOf(
+                            YSubtitleCue(
+                                "${sample.presentationTimeUs}",
+                                sample.presentationTimeUs,
+                                Long.MAX_VALUE,
+                                YSubtitlePayload.BitmapArgb(512, 1024, 0, 0, 512, 1024, IntArray(512 * 1024)),
+                            ),
+                        ),
+                    )
+            }
+        val node = AndroidDemuxReadAheadNode(fake)
+        val buffer = YSubtitleCueBuffer(maximumBitmapBytes = 4L * 1024L * 1024L)
+        try {
+            node.open(YDemuxSource("file:///badly-interleaved.mkv"))
+            node.configure(
+                targetAheadUs = 1_000_000L,
+                mediaBitRateBitsPerSecond = 8_000_000L,
+                memoryBudgetBytes = 4L * 1024L * 1024L,
+            )
+            node.selectTracks(setOf(TRACK, YTrackId(1), subtitleTrack))
+            val receivedAv = mutableSetOf<YTrackId>()
+            val deadline = System.nanoTime() + 5_000_000_000L
+            while (receivedAv.size < 2 && System.nanoTime() < deadline) {
+                when (val result = node.pollSample()) {
+                    is YQueuedDemuxResult.Sample -> {
+                        result.subtitleResult?.let {
+                            buffer.apply(it)
+                            // Playback is stalled at 0 while A/V waits behind all future subtitles.
+                            buffer.prune(-60_000_000L, positionUs = 0L)
+                        } ?: receivedAv.add(result.value.trackId)
+                    }
+                    is YQueuedDemuxResult.Failed -> throw result.cause
+                    YQueuedDemuxResult.Empty -> Thread.sleep(1L)
+                    YQueuedDemuxResult.EndOfInput -> break
+                }
+            }
+            assertEquals(setOf(TRACK, YTrackId(1)), receivedAv)
+            assertTrue(buffer.droppedFutureDisplayCount > 0L)
+            assertTrue(buffer.retainedBitmapBytes <= 4L * 1024L * 1024L)
+        } finally {
+            node.release()
+        }
+    }
+
     @Test
     fun subtitle_result_is_ready_without_waiting_for_the_next_blocking_network_read() {
         val blockedRead = CountDownLatch(1)
@@ -49,7 +121,11 @@ class AndroidDemuxReadAheadNodeTest {
                 override fun selectTracks(trackIds: Set<YTrackId>) = Unit
 
                 override fun readSample(): YCompressedSample? {
-                    if (reads++ == 0) return subtitle
+                    when (reads++) {
+                        0 -> return subtitle
+                        1 -> return subtitle.copy(presentationTimeUs = 3_000_000L)
+                        2 -> return subtitle.copy(presentationTimeUs = 4_000_000L)
+                    }
                     blockedRead.countDown()
                     check(releaseRead.await(2, TimeUnit.SECONDS))
                     return null
@@ -61,9 +137,13 @@ class AndroidDemuxReadAheadNodeTest {
 
                 override fun supportsSubtitleFormat(format: YSubtitleFormat) = true
 
-                override fun decodeSubtitle(sample: YCompressedSample): List<YSubtitleCue> {
+                override fun decodeSubtitle(sample: YCompressedSample): YSubtitleDecodeResult {
                     decodeThread = Thread.currentThread().name
-                    return listOf(cue)
+                    return when (sample.presentationTimeUs) {
+                        0L -> YSubtitleDecodeResult.DisplaySet(0L, listOf(cue))
+                        3_000_000L -> YSubtitleDecodeResult.DisplaySet(3_000_000L, emptyList())
+                        else -> YSubtitleDecodeResult.NoOutput
+                    }
                 }
             }
         val node = AndroidDemuxReadAheadNode(fake)
@@ -73,7 +153,11 @@ class AndroidDemuxReadAheadNodeTest {
             assertTrue(blockedRead.await(2, TimeUnit.SECONDS))
             // The demux owner is blocked. Polling still returns its earlier decoded subtitle.
             val result = node.pollSample() as YQueuedDemuxResult.Sample
-            assertEquals(listOf(cue), result.subtitleCues)
+            assertEquals(YSubtitleDecodeResult.DisplaySet(0L, listOf(cue)), result.subtitleResult)
+            val clear = node.pollSample() as YQueuedDemuxResult.Sample
+            assertEquals(YSubtitleDecodeResult.DisplaySet(3_000_000L, emptyList()), clear.subtitleResult)
+            val unchanged = node.pollSample() as YQueuedDemuxResult.Sample
+            assertEquals(YSubtitleDecodeResult.NoOutput, unchanged.subtitleResult)
             assertTrue(decodeThread.startsWith("YCore-Demux-"))
             assertEquals(1L, releaseRead.count)
         } finally {

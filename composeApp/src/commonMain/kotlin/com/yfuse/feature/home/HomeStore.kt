@@ -383,6 +383,7 @@ class HomeStoreFactory(
         private var resumeConnection: List<HomeServerConnection> = emptyList()
         private var resumeJob: Job? = null
         private var nextUpJob: Job? = null
+        private var lastLibraryRevisit: kotlin.time.TimeMark? = null
 
         /** Shared by both home rows so startup cannot fan out once per server twice. */
         private val homeRequestPermits = Semaphore(3)
@@ -411,6 +412,11 @@ class HomeStoreFactory(
                     loadNextUp(registry.data.value.servers)
                 }
                 HomeIntent.RefreshLibrary -> {
+                    if (resumeJob?.isActive == true || nextUpJob?.isActive == true) return
+                    if (lastLibraryRevisit?.elapsedNow()?.inWholeMilliseconds?.let { it < 15_000L } == true) return
+                    lastLibraryRevisit =
+                        kotlin.time.TimeSource.Monotonic
+                            .markNow()
                     loadResume(registry.data.value.servers, force = true)
                     loadNextUp(registry.data.value.servers)
                 }

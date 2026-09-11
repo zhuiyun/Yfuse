@@ -2,8 +2,11 @@
   "schemaVersion": 1,
   "sdkBaseline": {
     "harmonyApi": 20,
-    "cangjie": "0.53.18",
-    "architectures": ["arm64-v8a", "x86_64"]
+    "cangjie": "1.0.5",
+    "architectures": [
+      "arm64-v8a",
+      "x86_64"
+    ]
   },
   "gates": [
     {

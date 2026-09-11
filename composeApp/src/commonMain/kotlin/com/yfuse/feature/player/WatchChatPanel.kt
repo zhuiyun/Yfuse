@@ -13,14 +13,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -43,7 +40,7 @@ import com.yfuse.core.designsystem.DarkPalette
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.WatchAvatar
 import com.yfuse.core.designsystem.glass
-import com.yfuse.core.designsystem.motionAwareItem
+import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.overlayDismiss
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberAccentColorsForSurface
@@ -59,6 +56,8 @@ import com.yfuse.core.util.takeGraphemes
 import com.yfuse.core.util.takeGraphemesWithinUtf8Bytes
 import com.yfuse.core.util.withoutControlCharacters
 import kotlinx.coroutines.launch
+import com.yfuse.core.designsystem.ThemeIcon as Icon
+import com.yfuse.core.designsystem.ThemeText as Text
 
 /**
  * How much of the right edge the panel takes.
@@ -272,9 +271,9 @@ internal fun WatchChatPanel(
                     state = listState,
                     verticalArrangement = Arrangement.spacedBy(9.dp),
                 ) {
-                    items(messages, key = { it.id }) { message ->
+                    motionItems(messages, key = { it.id }) { message ->
                         // Someone else's message arriving mid-film should not be a jump cut.
-                        WatchChatBubble(message, onRetry, motionAwareItem())
+                        WatchChatBubble(message, onRetry, Modifier)
                     }
                 }
             }

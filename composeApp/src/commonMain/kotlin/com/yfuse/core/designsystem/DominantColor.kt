@@ -4,6 +4,8 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -49,7 +51,7 @@ fun rememberAnimatedDominantColor(
     url: String?,
     fallback: Color,
     durationMillis: Int = Motion.ACCENT,
-): Color {
+): AnimatedColorState {
     val extracted = rememberDominantColor(url, fallback)
     // [rememberDominantColor] snaps back to [fallback] the moment the URL changes and only
     // reports a real colour once Palette has run. Easing to that reset would take the page
@@ -59,17 +61,7 @@ fun rememberAnimatedDominantColor(
     LaunchedEffect(extracted, fallback) {
         if (extracted != fallback) target = extracted
     }
-    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
-    val eased by animateColorAsState(
-        targetValue = target,
-        animationSpec =
-            tween(
-                durationMillis = if (reduceMotion) 0 else durationMillis,
-                easing = Motion.Curve,
-            ),
-        label = "dominantColor",
-    )
-    return eased
+    return rememberAnimatedColorState(target, durationMillis)
 }
 
 /**
@@ -88,19 +80,9 @@ fun rememberAnimatedArtworkAccent(
     darkTheme: Boolean,
     identity: Any?,
     durationMillis: Int = Motion.ACCENT,
-): Color {
+): AnimatedColorState {
     val target = rememberArtworkAccentTarget(url, fallback, darkTheme, identity)
-    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
-    val eased by animateColorAsState(
-        targetValue = target,
-        animationSpec =
-            tween(
-                durationMillis = if (reduceMotion) 0 else durationMillis,
-                easing = Motion.Curve,
-            ),
-        label = "artworkAccent",
-    )
-    return eased
+    return rememberAnimatedColorState(target, durationMillis)
 }
 
 /** Stable semantic theme target. Animation belongs to local decorative draw nodes, not a whole-page palette. */
@@ -172,4 +154,37 @@ fun harmonizeArtworkAccent(
             }
     }
     return result
+}
+
+/** The semantic target changes once; consumers opt into the intermediate paint values. */
+@Stable
+class AnimatedColorState internal constructor(
+    val target: Color,
+    private val animated: State<Color>,
+) : State<Color> {
+    override val value: Color get() = animated.value
+}
+
+@Composable
+fun rememberAnimatedColorState(
+    target: Color,
+    durationMillis: Int = Motion.ACCENT,
+): AnimatedColorState {
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val animated =
+        animateColorAsState(
+            targetValue = target,
+            animationSpec = tween(if (reduceMotion) 0 else durationMillis, easing = Motion.Curve),
+            label = "localArtworkAccent",
+        )
+    return remember(target, animated) { AnimatedColorState(target, animated) }
+}
+
+/** Restart boundary for text/material controls whose paint API takes a Color instead of a lambda. */
+@Composable
+fun AnimatedColorContent(
+    color: State<Color>,
+    content: @Composable (Color) -> Unit,
+) {
+    content(color.value)
 }

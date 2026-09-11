@@ -38,7 +38,7 @@ public class AggregateSearchRepository {
                 if (current == generation) {
                     match (result) {
                         case Failure(problem) => failures[server.id] = problem
-                        case Success(page) => if (!page.items.isEmpty()) { groups.append(SearchResultGroup(server.id, server.serverName, page.items)) }
+                        case Success(page) => if (!page.items.isEmpty()) { groups.add(SearchResultGroup(server.id, server.serverName, page.items)) }
                     }
                     remaining--
                     if (remaining == 0) { completion(current, AggregateSearchResult(groups, failures)) }

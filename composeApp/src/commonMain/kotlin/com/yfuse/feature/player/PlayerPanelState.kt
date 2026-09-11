@@ -123,6 +123,9 @@ data class SubtitleControlState(
     val stylePreset: SubtitleStylePreset = SubtitleStylePreset.Standard,
     val appearance: SubtitleAppearance = SubtitleAppearance(),
     val secondaryTrackId: String? = null,
+    val secondaryScale: Float = 1f,
+    val independentScaleAvailable: Boolean = false,
+    val dualLayoutNote: String? = null,
     val secondarySupported: Boolean = false,
     val secondaryOffsetMs: Long = 0L,
     val secondaryOffsetAvailable: Boolean = false,
@@ -147,6 +150,9 @@ data class SubtitleControlActions(
     val onOutlineWidth: (Float) -> Unit = {},
     val onSecondaryTrack: (String) -> Unit = {},
     val onSecondaryOffset: (Long) -> Unit = {},
+    val onSecondaryScale: (Float) -> Unit = {},
+    val onSwap: () -> Unit = {},
+    val onLanguagePair: (DualSubtitleLanguagePair) -> Unit = {},
 )
 
 enum class SubtitleStylePreset(

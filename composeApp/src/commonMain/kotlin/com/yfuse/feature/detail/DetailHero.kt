@@ -3,6 +3,7 @@ package com.yfuse.feature.detail
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -18,8 +19,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
@@ -35,14 +34,19 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Density
@@ -68,12 +72,15 @@ import com.yfuse.core.designsystem.fadeIntoPage
 import com.yfuse.core.designsystem.heroTopScrim
 import com.yfuse.core.designsystem.isSharedMediaArtworkActive
 import com.yfuse.core.designsystem.liquidGlass
+import com.yfuse.core.designsystem.playerArtworkSource
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.sharedMediaArtwork
 import com.yfuse.core.designsystem.solidGlass
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.MediaDetail
 import com.yfuse.core.model.MediaVersion
+import com.yfuse.core.designsystem.ThemeIcon as Icon
+import com.yfuse.core.designsystem.ThemeText as Text
 
 @Composable
 internal fun rememberHeroScroll(
@@ -266,6 +273,7 @@ internal fun Hero(
                 modifier =
                     Modifier
                         .sharedMediaArtwork(sharedKey)
+                        .playerArtworkSource(sharedKey, urls)
                         .fillMaxSize()
                         .fadeIntoPage()
                         .graphicsLayer {
@@ -337,36 +345,12 @@ internal fun DetailTopBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            val p = progress.value
-            // What these two sit on changes as the bar fills in, and that is what decides
-            // whether they are dense glass or pale glass — so it travels with them.
-            val behind = lerp(HeroInk, surfaceColor, p)
-            Icon(
-                AppIcons.ChevronLeft,
-                contentDescription = "返回",
-                tint = lerp(Color.White, palette.text, p),
-                modifier =
-                    Modifier
-                        .pressable(onClick = onBack)
-                        .touchTarget()
-                        .size(38.dp)
-                        .liquidGlass(
-                            shape = CircleShape,
-                            fill =
-                                lerp(
-                                    Color(0xFF11151F).copy(alpha = 0.28f),
-                                    palette.card2,
-                                    p,
-                                ),
-                            border =
-                                lerp(
-                                    Color.White.copy(alpha = 0.34f),
-                                    palette.border,
-                                    p,
-                                ),
-                            over = behind,
-                            sheen = 0.7f,
-                        ).padding(11.dp),
+            DetailTopBarIcon(
+                icon = AppIcons.ChevronLeft,
+                description = "返回",
+                progress = progress,
+                surfaceColor = surfaceColor,
+                onClick = onBack,
             )
             Text(
                 title,
@@ -404,34 +388,45 @@ internal fun DetailTopBar(
                 // Unlike the title and the play shortcut this does not fade in with scroll:
                 // it is the only route to 下载 / 标记已看 / 一起看, so it has to be reachable
                 // from the top of the page as well as the bottom.
-                Icon(
-                    AppIcons.More,
-                    contentDescription = "更多操作",
-                    tint = lerp(Color.White, palette.text, p),
-                    modifier =
-                        Modifier
-                            .pressable(onClick = onMore)
-                            .touchTarget()
-                            .size(38.dp)
-                            .liquidGlass(
-                                shape = CircleShape,
-                                fill =
-                                    lerp(
-                                        Color(0xFF11151F).copy(alpha = 0.28f),
-                                        palette.card2,
-                                        p,
-                                    ),
-                                border =
-                                    lerp(
-                                        Color.White.copy(alpha = 0.34f),
-                                        palette.border,
-                                        p,
-                                    ),
-                                over = behind,
-                                sheen = 0.7f,
-                            ).padding(11.dp),
+                DetailTopBarIcon(
+                    icon = AppIcons.More,
+                    description = "更多操作",
+                    progress = progress,
+                    surfaceColor = surfaceColor,
+                    onClick = onMore,
                 )
             }
+        }
+    }
+}
+
+/** Both glyph tint and glass colour follow scroll solely in the draw phase. */
+@Composable
+private fun DetailTopBarIcon(
+    icon: ImageVector,
+    description: String,
+    progress: State<Float>,
+    surfaceColor: Color,
+    onClick: () -> Unit,
+) {
+    val palette = LocalPalette.current
+    val painter = rememberVectorPainter(icon)
+    Canvas(
+        Modifier
+            .pressable(onClick = onClick)
+            .touchTarget()
+            .size(38.dp)
+            .liquidGlass(
+                shape = CircleShape,
+                fill = { lerp(Color(0xFF11151F).copy(alpha = 0.28f), palette.card2, progress.value) },
+                border = { lerp(Color.White.copy(alpha = 0.34f), palette.border, progress.value) },
+                over = { lerp(HeroInk, surfaceColor, progress.value) },
+                sheen = 0.7f,
+            ).padding(11.dp)
+            .semantics { contentDescription = description },
+    ) {
+        with(painter) {
+            draw(size, colorFilter = ColorFilter.tint(lerp(Color.White, palette.text, progress.value)))
         }
     }
 }

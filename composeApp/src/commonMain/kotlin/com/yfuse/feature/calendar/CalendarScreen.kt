@@ -1,6 +1,5 @@
 package com.yfuse.feature.calendar
 
-import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -21,12 +20,9 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -39,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -55,18 +52,28 @@ import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.Dimens
+import com.yfuse.core.designsystem.DisclosureContent
 import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassShapes
+import com.yfuse.core.designsystem.InlineLoadingContent
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.Motion
-import com.yfuse.core.designsystem.OrbProgress
-import com.yfuse.core.designsystem.OrbProgressDefaults
 import com.yfuse.core.designsystem.PageHint
+import com.yfuse.core.designsystem.SkeletonBlock
+import com.yfuse.core.designsystem.SkeletonHandoff
 import com.yfuse.core.designsystem.StatusBarIconStyle
+import com.yfuse.core.designsystem.animateRotationAsState
+import com.yfuse.core.designsystem.contentHandoff
+import com.yfuse.core.designsystem.contentPhase
+import com.yfuse.core.designsystem.motionItem
+import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.rememberDisclosureProgress
+import com.yfuse.core.designsystem.rememberSegmentIndicator
+import com.yfuse.core.designsystem.selectionColor
 import com.yfuse.core.designsystem.solidGlass
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.AiringAccessTier
@@ -82,6 +89,8 @@ import com.yfuse.core.util.isoWeekdayLabel
 import com.yfuse.core.util.rememberShareHandler
 import com.yfuse.core.util.shiftIsoDate
 import kotlinx.coroutines.launch
+import com.yfuse.core.designsystem.ThemeIcon as Icon
+import com.yfuse.core.designsystem.ThemeText as Text
 import com.yfuse.core.designsystem.flatGlass as glass
 
 /**
@@ -144,7 +153,11 @@ fun CalendarScreen(component: CalendarComponent) {
     StatusBarIconStyle(darkIcons = !palette.isDark)
 
     Box(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize().statusBarsPadding()) {
+        Column(
+            Modifier.fillMaxSize().statusBarsPadding().contentHandoff(
+                state.section to contentPhase(state.loading, days.isNotEmpty(), state.error != null),
+            ),
+        ) {
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -185,9 +198,7 @@ fun CalendarScreen(component: CalendarComponent) {
                         .solidGlass(CircleShape, palette.card2, palette.border),
                     contentAlignment = Alignment.Center,
                 ) {
-                    if (state.loading) {
-                        OrbProgress(size = 15.dp, color = accent.accent)
-                    } else {
+                    InlineLoadingContent(loading = state.loading, slotSize = 15.dp, color = accent.accent) {
                         Icon(
                             AppIcons.Refresh,
                             contentDescription = "刷新",
@@ -252,18 +263,19 @@ fun CalendarScreen(component: CalendarComponent) {
                     onToggleFilters = { filtersExpanded = !filtersExpanded },
                     onRetry = { component.store.accept(CalendarIntent.Refresh) },
                 )
-                if (filtersExpanded) {
+                val filterProgress = rememberDisclosureProgress(filtersExpanded)
+                DisclosureContent(filtersExpanded, filterProgress) {
                     LazyRow(
                         modifier = Modifier.selectableGroup(),
                         contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        items(CalendarFilter.entries) { filter ->
+                        motionItems(CalendarFilter.entries) { filter ->
                             val active = filter == state.filter
                             Text(
                                 filter.label,
                                 style = AppTypography.caption.strong,
-                                color = if (active) accent.onAccent else palette.body,
+                                color = selectionColor(if (active) accent.onAccent else palette.body),
                                 modifier =
                                     Modifier
                                         .pressable(role = Role.RadioButton) {
@@ -272,7 +284,7 @@ fun CalendarScreen(component: CalendarComponent) {
                                         }.semantics { this.selected = active }
                                         .touchTarget()
                                         .clip(GlassShapes.chip)
-                                        .background(if (active) accent.accent else Color.Transparent)
+                                        .background(selectionColor(if (active) accent.accent else Color.Transparent))
                                         .then(
                                             if (active) {
                                                 Modifier
@@ -286,44 +298,42 @@ fun CalendarScreen(component: CalendarComponent) {
                     Spacer(Modifier.height(8.dp))
                 }
 
-                when {
-                    state.loading && days.isEmpty() ->
-                        Box(
-                            Modifier.fillMaxSize(),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            OrbProgress(size = OrbProgressDefaults.Page, color = accent.accent)
-                        }
+                SkeletonHandoff(
+                    loading = state.loading && days.isEmpty(),
+                    modifier = Modifier.fillMaxSize(),
+                    skeleton = { CalendarLoadingContent() },
+                ) {
+                    when {
+                        state.error != null && days.isEmpty() ->
+                            ErrorState(
+                                message = state.error!!,
+                                onRetry = { component.store.accept(CalendarIntent.Refresh) },
+                                modifier = Modifier.align(Alignment.Center),
+                            )
 
-                    state.error != null && days.isEmpty() ->
-                        ErrorState(
-                            message = state.error!!,
-                            onRetry = { component.store.accept(CalendarIntent.Refresh) },
-                            modifier = Modifier.align(Alignment.CenterHorizontally),
-                        )
+                        state.filteredToNothing ->
+                            PageHint(
+                                "这段时间「${state.filter.label}」没有更新",
+                                Modifier.align(Alignment.Center),
+                            )
 
-                    state.filteredToNothing ->
-                        PageHint(
-                            "这段时间「${state.filter.label}」没有更新",
-                            Modifier.align(Alignment.CenterHorizontally),
-                        )
+                        days.isEmpty() ->
+                            PageHint(
+                                "这段时间没有查到在播剧集",
+                                Modifier.align(Alignment.Center),
+                            )
 
-                    days.isEmpty() ->
-                        PageHint(
-                            "这段时间没有查到在播剧集",
-                            Modifier.align(Alignment.CenterHorizontally),
-                        )
-
-                    else ->
-                        AdaptiveCalendarResults(
-                            days = days,
-                            today = state.today,
-                            filter = state.filter,
-                            weeklyStats = weeklyStats,
-                            reduceMotion = reduceMotion,
-                            bottomContentInset = bottomContentInset,
-                            onOpen = { entry -> dialogEntry = entry },
-                        )
+                        else ->
+                            AdaptiveCalendarResults(
+                                days = days,
+                                today = state.today,
+                                filter = state.filter,
+                                weeklyStats = weeklyStats,
+                                reduceMotion = reduceMotion,
+                                bottomContentInset = bottomContentInset,
+                                onOpen = { entry -> dialogEntry = entry },
+                            )
+                    }
                 }
             } else {
                 CalendarAuxiliaryPane(
@@ -370,6 +380,41 @@ fun CalendarScreen(component: CalendarComponent) {
                     dialogSeriesDays = null
                 },
             )
+        }
+    }
+}
+
+/** Keep the calendar's header and day-row geometry while the first request is pending. */
+@Composable
+private fun CalendarLoadingContent() {
+    val palette = LocalPalette.current
+    Column(
+        Modifier
+            .fillMaxSize()
+            .padding(horizontal = Dimens.pageHorizontal)
+            .clip(GlassShapes.card)
+            .background(palette.card2)
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        SkeletonBlock(Modifier.width(130.dp).height(20.dp))
+        repeat(3) { index ->
+            SkeletonBlock(Modifier.width(100.dp).height(16.dp), phaseMs = index * Motion.SKELETON_PHASE_STEP)
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                SkeletonBlock(Modifier.width(62.dp).height(88.dp), phaseMs = index * Motion.SKELETON_PHASE_STEP)
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    SkeletonBlock(
+                        Modifier.fillMaxWidth(0.8f).height(16.dp),
+                        phaseMs =
+                            index * Motion.SKELETON_PHASE_STEP,
+                    )
+                    SkeletonBlock(
+                        Modifier.fillMaxWidth(0.55f).height(14.dp),
+                        phaseMs =
+                            index * Motion.SKELETON_PHASE_STEP,
+                    )
+                }
+            }
         }
     }
 }
@@ -526,7 +571,7 @@ private fun CalendarListResults(
         timelineDays.isNotEmpty() && expandedDates.size == timelineDays.size
 
     LaunchedEffect(filter, today, initialWeekIndex) {
-        runCatching { listState.scrollToItem(initialWeekIndex + 1) }
+        runCatching { listState.scrollToItem(initialWeekIndex * 2 + 1) }
     }
 
     LazyColumn(
@@ -540,7 +585,7 @@ private fun CalendarListResults(
         state = listState,
         contentPadding = PaddingValues(bottom = bottomContentInset),
     ) {
-        item(key = "expand-all-content", contentType = "calendar-expand-all") {
+        motionItem(key = "expand-all-content", contentType = "calendar-expand-all") {
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -579,54 +624,47 @@ private fun CalendarListResults(
         timelineDays.forEach { day ->
             val expanded = day.date in expandedDates
             val displayEntries = displayEntriesByDate[day.date].orEmpty()
-            item(key = "day-header:${day.date}", contentType = "calendar-day-header") {
+            motionItem(key = "day-header:${day.date}", contentType = "calendar-day-header") {
                 CalendarDayHeader(
                     day = day,
                     today = today,
                     expanded = expanded,
                     showCount = displayEntries.size,
                     onToggle = {
-                        expandedDates =
-                            if (expanded) {
-                                expandedDates - day.date
-                            } else {
-                                expandedDates + day.date
-                            }
+                        expandedDates = if (expanded) expandedDates - day.date else expandedDates + day.date
                     },
                 )
             }
-            if (expanded) {
-                if (displayEntries.isEmpty()) {
-                    item(key = "day-empty:${day.date}", contentType = "calendar-day-empty") {
+            motionItem(key = "day-content:${day.date}", contentType = "calendar-day-content") {
+                val disclosure = rememberDisclosureProgress(expanded)
+                DisclosureContent(expanded = expanded, progress = disclosure) {
+                    if (displayEntries.isEmpty()) {
                         EmptyCalendarDay(
                             expanded = true,
                             onToggle = { expandedDates = expandedDates - day.date },
                             modifier = Modifier.fillMaxWidth().heightIn(min = 58.dp),
                         )
-                    }
-                } else {
-                    items(
-                        items = displayEntries,
-                        key = { display -> "${day.date}:${display.entry.episode.mediaKey}" },
-                        contentType = { "calendar-entry" },
-                    ) { display ->
-                        Column {
-                            AccordionCalendarEntry(
-                                display = display,
-                                weekStats = weeklyStats[display.entry.episode.showTmdbId],
-                                expanded = true,
-                                extraCount = 0,
-                                showChevron = false,
-                                onToggle = { expandedDates = expandedDates - day.date },
-                                onOpen = { onOpen(display.entry) },
-                            )
-                            Box(
-                                Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 12.dp)
-                                    .height(1.dp)
-                                    .background(palette.border),
-                            )
+                    } else {
+                        displayEntries.forEach { display ->
+                            androidx.compose.runtime.key(display.entry.episode.mediaKey) {
+                                AccordionCalendarEntry(
+                                    display = display,
+                                    weekStats = weeklyStats[display.entry.episode.showTmdbId],
+                                    expanded = true,
+                                    extraCount = 0,
+                                    showChevron = false,
+                                    onToggle = { expandedDates = expandedDates - day.date },
+                                    onOpen = { onOpen(display.entry) },
+                                )
+                                Box(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .padding(
+                                            horizontal = 12.dp,
+                                        ).height(1.dp)
+                                        .background(palette.border),
+                                )
+                            }
                         }
                     }
                 }
@@ -645,6 +683,7 @@ private fun CalendarDayHeader(
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
+    val rotation = animateRotationAsState(if (expanded) 90f else 0f)
     val isToday = day.isToday(today)
     Row(
         Modifier
@@ -653,7 +692,7 @@ private fun CalendarDayHeader(
             .pressable(
                 onClickLabel = if (expanded) "收起${day.date}" else "展开${day.date}",
                 onClick = onToggle,
-            ).background(if (expanded) accent.container.copy(alpha = 0.24f) else Color.Transparent)
+            ).background(selectionColor(if (expanded) accent.container.copy(alpha = 0.24f) else Color.Transparent))
             .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -702,137 +741,13 @@ private fun CalendarDayHeader(
             color = if (showCount > 0) palette.sub else palette.sub2,
         )
         Icon(
-            AppIcons.ChevronDown,
+            AppIcons.ChevronRight,
             contentDescription = if (expanded) "收起" else "展开",
             tint = if (expanded) accent.accent else palette.sub2,
-            modifier = Modifier.size(16.dp),
+            modifier = Modifier.size(16.dp).graphicsLayer { rotationZ = rotation.value },
         )
     }
     Box(Modifier.fillMaxWidth().height(1.dp).background(palette.border))
-}
-
-@Composable
-private fun AccordionCalendarDay(
-    day: CalendarDay,
-    today: String,
-    expanded: Boolean,
-    isLast: Boolean,
-    weeklyStats: Map<Int, CalendarWeekStats>,
-    reduceMotion: Boolean,
-    onToggle: () -> Unit,
-    onOpen: (CalendarEntry) -> Unit,
-) {
-    val palette = LocalPalette.current
-    val accent = LocalAccentColors.current
-    val isToday = day.isToday(today)
-    val displayEntries = remember(day.entries) { coalesceCalendarEntries(day.entries) }
-    val rowMinHeight =
-        if (expanded) {
-            (displayEntries.size.coerceAtLeast(1) * 108).dp
-        } else {
-            82.dp
-        }
-    val animationModifier =
-        if (reduceMotion) {
-            Modifier
-        } else {
-            Modifier.animateContentSize(animationSpec = Motion.settle())
-        }
-
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .then(animationModifier)
-            .then(
-                if (expanded) {
-                    Modifier.border(1.dp, accent.accent, GlassShapes.card)
-                } else {
-                    Modifier
-                },
-            ),
-    ) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .heightIn(min = rowMinHeight),
-        ) {
-            CalendarDateRail(
-                day = day,
-                today = today,
-                expanded = expanded,
-                minHeight = rowMinHeight,
-                onToggle = onToggle,
-            )
-            Box(
-                Modifier
-                    .width(1.dp)
-                    .height(rowMinHeight)
-                    .background(palette.border),
-            )
-            Box(
-                Modifier
-                    .weight(1f)
-                    .heightIn(min = rowMinHeight),
-            ) {
-                when {
-                    displayEntries.isEmpty() ->
-                        EmptyCalendarDay(
-                            expanded = expanded,
-                            onToggle = onToggle,
-                            modifier = Modifier.fillMaxWidth().heightIn(min = rowMinHeight),
-                        )
-
-                    expanded ->
-                        Column(Modifier.fillMaxWidth()) {
-                            displayEntries.forEachIndexed { index, display ->
-                                AccordionCalendarEntry(
-                                    display = display,
-                                    weekStats = weeklyStats[display.entry.episode.showTmdbId],
-                                    expanded = true,
-                                    extraCount = 0,
-                                    showChevron = index == 0,
-                                    onToggle = onToggle,
-                                    onOpen = { onOpen(display.entry) },
-                                )
-                                if (index != displayEntries.lastIndex) {
-                                    Box(
-                                        Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 12.dp)
-                                            .height(1.dp)
-                                            .background(palette.border),
-                                    )
-                                }
-                            }
-                        }
-
-                    else ->
-                        AccordionCalendarEntry(
-                            display = displayEntries.first(),
-                            weekStats =
-                                weeklyStats[
-                                    displayEntries
-                                        .first()
-                                        .entry.episode.showTmdbId,
-                                ],
-                            expanded = false,
-                            extraCount = displayEntries.size - 1,
-                            showChevron = true,
-                            onToggle = onToggle,
-                            onOpen = onToggle,
-                        )
-                }
-            }
-        }
-        if (!isLast) {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(1.dp)
-                    .background(palette.border),
-            )
-        }
-    }
 }
 
 @Composable
@@ -1114,7 +1029,7 @@ private fun TabletWeekCalendar(
                         contentPadding = PaddingValues(bottom = bottomContentInset),
                         verticalArrangement = Arrangement.spacedBy(7.dp),
                     ) {
-                        items(
+                        motionItems(
                             coalesceCalendarEntries(day.entries),
                             key = { it.entry.episode.mediaKey },
                         ) { display ->
@@ -1168,11 +1083,13 @@ private fun CalendarSectionBar(
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
+    val indicator = rememberSegmentIndicator(CalendarSection.entries.indexOf(selected), accent.accent, underline = true)
     Row(
         Modifier
             .fillMaxWidth()
             .padding(horizontal = Dimens.pageHorizontal)
-            .selectableGroup(),
+            .selectableGroup()
+            .then(indicator.container),
     ) {
         CalendarSection.entries.forEach { section ->
             val active = selected == section
@@ -1180,6 +1097,7 @@ private fun CalendarSectionBar(
                 Modifier
                     .weight(1f)
                     .height(44.dp)
+                    .then(indicator.item(CalendarSection.entries.indexOf(section)))
                     .pressable(role = Role.RadioButton) { onSelect(section) }
                     .semantics { this.selected = active }
                     .touchTarget(),
@@ -1188,18 +1106,8 @@ private fun CalendarSectionBar(
                 Text(
                     section.label,
                     style = AppTypography.body.strong,
-                    color = if (active) accent.accent else palette.sub,
+                    color = selectionColor(if (active) accent.accent else palette.sub),
                 )
-                if (active) {
-                    Box(
-                        Modifier
-                            .align(Alignment.BottomCenter)
-                            .width(28.dp)
-                            .height(2.dp)
-                            .clip(CircleShape)
-                            .background(accent.accent),
-                    )
-                }
             }
         }
     }
@@ -1288,7 +1196,7 @@ private fun CalendarTrackingPane(
             ),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        item {
+        motionItem {
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -1343,7 +1251,7 @@ private fun CalendarTrackingPane(
             }
         }
         actionMessage?.let { message ->
-            item {
+            motionItem {
                 Text(
                     message,
                     style = AppTypography.caption.medium,
@@ -1352,7 +1260,7 @@ private fun CalendarTrackingPane(
                 )
             }
         }
-        items(followedSeries, key = FollowedSeries::tmdbId) { series ->
+        motionItems(followedSeries, key = FollowedSeries::tmdbId) { series ->
             var resolvedPosters by remember(
                 series.serverId,
                 series.seriesItemId,
@@ -1576,7 +1484,7 @@ private fun CalendarResourcesPane(
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         if (enriching || enrichmentError != null) {
-            item {
+            motionItem {
                 Text(
                     if (enriching) "正在读取片源画质…" else enrichmentError.orEmpty(),
                     style = AppTypography.caption.medium,
@@ -1585,7 +1493,7 @@ private fun CalendarResourcesPane(
                 )
             }
         }
-        items(summaries, key = { it.entry.episode.showTmdbId }) { summary ->
+        motionItems(summaries, key = { it.entry.episode.showTmdbId }) { summary ->
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -1660,23 +1568,23 @@ private fun CalendarSettingsPane(
             ),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item {
+        motionItem {
             Text("内容类型", style = AppTypography.body.strong, color = palette.text)
             Spacer(Modifier.height(7.dp))
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(CalendarContentFilter.entries) { content ->
+                motionItems(CalendarContentFilter.entries) { content ->
                     val active = state.contentFilter == content
                     Text(
                         content.label,
                         style = AppTypography.caption.strong,
-                        color = if (active) accent.onAccent else palette.body,
+                        color = selectionColor(if (active) accent.onAccent else palette.body),
                         modifier =
                             Modifier
                                 .pressable {
                                     component.store.accept(CalendarIntent.SelectContent(content))
                                 }.touchTarget()
                                 .clip(GlassShapes.chip)
-                                .background(if (active) accent.accent else Color.Transparent)
+                                .background(selectionColor(if (active) accent.accent else Color.Transparent))
                                 .then(
                                     if (active) {
                                         Modifier
@@ -1688,23 +1596,23 @@ private fun CalendarSettingsPane(
                 }
             }
         }
-        item {
+        motionItem {
             Text("播出平台", style = AppTypography.body.strong, color = palette.text)
             Spacer(Modifier.height(7.dp))
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                item {
+                motionItem {
                     val active = state.platform == null
                     Text(
                         "全部平台",
                         style = AppTypography.caption.strong,
-                        color = if (active) accent.onAccent else palette.body,
+                        color = selectionColor(if (active) accent.onAccent else palette.body),
                         modifier =
                             Modifier
                                 .pressable {
                                     component.store.accept(CalendarIntent.SelectPlatform(null))
                                 }.touchTarget()
                                 .clip(GlassShapes.chip)
-                                .background(if (active) accent.accent else Color.Transparent)
+                                .background(selectionColor(if (active) accent.accent else Color.Transparent))
                                 .then(
                                     if (active) {
                                         Modifier
@@ -1714,19 +1622,19 @@ private fun CalendarSettingsPane(
                                 ).padding(horizontal = 13.dp, vertical = 7.dp),
                     )
                 }
-                items(state.availablePlatforms) { platform ->
+                motionItems(state.availablePlatforms) { platform ->
                     val active = state.platform == platform
                     Text(
                         platform,
                         style = AppTypography.caption.strong,
-                        color = if (active) accent.onAccent else palette.body,
+                        color = selectionColor(if (active) accent.onAccent else palette.body),
                         modifier =
                             Modifier
                                 .pressable {
                                     component.store.accept(CalendarIntent.SelectPlatform(platform))
                                 }.touchTarget()
                                 .clip(GlassShapes.chip)
-                                .background(if (active) accent.accent else Color.Transparent)
+                                .background(selectionColor(if (active) accent.accent else Color.Transparent))
                                 .then(
                                     if (active) {
                                         Modifier
@@ -1738,28 +1646,28 @@ private fun CalendarSettingsPane(
                 }
             }
         }
-        item {
+        motionItem {
             CalendarSettingsAction(
                 title = "导出 ICS 日历",
                 description = "导入系统日历或其他日历应用",
                 onClick = onExportCalendar,
             )
         }
-        item {
+        motionItem {
             CalendarSettingsAction(
                 title = "导出诊断",
                 description = "包含排期版本、缓存与媒体库状态",
                 onClick = onExportDiagnostics,
             )
         }
-        item {
+        motionItem {
             CalendarSettingsAction(
                 title = "立即刷新全部状态",
                 description = "绕过排期和媒体库身份缓存",
                 onClick = { component.store.accept(CalendarIntent.Refresh) },
             )
         }
-        item {
+        motionItem {
             Text(
                 "平台和内容筛选会同时作用于“日历”页；提醒的具体模式和提前量可在“追剧”页或剧集详情中调整。",
                 style = AppTypography.caption.regular,

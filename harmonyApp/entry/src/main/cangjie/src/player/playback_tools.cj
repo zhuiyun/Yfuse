@@ -3,10 +3,10 @@ package com.yfuse.harmony.entry.player
 import std.collection.*
 
 public class SkipMarker {
-    public let type: String
+    public let kind: String
     public let startMs: Int64
     public let endMs: Int64
-    public init(type: String, startMs: Int64, endMs: Int64) { this.type = type; this.startMs = startMs; this.endMs = endMs }
+    public init(kind: String, startMs: Int64, endMs: Int64) { this.kind = kind; this.startMs = startMs; this.endMs = endMs }
 }
 
 public enum SkipMode { | Off | Ask | Automatic }
@@ -18,13 +18,13 @@ public class SkipController {
 
     public func actionAt(positionMs: Int64, markers: ArrayList<SkipMarker>): Option<(String, Int64, Bool)> {
         for (marker in markers) {
-            let key = "${marker.type}:${marker.startMs}:${marker.endMs}"
+            let key = "${marker.kind}:${marker.startMs}:${marker.endMs}"
             if (positionMs >= marker.startMs && positionMs < marker.endMs && !consumed.contains(key)) {
-                let mode = if (marker.type == "credits") { creditsMode } else { introMode }
+                let mode = if (marker.kind == "credits") { creditsMode } else { introMode }
                 match (mode) {
                     case SkipMode.Off => consumed.add(key)
-                    case SkipMode.Ask => return Some((marker.type, marker.endMs, false))
-                    case SkipMode.Automatic => consumed.add(key); return Some((marker.type, marker.endMs, true))
+                    case SkipMode.Ask => return Some((marker.kind, marker.endMs, false))
+                    case SkipMode.Automatic => consumed.add(key); return Some((marker.kind, marker.endMs, true))
                 }
             }
         }

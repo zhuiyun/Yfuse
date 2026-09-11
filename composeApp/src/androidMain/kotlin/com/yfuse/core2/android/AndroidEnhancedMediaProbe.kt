@@ -38,6 +38,11 @@ internal class AndroidEnhancedMediaProbe(
 
     fun closePreparedDemux() = preparedDemux.close()
 
+    fun returnPreparedDemux(
+        item: YMediaItem,
+        source: AndroidPreparedEnhancedDemux,
+    ) = preparedDemux.offer(item, source)
+
     /**
      * Recent deep-probe failures, each with the nanoTime after which it may be retried.
      *
@@ -68,7 +73,9 @@ internal class AndroidEnhancedMediaProbe(
         item: YMediaItem,
         knownDolbyEvidence: YDolbyVisionNalEvidence? = null,
         retainForPlayback: Boolean = false,
+        budget: AndroidProbeBudget? = null,
     ): YCore2ProbeResult? {
+        budget?.ensureActive()
         val cacheKey = item.enhancedProbeCacheKey()
         // Media identity may survive a refreshed URL or authorization headers; failures may not.
         val failureKey =
@@ -83,8 +90,20 @@ internal class AndroidEnhancedMediaProbe(
         }
         val result =
             yCoreStartupStage("enhanced_probe", item) {
-                probeUncached(item, knownDolbyEvidence, retainForPlayback)
+                if (budget == null) {
+                    probeUncached(item, knownDolbyEvidence, retainForPlayback, null)
+                } else {
+                    AndroidMetadataProbeLane.enhanced.run(
+                        timeoutMs = budget.remainingMs(),
+                        budget = budget,
+                        skipped = {
+                            budget.ensureActive()
+                            YCore2ProbeResult.Failure(YCore2ProbeFailure.SourceUnavailable)
+                        },
+                    ) { _ -> probeUncached(item, knownDolbyEvidence, retainForPlayback, budget) }
+                }
             }
+        budget?.ensureActive()
         synchronized(probeCacheLock) {
             when (result) {
                 is YCore2ProbeResult.Success -> {
@@ -115,6 +134,7 @@ internal class AndroidEnhancedMediaProbe(
         item: YMediaItem,
         knownDolbyEvidence: YDolbyVisionNalEvidence?,
         retainForPlayback: Boolean,
+        budget: AndroidProbeBudget?,
     ): YCore2ProbeResult? {
         probeSource?.let { source -> return source(item) }
         val demuxer = createDemuxer()
@@ -122,7 +142,10 @@ internal class AndroidEnhancedMediaProbe(
         var proxy: AndroidYCoreHttpProxy? = null
         var retained = false
         var sampledVideo = false
+        var proxyCancellation: AutoCloseable? = null
+        val demuxCancellation = budget?.onCancel(demuxer::cancelPendingRead)
         return try {
+            budget?.ensureActive()
             if (context != null && shouldProxyEnhancedSourceUri(item.uri)) {
                 proxy =
                     AndroidYCoreHttpProxy(
@@ -134,12 +157,16 @@ internal class AndroidEnhancedMediaProbe(
                                 .orEmpty(),
                         cacheMaximumBytes = item.cacheMaximumBytes,
                     )
+                proxyCancellation = proxy?.let { budget?.onCancel(it::close) }
             }
+            budget?.ensureActive()
             val result =
                 demuxer.open(
                     proxy?.enhancedSource(item, probeOnly = !retainForPlayback)
                         ?: enhancedDemuxSource(item, probeOnly = !retainForPlayback),
+                    budget = budget,
                 )
+            budget?.ensureActive()
             val videoTrack =
                 result.tracks.firstOrNull { it.type == YDemuxTrackType.Video && it.video != null }
             val audioTrack = result.tracks.firstOrNull { it.type == YDemuxTrackType.Audio && it.audio != null }
@@ -180,6 +207,7 @@ internal class AndroidEnhancedMediaProbe(
                 sampledVideo = true
                 demuxer.selectTracks(setOf(videoTrack.id))
                 repeat(DOLBY_PROBE_SAMPLE_LIMIT) {
+                    budget?.ensureActive()
                     val sample = demuxer.readSample() ?: return@repeat
                     if (sample.trackId == videoTrack.id) {
                         val evidence = YBitstream.dolbyVisionEvidence(sample.data, packing)
@@ -245,13 +273,20 @@ internal class AndroidEnhancedMediaProbe(
                         demuxer.selectTracks(emptySet())
                     }.isSuccess
                 if (reset) {
-                    preparedDemux.offer(item, AndroidPreparedEnhancedDemux(demuxer, result, proxy))
-                    retained = true
+                    val transfer = {
+                        demuxer.clearProbeDeadline()
+                        preparedDemux
+                            .exchange(item, AndroidPreparedEnhancedDemux(demuxer, result, proxy))
+                            .also { retained = true }
+                    }
+                    val previous = if (budget != null) budget.ifActive(transfer) else transfer()
+                    previous?.let { runCatching(it::close) }
                 }
             }
             probe
         } catch (failure: Throwable) {
             if (failure is CancellationException) throw failure
+            budget?.ensureActive()
             val typed = failure as? YPlaybackException
             // The deep probe is the first FFmpeg open of a source. When it fails, the bundle
             // needs the same typed detail the playback open reports, or the five seconds it
@@ -271,6 +306,8 @@ internal class AndroidEnhancedMediaProbe(
             )
             YCore2ProbeResult.Failure(YCore2ProbeFailure.SourceUnavailable)
         } finally {
+            demuxCancellation?.close()
+            proxyCancellation?.close()
             if (!retained) {
                 try {
                     demuxer.close()

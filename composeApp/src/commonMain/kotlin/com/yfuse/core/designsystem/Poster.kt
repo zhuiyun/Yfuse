@@ -1,5 +1,8 @@
 package com.yfuse.core.designsystem
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -13,8 +16,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -26,30 +27,34 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import coil3.decode.DataSource
 import kotlin.math.roundToInt
+import com.yfuse.core.designsystem.ThemeIcon as Icon
+import com.yfuse.core.designsystem.ThemeText as Text
 
 /** Large artwork may resolve cinematically, but should never hold the image soft for 550ms. */
-private const val ARTWORK_REVEAL_DURATION_MS = 400
+private const val ARTWORK_REVEAL_DURATION_MS = Motion.ARTWORK_REVEAL
 private val ArtworkRevealBlur = 6.dp
 private const val ARTWORK_REVEAL_SCALE_FROM = 1.025f
 
 /** Dense rails and grids only need a quick opacity hand-off from their placeholder. */
-internal const val POSTER_FADE_DURATION_MS = 180
+internal const val POSTER_FADE_DURATION_MS = Motion.POSTER_FADE
 
 /**
  * An image that is allowed a second (and third) guess.
@@ -142,7 +147,7 @@ fun FallbackImage(
                                 renderEffect =
                                     if (!alphaOnly && remaining > 0.01f) {
                                         val radius = revealBlur.toPx() * remaining
-                                        BlurEffect(radius, radius)
+                                        artworkBlurCache.effect(radius)
                                     } else {
                                         null
                                     }
@@ -289,6 +294,7 @@ fun Poster(
             modifier =
                 Modifier
                     .sharedMediaArtwork(sharedTransitionKey)
+                    .playerArtworkSource(sharedTransitionKey, candidates)
                     .fillMaxSize(),
             alphaOnly = true,
             revealDurationMillis = POSTER_FADE_DURATION_MS,
@@ -373,23 +379,36 @@ fun Poster(
         }
 
         progress?.takeIf { it > 0f }?.let { rawProgress ->
-            val watched = rawProgress.coerceIn(0f, 1f)
-            // Keep the total duration visible: without a rail, a short watched segment
-            // reads like a decorative underline instead of resumable playback state.
-            Box(
-                Modifier
-                    .align(Alignment.BottomStart)
-                    .fillMaxWidth()
-                    .height(4.dp)
-                    .background(Color.Black.copy(alpha = 0.42f)),
-            )
-            Box(
-                Modifier
-                    .align(Alignment.BottomStart)
-                    .fillMaxWidth(watched)
-                    .height(4.dp)
-                    .background(PrimaryGradient),
-            )
+            // A recycled poster starts at its own value, never the previous artwork's progress.
+            key(candidates) {
+                val watched = rawProgress.coerceIn(0f, 1f)
+                val moving = !reduceMotion && LocalRouteVisible.current
+                val animatedWatched =
+                    animateFloatAsState(
+                        targetValue = watched,
+                        animationSpec = if (moving) tween(Motion.STANDARD, easing = Motion.Curve) else snap(),
+                        label = "poster-watched",
+                    )
+                val origin = if (LocalLayoutDirection.current == LayoutDirection.Rtl) 1f else 0f
+                Box(
+                    Modifier
+                        .align(Alignment.BottomStart)
+                        .fillMaxWidth()
+                        .height(4.dp)
+                        .background(Color.Black.copy(alpha = 0.42f)),
+                )
+                Box(
+                    Modifier
+                        .align(Alignment.BottomStart)
+                        .fillMaxWidth()
+                        .height(4.dp)
+                        .graphicsLayer {
+                            // Read in the layer: no per-frame composition or layout, including in grids.
+                            scaleX = animatedWatched.value
+                            transformOrigin = TransformOrigin(origin, 0.5f)
+                        }.background(PrimaryGradient),
+                )
+            }
         }
     }
 }

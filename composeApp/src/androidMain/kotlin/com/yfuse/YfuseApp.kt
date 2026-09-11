@@ -17,8 +17,11 @@ import com.yfuse.core.account.AccountRepository
 import com.yfuse.core.cast.initializeCastApplicationContext
 import com.yfuse.core.data.AndroidCalendarLocalStore
 import com.yfuse.core.data.DiagnosticPreferences
+import com.yfuse.core.data.LibraryCache
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.UserAgentPreferences
+import com.yfuse.core.data.androidFeedCacheSettings
+import com.yfuse.core.data.observeFeedCacheCleanup
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.logging.DiagnosticLogStore
 import com.yfuse.core.logging.SafeLogcatOutputGate
@@ -104,7 +107,6 @@ class YfuseApp :
         startupTrace.mark("platform_context")
         // Native tombstones are available only after the dead process restarts. Consume the
         // previous exit before constructing any new playback backend.
-        AndroidNativeCrashMonitor.initialize(this)
         PlaybackRemotePolicyRegistry.initialize(this)
         PlaybackDiagnosticReportRegistry.initialize(this)
         startupTrace.mark("diagnostics")
@@ -114,6 +116,7 @@ class YfuseApp :
                 modules(
                     appModule(
                         settings = settings,
+                        feedCacheSettings = androidFeedCacheSettings(this@YfuseApp),
                         appVersion = BuildConfig.VERSION_NAME,
                         diagnosticPreferences = diagnosticPreferences,
                         calendarLocalStore = AndroidCalendarLocalStore(this@YfuseApp),
@@ -135,21 +138,29 @@ class YfuseApp :
                 )
             }
         startupTrace.mark("dependency_graph")
+        DeferredAppStartup(this) {
+            CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate).launch {
+                ServerSessionRecovery.awaitReady()
+                observeFeedCacheCleanup(
+                    this,
+                    koinApplication.koin.get<ServerRegistry>(),
+                    koinApplication.koin.get<LibraryCache>(),
+                )
+                koinApplication.koin.get<PlaybackReportingCoordinator>().flushPending()
+                scheduleCalendarReminderWork(this@YfuseApp)
+                scheduleCalendarSyncWork(this@YfuseApp)
+            }
+        }.register()
         ServerSessionRecovery.initialize(
-            restore = { koinApplication.koin.get<ServerRegistry>() },
+            restore = {
+                // Classify historical crashes before any native engine can be constructed.
+                AndroidNativeCrashMonitor.initialize(this@YfuseApp)
+                koinApplication.koin.get<ServerRegistry>()
+            },
             startServices = {
-                koinApplication.koin.get<AccountRepository>().start()
-                // Local playback state is always available; cloud work begins automatically once the
-                // account repository restores an authenticated session.
-                koinApplication.koin.get<PlaybackSyncManager>().start()
                 startupTrace.mark("session_restore")
-                DeferredAppStartup(this) {
-                    // These jobs survive process death through WorkManager and do not contribute to the
-                    // first screen, so scheduling them before first draw only makes cold start noisier.
-                    koinApplication.koin.get<PlaybackReportingCoordinator>().flushPending()
-                    scheduleCalendarReminderWork(this)
-                    scheduleCalendarSyncWork(this)
-                }.register()
+                koinApplication.koin.get<AccountRepository>().start()
+                koinApplication.koin.get<PlaybackSyncManager>().start()
             },
         )
     }

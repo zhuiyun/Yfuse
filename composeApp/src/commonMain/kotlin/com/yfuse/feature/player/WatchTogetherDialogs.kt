@@ -1,6 +1,5 @@
 package com.yfuse.feature.player
 
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -8,12 +7,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -37,8 +36,12 @@ import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OverlayButton
 import com.yfuse.core.designsystem.OverlayButtonTone
 import com.yfuse.core.designsystem.OverlayHeader
+import com.yfuse.core.designsystem.PageLoadingSkeleton
+import com.yfuse.core.designsystem.SkeletonHandoff
 import com.yfuse.core.designsystem.WatchAvatar
+import com.yfuse.core.designsystem.contentHandoff
 import com.yfuse.core.designsystem.glass
+import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberAccentColorsForSurface
 import com.yfuse.core.designsystem.touchTarget
@@ -49,6 +52,7 @@ import com.yfuse.core.sync.WatchParticipant
 import com.yfuse.core.sync.WatchTogetherClient
 import com.yfuse.feature.watch.CopyableRoomCode
 import org.koin.core.context.GlobalContext
+import com.yfuse.core.designsystem.ThemeText as Text
 
 /**
  * In-player watch-together control. Since the entry points moved to where people actually
@@ -106,35 +110,44 @@ internal fun WatchTogetherDialog(
                 },
             onClose = onDismiss,
         )
-        if (connected) {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .glass(AppShapes.card, palette.card2, palette.border)
-                    .padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(7.dp),
-            ) {
-                CopyableRoomCode(
-                    roomCode = roomCode.orEmpty(),
-                    style = AppTypography.display.strong,
-                    color = accent.accent,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Text(
-                    "${if (isHost) {
-                        "房主"
-                    } else if (canControl) {
-                        "可控制"
-                    } else {
-                        "成员"
-                    }} · " +
-                        "$participantCount 人在线 · ${participants.count { it.ready }} 人就绪",
-                    style = AppTypography.caption.medium,
-                    color = palette.sub2,
-                    modifier = Modifier.fillMaxWidth(),
-                    textAlign = TextAlign.Center,
-                )
+        SkeletonHandoff(
+            loading = connecting && !connected,
+            modifier = Modifier.fillMaxWidth().heightIn(min = if (connecting && !connected) 210.dp else 0.dp),
+            skeleton = { PageLoadingSkeleton(rows = 1) },
+        ) {
+            if (connected) {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .contentHandoff(connected to connecting)
+                        .glass(AppShapes.card, palette.card2, palette.border)
+                        .padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(7.dp),
+                ) {
+                    CopyableRoomCode(
+                        roomCode = roomCode.orEmpty(),
+                        style = AppTypography.display.strong,
+                        color = accent.accent,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Text(
+                        "${if (isHost) {
+                            "房主"
+                        } else if (canControl) {
+                            "可控制"
+                        } else {
+                            "成员"
+                        }} · " +
+                            "$participantCount 人在线 · ${participants.count { it.ready }} 人就绪",
+                        style = AppTypography.caption.medium,
+                        color = palette.sub2,
+                        modifier = Modifier.fillMaxWidth(),
+                        textAlign = TextAlign.Center,
+                    )
+                }
             }
+        }
+        if (connected) {
             if (isHost) {
                 Text(
                     "控制权限",
@@ -157,17 +170,15 @@ internal fun WatchTogetherDialog(
                 }
             }
             if (participants.isNotEmpty()) {
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(top = 12.dp)
-                        .horizontalScroll(rememberScrollState()),
+                LazyRow(
+                    Modifier.fillMaxWidth().padding(top = 12.dp),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    participants.forEach { participant ->
+                    motionItems(participants, key = { it.clientId }) { participant ->
                         Column(
                             Modifier
-                                .width(108.dp),
+                                .width(108.dp)
+                                .then(Modifier),
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
@@ -187,6 +198,7 @@ internal fun WatchTogetherDialog(
                             )
                             Text(
                                 participant.playbackStatusLabel,
+                                modifier = Modifier.contentHandoff(participant.playbackStatusLabel),
                                 style = AppTypography.caption.medium,
                                 color =
                                     when {

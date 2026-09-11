@@ -22,13 +22,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
@@ -83,8 +79,10 @@ import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.OrbProgressDefaults
 import com.yfuse.core.designsystem.Poster
 import com.yfuse.core.designsystem.PrimaryGradient
+import com.yfuse.core.designsystem.RefreshIndicator
 import com.yfuse.core.designsystem.RefreshThresholdHaptics
 import com.yfuse.core.designsystem.ScrollToTopOnReselect
+import com.yfuse.core.designsystem.SkeletonArrivalScope
 import com.yfuse.core.designsystem.SkeletonRail
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.TabBarInset
@@ -97,12 +95,18 @@ import com.yfuse.core.designsystem.fadeIntoPage
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.heroDurationLabel
 import com.yfuse.core.designsystem.heroMediaTypeLabel
+import com.yfuse.core.designsystem.heroScrollCollapse
 import com.yfuse.core.designsystem.heroTopScrim
 import com.yfuse.core.designsystem.livingPosterFrame
 import com.yfuse.core.designsystem.livingPosterHeroHeight
 import com.yfuse.core.designsystem.loopingCarouselItemIndex
 import com.yfuse.core.designsystem.loopingCarouselSemantics
 import com.yfuse.core.designsystem.loopingCarouselTargetPage
+import com.yfuse.core.designsystem.motionItem
+import com.yfuse.core.designsystem.motionItems
+import com.yfuse.core.designsystem.motionItemsIndexed
+import com.yfuse.core.designsystem.playerArtworkOnClick
+import com.yfuse.core.designsystem.playerArtworkSource
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberArtworkAccentTarget
 import com.yfuse.core.designsystem.rememberArtworkPageColor
@@ -123,6 +127,8 @@ import com.yfuse.core.network.TmdbImages
 import com.yfuse.core.util.currentHourOfDay
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import com.yfuse.core.designsystem.ThemeIcon as Icon
+import com.yfuse.core.designsystem.ThemeText as Text
 
 /**
  * The hero artwork changes every few seconds, while the status-bar ink stays white.
@@ -206,7 +212,7 @@ private fun HomeContent(
             component.store.accept(HomeIntent.RefreshLibrary)
             // Episodes can arrive while detail/player covers the tab. Refresh the compact
             // calendar too so its 入库/下一集 state is correct on the first frame back home.
-            component.refreshCalendar(forceRefresh = true)
+            component.refreshCalendar()
         } else if (!routeVisible && hasBeenVisible) {
             hiddenSinceLastRefresh = true
         }
@@ -282,159 +288,164 @@ internal fun HomeContentBody(
                 onRefreshCalendar()
             },
             state = pullState,
+            indicator = { RefreshIndicator(pullState, state.refreshing, Modifier.align(Alignment.TopCenter)) },
             modifier = Modifier.fillMaxSize(),
         ) {
-            LazyColumn(
-                modifier =
-                    Modifier
-                        .fillMaxSize()
-                        // Page-level light: the skeleton sweep while shelves load, the arrival
-                        // sweep when a refresh lands. Both draw only while their clock runs.
-                        .skeletonSweep()
-                        .arrivalSweep(refreshArrival)
-                        .testTag("home-feed"),
-                state = listState,
-                contentPadding = PaddingValues(bottom = TabBarInset),
-                verticalArrangement = Arrangement.spacedBy(Dimens.sectionGap),
-            ) {
-                // Navigation in the hero header must remain available even when the remote
-                // recommendation feed is loading or unavailable.
-                item {
-                    HomeHeroCarousel(
-                        items = state.featuredSlides.take(8),
-                        userName = state.server?.userName,
-                        height = heroHeight,
-                        showSidePreview = showSidePreview,
-                        visible = heroVisible && !listState.isScrollInProgress,
-                        onOpenProfile = onOpenProfile,
-                        onOpenCalendar = onOpenCalendar,
-                        onPlay = { onIntent(HomeIntent.Play(it)) },
-                        onDetails = { onIntent(HomeIntent.Open(it)) },
-                        onFavorite = { onIntent(HomeIntent.Favorite(it)) },
-                        onAccent = onHeroAccent,
-                        onPageColor = onHeroPageColor,
-                    )
-                }
-
-                if (state.loading && state.content.isEmpty) {
-                    // Two shelves' worth of placeholders rather than one spinner: the page
-                    // this becomes is a stack of rails, and a skeleton that is the wrong
-                    // shape moves the content once it arrives.
-                    items(2, key = { "recommendations-loading-$it" }) { shelf ->
-                        SkeletonRail(
-                            modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),
-                            phaseMs = shelf * SKELETON_SHELF_PHASE_MS,
-                        )
-                    }
-                } else if (state.error != null && state.content.isEmpty) {
-                    item(key = "recommendations-error") {
-                        ErrorState(
-                            message = state.error!!,
-                            onRetry = { onIntent(HomeIntent.Retry) },
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
-                }
-
-                state.recommendationNotice?.let { notice ->
-                    item(key = "recommendations-cache-notice") {
-                        Row(
-                            modifier =
-                                Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = Dimens.pageHorizontal)
-                                    .glass(GlassShapes.chip, palette.card2, palette.border)
-                                    .padding(horizontal = 14.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            Text(
-                                text = notice,
-                                style = AppTypography.body.medium,
-                                color = palette.sub,
-                                modifier = Modifier.weight(1f),
-                            )
-                            Text(
-                                text = "重新刷新",
-                                style = AppTypography.body.strong,
-                                color = themeAccent,
-                                modifier =
-                                    Modifier
-                                        .pressable(
-                                            onClickLabel = "重新刷新首页",
-                                            onClick = { onIntent(HomeIntent.Retry) },
-                                        ).touchTarget(),
-                            )
-                        }
-                    }
-                }
-
-                if (state.resume.isNotEmpty()) {
-                    item(key = "continue-watching") {
-                        ContinueWatching(
-                            items = state.resume,
-                            onSeeAll = onOpenLibrary,
-                            onClick = { onIntent(HomeIntent.OpenResume(it)) },
-                        )
-                    }
-                }
-
-                if (state.favorites.isNotEmpty()) {
-                    item(key = "favorites") {
-                        LibraryMediaShelf(
-                            title = "我的收藏",
-                            items = state.favorites,
-                            onSeeAll = onOpenLibrary,
-                            onClick = { onIntent(HomeIntent.OpenResume(it)) },
-                        )
-                    }
-                }
-
-                when {
-                    calendarItems.isNotEmpty() -> {
-                        item(key = "airing-calendar-preview") {
-                            HomeCalendarShelf(
-                                items = calendarItems,
-                                onSeeAll = onOpenCalendar,
-                                onClick = { onOpenCalendarEntry(it.entry) },
+            SkeletonArrivalScope(state.loading && state.content.isEmpty) {
+                LazyColumn(
+                    modifier =
+                        Modifier
+                            .fillMaxSize()
+                            // Page-level light: the skeleton sweep while shelves load, the arrival
+                            // sweep when a refresh lands. Both draw only while their clock runs.
+                            .skeletonSweep()
+                            .arrivalSweep(refreshArrival)
+                            .testTag("home-feed"),
+                    state = listState,
+                    contentPadding = PaddingValues(bottom = TabBarInset),
+                    verticalArrangement = Arrangement.spacedBy(Dimens.sectionGap),
+                ) {
+                    // Navigation in the hero header must remain available even when the remote
+                    // recommendation feed is loading or unavailable.
+                    motionItem(key = "home-hero", arrival = false) {
+                        Box(Modifier.heroScrollCollapse(listState, heroHeight)) {
+                            HomeHeroCarousel(
+                                items = state.featuredSlides.take(8),
+                                userName = state.server?.userName,
+                                height = heroHeight,
+                                showSidePreview = showSidePreview,
+                                visible = heroVisible && !listState.isScrollInProgress,
+                                onOpenProfile = onOpenProfile,
+                                onOpenCalendar = onOpenCalendar,
+                                onPlay = { onIntent(HomeIntent.Play(it)) },
+                                onDetails = { onIntent(HomeIntent.Open(it)) },
+                                onFavorite = { onIntent(HomeIntent.Favorite(it)) },
+                                onAccent = onHeroAccent,
+                                onPageColor = onHeroPageColor,
                             )
                         }
                     }
 
-                    calendarState.loading -> {
-                        item(key = "airing-calendar-loading") {
+                    if (state.loading && state.content.isEmpty) {
+                        // Two shelves' worth of placeholders rather than one spinner: the page
+                        // this becomes is a stack of rails, and a skeleton that is the wrong
+                        // shape moves the content once it arrives.
+                        motionItems(2, key = { "recommendations-loading-$it" }) { shelf ->
                             SkeletonRail(
                                 modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),
-                                count = 3,
+                                phaseMs = shelf * SKELETON_SHELF_PHASE_MS,
                             )
                         }
-                    }
-
-                    calendarState.error != null -> {
-                        item(key = "airing-calendar-error") {
+                    } else if (state.error != null && state.content.isEmpty) {
+                        motionItem(key = "recommendations-error") {
                             ErrorState(
-                                message = calendarState.error!!,
-                                onRetry = onRefreshCalendar,
+                                message = state.error!!,
+                                onRetry = { onIntent(HomeIntent.Retry) },
                                 modifier = Modifier.fillMaxWidth(),
                             )
                         }
                     }
-                }
 
-                state.content.rows.forEach { row ->
-                    if (row.items.isNotEmpty()) {
-                        item(key = "tmdb-${row.title}") {
-                            Recommended(
-                                title = row.title,
-                                items = row.items,
-                                arrival = refreshArrival,
-                                showReleaseDate = row.title == "即将上映" || row.title == "最新上线",
-                                // Opens this shelf, not the 库 tab. These come from TMDB and
-                                // most are not in the library at all, so the old destination
-                                // showed none of what the chip had just offered.
-                                onSeeAll = { expandedRow = row },
-                                onClick = { onIntent(HomeIntent.Open(it)) },
+                    state.recommendationNotice?.let { notice ->
+                        motionItem(key = "recommendations-cache-notice") {
+                            Row(
+                                modifier =
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = Dimens.pageHorizontal)
+                                        .glass(GlassShapes.chip, palette.card2, palette.border)
+                                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                Text(
+                                    text = notice,
+                                    style = AppTypography.body.medium,
+                                    color = palette.sub,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                Text(
+                                    text = "重新刷新",
+                                    style = AppTypography.body.strong,
+                                    color = themeAccent,
+                                    modifier =
+                                        Modifier
+                                            .pressable(
+                                                onClickLabel = "重新刷新首页",
+                                                onClick = { onIntent(HomeIntent.Retry) },
+                                            ).touchTarget(),
+                                )
+                            }
+                        }
+                    }
+
+                    if (state.resume.isNotEmpty()) {
+                        motionItem(key = "continue-watching") {
+                            ContinueWatching(
+                                items = state.resume,
+                                onSeeAll = onOpenLibrary,
+                                onClick = { onIntent(HomeIntent.OpenResume(it)) },
                             )
+                        }
+                    }
+
+                    if (state.favorites.isNotEmpty()) {
+                        motionItem(key = "favorites") {
+                            LibraryMediaShelf(
+                                title = "我的收藏",
+                                items = state.favorites,
+                                onSeeAll = onOpenLibrary,
+                                onClick = { onIntent(HomeIntent.OpenResume(it)) },
+                            )
+                        }
+                    }
+
+                    when {
+                        calendarItems.isNotEmpty() -> {
+                            motionItem(key = "airing-calendar-preview") {
+                                HomeCalendarShelf(
+                                    items = calendarItems,
+                                    onSeeAll = onOpenCalendar,
+                                    onClick = { onOpenCalendarEntry(it.entry) },
+                                )
+                            }
+                        }
+
+                        calendarState.loading -> {
+                            motionItem(key = "airing-calendar-loading") {
+                                SkeletonRail(
+                                    modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),
+                                    count = 3,
+                                )
+                            }
+                        }
+
+                        calendarState.error != null -> {
+                            motionItem(key = "airing-calendar-error") {
+                                ErrorState(
+                                    message = calendarState.error!!,
+                                    onRetry = onRefreshCalendar,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            }
+                        }
+                    }
+
+                    state.content.rows.forEach { row ->
+                        if (row.items.isNotEmpty()) {
+                            motionItem(key = "tmdb-${row.title}") {
+                                Recommended(
+                                    title = row.title,
+                                    items = row.items,
+                                    arrival = refreshArrival,
+                                    showReleaseDate = row.title == "即将上映" || row.title == "最新上线",
+                                    // Opens this shelf, not the 库 tab. These come from TMDB and
+                                    // most are not in the library at all, so the old destination
+                                    // showed none of what the chip had just offered.
+                                    onSeeAll = { expandedRow = row },
+                                    onClick = { onIntent(HomeIntent.Open(it)) },
+                                )
+                            }
                         }
                     }
                 }
@@ -704,6 +715,7 @@ private fun HeroSlide(
     modifier: Modifier = Modifier,
 ) {
     val palette = LocalPalette.current
+    val playerArtworkKey = item?.let { MediaSharedElementKey(null, "tmdb:${it.id}") }
     val artworkUrls: List<String?> =
         remember(item) { tmdbHeroArtworkUrls(item) }
     var resolvedArtworkUrl by remember(item?.id) { mutableStateOf<String?>(null) }
@@ -757,6 +769,7 @@ private fun HeroSlide(
                     modifier =
                         Modifier
                             .fillMaxSize()
+                            .playerArtworkSource(playerArtworkKey, artworkUrls)
                             .carouselArtworkMotion(pageOffset, LocalAccessibilityOptions.current.reduceMotion),
                 )
             }
@@ -768,7 +781,7 @@ private fun HeroSlide(
             HeroCaption(
                 item = item,
                 selected = settled,
-                onPlay = onPlay,
+                onPlay = playerArtworkOnClick(playerArtworkKey, onPlay),
                 onDetails = onDetails,
                 onFavorite = onFavorite,
                 modifier = Modifier.align(Alignment.BottomStart),
@@ -1051,7 +1064,7 @@ private fun ContinueWatching(
             contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
             horizontalArrangement = Arrangement.spacedBy(11.dp),
         ) {
-            items(items, key = { "${it.server.id}:${it.item.id}" }) { entry ->
+            motionItems(items, key = { "${it.server.id}:${it.item.id}" }) { entry ->
                 ContinueWatchingCard(entry = entry, onClick = { onClick(entry) })
             }
         }
@@ -1154,7 +1167,7 @@ private fun LibraryMediaShelf(
             contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            items(items.take(12), key = { "library-${it.server.id}-${it.item.id}" }) { entry ->
+            motionItems(items.take(12), key = { "library-${it.server.id}-${it.item.id}" }) { entry ->
                 val item = entry.item
                 CaptionedPoster(
                     url =
@@ -1352,7 +1365,7 @@ private fun HomeCalendarShelf(
             contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            items(
+            motionItems(
                 items,
                 key = { preview ->
                     val episode = preview.entry.episode
@@ -1423,7 +1436,7 @@ private fun Recommended(
             contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            itemsIndexed(items.take(12), key = { _, it -> "${it.mediaType}:${it.id}" }) { index, item ->
+            motionItemsIndexed(items.take(12), key = { _, it -> "${it.mediaType}:${it.id}" }) { index, item ->
                 CaptionedPoster(
                     url = TmdbImages.poster(item.posterPath),
                     fallbackUrls =

@@ -14,8 +14,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -29,6 +27,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.yfuse.core.data.SkipMode
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
@@ -37,6 +36,8 @@ import com.yfuse.core.designsystem.DarkPalette
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.rememberAccentColorsForSurface
+import com.yfuse.core.designsystem.ThemeIcon as Icon
+import com.yfuse.core.designsystem.ThemeText as Text
 
 /**
  * Single-purpose playback popups. The playback page chooses one kind per button; there is
@@ -66,6 +67,7 @@ private enum class AdvancedPage {
     Playback,
     Engine,
     Media,
+    Bookmarks,
 }
 
 /** Compact function popup; long choices scroll inside without turning into a screen drawer. */
@@ -119,6 +121,8 @@ internal fun SettingsPanel(
     skipActions: SkipSegmentActions,
     trackPanelMode: TrackPanelMode = TrackPanelMode.Subtitle,
     ambientLightEnabled: Boolean = true,
+    bookmarks: PlaybackBookmarkPanelState = PlaybackBookmarkPanelState(),
+    bookmarkActions: PlaybackBookmarkActions = PlaybackBookmarkActions(),
     onToggleAmbientLight: () -> Unit = {},
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
@@ -149,7 +153,42 @@ internal fun SettingsPanel(
                         trackPanelMode == TrackPanelMode.Subtitle &&
                         state.subtitleTracks.isNotEmpty()
                     ) {
-                        GroupLabel("主字幕")
+                        if (subtitleControls.secondarySupported) {
+                            GroupLabel("双字幕方案 · 主上副下")
+                            DualSubtitleLanguagePair.entries.forEach { pair ->
+                                OptionRow(
+                                    pair.label,
+                                    selected = false,
+                                    onClick = { subtitleActions.onLanguagePair(pair) },
+                                )
+                            }
+                            if (subtitleControls.secondaryTrackId != null && state.subtitleTracks.any { it.selected }) {
+                                OptionRow("互换主副字幕", selected = false, onClick = subtitleActions.onSwap)
+                            }
+                            if (subtitleControls.independentScaleAvailable) {
+                                GroupLabel("副字幕字号")
+                                listOf(0.8f, 1f, 1.2f, 1.5f).forEach { scale ->
+                                    OptionRow(
+                                        "${(scale * 100).toInt()}%",
+                                        subtitleControls.secondaryScale == scale,
+                                        onClick = { subtitleActions.onSecondaryScale(scale) },
+                                    )
+                                }
+                            }
+                            Column(
+                                Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                                horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
+                            ) {
+                                Text("主字幕预览", color = Color.White, fontSize = (18 * subtitleControls.scale).sp)
+                                Spacer(Modifier.size(4.dp))
+                                Text(
+                                    "Secondary subtitle",
+                                    color = Color.White,
+                                    fontSize = (18 * subtitleControls.secondaryScale).sp,
+                                )
+                            }
+                            GroupLabel("主字幕")
+                        }
                         OptionRow(
                             "关闭",
                             state.subtitleTracks.none { it.selected },
@@ -159,6 +198,7 @@ internal fun SettingsPanel(
                             OptionRow(track.label, track.selected, onClick = { onSelectSubtitle(track.id) })
                         }
                         GroupLabel("副字幕")
+                        subtitleControls.dualLayoutNote?.let { UnsupportedSubtitleControl(it) }
                         if (subtitleControls.secondarySupported) {
                             OptionRow(
                                 "关闭",
@@ -607,7 +647,18 @@ internal fun SettingsPanel(
                 SettingsPanelKind.More -> {
                     val diagnostics = state.diagnostics
                     when (advancedPage) {
+                        AdvancedPage.Bookmarks -> {
+                            PopupBackLabel("时间书签") { advancedPage = AdvancedPage.Root }
+                            PlaybackBookmarkPanel(bookmarks, bookmarkActions)
+                        }
                         AdvancedPage.Root -> {
+                            PopupMenuRow(
+                                icon = AppIcons.Bookmark,
+                                title = "时间书签",
+                                subtitle = "标记片段与备注 · ${bookmarks.items.size} 个",
+                                onClick = { advancedPage = AdvancedPage.Bookmarks },
+                            )
+                            PopupDivider()
                             PopupMenuRow(
                                 icon = AppIcons.PlaybackSource,
                                 title = "播放内核",

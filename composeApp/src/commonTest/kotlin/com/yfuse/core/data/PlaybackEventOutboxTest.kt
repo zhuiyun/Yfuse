@@ -13,6 +13,38 @@ import kotlin.test.assertTrue
 
 class PlaybackEventOutboxTest {
     @Test
+    fun terminal_loss_survives_restart_and_acknowledgement_preserves_new_losses() {
+        val settings = MapSettings()
+        val outbox = PlaybackEventOutbox(settings, maxEvents = 1)
+
+        fun stop(id: String) = outbox.enqueue(PlaybackOutboxEventKind.Stopped, "a", id, id, 1L, true, "DirectPlay")
+        stop("one")
+        stop("two")
+        assertEquals(1L, outbox.droppedTerminalEvents.value)
+        assertEquals(1L, PlaybackEventOutbox(settings).droppedTerminalEvents.value)
+        val observed = outbox.droppedTerminalEvents.value
+        stop("three")
+        outbox.acknowledgeDroppedReports(observed)
+        assertEquals(1L, outbox.droppedTerminalEvents.value)
+        outbox.acknowledgeDroppedReports(1L)
+        assertEquals(0L, PlaybackEventOutbox(settings).droppedTerminalEvents.value)
+        assertEquals(
+            "three",
+            outbox.events.value
+                .single()
+                .itemId,
+        )
+    }
+
+    @Test
+    fun evicting_replaceable_progress_does_not_report_lost_terminal_events() {
+        val outbox = PlaybackEventOutbox(MapSettings(), maxEvents = 1)
+        outbox.enqueue(PlaybackOutboxEventKind.Progress, "a", "one", "one", 1L, false, "DirectPlay")
+        outbox.enqueue(PlaybackOutboxEventKind.Stopped, "a", "two", "two", 1L, true, "DirectPlay")
+        assertEquals(0L, outbox.droppedTerminalEvents.value)
+    }
+
+    @Test
     fun retry_backoff_is_exponential_but_has_a_hard_ceiling() {
         assertEquals(5_000L, playbackOutboxBackoffMs(1))
         assertEquals(10_000L, playbackOutboxBackoffMs(2))

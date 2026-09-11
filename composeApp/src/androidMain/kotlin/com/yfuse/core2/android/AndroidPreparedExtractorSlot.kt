@@ -16,17 +16,22 @@ internal class AndroidPreparedExtractorSlot {
         item: YMediaItem,
         source: YPlatformExtractorSource,
     ) {
-        val previous =
-            synchronized(lock) {
-                val previous = this.source
-                expiry?.cancel(false)
-                this.item = item
-                this.source = source
-                expiry = releaser.schedule({ expire(source) }, 30L, TimeUnit.SECONDS)
-                previous
-            }
-        previous?.let { runCatching(it::release) }
+        exchange(item, source)?.let { runCatching(it::release) }
     }
+
+    /** Lightweight ownership swap; callers dispose the old source outside all cancellation locks. */
+    fun exchange(
+        item: YMediaItem,
+        source: YPlatformExtractorSource,
+    ): YPlatformExtractorSource? =
+        synchronized(lock) {
+            val previous = this.source
+            expiry?.cancel(false)
+            this.item = item
+            this.source = source
+            expiry = releaser.schedule({ expire(source) }, 30L, TimeUnit.SECONDS)
+            previous
+        }
 
     fun take(item: YMediaItem): YPlatformExtractorSource? =
         synchronized(lock) {

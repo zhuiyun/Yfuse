@@ -13,10 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
@@ -32,7 +29,10 @@ import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.PlayerTokens
 import com.yfuse.core.designsystem.cssLinearGradient
+import com.yfuse.core.designsystem.motionItemsIndexed
 import com.yfuse.core.designsystem.rememberAccentColorsForSurface
+import com.yfuse.core.designsystem.ThemeIcon as Icon
+import com.yfuse.core.designsystem.ThemeText as Text
 
 /** One card in the strip. A projection of [PlayerMediaItem], so the strip needs nothing else. */
 internal data class EpisodeCard(
@@ -121,7 +121,7 @@ internal fun EpisodeStrip(
             contentPadding = PaddingValues(horizontal = 22.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            itemsIndexed(
+            motionItemsIndexed(
                 items = episodes,
                 key = { index, episode -> episode.watchKey.ifBlank { "episode-$index" } },
             ) { index, episode ->
@@ -129,7 +129,7 @@ internal fun EpisodeStrip(
                     episode = episode,
                     current = index == currentIndex,
                     onClick = { onSelect(index) },
-                    modifier = if (reduceMotion) Modifier else Modifier.animateItem(),
+                    modifier = Modifier,
                 )
             }
         }

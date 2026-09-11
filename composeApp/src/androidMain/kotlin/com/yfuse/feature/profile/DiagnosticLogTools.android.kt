@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Switch
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -47,6 +46,7 @@ import kotlinx.coroutines.withContext
 import org.koin.core.context.GlobalContext
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import com.yfuse.core.designsystem.ThemeText as Text
 import com.yfuse.core.designsystem.flatGlass as glass
 
 @Composable

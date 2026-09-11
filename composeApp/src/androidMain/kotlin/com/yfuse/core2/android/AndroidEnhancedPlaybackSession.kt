@@ -52,6 +52,8 @@ import com.yfuse.core2.strategy.YPlaybackPlan
 import com.yfuse.core2.strategy.YRenderPath
 import com.yfuse.core2.subtitle.YEmbeddedSubtitleDecoder
 import com.yfuse.core2.subtitle.YSubtitleCue
+import com.yfuse.core2.subtitle.YSubtitleCueBuffer
+import com.yfuse.core2.subtitle.YSubtitleDecodeResult
 import com.yfuse.core2.sync.YAvSync
 import com.yfuse.core2.sync.YClockSnapshot
 import com.yfuse.core2.sync.YMediaClock
@@ -95,6 +97,7 @@ internal data class YEnhancedPlaybackSnapshot(
     val sourceNetworkBitsPerSecond: Long,
     val subtitleCues: List<YSubtitleCue>,
     val secondarySubtitleCues: List<YSubtitleCue> = emptyList(),
+    val subtitleDiagnostics: Map<String, String> = emptyMap(),
     val nativeGpuFeatureMask: Long = 0L,
     val gpuFrameDurationNs: Long = 0L,
     val dolbyVisionRpuApplied: Boolean = false,
@@ -115,7 +118,7 @@ internal data class YEnhancedPlaybackSnapshot(
  */
 internal class AndroidEnhancedPlaybackSession(
     context: Context,
-    private var demuxer: YDemuxer = AndroidFfmpegDemuxer(),
+    @Volatile private var demuxer: YDemuxer = AndroidFfmpegDemuxer(),
     private val videoDecoder: AndroidMediaCodecVideoNode = AndroidMediaCodecVideoNode(),
     private val audioDecoder: AndroidMediaCodecAudioNode = AndroidMediaCodecAudioNode(),
     private val audioRenderer: AndroidAudioTrackRenderNode = AndroidAudioTrackRenderNode(context),
@@ -140,9 +143,9 @@ internal class AndroidEnhancedPlaybackSession(
     private var effectiveVideoTrack: YVideoTrackFormat? = null
     private var audioTrack: YDemuxTrack? = null
     private var subtitleTrack: YDemuxTrack? = null
-    private val subtitleCues = mutableListOf<YSubtitleCue>()
+    private val subtitleCues = YSubtitleCueBuffer()
     private var secondarySubtitleTrack: YDemuxTrack? = null
-    private val secondarySubtitleCues = mutableListOf<YSubtitleCue>()
+    private val secondarySubtitleCues = YSubtitleCueBuffer()
     private var audioOutputPath = YAudioOutputPath.None
     private var surface: Surface? = null
     private val pendingSamples = linkedMapOf<YTrackId, YQueuedDemuxResult.Sample>()
@@ -227,6 +230,7 @@ internal class AndroidEnhancedPlaybackSession(
         sourceHints: YMediaSourceHints? = null,
         allowAudioPassthrough: Boolean = true,
         preparedDemux: AndroidPreparedEnhancedDemux? = null,
+        probeBudget: AndroidProbeBudget? = null,
     ): YDemuxOpenResult {
         close()
         val adoptedOpen =
@@ -264,7 +268,7 @@ internal class AndroidEnhancedPlaybackSession(
                 stage = YPlaybackFailureStage.SourceOpen,
                 safeDetail = "Enhanced source open",
             ) {
-                adoptedOpen ?: demuxReadAhead.open(source)
+                adoptedOpen ?: demuxReadAhead.open(source, probeBudget)
             }
         val videoTrack =
             result.tracks.firstOrNull { it.type == YDemuxTrackType.Video && it.video != null }
@@ -885,6 +889,14 @@ internal class AndroidEnhancedPlaybackSession(
 
     fun snapshot(): YEnhancedPlaybackSnapshot {
         collectSoftwareRenderProgress()
+        val subtitlePositionUs = currentPositionUs()
+        subtitleCues.prune(subtitlePositionUs - SUBTITLE_HISTORY_US, subtitlePositionUs)
+        secondarySubtitleCues.prune(subtitlePositionUs - SUBTITLE_HISTORY_US, subtitlePositionUs)
+        val subtitleActiveSecondary = secondarySubtitleCues.activeDisplayCount(subtitlePositionUs)
+        val subtitleRetainedCount = subtitleCues.retainedCueCount + secondarySubtitleCues.retainedCueCount
+        val subtitleRetainedBytes = subtitleCues.retainedBitmapBytes + secondarySubtitleCues.retainedBitmapBytes
+        val subtitleDroppedFuture =
+            subtitleCues.droppedFutureDisplayCount + secondarySubtitleCues.droppedFutureDisplayCount
         val gpu = gpuVideoOutput
         val readAhead = demuxReadAhead.snapshot()
         val videoVerified = gpu?.outputVerified ?: firstVideoFrameRendered
@@ -990,6 +1002,21 @@ internal class AndroidEnhancedPlaybackSession(
             sourceNetworkBitsPerSecond = readAhead.throughputBitsPerSecond,
             subtitleCues = subtitleCues.toList(),
             secondarySubtitleCues = secondarySubtitleCues.toList(),
+            subtitleDiagnostics =
+                mapOf(
+                    "primaryFormat" to (subtitleTrack?.subtitle?.format?.name ?: "none"),
+                    "secondaryFormat" to (secondarySubtitleTrack?.subtitle?.format?.name ?: "none"),
+                    "bitmapDisplaySetApi" to if (FfmpegNativeBridge.subtitleDisplaySetAvailable) "2" else "unavailable",
+                    "primaryReplaceCount" to subtitleCues.replacementCount.toString(),
+                    "primaryClearCount" to subtitleCues.clearCount.toString(),
+                    "secondaryReplaceCount" to secondarySubtitleCues.replacementCount.toString(),
+                    "secondaryClearCount" to secondarySubtitleCues.clearCount.toString(),
+                    "primaryActiveDisplays" to subtitleCues.activeDisplayCount(subtitlePositionUs).toString(),
+                    "secondaryActiveDisplays" to subtitleActiveSecondary.toString(),
+                    "retainedCueCount" to subtitleRetainedCount.toString(),
+                    "retainedBitmapBytes" to subtitleRetainedBytes.toString(),
+                    "droppedFutureDisplays" to subtitleDroppedFuture.toString(),
+                ),
             nativeGpuFeatureMask = gpu?.currentFeatureMask ?: 0L,
             gpuFrameDurationNs = gpu?.lastGpuFrameDurationNs ?: 0L,
             dolbyVisionRpuApplied =
@@ -1004,7 +1031,17 @@ internal class AndroidEnhancedPlaybackSession(
         )
     }
 
+    /** May be called during open/release from another thread without touching codec ownership. */
+    fun cancelPendingRead() {
+        (demuxer as? AndroidFfmpegDemuxer)?.cancelPendingRead()
+    }
+
+    fun clearProbeDeadline() {
+        (demuxer as? AndroidFfmpegDemuxer)?.clearProbeDeadline()
+    }
+
     fun close() {
+        cancelPendingRead()
         videoOutputEpoch.reset()
         pausedPreview.clear()
         runCatching(demuxReadAhead::pauseReadAhead)
@@ -1170,7 +1207,7 @@ internal class AndroidEnhancedPlaybackSession(
                 }
                 audioTrack?.id -> if (pausedPreview.active) YCodecQueueResult.Queued else queueAudioSample(sample)
                 subtitleTrack?.id, secondarySubtitleTrack?.id -> {
-                    queueSubtitleSample(sample, queuedSample.subtitleCues)
+                    queueSubtitleSample(sample, queuedSample.subtitleResult)
                     YCodecQueueResult.Queued
                 }
                 else -> YCodecQueueResult.Queued
@@ -1847,14 +1884,16 @@ internal class AndroidEnhancedPlaybackSession(
 
     private fun queueSubtitleSample(
         sample: YCompressedSample,
-        decodedCues: List<YSubtitleCue>?,
+        decodedResult: YSubtitleDecodeResult?,
     ) {
         val track =
             listOfNotNull(subtitleTrack, secondarySubtitleTrack).firstOrNull { it.id == sample.trackId } ?: return
         val format = track.subtitle?.format ?: return
         val cues = if (track.id == secondarySubtitleTrack?.id) secondarySubtitleCues else subtitleCues
-        if (decodedCues != null) {
-            cues.addAll(decodedCues)
+        val positionUs = currentPositionUs()
+        cues.prune(positionUs - SUBTITLE_HISTORY_US, positionUs)
+        if (decodedResult != null) {
+            cues.apply(decodedResult)
         } else if (format.textOverlaySupported) {
             YEmbeddedSubtitleDecoder
                 .decode(
@@ -1865,8 +1904,7 @@ internal class AndroidEnhancedPlaybackSession(
                     id = "${track.id.value}:${sample.presentationTimeUs}",
                 )?.let(cues::add)
         }
-        val oldestRetainedUs = currentPositionUs() - SUBTITLE_HISTORY_US
-        cues.removeAll { cue -> cue.endUs < oldestRetainedUs }
+        cues.prune(positionUs - SUBTITLE_HISTORY_US, positionUs)
     }
 
     private fun selectedTrackIds(): Set<YTrackId> =

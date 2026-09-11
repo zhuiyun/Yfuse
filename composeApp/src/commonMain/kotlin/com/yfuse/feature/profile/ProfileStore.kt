@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 
 data class ProfileState(
+    val initialized: Boolean = false,
     val currentServer: SavedServer? = null,
     /** All saved servers — the 我的服务器 list. */
     val servers: List<SavedServer> = emptyList(),
@@ -77,7 +78,7 @@ class ProfileStoreFactory(
     private object ReducerImpl : Reducer<ProfileState, Msg> {
         override fun ProfileState.reduce(msg: Msg): ProfileState =
             when (msg) {
-                is Msg.Data -> copy(currentServer = msg.current, servers = msg.servers)
+                is Msg.Data -> copy(initialized = true, currentServer = msg.current, servers = msg.servers)
             }
     }
 }

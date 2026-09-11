@@ -40,11 +40,20 @@ def main() -> int:
     ok &= check("Capability evidence", not unresolved, ", ".join(unresolved) if unresolved else "all verified")
 
     coverage = json.loads((ROOT / "parity/implementation-coverage.json").read_text(encoding="utf-8"))["features"]
-    missing_adapters = [feature["id"] for feature in coverage if feature["status"] == "sdkAdapter"]
+    # Only "implemented" means a user can reach the feature. Checking sdkAdapter alone used to let
+    # logicOnly, contractOnly and placeholderUi features pass as if they shipped.
+    shippable = {"implemented", "capabilityGated"}
+    incomplete: dict[str, list[str]] = {}
+    for feature in coverage:
+        if feature["status"] not in shippable:
+            incomplete.setdefault(feature["status"], []).append(feature["id"])
     ok &= check(
-        "Platform adapters",
-        not missing_adapters,
-        ", ".join(missing_adapters) if missing_adapters else "all implemented",
+        "Feature completeness",
+        not incomplete,
+        "; ".join(
+            f"{status}: {', '.join(ids)}" for status, ids in sorted(incomplete.items())
+        )
+        or "every feature is implemented or intentionally gated",
     )
 
     if not ok:

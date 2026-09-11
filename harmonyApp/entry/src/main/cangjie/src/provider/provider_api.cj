@@ -67,25 +67,25 @@ public class EmbyCompatibleProviderApi <: ProviderApi {
 
     public func home(server: SavedServer, token: String): ApiResult<HttpRequestSpec> {
         let query = ArrayList<(String, String)>()
-        query.append(("UserId", server.userId))
-        query.append(("Limit", "30"))
-        query.append(("Fields", "Overview,PrimaryImageAspectRatio,BackdropImageTags,ProviderIds,DateCreated,RunTimeTicks"))
-        query.append(("EnableUserData", "true"))
-        query.append(("Recursive", "true"))
-        query.append(("SortBy", "DateCreated"))
-        query.append(("SortOrder", "Descending"))
+        query.add(("UserId", server.userId))
+        query.add(("Limit", "30"))
+        query.add(("Fields", "Overview,PrimaryImageAspectRatio,BackdropImageTags,ProviderIds,DateCreated,RunTimeTicks"))
+        query.add(("EnableUserData", "true"))
+        query.add(("Recursive", "true"))
+        query.add(("SortBy", "DateCreated"))
+        query.add(("SortOrder", "Descending"))
         return requestAt(server.baseUrl, "/Users/${server.userId}/Items", HttpMethod.Get, embyHeaders(token), query: query)
     }
 
     public func search(server: SavedServer, token: String, query: String, startIndex: Int64, limit: Int64): ApiResult<HttpRequestSpec> {
         let values = ArrayList<(String, String)>()
-        values.append(("UserId", server.userId))
-        values.append(("SearchTerm", query))
-        values.append(("Recursive", "true"))
-        values.append(("IncludeItemTypes", "Movie,Series,Episode"))
-        values.append(("Fields", "Overview,PrimaryImageAspectRatio,BackdropImageTags,ProviderIds,RunTimeTicks"))
-        values.append(("StartIndex", startIndex.toString()))
-        values.append(("Limit", limit.toString()))
+        values.add(("UserId", server.userId))
+        values.add(("SearchTerm", query))
+        values.add(("Recursive", "true"))
+        values.add(("IncludeItemTypes", "Movie,Series,Episode"))
+        values.add(("Fields", "Overview,PrimaryImageAspectRatio,BackdropImageTags,ProviderIds,RunTimeTicks"))
+        values.add(("StartIndex", startIndex.toString()))
+        values.add(("Limit", limit.toString()))
         return requestAt(server.baseUrl, "/Users/${server.userId}/Items", HttpMethod.Get, embyHeaders(token), query: values)
     }
 
@@ -95,7 +95,7 @@ public class EmbyCompatibleProviderApi <: ProviderApi {
 
     public func playbackInfo(server: SavedServer, token: String, itemId: String, bodyJson: String): ApiResult<HttpRequestSpec> {
         let query = ArrayList<(String, String)>()
-        query.append(("UserId", server.userId))
+        query.add(("UserId", server.userId))
         return requestAt(server.baseUrl, "/Items/${itemId}/PlaybackInfo", HttpMethod.Post, embyHeaders(token), query: query, body: bodyJson)
     }
 
@@ -139,9 +139,9 @@ public class PlexProviderApi <: ProviderApi {
 
     public func search(server: SavedServer, token: String, query: String, startIndex: Int64, limit: Int64): ApiResult<HttpRequestSpec> {
         let values = ArrayList<(String, String)>()
-        values.append(("query", query))
-        values.append(("limit", limit.toString()))
-        values.append(("X-Plex-Container-Start", startIndex.toString()))
+        values.add(("query", query))
+        values.add(("limit", limit.toString()))
+        values.add(("X-Plex-Container-Start", startIndex.toString()))
         return requestAt(server.baseUrl, "/hubs/search", HttpMethod.Get, headers(token), query: values)
     }
 
@@ -151,9 +151,9 @@ public class PlexProviderApi <: ProviderApi {
 
     public func playbackInfo(server: SavedServer, token: String, itemId: String, bodyJson: String): ApiResult<HttpRequestSpec> {
         let values = ArrayList<(String, String)>()
-        values.append(("path", "/library/metadata/${itemId}"))
-        values.append(("directPlay", "1"))
-        values.append(("directStream", "1"))
+        values.add(("path", "/library/metadata/${itemId}"))
+        values.add(("directPlay", "1"))
+        values.add(("directStream", "1"))
         return requestAt(server.baseUrl, "/video/:/transcode/universal/decision", HttpMethod.Get, headers(token), query: values)
     }
 

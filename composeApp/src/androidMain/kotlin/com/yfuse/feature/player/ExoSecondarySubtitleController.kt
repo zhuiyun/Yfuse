@@ -176,6 +176,7 @@ internal class ExoSecondarySubtitleController(
         playWhenReady: Boolean,
     ): Boolean {
         if (mediaItems.isEmpty()) return false
+        if (!enabled || desiredTrack != identity) cueMerger.setDual(true)
         desiredTrack = identity
         enabled = true
         val safeIndex = currentIndex.coerceIn(0, mediaItems.lastIndex)
@@ -199,6 +200,7 @@ internal class ExoSecondarySubtitleController(
     fun disable() {
         desiredTrack = null
         enabled = false
+        cueMerger.setDual(false)
         player.playWhenReady = false
         player.stop()
         prepared = false
@@ -265,7 +267,7 @@ internal class ExoSecondarySubtitleController(
     fun release() {
         player.removeListener(listener)
         player.release()
-        cueMerger.clearSecondary()
+        cueMerger.setDual(false)
     }
 
     private fun applyDesiredTrack(tracks: Tracks) {

@@ -22,13 +22,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -68,11 +65,14 @@ import com.yfuse.core.designsystem.Poster
 import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.backdropBlur
 import com.yfuse.core.designsystem.liquidGlass
+import com.yfuse.core.designsystem.motionItemsIndexed
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.solidGlass
 import com.yfuse.core.model.Episode
 import com.yfuse.core.network.EmbyImages
+import com.yfuse.core.designsystem.ThemeIcon as Icon
+import com.yfuse.core.designsystem.ThemeText as Text
 
 /** 毛玻璃 for a floating list: diffuse enough that the episode strip under it reads as light and colour, not as rows. */
 private val SeasonPickerBlurRadius = 28.dp
@@ -463,7 +463,7 @@ internal fun EpisodeSection(
                         bottom = 0.dp,
                     ),
             ) {
-                itemsIndexed(
+                motionItemsIndexed(
                     episodes,
                     key = { index, episode -> "ep-${episode.id}-$index" },
                 ) { _, episode ->

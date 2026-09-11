@@ -18,8 +18,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -44,6 +42,7 @@ import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.ConfirmDialog
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.HapticSignal
+import com.yfuse.core.designsystem.InlineLoadingContent
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OrbProgress
@@ -51,9 +50,12 @@ import com.yfuse.core.designsystem.YfButton
 import com.yfuse.core.designsystem.YfButtonTone
 import com.yfuse.core.designsystem.formDivider
 import com.yfuse.core.designsystem.liquidGlass
+import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.touchTarget
 import kotlinx.coroutines.launch
+import com.yfuse.core.designsystem.ThemeIcon as Icon
+import com.yfuse.core.designsystem.ThemeText as Text
 
 @Composable
 internal fun AccountSessionsScreen(
@@ -201,7 +203,7 @@ internal fun AccountSessionsContent(
             ),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        item {
+        motionItem {
             SessionsHeader(
                 count = uniqueSessions.size,
                 loading = loading,
@@ -212,12 +214,12 @@ internal fun AccountSessionsContent(
         }
 
         if (loading && !loadedOnce) {
-            item {
+            motionItem {
                 SessionSurface { LoadingLine("正在读取登录设备…") }
             }
         } else {
             error?.let { message ->
-                item {
+                motionItem {
                     SessionSurface {
                         Text("加载失败", style = AppTypography.body.strong, color = palette.error)
                         Spacer(Modifier.height(5.dp))
@@ -232,8 +234,8 @@ internal fun AccountSessionsContent(
                 }
             }
 
-            item { SessionSectionLabel("当前设备", currentSession?.let { "保持登录" }) }
-            item {
+            motionItem { SessionSectionLabel("当前设备", currentSession?.let { "保持登录" }) }
+            motionItem {
                 if (currentSession == null) {
                     SessionSurface {
                         Text("未找到当前会话", style = AppTypography.body.strong, color = palette.text)
@@ -247,9 +249,9 @@ internal fun AccountSessionsContent(
                 }
             }
 
-            item { SessionSectionLabel("其他设备", "${otherSessions.size} 个") }
+            motionItem { SessionSectionLabel("其他设备", "${otherSessions.size} 个") }
             if (otherSessions.isEmpty()) {
-                item {
+                motionItem {
                     SessionSurface {
                         Text("没有其他登录设备", style = AppTypography.body.medium, color = palette.text)
                         Spacer(Modifier.height(4.dp))
@@ -257,7 +259,7 @@ internal fun AccountSessionsContent(
                     }
                 }
             } else {
-                item {
+                motionItem {
                     SessionSurface {
                         otherSessions.forEachIndexed { index, session ->
                             if (index > 0) SessionDivider()
@@ -272,7 +274,7 @@ internal fun AccountSessionsContent(
                 }
             }
 
-            item {
+            motionItem {
                 BulkSessionActions(
                     hasOtherSessions = otherSessions.isNotEmpty(),
                     busy = bulkBusy,
@@ -302,7 +304,7 @@ private fun AccountSessionsUnavailableContent(
             ),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        item {
+        motionItem {
             SessionsHeader(
                 count = 0,
                 loading = accountState == AccountState.Restoring,
@@ -311,7 +313,7 @@ private fun AccountSessionsUnavailableContent(
                 onRefresh = {},
             )
         }
-        item {
+        motionItem {
             SessionSurface {
                 when (accountState) {
                     AccountState.Restoring -> LoadingLine("正在恢复账号…")
@@ -376,9 +378,7 @@ private fun SessionsHeader(
                     ).size(44.dp),
             contentAlignment = Alignment.Center,
         ) {
-            if (loading) {
-                OrbProgress(size = 18.dp, color = palette.sub2)
-            } else {
+            InlineLoadingContent(loading = loading, slotSize = 20.dp, orbSize = 18.dp, color = palette.sub2) {
                 Icon(
                     imageVector = AppIcons.Refresh,
                     contentDescription = null,

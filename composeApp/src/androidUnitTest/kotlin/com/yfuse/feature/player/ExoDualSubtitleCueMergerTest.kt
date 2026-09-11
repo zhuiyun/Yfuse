@@ -6,70 +6,73 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.text.TextOutput
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 @UnstableApi
 class ExoDualSubtitleCueMergerTest {
-    @Test
-    fun secondary_unpositioned_text_is_merged_above_primary() {
+    @Test fun dual_preserves_channels_and_suppresses_native_duplicate() {
         val merger = ExoDualSubtitleCueMerger()
-        val outputs = mutableListOf<CueGroup>()
-        val primaryOutput = merger.primaryOutput(TextOutput { outputs += it })
-        val secondaryOutput = merger.secondaryOutput()
-
-        primaryOutput.onCues(CueGroup(listOf(Cue.Builder().setText("主字幕").build()), 100L))
-        secondaryOutput.onCues(CueGroup(listOf(Cue.Builder().setText("Secondary").build()), 110L))
-
-        val merged = outputs.last()
-        assertEquals(listOf("主字幕", "Secondary"), merged.cues.map { it.text.toString() })
-        assertEquals(Cue.DIMEN_UNSET, merged.cues[0].line)
-        assertEquals(-3f, merged.cues[1].line)
-        assertEquals(Cue.LINE_TYPE_NUMBER, merged.cues[1].lineType)
-    }
-
-    @Test
-    fun authored_secondary_position_is_preserved() {
-        val merger = ExoDualSubtitleCueMerger()
-        val outputs = mutableListOf<CueGroup>()
-        merger.primaryOutput(TextOutput { outputs += it })
-        val secondaryOutput = merger.secondaryOutput()
+        val output = mutableListOf<CueGroup>()
+        val primary = merger.primaryOutput(TextOutput { output += it })
         val authored =
             Cue
                 .Builder()
-                .setText("定位字幕")
+                .setText("主字幕\n第二行")
                 .setLine(0.2f, Cue.LINE_TYPE_FRACTION)
                 .build()
-
-        secondaryOutput.onCues(CueGroup(listOf(authored), 200L))
-
+        primary.onCues(CueGroup(listOf(authored), 10L))
+        assertEquals(authored, output.last().cues.single())
+        merger.setDual(true)
+        merger.secondaryOutput().onCues(CueGroup(listOf(Cue.Builder().setText("副字幕").build()), 20L))
+        assertTrue(output.last().cues.isEmpty())
         assertEquals(
-            0.2f,
-            outputs
-                .last()
-                .cues
-                .single()
-                .line,
+            authored,
+            merger.channels.value.primary.cues
+                .single(),
         )
         assertEquals(
-            Cue.LINE_TYPE_FRACTION,
-            outputs
-                .last()
-                .cues
+            "副字幕",
+            merger.channels.value.secondary.cues
                 .single()
-                .lineType,
+                .text
+                .toString(),
         )
     }
 
-    @Test
-    fun clearing_secondary_restores_primary_only() {
+    @Test fun clearing_cue_does_not_exit_dual_mode() {
         val merger = ExoDualSubtitleCueMerger()
-        val outputs = mutableListOf<CueGroup>()
-        val primaryOutput = merger.primaryOutput(TextOutput { outputs += it })
-        val secondaryOutput = merger.secondaryOutput()
-        primaryOutput.onCues(CueGroup(listOf(Cue.Builder().setText("主字幕").build()), 10L))
-        secondaryOutput.onCues(CueGroup(listOf(Cue.Builder().setText("副字幕").build()), 10L))
-
+        merger.setDual(true)
+        merger.secondaryOutput().onCues(CueGroup(listOf(Cue.Builder().setText("旧字幕").build()), 10L))
         merger.clearSecondary()
+        assertTrue(merger.channels.value.dual)
+        assertTrue(
+            merger.channels.value.secondary.cues
+                .isEmpty(),
+        )
+    }
 
-        assertEquals(listOf("主字幕"), outputs.last().cues.map { it.text.toString() })
+    @Test fun disabling_restores_primary_and_rejects_late_secondary_callback() {
+        val merger = ExoDualSubtitleCueMerger()
+        val output = mutableListOf<CueGroup>()
+        merger
+            .primaryOutput(
+                TextOutput { output += it },
+            ).onCues(CueGroup(listOf(Cue.Builder().setText("主字幕").build()), 10L))
+        merger.setDual(true)
+        merger.setDual(false)
+        merger.secondaryOutput().onCues(CueGroup(listOf(Cue.Builder().setText("旧副字幕").build()), 10L))
+        assertEquals(
+            "主字幕",
+            output
+                .last()
+                .cues
+                .single()
+                .text
+                .toString(),
+        )
+        assertTrue(
+            merger.channels.value.secondary.cues
+                .isEmpty(),
+        )
     }
 }

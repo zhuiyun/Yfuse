@@ -19,12 +19,9 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -69,6 +66,7 @@ import com.yfuse.core.designsystem.DisclosureContent
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HapticSignal
+import com.yfuse.core.designsystem.InlineLoadingContent
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OrbProgress
@@ -80,12 +78,16 @@ import com.yfuse.core.designsystem.YfButtonTone
 import com.yfuse.core.designsystem.YfFormField
 import com.yfuse.core.designsystem.YfInlineLinkButton
 import com.yfuse.core.designsystem.liquidGlass
+import com.yfuse.core.designsystem.motionItem
+import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberDisclosureProgress
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.util.rememberShareHandler
 import kotlinx.coroutines.launch
+import com.yfuse.core.designsystem.ThemeIcon as Icon
+import com.yfuse.core.designsystem.ThemeText as Text
 
 /** Mirrors the minimum the repository and the account service both enforce. */
 private const val MIN_PASSWORD_LENGTH = 8
@@ -109,10 +111,10 @@ internal fun AccountSettingsScreen(
             ),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        item { AccountHeader(onBack) }
+        motionItem { AccountHeader(onBack) }
         when (val current = state) {
             AccountState.Restoring ->
-                item {
+                motionItem {
                     AccountCard {
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(vertical = 18.dp),
@@ -127,7 +129,7 @@ internal fun AccountSettingsScreen(
                 }
 
             is AccountState.RestoreFailed ->
-                item {
+                motionItem {
                     AccountCard {
                         Text("暂时无法恢复账号", style = AppTypography.body.strong, color = palette.text)
                         Spacer(Modifier.height(6.dp))
@@ -141,17 +143,17 @@ internal fun AccountSettingsScreen(
                 }
 
             AccountState.SignedOut ->
-                item {
+                motionItem {
                     SignedOutAccountCard(account)
                 }
 
             is AccountState.SignedIn ->
-                item {
+                motionItem {
                     SignedInAccountCard(account, current, onOpenSessions)
                 }
         }
 
-        item { EncryptionInfoCard() }
+        motionItem { EncryptionInfoCard() }
     }
 }
 
@@ -487,7 +489,7 @@ private fun SignedInAccountCard(
             AccountActionRow(
                 title = "注册邀请",
                 supporting = "生成一次性邀请码，明文仅显示一次",
-                trailingLabel = if (inviteBusy) null else "生成",
+                trailingLabel = "生成",
                 loading = inviteBusy,
                 enabled = !busy && !state.syncing && !inviteBusy,
                 showChevron = false,
@@ -1125,24 +1127,29 @@ private fun AccountActionRow(
             }
         }
         Spacer(Modifier.width(10.dp))
-        if (loading) {
-            OrbProgress(size = 16.dp, color = if (destructive) palette.error else accent.accent)
-        } else {
-            trailingLabel?.let {
-                Text(
-                    text = it,
-                    style = AppTypography.caption.strong,
-                    color = if (destructive) palette.error else accent.accent,
-                )
-                Spacer(Modifier.width(6.dp))
-            }
-            if (showChevron) {
-                Icon(
-                    imageVector = AppIcons.ChevronRight,
-                    contentDescription = null,
-                    tint = if (destructive) palette.error.copy(alpha = alpha) else palette.sub2.copy(alpha = alpha),
-                    modifier = Modifier.size(17.dp),
-                )
+        InlineLoadingContent(
+            loading = loading,
+            slotSize = 17.dp,
+            orbSize = 16.dp,
+            color = if (destructive) palette.error else accent.accent,
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                trailingLabel?.let {
+                    Text(
+                        text = it,
+                        style = AppTypography.caption.strong,
+                        color = if (destructive) palette.error else accent.accent,
+                    )
+                    Spacer(Modifier.width(6.dp))
+                }
+                if (showChevron) {
+                    Icon(
+                        imageVector = AppIcons.ChevronRight,
+                        contentDescription = null,
+                        tint = if (destructive) palette.error.copy(alpha = alpha) else palette.sub2.copy(alpha = alpha),
+                        modifier = Modifier.size(17.dp),
+                    )
+                }
             }
         }
     }
@@ -1251,7 +1258,7 @@ private fun AvatarPicker(
         modifier = Modifier.selectableGroup(),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        items(WatchTogetherPreferences.AVATAR_COUNT) { id ->
+        motionItems(WatchTogetherPreferences.AVATAR_COUNT) { id ->
             // WatchAvatar carries its own selected ring, so there is no glass layer here.
             WatchAvatar(
                 avatarId = id,

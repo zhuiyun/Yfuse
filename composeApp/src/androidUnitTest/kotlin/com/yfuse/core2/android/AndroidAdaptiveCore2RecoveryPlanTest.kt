@@ -124,5 +124,7 @@ class AndroidAdaptiveCore2RecoveryPlanTest {
         assertTrue(canRetryCore2RouteInPlace(YPlaybackRoute.NativeEnhanced))
         assertFalse(canRetryCore2RouteInPlace(YPlaybackRoute.Legacy))
         assertFalse(canRetryCore2RouteInPlace(YPlaybackRoute.SoftwareFallback))
+        assertTrue(canRetryCore2RouteInPlace(YPlaybackRoute.SoftwareFallback, enhancedChild = true))
+        assertFalse(canRetryCore2RouteInPlace(YPlaybackRoute.Legacy, enhancedChild = true))
     }
 }

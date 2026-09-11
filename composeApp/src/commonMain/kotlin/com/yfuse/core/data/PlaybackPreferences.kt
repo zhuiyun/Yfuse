@@ -94,6 +94,8 @@ data class SeriesPlaybackPreference(
     val audioEnhancement: String = AudioEnhancementMode.Off.name,
     val subtitleOffsetMs: Long = 0L,
     val subtitleScale: Float = 1f,
+    val secondarySubtitleScale: Float = 1f,
+    val secondarySubtitleOffsetMs: Long = 0L,
     val subtitleBrightness: Float = 1f,
     val subtitlePosition: Float = 0.92f,
     val subtitleStylePreset: String = "Standard",
@@ -135,6 +137,7 @@ private data class StoredPlaybackPerformanceRecord(
 class PlaybackPreferences(
     private val settings: Settings,
 ) {
+    val bookmarks by lazy { PlaybackBookmarks(settings) }
     private val seriesLock = Any()
     private val json = Json { ignoreUnknownKeys = true }
     private val _videoCacheSize =
@@ -544,6 +547,8 @@ class PlaybackPreferences(
                 } ?: AudioEnhancementMode.Off.name,
             subtitleOffsetMs = subtitleOffsetMs.coerceIn(-60_000L, 60_000L),
             subtitleScale = subtitleScale.coerceIn(0.6f, 1.8f),
+            secondarySubtitleScale = secondarySubtitleScale.coerceIn(0.6f, 1.8f),
+            secondarySubtitleOffsetMs = secondarySubtitleOffsetMs.coerceIn(-60_000L, 60_000L),
             subtitleBrightness = subtitleBrightness.coerceIn(0.35f, 1f),
             subtitlePosition = subtitlePosition.coerceIn(0.60f, 0.96f),
             subtitleStylePreset =

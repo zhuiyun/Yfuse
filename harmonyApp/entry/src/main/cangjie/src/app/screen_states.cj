@@ -71,8 +71,8 @@ public class SearchViewState {
         phase = if (result.isEmpty()) { LoadPhase.Empty } else { LoadPhase.Content }
         if (!value.isEmpty()) {
             let next = ArrayList<String>()
-            next.append(value)
-            for (entry in history) { if (entry != value && next.size < 10) { next.append(entry) } }
+            next.add(value)
+            for (entry in history) { if (entry != value && next.size < 10) { next.add(entry) } }
             history = next
         }
         return true

@@ -60,6 +60,13 @@ interface YPlayer {
 
     fun selectItem(index: Int)
 
+    /** UI-resolved credits boundary; null uses natural duration. This never initiates a skip. */
+    fun setNextItemPreparation(
+        itemId: String,
+        transitionPositionMs: Long?,
+        enabled: Boolean,
+    ) = Unit
+
     fun selectDiscTitle(index: Int): Boolean = false
 
     fun selectDiscChapter(index: Int): Boolean = false
@@ -143,6 +150,8 @@ data class YMediaItem(
     val transportCredentials: YTransportCredentials? = null,
     /** Opaque playback-session identity for correlating timings; never an access token. */
     val playbackSessionId: String? = null,
+    /** False for server transcodes/live/adaptive sessions that must not be opened speculatively. */
+    val allowNextItemPreparation: Boolean = true,
 ) {
     init {
         require(cacheMaximumBytes >= 0L)

@@ -312,7 +312,15 @@ fun LazyItemScope.motionAwareItem(): Modifier =
     if (LocalAccessibilityOptions.current.reduceMotion) {
         Modifier.animateItem(fadeInSpec = null, placementSpec = null, fadeOutSpec = null)
     } else {
-        Modifier.animateItem()
+        Modifier.animateItem(
+            fadeInSpec =
+                androidx.compose.animation.core
+                    .tween(Motion.QUICK),
+            placementSpec = Motion.settle(),
+            fadeOutSpec =
+                androidx.compose.animation.core
+                    .tween(Motion.STANDARD),
+        )
     }
 
 /** [motionAwareItem], for grids. */
@@ -321,5 +329,13 @@ fun LazyGridItemScope.motionAwareItem(): Modifier =
     if (LocalAccessibilityOptions.current.reduceMotion) {
         Modifier.animateItem(fadeInSpec = null, placementSpec = null, fadeOutSpec = null)
     } else {
-        Modifier.animateItem()
+        Modifier.animateItem(
+            fadeInSpec =
+                androidx.compose.animation.core
+                    .tween(Motion.QUICK),
+            placementSpec = Motion.settle(),
+            fadeOutSpec =
+                androidx.compose.animation.core
+                    .tween(Motion.STANDARD),
+        )
     }

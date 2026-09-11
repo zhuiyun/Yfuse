@@ -5,6 +5,7 @@ import android.annotation.SuppressLint
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.PictureInPictureParams
+import android.app.PictureInPictureUiState
 import android.app.RemoteAction
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -27,6 +28,7 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
+import androidx.annotation.RequiresApi
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.core.content.ContextCompat
@@ -184,6 +186,8 @@ class PlayerActivity : ComponentActivity() {
     private var playerLaunchGeneration = 0L
     private var playbackGate: WatchGatedPlayback? = null
     private var activeState = PlaybackState()
+    private var artworkMorph: PlayerArtworkMorphState? = null
+    private var artworkClosing = false
     private lateinit var audioManager: AudioManager
     private lateinit var audioFocusController: PlayerAudioFocusController
     private var remoteCastManager: CastManager? = null
@@ -356,6 +360,12 @@ class PlayerActivity : ComponentActivity() {
         // this Activity and never writes ACCELEROMETER_ROTATION or USER_ROTATION, so leaving the
         // player restores the user's unchanged system rotation preference.
         super.onCreate(savedInstanceState)
+        artworkMorph =
+            com.yfuse.core.designsystem.PlayerArtworkOrigins
+                .consume(
+                    intent.getLongExtra(PLAYER_ARTWORK_TOKEN, -1L),
+                )?.let(::PlayerArtworkMorphState)
+        configurePlayerWindowMotion(sharedArtwork = artworkMorph != null)
         waitingForSessions = ServerSessionRecovery.showIfNeeded(this)
         if (waitingForSessions) return
         // A tablet is held whichever way its owner likes; forcing landscape on it only forces a
@@ -479,8 +489,11 @@ class PlayerActivity : ComponentActivity() {
                 PlayerPreparationContent(
                     state = state,
                     onRetry = { pending.store.accept(PlayerIntent.Retry) },
-                    onBack = ::finish,
+                    onBack = {
+                        if (artworkMorph?.requestExit { finish() } != true) finish()
+                    },
                 )
+                PlayerArtworkMorph(artworkMorph, ready = state.error != null, inPictureInPicture = false)
             }
         }
         lifecycleScope.launch {
@@ -719,6 +732,7 @@ class PlayerActivity : ComponentActivity() {
                 accessibility = AccessibilityOptions(reduceMotion = reduceMotion),
             ) {
                 PlayerRoot(
+                    artworkMorph = artworkMorph,
                     items = liveItems,
                     startIndex = initialStartIndex,
                     startPositionMs = initialStartPositionMs,
@@ -912,20 +926,21 @@ class PlayerActivity : ComponentActivity() {
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        if (
-            Build.VERSION.SDK_INT < Build.VERSION_CODES.S &&
-            activeState.playing &&
-            !isFinishing &&
-            !stopRequested
-        ) {
-            enterPictureInPictureMode(
-                PictureInPictureParams
-                    .Builder()
-                    .setAspectRatio(activePictureInPictureAspectRatio())
-                    .setActions(pictureInPictureActions())
-                    .apply { videoBounds?.let(::setSourceRectHint) }
-                    .build(),
-            )
+        if (activeState.playing && !isFinishing && !stopRequested) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                // Auto-enter is already configured; remove controls before Android captures the transition.
+                pictureInPicture.value = true
+            } else {
+                enterPlayerPictureInPicture()
+            }
+        }
+    }
+
+    @RequiresApi(Build.VERSION_CODES.S)
+    override fun onPictureInPictureUiStateChanged(pipState: PictureInPictureUiState) {
+        super.onPictureInPictureUiStateChanged(pipState)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM && pipState.isTransitioningToPip) {
+            pictureInPicture.value = true
         }
     }
 
@@ -942,7 +957,10 @@ class PlayerActivity : ComponentActivity() {
         super.onWindowFocusChanged(hasFocus)
         // Only an expanded player regains a focused full-size window. Closing
         // PiP never does, so keep the marker for onStop to release playback.
-        if (hasFocus && !isInPictureInPictureMode) pipWasVisible = false
+        if (hasFocus && !isInPictureInPictureMode) {
+            pipWasVisible = false
+            pictureInPicture.value = false
+        }
     }
 
     override fun onStop() {
@@ -1016,32 +1034,65 @@ class PlayerActivity : ComponentActivity() {
         }
     }
 
+    override fun finish() {
+        // Apply the close policy before finish on API 34+, then support the legacy API afterward.
+        if (android.os.Build.VERSION.SDK_INT >=
+            34
+        ) {
+            finishPlayerWindowMotion(pipWasVisible, sharedArtwork = artworkClosing)
+        }
+        super.finish()
+        if (android.os.Build.VERSION.SDK_INT <
+            34
+        ) {
+            finishPlayerWindowMotion(pipWasVisible, sharedArtwork = artworkClosing)
+        }
+    }
+
     private fun closePlayerAndReturn() {
         if (stopRequested) return
-        // Mark the activity as closing before finishing it. Otherwise onUserLeaveHint can
-        // race this path and turn a deliberate close into PiP. MainActivity stays directly
-        // underneath this activity in the same task, so finish() restores it without a relaunch.
         stopRequested = true
-        activePlayer?.release()
-        activePlayer = null
-        activeQueueAppender = null
-        activeQueueUpdater = null
-        abandonAudioFocus()
-        ActivePlayback.clear()
-        stopPlaybackKeepAliveService()
-        finish()
+        activePlayer?.pause()
+        val finishPlayback = {
+            activePlayer?.release()
+            activePlayer = null
+            activeQueueAppender = null
+            activeQueueUpdater = null
+            abandonAudioFocus()
+            ActivePlayback.clear()
+            stopPlaybackKeepAliveService()
+            finish()
+        }
+        if (isInPictureInPictureMode ||
+            artworkMorph?.requestExit {
+                artworkClosing = true
+                finishPlayback()
+            } != true
+        ) {
+            finishPlayback()
+        }
     }
 
     private fun enterPlayerPictureInPicture() {
         if (isFinishing || stopRequested || isInPictureInPictureMode) return
-        enterPictureInPictureMode(
-            PictureInPictureParams
-                .Builder()
-                .setAspectRatio(activePictureInPictureAspectRatio())
-                .setActions(pictureInPictureActions())
-                .apply { videoBounds?.let(::setSourceRectHint) }
-                .build(),
-        )
+        val previousVisibility = pictureInPicture.value
+        pictureInPicture.value = true
+        var entered = false
+        try {
+            entered =
+                enterPictureInPictureMode(
+                    PictureInPictureParams
+                        .Builder()
+                        .setAspectRatio(activePictureInPictureAspectRatio())
+                        .setActions(pictureInPictureActions())
+                        .apply {
+                            videoBounds?.let(::setSourceRectHint)
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) setSeamlessResizeEnabled(true)
+                        }.build(),
+                )
+        } finally {
+            if (!entered) pictureInPicture.value = previousVisibility
+        }
     }
 
     private fun stopPlaybackAndFinish() {
@@ -1448,6 +1499,7 @@ class PlayerActivity : ComponentActivity() {
                     videoBounds?.let(::setSourceRectHint)
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                         setAutoEnterEnabled(activeState.playing)
+                        setSeamlessResizeEnabled(true)
                     }
                 }.build()
         setPictureInPictureParams(params)

@@ -61,9 +61,16 @@ data class OfflineDownloadPolicy(
     val autoDownloadItemLimit: Int = DEFAULT_AUTO_DOWNLOAD_ITEM_LIMIT,
     val storageTreeUri: String? = null,
     val storageLabel: String? = null,
+    val storageBudgetBytes: Long = 0L,
+    val autoDownloadChargingOnly: Boolean = false,
+    val windowStartMinute: Int = 0,
+    val windowEndMinute: Int = 0,
 ) {
     fun normalized(): OfflineDownloadPolicy =
         copy(
+            storageBudgetBytes = storageBudgetBytes.coerceAtLeast(0L),
+            windowStartMinute = windowStartMinute.coerceIn(0, 1439),
+            windowEndMinute = windowEndMinute.coerceIn(0, 1439),
             maxConcurrentDownloads = maxConcurrentDownloads.coerceIn(1, MAX_CONCURRENT_OFFLINE_DOWNLOADS),
             autoDownloadItemLimit = autoDownloadItemLimit.coerceIn(1, MAX_AUTO_DOWNLOAD_ITEM_LIMIT),
             storageTreeUri = storageTreeUri?.trim()?.takeIf(String::isNotEmpty),
@@ -656,6 +663,13 @@ interface OfflineMediaManager {
     fun setWifiOnly(value: Boolean)
 
     fun setMaxConcurrentDownloads(value: Int)
+
+    fun setDownloadBudget(
+        bytes: Long,
+        chargingOnly: Boolean,
+        startMinute: Int,
+        endMinute: Int,
+    )
 
     fun setAutoDeleteWatched(value: Boolean)
 

@@ -28,10 +28,12 @@ internal class AndroidCodecConfigurationProbe {
         mimeType: String,
         requirement: YVideoRequirement,
         item: YMediaItem? = null,
+        budget: AndroidProbeBudget? = null,
     ): YCodecConfigurationProbeResult =
         yCoreStartupStage("codec_configuration_probe", item, decoderName) {
             AndroidCodecProbeLane.bounded.run(
                 timeoutMs = 2_000L,
+                budget = budget,
                 skipped = { YCodecConfigurationProbeResult.Inconclusive },
             ) { expired ->
                 if (expired.get()) {

@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -28,10 +27,12 @@ import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
+import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.pressable
 import kotlinx.coroutines.delay
+import com.yfuse.core.designsystem.ThemeText as Text
 
 /** Keeps artwork on screen until a replacement engine has produced a verified video frame. */
 @Composable
@@ -155,6 +156,6 @@ internal fun PlaybackStatusChip(
 }
 
 private const val CONTINUITY_STATUS_DELAY_MS = 550L
-private const val CONTINUITY_ENTER_MS = 140
-private const val CONTINUITY_EXIT_MS = 320
-private const val OLED_FADE_MS = 450
+private const val CONTINUITY_ENTER_MS = Motion.CONTINUITY_ENTER
+private const val CONTINUITY_EXIT_MS = Motion.CONTINUITY_EXIT
+private const val OLED_FADE_MS = Motion.OLED_PROTECTION

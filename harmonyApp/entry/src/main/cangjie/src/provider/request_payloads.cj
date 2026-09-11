@@ -1,6 +1,6 @@
 package com.yfuse.harmony.entry.provider
 
-import encoding.json.*
+import stdx.encoding.json.*
 
 public func embyAuthenticationPayload(userName: String, password: String): String {
     let value = JsonObject()

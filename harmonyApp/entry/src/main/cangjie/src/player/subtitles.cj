@@ -49,8 +49,8 @@ public class DualSubtitleState {
         let first = ArrayList<SubtitleCue>()
         let second = ArrayList<SubtitleCue>()
         let adjusted = positionMs + offsetMs
-        for (cue in primary) { if (cue.startMs <= adjusted && cue.endMs > adjusted) { first.append(cue) } }
-        for (cue in secondary) { if (cue.startMs <= adjusted && cue.endMs > adjusted) { second.append(cue) } }
+        for (cue in primary) { if (cue.startMs <= adjusted && cue.endMs > adjusted) { first.add(cue) } }
+        for (cue in secondary) { if (cue.startMs <= adjusted && cue.endMs > adjusted) { second.add(cue) } }
         return (first, second)
     }
 

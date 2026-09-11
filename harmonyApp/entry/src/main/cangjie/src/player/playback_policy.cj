@@ -1,18 +1,18 @@
 package com.yfuse.harmony.entry.player
 
-public const CAP_REMOTE_URL: UInt64 = UInt64(1) << 0
-public const CAP_REQUEST_HEADERS: UInt64 = UInt64(1) << 1
-public const CAP_HARDWARE_VIDEO: UInt64 = UInt64(1) << 2
-public const CAP_CUSTOM_DEMUX: UInt64 = UInt64(1) << 3
-public const CAP_EXTERNAL_SUBTITLE: UInt64 = UInt64(1) << 4
-public const CAP_BITMAP_SUBTITLE: UInt64 = UInt64(1) << 5
-public const CAP_HDR_OUTPUT: UInt64 = UInt64(1) << 6
-public const CAP_DOLBY_VISION_OUTPUT: UInt64 = UInt64(1) << 7
-public const CAP_ENCODED_AUDIO_OUTPUT: UInt64 = UInt64(1) << 8
-public const CAP_OPTICAL_DISC: UInt64 = UInt64(1) << 9
-public const CAP_DISC_MENU: UInt64 = UInt64(1) << 10
-public const CAP_DRM: UInt64 = UInt64(1) << 11
-public const CAP_NATIVE_WINDOW: UInt64 = UInt64(1) << 12
+public const CAP_REMOTE_URL: UInt64 = 1u64 << 0
+public const CAP_REQUEST_HEADERS: UInt64 = 1u64 << 1
+public const CAP_HARDWARE_VIDEO: UInt64 = 1u64 << 2
+public const CAP_CUSTOM_DEMUX: UInt64 = 1u64 << 3
+public const CAP_EXTERNAL_SUBTITLE: UInt64 = 1u64 << 4
+public const CAP_BITMAP_SUBTITLE: UInt64 = 1u64 << 5
+public const CAP_HDR_OUTPUT: UInt64 = 1u64 << 6
+public const CAP_DOLBY_VISION_OUTPUT: UInt64 = 1u64 << 7
+public const CAP_ENCODED_AUDIO_OUTPUT: UInt64 = 1u64 << 8
+public const CAP_OPTICAL_DISC: UInt64 = 1u64 << 9
+public const CAP_DISC_MENU: UInt64 = 1u64 << 10
+public const CAP_DRM: UInt64 = 1u64 << 11
+public const CAP_NATIVE_WINDOW: UInt64 = 1u64 << 12
 
 public class PlaybackRequirements {
     public var remote: Bool = true

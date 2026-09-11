@@ -58,6 +58,7 @@ data class PlaybackOutboxEvent(
 private data class PersistedPlaybackOutbox(
     val nextOrder: Long = 1L,
     val events: List<PlaybackOutboxEvent> = emptyList(),
+    val droppedTerminalEvents: Long = 0L,
 )
 
 data class PlaybackOutboxFlushResult(
@@ -130,6 +131,24 @@ class PlaybackEventOutbox(
     private var persisted = load()
     private val _events = MutableStateFlow(persisted.events.sortedBy(PlaybackOutboxEvent::order))
     val events: StateFlow<List<PlaybackOutboxEvent>> = _events.asStateFlow()
+    private val _droppedTerminalEvents = MutableStateFlow(persisted.droppedTerminalEvents)
+    val droppedTerminalEvents: StateFlow<Long> = _droppedTerminalEvents.asStateFlow()
+
+    /** Acknowledge only the loss the user saw, preserving a concurrently arriving warning. */
+    fun acknowledgeDroppedReports(observedCount: Long) =
+        synchronized(stateLock) {
+            persisted =
+                persisted.copy(
+                    droppedTerminalEvents =
+                        (
+                            persisted.droppedTerminalEvents -
+                                observedCount.coerceAtLeast(
+                                    0L,
+                                )
+                        ).coerceAtLeast(0L),
+                )
+            persistLocked()
+        }
 
     init {
         require(maxEvents > 0) { "maxEvents must be positive" }
@@ -194,10 +213,14 @@ class PlaybackEventOutbox(
                 current.removeAll { sameSession(it) && it.kind == PlaybackOutboxEventKind.Progress }
             }
             val bounded = bound(current)
+            val lost =
+                current.count { it.kind == PlaybackOutboxEventKind.Stopped } -
+                    bounded.count { it.kind == PlaybackOutboxEventKind.Stopped }
             persisted =
                 PersistedPlaybackOutbox(
                     nextOrder = if (existing == null) persisted.nextOrder + 1L else persisted.nextOrder,
                     events = bounded,
+                    droppedTerminalEvents = safeAdd(persisted.droppedTerminalEvents, lost.toLong()),
                 )
             persistLocked()
             event.takeIf { candidate -> bounded.any { it.order == candidate.order } }
@@ -370,6 +393,7 @@ class PlaybackEventOutbox(
 
     private fun persistLocked() {
         _events.value = persisted.events.sortedBy(PlaybackOutboxEvent::order)
+        _droppedTerminalEvents.value = persisted.droppedTerminalEvents
         runCatching {
             settings.putString(PLAYBACK_OUTBOX_KEY, json.encodeToString(persisted))
         }.onFailure {

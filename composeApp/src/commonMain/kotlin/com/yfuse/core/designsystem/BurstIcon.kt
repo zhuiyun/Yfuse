@@ -8,7 +8,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -24,12 +23,13 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
+import com.yfuse.core.designsystem.ThemeIcon as Icon
 
 /** How long the ring takes to leave the icon behind. */
-private const val BURST_MS = 420
+private const val BURST_MS = Motion.BURST
 
 /** Turning something off is an undo, not an event: it settles rather than celebrates. */
-private const val RELEASE_MS = 200
+private const val RELEASE_MS = Motion.BURST_RELEASE
 
 /**
  * An icon that answers being switched on.

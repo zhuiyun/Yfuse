@@ -20,6 +20,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
@@ -29,6 +30,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
@@ -45,7 +47,8 @@ internal class AndroidNativeTunnelYPlayer(
     private val initialDecision: YCore2RouteDecision? = null,
     private val allowAudioPassthrough: Boolean = true,
     private val frameRateSwitchMode: YFrameRateSwitchMode = YFrameRateSwitchMode.SeamlessOnly,
-) : YPlayer {
+) : YPlayer,
+    AndroidSerializedPlayerRelease {
     private val mutableState =
         MutableStateFlow(
             YPlayerState(
@@ -182,6 +185,22 @@ internal class AndroidNativeTunnelYPlayer(
     override fun setAudioDelayMs(delayMs: Long): Boolean = !released && delayMs == 0L
 
     override fun retry() = send(Command.Prepare)
+
+    override val releaseCompleted: Boolean get() = worker.isCompleted
+
+    override suspend fun releaseAndJoin() {
+        release()
+        check(
+            withContext(NonCancellable) {
+                withTimeoutOrNull(5_000L) {
+                    worker.join()
+                    true
+                }
+            } == true,
+        ) {
+            "Previous tunneled decoder did not finish releasing; replacement was not started"
+        }
+    }
 
     override fun release() {
         if (released) return

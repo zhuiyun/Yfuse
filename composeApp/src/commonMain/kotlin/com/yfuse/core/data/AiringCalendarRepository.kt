@@ -18,6 +18,7 @@ import com.yfuse.core.util.currentEpochMillis
 import com.yfuse.core.util.currentIsoDate
 import com.yfuse.core.util.scheduledEpochMillis
 import com.yfuse.core.util.shiftIsoDate
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.Channel
@@ -28,6 +29,16 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeoutOrNull
+
+/** Local cache failures may degrade gracefully; a cancelled load must stop immediately. */
+private inline fun <T> calendarAttempt(block: () -> T): Result<T> =
+    try {
+        Result.success(block())
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (error: Throwable) {
+        Result.failure(error)
+    }
 
 /**
  * 追剧日历 — what is broadcasting, and what this library can do about it.
@@ -308,7 +319,7 @@ class AiringCalendarRepository(
                     calendarRuntimeSnapshot = CalendarRuntimeSnapshot(key, currentEpochMillis(), days)
                 }
             if (result.isFailure) {
-                runCatching {
+                calendarAttempt {
                     localStore.recordSyncFailure(
                         scope = key,
                         attemptedAtEpochMs = currentEpochMillis(),
@@ -332,7 +343,7 @@ class AiringCalendarRepository(
         val from = shiftIsoDate(today, -pastDays)
         val to = shiftIsoDate(today, futureDays)
         val localDays =
-            runCatching { localStore.readCalendar(from, to, cacheScope) }
+            calendarAttempt { localStore.readCalendar(from, to, cacheScope) }
                 .getOrNull()
                 ?.let { restoreLocalDays(it, today) }
                 // A detail page writes its series' library-dated rows into the same table.
@@ -487,7 +498,7 @@ class AiringCalendarRepository(
      * runs only for series that are actually visible in the current calendar.
      */
     suspend fun enrichResourceDetails(days: List<CalendarDay>): Result<List<CalendarDay>> =
-        runCatching {
+        calendarAttempt {
             pruneResourceDetailsCache()
             val targetSeasons =
                 days
@@ -624,7 +635,7 @@ class AiringCalendarRepository(
                 registry.data.value.servers
                     .joinToString(",") { it.id }
         val localSnapshot =
-            runCatching { localStore.readCalendar(localFrom, localTo, cacheScope) }.getOrNull()
+            calendarAttempt { localStore.readCalendar(localFrom, localTo, cacheScope) }.getOrNull()
         val localDays =
             localSnapshot
                 ?.let { restoreLocalDays(it, today) }
@@ -732,7 +743,7 @@ class AiringCalendarRepository(
             persistTo != null &&
             persistScope != null
         ) {
-            runCatching {
+            calendarAttempt {
                 localStore.replaceCalendarWindow(
                     fromDate = persistFrom,
                     toDate = persistTo,
@@ -809,18 +820,42 @@ class AiringCalendarRepository(
             val pending = episodes.map { CalendarEntry(it, LibraryStatus.Unknown, availabilityStale = true) }
             servers.forEach { server ->
                 launch {
-                    val hint = libraryHint?.takeIf { it.server.id == server.id }
+                    try {
+                        val hint = libraryHint?.takeIf { it.server.id == server.id }
 
-                    suspend fun lookup() = resolveServerStatus(episodes, today, server, hint, forceRefresh)
-                    // Include queue time in the deadline. A known detail-page identity does
-                    // not have to wait for the background calendar's full-library scans.
-                    val result =
-                        withTimeoutOrNull(SERIES_LOOKUP_TIMEOUT_MS) {
-                            if (hint != null) lookup() else libraryServerRequests.withPermit { lookup() }
-                        } ?: episodes.map {
-                            CalendarEntry(it, LibraryStatus.Unknown, dataIssue = CalendarDataIssue.LibraryLookupFailed)
-                        }
-                    completed.send(result)
+                        suspend fun lookup() = resolveServerStatus(episodes, today, server, hint, forceRefresh)
+                        // Include queue time in the deadline. A known detail-page identity does
+                        // not have to wait for the background calendar's full-library scans.
+                        val result =
+                            withTimeoutOrNull(SERIES_LOOKUP_TIMEOUT_MS) {
+                                if (hint != null) lookup() else libraryServerRequests.withPermit { lookup() }
+                            } ?: run {
+                                AppLog.warning(
+                                    category = "feature.calendar",
+                                    event = "library_lookup_timed_out",
+                                    message = "Calendar library lookup exceeded its time budget",
+                                    attributes =
+                                        mapOf(
+                                            "serverId" to server.id,
+                                            "timeoutMs" to SERIES_LOOKUP_TIMEOUT_MS.toString(),
+                                        ),
+                                )
+                                episodes.map {
+                                    CalendarEntry(
+                                        it,
+                                        LibraryStatus.Unknown,
+                                        dataIssue = CalendarDataIssue.LibraryLookupFailed,
+                                    )
+                                }
+                            }
+                        completed.send(result)
+                    } catch (cancelled: CancellationException) {
+                        // A child cancelled by a dependency does not cancel coroutineScope.
+                        // Wake the result collector so it can propagate the cancellation
+                        // instead of waiting forever for this worker's missing result.
+                        completed.cancel(cancelled)
+                        throw cancelled
+                    }
                 }
             }
             val received = mutableListOf<List<CalendarEntry>>()
@@ -934,7 +969,7 @@ class AiringCalendarRepository(
         val titleIndex = catalog.groupBy { normalizeIdentityTitle(it.title) }
         val catalogItemIds = catalog.map(LibrarySeriesIdentity::itemId).toSet()
         val persistedBindings =
-            runCatching {
+            calendarAttempt {
                 localStore.readBindings(
                     serverId = server.id,
                     tmdbIds = episodes.map(AiringEpisode::showTmdbId).toSet(),
@@ -994,7 +1029,7 @@ class AiringCalendarRepository(
                 .filterNot(AiringEpisode::isMovie)
                 .distinctBy(AiringEpisode::showTmdbId)
                 .associate { it.showTmdbId to seriesIdFor(it) }
-        runCatching {
+        calendarAttempt {
             localStore.upsertBindings(
                 seriesIdsByTmdbId.mapNotNull { (tmdbId, seriesItemId) ->
                     seriesItemId?.let {

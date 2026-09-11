@@ -8,8 +8,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -27,6 +25,7 @@ import com.yfuse.core.designsystem.OverlayButtonRow
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.OverlayOptionRow
 import com.yfuse.core.designsystem.OverlayOptionSpacing
+import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.model.Episode
 import com.yfuse.core.model.MediaContainer
 import com.yfuse.core.model.MediaContainerKind
@@ -37,6 +36,7 @@ import com.yfuse.core.offline.OfflineDownloadSelection
 import com.yfuse.core.offline.estimateOfflineDownloadBytes
 import com.yfuse.core.util.daysBetweenIso
 import com.yfuse.feature.profile.formatDownloadBytes
+import com.yfuse.core.designsystem.ThemeText as Text
 
 internal fun reminderModeLabel(
     mode: CalendarReminderMode,
@@ -218,7 +218,7 @@ private fun <T> OfflineChoiceRow(
     onSelect: (T) -> Unit,
 ) {
     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        items(values) { value ->
+        motionItems(values) { value ->
             OverlayOptionRow(
                 label = label(value),
                 selected = value == selected,
@@ -294,7 +294,7 @@ internal fun OrganizationContainerDialog(
                             .weight(1f, fill = false),
                     verticalArrangement = Arrangement.spacedBy(OverlayOptionSpacing),
                 ) {
-                    items(
+                    motionItems(
                         items = containers,
                         key = { "${it.serverId}-${it.kind}-${it.id}" },
                     ) { container ->

@@ -12,20 +12,20 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -36,6 +36,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalAccessibilityManager
@@ -63,9 +64,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlin.math.abs
 import kotlin.time.TimeSource
+import com.yfuse.core.designsystem.ThemeText as Text
 
 /** Controls fade out after this long without interaction, while playing. */
-private const val RESUME_NOTICE_MS = 6_000L
 private const val MAX_ERROR_ALTERNATIVES = 3
 private const val DOUBLE_TAP_SEEK_MS = 10_000L
 private const val DOUBLE_TAP_BURST_WINDOW_MS = 900L
@@ -121,11 +122,11 @@ private const val HOLD_SEEK_RAMP_MS = 3_000L
  * top bar, a centred transport cluster, a gradient bottom bar with the scrubber and
  * chip row, plus the lock screen, settings panel and episode drawer.
  *
- * Everything shown comes from [state], so ExoPlayer and libmpv get the same controls.
+ * Everything shown comes from [playback], so ExoPlayer and libmpv get the same controls.
  */
 @Composable
 internal fun PlayerControls(
-    state: PlaybackState,
+    playback: State<PlaybackState>,
     // The queue, as the strip and the title bar both read it.
     episodes: List<EpisodeCard>,
     filled: Boolean,
@@ -149,6 +150,8 @@ internal fun PlayerControls(
     onSelectSubtitle: (String) -> Unit,
     subtitleControls: SubtitleControlState = SubtitleControlState(),
     subtitleActions: SubtitleControlActions = SubtitleControlActions(),
+    bookmarks: PlaybackBookmarkPanelState = PlaybackBookmarkPanelState(),
+    bookmarkActions: PlaybackBookmarkActions = PlaybackBookmarkActions(),
     remoteSubtitles: RemoteSubtitlePanelState = RemoteSubtitlePanelState(),
     remoteSubtitleActions: RemoteSubtitleActions = RemoteSubtitleActions(),
     onSpeed: (Float) -> Unit,
@@ -187,6 +190,7 @@ internal fun PlayerControls(
     castError: String? = null,
     castStatus: String? = null,
     castPosition: String? = null,
+    castPositionSource: (() -> String?)? = null,
     castCapabilities: String? = null,
     onDiscoverCast: () -> Unit = {},
     onCastTo: (String) -> Unit = {},
@@ -216,9 +220,22 @@ internal fun PlayerControls(
     ambientLight: State<AmbientLight>? = null,
     ambientLightEnabled: Boolean = true,
     onToggleAmbientLight: () -> Unit = {},
+    onAmbientChromeVisibleChange: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    val state by rememberPlayerControlSnapshot(playback)
     var visible by remember { mutableStateOf(true) }
+    var ambientChromeCount by remember { mutableIntStateOf(0) }
+    val latestAmbientVisibility by rememberUpdatedState(onAmbientChromeVisibleChange)
+    val ambientPresenceChanged =
+        remember {
+            { present: Boolean -> ambientChromeCount += if (present) 1 else -1 }
+        }
+    val ambientChromeVisible = ambientChromeCount > 0
+    SideEffect { latestAmbientVisibility(ambientChromeVisible) }
+    DisposableEffect(Unit) {
+        onDispose { latestAmbientVisibility(false) }
+    }
     val hintProgress = rememberPlayerHintProgress(visible)
     var locked by remember { mutableStateOf(false) }
     var settingsPanelKind by remember { mutableStateOf<SettingsPanelKind?>(null) }
@@ -239,6 +256,8 @@ internal fun PlayerControls(
     // -1 while a held press is rewinding, +1 while it is fast-forwarding, 0 when no press
     // is held. [holdSeekTarget] is the newest position proposed to the playback coordinator.
     var holdSeekDirection by remember { mutableIntStateOf(0) }
+    var seekPulseRevision by remember(state.currentIndex) { mutableIntStateOf(0) }
+    var seekPulsePosition by remember { mutableStateOf(Offset.Zero) }
     var seekBurstDirection by remember { mutableIntStateOf(0) }
     var seekBurstMs by remember { mutableLongStateOf(0L) }
     var seekBurstMark by remember { mutableStateOf<TimeSource.Monotonic.ValueTimeMark?>(null) }
@@ -251,7 +270,7 @@ internal fun PlayerControls(
     val accessibilityManager = LocalAccessibilityManager.current
     // Bumped by every interaction so the auto-hide timer restarts.
     var interactions by remember { mutableIntStateOf(0) }
-    val latestPosition by rememberUpdatedState(state.positionMs)
+    val latestPosition by remember(playback) { derivedStateOf { playback.value.positionMs } }
     val latestDuration by rememberUpdatedState(state.durationMs)
     val latestVolume by rememberUpdatedState(volume)
     val latestBrightness by rememberUpdatedState(brightness)
@@ -266,21 +285,6 @@ internal fun PlayerControls(
     val watchLocked = watch.locked
     val latestWatchLocked by rememberUpdatedState(watchLocked)
     val remoteChromeState = remoteChrome?.state?.collectAsState()?.value
-    val timelineState =
-        remoteChromeState
-            ?.seekTargetMs
-            ?.takeIf { remoteChromeState.seeking }
-            ?.let { target ->
-                val position =
-                    if (state.durationMs > 0L) {
-                        target.coerceIn(0L, state.durationMs)
-                    } else {
-                        target.coerceAtLeast(0L)
-                    }
-                state.copy(positionMs = position)
-            }
-            ?: state
-
     LaunchedEffect(remoteChromeState?.seekTargetMs, remoteChromeState?.seeking) {
         val target = remoteChromeState?.seekTargetMs ?: return@LaunchedEffect
         if (remoteChromeState.seeking) {
@@ -407,6 +411,27 @@ internal fun PlayerControls(
             visible -> visible = false
         }
     }
+
+    val resumeNotice =
+        rememberResumeNotice(
+            resumedFromMs = resumedFromMs,
+            itemIndex = state.currentIndex,
+            ready = state.playing && !state.buffering && state.error == null,
+            controlsVisible = visible,
+            interrupted =
+                interactions > 0 ||
+                    locked ||
+                    watchLocked ||
+                    settingsPanelKind != null ||
+                    quickPopup != null ||
+                    drawerOpen ||
+                    watchChatOpen ||
+                    danmakuSearchOpen ||
+                    danmakuSendOpen ||
+                    gestureHelpOpen ||
+                    watchDialogOpen ||
+                    state.error != null,
+        )
 
     val remotePanel =
         when {
@@ -680,6 +705,8 @@ internal fun PlayerControls(
                                             } == true
                                     seekBurstMs =
                                         if (continuing) seekBurstMs + DOUBLE_TAP_SEEK_MS else DOUBLE_TAP_SEEK_MS
+                                    seekPulsePosition = offset
+                                    seekPulseRevision++
                                     seekBurstDirection = direction
                                     seekBurstMark = TimeSource.Monotonic.markNow()
                                     latestOnSeek(
@@ -810,616 +837,645 @@ internal fun PlayerControls(
             return@Box
         }
 
-        if (locked) {
+        ChromeVisibility(visible = locked, modifier = Modifier.fillMaxSize()) {
             LockedOverlay(onUnlock = {
-                locked = false
-                poke()
+                if (locked) {
+                    locked = false
+                    poke()
+                }
             })
-            return@Box
         }
-
-        // Opened from a tile, a notification or a cast hand-back, the film is already running
-        // from where it was left. This is the moment to change one's mind about that.
-        var resumeNoticeDismissed by remember(resumedFromMs) { mutableStateOf(false) }
-        val resumeNoticeVisible = resumedFromMs != null && resumedFromMs > 0L && !resumeNoticeDismissed
-        LaunchedEffect(resumedFromMs) {
-            if (resumedFromMs != null && resumedFromMs > 0L) {
-                delay(RESUME_NOTICE_MS)
-                resumeNoticeDismissed = true
-            }
-        }
-        if (resumeNoticeVisible) {
-            Row(
-                Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 104.dp)
-                    .glass(
-                        shape = AppShapes.pill,
-                        fill = Color.Black.copy(alpha = 0.55f),
-                        border = Color.White.copy(alpha = 0.22f),
-                    ).padding(start = 16.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                Text(
-                    "从 ${resumedFromMs.asClock()} 继续",
-                    style = AppTypography.caption.medium,
-                    color = Color.White.copy(alpha = 0.86f),
+        ChromeVisibility(visible = !locked, modifier = Modifier.fillMaxSize()) {
+            Box(Modifier.fillMaxSize()) {
+                PlayerResumeNotice(
+                    notice = resumeNotice,
+                    onRestart = {
+                        if (resumeNotice.visible) {
+                            resumeNotice.dismiss()
+                            latestOnSeek(0L)
+                        }
+                    },
+                    modifier = Modifier.align(Alignment.BottomStart).padding(start = 22.dp, bottom = 120.dp),
                 )
-                Text(
-                    "从头开始",
-                    style = AppTypography.caption.strong,
-                    color = Color(0xFF1B2436),
+
+                // Top-level actions (投屏/更多) live with the title; media navigation stays below.
+                ChromeVisibility(
+                    visible = visible,
+                    edge = ChromeEdge.Top,
+                    modifier = Modifier.align(Alignment.TopCenter),
+                ) {
+                    DisposableEffect(Unit) {
+                        ambientPresenceChanged(true)
+                        onDispose { ambientPresenceChanged(false) }
+                    }
+                    val readout by remember(playback, sourceLabel, containerLabel) {
+                        derivedStateOf { playback.value.readoutLine(sourceLabel, containerLabel) }
+                    }
+                    RefinedTopBar(
+                        title = episodes.getOrNull(state.currentIndex)?.title.orEmpty(),
+                        subtitle = readout,
+                        filled = filled,
+                        dolbyVision = dolbyVision,
+                        dolbyAtmos = dolbyAtmos,
+                        onBack = onBack,
+                        onEnterPictureInPicture = onEnterPictureInPicture,
+                        onToggleFill = {
+                            poke()
+                            onToggleFill()
+                        },
+                        onOpenCast = { openSettingsPanel(SettingsPanelKind.Cast) },
+                        onOpenMore = { openSettingsPanel(SettingsPanelKind.More) },
+                        ambientLight = ambientLight,
+                        watchConnected = watch.connected,
+                        unreadChat =
+                            watch.chatMessages.lastOrNull()?.id?.let { latest ->
+                                lastReadChatId?.let { latest > it } ?: true
+                            } ?: false,
+                        onOpenChat = ::openWatchChat,
+                    )
+                }
+
+                ChromeVisibility(
+                    visible = visible,
+                    edge = ChromeEdge.Bottom,
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                ) {
+                    DisposableEffect(Unit) {
+                        ambientPresenceChanged(true)
+                        onDispose { ambientPresenceChanged(false) }
+                    }
+                    PlaybackTimelineContent(playback) { timelineState ->
+                        val remoteSeek = remoteChromeState?.seekTargetMs?.takeIf { remoteChromeState.seeking }
+                        RefinedBottomBar(
+                            state =
+                                timelineState.transportState().let { transport ->
+                                    remoteSeek?.let { target ->
+                                        transport.copy(
+                                            positionMs =
+                                                if (transport.durationMs >
+                                                    0L
+                                                ) {
+                                                    target.coerceIn(0L, transport.durationMs)
+                                                } else {
+                                                    target.coerceAtLeast(0L)
+                                                },
+                                        )
+                                    } ?: transport
+                                },
+                            seekLocked = watchLocked,
+                            onPlayPause = {
+                                poke()
+                                onPlayPause()
+                            },
+                            onPrevious = {
+                                poke()
+                                onPreviousItem()
+                            },
+                            onNext = {
+                                poke()
+                                onNextItem()
+                            },
+                            onSeek = {
+                                poke()
+                                onSeek(it)
+                            },
+                            onScrub = { interactions++ },
+                            trickplay = trickplay,
+                            progressMarkers =
+                                remember(
+                                    skip.introStartSeconds,
+                                    skip.introEndSeconds,
+                                    skip.creditsLeadSeconds,
+                                    state.durationMs,
+                                ) {
+                                    playbackProgressMarkers(skip, state.durationMs)
+                                },
+                            hasEpisodes = state.itemCount > 1,
+                            onOpenEpisodes = {
+                                onRefreshEpisodes()
+                                openEpisodeDrawer()
+                            },
+                            hasMultipleSources = sourceOptions.size > 1,
+                            onOpenSources = { openQuickPopup(QuickPopup.Source) },
+                            onOpenSubtitles = {
+                                openSettingsPanel(SettingsPanelKind.Tracks, TrackPanelMode.Subtitle)
+                            },
+                            onOpenAudio = {
+                                openSettingsPanel(SettingsPanelKind.Tracks, TrackPanelMode.Audio)
+                            },
+                            onOpenSpeed = { openQuickPopup(QuickPopup.Speed) },
+                            skipSettingsAvailable = skip.seriesName != null,
+                            onOpenSkipSettings = { openSettingsPanel(SettingsPanelKind.Skip) },
+                            danmakuEnabled = danmaku.enabled,
+                            onOpenDanmaku = { openSettingsPanel(SettingsPanelKind.Danmaku) },
+                            ambientLight = ambientLight,
+                        )
+                    }
+                }
+
+                // Auto-skip is a small floating status chip. It is intentionally outside BottomBar's
+                // Column so the progress rail never moves when the countdown appears or disappears.
+                val lastAutoSkip = remember { arrayOf("") }
+                skip.countdownSeconds?.let { lastAutoSkip[0] = skipCountdownLabel(skip.segmentLabel, it) }
+                ChromeVisibility(
+                    visible = skip.countdownSeconds != null,
+                    edge = ChromeEdge.Bottom,
                     modifier =
                         Modifier
-                            .glass(
-                                shape = AppShapes.pill,
-                                fill = Color.White.copy(alpha = 0.78f),
-                                border = Color.White.copy(alpha = 0.9f),
-                            ).noRippleClickable {
-                                resumeNoticeDismissed = true
-                                latestOnSeek(0L)
-                            }.padding(horizontal = 12.dp, vertical = 5.dp),
-                )
-            }
-        }
-
-        // Top-level actions (投屏/更多) live with the title; media navigation stays below.
-        ChromeVisibility(
-            visible = visible,
-            edge = ChromeEdge.Top,
-            modifier = Modifier.align(Alignment.TopCenter),
-        ) {
-            RefinedTopBar(
-                title = episodes.getOrNull(state.currentIndex)?.title.orEmpty(),
-                subtitle = state.readoutLine(sourceLabel, containerLabel),
-                filled = filled,
-                dolbyVision = dolbyVision,
-                dolbyAtmos = dolbyAtmos,
-                onBack = onBack,
-                onEnterPictureInPicture = onEnterPictureInPicture,
-                onToggleFill = {
-                    poke()
-                    onToggleFill()
-                },
-                onOpenCast = { openSettingsPanel(SettingsPanelKind.Cast) },
-                onOpenMore = { openSettingsPanel(SettingsPanelKind.More) },
-                ambientLight = ambientLight,
-                watchConnected = watch.connected,
-                unreadChat =
-                    watch.chatMessages.lastOrNull()?.id?.let { latest ->
-                        lastReadChatId?.let { latest > it } ?: true
-                    } ?: false,
-                onOpenChat = ::openWatchChat,
-            )
-        }
-
-        ChromeVisibility(
-            visible = visible,
-            edge = ChromeEdge.Bottom,
-            modifier = Modifier.align(Alignment.BottomCenter),
-        ) {
-            RefinedBottomBar(
-                state = timelineState,
-                seekLocked = watchLocked,
-                onPlayPause = {
-                    poke()
-                    onPlayPause()
-                },
-                onPrevious = {
-                    poke()
-                    onPreviousItem()
-                },
-                onNext = {
-                    poke()
-                    onNextItem()
-                },
-                onSeek = {
-                    poke()
-                    onSeek(it)
-                },
-                onScrub = { interactions++ },
-                trickplay = trickplay,
-                progressMarkers = playbackProgressMarkers(skip, state.durationMs),
-                hasEpisodes = state.itemCount > 1,
-                onOpenEpisodes = {
-                    onRefreshEpisodes()
-                    openEpisodeDrawer()
-                },
-                hasMultipleSources = sourceOptions.size > 1,
-                onOpenSources = { openQuickPopup(QuickPopup.Source) },
-                onOpenSubtitles = {
-                    openSettingsPanel(SettingsPanelKind.Tracks, TrackPanelMode.Subtitle)
-                },
-                onOpenAudio = {
-                    openSettingsPanel(SettingsPanelKind.Tracks, TrackPanelMode.Audio)
-                },
-                onOpenSpeed = { openQuickPopup(QuickPopup.Speed) },
-                skipSettingsAvailable = skip.seriesName != null,
-                onOpenSkipSettings = { openSettingsPanel(SettingsPanelKind.Skip) },
-                danmakuEnabled = danmaku.enabled,
-                onOpenDanmaku = { openSettingsPanel(SettingsPanelKind.Danmaku) },
-                ambientLight = ambientLight,
-            )
-        }
-
-        // Auto-skip is a small floating status chip. It is intentionally outside BottomBar's
-        // Column so the progress rail never moves when the countdown appears or disappears.
-        skip.countdownSeconds?.let { seconds ->
-            CompactAutoSkipPill(
-                label = skipCountdownLabel(skip.segmentLabel, seconds),
-                onCancel = {
-                    poke()
-                    skipActions.onCancelAuto()
-                },
-                modifier =
-                    Modifier
-                        .align(Alignment.BottomEnd)
-                        .playerHintOffset(hintProgress, (-60).dp)
-                        .padding(
-                            end = 22.dp,
-                            bottom = 24.dp,
-                        ),
-            )
-        }
-
-        if (
-            shouldShowManualSkipPill(
-                segmentLabel = skip.segmentLabel,
-                countdownSeconds = skip.countdownSeconds,
-                controlsVisible = visible,
-            )
-        ) {
-            SkipPill(
-                label = checkNotNull(skip.segmentLabel),
-                onClick = {
-                    poke()
-                    skipActions.onSkip()
-                },
-                modifier =
-                    Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(end = 22.dp, bottom = 92.dp),
-            )
-        }
-
-        // Every playback function popup uses the same bottom-right anchor. Content may be
-        // shorter or taller, but switching buttons never makes the surface jump position.
-        val functionPopupModifier =
-            Modifier
-                .align(Alignment.BottomEnd)
-                .padding(end = 18.dp, bottom = 70.dp)
-
-        settingsPanelKind?.let { kind ->
-            BackOverlay(
-                onBack = { settingsPanelKind = null },
-            ) {
-                SettingsPanel(
-                    modifier = functionPopupModifier,
-                    kind = kind,
-                    state = state,
-                    containerLabel = containerLabel,
-                    engineOptions = engineOptions,
-                    transcodeLabel = transcodeLabel,
-                    transcodeActive = transcodeActive,
-                    castDevices = castDevices,
-                    castingDeviceId = castingDeviceId,
-                    castDiscovering = castDiscovering,
-                    castError = castError,
-                    castStatus = castStatus,
-                    castPosition = castPosition,
-                    castCapabilities = castCapabilities,
-                    danmaku = danmaku,
-                    danmakuActions = danmakuActions,
-                    onOpenDanmakuSearch = {
-                        settingsPanelKind = null
-                        danmakuActions.onOpenSearch()
-                        danmakuSearchOpen = true
-                    },
-                    onOpenDanmakuSend = {
-                        settingsPanelKind = null
-                        danmakuSendOpen = true
-                    },
-                    onSelectSubtitle = {
-                        onSelectSubtitle(it)
-                        settingsPanelKind = null
-                    },
-                    subtitleControls = subtitleControls,
-                    subtitleActions = subtitleActions,
-                    remoteSubtitles = remoteSubtitles,
-                    remoteSubtitleActions = remoteSubtitleActions,
-                    audioControls = audioControls,
-                    audioActions = audioActions,
-                    onSelectAudio = {
-                        onSelectAudio(it)
-                        settingsPanelKind = null
-                    },
-                    sleepTimer = sleepTimer,
-                    sleepTimerActions = sleepTimerActions,
-                    onSelectEngine = {
-                        onSelectEngine(it)
-                        settingsPanelKind = null
-                    },
-                    onTranscode = {
-                        onTranscode()
-                        settingsPanelKind = null
-                    },
-                    onResetAdaptiveLearning = {
-                        onResetAdaptiveLearning()
-                        settingsPanelKind = null
-                    },
-                    onNextDiscTitle = onNextDiscTitle,
-                    onNextDiscChapter = onNextDiscChapter,
-                    onShowDiscMenu = onShowDiscMenu,
-                    onExternalPlayer = onExternalPlayer,
-                    onDiscoverCast = onDiscoverCast,
-                    onCastTo = onCastTo,
-                    onStopCast = onStopCast,
-                    onLock = {
-                        settingsPanelKind = null
-                        locked = true
-                        visible = true
-                    },
-                    onOpenGestureHelp = {
-                        settingsPanelKind = null
-                        gestureHelpOpen = true
-                    },
-                    watch = watch,
-                    onOpenWatchTogether = {
-                        settingsPanelKind = null
-                        watchDialogOpen = true
-                    },
-                    versions = versions,
-                    selectedVersionId = selectedVersionId,
-                    onSelectVersion = {
-                        onSelectVersion(it)
-                        settingsPanelKind = null
-                    },
-                    skip = skip,
-                    // The panel stays open: setting a boundary is something you check against
-                    // the picture behind it, and often two of the three in one visit.
-                    skipActions = skipActions,
-                    trackPanelMode = trackPanelMode,
-                    ambientLightEnabled = ambientLightEnabled,
-                    onToggleAmbientLight = onToggleAmbientLight,
-                    onDismiss = { settingsPanelKind = null },
-                )
-            }
-        }
-
-        quickPopup?.let { popup ->
-            BackOverlay(onBack = { quickPopup = null }) {
-                when (popup) {
-                    QuickPopup.Source ->
-                        SourcePickerPopup(
-                            options = sourceOptions,
-                            selectedId = selectedSourceId,
-                            onSelect = {
-                                onSelectSource(it)
-                                quickPopup = null
-                            },
-                            onDismiss = { quickPopup = null },
-                            modifier = functionPopupModifier,
-                        )
-
-                    QuickPopup.Speed ->
-                        SpeedPickerPopup(
-                            speeds = SPEEDS,
-                            selectedSpeed = state.speed,
-                            onSelect = {
-                                onSpeed(it)
-                                quickPopup = null
-                            },
-                            onDismiss = { quickPopup = null },
-                            modifier = functionPopupModifier,
-                        )
-                }
-            }
-        }
-
-        if (gestureHelpOpen) {
-            PlayerGestureHelpOverlay(onDismiss = { gestureHelpOpen = false })
-        }
-
-        if (watchDialogOpen) {
-            WatchTogetherDialog(
-                endpoint = watch.endpoint,
-                connecting = watch.connecting,
-                connected = watch.connected,
-                roomCode = watch.roomCode,
-                isHost = watch.isHost,
-                canControl = watch.canControl,
-                controlMode = watch.controlMode,
-                participantCount = watch.participantCount,
-                participants = watch.participants,
-                error = watch.error,
-                controlRequested = watch.controlRequested,
-                onCreate = room.onCreate,
-                onJoin = room.onJoin,
-                onLeave = {
-                    room.onLeave()
-                    watchDialogOpen = false
-                },
-                onRequestControl = room.onRequestControl,
-                onSetControlMode = room.onSetControlMode,
-                onSetModerator = room.onSetModerator,
-                onKickParticipant = room.onKickParticipant,
-                onDismiss = { watchDialogOpen = false },
-            )
-        }
-
-        if (watchChatOpen && watch.connected) {
-            BackOverlay(
-                onBack = closeWatchChat,
-            ) {
-                WatchChatPanel(
-                    participants = watch.participants,
-                    messages = watch.chatMessages,
-                    error = watch.chatError,
-                    sendingEnabled = !watch.reconnecting,
-                    danmakuEnabled = watch.chatDanmakuEnabled,
-                    onSend = room.onSendChat,
-                    onRetry = room.onRetryChat,
-                    onClearError = room.onClearChatError,
-                    onToggleDanmaku = room.onToggleChatDanmaku,
-                    onDismiss = closeWatchChat,
-                    modifier = Modifier.align(Alignment.CenterEnd),
-                )
-            }
-        }
-
-        // The preview is what the panel replaces, so it is gated on the panel being shut
-        // rather than chained to it — an `else` here would have torn the preview down on the
-        // frame the panel started opening, before either had moved.
-        ChromeVisibility(
-            visible = !watchChatOpen && chatPreviewVisible && watch.chatMessages.isNotEmpty(),
-            edge = ChromeEdge.Top,
-            modifier =
-                Modifier
-                    .align(Alignment.TopEnd)
-                    .playerHintOffset(hintProgress, 52.dp)
-                    .padding(top = 18.dp, end = 22.dp),
-        ) {
-            WatchChatPreview(
-                messages = watch.chatMessages,
-                onOpen = ::openWatchChat,
-            )
-        }
-
-        // Outside `watchDialogOpen` on purpose: a request arrives when the asker taps, not
-        // when the host happens to have the room dialog open, and an unanswered one leaves
-        // that person waiting on a prompt nobody ever sees.
-        watch.controlRequesterName?.let { requester ->
-            ControlRequestDialog(
-                requesterName = requester,
-                onGrant = room.onGrantControl,
-                // Dismissing is an answer too. Closing without one would leave the asker
-                // waiting indefinitely, which is what `denyControl` exists to avoid.
-                onDeny = room.onDenyControl,
-            )
-        }
-
-        if (drawerOpen) {
-            BackOverlay(
-                onBack = { drawerOpen = false },
-            ) {
-                EpisodeStrip(
-                    episodes = episodes,
-                    currentIndex = state.currentIndex,
-                    onSelect =
-                        if (watchLocked) {
-                            // Guests can still browse what's in the room's queue; picking is the
-                            // host's move, so tapping explains itself instead of doing nothing.
-                            { gestureHud = "房主控制播放" }
-                        } else {
-                            {
-                                onSelectItem(it)
-                                drawerOpen = false
+                            .align(Alignment.BottomEnd)
+                            .playerHintOffset(hintProgress, (-60).dp)
+                            .padding(end = 22.dp, bottom = 24.dp),
+                ) {
+                    CompactAutoSkipPill(
+                        label = lastAutoSkip[0],
+                        onCancel = {
+                            if (skip.countdownSeconds != null) {
+                                poke()
+                                skipActions.onCancelAuto()
                             }
                         },
-                    onDismiss = { drawerOpen = false },
-                    modifier = Modifier.align(Alignment.BottomCenter),
-                )
-            }
-        }
-
-        if (danmakuSearchOpen) {
-            BackOverlay(
-                onBack = { danmakuSearchOpen = false },
-            ) {
-                DanmakuSearchPanel(
-                    state = danmaku,
-                    // Picking closes the sheet: the choice is made, and the result of it is
-                    // the 弹幕 now running over the picture the sheet is covering.
-                    actions =
-                        danmakuActions.copy(
-                            onPickEpisode = {
-                                danmakuActions.onPickEpisode(it)
-                                danmakuSearchOpen = false
-                            },
-                        ),
-                    onDismiss = { danmakuSearchOpen = false },
-                    modifier = Modifier.align(Alignment.CenterEnd),
-                )
-            }
-        }
-
-        if (danmakuSendOpen) {
-            DanmakuSendDialog(
-                sending = danmaku.sending,
-                error = danmaku.sendError,
-                onSend = {
-                    danmakuActions.onSend(it)
-                    danmakuSendOpen = false
-                },
-                onDismiss = { danmakuSendOpen = false },
-            )
-        }
-
-        // Standing explanation for why the transport is dimmed. Also the only place the
-        // reconnect state surfaces during playback — the room stays live and controls stay
-        // in place, so a dropped socket reads as "catching up", not as the room vanishing.
-        if (watch.connected && visible) {
-            val roomNote =
-                when {
-                    watch.reconnecting -> "一起看 · 重连中… · 聊天"
-                    !watch.isHost -> "一起看 · 房主控制播放 · 聊天"
-                    else -> "一起看 · 你是房主 · ${watch.participantCount} 人 · 聊天"
+                    )
                 }
-            Text(
-                roomNote,
-                style = AppTypography.caption.medium,
-                color = if (watch.reconnecting) DarkPalette.onErrorContainer else Color.White.copy(alpha = 0.92f),
-                modifier =
+                val lastSkipLabel = remember { arrayOf("") }
+                skip.segmentLabel?.let { lastSkipLabel[0] = it }
+                val manualSkip = shouldShowManualSkipPill(skip.segmentLabel, skip.countdownSeconds, visible)
+                ChromeVisibility(
+                    visible = manualSkip,
+                    edge = ChromeEdge.Bottom,
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(end = 22.dp, bottom = 92.dp),
+                ) {
+                    SkipPill(
+                        label = lastSkipLabel[0],
+                        onClick = {
+                            if (manualSkip) {
+                                poke()
+                                skipActions.onSkip()
+                            }
+                        },
+                    )
+                }
+
+                // Every playback function popup uses the same bottom-right anchor. Content may be
+                // shorter or taller, but switching buttons never makes the surface jump position.
+                val functionPopupModifier =
                     Modifier
-                        .align(Alignment.TopCenter)
-                        .padding(top = 74.dp)
-                        .glass(
-                            shape = GlassShapes.chip,
-                            fill =
-                                if (watch.reconnecting) {
-                                    DarkPalette.errorContainer
-                                } else {
-                                    Color.Black.copy(alpha = 0.52f)
-                                },
-                            border = Color.White.copy(alpha = 0.24f),
-                        ).noRippleClickable(::openWatchChat)
-                        .padding(horizontal = 14.dp, vertical = 7.dp),
-            )
-        }
+                        .align(Alignment.BottomEnd)
+                        .padding(end = 18.dp, bottom = 70.dp)
 
-        /**
-         * Paused, with one tap back into playback.
-         *
-         * A double tap in the middle of the frame pauses, and the controls it raised fade a
-         * few seconds later — leaving a still frame with nothing on it to say the film is
-         * paused rather than stalled, and no way back that does not start with a tap to bring
-         * the controls round again. This outlives the control overlay for that reason.
-         *
-         * Not while buffering: `playing` is false throughout startup and every seek, and a
-         * resume button over a frame that is already coming back is a lie. Not once the item
-         * has ended either — 下一集 owns that moment, and "paused" would be the wrong word
-         * for it.
-         *
-         * A guest whose room is driven by its host still needs to be told the film is paused,
-         * so the key is drawn for them too — dimmed and inert, since the tap would only be
-         * refused. That is the whole difference between the two states, which is why it is
-         * one control and not two: the pair that used to cover this drew a 28dp 暂停 badge
-         * underneath a translucent 64dp 播放 disc, so both were on screen at once and the
-         * smaller one showed through the larger.
-         */
-        val showPausedKey =
-            !state.playing &&
-                !state.buffering &&
-                !state.ended &&
-                state.error == null
-        ChromeVisibility(
-            visible = showPausedKey,
-            modifier = Modifier.align(Alignment.Center),
-        ) {
-            CircleControl(
-                // 播放, never 暂停. This is an affordance, not a readout — it says what the
-                // tap does, the way every transport key in the app does.
-                icon = AppIcons.Play,
-                description = if (watchLocked) "已暂停，等待房主继续" else "继续播放",
-                size = CenterKeySize,
-                iconSize = CenterKeyIconSize,
-                enabled = !watchLocked,
-                // The one control that has to be found at a glance in a dark room, so it
-                // takes the filled treatment the transport keys leave to it.
-                filled = true,
-                onClick = {
-                    onPlayPause()
-                    poke()
-                },
-            )
-        }
-
-        // Suppressed while the resume button occupies the same spot: the double tap that
-        // pauses would otherwise stack "暂停" directly on top of it.
-        val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
-        AnimatedContent(
-            targetState = gestureHud?.takeIf { !showPausedKey },
-            contentKey = ::gestureHudMotionKey,
-            transitionSpec = {
-                if (reduceMotion) {
-                    fadeIn(snap()) togetherWith fadeOut(snap())
-                } else {
-                    (
-                        fadeIn(tween(Motion.QUICK, easing = Motion.Curve)) +
-                            scaleIn(Motion.settle(), initialScale = 0.88f)
-                    ) togetherWith
-                        (
-                            fadeOut(tween(Motion.QUICK, easing = Motion.Curve)) +
-                                scaleOut(
-                                    tween(Motion.QUICK, easing = Motion.Curve),
-                                    targetScale = 0.92f,
-                                )
+                ChromeContent(settingsPanelKind, modifier = Modifier.fillMaxSize(), edge = ChromeEdge.End) { kind ->
+                    BackOverlay(
+                        onBack = { settingsPanelKind = null },
+                        enabled = settingsPanelKind != null,
+                    ) {
+                        SettingsPanel(
+                            modifier = functionPopupModifier,
+                            kind = kind,
+                            state = playback.value,
+                            containerLabel = containerLabel,
+                            engineOptions = engineOptions,
+                            transcodeLabel = transcodeLabel,
+                            transcodeActive = transcodeActive,
+                            castDevices = castDevices,
+                            castingDeviceId = castingDeviceId,
+                            castDiscovering = castDiscovering,
+                            castError = castError,
+                            castStatus = castStatus,
+                            castPosition = castPositionSource?.invoke() ?: castPosition,
+                            castCapabilities = castCapabilities,
+                            danmaku = danmaku,
+                            danmakuActions = danmakuActions,
+                            onOpenDanmakuSearch = {
+                                settingsPanelKind = null
+                                danmakuActions.onOpenSearch()
+                                danmakuSearchOpen = true
+                            },
+                            onOpenDanmakuSend = {
+                                settingsPanelKind = null
+                                danmakuSendOpen = true
+                            },
+                            onSelectSubtitle = {
+                                onSelectSubtitle(it)
+                                settingsPanelKind = null
+                            },
+                            subtitleControls = subtitleControls,
+                            subtitleActions = subtitleActions,
+                            bookmarks = bookmarks,
+                            bookmarkActions =
+                                bookmarkActions.copy(onSeek = { position ->
+                                    if (watchLocked) {
+                                        gestureHud = "房主控制播放"
+                                    } else {
+                                        onSeek(position.coerceIn(0L, state.durationMs.coerceAtLeast(0L)))
+                                        settingsPanelKind = null
+                                    }
+                                }),
+                            remoteSubtitles = remoteSubtitles,
+                            remoteSubtitleActions = remoteSubtitleActions,
+                            audioControls =
+                                audioControls.copy(
+                                    measuredAvOffsetMs = playback.value.diagnostics.avSyncOffsetMs,
+                                ),
+                            audioActions = audioActions,
+                            onSelectAudio = {
+                                onSelectAudio(it)
+                                settingsPanelKind = null
+                            },
+                            sleepTimer = sleepTimer,
+                            sleepTimerActions = sleepTimerActions,
+                            onSelectEngine = {
+                                onSelectEngine(it)
+                                settingsPanelKind = null
+                            },
+                            onTranscode = {
+                                onTranscode()
+                                settingsPanelKind = null
+                            },
+                            onResetAdaptiveLearning = {
+                                onResetAdaptiveLearning()
+                                settingsPanelKind = null
+                            },
+                            onNextDiscTitle = onNextDiscTitle,
+                            onNextDiscChapter = onNextDiscChapter,
+                            onShowDiscMenu = onShowDiscMenu,
+                            onExternalPlayer = onExternalPlayer,
+                            onDiscoverCast = onDiscoverCast,
+                            onCastTo = onCastTo,
+                            onStopCast = onStopCast,
+                            onLock = {
+                                settingsPanelKind = null
+                                locked = true
+                                visible = true
+                            },
+                            onOpenGestureHelp = {
+                                settingsPanelKind = null
+                                gestureHelpOpen = true
+                            },
+                            watch = watch,
+                            onOpenWatchTogether = {
+                                settingsPanelKind = null
+                                watchDialogOpen = true
+                            },
+                            versions = versions,
+                            selectedVersionId = selectedVersionId,
+                            onSelectVersion = {
+                                onSelectVersion(it)
+                                settingsPanelKind = null
+                            },
+                            skip = skip,
+                            // The panel stays open: setting a boundary is something you check against
+                            // the picture behind it, and often two of the three in one visit.
+                            skipActions = skipActions,
+                            trackPanelMode = trackPanelMode,
+                            ambientLightEnabled = ambientLightEnabled,
+                            onToggleAmbientLight = onToggleAmbientLight,
+                            onDismiss = { settingsPanelKind = null },
                         )
+                    }
                 }
-            },
-            contentAlignment = Alignment.Center,
-            modifier = Modifier.align(Alignment.Center),
-            label = "gesture-hud",
-        ) { value ->
-            if (value != null) {
-                Text(
-                    value,
-                    style = AppTypography.body.strong,
-                    color = Color.White,
+
+                ChromeContent(quickPopup, modifier = Modifier.fillMaxSize(), edge = ChromeEdge.End) { popup ->
+                    BackOverlay(onBack = { quickPopup = null }) {
+                        when (popup) {
+                            QuickPopup.Source ->
+                                SourcePickerPopup(
+                                    options = sourceOptions,
+                                    selectedId = selectedSourceId,
+                                    onSelect = {
+                                        onSelectSource(it)
+                                        quickPopup = null
+                                    },
+                                    onDismiss = { quickPopup = null },
+                                    modifier = functionPopupModifier,
+                                )
+
+                            QuickPopup.Speed ->
+                                SpeedPickerPopup(
+                                    speeds = SPEEDS,
+                                    selectedSpeed = state.speed,
+                                    onSelect = {
+                                        onSpeed(it)
+                                        quickPopup = null
+                                    },
+                                    onDismiss = { quickPopup = null },
+                                    modifier = functionPopupModifier,
+                                )
+                        }
+                    }
+                }
+
+                if (gestureHelpOpen) {
+                    PlayerGestureHelpOverlay(onDismiss = { gestureHelpOpen = false })
+                }
+
+                if (watchDialogOpen) {
+                    WatchTogetherDialog(
+                        endpoint = watch.endpoint,
+                        connecting = watch.connecting,
+                        connected = watch.connected,
+                        roomCode = watch.roomCode,
+                        isHost = watch.isHost,
+                        canControl = watch.canControl,
+                        controlMode = watch.controlMode,
+                        participantCount = watch.participantCount,
+                        participants = watch.participants,
+                        error = watch.error,
+                        controlRequested = watch.controlRequested,
+                        onCreate = room.onCreate,
+                        onJoin = room.onJoin,
+                        onLeave = {
+                            room.onLeave()
+                            watchDialogOpen = false
+                        },
+                        onRequestControl = room.onRequestControl,
+                        onSetControlMode = room.onSetControlMode,
+                        onSetModerator = room.onSetModerator,
+                        onKickParticipant = room.onKickParticipant,
+                        onDismiss = { watchDialogOpen = false },
+                    )
+                }
+
+                ChromeVisibility(
+                    visible = watchChatOpen && watch.connected,
+                    modifier = Modifier.fillMaxSize(),
+                    edge = ChromeEdge.End,
+                ) {
+                    BackOverlay(
+                        onBack = closeWatchChat,
+                    ) {
+                        WatchChatPanel(
+                            participants = watch.participants,
+                            messages = watch.chatMessages,
+                            error = watch.chatError,
+                            sendingEnabled = !watch.reconnecting,
+                            danmakuEnabled = watch.chatDanmakuEnabled,
+                            onSend = room.onSendChat,
+                            onRetry = room.onRetryChat,
+                            onClearError = room.onClearChatError,
+                            onToggleDanmaku = room.onToggleChatDanmaku,
+                            onDismiss = closeWatchChat,
+                            modifier = Modifier.align(Alignment.CenterEnd),
+                        )
+                    }
+                }
+
+                // The preview is what the panel replaces, so it is gated on the panel being shut
+                // rather than chained to it — an `else` here would have torn the preview down on the
+                // frame the panel started opening, before either had moved.
+                ChromeVisibility(
+                    visible = !watchChatOpen && chatPreviewVisible && watch.chatMessages.isNotEmpty(),
+                    edge = ChromeEdge.Top,
                     modifier =
                         Modifier
-                            .semantics { liveRegion = LiveRegionMode.Polite }
-                            .glass(
-                                shape = AppShapes.pill,
-                                fill = Color.Black.copy(alpha = 0.56f),
-                                border = Color.White.copy(alpha = 0.24f),
-                            ).padding(horizontal = 16.dp, vertical = 9.dp),
+                            .align(Alignment.TopEnd)
+                            .playerHintOffset(hintProgress, 52.dp)
+                            .padding(top = 18.dp, end = 22.dp),
+                ) {
+                    WatchChatPreview(
+                        messages = watch.chatMessages,
+                        onOpen = ::openWatchChat,
+                    )
+                }
+
+                // Outside `watchDialogOpen` on purpose: a request arrives when the asker taps, not
+                // when the host happens to have the room dialog open, and an unanswered one leaves
+                // that person waiting on a prompt nobody ever sees.
+                watch.controlRequesterName?.let { requester ->
+                    ControlRequestDialog(
+                        requesterName = requester,
+                        onGrant = room.onGrantControl,
+                        // Dismissing is an answer too. Closing without one would leave the asker
+                        // waiting indefinitely, which is what `denyControl` exists to avoid.
+                        onDeny = room.onDenyControl,
+                    )
+                }
+
+                ChromeVisibility(visible = drawerOpen, edge = ChromeEdge.Bottom, modifier = Modifier.fillMaxSize()) {
+                    BackOverlay(
+                        enabled = drawerOpen,
+                        onBack = { drawerOpen = false },
+                    ) {
+                        EpisodeStrip(
+                            episodes = episodes,
+                            currentIndex = state.currentIndex,
+                            onSelect =
+                                if (watchLocked) {
+                                    // Guests can still browse what's in the room's queue; picking is the
+                                    // host's move, so tapping explains itself instead of doing nothing.
+                                    { gestureHud = "房主控制播放" }
+                                } else {
+                                    {
+                                        onSelectItem(it)
+                                        drawerOpen = false
+                                    }
+                                },
+                            onDismiss = { drawerOpen = false },
+                            modifier = Modifier.align(Alignment.BottomCenter),
+                        )
+                    }
+                }
+
+                ChromeVisibility(
+                    visible = danmakuSearchOpen,
+                    edge = ChromeEdge.End,
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    BackOverlay(
+                        enabled = danmakuSearchOpen,
+                        onBack = { danmakuSearchOpen = false },
+                    ) {
+                        DanmakuSearchPanel(
+                            state = danmaku,
+                            // Picking closes the sheet: the choice is made, and the result of it is
+                            // the 弹幕 now running over the picture the sheet is covering.
+                            actions =
+                                danmakuActions.copy(
+                                    onPickEpisode = {
+                                        danmakuActions.onPickEpisode(it)
+                                        danmakuSearchOpen = false
+                                    },
+                                ),
+                            onDismiss = { danmakuSearchOpen = false },
+                            modifier = Modifier.align(Alignment.CenterEnd),
+                        )
+                    }
+                }
+
+                if (danmakuSendOpen) {
+                    DanmakuSendDialog(
+                        sending = danmaku.sending,
+                        error = danmaku.sendError,
+                        onSend = {
+                            danmakuActions.onSend(it)
+                            danmakuSendOpen = false
+                        },
+                        onDismiss = { danmakuSendOpen = false },
+                    )
+                }
+
+                // Standing explanation for why the transport is dimmed. Also the only place the
+                // reconnect state surfaces during playback — the room stays live and controls stay
+                // in place, so a dropped socket reads as "catching up", not as the room vanishing.
+                ChromeVisibility(
+                    visible = watch.connected && visible,
+                    edge = ChromeEdge.Top,
+                    modifier = Modifier.align(Alignment.TopCenter).padding(top = 74.dp),
+                ) {
+                    val roomNote =
+                        when {
+                            watch.reconnecting -> "一起看 · 重连中… · 聊天"
+                            !watch.isHost -> "一起看 · 房主控制播放 · 聊天"
+                            else -> "一起看 · 你是房主 · ${watch.participantCount} 人 · 聊天"
+                        }
+                    Text(
+                        roomNote,
+                        style = AppTypography.caption.medium,
+                        color =
+                            if (watch.reconnecting) {
+                                DarkPalette.onErrorContainer
+                            } else {
+                                Color.White.copy(
+                                    alpha = 0.92f,
+                                )
+                            },
+                        modifier =
+                            Modifier
+                                .glass(
+                                    shape = GlassShapes.chip,
+                                    fill =
+                                        if (watch.reconnecting) {
+                                            DarkPalette.errorContainer
+                                        } else {
+                                            Color.Black.copy(alpha = 0.52f)
+                                        },
+                                    border = Color.White.copy(alpha = 0.24f),
+                                ).noRippleClickable(::openWatchChat)
+                                .padding(horizontal = 14.dp, vertical = 7.dp),
+                    )
+                }
+
+                /**
+                 * Paused, with one tap back into playback.
+                 *
+                 * A double tap in the middle of the frame pauses, and the controls it raised fade a
+                 * few seconds later — leaving a still frame with nothing on it to say the film is
+                 * paused rather than stalled, and no way back that does not start with a tap to bring
+                 * the controls round again. This outlives the control overlay for that reason.
+                 *
+                 * Not while buffering: `playing` is false throughout startup and every seek, and a
+                 * resume button over a frame that is already coming back is a lie. Not once the item
+                 * has ended either — 下一集 owns that moment, and "paused" would be the wrong word
+                 * for it.
+                 *
+                 * A guest whose room is driven by its host still needs to be told the film is paused,
+                 * so the key is drawn for them too — dimmed and inert, since the tap would only be
+                 * refused. That is the whole difference between the two states, which is why it is
+                 * one control and not two: the pair that used to cover this drew a 28dp 暂停 badge
+                 * underneath a translucent 64dp 播放 disc, so both were on screen at once and the
+                 * smaller one showed through the larger.
+                 */
+                val showPausedKey =
+                    !state.playing &&
+                        !state.buffering &&
+                        !state.ended &&
+                        state.error == null
+                ChromeVisibility(
+                    visible = showPausedKey,
+                    modifier = Modifier.align(Alignment.Center),
+                ) {
+                    CircleControl(
+                        // 播放, never 暂停. This is an affordance, not a readout — it says what the
+                        // tap does, the way every transport key in the app does.
+                        icon = AppIcons.Play,
+                        description = if (watchLocked) "已暂停，等待房主继续" else "继续播放",
+                        size = CenterKeySize,
+                        iconSize = CenterKeyIconSize,
+                        enabled = !watchLocked,
+                        // The one control that has to be found at a glance in a dark room, so it
+                        // takes the filled treatment the transport keys leave to it.
+                        filled = true,
+                        onClick = {
+                            onPlayPause()
+                            poke()
+                        },
+                    )
+                }
+
+                // Suppressed while the resume button occupies the same spot: the double tap that
+                // pauses would otherwise stack "暂停" directly on top of it.
+                val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+                AnimatedContent(
+                    targetState = gestureHud?.takeIf { !showPausedKey },
+                    contentKey = ::gestureHudMotionKey,
+                    transitionSpec = {
+                        if (reduceMotion) {
+                            fadeIn(snap()) togetherWith fadeOut(snap())
+                        } else {
+                            (
+                                fadeIn(tween(Motion.QUICK, easing = Motion.Curve)) +
+                                    scaleIn(Motion.settle(), initialScale = 0.88f)
+                            ) togetherWith
+                                (
+                                    fadeOut(tween(Motion.QUICK, easing = Motion.Curve)) +
+                                        scaleOut(
+                                            tween(Motion.QUICK, easing = Motion.Curve),
+                                            targetScale = 0.92f,
+                                        )
+                                )
+                        }
+                    },
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier.align(Alignment.Center),
+                    label = "gesture-hud",
+                ) { value ->
+                    if (value != null) {
+                        Text(
+                            value,
+                            style = AppTypography.body.strong,
+                            color = Color.White,
+                            modifier =
+                                Modifier
+                                    .semantics { liveRegion = LiveRegionMode.Polite }
+                                    .glass(
+                                        shape = AppShapes.pill,
+                                        fill = Color.Black.copy(alpha = 0.56f),
+                                        border = Color.White.copy(alpha = 0.24f),
+                                    ).padding(horizontal = 16.dp, vertical = 9.dp),
+                        )
+                    }
+                }
+
+                SeekBurstFeedback(seekPulseRevision, seekPulsePosition, state.currentIndex)
+                ChromeVisibility(
+                    visible = volumeSliderVisible,
+                    edge = ChromeEdge.End,
+                    modifier = Modifier.align(Alignment.CenterEnd).padding(end = 26.dp),
+                ) {
+                    VolumeSlider(
+                        volume = volume,
+                        onVolume = { target ->
+                            volumeSliderTouches++
+                            onVolume(target)
+                        },
+                        modifier = Modifier,
+                    )
+                }
+
+                PlayerNextUpOverlay(
+                    playback,
+                    episodes,
+                    nextUpDismissed,
+                    onPlayNow = {
+                        poke()
+                        onNextItem()
+                    },
+                    onDismiss = {
+                        poke()
+                        nextUpDismissed = true
+                        onDismissNextUp()
+                    },
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(end = 22.dp, bottom = 96.dp),
                 )
             }
-        }
-
-        if (volumeSliderVisible) {
-            VolumeSlider(
-                volume = volume,
-                onVolume = { target ->
-                    volumeSliderTouches++
-                    onVolume(target)
-                },
-                modifier =
-                    Modifier
-                        .align(Alignment.CenterEnd)
-                        .padding(end = 26.dp),
-            )
-        }
-
-        val nextUpRemainingMs = state.durationMs - state.positionMs
-        val showNextUp =
-            state.hasNext &&
-                state.durationMs > 0L &&
-                !nextUpDismissed &&
-                nextUpRemainingMs in 1L..NEXT_UP_WINDOW_MS
-        ChromeVisibility(
-            visible = showNextUp,
-            edge = ChromeEdge.End,
-            modifier =
-                Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(end = 22.dp, bottom = 96.dp),
-        ) {
-            NextUpCard(
-                title = episodes.getOrNull(state.currentIndex + 1)?.title.orEmpty(),
-                remainingMs = nextUpRemainingMs.coerceIn(0L, NEXT_UP_WINDOW_MS),
-                onPlayNow = {
-                    poke()
-                    onNextItem()
-                },
-                onDismiss = {
-                    poke()
-                    nextUpDismissed = true
-                    onDismissNextUp()
-                },
-            )
         }
     }
 }

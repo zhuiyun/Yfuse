@@ -1,7 +1,8 @@
+@file:OptIn(ExperimentalLayoutApi::class)
+
 package com.yfuse.core.designsystem
 
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -10,6 +11,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -18,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imeNestedScroll
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
@@ -27,8 +30,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -61,11 +62,13 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import kotlin.math.abs
 import kotlin.math.roundToInt
+import com.yfuse.core.designsystem.ThemeIcon as Icon
+import com.yfuse.core.designsystem.ThemeText as Text
 
 private val ScrimColor = Color(0xFF0A0E16)
 private val OverlayShape = GlassShapes.sheet
 private val OverlayMaxWidth = 560.dp
-internal const val OVERLAY_EXIT_DURATION_MS = 240
+internal const val OVERLAY_EXIT_DURATION_MS = Motion.Dialog.EXIT_QUICK
 
 @Stable
 class OverlayVisibility {
@@ -194,6 +197,7 @@ fun GlassDialog(
                     Modifier
                         .safeDrawingPadding()
                         .imePadding()
+                        .imeNestedScroll()
                         .padding(windowPadding)
                         .widthIn(max = maxWidth)
                         .fillMaxWidth()
@@ -275,12 +279,12 @@ internal fun rememberOverlayTransition(
                 if (leaving) {
                     tween(
                         overlayRemainingDurationMillis(animation.exitMillis, progress.value, target),
-                        easing = OverlayExitCurve,
+                        easing = Motion.Dialog.ExitCurve,
                     )
                 } else {
                     tween(
                         overlayRemainingDurationMillis(animation.enterMillis, progress.value, target),
-                        easing = OverlayEnterCurve,
+                        easing = Motion.Dialog.EnterCurve,
                     )
                 },
             )
@@ -289,9 +293,6 @@ internal fun rememberOverlayTransition(
     }
     return remember(progress) { { progress.value } }
 }
-
-private val OverlayEnterCurve = CubicBezierEasing(0.2f, 0.45f, 0.25f, 1f)
-private val OverlayExitCurve = CubicBezierEasing(0.4f, 0f, 0.75f, 0.65f)
 
 internal fun overlayRemainingDurationMillis(
     duration: Int,

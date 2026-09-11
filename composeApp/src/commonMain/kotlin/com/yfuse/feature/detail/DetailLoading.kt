@@ -1,11 +1,6 @@
 package com.yfuse.feature.detail
 
-import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,7 +11,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
@@ -27,10 +21,11 @@ import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalAccentColors
-import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.SKELETON_PHASE_STEP_MS
 import com.yfuse.core.designsystem.SkeletonBlock
+import com.yfuse.core.designsystem.rememberDecorativePhase
 import com.yfuse.core.designsystem.skeletonFill
 import com.yfuse.core.designsystem.skeletonSweep
 
@@ -125,18 +120,17 @@ internal fun DetailSkeleton(heroHeight: Dp) {
 private fun Modifier.heroBloom(): Modifier {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current.accent
-    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
-    val transition = rememberInfiniteTransition(label = "detailBloom")
-    val animatedDrift by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(BLOOM_DRIFT_MS, easing = LinearEasing), RepeatMode.Reverse),
-        label = "detailBloomDrift",
-    )
-    val drift = if (reduceMotion) 0.5f else animatedDrift
+    val phase =
+        rememberDecorativePhase(
+            periodMillis = Motion.DETAIL_LOADING_BLOOM,
+            rest = 0.5f,
+            repeatMode = RepeatMode.Reverse,
+            label = "detailBloom",
+        )
     val strength = if (palette.isDark) 1f else 0.6f
     val fill = skeletonFill()
     return drawBehind {
+        val drift = phase.value
         drawRect(fill)
         val w = size.width
         val h = size.height
@@ -173,4 +167,3 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawBloom(
 
 private val BloomRose = Color(0xFFE5A4EE)
 private val BloomAmber = Color(0xFFD9852F)
-private const val BLOOM_DRIFT_MS = 6_000

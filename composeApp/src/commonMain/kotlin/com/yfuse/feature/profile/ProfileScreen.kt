@@ -25,14 +25,11 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Slider
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -87,9 +84,11 @@ import com.yfuse.core.designsystem.OfficialNavDisplay
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.OverlayOptionRow
 import com.yfuse.core.designsystem.OverlayOptionSpacing
+import com.yfuse.core.designsystem.PageLoadingSkeleton
 import com.yfuse.core.designsystem.ReportOverlayVisible
 import com.yfuse.core.designsystem.ScrollToTopOnReselect
 import com.yfuse.core.designsystem.SettingTint
+import com.yfuse.core.designsystem.SkeletonHandoff
 import com.yfuse.core.designsystem.SplashAnimation
 import com.yfuse.core.designsystem.SplashPreview
 import com.yfuse.core.designsystem.StatusBarIconStyle
@@ -99,7 +98,11 @@ import com.yfuse.core.designsystem.YfFormField
 import com.yfuse.core.designsystem.defaultAnimation
 import com.yfuse.core.designsystem.flatGlass
 import com.yfuse.core.designsystem.liquidGlass
+import com.yfuse.core.designsystem.motionItem
+import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.rememberSegmentIndicator
+import com.yfuse.core.designsystem.selectionColor
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.designsystem.windowWidthTier
@@ -113,6 +116,8 @@ import com.yfuse.core.playback.PlaybackOptimizationMode
 import com.yfuse.feature.player.PlayerLauncher
 import com.yfuse.feature.player.PlayerMediaItem
 import kotlinx.coroutines.launch
+import com.yfuse.core.designsystem.ThemeIcon as Icon
+import com.yfuse.core.designsystem.ThemeText as Text
 import com.yfuse.core.designsystem.flatGlass as glass
 
 /** Which option sheet is open. Theme and glass style are answered in place on the root page. */
@@ -487,190 +492,196 @@ fun ProfileScreen(component: ProfileComponent) {
                     )
 
                 ProfilePage.Root ->
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize().statusBarsPadding(),
-                        state = mainListState,
-                        contentPadding = PaddingValues(top = Dimens.contentTop, bottom = rootBottomContentInset),
-                        verticalArrangement = Arrangement.spacedBy(18.dp),
+                    SkeletonHandoff(
+                        loading = !state.initialized,
+                        modifier = Modifier.fillMaxSize(),
+                        skeleton = { PageLoadingSkeleton() },
                     ) {
-                        item(key = "settings-search") {
-                            YfFormField(
-                                value = settingsQuery,
-                                onValueChange = { settingsQuery = it.take(60) },
-                                label = "搜索设置",
-                                modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),
-                            )
-                        }
-                        if (settingsQuery.isNotBlank()) {
-                            item(key = "settings-search-results") {
-                                SettingsSearchResults(
-                                    query = settingsQuery,
-                                    onOpen = ::openPage,
-                                    onOpenServers = component.onOpenServers,
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize().statusBarsPadding(),
+                            state = mainListState,
+                            contentPadding = PaddingValues(top = Dimens.contentTop, bottom = rootBottomContentInset),
+                            verticalArrangement = Arrangement.spacedBy(18.dp),
+                        ) {
+                            motionItem(key = "settings-search") {
+                                YfFormField(
+                                    value = settingsQuery,
+                                    onValueChange = { settingsQuery = it.take(60) },
+                                    label = "搜索设置",
+                                    modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),
                                 )
                             }
-                        }
-                        item {
-                            Section(title = "服务器与账号") {
-                                SettingsCard {
-                                    SettingRow(
-                                        icon = AppIcons.User,
-                                        iconTint = SettingTint.account,
-                                        title = "账号与同步",
-                                        value =
-                                            when (val account = accountState) {
-                                                AccountState.Restoring -> "正在恢复 ›"
-                                                is AccountState.RestoreFailed -> "连接失败 · 点此重试 ›"
-                                                AccountState.SignedOut -> "未登录 ›"
-                                                is AccountState.SignedIn -> "${account.session.user.nickname} · 加密同步 ›"
-                                            },
-                                        embedded = true,
-                                        onClick = { openPage(ProfilePage.Account) },
-                                    )
-                                    SettingsDivider()
-                                    SettingRow(
-                                        icon = AppIcons.Server,
-                                        iconTint = SettingTint.servers,
-                                        title = "服务器",
-                                        value =
-                                            if (state.servers.isEmpty()) {
-                                                "尚未连接 ›"
-                                            } else {
-                                                val current = state.currentServer?.serverName
-                                                "${state.servers.size} 台 · ${current ?: "未选择"} ›"
-                                            },
-                                        embedded = true,
-                                        onClick = component.onOpenServers,
+                            if (settingsQuery.isNotBlank()) {
+                                motionItem(key = "settings-search-results") {
+                                    SettingsSearchResults(
+                                        query = settingsQuery,
+                                        onOpen = ::openPage,
+                                        onOpenServers = component.onOpenServers,
                                     )
                                 }
                             }
-                        }
-
-                        item {
-                            Section(title = "外观与主题") {
-                                SettingsCard {
-                                    SettingSegmentRow(
-                                        title = "主题",
-                                        options = ThemeModeDisplayOrder.map { it.label },
-                                        selectedIndex = ThemeModeDisplayOrder.indexOf(mode).coerceAtLeast(0),
-                                        onSelect = { prefs.setMode(ThemeModeDisplayOrder[it]) },
-                                        icon = AppIcons.Cloud,
-                                        iconTint = SettingTint.appearance,
-                                    )
-                                    SettingsDivider()
-                                    SettingSegmentRow(
-                                        title = "视觉效果",
-                                        options = GlassStyle.entries.map { it.label },
-                                        selectedIndex = GlassStyle.entries.indexOf(glassStyle),
-                                        onSelect = { prefs.setGlassStyle(GlassStyle.entries[it]) },
-                                        icon = AppIcons.Grid,
-                                        iconTint = SettingTint.components,
-                                    )
-                                    SettingsDivider()
-                                    SettingRow(
-                                        "更多外观与辅助",
-                                        "弹窗动画 · 背景 · 辅助功能 ›",
-                                        embedded = true,
-                                        onClick = { openPage(ProfilePage.Appearance) },
-                                        icon = AppIcons.Info,
-                                        iconTint = SettingTint.appearance,
-                                    )
-                                }
-                            }
-                        }
-
-                        item {
-                            Section(title = "播放") {
-                                SettingsCard {
-                                    SettingRow(
-                                        "播放设置",
-                                        "${playbackSettingsSummary(optimizationMode, decoder)} ›",
-                                        embedded = true,
-                                        onClick = { openPage(ProfilePage.Playback) },
-                                        icon = AppIcons.Play,
-                                        iconTint = SettingTint.playback,
-                                    )
-                                    SettingsDivider()
-                                    SettingRow(
-                                        "一起看",
-                                        when {
-                                            !watchAvailable -> "登录后使用 ›"
-                                            watchState.connected ->
-                                                "房间 ${watchState.roomCode.orEmpty()} ›"
-                                            else -> "$watchNickname ›"
-                                        },
-                                        embedded = true,
-                                        onClick = {
-                                            openPage(
-                                                if (watchAvailable) {
-                                                    ProfilePage.WatchTogether
-                                                } else {
-                                                    ProfilePage.Account
+                            motionItem {
+                                Section(title = "服务器与账号") {
+                                    SettingsCard {
+                                        SettingRow(
+                                            icon = AppIcons.User,
+                                            iconTint = SettingTint.account,
+                                            title = "账号与同步",
+                                            value =
+                                                when (val account = accountState) {
+                                                    AccountState.Restoring -> "正在恢复 ›"
+                                                    is AccountState.RestoreFailed -> "连接失败 · 点此重试 ›"
+                                                    AccountState.SignedOut -> "未登录 ›"
+                                                    is AccountState.SignedIn -> "${account.session.user.nickname} · 加密同步 ›"
                                                 },
-                                            )
-                                        },
-                                        icon = AppIcons.Chat,
-                                        iconTint = SettingTint.watchTogether,
-                                    )
+                                            embedded = true,
+                                            onClick = { openPage(ProfilePage.Account) },
+                                        )
+                                        SettingsDivider()
+                                        SettingRow(
+                                            icon = AppIcons.Server,
+                                            iconTint = SettingTint.servers,
+                                            title = "服务器",
+                                            value =
+                                                if (state.servers.isEmpty()) {
+                                                    "尚未连接 ›"
+                                                } else {
+                                                    val current = state.currentServer?.serverName
+                                                    "${state.servers.size} 台 · ${current ?: "未选择"} ›"
+                                                },
+                                            embedded = true,
+                                            onClick = component.onOpenServers,
+                                        )
+                                    }
                                 }
                             }
-                        }
 
-                        item {
-                            Section(title = "字幕与弹幕") {
-                                SettingsCard {
-                                    SettingRow(
-                                        "弹幕设置",
-                                        when (danmakuSources.size) {
-                                            0 -> "来源 · 关键词屏蔽 · 显示 ›"
-                                            1 -> "1 个来源 · 关键词屏蔽 ›"
-                                            else -> "${danmakuSources.size} 个来源 · 关键词屏蔽 ›"
-                                        },
-                                        embedded = true,
-                                        onClick = { openPage(ProfilePage.Danmaku) },
-                                        icon = AppIcons.Danmaku,
-                                        iconTint = SettingTint.danmaku,
-                                    )
+                            motionItem {
+                                Section(title = "外观与主题") {
+                                    SettingsCard {
+                                        SettingSegmentRow(
+                                            title = "主题",
+                                            options = ThemeModeDisplayOrder.map { it.label },
+                                            selectedIndex = ThemeModeDisplayOrder.indexOf(mode).coerceAtLeast(0),
+                                            onSelect = { prefs.setMode(ThemeModeDisplayOrder[it]) },
+                                            icon = AppIcons.Cloud,
+                                            iconTint = SettingTint.appearance,
+                                        )
+                                        SettingsDivider()
+                                        SettingSegmentRow(
+                                            title = "视觉效果",
+                                            options = GlassStyle.entries.map { it.label },
+                                            selectedIndex = GlassStyle.entries.indexOf(glassStyle),
+                                            onSelect = { prefs.setGlassStyle(GlassStyle.entries[it]) },
+                                            icon = AppIcons.Grid,
+                                            iconTint = SettingTint.components,
+                                        )
+                                        SettingsDivider()
+                                        SettingRow(
+                                            "更多外观与辅助",
+                                            "弹窗动画 · 背景 · 辅助功能 ›",
+                                            embedded = true,
+                                            onClick = { openPage(ProfilePage.Appearance) },
+                                            icon = AppIcons.Info,
+                                            iconTint = SettingTint.appearance,
+                                        )
+                                    }
                                 }
                             }
-                        }
 
-                        item {
-                            Section(title = "下载") {
-                                SettingsCard {
-                                    DownloadRow(
-                                        value =
-                                            when (offlineIndexStatus) {
-                                                OfflineIndexStatus.Loading -> "正在读取… ›"
-                                                OfflineIndexStatus.Failed -> "暂不可用 ›"
-                                                OfflineIndexStatus.Ready -> "${offlineItems.size} 项 ›"
+                            motionItem {
+                                Section(title = "播放") {
+                                    SettingsCard {
+                                        SettingRow(
+                                            "播放设置",
+                                            "${playbackSettingsSummary(optimizationMode, decoder)} ›",
+                                            embedded = true,
+                                            onClick = { openPage(ProfilePage.Playback) },
+                                            icon = AppIcons.Play,
+                                            iconTint = SettingTint.playback,
+                                        )
+                                        SettingsDivider()
+                                        SettingRow(
+                                            "一起看",
+                                            when {
+                                                !watchAvailable -> "登录后使用 ›"
+                                                watchState.connected ->
+                                                    "房间 ${watchState.roomCode.orEmpty()} ›"
+                                                else -> "$watchNickname ›"
                                             },
-                                        embedded = true,
-                                        onClick = { openPage(ProfilePage.Downloads) },
-                                    )
+                                            embedded = true,
+                                            onClick = {
+                                                openPage(
+                                                    if (watchAvailable) {
+                                                        ProfilePage.WatchTogether
+                                                    } else {
+                                                        ProfilePage.Account
+                                                    },
+                                                )
+                                            },
+                                            icon = AppIcons.Chat,
+                                            iconTint = SettingTint.watchTogether,
+                                        )
+                                    }
                                 }
                             }
-                        }
 
-                        item {
-                            Section(title = "同步与数据") {
-                                SettingsCard {
-                                    SettingRow(
-                                        "高级设置",
-                                        "网络兼容 · 备份 · 缓存 · 诊断 ›",
-                                        embedded = true,
-                                        onClick = { openPage(ProfilePage.DataAndDiagnostics) },
-                                        icon = AppIcons.Server,
-                                        iconTint = SettingTint.advanced,
-                                    )
+                            motionItem {
+                                Section(title = "字幕与弹幕") {
+                                    SettingsCard {
+                                        SettingRow(
+                                            "弹幕设置",
+                                            when (danmakuSources.size) {
+                                                0 -> "来源 · 关键词屏蔽 · 显示 ›"
+                                                1 -> "1 个来源 · 关键词屏蔽 ›"
+                                                else -> "${danmakuSources.size} 个来源 · 关键词屏蔽 ›"
+                                            },
+                                            embedded = true,
+                                            onClick = { openPage(ProfilePage.Danmaku) },
+                                            icon = AppIcons.Danmaku,
+                                            iconTint = SettingTint.danmaku,
+                                        )
+                                    }
                                 }
                             }
-                        }
 
-                        item {
-                            Section(title = "关于") {
-                                AppUpdateTools()
-                                AppVersionFooter()
+                            motionItem {
+                                Section(title = "下载") {
+                                    SettingsCard {
+                                        DownloadRow(
+                                            value =
+                                                when (offlineIndexStatus) {
+                                                    OfflineIndexStatus.Loading -> "正在读取… ›"
+                                                    OfflineIndexStatus.Failed -> "暂不可用 ›"
+                                                    OfflineIndexStatus.Ready -> "${offlineItems.size} 项 ›"
+                                                },
+                                            embedded = true,
+                                            onClick = { openPage(ProfilePage.Downloads) },
+                                        )
+                                    }
+                                }
+                            }
+
+                            motionItem {
+                                Section(title = "同步与数据") {
+                                    SettingsCard {
+                                        SettingRow(
+                                            "高级设置",
+                                            "网络兼容 · 备份 · 缓存 · 诊断 ›",
+                                            embedded = true,
+                                            onClick = { openPage(ProfilePage.DataAndDiagnostics) },
+                                            icon = AppIcons.Server,
+                                            iconTint = SettingTint.advanced,
+                                        )
+                                    }
+                                }
+                            }
+
+                            motionItem {
+                                Section(title = "关于") {
+                                    AppUpdateTools()
+                                    AppVersionFooter()
+                                }
                             }
                         }
                     }
@@ -968,7 +979,7 @@ internal fun SettingsPage(
         contentPadding = PaddingValues(top = SettingsHeaderTop, bottom = bottomContentInset),
         verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
-        item { SettingsPageHeader(title = title, subtitle = subtitle, onBack = onBack) }
+        motionItem { SettingsPageHeader(title = title, subtitle = subtitle, onBack = onBack) }
         content()
     }
 }
@@ -1240,7 +1251,7 @@ private fun BrandAndSplashScreen(
         subtitle = "更换 Logo 会带上它自己的开屏；启动器可能需要几秒刷新",
         onBack = onBack,
     ) {
-        item {
+        motionItem {
             Section(title = "APP 图标") {
                 SettingsCard {
                     AppIconVariant.entries.forEachIndexed { index, variant ->
@@ -1250,13 +1261,13 @@ private fun BrandAndSplashScreen(
                 }
             }
         }
-        item {
+        motionItem {
             Section(title = "开屏动画") {
                 SettingsCard { SwitchRow("启动时播放", enabled, true) { prefs.setSplashAnimation(it) } }
             }
         }
         if (enabled) {
-            items(SplashAnimation.entries) { variant ->
+            motionItems(SplashAnimation.entries) { variant ->
                 val active = variant == selected
                 Column(
                     Modifier
@@ -1548,12 +1559,14 @@ private fun SettingSegmentControl(
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
+    val indicator = rememberSegmentIndicator(selectedIndex, palette.card2, accent.border)
     Row(
         Modifier
             .then(if (expanded) Modifier.fillMaxWidth() else Modifier)
             .selectableGroup()
             .flatGlass(GlassShapes.chip, palette.card3, palette.border)
-            .padding(2.dp),
+            .padding(2.dp)
+            .then(indicator.container),
         horizontalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         options.forEachIndexed { index, label ->
@@ -1562,6 +1575,7 @@ private fun SettingSegmentControl(
                 Modifier
                     .then(if (expanded) Modifier.weight(1f) else Modifier)
                     .heightIn(min = 30.dp)
+                    .then(indicator.item(index))
                     .pressable(
                         pressedScale = 0.97f,
                         haptic = HapticSignal.Select,
@@ -1570,19 +1584,13 @@ private fun SettingSegmentControl(
                         onClickLabel = label,
                         onClick = { onSelect(index) },
                     ).semantics { selected = isSelected }
-                    .liquidGlass(
-                        shape = GlassShapes.chip,
-                        fill = if (isSelected) palette.card2 else Color.Transparent,
-                        border = if (isSelected) accent.border else Color.Transparent,
-                        over = palette.background,
-                        sheen = if (isSelected) 0.66f else 0.28f,
-                    ).padding(horizontal = if (expanded) 6.dp else 12.dp, vertical = 6.dp),
+                    .padding(horizontal = if (expanded) 6.dp else 12.dp, vertical = 6.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
                     label,
                     style = if (isSelected) AppTypography.caption.strong else AppTypography.caption.medium,
-                    color = if (isSelected) accent.accent else palette.sub2,
+                    color = selectionColor(if (isSelected) accent.accent else palette.sub2),
                     maxLines = 1,
                 )
             }

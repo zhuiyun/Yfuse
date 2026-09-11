@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Window equivalents of Motion.EMPHASIZED and the compact dialog exit. -->
+    <integer name="player_enter_duration">280</integer>
+    <integer name="player_exit_duration">240</integer>
+</resources>

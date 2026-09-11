@@ -16,11 +16,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -46,10 +43,14 @@ import com.yfuse.core.designsystem.Poster
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.heroScrim
 import com.yfuse.core.designsystem.motionAwareScrollToItem
+import com.yfuse.core.designsystem.motionItem
+import com.yfuse.core.designsystem.motionItemsIndexed
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.Episode
 import com.yfuse.core.network.EmbyImages
+import com.yfuse.core.designsystem.ThemeIcon as Icon
+import com.yfuse.core.designsystem.ThemeText as Text
 
 /**
  * 查看全部 — one season, every episode, laid out to be read rather than skimmed.
@@ -108,7 +109,7 @@ internal fun SeasonEpisodesPage(
                 state = listState,
                 contentPadding = PaddingValues(bottom = Dimens.contentBottom),
             ) {
-                item(key = "season-hero") {
+                motionItem(key = "season-hero") {
                     Box(Modifier.fillMaxWidth().height(268.dp)) {
                         FallbackImage(
                             urls = heroUrls,
@@ -147,7 +148,7 @@ internal fun SeasonEpisodesPage(
                     }
                 }
 
-                itemsIndexed(
+                motionItemsIndexed(
                     episodes,
                     key = { index, episode -> "all-ep-${episode.id}-$index" },
                 ) { _, episode ->

@@ -17,6 +17,7 @@ import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.HttpRequestData
 import io.ktor.client.request.HttpResponseData
 import io.ktor.serialization.kotlinx.json.json
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
@@ -28,6 +29,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -291,6 +293,7 @@ class SeriesCalendarLoadingTest {
         external: HttpClient,
         library: HttpClient,
         savedServer: SavedServer = server,
+        localStore: CalendarLocalStore = NoOpCalendarLocalStore,
     ): AiringCalendarRepository {
         val settings = MapSettings()
         val registry = ServerRegistry(settings, TestSecureStore()).apply { addOrUpdate(savedServer) }
@@ -301,8 +304,112 @@ class SeriesCalendarLoadingTest {
             schedules,
             CalendarIdentityResolver(schedules, settings),
             CalendarFollowStore(settings),
+            localStore,
         )
     }
+
+    @Test
+    fun cancelling_calendar_storage_stops_the_load_instead_of_reporting_a_write_failure() =
+        runTest {
+            for (stage in listOf("snapshot", "binding_read", "binding_write", "calendar_write")) {
+                val cancelled = CancellationException("Cancelled $stage")
+                val localStore =
+                    object : CalendarLocalStore by NoOpCalendarLocalStore {
+                        override suspend fun readCalendar(
+                            fromDate: String,
+                            toDate: String,
+                            scope: String,
+                        ): CalendarLocalSnapshot? {
+                            if (stage == "snapshot") throw cancelled
+                            return null
+                        }
+
+                        override suspend fun readBindings(
+                            serverId: String,
+                            tmdbIds: Set<Int>,
+                        ): Map<Int, String> {
+                            if (stage == "binding_read") throw cancelled
+                            return emptyMap()
+                        }
+
+                        override suspend fun upsertBindings(bindings: List<CalendarSeriesBinding>) {
+                            if (stage == "binding_write") throw cancelled
+                        }
+
+                        override suspend fun replaceCalendarWindow(
+                            fromDate: String,
+                            toDate: String,
+                            scope: String,
+                            days: List<CalendarDay>,
+                            scheduleSyncedAtEpochMs: Long,
+                            resourcesCheckedAtEpochMs: Long,
+                            seriesScope: Set<Int>?,
+                        ) {
+                            if (stage == "calendar_write") throw cancelled
+                        }
+                    }
+                val external = client { json("{}") }
+                val library = client { error("Complete hint must not need a network lookup") }
+                try {
+                    assertEquals(
+                        cancelled.message,
+                        assertFailsWith<CancellationException>(stage) {
+                            repository(external, library, localStore = localStore).seriesCalendar(
+                                42,
+                                "剧集",
+                                today = "2026-09-04",
+                                libraryHint =
+                                    SeriesCalendarLibraryHint(
+                                        42,
+                                        server,
+                                        "series",
+                                        listOf(episode),
+                                        episodesComplete = true,
+                                    ),
+                            )
+                        }.message,
+                    )
+                } finally {
+                    external.close()
+                    library.close()
+                }
+            }
+        }
+
+    @Test
+    fun a_real_binding_write_failure_keeps_resolved_calendar_rows_available() =
+        runTest {
+            val external = client { json("{}") }
+            val library = client { error("Complete hint must not need a network lookup") }
+            val localStore =
+                object : CalendarLocalStore by NoOpCalendarLocalStore {
+                    override suspend fun upsertBindings(bindings: List<CalendarSeriesBinding>) {
+                        error("Storage unavailable")
+                    }
+                }
+            try {
+                val rows =
+                    repository(external, library, localStore = localStore)
+                        .seriesCalendar(
+                            42,
+                            "剧集",
+                            today = "2026-09-04",
+                            libraryHint =
+                                SeriesCalendarLibraryHint(
+                                    42,
+                                    server,
+                                    "series",
+                                    listOf(episode),
+                                    episodesComplete = true,
+                                ),
+                        ).getOrThrow()
+                        .flatMap(CalendarDay::entries)
+                assertEquals(LibraryStatus.Available, rows.single().status)
+            } finally {
+                external.close()
+                library.close()
+            }
+        }
 
     @Test
     fun tracking_artwork_uses_the_plex_poster_path_and_current_server_token() =

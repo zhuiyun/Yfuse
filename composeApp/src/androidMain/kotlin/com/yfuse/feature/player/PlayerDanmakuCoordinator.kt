@@ -43,7 +43,7 @@ internal data class PlayerDanmakuController(
 @Composable
 internal fun rememberPlayerDanmakuController(
     currentItem: PlayerMediaItem?,
-    positionMs: Long,
+    positionMs: () -> Long,
     preferences: DanmakuPreferences,
     repository: DanmakuRepository,
 ): PlayerDanmakuController {
@@ -268,6 +268,7 @@ internal fun rememberPlayerDanmakuController(
                 val activeSource = source
                 val activeEpisodeId = episodeId
                 if (activeSource != null && activeEpisodeId != null) {
+                    val capturedPosition = positionMs()
                     sending = true
                     sendError = null
                     scope.launch {
@@ -276,7 +277,7 @@ internal fun rememberPlayerDanmakuController(
                                 source = activeSource,
                                 episodeId = activeEpisodeId,
                                 text = text,
-                                positionMs = positionMs,
+                                positionMs = capturedPosition,
                             ).fold(
                                 onSuccess = {
                                     sending = false

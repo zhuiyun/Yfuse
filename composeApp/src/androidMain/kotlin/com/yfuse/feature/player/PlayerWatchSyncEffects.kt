@@ -3,6 +3,7 @@ package com.yfuse.feature.player
 import android.annotation.SuppressLint
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -39,15 +40,17 @@ private const val SHORTER_CUT_WARNING = "你的影片比房间版本短，已停
 internal fun PlayerWatchSyncEffects(
     items: List<PlayerMediaItem>,
     player: YPlayer,
-    playbackState: PlaybackState,
+    playbackState: State<PlaybackState>,
     watchState: WatchTogetherState,
     castAuthoritative: Boolean,
     watchTogether: WatchTogetherClient,
     playbackGate: WatchGatedPlayback,
     onRemotePlayRequested: () -> Boolean,
 ) {
+    val latestItems by rememberUpdatedState(items)
     val latestPlayer by rememberUpdatedState(player)
-    val latestPlaybackState by rememberUpdatedState(playbackState)
+    val latestPlaybackState by playbackState
+    val readiness by rememberPlayerControlSnapshot(playbackState)
     val latestRemotePlayRequested by rememberUpdatedState(onRemotePlayRequested)
     val mediaMatcher =
         remember(watchTogether) {
@@ -97,7 +100,7 @@ internal fun PlayerWatchSyncEffects(
                 val timeline = watchTogether.timeline.value
                 if (timeline != null) {
                     lastNominalRate = timeline.rate
-                    val targetIndex = mediaMatcher.resolve(items, timeline.mediaKey)
+                    val targetIndex = mediaMatcher.resolve(latestItems, timeline.mediaKey)
                     if (targetIndex != null) {
                         val position = latestPlayer.currentPositionMs()
                         val landed =
@@ -212,21 +215,21 @@ internal fun PlayerWatchSyncEffects(
         watchState.reconnecting,
         watchState.localMediaAvailable,
         watchState.canControl,
-        playbackState.buffering,
-        playbackState.error,
-        playbackState.currentIndex,
-        playbackState.durationMs,
+        readiness.buffering,
+        readiness.error,
+        readiness.currentIndex,
+        readiness.durationMs,
     ) {
         if (watchState.connected && !watchState.reconnecting) {
             watchTogether.updatePlaybackStatus(
                 ready =
                     watchState.localMediaAvailable &&
-                        !playbackState.buffering &&
-                        playbackState.error == null,
-                buffering = playbackState.buffering,
+                        !readiness.buffering &&
+                        readiness.error == null,
+                buffering = readiness.buffering,
                 mediaAvailable = watchState.localMediaAvailable,
                 syncDriftMs = if (watchState.isHost) 0L else null,
-                durationMs = playbackState.durationMs,
+                durationMs = readiness.durationMs,
             )
         }
     }

@@ -2,15 +2,19 @@ package com.yfuse.feature.player
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import com.yfuse.core.data.SkipMode
 import com.yfuse.core.data.SkipSegmentPreferences
 import com.yfuse.core.data.SkipTimes
+import com.yfuse.core.model.PlaybackSegment
 import com.yfuse.core.model.PlaybackSegmentType
 import kotlinx.coroutines.delay
 
@@ -21,6 +25,7 @@ private const val AUTO_SKIP_COUNTDOWN_TICK_MS = 100L
 internal data class PlayerSkipController(
     val state: SkipSegmentState,
     val actions: SkipSegmentActions,
+    val nextItemBoundaryMs: Long?,
 )
 
 /** Movies have no series id, so intro/outro controls and automatic skipping are episode-only. */
@@ -78,11 +83,12 @@ internal fun observedForwardPlaybackOutsideCredits(
 @Composable
 internal fun rememberPlayerSkipController(
     currentItem: PlayerMediaItem?,
-    playbackState: PlaybackState,
+    playback: State<PlaybackState>,
     preferences: SkipSegmentPreferences,
     playbackGate: WatchGatedPlayback,
     watchGuest: Boolean,
 ): PlayerSkipController {
+    val playbackState by remember(playback) { derivedStateOf { playback.value.runtimeProjection() } }
     val timesBySeries by preferences.bySeries.collectAsState()
     val mode by preferences.skipMode.collectAsState()
     val legacySeriesId = currentItem?.seriesId?.takeIf(::skipSegmentsAvailableFor)
@@ -121,7 +127,7 @@ internal fun rememberPlayerSkipController(
         preferences.migrateLegacyCredits(key, playbackState.durationMs)
     }
     // Credits are stored as a distance back from the end, so duration participates in the key.
-    val activeSegment =
+    val segments =
         remember(currentItem, skipSeriesKey, timesBySeries, playbackState.durationMs) {
             if (skipSeriesKey == null) {
                 emptyList()
@@ -132,12 +138,17 @@ internal fun rememberPlayerSkipController(
                     durationMs = playbackState.durationMs,
                 )
             }
-        }.firstOrNull { segment ->
-            segment.contains(playbackState.positionMs, playbackState.durationMs)
         }
+    val activeSegment by remember(segments, playback) {
+        derivedStateOf {
+            playback.value.let { current ->
+                segments.firstOrNull { it.contains(current.positionMs, current.durationMs) }
+            }
+        }
+    }
     val skipSegment: () -> Unit = {
         when (activeSegment?.type) {
-            PlaybackSegmentType.Intro -> activeSegment.endMs?.let(playbackGate::seekTo)
+            PlaybackSegmentType.Intro -> activeSegment?.endMs?.let(playbackGate::seekTo)
             PlaybackSegmentType.Credits ->
                 if (playbackState.hasNext) {
                     playbackGate.selectNext()
@@ -151,32 +162,33 @@ internal fun rememberPlayerSkipController(
     // An occurrence stays settled after a cancel or skip, even if the viewer rewinds into it.
     val settled = remember { mutableStateOf<Pair<String, PlaybackSegmentType>?>(null) }
     var creditsEnteredFromPlayback by remember(currentItem?.id) { mutableStateOf(false) }
+    var creditsPreloadCancelled by remember(currentItem?.id) { mutableStateOf(false) }
     var lastOutsideCreditsPositionMs by remember(currentItem?.id) { mutableStateOf<Long?>(null) }
     var countdownSeconds by remember { mutableStateOf<Int?>(null) }
     val occurrence = activeSegment?.let { segment -> currentItem?.id?.let { it to segment.type } }
-    LaunchedEffect(
-        currentItem?.id,
-        activeSegment?.type,
-        playbackState.playing,
-        playbackState.buffering,
-        playbackState.positionMs,
-    ) {
-        if (currentItem == null) return@LaunchedEffect
-        val playbackReady = playbackState.playing && !playbackState.buffering
-        if (
-            observedForwardPlaybackOutsideCredits(
-                previousPositionMs = lastOutsideCreditsPositionMs,
-                positionMs = playbackState.positionMs,
-                segmentType = activeSegment?.type,
-                playbackReady = playbackReady,
-            )
-        ) {
-            creditsEnteredFromPlayback = true
-        }
-        if (playbackReady && activeSegment?.type != PlaybackSegmentType.Credits) {
-            lastOutsideCreditsPositionMs = playbackState.positionMs
+    LaunchedEffect(currentItem?.id, segments, playback) {
+        snapshotFlow { playback.value }.collect { current ->
+            if (currentItem != null) {
+                val active = segments.firstOrNull { it.contains(current.positionMs, current.durationMs) }
+                val ready = current.playing && !current.buffering
+                if (observedForwardPlaybackOutsideCredits(
+                        previousPositionMs = lastOutsideCreditsPositionMs,
+                        positionMs = current.positionMs,
+                        segmentType = active?.type,
+                        playbackReady = ready,
+                    )
+                ) {
+                    creditsEnteredFromPlayback = true
+                }
+                if (ready &&
+                    active?.type != PlaybackSegmentType.Credits
+                ) {
+                    lastOutsideCreditsPositionMs = current.positionMs
+                }
+            }
         }
     }
+
     val playbackReady = playbackState.playing && !playbackState.buffering
     var armedOccurrence by remember(currentItem?.id) {
         mutableStateOf<Pair<String, PlaybackSegmentType>?>(null)
@@ -264,6 +276,14 @@ internal fun rememberPlayerSkipController(
     }
 
     return PlayerSkipController(
+        nextItemBoundaryMs =
+            nextItemCreditsBoundary(
+                segments = segments,
+                durationMs = playbackState.durationMs,
+                mode = mode,
+                cancelled = creditsPreloadCancelled,
+                watchGuest = watchGuest,
+            ),
         state =
             SkipSegmentState(
                 segmentLabel =
@@ -284,7 +304,10 @@ internal fun rememberPlayerSkipController(
         actions =
             SkipSegmentActions(
                 onSkip = skipSegment,
-                onCancelAuto = { settled.value = occurrence },
+                onCancelAuto = {
+                    settled.value = occurrence
+                    if (occurrence?.second == PlaybackSegmentType.Credits) creditsPreloadCancelled = true
+                },
                 onSetTimes = { introStart, introEnd, creditsLead ->
                     val seriesKey = skipSeriesKey
                     if (seriesKey != null) {
@@ -305,3 +328,22 @@ internal fun rememberPlayerSkipController(
             ),
     )
 }
+
+/** Manual credits buttons can be pressed at entry; do not wait for the automatic countdown. */
+internal fun nextItemCreditsBoundary(
+    segments: List<PlaybackSegment>,
+    durationMs: Long,
+    mode: SkipMode,
+    cancelled: Boolean,
+    watchGuest: Boolean,
+): Long? =
+    if (mode == SkipMode.Off || cancelled || watchGuest) {
+        null
+    } else {
+        segments
+            .filter {
+                it.type == PlaybackSegmentType.Credits &&
+                    it.startMs > 0L &&
+                    (durationMs <= 0L || it.startMs < durationMs)
+            }.minOfOrNull { it.startMs }
+    }

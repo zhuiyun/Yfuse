@@ -31,27 +31,27 @@ public class NavigationState {
 
     private func initialStack(tab: RootTab): ArrayList<AppRoute> {
         let value = ArrayList<AppRoute>()
-        value.append(AppRoute.Root(tab))
+        value.add(AppRoute.Root(tab))
         return value
     }
 
     public func selectTab(tab: RootTab): Unit { activeTab = tab }
 
     public func push(route: AppRoute): Unit {
-        if (let Some(stack) <- stacks.get(tabKey(activeTab))) { stack.append(route) }
+        if (let Some(stack) <- stacks.get(tabKey(activeTab))) { stack.add(route) }
     }
 
     public func replace(route: AppRoute): Unit {
         if (let Some(stack) <- stacks.get(tabKey(activeTab))) {
-            if (!stack.isEmpty()) { stack.remove(stack.size - 1) }
-            stack.append(route)
+            if (!stack.isEmpty()) { stack.remove(at: stack.size - 1) }
+            stack.add(route)
         }
     }
 
     public func pop(): Bool {
         if (let Some(stack) <- stacks.get(tabKey(activeTab))) {
             if (stack.size > 1) {
-                stack.remove(stack.size - 1)
+                stack.remove(at: stack.size - 1)
                 return true
             }
         }

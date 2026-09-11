@@ -6,7 +6,7 @@ import com.yfuse.core2.demux.YDemuxSource
 import com.yfuse.core2.demux.YDemuxer
 import com.yfuse.core2.demux.YSubtitlePacketDecoder
 import com.yfuse.core2.demux.YTrackId
-import com.yfuse.core2.subtitle.YSubtitleCue
+import com.yfuse.core2.subtitle.YSubtitleDecodeResult
 import com.yfuse.core2.subtitle.YSubtitleFormat
 import com.yfuse.core2.subtitle.YSubtitlePayload
 import kotlinx.coroutines.CancellationException
@@ -52,9 +52,15 @@ internal class AndroidDemuxReadAheadNode(
 
     val name: String get() = delegate.name
 
-    fun open(source: YDemuxSource): YDemuxOpenResult =
+    fun open(
+        source: YDemuxSource,
+        budget: AndroidProbeBudget? = null,
+    ): YDemuxOpenResult =
         runOnOwner {
-            delegate.open(source).also { result ->
+            budget?.ensureActive()
+            val result = if (delegate is AndroidFfmpegDemuxer) delegate.open(source, budget) else delegate.open(source)
+            result.also {
+                budget?.ensureActive()
                 synchronized(monitor) {
                     opened = true
                     tracksSelected = false
@@ -66,6 +72,11 @@ internal class AndroidDemuxReadAheadNode(
                 }
             }
         }
+
+    /** Only signal the native interrupt flag here; all context destruction stays on the owner. */
+    fun cancelPendingRead() {
+        (delegate as? AndroidFfmpegDemuxer)?.cancelPendingRead()
+    }
 
     /** Transfers an already-open, idle demuxer to this owner without repeating source analysis. */
     fun adoptOpen(result: YDemuxOpenResult): YDemuxOpenResult =
@@ -203,6 +214,7 @@ internal class AndroidDemuxReadAheadNode(
         }
 
     fun close() {
+        cancelPendingRead()
         val owner =
             synchronized(monitor) {
                 opened = false
@@ -289,7 +301,7 @@ internal class AndroidDemuxReadAheadNode(
                     sample?.let {
                         YQueuedDemuxResult.Sample(
                             value = it,
-                            subtitleCues =
+                            subtitleResult =
                                 if (it.trackId in nativeSubtitleTracks) {
                                     com.yfuse.core2.api.yPlaybackStage(
                                         category = com.yfuse.core2.api.YPlaybackFailureCategory.Container,
@@ -406,11 +418,11 @@ internal class AndroidDemuxReadAheadNode(
 internal sealed interface YQueuedDemuxResult {
     data class Sample(
         val value: YCompressedSample,
-        val subtitleCues: List<YSubtitleCue>? = null,
+        val subtitleResult: YSubtitleDecodeResult? = null,
     ) : YQueuedDemuxResult {
         val memoryBytes: Long =
             value.data.size.toLong() +
-                subtitleCues.orEmpty().sumOf { cue ->
+                subtitleResult?.cues.orEmpty().sumOf { cue ->
                     when (val payload = cue.payload) {
                         is YSubtitlePayload.BitmapArgb -> payload.pixels.size.toLong() * 4L
                         is YSubtitlePayload.Encoded -> payload.data.size.toLong()

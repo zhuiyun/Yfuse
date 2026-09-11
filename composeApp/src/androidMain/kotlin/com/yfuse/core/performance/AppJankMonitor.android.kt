@@ -1,5 +1,7 @@
 package com.yfuse.core.performance
 
+import android.app.Activity
+import android.content.ContextWrapper
 import android.os.SystemClock
 import android.view.Window
 import androidx.metrics.performance.FrameData
@@ -10,9 +12,19 @@ import com.yfuse.core.logging.AppLog
 class AppJankMonitor(
     window: Window,
 ) {
-    private var jankFrames = 0
-    private var longestFrameNanos = 0L
-    private var reportWindowStartedMs = SystemClock.elapsedRealtime()
+    private val activityContext =
+        generateSequence(window.context) { context ->
+            (context as? ContextWrapper)?.baseContext?.takeUnless {
+                it ===
+                    context
+            }
+        }.take(8)
+            .filterIsInstance<Activity>()
+            .firstOrNull()
+            ?.javaClass
+            ?.simpleName
+            ?: "unknown"
+    private val frames = JankFrameWindow()
     private val stats = JankStats.createAndTrack(window, ::onFrame)
 
     init {
@@ -20,45 +32,124 @@ class AppJankMonitor(
     }
 
     fun start() {
-        reportWindowStartedMs = SystemClock.elapsedRealtime()
+        frames.start(SystemClock.elapsedRealtime(), System.nanoTime())
         stats.isTrackingEnabled = true
     }
 
     fun stop() {
         stats.isTrackingEnabled = false
-        report("activity_stopped")
+        frames.stop(SystemClock.elapsedRealtime())?.let { report(it, "activity_stopped") }
     }
 
     private fun onFrame(frameData: FrameData) {
-        if (!frameData.isJank) return
-        jankFrames += 1
-        longestFrameNanos = maxOf(longestFrameNanos, frameData.frameDurationUiNanos)
-        if (SystemClock.elapsedRealtime() - reportWindowStartedMs >= REPORT_INTERVAL_MS) {
-            report("interval_elapsed")
-        }
+        frames
+            .record(
+                nowMs = SystemClock.elapsedRealtime(),
+                frameStartNanos = frameData.frameStartNanos,
+                durationNanos = frameData.frameDurationUiNanos,
+                isJank = frameData.isJank,
+            )?.let { report(it, "interval_elapsed") }
     }
 
-    private fun report(reason: String) {
-        if (jankFrames > 0) {
+    private fun report(
+        summary: JankFrameSummary,
+        reason: String,
+    ) {
+        val attributes =
+            mapOf(
+                "frames" to summary.jankFrames.toString(),
+                "totalFrames" to summary.totalFrames.toString(),
+                "windowMs" to summary.windowMs.toString(),
+                "longest_ms" to (summary.longestFrameNanos / 1_000_000L).toString(),
+                "activity" to activityContext,
+                "reason" to reason,
+            )
+        if (summary.jankFrames > 0) {
             AppLog.warning(
                 category = "performance.ui",
                 event = "jank_summary",
                 message = "Slow UI frames detected",
-                attributes =
-                    mapOf(
-                        "frames" to jankFrames.toString(),
-                        "longest_ms" to (longestFrameNanos / NANOS_PER_MILLISECOND).toString(),
-                        "reason" to reason,
-                    ),
+                attributes = attributes,
+            )
+        } else {
+            AppLog.info(
+                category = "performance.ui",
+                event = "frame_summary",
+                message = "UI frame observation window completed",
+                attributes = attributes,
             )
         }
-        jankFrames = 0
-        longestFrameNanos = 0L
-        reportWindowStartedMs = SystemClock.elapsedRealtime()
+    }
+}
+
+internal data class JankFrameSummary(
+    val totalFrames: Long,
+    val jankFrames: Long,
+    val longestFrameNanos: Long,
+    val windowMs: Long,
+)
+
+/** Callback and lifecycle threads share one atomic window; reporting happens after it is detached. */
+internal class JankFrameWindow(
+    private val intervalMs: Long = 10_000L,
+) {
+    private var active = false
+    private var activeStartedNanos = 0L
+    private var windowStartedMs = 0L
+    private var totalFrames = 0L
+    private var jankFrames = 0L
+    private var longestFrameNanos = 0L
+
+    @Synchronized
+    fun start(
+        nowMs: Long,
+        nowNanos: Long,
+    ) {
+        if (active) return
+        active = true
+        activeStartedNanos = nowNanos
+        windowStartedMs = nowMs
     }
 
-    private companion object {
-        const val REPORT_INTERVAL_MS = 10_000L
-        const val NANOS_PER_MILLISECOND = 1_000_000L
+    @Synchronized
+    fun record(
+        nowMs: Long,
+        frameStartNanos: Long,
+        durationNanos: Long,
+        isJank: Boolean,
+    ): JankFrameSummary? {
+        // A queued callback may arrive after stop or even after a subsequent start. Choreographer
+        // frame starts and System.nanoTime share the monotonic clock (unlike elapsedRealtime).
+        if (!active || frameStartNanos < activeStartedNanos) return null
+        totalFrames++
+        if (isJank) jankFrames++
+        longestFrameNanos = maxOf(longestFrameNanos, durationNanos)
+        return if (nowMs - windowStartedMs >= intervalMs) drain(nowMs) else null
+    }
+
+    @Synchronized
+    fun stop(nowMs: Long): JankFrameSummary? {
+        if (!active) return null
+        active = false
+        return drain(nowMs)
+    }
+
+    private fun drain(nowMs: Long): JankFrameSummary? {
+        val summary =
+            if (totalFrames > 0) {
+                JankFrameSummary(
+                    totalFrames,
+                    jankFrames,
+                    longestFrameNanos,
+                    (nowMs - windowStartedMs).coerceAtLeast(0L),
+                )
+            } else {
+                null
+            }
+        totalFrames = 0L
+        jankFrames = 0L
+        longestFrameNanos = 0L
+        windowStartedMs = nowMs
+        return summary
     }
 }

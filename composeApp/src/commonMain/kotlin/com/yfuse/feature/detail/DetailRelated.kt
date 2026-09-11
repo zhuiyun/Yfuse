@@ -10,8 +10,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
@@ -25,10 +23,12 @@ import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.MediaSharedElementKey
 import com.yfuse.core.designsystem.Poster
+import com.yfuse.core.designsystem.motionItemsIndexed
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.sharedMediaOnClick
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.network.EmbyImages
+import com.yfuse.core.designsystem.ThemeText as Text
 
 @Composable
 internal fun RelatedSection(
@@ -49,7 +49,7 @@ internal fun RelatedSection(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
         ) {
-            itemsIndexed(
+            motionItemsIndexed(
                 items,
                 key = { index, item -> "related-${item.id}-$index" },
             ) { _, item ->

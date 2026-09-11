@@ -1,6 +1,6 @@
 package com.yfuse.harmony.entry.support
 
-import encoding.json.*
+import stdx.encoding.json.*
 import std.collection.*
 import com.yfuse.harmony.entry.data.*
 import com.yfuse.harmony.entry.player.*
@@ -31,7 +31,7 @@ public class DiagnosticSnapshot {
         root.put("osVersion", JsonString(osVersion))
         root.put("deviceModel", JsonString(deviceModel))
         root.put("networkType", JsonString(networkType))
-        if (let Some(value) <- playback) { root.put("playback", JsonValue.fromStr(value.toJson())) }
+        if (let Some(value) <- playback) { root.put("playback", JsonValue.fromStr(playbackEvidenceJson(value))) }
         let events = JsonArray()
         for (event in recentEvents) { events.add(JsonString(redact(event))) }
         root.put("recentEvents", events)
@@ -45,6 +45,37 @@ private func redact(value: String): String {
         return "[已移除包含凭据的诊断事件]"
     }
     return value
+}
+
+/**
+ * Redacted playback evidence.
+ *
+ * This lives with the exporter rather than on `PlaybackEvidence` so the player package stays
+ * free of a serialization dependency and remains testable on a host compiler. Tokens and full
+ * URLs are never part of exported evidence.
+ */
+public func playbackEvidenceJson(evidence: PlaybackEvidence): String {
+    let evidenceJson = JsonObject()
+    evidenceJson.put("sourceId", JsonString(evidence.sourceId))
+    evidenceJson.put("route", JsonString(evidence.route))
+    evidenceJson.put("engine", JsonString(evidence.engine))
+    evidenceJson.put("container", JsonString(evidence.container))
+    evidenceJson.put("videoCodec", JsonString(evidence.videoCodec))
+    evidenceJson.put("audioCodec", JsonString(evidence.audioCodec))
+    evidenceJson.put("decoder", JsonString(evidence.decoder))
+    evidenceJson.put("renderer", JsonString(evidence.renderer))
+    evidenceJson.put("audioSink", JsonString(evidence.audioSink))
+    evidenceJson.put("hdrRequested", JsonString(evidence.hdrRequested))
+    evidenceJson.put("hdrOutputVerified", JsonBool(evidence.hdrOutputVerified))
+    evidenceJson.put("dolbyVisionOutputVerified", JsonBool(evidence.dolbyVisionOutputVerified))
+    evidenceJson.put("encodedAudioOutputVerified", JsonBool(evidence.encodedAudioOutputVerified))
+    evidenceJson.put("avSyncOffsetMs", JsonInt(evidence.avSyncOffsetMs))
+    evidenceJson.put("droppedFrames", JsonInt(evidence.droppedFrames))
+    evidenceJson.put("rebufferCount", JsonInt(evidence.rebufferCount))
+    evidenceJson.put("handoverCount", JsonInt(evidence.handoverCount))
+    evidenceJson.put("failureCategory", JsonString(evidence.failureCategory))
+    evidenceJson.put("failureReason", JsonString(evidence.failureReason))
+    return evidenceJson.toJsonString()
 }
 
 public interface DiagnosticExportPort {

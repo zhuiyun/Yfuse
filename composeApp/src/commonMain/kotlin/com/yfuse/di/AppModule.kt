@@ -70,6 +70,7 @@ import com.yfuse.feature.servers.EmbyQuickConnectGateway
 import com.yfuse.feature.servers.QuickConnectGateway
 import com.yfuse.feature.watch.WatchInviteResolver
 import kotlinx.coroutines.Dispatchers
+import org.koin.core.qualifier.named
 import org.koin.dsl.module
 
 /**
@@ -81,8 +82,10 @@ fun appModule(
     appVersion: String,
     diagnosticPreferences: DiagnosticPreferences = DiagnosticPreferences(settings),
     calendarLocalStore: CalendarLocalStore = NoOpCalendarLocalStore,
+    feedCacheSettings: () -> Settings = { settings },
 ) = module {
     single { settings }
+    single(named("account-http")) { createAccountClient() }
     single { diagnosticPreferences }
     single<CalendarLocalStore> { calendarLocalStore }
     single { VaultCrypto() }
@@ -122,7 +125,7 @@ fun appModule(
         PlaybackQoeReporter(
             settings = get(),
             preferences = get(),
-            client = createAccountClient(),
+            client = get(named("account-http")),
             appVersion = appVersion,
         )
     }
@@ -130,8 +133,8 @@ fun appModule(
     single { DanmakuPreferences(get()) }
     single { SkipSegmentPreferences(get()) }
     single { PlaybackTrackRequest() }
-    single { LibraryCache(get()) }
-    single { TmdbHomeCache(get()) }
+    single { LibraryCache(get(), storage = feedCacheSettings) }
+    single { TmdbHomeCache(lazy(feedCacheSettings)) }
     single { SearchHistory(get()) }
     single<LanDiscovery> { createLanDiscovery() }
     single<QuickConnectGateway> { EmbyQuickConnectGateway(get()) }
@@ -168,7 +171,7 @@ fun appModule(
     }
     single { ServerHealthMonitor(get(), get()) }
     single { CalendarFollowStore(get()) }
-    single { OfficialAiringScheduleCatalog(createAccountClient(), get()) }
+    single { OfficialAiringScheduleCatalog(get(named("account-http")), get()) }
     single {
         AiringCalendarRepository(
             emby = get(),
@@ -185,7 +188,7 @@ fun appModule(
     single { WatchTogetherClient(get(), get(), WatchRoomResumeStore(get())) }
     single { WatchInviteResolver(get(), get()) }
     single<SecureStore> { createSecureStore(get(), namespace = "account") }
-    single { AccountApi(createAccountClient()) }
+    single { AccountApi(get(named("account-http"))) }
     single {
         AccountRepository(
             api = get(),
@@ -203,7 +206,7 @@ fun appModule(
             mutationDispatcher = Dispatchers.Main.immediate,
         )
     }
-    single { PlaybackCloudApi(createAccountClient()) }
+    single { PlaybackCloudApi(get(named("account-http"))) }
     single { PlaybackVaultCipher(get(), get(), get()) }
     single {
         PlaybackSyncManager(

@@ -7,7 +7,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.Executor
 import java.util.concurrent.Executors
 import java.util.concurrent.FutureTask
-import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
@@ -22,7 +22,7 @@ internal class AndroidBlockingMediaProbeLane(
             Thread(task, "Yfuse-MediaProbe").apply { isDaemon = true }
         },
 ) {
-    private val busy = AtomicBoolean(false)
+    private val laneOwner = AtomicReference<Any?>(null)
 
     suspend fun <T : Any> run(
         timeoutMs: Long,
@@ -31,7 +31,8 @@ internal class AndroidBlockingMediaProbeLane(
     ): T =
         withTimeoutOrNull(timeoutMs) {
             suspendCancellableCoroutine<T> { caller ->
-                if (!busy.compareAndSet(false, true)) {
+                val ticket = Any()
+                if (!laneOwner.compareAndSet(null, ticket)) {
                     caller.resume(unavailable())
                     return@suspendCancellableCoroutine
                 }
@@ -48,6 +49,9 @@ internal class AndroidBlockingMediaProbeLane(
                             } finally {
                                 owner.complete()
                             }
+                        // Resuming an undispatched caller may immediately enter its next probe.
+                        // Resource cleanup must finish and the lane must be free before delivery.
+                        laneOwner.compareAndSet(ticket, null)
                         outcome.fold(
                             onSuccess = { caller.resume(it) },
                             onFailure = { caller.resumeWithException(it) },
@@ -64,12 +68,14 @@ internal class AndroidBlockingMediaProbeLane(
                         } finally {
                             owner.cancel()
                             Thread.interrupted()
-                            busy.set(false)
+                            // A cancelled queued task never enters the callable; an older wrapper
+                            // must not clear a following probe's ownership after inline delivery.
+                            laneOwner.compareAndSet(ticket, null)
                         }
                     }
                 } catch (error: Exception) {
                     owner.cancel()
-                    busy.set(false)
+                    laneOwner.compareAndSet(ticket, null)
                     caller.resumeWithException(error)
                 }
             }

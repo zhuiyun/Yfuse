@@ -94,6 +94,7 @@ internal class AndroidMediaExtractorDemuxNode(
     context: Context,
     private val createExtractor: () -> MediaExtractor = ::MediaExtractor,
     private val onBlockingReadStateChanged: ((Boolean) -> Unit)? = null,
+    private val probeBudget: AndroidProbeBudget? = null,
 ) : YPlatformExtractorSource {
     override val name: String = "MediaExtractor"
 
@@ -104,13 +105,17 @@ internal class AndroidMediaExtractorDemuxNode(
     @Volatile
     private var mediaDataSource: MediaDataSource? = null
     private var currentSource: YAndroidMediaSource? = null
+    private var probeCancellation: AutoCloseable? = null
+    private var probeProxy: AndroidYCoreHttpProxy? = null
     private var selectedTracks = emptySet<Int>()
 
     override fun open(source: YAndroidMediaSource) {
         release()
+        probeBudget?.ensureActive()
         val opened = createExtractor()
         try {
             opened.setPrivateDataSource(source)
+            probeBudget?.ensureActive()
             extractor = opened
             currentSource = source
             selectedTracks = emptySet()
@@ -313,6 +318,10 @@ internal class AndroidMediaExtractorDemuxNode(
     override fun flush() = Unit
 
     override fun release() {
+        probeCancellation?.close()
+        probeCancellation = null
+        probeProxy?.close()
+        probeProxy = null
         extractor?.let { runCatching { it.release() } }
         mediaDataSource?.let { runCatching { it.close() } }
         extractor = null
@@ -403,7 +412,30 @@ internal class AndroidMediaExtractorDemuxNode(
             "content", "android.resource", "file" -> setDataSource(appContext, parsed, source.headers)
             "http", "https" -> {
                 if (source.uri.isAdaptiveManifestUri()) {
-                    setDataSource(source.uri, source.headers)
+                    // Platform HTTP opens otherwise hide their socket from cancellation. A private
+                    // proxy lets exit/deadline close the exact downstream socket and upstream call.
+                    val proxy =
+                        if (probeBudget != null) {
+                            AndroidYCoreHttpProxy(
+                                appContext,
+                                userAgent = "",
+                                cacheMaximumBytes = source.cacheMaximumBytes,
+                            )
+                        } else {
+                            null
+                        }
+                    probeProxy = proxy
+                    probeCancellation = proxy?.let { probeBudget?.onCancel(it::close) }
+                    probeBudget?.ensureActive()
+                    val uri =
+                        proxy?.localUrl(
+                            source.uri,
+                            source.headers,
+                            source.credentials,
+                            cacheable = false,
+                            cacheIdentity = source.cacheIdentity,
+                        ) ?: source.uri
+                    setDataSource(uri, source.headers)
                     return
                 }
                 val cronetHostHealth = AndroidCronetHostHealth.shared
@@ -461,6 +493,8 @@ internal class AndroidMediaExtractorDemuxNode(
                         },
                     )
                 mediaDataSource = rangeSource
+                probeCancellation = probeBudget?.onCancel(rangeSource::cancelReads)
+                probeBudget?.ensureActive()
                 setDataSource(rangeSource)
             }
             "webdav", "webdavs" -> {
@@ -484,6 +518,8 @@ internal class AndroidMediaExtractorDemuxNode(
                         createTransport = ::AndroidHttpMediaTransport,
                     )
                 mediaDataSource = rangeSource
+                probeCancellation = probeBudget?.onCancel(rangeSource::cancelReads)
+                probeBudget?.ensureActive()
                 setDataSource(rangeSource)
             }
             "smb" -> {
@@ -501,6 +537,8 @@ internal class AndroidMediaExtractorDemuxNode(
                         createTransport = ::AndroidSmbMediaTransport,
                     )
                 mediaDataSource = rangeSource
+                probeCancellation = probeBudget?.onCancel(rangeSource::cancelReads)
+                probeBudget?.ensureActive()
                 setDataSource(rangeSource)
             }
             else -> setDataSource(source.uri, source.headers)

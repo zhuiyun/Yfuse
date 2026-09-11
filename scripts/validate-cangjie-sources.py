@@ -90,7 +90,7 @@ def main() -> int:
         raise AssertionError("active-tab reselection must unwind the active nested route")
 
     foreign_files = [path.relative_to(SOURCE_ROOT).as_posix() for path in files if "foreign {" in path.read_text(encoding="utf-8")]
-    allowed_foreign = {"player/ycore_ffi.cj", "player/native_capabilities.cj", "storage/secure_store.cj"}
+    allowed_foreign = {"player/ycore_ffi.cj", "player/native_capabilities.cj", "storage/secure_store.cj", "storage/native_preferences.cj"}
     if not set(foreign_files).issubset(allowed_foreign):
         raise AssertionError(f"FFI escaped boundary: {foreign_files}")
 

@@ -80,7 +80,7 @@ public class EncryptedSyncEngine {
         for (mutation in pending) {
             match (cipher.encrypt(mutation, aad(mutation))) {
                 case Failure(problem) => completion(ApiResult<Unit>.Failure(problem)); return
-                case Success(envelope) => envelopes.append(envelope)
+                case Success(envelope) => envelopes.add(envelope)
             }
         }
         remote.push(envelopes, { result =>

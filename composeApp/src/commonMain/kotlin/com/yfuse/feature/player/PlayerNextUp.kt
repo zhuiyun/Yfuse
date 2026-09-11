@@ -11,8 +11,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -34,6 +32,8 @@ import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberAccentColorsForSurface
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.touchTarget
+import com.yfuse.core.designsystem.ThemeIcon as Icon
+import com.yfuse.core.designsystem.ThemeText as Text
 
 /** How long before the end 下一集 announces itself. */
 internal const val NEXT_UP_WINDOW_MS = 10_000L
@@ -51,12 +51,15 @@ internal const val NEXT_UP_WINDOW_MS = 10_000L
 internal fun NextUpCard(
     title: String,
     remainingMs: Long,
+    playbackKey: Any,
+    advancing: Boolean,
+    speed: Float,
     onPlayNow: () -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val accent = rememberAccentColorsForSurface(dark = true)
-    val progress = (remainingMs.toFloat() / NEXT_UP_WINDOW_MS).coerceIn(0f, 1f)
+    val remaining = rememberNextUpRemaining(playbackKey, remainingMs, advancing, speed)
     Row(
         modifier
             .shadow(Shadows.tabBar, GlassShapes.card)
@@ -103,6 +106,7 @@ internal fun NextUpCard(
             contentAlignment = Alignment.Center,
         ) {
             Canvas(Modifier.fillMaxSize()) {
+                val progress = (remaining.value / NEXT_UP_WINDOW_MS).coerceIn(0f, 1f)
                 val stroke = 2.5.dp.toPx()
                 val radius = (size.minDimension - stroke) / 2f
                 drawCircle(

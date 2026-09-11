@@ -9,7 +9,7 @@ import com.yfuse.core2.dolby.YDolbyVisionConfig
 import com.yfuse.core2.hdr.YHdrStaticMetadata
 import com.yfuse.core2.network.YCacheIdentity
 import com.yfuse.core2.network.YTransportCredentials
-import com.yfuse.core2.subtitle.YSubtitleCue
+import com.yfuse.core2.subtitle.YSubtitleDecodeResult
 import com.yfuse.core2.subtitle.YSubtitleFormat
 
 /** Stable track id owned by one demux session. */
@@ -181,5 +181,5 @@ interface YDemuxer {
 interface YSubtitlePacketDecoder {
     fun supportsSubtitleFormat(format: YSubtitleFormat): Boolean
 
-    fun decodeSubtitle(sample: YCompressedSample): List<YSubtitleCue>
+    fun decodeSubtitle(sample: YCompressedSample): YSubtitleDecodeResult
 }

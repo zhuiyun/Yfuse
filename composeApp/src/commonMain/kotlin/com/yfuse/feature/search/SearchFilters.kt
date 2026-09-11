@@ -7,11 +7,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
@@ -31,9 +29,13 @@ import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.OverlayOptionRow
 import com.yfuse.core.designsystem.liquidGlass
+import com.yfuse.core.designsystem.motionItem
+import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.overlayDismiss
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.selectionColor
 import com.yfuse.core.designsystem.touchTarget
+import com.yfuse.core.designsystem.ThemeText as Text
 
 internal enum class SearchFilterSheet { Server, Library, Year, Genre, Status, Sort }
 
@@ -63,7 +65,7 @@ internal fun SearchFilterBar(
         contentPadding = PaddingValues(horizontal = 18.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        items(values) { (sheet, label) ->
+        motionItems(values) { (sheet, label) ->
             val active =
                 when (sheet) {
                     SearchFilterSheet.Server -> state.serverId != null
@@ -76,7 +78,7 @@ internal fun SearchFilterBar(
             Text(
                 label,
                 style = if (active) AppTypography.body.strong else AppTypography.body.medium,
-                color = if (active) accent.accent else palette.body,
+                color = selectionColor(if (active) accent.accent else palette.body),
                 modifier =
                     Modifier
                         .pressable(onClick = { onOpen(sheet) })
@@ -84,14 +86,14 @@ internal fun SearchFilterBar(
                         .liquidGlass(
                             shape = GlassShapes.chip,
                             fill = palette.card2,
-                            border = if (active) accent.border else palette.border,
+                            border = selectionColor(if (active) accent.border else palette.border),
                             over = palette.background,
                             sheen = if (active) 0.70f else 0.58f,
                         ).padding(horizontal = 13.dp, vertical = 7.dp),
             )
         }
         if (state.filterCount > 0) {
-            item {
+            motionItem {
                 Text(
                     "清除 ${state.filterCount}",
                     style = AppTypography.body.strong,

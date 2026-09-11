@@ -1,46 +1,85 @@
 package com.yfuse.core.designsystem
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalAccessibilityManager
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.dismiss
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
+import kotlin.math.abs
+import com.yfuse.core.designsystem.ThemeText as Text
 
-/** Long enough to read a short Chinese sentence, short enough not to sit in the way. */
 private const val TOAST_MS = 2_600L
+private const val MAX_TOASTS = 3
 
-/**
- * 一次性提示 — 「已加入收藏」, 「媒体库中没有此资源」 and the rest.
- *
- * These used to be an ordinary item inside the page's own scrolling list, which meant a
- * confirmation for a button press somewhere else on screen *pushed the whole page down*
- * and then let it snap back. They also never went away on their own: the text sat there
- * until some other action happened to replace it.
- *
- * Floating it over the content fixes both. It arrives from below, holds for [TOAST_MS] and
- * asks to be cleared. Under 减弱动态效果 it appears and leaves without the slide.
- */
+internal class ToastEntry(
+    val message: String,
+    val accent: Color?,
+) {
+    var visible by mutableStateOf(true)
+}
+
+internal class ToastQueue {
+    val entries = mutableStateListOf<ToastEntry>()
+    private var latest: ToastEntry? = null
+
+    fun post(
+        message: String?,
+        accent: Color? = null,
+    ) {
+        if (message == null) {
+            entries.forEach { it.visible = false }
+            latest = null
+            return
+        }
+        entries.removeAll { it.message == message }
+        while (entries.size >= MAX_TOASTS) entries.removeAt(0)
+        val entry = ToastEntry(message, accent)
+        latest = entry
+        entries.add(entry)
+    }
+
+    fun dismiss(entry: ToastEntry): Boolean {
+        val wasVisible = entry.visible
+        entry.visible = false
+        return wasVisible && latest === entry && entry in entries
+    }
+}
+
+/** Bounded, independently timed feedback. Only the latest notice may clear the producer's state. */
 @Composable
 fun BoxScope.ActionToast(
     message: String?,
@@ -48,76 +87,119 @@ fun BoxScope.ActionToast(
     modifier: Modifier = Modifier,
     accent: Color? = null,
 ) {
+    val queue = remember { ToastQueue() }
+    val entries = queue.entries
+    val latestMessage by rememberUpdatedState(message)
+    val latestDismiss by rememberUpdatedState(onDismiss)
+    val duration = if (LocalAccessibilityOptions.current.reduceMotion || !LocalRouteVisible.current) 0 else Motion.TAB
+    LaunchedEffect(message) { queue.post(message, accent) }
+    Column(
+        modifier.align(Alignment.BottomCenter).motionAwareAnimateContentSize(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        entries.forEach { entry ->
+            key(entry) {
+                ActionToastEntry(entry, duration, onClose = {
+                    if (queue.dismiss(entry) && latestMessage == entry.message) latestDismiss()
+                }, onGone = { entries.remove(entry) })
+            }
+        }
+    }
+}
+
+@Composable
+private fun ActionToastEntry(
+    entry: ToastEntry,
+    duration: Int,
+    onClose: () -> Unit,
+    onGone: () -> Unit,
+) {
     val palette = LocalPalette.current
     val themeAccent = LocalAccentColors.current
-    val toastAccent =
-        remember(accent, palette.isDark, themeAccent) {
-            accent?.let { resolveAccentColors(it, palette.isDark) } ?: themeAccent
+    val colors =
+        remember(entry.accent, palette.isDark, themeAccent) {
+            entry.accent?.let { resolveAccentColors(it, palette.isDark) } ?: themeAccent
         }
-    val accessibilityManager = LocalAccessibilityManager.current
-    // The exit animation outlives the state that caused it, so the last text is kept to
-    // draw during the fade — otherwise the toast blanks a frame before it leaves.
-    var lastMessage by remember { mutableStateOf(message.orEmpty()) }
-
-    /**
-     * Bumped every time a message is posted, and part of the timer's key.
-     *
-     * Keying the countdown on the text alone meant the same message twice in a row was one
-     * toast: 「已加入收藏」 posted while the first 「已加入收藏」 was still on screen did not
-     * restart the effect, so the second confirmation inherited whatever was left of the
-     * first one's four seconds and could vanish almost immediately.
-     */
-    var posting by remember { mutableIntStateOf(0) }
-    LaunchedEffect(message) {
-        if (message != null) posting++
+    val accessibility = LocalAccessibilityManager.current
+    val latestClose by rememberUpdatedState(onClose)
+    val latestGone by rememberUpdatedState(onGone)
+    val visibility = remember(entry) { MutableTransitionState(false) }
+    visibility.targetState = entry.visible
+    var dragging by remember { mutableStateOf(false) }
+    var offset by remember { mutableFloatStateOf(0f) }
+    val animatedOffset =
+        animateFloatAsState(
+            offset,
+            if (dragging ||
+                duration == 0
+            ) {
+                snap()
+            } else {
+                Motion.settle()
+            },
+            label = "toast-drag",
+        )
+    val threshold = with(LocalDensity.current) { 80.dp.toPx() }
+    LaunchedEffect(entry.visible, dragging, accessibility, duration) {
+        if (entry.visible) {
+            if (!dragging) {
+                val recommended =
+                    accessibility?.calculateRecommendedTimeoutMillis(
+                        TOAST_MS,
+                        containsText = true,
+                        containsControls = true,
+                    ) ?: TOAST_MS
+                delay(maxOf(TOAST_MS, recommended))
+                latestClose()
+            }
+        } else {
+            delay(duration.toLong())
+            latestGone()
+        }
     }
-    LaunchedEffect(posting, accessibilityManager) {
-        val current = message ?: return@LaunchedEffect
-        lastMessage = current
-        val recommendedTimeout =
-            accessibilityManager?.calculateRecommendedTimeoutMillis(
-                originalTimeoutMillis = TOAST_MS,
-                containsText = true,
-                containsControls = true,
-            ) ?: TOAST_MS
-        delay(maxOf(TOAST_MS, recommendedTimeout))
-        onDismiss()
-    }
-
-    val duration = if (LocalAccessibilityOptions.current.reduceMotion) 0 else Motion.TAB
     AnimatedVisibility(
-        visible = message != null,
-        enter =
-            fadeIn(tween(duration, easing = Motion.Curve)) +
-                slideInVertically(tween(duration, easing = Motion.Curve)) { it / 2 },
-        exit =
-            fadeOut(tween(duration, easing = Motion.Curve)) +
-                slideOutVertically(tween(duration, easing = Motion.Curve)) { it / 2 },
-        modifier = modifier.align(Alignment.BottomCenter),
+        visibleState = visibility,
+        enter = fadeIn(tween(duration)) + slideInVertically(tween(duration, easing = Motion.Curve)) { it / 2 },
+        exit = fadeOut(tween(duration)) + slideOutVertically(tween(duration, easing = Motion.Curve)) { it / 2 },
     ) {
         Text(
-            lastMessage,
+            entry.message,
             style = AppTypography.body.strong,
-            color = toastAccent.accent,
+            color = colors.accent,
             textAlign = TextAlign.Center,
             modifier =
                 Modifier
                     .padding(horizontal = Dimens.pageHorizontal)
-                    // Polite live-region announcements do not interrupt the action that caused
-                    // the confirmation, while still making transient feedback discoverable.
-                    .semantics { liveRegion = LiveRegionMode.Polite }
-                    // A notice the user has already read should go when they say so, not when
-                    // its timer says so. It sits over the bottom of the page — the busiest part
-                    // of the screen — so waiting out the full 2.6s to reach what is underneath
-                    // was the one thing it could get wrong.
-                    .pressable(onClickLabel = "关闭提示", onClick = onDismiss)
+                    .graphicsLayer {
+                        translationX = animatedOffset.value
+                        alpha = (1f - abs(animatedOffset.value) / (threshold * 2f)).coerceIn(0.25f, 1f)
+                    }.draggable(
+                        state = rememberDraggableState { offset += it },
+                        orientation = Orientation.Horizontal,
+                        enabled = entry.visible,
+                        onDragStarted = { dragging = true },
+                        onDragStopped = { velocity ->
+                            dragging = false
+                            if (abs(offset) >= threshold ||
+                                (abs(offset) > threshold / 4f && abs(velocity) > threshold * 8f)
+                            ) {
+                                latestClose()
+                            } else {
+                                offset = 0f
+                            }
+                        },
+                    ).semantics {
+                        liveRegion = LiveRegionMode.Polite
+                        dismiss {
+                            latestClose()
+                            true
+                        }
+                    }.pressable(enabled = entry.visible, onClickLabel = "关闭提示", onClick = onClose)
                     .touchTarget()
                     .shadow(Shadows.tabBar, GlassShapes.chip)
-                    .solidGlass(
-                        shape = GlassShapes.chip,
-                        fill = toastAccent.container,
-                        border = toastAccent.border,
-                    ).padding(horizontal = 16.dp, vertical = 11.dp),
+                    .solidGlass(GlassShapes.chip, colors.container, colors.border)
+                    .padding(horizontal = 16.dp, vertical = 11.dp),
         )
     }
 }

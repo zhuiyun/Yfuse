@@ -40,6 +40,7 @@ internal class AndroidAudioTrackRenderNode(
     private var speed = 1f
     private var audioDelayMs = 0L
     private var writtenBytes = 0L
+    private val pcmTail = PcmTailTracker()
     private var zeroWriteCount = 0L
     private var startThresholdFrames = 0
     private var lastTimestampFrames: Long? = null
@@ -181,6 +182,7 @@ internal class AndroidAudioTrackRenderNode(
                 continue
             }
             writtenBytes += written
+            pcmTail.record(written)
             total += written
         }
         return total
@@ -202,7 +204,12 @@ internal class AndroidAudioTrackRenderNode(
         val shouldAnchorClock = basePresentationTimeUs == null
         val written = audioTrack.write(data, data.remaining(), AudioTrack.WRITE_NON_BLOCKING)
         check(written >= 0) { "AudioTrack.write failed with code $written" }
-        if (written == 0) zeroWriteCount++ else writtenBytes += written
+        if (written == 0) {
+            zeroWriteCount++
+        } else {
+            writtenBytes += written
+            pcmTail.record(written)
+        }
         if (shouldAnchorClock && written > 0) {
             basePresentationTimeUs = presentationTimeUs.coerceAtLeast(0L)
         }
@@ -211,6 +218,30 @@ internal class AndroidAudioTrackRenderNode(
 
     val underrunCount: Int
         get() = track?.underrunCount?.coerceAtLeast(0) ?: 0
+
+    /** Hardware-clock position, not decoder EOS, determines whether submitted PCM remains. */
+    fun hasPendingPcm(): Boolean {
+        val format = configuredFormat ?: return false
+        val base = basePresentationTimeUs ?: return false
+        if (!pcmTail.hasSamples || sampleRate <= 0) return false
+        val encoding =
+            if (format.containsKey(MediaFormat.KEY_PCM_ENCODING)) {
+                format.getInteger(MediaFormat.KEY_PCM_ENCODING)
+            } else {
+                AudioFormat.ENCODING_PCM_16BIT
+            }
+        val sampleBytes =
+            when (encoding) {
+                AudioFormat.ENCODING_PCM_8BIT -> 1
+                AudioFormat.ENCODING_PCM_16BIT -> 2
+                AudioFormat.ENCODING_PCM_24BIT_PACKED -> 3
+                AudioFormat.ENCODING_PCM_FLOAT, AudioFormat.ENCODING_PCM_32BIT -> 4
+                else -> return false
+            }
+        val frameBytes = sampleBytes * format.getInteger(MediaFormat.KEY_CHANNEL_COUNT).coerceAtLeast(1)
+        val played = clockSnapshot()?.positionUs?.minus(base)?.coerceAtLeast(0L) ?: return true
+        return pcmTail.pending(frameBytes, sampleRate, played)
+    }
 
     fun clockSnapshot(): YAudioClockSnapshot? {
         val audioTrack = track ?: return null
@@ -262,6 +293,7 @@ internal class AndroidAudioTrackRenderNode(
         val resume = requestedPlay
         if (audioTrack.playState == AudioTrack.PLAYSTATE_PLAYING) audioTrack.pause()
         audioTrack.flush()
+        pcmTail.reset()
         basePresentationTimeUs = null
         resetClockProgress()
         if (resume) audioTrack.play()
@@ -271,6 +303,7 @@ internal class AndroidAudioTrackRenderNode(
         val audioTrack = track
         track = null
         configuredFormat = null
+        pcmTail.reset()
         requestedPlay = false
         sampleRate = 0
         basePresentationTimeUs = null
@@ -474,3 +507,37 @@ private const val DEFAULT_AUDIO_BUFFER_BYTES = 64 * 1024
 private const val MAX_AUDIO_BUFFER_BYTES = 2 * 1024 * 1024
 private const val MINIMUM_AUDIO_BUFFER_MULTIPLIER = 4L
 private const val TARGET_AUDIO_BUFFER_SECONDS = 2L
+
+internal fun pcmTailPending(
+    writtenBytes: Long,
+    frameBytes: Int,
+    sampleRate: Int,
+    playedUs: Long,
+): Boolean {
+    if (writtenBytes <= 0L || frameBytes <= 0 || sampleRate <= 0) return false
+    val submittedFrames = writtenBytes / frameBytes
+    val playedFrames =
+        playedUs.coerceAtLeast(0L) / 1_000_000L * sampleRate +
+            playedUs.coerceAtLeast(0L) % 1_000_000L * sampleRate / 1_000_000L
+    return submittedFrames - playedFrames > 1L
+}
+
+/** Drain accounting follows AudioTrack flushes, independently of lifetime diagnostic byte totals. */
+internal class PcmTailTracker {
+    private var bytes = 0L
+    val hasSamples: Boolean get() = bytes > 0L
+
+    fun record(written: Int) {
+        if (written > 0) bytes += written
+    }
+
+    fun reset() {
+        bytes = 0L
+    }
+
+    fun pending(
+        frameBytes: Int,
+        sampleRate: Int,
+        playedUs: Long,
+    ): Boolean = pcmTailPending(bytes, frameBytes, sampleRate, playedUs)
+}

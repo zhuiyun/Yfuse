@@ -1,5 +1,9 @@
+@file:OptIn(ExperimentalSharedTransitionApi::class)
+
 package com.yfuse.feature.servers
 
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.animateBounds
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -29,8 +33,6 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
@@ -51,6 +53,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.LookaheadScope
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -83,6 +86,7 @@ import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.MinTouchTarget
 import com.yfuse.core.designsystem.Motion
+import com.yfuse.core.designsystem.MotionSwap
 import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.OverlayButton
 import com.yfuse.core.designsystem.OverlayButtonRow
@@ -90,18 +94,22 @@ import com.yfuse.core.designsystem.OverlayButtonTone
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.OverlayOptionRow
 import com.yfuse.core.designsystem.OverlayOptionSpacing
+import com.yfuse.core.designsystem.PageLoadingSkeleton
+import com.yfuse.core.designsystem.RefreshIndicator
 import com.yfuse.core.designsystem.RefreshThresholdHaptics
 import com.yfuse.core.designsystem.ScrollToTopOnReselect
 import com.yfuse.core.designsystem.Semantic
 import com.yfuse.core.designsystem.ServerIconTints
 import com.yfuse.core.designsystem.Shadows
+import com.yfuse.core.designsystem.SkeletonHandoff
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.TabBarInset
 import com.yfuse.core.designsystem.YfFormField
+import com.yfuse.core.designsystem.contentHandoff
 import com.yfuse.core.designsystem.flatGlass
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.liquidGlass
-import com.yfuse.core.designsystem.motionAwareItem
+import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.serverTintColor
@@ -114,6 +122,8 @@ import com.yfuse.core.network.validateEmbyServerEndpoint
 import com.yfuse.core.util.rememberShareHandler
 import com.yfuse.feature.profile.AddServerDialog
 import kotlinx.coroutines.delay
+import com.yfuse.core.designsystem.ThemeIcon as Icon
+import com.yfuse.core.designsystem.ThemeText as Text
 
 /** Two on a 360dp phone; wider windows fill with more cards rather than stretching them. */
 private val ServerCardMinWidth = 146.dp
@@ -216,107 +226,141 @@ fun ServersTabScreen(component: ServersTabComponent) {
             isRefreshing = refreshing,
             onRefresh = requestRefresh,
             state = pullState,
+            indicator = { RefreshIndicator(pullState, refreshing, Modifier.align(Alignment.TopCenter)) },
             modifier = Modifier.fillMaxSize(),
         ) {
-            LazyVerticalGrid(
-                // 列表 is one column of the same card, not a second card design: everything
-                // the grid card shows is worth showing in a row too, and two implementations
-                // of the same thing drift apart on the next change to either.
-                columns =
-                    if (layout == ServerLayout.List) {
-                        GridCells.Fixed(1)
-                    } else {
-                        GridCells.Adaptive(ServerCardMinWidth)
-                    },
-                state = gridState,
-                modifier = Modifier.fillMaxSize().statusBarsPadding(),
-                contentPadding =
-                    PaddingValues(
-                        start = Dimens.pageHorizontal,
-                        end = Dimens.pageHorizontal,
-                        top = Dimens.contentTop,
-                        bottom = TabBarInset,
-                    ),
-                // The cards carry their own shadow, so the air between them has to be
-                // wider than the shadow or the grid reads as one slab of tiles.
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+            SkeletonHandoff(
+                loading = !state.initialized,
+                modifier = Modifier.fillMaxSize(),
+                skeleton = { PageLoadingSkeleton() },
             ) {
-                item(key = "header", span = { GridItemSpan(maxLineSpan) }) {
-                    ServersHeader(
-                        onAdd = { component.store.accept(ServersIntent.OpenAddDialog) },
-                        refreshing = refreshing,
-                        refreshFeedback = refreshFeedback,
-                        onRefreshAll = requestRefresh,
-                        layout = layout,
-                        onLayout = component::setLayout,
-                        filter = listFilter,
-                        onFilter = { filterVisible = true },
-                    )
-                }
-
-                currentServer?.let { server ->
-                    item(key = server.id, contentType = "current-server", span = { GridItemSpan(maxLineSpan) }) {
-                        CurrentServerHero(
-                            server = server,
-                            health = health[server.id],
-                            stats = serverStats[server.id],
-                            serverCount = state.servers.size,
-                            onlineCount = onlineServerCount,
-                            onOpen = { component.onOpenLibrary() },
-                            onMore = { actionsFor = server },
-                            modifier = motionAwareItem(),
-                        )
-                    }
-                }
-
-                if (state.servers.isNotEmpty()) {
-                    item(key = "other-servers", span = { GridItemSpan(maxLineSpan) }) {
-                        OtherServersHeader(count = otherVisibleServers.size)
-                    }
-                }
-
-                if (state.servers.isEmpty()) {
-                    item(key = "empty", span = { GridItemSpan(maxLineSpan) }) {
-                        EmptyServers(
-                            onAdd = { component.store.accept(ServersIntent.OpenAddDialog) },
-                        )
-                    }
-                }
-
-                if (state.servers.isNotEmpty() && otherVisibleServers.isEmpty()) {
-                    item(key = "filtered-empty", span = { GridItemSpan(maxLineSpan) }) {
-                        Text(
-                            if (state.servers.size == 1) {
-                                "还没有其他服务器"
+                LookaheadScope {
+                    val cardLookahead = this
+                    LazyVerticalGrid(
+                        // 列表 is one column of the same card, not a second card design: everything
+                        // the grid card shows is worth showing in a row too, and two implementations
+                        // of the same thing drift apart on the next change to either.
+                        columns =
+                            if (layout == ServerLayout.List) {
+                                GridCells.Fixed(1)
                             } else {
-                                "没有其他符合当前筛选的服务器"
+                                GridCells.Adaptive(ServerCardMinWidth)
                             },
-                            style = AppTypography.body.medium,
-                            color = palette.sub2,
-                            modifier = Modifier.padding(bottom = 24.dp),
-                        )
-                    }
-                }
+                        state = gridState,
+                        modifier =
+                            Modifier.fillMaxSize().statusBarsPadding().contentHandoff(
+                                visibleServers.isEmpty(),
+                            ),
+                        contentPadding =
+                            PaddingValues(
+                                start = Dimens.pageHorizontal,
+                                end = Dimens.pageHorizontal,
+                                top = Dimens.contentTop,
+                                bottom = TabBarInset,
+                            ),
+                        // The cards carry their own shadow, so the air between them has to be
+                        // wider than the shadow or the grid reads as one slab of tiles.
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        motionItem(key = "header", span = { GridItemSpan(maxLineSpan) }) {
+                            ServersHeader(
+                                onAdd = { component.store.accept(ServersIntent.OpenAddDialog) },
+                                refreshing = refreshing,
+                                refreshFeedback = refreshFeedback,
+                                onRefreshAll = requestRefresh,
+                                layout = layout,
+                                onLayout = component::setLayout,
+                                filter = listFilter,
+                                onFilter = { filterVisible = true },
+                            )
+                        }
 
-                items(otherVisibleServers, key = { it.id }, contentType = { "server-card" }) { server ->
-                    ServerCard(
-                        server = server,
-                        isCurrent = false,
-                        health = health[server.id],
-                        stats = serverStats[server.id],
-                        lastWatchedLabel = formatWatchedAgo(lastWatched[server.id], nowEpochMs),
-                        onClick = {
-                            component.store.accept(ServersIntent.SelectDefault(server.id))
-                            component.onOpenLibrary()
-                        },
-                        onMore = { actionsFor = server },
-                        modifier = motionAwareItem(),
-                    )
+                        currentServer?.let { server ->
+                            motionItem(
+                                key = server.id,
+                                contentType = "current-server",
+                                span = { GridItemSpan(maxLineSpan) },
+                            ) {
+                                CurrentServerHero(
+                                    server = server,
+                                    health = health[server.id],
+                                    stats = serverStats[server.id],
+                                    serverCount = state.servers.size,
+                                    onlineCount = onlineServerCount,
+                                    onOpen = { component.onOpenLibrary() },
+                                    onMore = { actionsFor = server },
+                                    modifier = Modifier,
+                                )
+                            }
+                        }
+
+                        if (state.servers.isNotEmpty()) {
+                            motionItem(key = "other-servers", span = { GridItemSpan(maxLineSpan) }) {
+                                OtherServersHeader(count = otherVisibleServers.size)
+                            }
+                        }
+
+                        if (state.servers.isEmpty()) {
+                            motionItem(key = "empty", span = { GridItemSpan(maxLineSpan) }) {
+                                EmptyServers(
+                                    onAdd = { component.store.accept(ServersIntent.OpenAddDialog) },
+                                )
+                            }
+                        }
+
+                        if (state.servers.isNotEmpty() && otherVisibleServers.isEmpty()) {
+                            motionItem(key = "filtered-empty", span = { GridItemSpan(maxLineSpan) }) {
+                                Text(
+                                    if (state.servers.size == 1) {
+                                        "还没有其他服务器"
+                                    } else {
+                                        "没有其他符合当前筛选的服务器"
+                                    },
+                                    style = AppTypography.body.medium,
+                                    color = palette.sub2,
+                                    modifier = Modifier.padding(bottom = 24.dp),
+                                )
+                            }
+                        }
+
+                        items(otherVisibleServers, key = { it.id }, contentType = { "server-card" }) { server ->
+                            val moving = !LocalAccessibilityOptions.current.reduceMotion && routeVisible
+                            val cardMotion =
+                                Modifier
+                                    .animateItem(
+                                        fadeInSpec = if (moving) tween(Motion.QUICK) else null,
+                                        placementSpec = null,
+                                        fadeOutSpec = if (moving) tween(Motion.STANDARD) else null,
+                                    ).then(
+                                        if (moving) {
+                                            Modifier.animateBounds(
+                                                lookaheadScope = cardLookahead,
+                                                boundsTransform = { _, _ -> Motion.settle() },
+                                            )
+                                        } else {
+                                            Modifier
+                                        },
+                                    )
+                            ServerCard(
+                                server = server,
+                                isCurrent = false,
+                                health = health[server.id],
+                                stats = serverStats[server.id],
+                                lastWatchedLabel = formatWatchedAgo(lastWatched[server.id], nowEpochMs),
+                                onClick = {
+                                    component.store.accept(ServersIntent.SelectDefault(server.id))
+                                    component.onOpenLibrary()
+                                },
+                                onMore = { actionsFor = server },
+                                modifier = cardMotion,
+                            )
+                        }
+                    }
                 }
             }
         }
-        // A new request also cancels the previous toast's timeout; it must not dismiss this generation.
+        // A new request cancels the previous toast's timer; it cannot dismiss this generation.
         key(if (routeVisible) refreshState.generation else null) {
             val feedbackGeneration = refreshState.generation
             ActionToast(
@@ -649,22 +693,24 @@ private fun ServersHeader(
                     .size(ServerHeaderCircleSize),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(
-                    when (refreshFeedback?.result) {
-                        ServerRefreshResult.Success -> AppIcons.Check
-                        ServerRefreshResult.PartialFailure, ServerRefreshResult.Failure -> AppIcons.Info
-                        ServerRefreshResult.Cancelled -> AppIcons.Close
-                        ServerRefreshResult.Empty, null -> AppIcons.Refresh
-                    },
-                    contentDescription = null,
-                    tint =
-                        refreshFeedback?.let { refreshResultColor(it.result) }
-                            ?: if (refreshing) accent.accent else palette.sub2,
-                    modifier =
-                        Modifier
-                            .size(15.dp)
-                            .graphicsLayer { rotationZ = spin?.value ?: 0f },
-                )
+                MotionSwap(refreshFeedback?.result) { result ->
+                    Icon(
+                        when (result) {
+                            ServerRefreshResult.Success -> AppIcons.Check
+                            ServerRefreshResult.PartialFailure, ServerRefreshResult.Failure -> AppIcons.Info
+                            ServerRefreshResult.Cancelled -> AppIcons.Close
+                            ServerRefreshResult.Empty, null -> AppIcons.Refresh
+                        },
+                        contentDescription = null,
+                        tint =
+                            refreshFeedback?.let { refreshResultColor(it.result) }
+                                ?: if (refreshing) accent.accent else palette.sub2,
+                        modifier =
+                            Modifier
+                                .size(15.dp)
+                                .graphicsLayer { rotationZ = spin?.value ?: 0f },
+                    )
+                }
             }
         }
     }

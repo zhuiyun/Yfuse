@@ -29,18 +29,12 @@ internal data class DelightDialogMask(
     val toothDepth: Float = 0f,
 )
 
-private fun delightStage(
-    progress: Float,
-    start: Float,
-    end: Float,
-): Float = ((progress - start) / (end - start)).coerceIn(0f, 1f)
-
 /** Transform only the complete card. Uniform scale keeps every glyph's proportions intact. */
 internal fun delightDialogMotionFrame(
     animation: DialogAnimation,
     progress: Float,
 ): DialogMotionFrame {
-    val t = delightStage(progress, 0f, 0.88f)
+    val t = dialogStage(progress, 0f, 0.88f)
     if (t >= 1f) return DialogMotionFrame()
     val hidden = 1f - t
     val arc = sin(PI * t).toFloat() * hidden
@@ -77,30 +71,30 @@ internal fun delightDialogMask(
     if (p >= DELIGHT_REST_PROGRESS) return DelightDialogMask(Rect(0f, 0f, w, h))
     return when (animation) {
         DialogAnimation.PaperPlane -> {
-            val unfold = delightStage(p, 0f, 0.78f)
+            val unfold = dialogStage(p, 0f, 0.78f)
             val insetX = w * (1f - unfold) / 2f
             val insetY = h * (1f - unfold) / 2f
             val bounds = Rect(insetX, insetY, w - insetX, h - insetY)
             DelightDialogMask(
                 bounds,
-                edgeInset = bounds.width * 0.22f * (1f - delightStage(p, 0.18f, 0.78f)),
+                edgeInset = bounds.width * 0.22f * (1f - dialogStage(p, 0.18f, 0.78f)),
             )
         }
         DialogAnimation.WindChime -> {
-            val reveal = delightStage(p, 0f, 0.72f)
+            val reveal = dialogStage(p, 0f, 0.72f)
             val inset = w * 0.03f * (1f - reveal)
             DelightDialogMask(Rect(inset, 0f, w - inset, h * reveal))
         }
         DialogAnimation.InstantPhoto -> {
-            val slot = delightStage(p, 0f, 0.24f)
-            val paper = delightStage(p, 0.10f, 0.84f)
+            val slot = dialogStage(p, 0f, 0.24f)
+            val paper = dialogStage(p, 0.10f, 0.84f)
             val inset = w * (1f - slot) / 2f
             DelightDialogMask(Rect(inset, 0f, w - inset, h * paper))
         }
         DialogAnimation.Zipper -> {
-            val upper = delightStage(p, 0f, 0.52f)
-            val lower = delightStage(p, 0.32f, 0.90f)
-            val depth = delightStage(p, 0f, 0.72f)
+            val upper = dialogStage(p, 0f, 0.52f)
+            val lower = dialogStage(p, 0.32f, 0.90f)
+            val depth = dialogStage(p, 0f, 0.72f)
             val inset = w * (1f - upper) / 2f
             val bounds = Rect(inset, 0f, w - inset, h * depth)
             DelightDialogMask(
@@ -109,12 +103,12 @@ internal fun delightDialogMask(
             )
         }
         DialogAnimation.Ticket -> {
-            val header = delightStage(p, 0f, 0.22f)
-            val body = delightStage(p, 0.18f, 0.90f)
+            val header = dialogStage(p, 0f, 0.22f)
+            val body = dialogStage(p, 0.18f, 0.90f)
             val bottom = h * (0.18f * header + 0.82f * body)
             DelightDialogMask(
                 Rect(0f, 0f, w * header, bottom),
-                toothDepth = min(min(w, h) * 0.025f, bottom / 4f) * (1f - delightStage(p, 0.30f, 0.84f)),
+                toothDepth = min(min(w, h) * 0.025f, bottom / 4f) * (1f - dialogStage(p, 0.30f, 0.84f)),
             )
         }
         else -> DelightDialogMask(Rect(0f, 0f, w, h))
@@ -187,7 +181,7 @@ internal fun ContentDrawScope.drawDelightDialog(
         when (animation) {
             DialogAnimation.PaperPlane -> {
                 val wing = min(12.dp.toPx(), size.width * 0.04f)
-                val x = wing + (size.width - wing * 2f) * delightStage(p, 0f, 0.82f)
+                val x = wing + (size.width - wing * 2f) * dialogStage(p, 0f, 0.82f)
                 val y = wing * 0.75f
                 val plane =
                     cache.edge.apply {

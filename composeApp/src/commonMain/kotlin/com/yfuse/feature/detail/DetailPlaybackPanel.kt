@@ -11,9 +11,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -32,9 +29,12 @@ import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.OverlayOptionRow
 import com.yfuse.core.designsystem.OverlayOptionSpacing
 import com.yfuse.core.designsystem.glass
+import com.yfuse.core.designsystem.motionItemsIndexed
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.model.MediaVersion
 import com.yfuse.core.model.ServerSource
+import com.yfuse.core.designsystem.ThemeIcon as Icon
+import com.yfuse.core.designsystem.ThemeText as Text
 
 internal fun playbackVersionSummary(
     serverName: String?,
@@ -257,7 +257,7 @@ private fun <T> ComparisonRail(
         contentPadding = PaddingValues(end = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        itemsIndexed(items, key = { _, item -> key(item) }) { index, item ->
+        motionItemsIndexed(items, key = { _, item -> key(item) }) { index, item ->
             ComparisonCard(
                 // The list is ranked, so "best" is a position, not a judgement made here —
                 // and with nothing to rank against, "最佳" would be an award for turning up.

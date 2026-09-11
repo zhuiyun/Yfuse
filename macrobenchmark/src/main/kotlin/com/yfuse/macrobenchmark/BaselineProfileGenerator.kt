@@ -30,4 +30,11 @@ class BaselineProfileGenerator {
             startHomeFixture()
             scrollHomeJourney()
         }
+
+    @Test
+    fun navigationJourney() =
+        baselineProfileRule.collect(packageName = TARGET_PACKAGE, includeInStartupProfile = false) {
+            startProductionApp()
+            navigateSearchJourney()
+        }
 }

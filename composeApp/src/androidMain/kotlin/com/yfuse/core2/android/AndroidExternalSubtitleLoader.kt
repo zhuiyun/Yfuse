@@ -13,6 +13,7 @@ import com.yfuse.core2.subtitle.YAssSubtitleSource
 import com.yfuse.core2.subtitle.YSubtitleCue
 import com.yfuse.core2.subtitle.YSubtitleFormat
 import com.yfuse.core2.subtitle.YSubtitlePayload
+import com.yfuse.core2.subtitle.YSubtitleTimeBase
 import com.yfuse.core2.subtitle.YTextSubtitleParser
 import com.yfuse.core2.subtitle.decodeExternalSubtitleText
 import com.yfuse.core2.subtitle.externalTextSubtitleFormat
@@ -62,7 +63,12 @@ internal class AndroidExternalSubtitleLoader(
         require(format.standaloneTextSupported) {
             "External subtitle format is unsupported"
         }
-        val parsed = YTextSubtitleParser.parse(text, format, loadingContext::ensureActive).cues
+        // A sidecar describes the whole title, even when the video child opens just one DASH
+        // Period. Mark that time domain before either plain text or full-script ASS is published.
+        val parsed =
+            YTextSubtitleParser.parse(text, format, loadingContext::ensureActive).cues.map {
+                it.copy(timeBase = YSubtitleTimeBase.Presentation)
+            }
         loadingContext.ensureActive()
         require(parsed.isNotEmpty()) { "External subtitle contains no displayable cues" }
         val cues =

@@ -11,6 +11,7 @@ import com.yfuse.core2.api.YPlaybackRoute
 import com.yfuse.core2.api.YPlayer
 import com.yfuse.core2.api.YPlayerDiagnostics
 import com.yfuse.core2.api.YPlayerState
+import com.yfuse.core2.api.YTrack
 import com.yfuse.core2.api.YTrackType
 import com.yfuse.core2.api.YVideoOutput
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -21,6 +22,34 @@ import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class YPlayerVideoEngineAdapterTest {
+    @Test
+    fun position_ticks_reuse_track_lists_but_selection_changes_are_published() {
+        val player = FakeYPlayer()
+        player.mutableState.value =
+            YPlayerState(
+                audioTracks = listOf(YTrack("a", YTrackType.Audio, "Audio")),
+                subtitleTracks = listOf(YTrack("s", YTrackType.Subtitle, "Subtitle")),
+            )
+        val flow = player.asPlaybackStateFlow()
+        val first = flow.value
+        assertSame(first, flow.value)
+        player.mutableState.value = player.mutableState.value.copy(positionMs = 500L)
+        val tick = flow.value
+        assertEquals(500L, tick.positionMs)
+        assertSame(first.audioTracks, tick.audioTracks)
+        assertSame(first.subtitleTracks, tick.subtitleTracks)
+        player.mutableState.value =
+            player.mutableState.value.copy(
+                subtitleTracks = listOf(YTrack("s", YTrackType.Subtitle, "Subtitle", selected = true)),
+            )
+        assertTrue(
+            flow.value.subtitleTracks
+                .single()
+                .selected,
+        )
+        assertSame(tick.audioTracks, flow.value.audioTracks)
+    }
+
     @Test
     fun `an audio decoder before Surface attachment is never video evidence`() {
         val evidence =

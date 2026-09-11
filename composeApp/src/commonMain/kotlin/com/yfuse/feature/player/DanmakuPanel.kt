@@ -11,14 +11,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -50,6 +47,9 @@ import com.yfuse.core.designsystem.OverlayButton
 import com.yfuse.core.designsystem.OverlayButtonTone
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.glass
+import com.yfuse.core.designsystem.motionItems
+import com.yfuse.core.designsystem.ThemeIcon as Icon
+import com.yfuse.core.designsystem.ThemeText as Text
 
 /**
  * Everything the 弹幕 tab and 搜索弹幕 sheet read, in one bundle.
@@ -398,7 +398,7 @@ internal fun DanmakuSearchPanel(
                     PanelNote("这个作品下没有可用的集", Color.White.copy(alpha = 0.5f))
                 } else {
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        items(search.episodes, key = { it.episodeId }) { episode ->
+                        motionItems(search.episodes, key = { it.episodeId }) { episode ->
                             SearchRow(
                                 title = episode.title,
                                 subtitle = null,
@@ -412,7 +412,7 @@ internal fun DanmakuSearchPanel(
                 LazyColumn(
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    items(search.results, key = { it.animeId }) { result ->
+                    motionItems(search.results, key = { it.animeId }) { result ->
                         SearchRow(
                             title = result.title,
                             subtitle = result.subtitle.takeIf { it.isNotBlank() },

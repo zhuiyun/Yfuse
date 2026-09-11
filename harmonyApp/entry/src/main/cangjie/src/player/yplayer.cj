@@ -1,5 +1,8 @@
 package com.yfuse.harmony.entry.player
 
+import std.deriving.*
+
+@Derive[Equatable]
 public enum PlaybackPhase {
     | Idle
     | Preparing
@@ -17,6 +20,7 @@ public enum PlaybackRoute {
     | SoftwareFallback
 }
 
+@Derive[Equatable]
 public enum TrackType {
     | Audio
     | Subtitle

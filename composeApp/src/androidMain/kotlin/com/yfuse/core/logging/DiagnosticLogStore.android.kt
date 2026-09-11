@@ -240,6 +240,9 @@ internal object DiagnosticLogStore {
     private lateinit var directory: File
     private var sessionId = ""
 
+    internal val processSessionId: String
+        get() = synchronized(lock) { sessionId.ifBlank { "unknown" } }
+
     fun initialize(context: Context) {
         synchronized(lock) {
             if (initialized) return
@@ -261,6 +264,7 @@ internal object DiagnosticLogStore {
                 mapOf(
                     "versionName" to BuildConfig.VERSION_NAME,
                     "versionCode" to BuildConfig.VERSION_CODE.toString(),
+                    "buildRevision" to BuildConfig.BUILD_REVISION,
                     "androidApi" to Build.VERSION.SDK_INT.toString(),
                 ),
         )
@@ -525,6 +529,9 @@ internal object DiagnosticLogStore {
             appendLine("Yfuse diagnostic package")
             appendLine("exportedAt=${Instant.now()}")
             appendLine("appVersion=${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
+            appendLine("buildRevision=${BuildConfig.BUILD_REVISION}")
+            appendLine("processSession=$processSessionId")
+            appendLine("appVersionScope=exporting package; historical events retain their original sessions")
             appendLine("applicationId=${BuildConfig.APPLICATION_ID}")
             appendLine("android=${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
             appendLine("device=${Build.MANUFACTURER} ${Build.MODEL}")

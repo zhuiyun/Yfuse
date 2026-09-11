@@ -124,6 +124,7 @@ internal object AndroidNativeCrashMonitor {
 
     @Synchronized
     fun diagnosticSummary(): String {
+        if (!::appContext.isInitialized) return "nativeCrash.status=initializing\n"
         val totals = mutableMapOf<NativePlaybackComponent, Int>()
         prefs().all.forEach { (key, value) ->
             if (!key.startsWith("count.") || value !is Int) return@forEach

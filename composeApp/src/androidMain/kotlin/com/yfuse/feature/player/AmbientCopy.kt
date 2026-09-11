@@ -3,7 +3,38 @@ package com.yfuse.feature.player
 import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlin.math.roundToInt
+
+/** Cancellation stops the waiter, but only the external callback releases the copy lane. */
+internal class AmbientCopyQueue {
+    private val lane = Semaphore(1)
+
+    suspend fun <T, R> copy(
+        create: () -> T,
+        request: (T, (Boolean) -> Unit) -> Unit,
+        read: (T) -> R,
+        release: (T) -> Unit,
+    ): R? {
+        lane.acquire()
+        val destination = try {
+            currentCoroutineContext().ensureActive()
+            create()
+        } catch (error: Throwable) {
+            lane.release()
+            throw error
+        }
+        return awaitAmbientCopy(destination, request, read) {
+            try {
+                release(it)
+            } finally {
+                lane.release()
+            }
+        }
+    }
+}
 
 /** Each asynchronous copy owns its destination until its callback, even after cancellation. */
 internal suspend fun <T, R> awaitAmbientCopy(

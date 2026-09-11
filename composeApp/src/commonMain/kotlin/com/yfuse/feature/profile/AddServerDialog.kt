@@ -15,8 +15,6 @@ import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -52,6 +50,8 @@ import com.yfuse.core.network.validateEmbyServerEndpoint
 import com.yfuse.feature.servers.PlexAccountUiState
 import com.yfuse.feature.servers.ServersIntent
 import com.yfuse.feature.servers.ServersState
+import com.yfuse.core.designsystem.ThemeIcon as Icon
+import com.yfuse.core.designsystem.ThemeText as Text
 import com.yfuse.core.designsystem.liquidGlass as glass
 
 /**

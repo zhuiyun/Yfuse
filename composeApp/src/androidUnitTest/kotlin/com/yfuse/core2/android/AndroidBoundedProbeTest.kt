@@ -2,6 +2,7 @@ package com.yfuse.core2.android
 
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executor
+import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.test.Test
@@ -11,6 +12,19 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class AndroidBoundedProbeTest {
+    @Test
+    fun sequential_candidate_probes_never_skip_an_already_completed_owner() {
+        val executor = Executors.newSingleThreadExecutor()
+        try {
+            val probe = AndroidBoundedProbe(executor)
+            repeat(2_000) { candidate ->
+                assertEquals(candidate, probe.run(1_000L, { -1 }) { candidate })
+            }
+        } finally {
+            executor.shutdownNow()
+        }
+    }
+
     @Test
     fun interrupted_caller_returns_unclaimed_resources_before_a_queued_worker_starts() {
         var queued: Runnable? = null

@@ -147,13 +147,17 @@ internal fun offlineWakeRequest(
         ).addTag(OFFLINE_WAKE_WORK_NAME)
         .build()
 
-internal fun offlineAutoSyncRequest(wifiOnly: Boolean): PeriodicWorkRequest =
+internal fun offlineAutoSyncRequest(
+    wifiOnly: Boolean,
+    chargingOnly: Boolean = false,
+): PeriodicWorkRequest =
     PeriodicWorkRequest
         .Builder(OfflineDownloadWorker::class.java, AUTO_SYNC_INTERVAL_HOURS, TimeUnit.HOURS)
         .setConstraints(
             Constraints
                 .Builder()
                 .setRequiredNetworkType(if (wifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED)
+                .setRequiresCharging(chargingOnly)
                 .build(),
         ).addTag(OFFLINE_AUTO_SYNC_WORK_NAME)
         .build()
@@ -659,6 +663,45 @@ internal class AndroidOfflineMediaManager(
     private val _indexStatus = MutableStateFlow(OfflineIndexStatus.Loading)
     override val indexStatus: StateFlow<OfflineIndexStatus> = _indexStatus.asStateFlow()
     private val runLock = Mutex()
+    private val budgetLock = Any()
+    private val activeVideoBytes = mutableMapOf<String, Long>()
+
+    private fun deferReason(item: OfflineMedia): Pair<String, Long>? {
+        val currentPolicy = _policy.value
+        val clock = java.util.Calendar.getInstance()
+        val minute = clock.get(java.util.Calendar.HOUR_OF_DAY) * 60 + clock.get(java.util.Calendar.MINUTE)
+        val waitMinutes = currentPolicy.minutesUntilDownloadWindow(minute)
+        if (waitMinutes > 0) return "等待允许下载的时段" to (now() + waitMinutes * 60_000L)
+        if (item.automaticallyDownloaded &&
+            currentPolicy.autoDownloadChargingOnly &&
+            !context.getSystemService(android.os.BatteryManager::class.java).isCharging
+        ) {
+            return "自动追更等待充电" to (now() + 15 * 60_000L)
+        }
+        return null
+    }
+
+    private fun reserveVideoBytes(
+        id: String,
+        writtenBytes: Long,
+        additionalBytes: Long,
+    ) = synchronized(budgetLock) {
+        val used =
+            _items.value.fold(0L) { total, item ->
+                val bytes =
+                    if (item.id == id) {
+                        writtenBytes
+                    } else {
+                        maxOf(item.downloadedBytes, activeVideoBytes[item.id] ?: 0L)
+                    }
+                if (Long.MAX_VALUE - total < bytes) Long.MAX_VALUE else total + bytes
+            }
+        if (!offlineBudgetAllows(_policy.value.storageBudgetBytes, used, additionalBytes)) {
+            throw OfflineStorageException("已达到离线视频容量上限，请提高上限或删除不需要的下载")
+        }
+        activeVideoBytes[id] = writtenBytes + additionalBytes
+    }
+
     private val commands =
         OfflineCommandQueue(CoroutineScope(SupervisorJob() + Dispatchers.IO)) { error ->
             if (_indexStatus.value != OfflineIndexStatus.Ready) _indexStatus.value = OfflineIndexStatus.Failed
@@ -997,6 +1040,27 @@ internal class AndroidOfflineMediaManager(
         rebuildAutoDownloadSchedule()
     }
 
+    override fun setDownloadBudget(
+        bytes: Long,
+        chargingOnly: Boolean,
+        startMinute: Int,
+        endMinute: Int,
+    ) = command {
+        persistPolicy(
+            _policy.value.copy(
+                storageBudgetBytes = bytes,
+                autoDownloadChargingOnly = chargingOnly,
+                windowStartMinute = startMinute,
+                windowEndMinute = endMinute,
+            ),
+        )
+        _items.value
+            .filter { it.error == "等待允许下载的时段" || it.error == "自动追更等待充电" }
+            .forEach { item -> update(item.id) { it.copy(nextRetryAt = 0L, error = null) } }
+        rebuildAutoDownloadSchedule()
+        kick()
+    }
+
     override fun setMaxConcurrentDownloads(value: Int) =
         command {
             persistPolicy(_policy.value.copy(maxConcurrentDownloads = value).normalized())
@@ -1079,7 +1143,23 @@ internal class AndroidOfflineMediaManager(
                         break
                     }
                     coroutineScope {
-                        next.map { pending -> async { download(pending) } }.awaitAll()
+                        next
+                            .map { pending ->
+                                async {
+                                    val deferred = deferReason(pending)
+                                    if (deferred == null) {
+                                        download(pending)
+                                    } else {
+                                        update(pending.id) {
+                                            it.copy(
+                                                status = DownloadStatus.Queued,
+                                                error = deferred.first,
+                                                nextRetryAt = deferred.second,
+                                            )
+                                        }
+                                    }
+                                }
+                            }.awaitAll()
                     }
                 }
             }
@@ -1089,6 +1169,18 @@ internal class AndroidOfflineMediaManager(
         awaitCommands()
         val activePolicy = _policy.value
         if (!activePolicy.autoDownloadEnabled) return
+        if (activePolicy.autoDownloadChargingOnly &&
+            !context.getSystemService(android.os.BatteryManager::class.java).isCharging
+        ) {
+            return
+        }
+        val autoClock = java.util.Calendar.getInstance()
+        if (activePolicy.minutesUntilDownloadWindow(
+                autoClock.get(java.util.Calendar.HOUR_OF_DAY) * 60 + autoClock.get(java.util.Calendar.MINUTE),
+            ) > 0
+        ) {
+            return
+        }
         autoRulesState.value.forEach { rule ->
             val server = registry.serverById(rule.serverId) ?: return@forEach
             val episodes =
@@ -1234,6 +1326,7 @@ internal class AndroidOfflineMediaManager(
 
             var connection: HttpURLConnection? = null
             try {
+                reserveVideoBytes(snapshot.id, existing, 0L)
                 // A process may stop after the video was fsync'ed and renamed but before its
                 // subtitle and Completed index entry were published. That video is verified
                 // enough to reuse: continue with the sidecar phase instead of downloading it
@@ -1388,6 +1481,7 @@ internal class AndroidOfflineMediaManager(
                         var lastUiUpdate = downloaded
                         var lastCheckpoint = downloaded
                         var lastSpaceCheck = downloaded
+                        var lastPolicyCheck = 0L
                         while (true) {
                             if (!isCurrentDownload(snapshot)) return@withContext
                             val read = input.read(buffer)
@@ -1405,6 +1499,21 @@ internal class AndroidOfflineMediaManager(
                                 ensureStorageAvailable(target = target, requiredBytes = nextWindow)
                                 lastSpaceCheck = downloaded
                             }
+                            if (now() - lastPolicyCheck >= 1_000L) {
+                                lastPolicyCheck = now()
+                                deferReason(snapshot)?.let { deferred ->
+                                    update(snapshot.id) {
+                                        it.copy(
+                                            status = DownloadStatus.Queued,
+                                            downloadedBytes = downloaded,
+                                            error = deferred.first,
+                                            nextRetryAt = deferred.second,
+                                        )
+                                    }
+                                    return@withContext
+                                }
+                            }
+                            reserveVideoBytes(snapshot.id, downloaded, read.toLong())
                             offlineStorageWrite { output.write(buffer, 0, read) }
                             downloaded += read
                             if (downloaded - lastUiUpdate >= PROGRESS_UI_INTERVAL_BYTES) {
@@ -1515,6 +1624,7 @@ internal class AndroidOfflineMediaManager(
                 }
             } finally {
                 connection?.disconnect()
+                synchronized(budgetLock) { activeVideoBytes.remove(snapshot.id) }
             }
         }
 
@@ -1920,7 +2030,7 @@ internal class AndroidOfflineMediaManager(
         workManager.enqueueUniquePeriodicWork(
             OFFLINE_AUTO_SYNC_WORK_NAME,
             ExistingPeriodicWorkPolicy.UPDATE,
-            offlineAutoSyncRequest(_policy.value.wifiOnly),
+            offlineAutoSyncRequest(_policy.value.wifiOnly, _policy.value.autoDownloadChargingOnly),
         )
     }
 

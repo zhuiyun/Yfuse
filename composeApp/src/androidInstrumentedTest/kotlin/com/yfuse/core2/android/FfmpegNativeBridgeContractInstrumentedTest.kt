@@ -8,8 +8,13 @@ import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
+import java.net.InetAddress
+import java.net.ServerSocket
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.util.concurrent.Callable
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 /**
  * The one check no unit test can make: that the bundled `libycore_demux.so` and this build's
@@ -22,6 +27,75 @@ import java.nio.ByteOrder
  */
 @RunWith(AndroidJUnit4::class)
 class FfmpegNativeBridgeContractInstrumentedTest {
+    @Test
+    fun bundled_demux_preserves_empty_subtitle_displays() {
+        assertTrue(
+            "The packaged demux must support PGS display-set API 2: ${FfmpegNativeBridge.loadFailureDescription}",
+            FfmpegNativeBridge.subtitleDisplaySetAvailable,
+        )
+    }
+
+    @Test
+    fun cancelling_before_open_does_not_create_a_session_or_poison_the_next_open() {
+        assertTrue(FfmpegNativeBridge.available)
+        val file = File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir, "ycore-cancel-smoke.wav")
+        val token = FfmpegNativeBridge.createCancellation()
+        assertTrue("The packaged native library must implement cancellation tokens", token > 0L)
+        try {
+            writeTinyPcmWave(file)
+            FfmpegNativeBridge.cancelDemux(token)
+            val aborted =
+                runCatching { FfmpegNativeBridge.open(file.absolutePath, emptyMap(), cancellationToken = token) }
+            aborted.getOrNull()?.let(FfmpegNativeBridge::close)
+            assertTrue("An already-cancelled open must not return a live session", aborted.isFailure)
+            val handle = FfmpegNativeBridge.open(file.absolutePath, emptyMap())
+            try {
+                assertEquals(1, FfmpegNativeBridge.trackCount(handle))
+            } finally {
+                FfmpegNativeBridge.close(handle)
+            }
+        } finally {
+            FfmpegNativeBridge.releaseCancellation(token)
+            file.delete()
+        }
+    }
+
+    @Test
+    fun cancelling_an_open_interrupts_a_server_that_never_returns_headers() {
+        assertTrue(FfmpegNativeBridge.available)
+        val token = FfmpegNativeBridge.createCancellation()
+        assertTrue(token > 0L)
+        val executor = Executors.newSingleThreadExecutor()
+        val server = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))
+        server.soTimeout = 3_000
+        try {
+            val opening =
+                executor.submit(
+                    Callable {
+                        val result =
+                            runCatching {
+                                FfmpegNativeBridge.open(
+                                    "http://127.0.0.1:${server.localPort}/stall",
+                                    emptyMap(),
+                                    cancellationToken = token,
+                                )
+                            }
+                        result.getOrNull()?.let(FfmpegNativeBridge::close)
+                        result.isFailure
+                    },
+                )
+            server.accept().use {
+                FfmpegNativeBridge.cancelDemux(token)
+                assertTrue("Native open must stop before its handle is returned", opening.get(3, TimeUnit.SECONDS))
+            }
+        } finally {
+            FfmpegNativeBridge.cancelDemux(token)
+            server.close()
+            executor.shutdownNow()
+            FfmpegNativeBridge.releaseCancellation(token)
+        }
+    }
+
     @Test
     fun bundled_demux_artifact_opens_a_generated_file() {
         assumeTrue("libycore_demux.so is not bundled in this build", FfmpegNativeBridge.available)

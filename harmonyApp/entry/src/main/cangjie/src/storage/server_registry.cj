@@ -55,6 +55,8 @@ public class ServerRegistry {
         return match (documents.load()) {
             case Success(document) =>
                 if (document.isEmpty()) {
+                    mutableServers = ArrayList<SavedServer>()
+                    mutableDefaultServerId = ""
                     ApiResult<Unit>.Success(())
                 } else {
                     match (codec.decode(document)) {
@@ -94,9 +96,11 @@ public class ServerRegistry {
         for (index in 0..mutableServers.size) {
             if (mutableServers[index].id == identity) { existingIndex = index }
         }
-        let secretRef = if (existingIndex >= 0) { mutableServers[existingIndex].secretRef } else { references.create() }
+        // Stage a fresh secret so a metadata failure cannot overwrite a working session.
+        let secretRef = references.create()
+        let previousDefault = mutableDefaultServerId
         let routeList = ArrayList<ServerRoute>()
-        routeList.append(ServerRoute("primary", "主线路", endpoint.normalizedEndpoint))
+        routeList.add(ServerRoute("primary", "主线路", endpoint.normalizedEndpoint))
         let saved = SavedServer(
             identity,
             provider,
@@ -115,16 +119,19 @@ public class ServerRegistry {
                 let previous = mutableServers
                 let next = ArrayList<SavedServer>()
                 for (server in mutableServers) {
-                    if (server.id != identity) { next.append(server) }
+                    if (server.id != identity) { next.add(server) }
                 }
-                next.append(saved)
+                next.add(saved)
                 mutableServers = next
                 if (mutableDefaultServerId.isEmpty()) { mutableDefaultServerId = identity }
                 match (persist()) {
-                    case Success(_) => ApiResult<SavedServer>.Success(saved)
+                    case Success(_) =>
+                        if (existingIndex >= 0) { secrets.remove(previous[existingIndex].secretRef) }
+                        ApiResult<SavedServer>.Success(saved)
                     case Failure(problem) =>
                         mutableServers = previous
-                        if (existingIndex < 0) { secrets.remove(secretRef) }
+                        mutableDefaultServerId = previousDefault
+                        secrets.remove(secretRef)
                         ApiResult<SavedServer>.Failure(problem)
                 }
         }
@@ -156,7 +163,7 @@ public class ServerRegistry {
         let next = ArrayList<SavedServer>()
         var removed: Option<SavedServer> = None
         for (server in mutableServers) {
-            if (server.id == serverId) { removed = Some(server) } else { next.append(server) }
+            if (server.id == serverId) { removed = Some(server) } else { next.add(server) }
         }
         if (let Some(server) <- removed) {
             let previous = mutableServers

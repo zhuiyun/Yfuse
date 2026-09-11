@@ -171,10 +171,29 @@ internal class AndroidCore2MediaProbe(
      */
     private val probeCache = LinkedHashMap<String, YCore2ProbeResult.Success>()
 
-    fun probe(item: YMediaItem): YCore2ProbeResult {
+    fun probe(
+        item: YMediaItem,
+        budget: AndroidProbeBudget? = null,
+    ): YCore2ProbeResult {
+        budget?.ensureActive()
         val cacheKey = item.probeCacheKey()
         synchronized(probeCacheLock) { probeCache[cacheKey] }?.let { cached -> return cached }
-        val result = yCoreStartupStage("platform_probe", item) { probeUncached(item) }
+        val result =
+            yCoreStartupStage("platform_probe", item) {
+                if (budget == null) {
+                    probeUncached(item, null)
+                } else {
+                    AndroidMetadataProbeLane.platform.run(
+                        timeoutMs = budget.remainingMs(),
+                        budget = budget,
+                        skipped = {
+                            budget.ensureActive()
+                            YCore2ProbeResult.Failure(YCore2ProbeFailure.SourceUnavailable)
+                        },
+                    ) { _ -> probeUncached(item, budget) }
+                }
+            }
+        budget?.ensureActive()
         // Only successes are retained. A failure here is usually an unreachable source, and
         // remembering that would keep a route unplayable for the rest of the session even once
         // the network recovers.
@@ -190,15 +209,21 @@ internal class AndroidCore2MediaProbe(
         return result
     }
 
-    private fun probeUncached(item: YMediaItem): YCore2ProbeResult {
-        val demux = AndroidMediaExtractorDemuxNode(appContext)
+    private fun probeUncached(
+        item: YMediaItem,
+        budget: AndroidProbeBudget?,
+    ): YCore2ProbeResult {
+        val demux = AndroidMediaExtractorDemuxNode(appContext, probeBudget = budget)
         var retained = false
 
         fun retain(result: YCore2ProbeResult): YCore2ProbeResult {
             if (result is YCore2ProbeResult.Success) {
                 demux.resetAfterProbe()
-                preparedExtractor.offer(item, demux)
-                retained = true
+                val transfer = {
+                    preparedExtractor.exchange(item, demux).also { retained = true }
+                }
+                val previous = if (budget != null) budget.ifActive(transfer) else transfer()
+                previous?.let { runCatching(it::release) }
             }
             return result
         }
@@ -304,6 +329,7 @@ internal class AndroidCore2MediaProbe(
                 ).let(::retain)
         } catch (error: Throwable) {
             if (error is CancellationException) throw error
+            budget?.ensureActive()
             YCore2ProbeResult.Failure(YCore2ProbeFailure.SourceUnavailable)
         } finally {
             if (!retained) demux.release()
@@ -487,7 +513,21 @@ internal class AndroidCore2RouteEvaluator(
     private val codecSampleProbe: AndroidCodecSampleProbe = AndroidCodecSampleProbe(context),
     private val nativeGpuRuntimeProbe: YNativeGpuRuntimeProbe = AndroidYCoreGpuRuntime.probe(context),
 ) {
+    private val appContext = context.applicationContext
     private val platformProbe = AndroidCore2MediaProbe(context)
+
+    /** Separate resource ownership, identical decoder/optimization/quirk policy. */
+    fun newPreparationEvaluator(): AndroidCore2RouteEvaluator =
+        AndroidCore2RouteEvaluator(
+            context = appContext,
+            decoderPreference = decoderPreference,
+            optimizationPreference = optimizationPreference,
+            capabilityProvider = capabilityProvider,
+            strategy = strategy,
+            quirkDatabase = quirkDatabase,
+            deviceIdentity = deviceIdentity,
+            nativeGpuRuntimeProbe = nativeGpuRuntimeProbe,
+        )
 
     fun takePreparedExtractor(item: YMediaItem): YPlatformExtractorSource? = platformProbe.takePreparedExtractor(item)
 
@@ -498,11 +538,31 @@ internal class AndroidCore2RouteEvaluator(
 
     fun closePreparedEnhancedDemux() = enhancedProbe.closePreparedDemux()
 
+    fun adoptPreparedSources(
+        item: YMediaItem,
+        prepared: AndroidNextItemSources,
+    ): Boolean {
+        var adopted = false
+        prepared.extractor.take(item)?.let {
+            platformProbe.returnPreparedExtractor(item, it)
+            adopted = true
+        }
+        prepared.enhanced.take(item)?.let {
+            enhancedProbe.returnPreparedDemux(item, it)
+            adopted = true
+        }
+        prepared.close()
+        return adopted
+    }
+
     private val runtimeCapabilities = AndroidRuntimeCapabilityRegistry(context)
 
     /** Preserves exact platform/container evidence when capability routing cannot advertise a plan. */
-    fun probePlatformForNativeAttempt(item: YMediaItem): YCore2ProbeResult.Success? =
-        (platformProbe.probe(item) as? YCore2ProbeResult.Success)
+    fun probePlatformForNativeAttempt(
+        item: YMediaItem,
+        budget: AndroidProbeBudget? = null,
+    ): YCore2ProbeResult.Success? =
+        (platformProbe.probe(item, budget) as? YCore2ProbeResult.Success)
             ?.withConfirmedDolbyVisionSourceHint(item)
 
     /**
@@ -518,8 +578,11 @@ internal class AndroidCore2RouteEvaluator(
         forcePowerSaver: Boolean = false,
         rememberedProbe: YCore2ProbeResult.Success? = null,
         prepareSourceForPlayback: Boolean = true,
+        budget: AndroidProbeBudget? = null,
     ): YCore2RouteDecision? {
-        val resolved = rememberedProbe ?: resolveProbe(item, prepareSourceForPlayback)
+        budget?.ensureActive()
+        val resolved = rememberedProbe ?: resolveProbe(item, prepareSourceForPlayback, budget)
+        budget?.ensureActive()
         if (resolved == null) {
             closePreparedExtractor()
             closePreparedEnhancedDemux()
@@ -527,8 +590,9 @@ internal class AndroidCore2RouteEvaluator(
         }
         val decision =
             yCoreStartupStage("route_decision", item) {
-                decide(item, resolved, preferTunnel, allowAudioPassthrough, forcePowerSaver)
+                decide(item, resolved, preferTunnel, allowAudioPassthrough, forcePowerSaver, budget)
             }
+        budget?.ensureActive()
         // Other demuxers cannot adopt this extractor. Stop its speculative downloads immediately.
         if (decision?.nativeDirectExecutable != true) closePreparedExtractor()
         if (decision?.plan?.demuxPath != YDemuxPath.Enhanced) closePreparedEnhancedDemux()
@@ -539,9 +603,10 @@ internal class AndroidCore2RouteEvaluator(
     private fun resolveProbe(
         item: YMediaItem,
         prepareSourceForPlayback: Boolean,
+        budget: AndroidProbeBudget?,
     ): YCore2ProbeResult.Success? {
         val platform =
-            (platformProbe.probe(item) as? YCore2ProbeResult.Success)
+            (platformProbe.probe(item, budget) as? YCore2ProbeResult.Success)
                 ?.withConfirmedDolbyVisionSourceHint(item)
         val sourceClaimsDolbyVision = item.sourceHints?.dolbyVision == true
         val resolved =
@@ -551,6 +616,7 @@ internal class AndroidCore2RouteEvaluator(
                     (
                         enhancedProbe.probe(
                             item,
+                            budget = budget,
                             retainForPlayback = prepareSourceForPlayback,
                         ) as? YCore2ProbeResult.Success
                     )?.takeUnless { it.unconfiguredDolbyVisionSignal }
@@ -567,6 +633,7 @@ internal class AndroidCore2RouteEvaluator(
                         (
                             enhancedProbe.probe(
                                 item,
+                                budget = budget,
                                 knownDolbyEvidence = platform.dolbyVisionStreamEvidence?.observedNals,
                                 retainForPlayback =
                                     prepareSourceForPlayback &&
@@ -606,6 +673,7 @@ internal class AndroidCore2RouteEvaluator(
         preferTunnel: Boolean,
         allowAudioPassthrough: Boolean,
         forcePowerSaver: Boolean,
+        budget: AndroidProbeBudget?,
     ): YCore2RouteDecision? {
         val requested =
             resolved.playbackRequest.copy(
@@ -658,6 +726,7 @@ internal class AndroidCore2RouteEvaluator(
                         unseenRuntimeKey.decoderName,
                         preparedExtractor = platformProbe.takePreparedExtractor(item),
                         returnPreparedExtractor = { platformProbe.returnPreparedExtractor(item, it) },
+                        budget = budget,
                     )
                 } else {
                     codecConfigurationProbe.probe(
@@ -665,6 +734,7 @@ internal class AndroidCore2RouteEvaluator(
                         mimeType = normalizedProbe.activeProbeMime(plan),
                         requirement = request.video,
                         item = item,
+                        budget = budget,
                     )
                 }
             when (probeResult) {

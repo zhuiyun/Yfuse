@@ -6,6 +6,7 @@ import com.yfuse.core.model.HomeContent
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.jsonObject
 
 /** A server-scoped disk snapshot and the time its source request last succeeded. */
@@ -36,8 +37,11 @@ private data class PersistedLibraryCache(
  * the server says next always wins.
  */
 class LibraryCache(
-    private val settings: Settings,
+    settings: Settings,
+    storage: () -> Settings = { settings },
 ) {
+    private val settings by lazy(storage)
+
     private companion object {
         const val KEY_PREFIX = "library.cache."
         const val PERSISTED_VERSION = 2
@@ -72,7 +76,7 @@ class LibraryCache(
         return runCatching {
             val root = json.parseToJsonElement(raw).jsonObject
             if ("v" in root) {
-                val persisted = json.decodeFromString(PersistedLibraryCache.serializer(), raw)
+                val persisted = json.decodeFromJsonElement(PersistedLibraryCache.serializer(), root)
                 require(persisted.version == PERSISTED_VERSION) { "Unsupported library cache version" }
                 require(persisted.updatedAtEpochMs >= 0L) { "Invalid library cache timestamp" }
                 LibraryCacheSnapshot(
@@ -81,7 +85,7 @@ class LibraryCache(
                 )
             } else {
                 LibraryCacheSnapshot(
-                    content = json.decodeFromString(HomeContent.serializer(), raw),
+                    content = json.decodeFromJsonElement(HomeContent.serializer(), root),
                     updatedAtEpochMs = null,
                 )
             }

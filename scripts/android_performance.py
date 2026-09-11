@@ -25,6 +25,7 @@ TEST_RUNNER = "androidx.test.runner.AndroidJUnitRunner"
 EXPECTED = {
     "StartupBenchmark": ("coldStartupAndFirstFrames", "timeToInitialDisplayMs", "metrics"),
     "HomeJourneyBenchmark": ("homeScrollFrames", "frameDurationCpuMs", "sampledMetrics"),
+    "NavigationJourneyBenchmark": ("searchAndTabTransitions", "frameDurationCpuMs", "sampledMetrics"),
 }
 
 
@@ -223,7 +224,7 @@ def fixture_hash() -> str:
     digest = hashlib.sha256()
     files = sorted((ROOT / "composeApp/src/performance").rglob("*"))
     files += [ROOT / "macrobenchmark/src/main/kotlin/com/yfuse/macrobenchmark" / name for name in (
-        "HomeJourney.kt", "HomeJourneyBenchmark.kt", "StartupBenchmark.kt",
+        "HomeJourney.kt", "HomeJourneyBenchmark.kt", "StartupBenchmark.kt", "NavigationJourneyBenchmark.kt",
     )]
     for path in files:
         if path.is_file():

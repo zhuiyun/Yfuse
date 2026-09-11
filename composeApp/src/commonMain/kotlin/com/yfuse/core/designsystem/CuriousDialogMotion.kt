@@ -24,18 +24,12 @@ internal val curiousDialogAnimations =
 
 private const val CURIOUS_REST_PROGRESS = 0.92f
 
-private fun curiousStage(
-    progress: Float,
-    start: Float,
-    end: Float,
-): Float = ((progress - start) / (end - start)).coerceIn(0f, 1f)
-
 /** One complete card moves; the reveal never stretches individual letters or splits their layers. */
 internal fun curiousDialogMotionFrame(
     animation: DialogAnimation,
     progress: Float,
 ): DialogMotionFrame {
-    val t = curiousStage(progress, 0f, 0.86f)
+    val t = dialogStage(progress, 0f, 0.86f)
     if (t >= 1f) return DialogMotionFrame()
     val hidden = 1f - t
     return when (animation) {
@@ -65,27 +59,27 @@ internal fun curiousDialogGeometry(
     val w = width.coerceAtLeast(0f)
     val h = height.coerceAtLeast(0f)
     val p = progress.coerceIn(0f, 1f)
-    val reveal = curiousStage(p, 0f, 0.88f)
+    val reveal = dialogStage(p, 0f, 0.88f)
     if (reveal >= 1f) return CuriousDialogGeometry(Rect(0f, 0f, w, h), 1f, 0f)
     return when (animation) {
         DialogAnimation.Envelope -> {
-            val widthFraction = curiousStage(p, 0f, 0.24f)
-            val letter = curiousStage(p, 0.08f, 0.86f)
+            val widthFraction = dialogStage(p, 0f, 0.24f)
+            val letter = dialogStage(p, 0.08f, 0.86f)
             val inset = w * (1f - widthFraction) / 2f
             CuriousDialogGeometry(Rect(inset, h * (1f - letter), w - inset, h), letter, 1f - letter)
         }
         DialogAnimation.Constellation -> {
-            val light = curiousStage(p, 0.08f, 0.84f)
+            val light = dialogStage(p, 0.08f, 0.84f)
             val x = w * (1f - light) / 2f
             val y = h * (1f - light) / 2f
-            CuriousDialogGeometry(Rect(x, y, w - x, h - y), light, 1f - curiousStage(p, 0.36f, 0.86f))
+            CuriousDialogGeometry(Rect(x, y, w - x, h - y), light, 1f - dialogStage(p, 0.36f, 0.86f))
         }
         DialogAnimation.PuzzleLock ->
-            CuriousDialogGeometry(Rect(0f, 0f, w, h), reveal, 1f - curiousStage(p, 0.30f, 0.86f))
+            CuriousDialogGeometry(Rect(0f, 0f, w, h), reveal, 1f - dialogStage(p, 0.30f, 0.86f))
         DialogAnimation.Hourglass -> {
             val x = w * (1f - reveal) / 2f
             val y = h * (1f - reveal) / 2f
-            CuriousDialogGeometry(Rect(x, y, w - x, h - y), reveal, 1f - curiousStage(p, 0.24f, 0.86f))
+            CuriousDialogGeometry(Rect(x, y, w - x, h - y), reveal, 1f - dialogStage(p, 0.24f, 0.86f))
         }
         DialogAnimation.Pinwheel -> {
             // Scale every blade radius as well as its outer edge: the first contour has zero area.
@@ -249,7 +243,7 @@ internal fun ContentDrawScope.drawCuriousDialog(
                 drawLine(ink, Offset(center.x, b.top + fold), b.topRight, hairline)
             }
             DialogAnimation.Constellation -> {
-                val joined = curiousStage(p, 0f, 0.5f) * starPositions.size
+                val joined = dialogStage(p, 0f, 0.5f) * starPositions.size
                 for (index in starPositions.indices) {
                     val start = starPositions[index]
                     val end = starPositions[(index + 1) % starPositions.size]
@@ -274,7 +268,7 @@ internal fun ContentDrawScope.drawCuriousDialog(
                 )
             }
             DialogAnimation.Hourglass -> {
-                val fall = curiousStage(p, 0.05f, 0.76f)
+                val fall = dialogStage(p, 0.05f, 0.76f)
                 for (index in 0..2) {
                     val y = b.top + b.height * ((fall - index * 0.15f).coerceIn(0f, 1f))
                     drawCircle(ink, hairline * (1.6f - index * 0.25f), Offset(center.x, y))

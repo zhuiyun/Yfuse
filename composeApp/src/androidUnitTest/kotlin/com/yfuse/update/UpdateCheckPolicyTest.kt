@@ -9,6 +9,21 @@ import kotlin.test.assertTrue
 
 class UpdateCheckPolicyTest {
     @Test
+    fun trust_failures_are_not_misreported_as_connection_errors() {
+        for (verdict in listOf(
+            UpdateManifestTrust.RejectedUnsigned,
+            UpdateManifestTrust.RejectedInvalidSignature,
+        )) {
+            assertEquals(
+                verdict.rejectionMessage(),
+                updateCheckFailureMessage(UpdateManifestRejectedException(verdict)),
+            )
+        }
+        // Raw transport messages can contain addresses or tokens and must stay out of the UI.
+        assertEquals("暂时无法连接升级服务器", updateCheckFailureMessage(IllegalStateException("private-host?token=secret")))
+    }
+
+    @Test
     fun automatic_check_attempt_is_persisted_across_manager_recreation_for_one_day() {
         val settings = MapSettings()
         var now = 1_000_000L

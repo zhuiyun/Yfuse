@@ -1,9 +1,12 @@
+@file:OptIn(ExperimentalLayoutApi::class)
+
 package com.yfuse.feature.search
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -12,21 +15,19 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imeNestedScroll
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -78,9 +79,13 @@ import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.TabBarInset
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.mediaLazyItemKey
-import com.yfuse.core.designsystem.motionAwareItem
+import com.yfuse.core.designsystem.motionItem
+import com.yfuse.core.designsystem.motionItems
+import com.yfuse.core.designsystem.motionItemsIndexed
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberDisclosureProgress
+import com.yfuse.core.designsystem.searchFieldArrival
+import com.yfuse.core.designsystem.selectionColor
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.skeletonFill
 import com.yfuse.core.designsystem.skeletonSweep
@@ -89,6 +94,8 @@ import com.yfuse.core.model.MediaItem
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.feature.detail.DetailScreen
 import com.yfuse.feature.player.PlayerScreen
+import com.yfuse.core.designsystem.ThemeIcon as Icon
+import com.yfuse.core.designsystem.ThemeText as Text
 
 @Composable
 fun SearchScreen(component: SearchComponent) {
@@ -140,7 +147,12 @@ private fun SearchHomeScreen(
     val keyboard = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
     val routeVisible = LocalRouteVisible.current
-    val resultHandoff = rememberSearchResultsHandoff(state.resultsPhase(), loading = state.loading)
+    val resultHandoff =
+        rememberSearchResultsHandoff(
+            state.resultsPhase(),
+            loading = state.loading,
+            presentationKey = state.presentationKey(),
+        )
     var filterSheet by remember { mutableStateOf<SearchFilterSheet?>(null) }
     var coverageExpanded by remember(state.searchedQuery) { mutableStateOf(false) }
     StatusBarIconStyle(darkIcons = !palette.isDark)
@@ -158,14 +170,21 @@ private fun SearchHomeScreen(
 
     // Page-level light, in order: the skeleton sweep while the first results load, then the
     // handoff's own pulse and arrival sweep. Each draws only while its clock is running.
-    Box(Modifier.fillMaxSize().skeletonSweep().then(resultHandoff.page)) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .imePadding()
+            .imeNestedScroll()
+            .skeletonSweep()
+            .then(resultHandoff.page),
+    ) {
         LazyColumn(
             state = component.listState,
             modifier = Modifier.fillMaxSize().statusBarsPadding(),
             contentPadding = PaddingValues(top = Dimens.contentTop, bottom = TabBarInset),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            item {
+            motionItem {
                 Column {
                     SearchField(
                         query = state.query,
@@ -180,7 +199,7 @@ private fun SearchHomeScreen(
                     Spacer(Modifier.height(8.dp))
                 }
             }
-            item {
+            motionItem {
                 Column {
                     SearchFilterBar(
                         state = state,
@@ -202,7 +221,7 @@ private fun SearchHomeScreen(
             // 演员 sits above the titles: a cast match is a different kind of answer, and
             // a title search can never surface it — `/Items` matches item names only.
             if (state.people.isNotEmpty() && state.person == null) {
-                item {
+                motionItem {
                     PeopleRow(
                         people = state.people,
                         baseUrl = component::serverBaseUrl,
@@ -213,7 +232,7 @@ private fun SearchHomeScreen(
             }
 
             state.person?.let { person ->
-                item {
+                motionItem {
                     PersonBanner(
                         person = person,
                         onClear = { store.accept(SearchIntent.SelectPerson(null)) },
@@ -223,12 +242,12 @@ private fun SearchHomeScreen(
 
             val awaitingFirstResults = state.loading && state.groups.isEmpty()
             if (awaitingFirstResults) {
-                item { SearchSkeleton() }
+                motionItem { SearchSkeleton() }
             }
 
             // Nothing typed yet: the chip row alone, no empty results heading.
             if ((state.hasSearched || state.error != null) && !awaitingFirstResults) {
-                item(key = "search-results-heading") {
+                motionItem(key = "search-results-heading") {
                     Column(
                         Modifier.padding(horizontal = Dimens.pageHorizontal).then(resultHandoff.item()),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -252,7 +271,7 @@ private fun SearchHomeScreen(
                 }
                 when {
                     state.error != null ->
-                        item(key = "search-results-error") {
+                        motionItem(key = "search-results-error") {
                             ErrorState(
                                 message = state.error!!,
                                 onRetry = { store.accept(SearchIntent.Retry) },
@@ -266,14 +285,14 @@ private fun SearchHomeScreen(
 
                     // 没有找到相关内容 — `400 12px Manrope`, `--pg-hint`, `padding:20px 0`.
                     state.visibleGroups.all { it.items.isEmpty() } && !state.loading ->
-                        item(key = "search-results-empty") {
+                        motionItem(key = "search-results-empty") {
                             Box(Modifier.padding(horizontal = Dimens.pageHorizontal).then(resultHandoff.item())) {
                                 EmptyResults(filtered = state.type != SearchType.All)
                             }
                         }
 
                     state.aggregated.isNotEmpty() ->
-                        itemsIndexed(
+                        motionItemsIndexed(
                             items = state.visibleAggregated,
                             key = { _, group -> group.identity },
                             contentType = { _, _ -> "aggregated-search-result" },
@@ -302,7 +321,7 @@ private fun SearchHomeScreen(
                         }
 
                     else ->
-                        itemsIndexed(
+                        motionItemsIndexed(
                             items = state.visibleGroups,
                             key = { _, group -> "server-results-${group.serverId}" },
                             contentType = { _, _ -> "server-search-group" },
@@ -330,7 +349,7 @@ private fun SearchHomeScreen(
             }
 
             if (!state.hasSearched && state.query.isBlank()) {
-                item {
+                motionItem {
                     RecentSearches(
                         title = if (state.recent.isEmpty()) "试试搜索" else "搜索记录",
                         terms = state.recent.ifEmpty { suggestedTerms },
@@ -368,9 +387,10 @@ internal fun SearchField(
             .fillMaxWidth()
             .padding(horizontal = Dimens.pageHorizontal)
             .heightIn(min = 50.dp)
+            .searchFieldArrival()
+            .then(motion)
             .shadow(Shadows.searchBarFocused, shape)
             .glass(shape, palette.card3, accent.border)
-            .then(motion)
             // The conditional clear action already owns a 48dp touch target. Vertical padding
             // here would add to that real layout height and make the field jump when text appears.
             .padding(horizontal = 16.dp),
@@ -399,7 +419,9 @@ internal fun SearchField(
         }
         // The field itself says the search is running: the same orb as every other loader,
         // at the end of the row where the answer will land.
-        if (loading) OrbProgress(size = SearchFieldOrbSize, contentDescription = "正在搜索")
+        Box(Modifier.size(SearchFieldOrbSize), contentAlignment = Alignment.Center) {
+            if (loading) OrbProgress(size = SearchFieldOrbSize, contentDescription = "正在搜索")
+        }
         if (query.isNotEmpty()) {
             Icon(
                 AppIcons.Close,
@@ -465,7 +487,7 @@ private fun TypeChip(
     Text(
         label,
         style = if (selected) AppTypography.caption.strong else AppTypography.caption.medium,
-        color = if (selected) accent.accent else palette.body,
+        color = selectionColor(if (selected) accent.accent else palette.body),
         modifier =
             Modifier
                 .pressable(role = Role.RadioButton, onClick = onClick)
@@ -473,8 +495,8 @@ private fun TypeChip(
                 .touchTarget()
                 .glass(
                     shape = GlassShapes.chip,
-                    fill = if (selected) accent.container else palette.card2,
-                    border = if (selected) accent.border else palette.border,
+                    fill = selectionColor(if (selected) accent.container else palette.card2),
+                    border = selectionColor(if (selected) accent.border else palette.border),
                 ).padding(horizontal = 11.dp, vertical = 5.dp),
     )
 }
@@ -502,10 +524,10 @@ private fun PeopleRow(
             contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            items(people, key = { "${it.serverId}-${it.personId}" }) { person ->
+            motionItems(people, key = { "${it.serverId}-${it.personId}" }) { person ->
                 Column(
                     // Cast lands after the titles do, so the row grows into place.
-                    Modifier.width(64.dp).then(motionAwareItem()).pressable { onSelect(person) },
+                    Modifier.width(64.dp).then(Modifier).pressable { onSelect(person) },
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     // The image draws nothing when the server has no headshot, so the
@@ -637,7 +659,7 @@ private fun ServerGroup(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                itemsIndexed(
+                motionItemsIndexed(
                     items = group.items,
                     key = { index, item ->
                         mediaLazyItemKey("search:${group.serverId}", index, item.id)

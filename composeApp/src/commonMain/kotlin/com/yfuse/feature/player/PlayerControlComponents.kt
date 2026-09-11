@@ -10,10 +10,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -30,7 +28,11 @@ import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberAccentColorsForSurface
+import com.yfuse.core.designsystem.rememberSegmentIndicator
+import com.yfuse.core.designsystem.selectionColor
 import com.yfuse.core.designsystem.touchTarget
+import com.yfuse.core.designsystem.ThemeIcon as Icon
+import com.yfuse.core.designsystem.ThemeText as Text
 
 /** Shared building blocks used by player settings, danmaku, watch-together, and diagnostics. */
 @Composable
@@ -65,6 +67,7 @@ internal fun SegmentedRow(
     onSelect: (Int) -> Unit,
 ) {
     val accent = rememberAccentColorsForSurface(dark = true)
+    val indicator = rememberSegmentIndicator(selectedIndex, accent.container, accent.border)
     Row(
         Modifier
             .fillMaxWidth()
@@ -72,24 +75,22 @@ internal fun SegmentedRow(
                 shape = AppShapes.pill,
                 fill = Color.White.copy(alpha = 0.07f),
                 border = Color.White.copy(alpha = 0.12f),
-            ).padding(3.dp),
+            ).padding(3.dp)
+            .then(indicator.container),
     ) {
         options.forEachIndexed { index, label ->
             val active = index == selectedIndex
             Text(
                 label,
                 style = if (active) AppTypography.caption.strong else AppTypography.caption.medium,
-                color = if (active) accent.accent else Color.White.copy(alpha = 0.62f),
+                color = selectionColor(if (active) accent.accent else Color.White.copy(alpha = 0.62f)),
                 maxLines = 1,
                 textAlign = TextAlign.Center,
                 modifier =
                     Modifier
                         .weight(1f)
-                        .glass(
-                            shape = AppShapes.pill,
-                            fill = if (active) accent.container else Color.Transparent,
-                            border = if (active) accent.border else null,
-                        ).noRippleClickable { onSelect(index) }
+                        .then(indicator.item(index))
+                        .noRippleClickable { onSelect(index) }
                         .padding(vertical = 9.dp),
             )
         }
