@@ -1,38 +1,233 @@
-name: Particle light validation
+name: Particle light validation and signed artifact
 
 on:
   push:
     branches: [codex/particle-light-20260912]
+    paths:
+      - .github/workflows/particle-light-validation.yml
+      - .github/particle-light/**
+      - composeApp/**
+      - version.properties
+      - release-notes.txt
 
 permissions:
-  contents: read
+  contents: write
+  actions: read
 
 concurrency:
   group: particle-light-validation-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  source:
-    name: Export exact validation source
+  validate-sign:
+    name: Validate current source and sign artifact only
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 300
+    environment: production
+    env:
+      EXPECTED_ANDROID_CERT_SHA256: 373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84
+      GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx6g -Dorg.gradle.workers.max=2
     steps:
-      - name: Check out source
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
-          persist-credentials: false
-      - name: Export tracked source and commit provenance
+          fetch-depth: 0
+      - name: Apply checksum-verified source patch
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/particle-source"
-          git archive --format=zip -o "$RUNNER_TEMP/particle-source/yfuse-source.zip" HEAD
-          git rev-parse HEAD > "$RUNNER_TEMP/particle-source/source-commit.txt"
-          git rev-parse 'HEAD^{tree}' > "$RUNNER_TEMP/particle-source/source-tree.txt"
-      - name: Upload validation source
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+          [[ "$GITHUB_REF_NAME" == codex/particle-light-20260912 ]]
+          python3 - <<'PY'
+          import base64, gzip, hashlib, pathlib, subprocess
+          parts = sorted(pathlib.Path('.github/particle-light').glob('patch.*.b64'))
+          if parts:
+              assert len(parts) == 3
+              data = gzip.decompress(base64.b64decode(''.join(p.read_text().strip() for p in parts), validate=True))
+              assert hashlib.sha256(data).hexdigest() == '06bc1096aec37457b2e6cb44e927320c1b0380a30758870e759df29806508251'
+              patch = pathlib.Path('/tmp/particle-light.patch')
+              patch.write_bytes(data)
+              subprocess.run(['git', 'apply', '--check', str(patch)], check=True)
+              subprocess.run(['git', 'apply', '--index', str(patch)], check=True)
+              subprocess.run(['git', 'rm', '--', *map(str, parts)], check=True)
+          paths = subprocess.check_output(['git', 'diff', '--cached', '--name-only', '-z'])
+          pathlib.Path('/tmp/particle-changed-paths').write_bytes(paths)
+          PY
+          git diff --check
+          python3 scripts/release_metadata.py --format json
+      - uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c
         with:
-          name: particle-source-${{ github.sha }}
-          path: ${{ runner.temp }}/particle-source/
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - name: Format changed Kotlin sources and preserve unrelated source
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          set +e
+          ./gradlew :composeApp:ktlintFormat --no-daemon --console=plain > /tmp/particle-format.log 2>&1
+          code=$?
+          set -e
+          tail -n 100 /tmp/particle-format.log
+          python3 - <<'PY'
+          import pathlib, subprocess
+          allowed = set(pathlib.Path('/tmp/particle-changed-paths').read_bytes().split(b'\0'))
+          changed = subprocess.check_output(['git', 'diff', '--name-only', '-z']).split(b'\0')
+          for path in changed:
+              if path and path not in allowed:
+                  subprocess.run(['git', 'restore', '--worktree', '--', path.decode()], check=True)
+          PY
+          if [[ "$code" != 0 ]]; then echo '::warning::Formatter reported issues; mandatory ktlintCheck below will decide acceptance'; fi
+      - name: Commit exact implementation to the isolated branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'Yfuse build automation'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          if [[ -s /tmp/particle-changed-paths ]]; then
+            git add --pathspec-from-file=/tmp/particle-changed-paths --pathspec-file-nul
+          fi
+          git diff --cached --check
+          if ! git diff --cached --quiet; then
+            git commit -m 'feat: bounded particle feedback, all dialog styles and system-shade gesture isolation (218)'
+            git push origin "HEAD:refs/heads/$GITHUB_REF_NAME"
+          fi
+          echo "SOURCE_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          mkdir -p build/particle-source
+          git archive --format=zip -o build/particle-source/yfuse-source.zip HEAD
+          git diff 04dc5086eccaacdf3013080b6ecc5d353f1663ee HEAD -- composeApp version.properties release-notes.txt > build/particle-source/implementation.patch
+          git rev-parse HEAD > build/particle-source/source-commit.txt
+          git rev-parse 'HEAD^{tree}' > build/particle-source/source-tree.txt
+      - name: Upload exact source before building
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: particle-implementation-${{ github.run_id }}
+          path: build/particle-source/
+          retention-days: 7
           if-no-files-found: error
-          retention-days: 3
+      - name: Verify formatting and design contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :composeApp:ktlintCheck :composeApp:verifyDesignSystemUsage --no-daemon --console=plain 2>&1 | tee /tmp/particle-check.log
+      - name: Install Android toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          manager="$sdk/cmdline-tools/latest/bin/sdkmanager"
+          if [[ ! -x "$manager" ]]; then manager="$(find "$sdk/cmdline-tools" -type f -name sdkmanager -print -quit)"; fi
+          yes | "$manager" --licenses >/dev/null 2>&1 || true
+          "$manager" 'platforms;android-36' 'ndk;29.0.14206865' 'cmake;3.22.1'
+      - name: Fetch verified compatibility libraries
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v 7z >/dev/null; then sudo apt-get update && sudo apt-get install -y p7zip-full; fi
+          bash scripts/fetch-engines.sh
+      - name: Rebuild current native sources with pinned dependency cache
+        uses: ./.github/actions/build-current-ycore
+      - name: Compile and run regression tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :composeApp:compileDebugKotlinAndroid :composeApp:testDebugUnitTest :watchTogetherProtocol:jvmTest :watchTogetherServer:test --no-daemon --console=plain --max-workers=2 2>&1 | tee /tmp/particle-tests.log
+      - name: Configure existing official signing key
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          TMDB_TOKEN: ${{ secrets.TMDB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+            if [[ -z "${!name:-}" ]]; then echo "::error::Missing official signing secret: $name"; exit 1; fi
+          done
+          mkdir -p signing
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > signing/yfuse-release.jks
+          chmod 600 signing/yfuse-release.jks
+          python3 - <<'PY'
+          import os, pathlib
+          def escaped(s):
+              return s.replace('\\', '\\\\').replace('\n', '\\n').replace('\r', '\\r').replace('=', '\\=').replace(':', '\\:').replace(' ', '\\ ')
+          values = {'storeFile': 'signing/yfuse-release.jks', 'storePassword': os.environ['ANDROID_KEYSTORE_PASSWORD'], 'keyAlias': os.environ['ANDROID_KEY_ALIAS'], 'keyPassword': os.environ['ANDROID_KEY_PASSWORD']}
+          pathlib.Path('keystore.properties').write_text(''.join(k + '=' + escaped(v) + '\n' for k, v in values.items()))
+          pathlib.Path('local.properties').write_text('tmdb.token=' + escaped(os.environ.get('TMDB_TOKEN', '')) + '\n')
+          PY
+          chmod 600 keystore.properties local.properties
+          actual="$(keytool -list -v -keystore signing/yfuse-release.jks -storepass "$ANDROID_KEYSTORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" | sed -n 's/^[[:space:]]*SHA256: //p' | head -n 1 | tr -d ':[:space:]' | tr '[:upper:]' '[:lower:]')"
+          [[ "$actual" == "$EXPECTED_ANDROID_CERT_SHA256" ]]
+      - name: Build officially signed APK without publishing
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/release_metadata.py --format json > /tmp/particle-release.json
+          [[ "$(jq -r .versionCode /tmp/particle-release.json)" == 218 ]]
+          [[ "$(jq -r .versionName /tmp/particle-release.json)" == 1.0.56 ]]
+          ./gradlew :composeApp:assembleRelease -PconfirmMdkDistributionRights=true --no-daemon --console=plain --max-workers=2 2>&1 | tee /tmp/particle-release.log
+      - name: Verify actual APK signature version and native libraries
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk=composeApp/build/outputs/apk/release/composeApp-release.apk
+          test -s "$apk"
+          sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          tools="$(find "$sdk/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          mkdir -p build/particle-signed
+          "$tools/apksigner" verify --verbose --print-certs "$apk" | tee build/particle-signed/signature.txt
+          grep -Fq "$EXPECTED_ANDROID_CERT_SHA256" build/particle-signed/signature.txt
+          "$tools/zipalign" -c -P 16 -v 4 "$apk" > build/particle-signed/alignment.txt
+          "$tools/aapt" dump badging "$apk" > build/particle-signed/badging.txt
+          grep -Fq "package: name='com.yfuse'" build/particle-signed/badging.txt
+          grep -Fq "versionCode='218'" build/particle-signed/badging.txt
+          grep -Fq "versionName='1.0.56'" build/particle-signed/badging.txt
+          python3 - "$apk" <<'PY'
+          import hashlib, json, os, pathlib, subprocess, sys, zipfile
+          expected = {}
+          for path in ('composeApp/libs/libmpv-release.aar', 'composeApp/libs/ycore-native.aar'):
+              with zipfile.ZipFile(path) as aar:
+                  for name in aar.namelist():
+                      if name.startswith('jni/arm64-v8a/') and name.endswith('.so'):
+                          expected[name.rsplit('/', 1)[1]] = hashlib.sha256(aar.read(name)).hexdigest()
+          with zipfile.ZipFile(sys.argv[1]) as apk:
+              assert apk.testzip() is None
+              for name, digest in expected.items():
+                  assert hashlib.sha256(apk.read('lib/arm64-v8a/' + name)).hexdigest() == digest, name
+              apk.getinfo('lib/arm64-v8a/libmdk.so')
+              assert any(b'E9107559' in apk.read(n) for n in apk.namelist() if n.endswith('.dex'))
+          output = pathlib.Path('build/particle-signed')
+          report = {'packageName': 'com.yfuse', 'versionCode': 218, 'versionName': '1.0.56', 'sourceCommit': os.environ['SOURCE_COMMIT'], 'sourceTree': subprocess.check_output(['git', 'rev-parse', 'HEAD^{tree}'], text=True).strip(), 'certificateSha256': os.environ['EXPECTED_ANDROID_CERT_SHA256'], 'nativeLibraries': expected, 'physicalDeviceTested': False}
+          (output / 'build-info.json').write_text(json.dumps(report, indent=2) + '\n')
+          PY
+          cp "$apk" build/particle-signed/Yfuse-1.0.56-218-signed.apk
+          (cd build/particle-signed && sha256sum Yfuse-1.0.56-218-signed.apk > SHA256SUMS)
+      - name: Upload verified signed APK
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: particle-signed-${{ github.run_id }}
+          path: build/particle-signed/
+          if-no-files-found: error
+          retention-days: 7
+      - name: Upload tests and build diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: particle-tests-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            /tmp/particle-format.log
+            /tmp/particle-check.log
+            /tmp/particle-tests.log
+            /tmp/particle-release.log
+            composeApp/build/test-results/
+            composeApp/build/reports/ktlint/
+            watchTogetherProtocol/build/test-results/
+            watchTogetherServer/build/test-results/
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Remove signing material
+        if: always()
+        shell: bash
+        run: rm -f signing/yfuse-release.jks keystore.properties local.properties
