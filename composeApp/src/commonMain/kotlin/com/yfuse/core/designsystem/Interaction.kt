@@ -7,6 +7,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.FocusInteraction
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
@@ -122,6 +123,7 @@ fun Modifier.pressable(
     enabled: Boolean = true,
     pressedScale: Float = 0.97f,
     tilt: Boolean = false,
+    lightFeedback: Boolean = true,
     haptic: HapticSignal? = null,
     role: Role? = Role.Button,
     focusShape: Shape = AppShapes.control,
@@ -134,6 +136,7 @@ fun Modifier.pressable(
 ): Modifier {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val haptics = LocalHaptics.current
+    val light = rememberLightFeedback(enabled && lightFeedback && role == Role.Button)
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
     val focused by interactionSource.collectIsFocusedAsState()
@@ -172,12 +175,19 @@ fun Modifier.pressable(
     // its end state and back is exactly the kind of movement the setting exists to remove.
     val tilting = tilt && !reduceMotion
     var pressPoint by remember { mutableStateOf(Offset.Unspecified) }
-    LaunchedEffect(interactionSource, tilting) {
-        if (!tilting) return@LaunchedEffect
+    LaunchedEffect(interactionSource, tilting, light) {
+        if (!tilting && !light.enabled) return@LaunchedEffect
         interactionSource.interactions.collect { interaction ->
             // Only the press carries a position; the release and the cancel are the same
             // event as far as the lean is concerned, and [pressed] already covers them.
-            if (interaction is PressInteraction.Press) pressPoint = interaction.pressPosition
+            when (interaction) {
+                is PressInteraction.Press -> pressPoint = interaction.pressPosition
+                is FocusInteraction.Focus -> {
+                    pressPoint = Offset.Unspecified
+                    light.emit(LightEffect.Node)
+                }
+                is FocusInteraction.Unfocus, is PressInteraction.Cancel -> light.clear()
+            }
         }
     }
     val lean by animateFloatAsState(
@@ -188,17 +198,20 @@ fun Modifier.pressable(
 
     val onClickWithHaptic: () -> Unit = {
         haptic?.let(haptics::play)
+        light.emit(if (tilt) LightEffect.Edge else LightEffect.Node, at = pressPoint)
         onClick()
     }
     val onLongClickWithHaptic: (() -> Unit)? =
         onLongClick?.let { action ->
             {
                 haptics.play(HapticSignal.Confirm)
+                light.emit(LightEffect.Edge, at = pressPoint)
                 action()
             }
         }
 
     return this
+        .lightFeedback(light)
         .graphicsLayer {
             scaleX = scale
             scaleY = scale

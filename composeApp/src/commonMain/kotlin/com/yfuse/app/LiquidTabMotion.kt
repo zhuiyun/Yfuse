@@ -38,6 +38,7 @@ internal class LiquidTabMotion(
     val right: State<Float>,
     val sweep: Animatable<Float, androidx.compose.animation.core.AnimationVector1D>,
     val gestures: Modifier,
+    val dragging: Boolean,
 )
 
 @Composable
@@ -113,5 +114,5 @@ internal fun rememberLiquidTabMotion(
                 dragIndex = null
             }
         }
-    return LiquidTabMotion(left, right, sweep, gestures)
+    return LiquidTabMotion(left, right, sweep, gestures, dragIndex != null)
 }

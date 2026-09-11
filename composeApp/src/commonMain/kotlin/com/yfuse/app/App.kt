@@ -112,12 +112,14 @@ import com.yfuse.core.designsystem.backdropBlur
 import com.yfuse.core.designsystem.backdropSource
 import com.yfuse.core.designsystem.drawLensIsland
 import com.yfuse.core.designsystem.drawMotionSweep
+import com.yfuse.core.designsystem.drawPhaseLight
 import com.yfuse.core.designsystem.liquidNavigationGlass
 import com.yfuse.core.designsystem.navigationGlass
 import com.yfuse.core.designsystem.overlayGlass
 import com.yfuse.core.designsystem.platformAnimationsDisabled
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberBackdropState
+import com.yfuse.core.designsystem.rememberPhaseLightCount
 import com.yfuse.core.designsystem.resolveDark
 import com.yfuse.core.designsystem.searchDockSource
 import com.yfuse.core.designsystem.shadow
@@ -204,6 +206,7 @@ fun App(root: RootComponent) {
     val systemMotionOff = platformAnimationsDisabled()
     val motionOff = reduceMotion || systemMotionOff
     val pulseSweep by root.themePreferences.pulseSweep.collectAsState()
+    val particleLight by root.themePreferences.particleLight.collectAsState()
     val dialogAnimation by root.themePreferences.dialogAnimation.collectAsState()
     val dialogAnimationLab by root.themePreferences.dialogAnimationLab.collectAsState()
     val glassStyle by root.themePreferences.glassStyle.collectAsState()
@@ -227,6 +230,7 @@ fun App(root: RootComponent) {
         glassStyle = if (reduceTransparency) GlassStyle.Frosted else glassStyle,
         dialogAnimation = dialogAnimation,
         dialogAnimationLab = dialogAnimationLab,
+        particleLight = particleLight,
     ) {
         val active by root.activeTab.subscribeAsState()
         val homeStack by root.home.stack.subscribeAsState()
@@ -1069,6 +1073,10 @@ internal fun GlassTabBar(
     // of travel. The draw phase caps that stretch, so a jump across the bar never turns the
     // indicator into a stripe spanning unrelated icons.
     val defaultMotion = if (enhanced) null else rememberDefaultTabMotion(selectedIndex, reduceMotion)
+    val phaseMoving by remember(liquidMotion?.sweep, liquidMotion?.dragging) {
+        derivedStateOf { liquidMotion?.dragging == true || (liquidMotion?.sweep?.value ?: 1f) < 1f }
+    }
+    val phaseLights = rememberPhaseLightCount(phaseMoving)
     val indicatorAlpha =
         animateFloatAsState(
             targetValue = if (hasSelection) 1f else 0f,
@@ -1134,6 +1142,13 @@ internal fun GlassTabBar(
                         accent.accent,
                         liquidMotion.sweep.value,
                         alpha,
+                    )
+                    drawPhaseLight(
+                        Rect(left, top, left + pillWidth, top + pillHeight),
+                        if (liquidMotion.dragging) 0.5f else liquidMotion.sweep.value,
+                        phaseLights,
+                        palette.text,
+                        trail = true,
                     )
                 }
             },

@@ -251,7 +251,11 @@ internal fun PillSwitch(checked: Boolean) {
         Modifier
             .width(46.dp)
             .height(28.dp)
-            .clip(AppShapes.pill)
+            .lightOnChange(
+                checked,
+                if (checked) LightEffect.Converge else LightEffect.Node,
+                fractionX = if (checked) 0.7f else 0.3f,
+            ).clip(AppShapes.pill)
             .background(track),
         contentAlignment = Alignment.CenterStart,
     ) {
@@ -295,6 +299,9 @@ internal fun GlassSlider(
     val accent = LocalAccentColors.current
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val haptics = LocalHaptics.current
+    val light = rememberLightFeedback()
+    val currentLight by rememberUpdatedState(light)
+    val currentFraction by rememberUpdatedState(value)
     val span = (valueRange.endInclusive - valueRange.start).let { if (it > 0f) it else 1f }
     val fraction = ((value - valueRange.start) / span).coerceIn(0f, 1f)
     val progress by animateFloatAsState(
@@ -318,11 +325,13 @@ internal fun GlassSlider(
             }
         }
         latestChange(valueRange.start + snapped * span)
+        currentLight.emit(LightEffect.Trail, fractionX = snapped)
     }
 
     BoxWithConstraints(
         modifier
             .fillMaxWidth()
+            .lightFeedback(light)
             .heightIn(min = MinTouchTarget)
             .semantics {
                 progressBarRangeInfo = ProgressBarRangeInfo(value.coerceIn(valueRange), valueRange, steps)
@@ -334,6 +343,20 @@ internal fun GlassSlider(
                 val thumb = SliderThumb.toPx()
                 detectHorizontalDragGestures(
                     onDragStart = { start -> report(sliderFractionAt(start.x, size.width, thumb)) },
+                    onDragEnd = {
+                        currentLight.emit(
+                            LightEffect.Converge,
+                            fractionX =
+                                (
+                                    (
+                                        currentFraction -
+                                            valueRange.start
+                                    ) /
+                                        span
+                                ).coerceIn(0f, 1f),
+                        )
+                    },
+                    onDragCancel = { currentLight.clear() },
                 ) { change, _ ->
                     change.consume()
                     report(sliderFractionAt(change.position.x, size.width, thumb))

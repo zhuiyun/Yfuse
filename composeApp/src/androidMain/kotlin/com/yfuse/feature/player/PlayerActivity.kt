@@ -55,7 +55,9 @@ import com.yfuse.core.data.preferredVersion
 import com.yfuse.core.designsystem.AccentColor
 import com.yfuse.core.designsystem.AccessibilityOptions
 import com.yfuse.core.designsystem.DialogAnimation
+import com.yfuse.core.designsystem.ParticleLight
 import com.yfuse.core.designsystem.YfuseTheme
+import com.yfuse.core.designsystem.platformAnimationsDisabled
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlayerEngine
@@ -480,11 +482,16 @@ class PlayerActivity : ComponentActivity() {
             val state by pending.store.states.collectAsState(pending.store.state)
             val dialogAnimation = preferences?.dialogAnimation?.collectAsState()?.value ?: DialogAnimation.Lift
             val reduceMotion = preferences?.reduceMotion?.collectAsState()?.value ?: false
+            val systemMotionOff = platformAnimationsDisabled()
+            val particleLight = preferences?.particleLight?.collectAsState()?.value ?: ParticleLight.Gentle
             YfuseTheme(
                 dark = true,
                 accent = accent,
                 dialogAnimation = dialogAnimation,
-                accessibility = AccessibilityOptions(reduceMotion = reduceMotion),
+                accessibility = AccessibilityOptions(reduceMotion = reduceMotion || systemMotionOff),
+                particleLight = particleLight,
+                particleLimit = 32,
+                particleActive = false,
             ) {
                 PlayerPreparationContent(
                     state = state,
@@ -725,11 +732,16 @@ class PlayerActivity : ComponentActivity() {
             // Always the dark palette: the controls float over the picture.
             val dialogAnimation = preferences?.dialogAnimation?.collectAsState()?.value ?: DialogAnimation.Lift
             val reduceMotion = preferences?.reduceMotion?.collectAsState()?.value ?: false
+            val systemMotionOff = platformAnimationsDisabled()
+            val particleLight = preferences?.particleLight?.collectAsState()?.value ?: ParticleLight.Gentle
             YfuseTheme(
                 dark = true,
                 accent = accent,
                 dialogAnimation = dialogAnimation,
-                accessibility = AccessibilityOptions(reduceMotion = reduceMotion),
+                accessibility = AccessibilityOptions(reduceMotion = reduceMotion || systemMotionOff),
+                particleLight = particleLight,
+                particleLimit = 32,
+                particleActive = !inPictureInPicture,
             ) {
                 PlayerRoot(
                     artworkMorph = artworkMorph,

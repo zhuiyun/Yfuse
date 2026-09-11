@@ -88,6 +88,7 @@ import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.DolbyChip
 import com.yfuse.core.designsystem.HapticSignal
+import com.yfuse.core.designsystem.LightEffect
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalHaptics
 import com.yfuse.core.designsystem.LocalRouteVisible
@@ -96,7 +97,9 @@ import com.yfuse.core.designsystem.PlayerTokens
 import com.yfuse.core.designsystem.ambientSeekAccent
 import com.yfuse.core.designsystem.cssLinearGradient
 import com.yfuse.core.designsystem.glass
+import com.yfuse.core.designsystem.lightFeedback
 import com.yfuse.core.designsystem.rememberAnimatedArtworkAccent
+import com.yfuse.core.designsystem.rememberLightFeedback
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.abs
@@ -856,6 +859,8 @@ private fun StandardSeekBar(
     showTimeBubble: Boolean = false,
 ) {
     val haptics = LocalHaptics.current
+    val light = rememberLightFeedback(enabled)
+    val currentLight by rememberUpdatedState(light)
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val magnetRadiusPx = with(LocalDensity.current) { SeekMarkerMagnetRadius.toPx() }
     var dragFraction by remember { mutableFloatStateOf(0f) }
@@ -894,6 +899,7 @@ private fun StandardSeekBar(
             false
         } else {
             latestOnCommit(target.coerceIn(0f, 1f))
+            currentLight.emit(LightEffect.Converge, fractionX = target)
             true
         }
     }
@@ -914,11 +920,13 @@ private fun StandardSeekBar(
         snappedMarkerIndex = target.markerIndex
         dragFraction = target.fraction
         latestOnScrubTo(target.fraction)
+        currentLight.emit(LightEffect.Trail, fractionX = target.fraction)
     }
 
     Box(
         modifier
             .height(44.dp)
+            .lightFeedback(light)
             .onSizeChanged { widthPx = it.width.coerceAtLeast(1) }
             .drawWithCache {
                 val outline = AppShapes.thumb.createOutline(size, layoutDirection, this)
@@ -964,11 +972,13 @@ private fun StandardSeekBar(
                                 snappedMarkerIndex = null
                                 haptics.play(HapticSignal.Confirm)
                                 latestOnCommit(dragFraction)
+                                currentLight.emit(LightEffect.Converge, fractionX = dragFraction)
                             },
                             onDragCancel = {
                                 dragging = false
                                 snappedMarkerIndex = null
                                 latestOnCancel()
+                                currentLight.clear()
                             },
                         ) { change, _ ->
                             change.consume()

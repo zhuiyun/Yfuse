@@ -49,6 +49,7 @@ fun BurstIcon(
     iconSize: Dp = 14.dp,
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val light = rememberLightFeedback()
     val visible = LocalRouteVisible.current
     val pop = remember { Animatable(1f) }
     val ring = remember { Animatable(1f) }
@@ -57,7 +58,7 @@ fun BurstIcon(
     // title would burst at it.
     var reacted by remember { mutableStateOf(active) }
 
-    LaunchedEffect(active, reduceMotion, visible) {
+    LaunchedEffect(active, reduceMotion, visible, light) {
         if (reduceMotion || !visible) {
             reacted = active
             pop.snapTo(1f)
@@ -73,10 +74,14 @@ fun BurstIcon(
         val turnedOn = active && !reacted
         reacted = active
         if (turnedOn) {
-            ring.snapTo(0f)
-            launch {
-                // The ring takes one burst to leave the icon behind.
-                ring.animateTo(1f, tween(Motion.BURST, easing = LinearOutSlowInEasing))
+            light.emit(LightEffect.Converge)
+            if (light.enabled) {
+                ring.snapTo(1f)
+            } else {
+                ring.snapTo(0f)
+                launch {
+                    ring.animateTo(1f, tween(Motion.BURST, easing = LinearOutSlowInEasing))
+                }
             }
             pop.snapTo(0.6f)
             pop.animateTo(
@@ -95,10 +100,10 @@ fun BurstIcon(
         }
     }
 
-    Box(modifier, contentAlignment = Alignment.Center) {
+    Box(modifier.lightFeedback(light), contentAlignment = Alignment.Center) {
         Canvas(Modifier.matchParentSize()) {
             val progress = ring.value
-            if (!reduceMotion && visible && progress < 1f) {
+            if (!light.enabled && !reduceMotion && visible && progress < 1f) {
                 // Draw outside the fixed icon bounds without enlarging its layout or hit target.
                 val radius = iconSize.toPx() * 1.2f * (0.38f + progress * 0.62f)
                 drawCircle(
