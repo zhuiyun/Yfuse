@@ -308,7 +308,10 @@ fun YfuseTheme(
     accessibility: AccessibilityOptions = AccessibilityOptions(),
     glassStyle: GlassStyle = GlassStyle.Liquid,
     dialogAnimation: DialogAnimation = DialogAnimation.Lift,
-    dialogAnimationLab: Boolean = false,
+    dialogAnimationLab: Boolean = true,
+    particleLight: ParticleLight = ParticleLight.Gentle,
+    particleLimit: Int = 64,
+    particleActive: Boolean = true,
     content: @Composable () -> Unit,
 ) {
     val targetPalette = if (dark) DarkPalette else LightPalette
@@ -326,6 +329,10 @@ fun YfuseTheme(
         LocalGlassStyle provides glassStyle,
         LocalDialogAnimation provides dialogAnimation,
         LocalDialogAnimationLab provides dialogAnimationLab,
+        LocalParticleLight provides particleLight,
+        LocalParticleLimit provides particleLimit.coerceIn(0, 64),
+        LocalParticleActive provides particleActive,
+        LocalParticleBudget provides remember { LightParticleBudget() },
         LocalDensity provides adjustedDensity,
         LocalHaptics provides rememberHaptics(),
     ) {

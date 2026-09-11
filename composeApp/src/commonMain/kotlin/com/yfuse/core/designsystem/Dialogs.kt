@@ -38,6 +38,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -178,6 +179,18 @@ fun GlassDialog(
             }
         }
         val contentMotion = remember(animation, progress) { DialogContentMotion(animation, progress) }
+        val lightMoving by remember(progress) { derivedStateOf { progress() > 0f && progress() < 1f } }
+        val simpleLightStyle =
+            animation in
+                listOf(
+                    DialogAnimation.Lift,
+                    DialogAnimation.Axis,
+                    DialogAnimation.Slide,
+                    DialogAnimation.Touch,
+                    DialogAnimation.Spring,
+                    DialogAnimation.Sheen,
+                )
+        val phaseLights = rememberPhaseLightCount(lightMoving && simpleLightStyle)
         CompositionLocalProvider(
             LocalOverlayDismiss provides requestDismiss,
             LocalOverlayLiquidButtons provides liquidButtons,
@@ -223,6 +236,7 @@ fun GlassDialog(
                         ).shadow(Shadows.sheet, shape)
                         .mutedGlassPanel(shape)
                         .dialogInteriorMotion(animation, progress)
+                        .phaseLightEdge(progress, phaseLights)
                         .pointerInput(Unit) { detectTapGestures { } }
                         .then(modifier)
                         // Nothing to scroll is nothing to hand over: a panel that never scrolls has
@@ -591,7 +605,10 @@ fun OverlayOptionRow(
                 )
             }
         }
-        Box(Modifier.size(20.dp), contentAlignment = Alignment.Center) {
+        Box(
+            Modifier.size(20.dp).lightOnChange(selected, LightEffect.Converge, emitWhen = selected && !destructive),
+            contentAlignment = Alignment.Center,
+        ) {
             if (selected) {
                 Box(
                     Modifier.size(20.dp).clip(CircleShape).background(accent.accent),

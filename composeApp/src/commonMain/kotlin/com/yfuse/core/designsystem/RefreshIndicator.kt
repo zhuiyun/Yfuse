@@ -67,6 +67,7 @@ internal fun RefreshIndicator(
                 scaleX = if (reduced) 1f else 0.8f + 0.2f * fraction
                 scaleY = scaleX
             }.size(40.dp)
+            .lightOnChange(refreshing, if (refreshing) LightEffect.Node else LightEffect.Edge)
             .glass(GlassShapes.chip, palette.card, palette.border)
             .padding(10.dp),
         contentAlignment = Alignment.Center,

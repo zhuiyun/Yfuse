@@ -1,3 +1,5 @@
+@file:kotlin.OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package com.yfuse.feature.player
 
 import android.graphics.Rect
@@ -11,8 +13,11 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsIgnoringVisibility
+import androidx.compose.foundation.layout.systemGestures
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -34,6 +39,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.media3.common.util.UnstableApi
 import com.yfuse.BuildConfig
@@ -2565,6 +2571,11 @@ internal fun PlayerRoot(
                 exit = ExitTransition.None,
             ) {
                 PlayerControls(
+                    systemGestureTopPx =
+                        maxOf(
+                            WindowInsets.statusBarsIgnoringVisibility.getTop(LocalDensity.current),
+                            WindowInsets.systemGestures.getTop(LocalDensity.current),
+                        ).toFloat(),
                     playback = livePlayback,
                     bookmarks = bookmarkBinding.first,
                     bookmarkActions = bookmarkBinding.second,

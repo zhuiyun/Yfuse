@@ -45,7 +45,21 @@ actual fun SplashPreview(
     // The clock is read inside the draw lambda, so looping this in a settings list costs
     // recomposition nothing.
     val mark = variant.markResource()?.let { ImageBitmap.imageResource(it) }
-    Canvas(modifier) { with(choreography) { drawMark(clock.value, mark) } }
+    val lightCount = rememberPhaseLightCount(playing && visible && !reduceMotion, enhancedOnly = true)
+    Canvas(modifier) {
+        with(choreography) { drawMark(clock.value, mark) }
+        drawPhaseLight(
+            androidx.compose.ui.geometry.Rect(
+                size.width * 0.2f,
+                size.height * 0.2f,
+                size.width * 0.8f,
+                size.height * 0.8f,
+            ),
+            (clock.value / choreography.fadeStartMs).coerceIn(0f, 1f),
+            lightCount,
+            androidx.compose.ui.graphics.Color.White,
+        )
+    }
 }
 
 private const val LOOP_HOLD_MS = 900L

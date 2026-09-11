@@ -25,7 +25,6 @@ import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalDialogAnimation
-import com.yfuse.core.designsystem.LocalDialogAnimationLab
 import com.yfuse.core.designsystem.LocalDialogMotionHost
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OverlayButton
@@ -37,18 +36,6 @@ import com.yfuse.core.designsystem.overlayDismiss
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.ThemeText as Text
 
-/**
- * The three styles the app ships with. 柔和浮起 is the one polished way in; 触点展开 and 底部升起 are
- * kept because they answer questions the default cannot — where the dialog came from, and a panel
- * that belongs to the bottom edge.
- */
-private val ShippedDialogAnimations =
-    listOf(
-        DialogAnimation.Lift,
-        DialogAnimation.Touch,
-        DialogAnimation.Slide,
-    )
-
 @Composable
 internal fun DialogAnimationSheet(
     selected: DialogAnimation,
@@ -57,13 +44,8 @@ internal fun DialogAnimationSheet(
 ) {
     var preview by remember { mutableStateOf<DialogAnimation?>(null) }
     val previewOrigin = remember { DialogMotionHost() }
-    // 43 styles were how the one we kept got found; offering all of them is not the same thing as
-    // having built them. The lab switch puts the whole set back for motion review.
-    val lab = LocalDialogAnimationLab.current
-    val styles = if (lab) DialogAnimation.entries else ShippedDialogAnimations
-    // A selection made in the lab is left exactly where it is — the app still renders it. The sheet
-    // only declines to point at a row it is not showing.
-    val highlighted = if (selected in styles) selected else DialogAnimation.Lift
+    val styles = DialogAnimation.entries
+    val highlighted = selected
     GlassDialog(onDismiss = onDismiss, scrollable = false) {
         val host = LocalDialogMotionHost.current
         val openPreview = {

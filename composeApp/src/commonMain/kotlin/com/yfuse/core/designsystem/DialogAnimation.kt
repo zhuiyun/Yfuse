@@ -73,12 +73,8 @@ enum class DialogAnimation(
 
 val LocalDialogAnimation = staticCompositionLocalOf { DialogAnimation.Lift }
 
-/**
- * Debug-only: 弹窗动画 offers 柔和浮起 / 触点展开 / 底部升起 unless this is on, and every implemented
- * style when it is. One polished way in is the product decision; the rest stay in the enum
- * because they are how that one was arrived at, and they still render if they are stored.
- */
-val LocalDialogAnimationLab = staticCompositionLocalOf { false }
+/** Kept for source compatibility; all implemented animations are now available to everyone. */
+val LocalDialogAnimationLab = staticCompositionLocalOf { true }
 
 internal class DialogMotionHost {
     var origin = Offset.Zero

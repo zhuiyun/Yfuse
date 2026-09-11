@@ -4,6 +4,8 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -65,6 +67,11 @@ internal fun rememberSegmentIndicator(
             }
         }
     }
+    val inMotion by remember(left, right, target) {
+        derivedStateOf { target != null && (left.value != target.left || right.value != target.right) }
+    }
+    val lights = rememberPhaseLightCount(inMotion)
+    val lightColor = LocalPalette.current.text
     return SegmentIndicator(
         Modifier.drawBehind {
             if (target != null) {
@@ -84,6 +91,13 @@ internal fun rememberSegmentIndicator(
                         drawOutline(outline, border, style = Stroke(1.dp.toPx()))
                     }
                 }
+                drawPhaseLight(
+                    Rect(left.value, if (underline) size.height - 4.dp.toPx() else 0f, right.value, size.height),
+                    0.5f,
+                    lights,
+                    lightColor,
+                    trail = true,
+                )
             }
         },
         { index ->

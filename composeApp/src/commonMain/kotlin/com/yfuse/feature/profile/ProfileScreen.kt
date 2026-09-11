@@ -111,6 +111,7 @@ import com.yfuse.core.designsystem.flatGlass as glass
 private enum class Sheet {
     StartupTab,
     DialogAnimation,
+    ParticleLight,
     Background,
     PlaybackMode,
     MediaVersionPreference,
@@ -175,7 +176,7 @@ private val SettingsSearchDestinations =
         SettingsSearchDestination(
             "外观与主题",
             "主题、背景、动效与辅助功能",
-            "外观 主题 背景 玻璃 字体 动效 弹窗 动画 浮起 展开 回弹 透视 全息 扫描 空间 折叠 能量 边框 分层 悬浮 光圈 数字 重构 科幻",
+            "外观 主题 背景 玻璃 字体 粒子 光效 动效 弹窗 动画 浮起 展开 回弹 透视 全息 扫描 空间 折叠 能量 边框 分层 悬浮 光圈 数字 重构 科幻",
             ProfilePage.Appearance,
             icon = AppIcons.Grid,
             tint = SettingTint.appearance,
@@ -223,6 +224,7 @@ fun ProfileScreen(component: ProfileComponent) {
     val largeText by prefs.largeText.collectAsState()
     val reduceMotion by prefs.reduceMotion.collectAsState()
     val pulseSweep by prefs.pulseSweep.collectAsState()
+    val particleLight by prefs.particleLight.collectAsState()
     val decoder by prefs.decoder.collectAsState()
     val autoNext by prefs.autoNext.collectAsState()
     val splashAnimation by prefs.splashAnimation.collectAsState()
@@ -430,7 +432,9 @@ fun ProfileScreen(component: ProfileComponent) {
                                 "已设置 · ${(backgroundDim * 100).toInt()}% 遮罩 ›"
                             },
                         startupSummary = "${startupTab.label} ›",
-                        dialogAnimationSummary = "${dialogAnimation.label} ›",
+                        dialogAnimationSummary = "${dialogAnimation.label} · 全部 43 款 ›",
+                        particleLightSummary = "${particleLight.label} ›",
+                        onParticleLight = { sheet = Sheet.ParticleLight },
                         onDialogAnimation = { sheet = Sheet.DialogAnimation },
                         reduceTransparency = reduceTransparency,
                         largeText = largeText,
@@ -701,6 +705,13 @@ fun ProfileScreen(component: ProfileComponent) {
         }
 
         when (sheet) {
+            Sheet.ParticleLight ->
+                ParticleLightSheet(
+                    selected = particleLight,
+                    onSelect = prefs::setParticleLight,
+                    onDismiss = { sheet = null },
+                )
+
             Sheet.DialogAnimation ->
                 DialogAnimationSheet(
                     selected = dialogAnimation,

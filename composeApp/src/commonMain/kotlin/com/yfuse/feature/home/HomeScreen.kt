@@ -69,6 +69,7 @@ import com.yfuse.core.designsystem.HeroActionDock
 import com.yfuse.core.designsystem.HeroPageFade
 import com.yfuse.core.designsystem.HeroPageIndicator
 import com.yfuse.core.designsystem.HeroTextShadow
+import com.yfuse.core.designsystem.LightEffect
 import com.yfuse.core.designsystem.LivingPosterAmbient
 import com.yfuse.core.designsystem.LivingPosterDefaults
 import com.yfuse.core.designsystem.LocalAccentColors
@@ -103,6 +104,7 @@ import com.yfuse.core.designsystem.heroDurationLabel
 import com.yfuse.core.designsystem.heroMediaTypeLabel
 import com.yfuse.core.designsystem.heroScrollCollapse
 import com.yfuse.core.designsystem.heroTopScrim
+import com.yfuse.core.designsystem.lightFeedback
 import com.yfuse.core.designsystem.livingPosterFrame
 import com.yfuse.core.designsystem.livingPosterHeroHeight
 import com.yfuse.core.designsystem.loopingCarouselItemIndex
@@ -118,6 +120,7 @@ import com.yfuse.core.designsystem.rememberArtworkAccentTarget
 import com.yfuse.core.designsystem.rememberArtworkPageColor
 import com.yfuse.core.designsystem.rememberCarouselCaptionProgress
 import com.yfuse.core.designsystem.rememberCarouselPageColor
+import com.yfuse.core.designsystem.rememberLightFeedback
 import com.yfuse.core.designsystem.rememberLoopingCarouselState
 import com.yfuse.core.designsystem.rememberRefreshReveal
 import com.yfuse.core.designsystem.rememberRetainedArtworkPageColor
@@ -573,6 +576,10 @@ private fun HomeHeroCarousel(
     val carouselTouched = remember { mutableStateOf(false) }
     val carouselDragging by pagerState.interactionSource.collectIsDraggedAsState()
     val carouselScope = rememberCoroutineScope()
+    val carouselLight = rememberLightFeedback(enabled = visible, enhancedOnly = true)
+    LaunchedEffect(carouselDragging, carouselLight) {
+        if (carouselDragging) carouselLight.emit(LightEffect.Dust)
+    }
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val routeVisible = LocalRouteVisible.current
     // Touching the reel restarts its clock rather than stopping it for good. The pause
@@ -607,7 +614,13 @@ private fun HomeHeroCarousel(
         }
     }
 
-    BoxWithConstraints(Modifier.fillMaxWidth().height(height).carouselTouchPause(carouselTouched)) {
+    BoxWithConstraints(
+        Modifier
+            .fillMaxWidth()
+            .height(height)
+            .carouselTouchPause(carouselTouched)
+            .lightFeedback(carouselLight),
+    ) {
         val indicatorStart =
             if (showSidePreview) LivingPosterDefaults.LEADING_INSET else 0.dp
         val indicatorEnd =
@@ -730,6 +743,9 @@ private fun HomeHeroCarousel(
                     selectedPage = loopingCarouselItemIndex(pagerState.currentPage, items.size),
                     pageOffsetProvider = { pagerState.currentPageOffsetFraction },
                     onPageSelected = { targetIndex ->
+                        if (targetIndex != loopingCarouselItemIndex(pagerState.currentPage, items.size)) {
+                            carouselLight.emit(LightEffect.Dust)
+                        }
                         interaction++
                         carouselScope.launch {
                             val targetPage =

@@ -34,6 +34,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -61,12 +62,15 @@ import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.LightEffect
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.PlayerTokens
 import com.yfuse.core.designsystem.glass
+import com.yfuse.core.designsystem.lightFeedback
 import com.yfuse.core.designsystem.rememberAccentColorsForSurface
+import com.yfuse.core.designsystem.rememberLightFeedback
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.util.currentClockTime
 import kotlinx.coroutines.delay
@@ -358,6 +362,8 @@ internal fun VolumeSlider(
     onVolume: (Float) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val light = rememberLightFeedback()
+    val currentLight by rememberUpdatedState(light)
     val accent = rememberAccentColorsForSurface(dark = true)
     val targetFraction = volume.coerceIn(0f, 1f)
     var height by remember { mutableIntStateOf(1) }
@@ -372,6 +378,7 @@ internal fun VolumeSlider(
     val fraction = if (dragging) targetFraction else animatedFraction
     val adjust: (Float) -> Boolean = { target ->
         onVolume(target.coerceIn(0f, 1f))
+        currentLight.emit(LightEffect.Trail, fractionY = 1f - target)
         true
     }
     Box(modifier.width(44.dp)) {
@@ -415,6 +422,7 @@ internal fun VolumeSlider(
                 .align(Alignment.Center)
                 .width(44.dp)
                 .height(140.dp)
+                .lightFeedback(light)
                 .then(
                     if (focused) {
                         Modifier.border(1.dp, accent.border, AppShapes.thumb)
@@ -442,7 +450,10 @@ internal fun VolumeSlider(
                     detectVerticalDragGestures(
                         onDragStart = { dragging = true },
                         onDragEnd = { dragging = false },
-                        onDragCancel = { dragging = false },
+                        onDragCancel = {
+                            dragging = false
+                            currentLight.clear()
+                        },
                     ) { change, _ ->
                         change.consume()
                         adjust(1f - change.position.y / height)

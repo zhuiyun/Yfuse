@@ -454,6 +454,8 @@ internal fun AppearanceSettingsScreen(
     backgroundSummary: String,
     startupSummary: String,
     dialogAnimationSummary: String,
+    particleLightSummary: String,
+    onParticleLight: () -> Unit,
     reduceTransparency: Boolean,
     largeText: Boolean,
     reduceMotion: Boolean,
@@ -482,6 +484,15 @@ internal fun AppearanceSettingsScreen(
                         icon = AppIcons.Refresh,
                         iconTint = SettingTint.components,
                         onChange = onPulseSweep,
+                    )
+                    SettingsDivider()
+                    SettingRow(
+                        "粒子光效",
+                        particleLightSummary,
+                        true,
+                        onParticleLight,
+                        icon = AppIcons.Refresh,
+                        iconTint = SettingTint.components,
                     )
                     SettingsDivider()
                     SettingRow(

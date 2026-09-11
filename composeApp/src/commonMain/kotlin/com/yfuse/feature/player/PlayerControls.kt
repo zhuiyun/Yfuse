@@ -11,7 +11,6 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusGroup
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -55,10 +54,12 @@ import com.yfuse.core.designsystem.BackOverlay
 import com.yfuse.core.designsystem.DarkPalette
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HapticSignal
+import com.yfuse.core.designsystem.LightEffect
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalHaptics
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.glass
+import com.yfuse.core.designsystem.lightOnChange
 import com.yfuse.tv.player.TvPlayerChromeBridge
 import com.yfuse.tv.player.TvPlayerChromeCommandType
 import com.yfuse.tv.player.TvPlayerChromeLayer
@@ -240,7 +241,9 @@ internal fun PlayerControls(
     onToggleAmbientLight: () -> Unit = {},
     onAmbientChromeVisibleChange: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier,
+    systemGestureTopPx: Float = 0f,
 ) {
+    val currentSystemGestureTop by rememberUpdatedState(systemGestureTopPx)
     val state by rememberPlayerControlSnapshot(playback)
     var visible by remember { mutableStateOf(true) }
     var ambientChromeCount by remember { mutableIntStateOf(0) }
@@ -711,6 +714,7 @@ internal fun PlayerControls(
                             }
                         },
                         onDoubleTap = { offset ->
+                            if (!allowsPlayerDrag(offset.y, currentSystemGestureTop)) return@detectTapGestures
                             if (latestWatchLocked) {
                                 gestureHud = "房主控制播放"
                                 haptics.play(HapticSignal.Reject)
@@ -749,6 +753,7 @@ internal fun PlayerControls(
                             poke()
                         },
                         onLongPress = { offset ->
+                            if (!allowsPlayerDrag(offset.y, currentSystemGestureTop)) return@detectTapGestures
                             // Thirds, exactly as the double tap divides the picture: left
                             // rewinds, right fast-forwards, and the middle — where the double
                             // tap plays and pauses rather than seeking — holds nothing. The
@@ -787,7 +792,8 @@ internal fun PlayerControls(
                     var seekTarget = latestPosition
                     var volumeAtDragStart = latestVolume
                     var brightnessAtDragStart = latestBrightness
-                    detectDragGestures(
+                    detectPlayerDragGestures(
+                        canStart = { origin -> !locked && allowsPlayerDrag(origin.y, currentSystemGestureTop) },
                         onDragStart = { offset ->
                             startX = offset.x
                             totalX = 0f
@@ -812,7 +818,7 @@ internal fun PlayerControls(
                         change.consume()
                         // A finger that drifts while held is still holding, not scrubbing:
                         // the hold owns the timeline until it lets go.
-                        if (holdSeekDirection != 0) return@detectDragGestures
+                        if (holdSeekDirection != 0) return@detectPlayerDragGestures
                         totalX += amount.x
                         totalY += amount.y
                         if (abs(totalX) > abs(totalY)) {
@@ -820,7 +826,7 @@ internal fun PlayerControls(
                             // horizontal scrub is the host's to make.
                             if (latestWatchLocked) {
                                 gestureHud = "房主控制播放"
-                                return@detectDragGestures
+                                return@detectPlayerDragGestures
                             }
                             val span = latestDuration.coerceAtLeast(1L)
                             seekTarget =
@@ -1532,7 +1538,12 @@ internal fun PlayerControls(
                             color = Color.White,
                             modifier =
                                 Modifier
-                                    .semantics { liveRegion = LiveRegionMode.Polite }
+                                    .lightOnChange(
+                                        value,
+                                        LightEffect.Trail,
+                                        emitWhen =
+                                            value.startsWith("音量 ") || value.startsWith("亮度 "),
+                                    ).semantics { liveRegion = LiveRegionMode.Polite }
                                     .glass(
                                         shape = AppShapes.pill,
                                         fill = Color.Black.copy(alpha = 0.56f),
