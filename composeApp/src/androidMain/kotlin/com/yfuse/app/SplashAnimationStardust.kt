@@ -28,28 +28,28 @@ internal object SplashStardust : SplashChoreography {
         mark: ImageBitmap?,
     ) {
         mark ?: return
-        drawWaterFireBloom(bell(span(nowMs, BloomStartMs, BloomMs)))
+        drawWaterFireBloom(bell(span(nowMs, BLOOM_START_MS, BLOOM_MS)))
         drawGrains(nowMs)
-        val rise = span(nowMs, MarkStartMs, MarkMs)
+        val rise = span(nowMs, MARK_START_MS, MARK_MS)
         drawCentredMark(
             mark = mark,
             scale = lerp(0.86f, 1f, easeOutExpo(rise)),
-            alpha = easeOutCubic(span(nowMs, MarkStartMs, MarkFadeInMs)),
+            alpha = easeOutCubic(span(nowMs, MARK_START_MS, MARK_FADE_IN_MS)),
         )
     }
 
-    override fun wordmark(nowMs: Float) = easeOutCubic(span(nowMs, WordmarkStartMs, WordmarkMs))
+    override fun wordmark(nowMs: Float) = easeOutCubic(span(nowMs, WORDMARK_START_MS, WORDMARK_MS))
 
     private fun DrawScope.drawGrains(nowMs: Float) {
         // The grains dissolve together once the mark has risen through them.
-        val hold = 1f - span(nowMs, GrainFadeStartMs, GrainFadeMs)
+        val hold = 1f - span(nowMs, GRAIN_FADE_START_MS, GRAIN_FADE_MS)
         if (hold <= 0.001f) return
-        val side = size.minDimension * MarkSide
+        val side = size.minDimension * MARK_SIDE
         val left = (size.width - side) / 2f
         val top = (size.height - side) / 2f
         val centreX = size.width / 2f
         val centreY = size.height / 2f
-        for (index in 0 until GrainCount) {
+        for (index in 0 until GRAIN_COUNT) {
             val target = Silhouette[index % Silhouette.size]
             val targetX = left + target.x * side
             val targetY = top + target.y * side
@@ -59,10 +59,10 @@ internal object SplashStardust : SplashChoreography {
             val reach = side * (0.75f + scatter(index, 2) * 0.55f)
             val fromX = centreX + cos(angle) * reach
             val fromY = centreY + sin(angle) * reach
-            val delay = scatter(index, 3) * GatherStaggerMs
-            val gather = easeOutExpo(span(nowMs, delay, GatherMs))
+            val delay = scatter(index, 3) * GATHER_STAGGER_MS
+            val gather = easeOutExpo(span(nowMs, delay, GATHER_MS))
             if (gather <= 0f) continue
-            val arrive = easeOutCubic(span(nowMs, delay, GrainFadeInMs))
+            val arrive = easeOutCubic(span(nowMs, delay, GRAIN_FADE_IN_MS))
             val alpha = arrive * hold * (0.55f + scatter(index, 4) * 0.45f)
             if (alpha <= 0.001f) continue
             val centre = Offset(lerp(fromX, targetX, gather), lerp(fromY, targetY, gather))
@@ -109,21 +109,21 @@ private val Silhouette: List<Offset> =
     }
 
 /** Matches [drawCentredMark]'s box so the grains land on the artwork, not beside it. */
-private const val MarkSide = 0.82f
-private const val GrainCount = 56
+private const val MARK_SIDE = 0.82f
+private const val GRAIN_COUNT = 56
 
 private val WaterGrain = Color(0xFF22D3EE)
 private val FireGrain = Color(0xFFF97316)
 
-private const val GatherStaggerMs = 240f
-private const val GatherMs = 560f
-private const val GrainFadeInMs = 140f
-private const val GrainFadeStartMs = 660f
-private const val GrainFadeMs = 300f
-private const val BloomStartMs = 180f
-private const val BloomMs = 820f
-private const val MarkStartMs = 430f
-private const val MarkFadeInMs = 320f
-private const val MarkMs = 520f
-private const val WordmarkStartMs = 640f
-private const val WordmarkMs = 360f
+private const val GATHER_STAGGER_MS = 240f
+private const val GATHER_MS = 560f
+private const val GRAIN_FADE_IN_MS = 140f
+private const val GRAIN_FADE_START_MS = 660f
+private const val GRAIN_FADE_MS = 300f
+private const val BLOOM_START_MS = 180f
+private const val BLOOM_MS = 820f
+private const val MARK_START_MS = 430f
+private const val MARK_FADE_IN_MS = 320f
+private const val MARK_MS = 520f
+private const val WORDMARK_START_MS = 640f
+private const val WORDMARK_MS = 360f
