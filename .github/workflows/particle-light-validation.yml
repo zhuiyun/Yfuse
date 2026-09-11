@@ -32,7 +32,8 @@ jobs:
           set -euo pipefail
           [[ "$GITHUB_REF_NAME" == codex/particle-light-20260912 ]]
           if [[ -f .github/particle-light/finish.py ]]; then
-            python3 .github/particle-light/finish.py
+            sed 's/"34166656470"/native_run=34166656470/g; s/"34624144758"/native_run=34624144758/g' .github/particle-light/finish.py > /tmp/yfuse-finish.py
+            python3 /tmp/yfuse-finish.py
             git rm -- .github/particle-light/finish.py
           fi
           if [[ -f .github/particle-light/final.b64 ]]; then
