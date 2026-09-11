@@ -26,27 +26,21 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           fetch-depth: 0
-      - name: Apply verified implementation
+      - name: Apply readable source edits
         shell: bash
         run: |
           set -euo pipefail
           [[ "$GITHUB_REF_NAME" == codex/particle-light-20260912 ]]
-          python3 - <<'PY'
-          import base64, gzip, hashlib, pathlib, subprocess
-          parts = sorted(pathlib.Path('.github/particle-light').glob('patch.*.b64'))
-          if parts:
-              assert len(parts) == 3
-              data = gzip.decompress(base64.b64decode(''.join(p.read_text().strip() for p in parts), validate=True))
-              assert hashlib.sha256(data).hexdigest() == '06bc1096aec37457b2e6cb44e927320c1b0380a30758870e759df29806508251'
-              patch = pathlib.Path('/tmp/particle-light.patch')
-              patch.write_bytes(data)
-              subprocess.run(['git', 'apply', '--check', str(patch)], check=True)
-              subprocess.run(['git', 'apply', '--index', str(patch)], check=True)
-              subprocess.run(['git', 'rm', '--', *map(str, parts)], check=True)
-          changed = subprocess.check_output(['git', 'diff', '04dc5086eccaacdf3013080b6ecc5d353f1663ee', '--name-only', '-z', '--', 'composeApp', 'version.properties', 'release-notes.txt'])
-          pathlib.Path('/tmp/particle-changed-paths').write_bytes(changed)
-          PY
-          git diff --check
+          if [[ -f .github/particle-light/finish.py ]]; then
+            python3 .github/particle-light/finish.py
+            git rm -- .github/particle-light/finish.py
+          fi
+          if [[ -f .github/particle-light/final.b64 ]]; then
+            git rm -- .github/particle-light/final.b64
+          fi
+          git add -u
+          git diff --cached --check
+          git diff 04dc5086eccaacdf3013080b6ecc5d353f1663ee --name-only -z -- composeApp version.properties release-notes.txt > /tmp/particle-changed-paths
       - uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c
         with:
           distribution: temurin
@@ -74,7 +68,7 @@ jobs:
           git config user.name 'Yfuse build automation'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           if ! git diff --cached --quiet; then
-            git commit -m 'feat: bounded light feedback, all 43 dialogs and notification-shade gesture fix (218)'
+            git commit -m 'feat: finish Android light surfaces, fix compile and preserve shade priority (218)'
             git push origin "HEAD:refs/heads/$GITHUB_REF_NAME"
           fi
           mkdir -p build/particle-source
@@ -94,13 +88,15 @@ jobs:
         run: |
           set -euo pipefail
           ./gradlew :composeApp:ktlintCheck :composeApp:verifyDesignSystemUsage --no-daemon --console=plain --max-workers=2 2>&1 | tee /tmp/particle-check.log
-      - name: Start existing official signing workflow, artifact only
+      - name: Start official signing workflow, artifact only
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
           [[ "$GITHUB_REF_NAME" == codex/particle-light-20260912 ]]
+          remote="$(git ls-remote origin "refs/heads/$GITHUB_REF_NAME" | cut -f1)"
+          [[ "$remote" == "$(git rev-parse HEAD)" ]]
           gh api --method POST "repos/$GITHUB_REPOSITORY/actions/workflows/sign-android-branch.yml/dispatches" -f ref="$GITHUB_REF_NAME"
       - name: Upload validation diagnostics
         if: always()
