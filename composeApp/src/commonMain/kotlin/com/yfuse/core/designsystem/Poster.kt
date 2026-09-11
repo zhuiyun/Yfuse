@@ -49,12 +49,8 @@ import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
 
 /** Large artwork may resolve cinematically, but should never hold the image soft for 550ms. */
-private const val ARTWORK_REVEAL_DURATION_MS = Motion.ARTWORK_REVEAL
 private val ArtworkRevealBlur = 6.dp
 private const val ARTWORK_REVEAL_SCALE_FROM = 1.025f
-
-/** Dense rails and grids only need a quick opacity hand-off from their placeholder. */
-internal const val POSTER_FADE_DURATION_MS = Motion.POSTER_FADE
 
 /**
  * An image that is allowed a second (and third) guess.
@@ -82,7 +78,7 @@ fun FallbackImage(
     /** Fade the drawable without adding progressive blur or scale. */
     alphaOnly: Boolean = false,
     /** Large artwork uses the default 400ms reveal; dense posters pass 180ms. */
-    revealDurationMillis: Int = ARTWORK_REVEAL_DURATION_MS,
+    revealDurationMillis: Int = Motion.ARTWORK_REVEAL,
     revealBlur: Dp = ArtworkRevealBlur,
     revealScaleFrom: Float = ARTWORK_REVEAL_SCALE_FROM,
     /** Reports the fallback candidate whose drawable actually reached the screen. */
@@ -297,7 +293,8 @@ fun Poster(
                     .playerArtworkSource(sharedTransitionKey, candidates)
                     .fillMaxSize(),
             alphaOnly = true,
-            revealDurationMillis = POSTER_FADE_DURATION_MS,
+            // Dense rails and grids only need a quick opacity hand-off from their placeholder.
+            revealDurationMillis = Motion.POSTER_FADE,
         )
 
         overlay()

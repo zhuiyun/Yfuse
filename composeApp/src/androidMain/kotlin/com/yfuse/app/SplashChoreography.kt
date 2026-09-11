@@ -50,6 +50,7 @@ internal val SplashAnimation.choreography: SplashChoreography
             SplashAnimation.Two -> SplashTwo
             SplashAnimation.CloudDrop -> SplashCloudDrop
             SplashAnimation.CloudWell -> SplashCloudWell
+            SplashAnimation.AuroraDark, SplashAnimation.AuroraLight -> SplashAurora
         }
 
 /**
@@ -64,10 +65,12 @@ internal fun SplashAnimation.markResource(): Int? =
         SplashAnimation.One -> R.drawable.yfuse_mark_ribbon
         SplashAnimation.Two -> R.drawable.yfuse_mark
         SplashAnimation.CloudDrop, SplashAnimation.CloudWell -> null
+        SplashAnimation.AuroraDark -> R.drawable.yfuse_aurora_dark
+        SplashAnimation.AuroraLight -> R.drawable.yfuse_aurora_light
     }
 
 /** How long every choreography leaves for the hand-off to the app. */
-internal const val FadeMs = 120f
+internal const val FADE_MS = 120f
 
 // ---- Shared easing and spring maths. ----
 
@@ -87,7 +90,7 @@ internal fun easeOutExpo(value: Float): Float = if (value >= 1f) 1f else 1f - 2f
 
 internal fun easeOutBack(value: Float): Float {
     val shifted = value - 1f
-    return 1f + BackCubic * shifted * shifted * shifted + BackOvershoot * shifted * shifted
+    return 1f + BACK_CUBIC * shifted * shifted * shifted + BACK_OVERSHOOT * shifted * shifted
 }
 
 /** Rises to 1 at the middle of the window and returns to 0 — a single soft pulse. */
@@ -108,9 +111,9 @@ internal fun lerp(
  * out 47% wider and gets clipped to a straight edge. Damping the exponent keeps the volume cue
  * and stays inside the box.
  */
-internal fun squashWidth(scaleY: Float): Float = (1f / scaleY).pow(SquashWidthGain)
+internal fun squashWidth(scaleY: Float): Float = (1f / scaleY).pow(SQUASH_WIDTH_GAIN)
 
-private const val SquashWidthGain = 0.55f
+private const val SQUASH_WIDTH_GAIN = 0.55f
 
 /**
  * One damped oscillation, shaped for squash and stretch.
@@ -161,5 +164,5 @@ internal fun scatter(
 
 internal val PiF = PI.toFloat()
 internal val Tau = (2.0 * PI).toFloat()
-private const val BackOvershoot = 1.70158f
-private const val BackCubic = BackOvershoot + 1f
+private const val BACK_OVERSHOOT = 1.70158f
+private const val BACK_CUBIC = BACK_OVERSHOOT + 1f

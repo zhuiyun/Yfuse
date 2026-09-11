@@ -25,6 +25,7 @@ import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalDialogAnimation
+import com.yfuse.core.designsystem.LocalDialogAnimationLab
 import com.yfuse.core.designsystem.LocalDialogMotionHost
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OverlayButton
@@ -36,6 +37,18 @@ import com.yfuse.core.designsystem.overlayDismiss
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.ThemeText as Text
 
+/**
+ * The three styles the app ships with. 柔和浮起 is the one polished way in; 触点展开 and 底部升起 are
+ * kept because they answer questions the default cannot — where the dialog came from, and a panel
+ * that belongs to the bottom edge.
+ */
+private val ShippedDialogAnimations =
+    listOf(
+        DialogAnimation.Lift,
+        DialogAnimation.Touch,
+        DialogAnimation.Slide,
+    )
+
 @Composable
 internal fun DialogAnimationSheet(
     selected: DialogAnimation,
@@ -44,23 +57,30 @@ internal fun DialogAnimationSheet(
 ) {
     var preview by remember { mutableStateOf<DialogAnimation?>(null) }
     val previewOrigin = remember { DialogMotionHost() }
+    // 43 styles were how the one we kept got found; offering all of them is not the same thing as
+    // having built them. The lab switch puts the whole set back for motion review.
+    val lab = LocalDialogAnimationLab.current
+    val styles = if (lab) DialogAnimation.entries else ShippedDialogAnimations
+    // A selection made in the lab is left exactly where it is — the app still renders it. The sheet
+    // only declines to point at a row it is not showing.
+    val highlighted = if (selected in styles) selected else DialogAnimation.Lift
     GlassDialog(onDismiss = onDismiss, scrollable = false) {
         val host = LocalDialogMotionHost.current
         val openPreview = {
             previewOrigin.touch = host.touch
             previewOrigin.poster = host.poster
-            preview = selected
+            preview = highlighted
         }
         OverlayHeader(
             "弹窗动画",
-            "${DialogAnimation.entries.size} 款风格，选择后立即保存，点击预览查看显示与隐藏效果",
+            "${styles.size} 款风格，选择后立即保存，点击预览查看显示与隐藏效果",
             onClose = onDismiss,
         )
         if (LocalAccessibilityOptions.current.reduceMotion) {
             Text("已开启“减少动画”，当前预览与实际弹窗均直接显示。", color = LocalPalette.current.sub, style = AppTypography.caption.regular)
         }
         LazyColumn(Modifier.weight(1f, fill = false)) {
-            motionItemsIndexed(DialogAnimation.entries, key = { _, animation -> animation.name }) { index, animation ->
+            motionItemsIndexed(styles, key = { _, animation -> animation.name }) { index, animation ->
                 if (index == 0 ||
                     animation == DialogAnimation.Hologram ||
                     animation == DialogAnimation.Magnetic ||
@@ -90,15 +110,15 @@ internal fun DialogAnimationSheet(
                 OverlayOptionRow(
                     label = animation.label,
                     description = animation.description,
-                    selected = selected == animation,
+                    selected = highlighted == animation,
                     onClick = { onSelect(animation) },
                 )
             }
         }
         Spacer(Modifier.height(12.dp))
-        if (selected == DialogAnimation.PosterMorph) {
+        if (highlighted == DialogAnimation.PosterMorph) {
             val accent = LocalAccentColors.current
-            CompositionLocalProvider(LocalDialogAnimation provides selected) {
+            CompositionLocalProvider(LocalDialogAnimation provides highlighted) {
                 Box(
                     Modifier
                         .size(70.dp, 92.dp)
@@ -113,7 +133,7 @@ internal fun DialogAnimationSheet(
             }
             Spacer(Modifier.height(8.dp))
         }
-        OverlayButton("预览：${selected.label}", onClick = openPreview)
+        OverlayButton("预览：${highlighted.label}", onClick = openPreview)
         OverlayButton("完成", onClick = overlayDismiss(onDismiss))
     }
     preview?.let { animation ->

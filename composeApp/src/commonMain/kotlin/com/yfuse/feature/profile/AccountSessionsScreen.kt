@@ -46,6 +46,8 @@ import com.yfuse.core.designsystem.InlineLoadingContent
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OrbProgress
+import com.yfuse.core.designsystem.PageHint
+import com.yfuse.core.designsystem.PageLoadingSkeleton
 import com.yfuse.core.designsystem.YfButton
 import com.yfuse.core.designsystem.YfButtonTone
 import com.yfuse.core.designsystem.formDivider
@@ -214,8 +216,12 @@ internal fun AccountSessionsContent(
         }
 
         if (loading && !loadedOnce) {
-            motionItem {
-                SessionSurface { LoadingLine("正在读取登录设备…") }
+            // First load has no rows to keep, so it gets the app's page skeleton rather than a
+            // spinner with a sentence next to it: three blocks in the shape of the three
+            // surfaces that follow — 当前设备, 其他设备, and the bulk actions. Refreshes keep
+            // the rows they already have and spin in the header's own button instead.
+            motionItem(key = "sessions-first-load") {
+                PageLoadingSkeleton(rows = 3, horizontalPadding = 0.dp)
             }
         } else {
             error?.let { message ->
@@ -252,11 +258,12 @@ internal fun AccountSessionsContent(
             motionItem { SessionSectionLabel("其他设备", "${otherSessions.size} 个") }
             if (otherSessions.isEmpty()) {
                 motionItem {
-                    SessionSurface {
-                        Text("没有其他登录设备", style = AppTypography.body.medium, color = palette.text)
-                        Spacer(Modifier.height(4.dp))
-                        Text("当前只有这台设备保持登录。", style = AppTypography.caption.regular, color = palette.sub2)
-                    }
+                    // An empty list, not a card with nothing in it: the same icon-words-arrival
+                    // every other page uses when it has nothing to show.
+                    PageHint(
+                        text = "没有其他登录设备\n当前只有这台设备保持登录",
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                 }
             } else {
                 motionItem {

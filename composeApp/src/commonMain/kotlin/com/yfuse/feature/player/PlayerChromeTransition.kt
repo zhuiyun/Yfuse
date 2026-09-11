@@ -27,17 +27,6 @@ import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.Motion
 
 /**
- * How long the player's own chrome takes to arrive or leave.
- *
- * Kept with the transition implementation so the high-frequency control surface does not
- * own animation mechanics in addition to gesture and overlay orchestration.
- */
-private const val CHROME_MS = Motion.STANDARD
-
-/** How far the transport trails the title bar in, and leads it out. */
-private const val CHROME_STAGGER_MS = Motion.PLAYER_CHROME_STAGGER
-
-/**
  * Which edge a piece of player chrome belongs to, and therefore where it comes from.
  *
  * Chrome that is anchored to an edge should arrive from that edge — it is the difference
@@ -63,24 +52,34 @@ internal fun ChromeVisibility(
     visible: Boolean,
     modifier: Modifier = Modifier,
     edge: ChromeEdge = ChromeEdge.None,
+    /**
+     * True for a wrapper that covers the whole picture rather than a panel sitting on it.
+     *
+     * A surface with no edge of its own grows out of its own centre, which is right for a key or
+     * a popup and wrong for something the size of the screen: locking, unlocking and every error
+     * used to composite the entire frame into a scaled layer to move it by six percent — a full
+     * screen of resampling per frame, for a gesture nobody reads as a scale at that size. These
+     * fade and nothing more.
+     */
+    coversScreen: Boolean = false,
     content: @Composable AnimatedVisibilityScope.() -> Unit,
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     // The two bars are one gesture in two halves: the title bar leads on the way in and
     // the transport follows a beat later; leaving, the transport goes first and the title
     // bar lingers. The offset is small enough to read as sequence, not as lag.
-    val enterDelay = if (edge == ChromeEdge.Bottom) CHROME_STAGGER_MS else 0
-    val exitDelay = if (edge == ChromeEdge.Top) CHROME_STAGGER_MS else 0
-    val fade = tween<Float>(CHROME_MS, delayMillis = enterDelay, easing = Motion.Curve)
-    val slide = tween<IntOffset>(CHROME_MS, delayMillis = enterDelay, easing = Motion.Curve)
-    val fadeAway = tween<Float>(CHROME_MS, delayMillis = exitDelay, easing = Motion.Curve)
-    val slideAway = tween<IntOffset>(CHROME_MS, delayMillis = exitDelay, easing = Motion.Curve)
+    val enterDelay = if (edge == ChromeEdge.Bottom) Motion.PLAYER_CHROME_STAGGER else 0
+    val exitDelay = if (edge == ChromeEdge.Top) Motion.PLAYER_CHROME_STAGGER else 0
+    val fade = tween<Float>(Motion.STANDARD, delayMillis = enterDelay, easing = Motion.Curve)
+    val slide = tween<IntOffset>(Motion.STANDARD, delayMillis = enterDelay, easing = Motion.Curve)
+    val fadeAway = tween<Float>(Motion.STANDARD, delayMillis = exitDelay, easing = Motion.Curve)
+    val slideAway = tween<IntOffset>(Motion.STANDARD, delayMillis = exitDelay, easing = Motion.Curve)
     val travel: (Int) -> Int = { full -> full / 6 }
     val moving = !reduceMotion
 
     val enter =
         when {
-            !moving -> fadeIn(fade)
+            !moving || coversScreen -> fadeIn(fade)
             edge == ChromeEdge.Top -> fadeIn(fade) + slideInVertically(slide) { -travel(it) }
             edge == ChromeEdge.Bottom -> fadeIn(fade) + slideInVertically(slide) { travel(it) }
             edge == ChromeEdge.End -> fadeIn(fade) + slideInHorizontally(slide) { travel(it) }
@@ -89,21 +88,21 @@ internal fun ChromeVisibility(
             else ->
                 fadeIn(fade) +
                     scaleIn(
-                        tween(CHROME_MS, easing = Motion.Curve),
+                        tween(Motion.STANDARD, easing = Motion.Curve),
                         initialScale = 0.94f,
                         transformOrigin = TransformOrigin.Center,
                     )
         }
     val exit =
         when {
-            !moving -> fadeOut(fadeAway)
+            !moving || coversScreen -> fadeOut(fadeAway)
             edge == ChromeEdge.Top -> fadeOut(fadeAway) + slideOutVertically(slideAway) { -travel(it) }
             edge == ChromeEdge.Bottom -> fadeOut(fadeAway) + slideOutVertically(slideAway) { travel(it) }
             edge == ChromeEdge.End -> fadeOut(fadeAway) + slideOutHorizontally(slideAway) { travel(it) }
             else ->
                 fadeOut(fadeAway) +
                     scaleOut(
-                        tween(CHROME_MS, easing = Motion.Curve),
+                        tween(Motion.STANDARD, easing = Motion.Curve),
                         targetScale = 0.94f,
                         transformOrigin = TransformOrigin.Center,
                     )
@@ -139,12 +138,19 @@ internal fun <T : Any> ChromeContent(
     value: T?,
     modifier: Modifier = Modifier,
     edge: ChromeEdge = ChromeEdge.None,
+    /** See [ChromeVisibility]: a full-screen surface fades rather than scaling. */
+    coversScreen: Boolean = false,
     content: @Composable BoxScope.(T) -> Unit,
 ) {
     val retained = remember { RetainedChrome(value) }
     SideEffect { if (value != null) retained.value = value }
     val shown = value ?: retained.value
-    ChromeVisibility(visible = value != null, modifier = modifier, edge = edge) {
+    ChromeVisibility(
+        visible = value != null,
+        modifier = modifier,
+        edge = edge,
+        coversScreen = coversScreen,
+    ) {
         Box(Modifier.fillMaxSize()) { if (shown != null) content(shown) }
     }
 }

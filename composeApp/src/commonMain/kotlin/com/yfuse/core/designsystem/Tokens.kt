@@ -579,24 +579,22 @@ object Motion {
     const val POP = 260
     val popOffset = 22.dp
 
-    /** 平级切 tab — 0.986 缩放淡入. */
+    /**
+     * 平级切 tab — 0.97 缩放淡入.
+     *
+     * It was 0.986, which is a scale nobody can see: the tab switch read as a plain crossfade
+     * while 搜索 — the one tab with its own entrance — arrived from 0.97 alongside it. Equal-level
+     * destinations now share that figure, and 搜索 keeps its slide as the thing that sets it apart.
+     */
     const val TAB = STANDARD
-    const val TAB_SCALE_FROM = 0.986f
+    const val TAB_SCALE_FROM = 0.97f
 
-    /** 覆盖（播放器 / 菜单）— 下方 46px 上滑. */
+    /** 覆盖（播放器 / 菜单）— 上滑淡入；每处覆盖层自带其行程. */
     const val MODAL = EMPHASIZED
-    val modalOffset = 46.dp
 
-    /** 迷你播放器展开 — 从底部 0.8 缩放放大；详情页顶图只做克制的 1.08 → 1. */
+    /** 展开（迷你播放器 / 顶图）— 详情页顶图只做克制的 1.08 → 1. */
     const val EXPAND = 300
-    const val MINI_SCALE_FROM = 0.8f
     const val DETAIL_HERO_SCALE_FROM = 1.08f
-
-    /** Detail content settles after the artwork; short enough to never queue behind a tap. */
-    const val DETAIL_CONTENT = 260
-
-    /** 顶栏材质切换 — 滚动超过 280px 后转为玻璃底（§4.2）. */
-    const val TOP_BAR = 220
 
     /**
      * 作品主色跟随切换 — the artwork accent easing from one title's colour to the next.
@@ -620,11 +618,6 @@ object Motion {
      * round of network probes, which takes about this long per server.
      */
     const val REFRESH_SPIN = 900
-
-    /** 图片渐进加载：占位主色渐变 → 12px 模糊放大 1.05 → 清晰归位. */
-    const val IMAGE_IN = 550
-    val imageBlur = 12.dp
-    const val IMAGE_SCALE_FROM = 1.05f
 }
 
 // ---------------------------------------------------------------- typography

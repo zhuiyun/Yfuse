@@ -8,8 +8,8 @@ import com.yfuse.feature.json
 import com.yfuse.feature.testRegistry
 import com.yfuse.feature.testRepo
 import kotlinx.coroutines.async
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals

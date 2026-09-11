@@ -2,6 +2,9 @@ package com.yfuse.feature.profile
 
 import android.content.ComponentName
 import android.content.pm.PackageManager
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.util.androidAppContext
 
@@ -16,6 +19,8 @@ private fun AppIconVariant.componentClass(): String =
         AppIconVariant.Default -> "com.yfuse.MainActivity"
         AppIconVariant.Graphite -> "com.yfuse.LauncherGraphite"
         AppIconVariant.CloudPlayer -> "com.yfuse.LauncherCloud"
+        AppIconVariant.AuroraDark -> "com.yfuse.LauncherAuroraDark"
+        AppIconVariant.AuroraLight -> "com.yfuse.LauncherAuroraLight"
     }
 
 /**
@@ -31,7 +36,7 @@ private fun AppIconVariant.componentClass(): String =
  * [applyPendingAppIconVariant] — and a process that dies before that simply keeps the icon
  * it had, which is the safe half of the trade.
  */
-private var pendingVariant: AppIconVariant? = null
+private var pendingVariant: AppIconVariant? by mutableStateOf(null)
 
 private fun enabledAppIconVariant(): AppIconVariant {
     val context = androidAppContext ?: return AppIconVariant.Default

@@ -33,9 +33,6 @@ import kotlin.math.exp
 import kotlin.math.sin
 import com.yfuse.core.designsystem.ThemeText as Text
 
-/** How long a bubble takes to cross the strip it floats up. */
-private const val REACTION_MS = Motion.WATCH_REACTION
-
 /** How far a bubble travels before it is gone. */
 private val RiseDistance = 180.dp
 
@@ -87,9 +84,10 @@ private fun BoxScope.ReactionBubble(
     LaunchedEffect(burst.id, reduceMotion) {
         if (reduceMotion) {
             // No travel, but still transient: it appears, it is read, it goes.
-            delay(REACTION_MS.toLong())
+            delay(Motion.WATCH_REACTION.toLong())
         } else {
-            rise.animateTo(1f, tween(REACTION_MS, easing = LinearEasing))
+            // One bubble takes this long to cross the strip it floats up.
+            rise.animateTo(1f, tween(Motion.WATCH_REACTION, easing = LinearEasing))
         }
         onFinished(burst.id)
     }

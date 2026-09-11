@@ -1,6 +1,7 @@
 package com.yfuse.app
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -11,6 +12,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -112,6 +115,7 @@ import com.yfuse.core.designsystem.drawMotionSweep
 import com.yfuse.core.designsystem.liquidNavigationGlass
 import com.yfuse.core.designsystem.navigationGlass
 import com.yfuse.core.designsystem.overlayGlass
+import com.yfuse.core.designsystem.platformAnimationsDisabled
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberBackdropState
 import com.yfuse.core.designsystem.resolveDark
@@ -191,8 +195,17 @@ fun App(root: RootComponent) {
     val reduceTransparency by root.themePreferences.reduceTransparency.collectAsState()
     val largeText by root.themePreferences.largeText.collectAsState()
     val reduceMotion by root.themePreferences.reduceMotion.collectAsState()
+    // 「移除动画」 on the device is the same request as our own 减弱动态效果, so the two are one
+    // effective value from here down. Without this the app kept animating for a user who had
+    // switched animation off system-wide — the only surface that honoured it was the player,
+    // which reads the setting itself for its window transitions. The user's own switch still
+    // travels separately, for the few places where motion is a gesture rather than a duration:
+    // see [AccessibilityOptions.reduceMotionByUser].
+    val systemMotionOff = platformAnimationsDisabled()
+    val motionOff = reduceMotion || systemMotionOff
     val pulseSweep by root.themePreferences.pulseSweep.collectAsState()
     val dialogAnimation by root.themePreferences.dialogAnimation.collectAsState()
+    val dialogAnimationLab by root.themePreferences.dialogAnimationLab.collectAsState()
     val glassStyle by root.themePreferences.glassStyle.collectAsState()
     val backgroundImage by root.themePreferences.backgroundImage.collectAsState()
     val backgroundDim by root.themePreferences.backgroundDim.collectAsState()
@@ -205,13 +218,15 @@ fun App(root: RootComponent) {
             AccessibilityOptions(
                 reduceTransparency = reduceTransparency,
                 largeText = largeText,
-                reduceMotion = reduceMotion,
+                reduceMotion = motionOff,
+                reduceMotionByUser = reduceMotion,
             ),
         // 减弱透明度 is an accessibility contract: it exists to make every surface opaque and
         // legible, so a decorative material choice must not be able to reinstate the effect
         // it turns off.
         glassStyle = if (reduceTransparency) GlassStyle.Frosted else glassStyle,
         dialogAnimation = dialogAnimation,
+        dialogAnimationLab = dialogAnimationLab,
     ) {
         val active by root.activeTab.subscribeAsState()
         val homeStack by root.home.stack.subscribeAsState()
@@ -411,7 +426,44 @@ fun App(root: RootComponent) {
                             }
                         }
 
-                        if (showBottomBar && !overlays.any) {
+                        // The dock leaves with the page rather than in one frame. Pushing a detail
+                        // route animates the content over Motion.PUSH while the bar was simply
+                        // dropped out of composition, so the one piece of furniture that stays
+                        // still across the whole app was also the only thing that ever blinked.
+                        // Whether the dock is *composed* still follows [showBottomBar] alone —
+                        // see the nested-scroll branch above — so nothing that reasons about the
+                        // bar's presence is now waiting on an animation.
+                        val dockShown = showBottomBar && !overlays.any
+                        // The dock leaves when a route is pushed and comes back when one is popped,
+                        // so those are its durations — they used to be the other way round, which
+                        // made the bar linger after the page it belonged to had already gone.
+                        val dockEnter = if (motionOff) 0 else Motion.POP
+                        val dockExit = if (motionOff) 0 else Motion.PUSH
+                        val dockEnterTransition =
+                            fadeIn(tween(dockEnter, easing = Motion.Curve)) +
+                                slideInVertically(
+                                    animationSpec = tween(dockEnter, easing = Motion.Curve),
+                                    // Half its own height, not all of it: the bar is furniture
+                                    // settling back into place, and a full-height slide reads as
+                                    // a separate object flying in from off-screen.
+                                    initialOffsetY = { it / 2 },
+                                )
+                        val dockExitTransition =
+                            fadeOut(tween(dockExit, easing = Motion.Curve)) +
+                                slideOutVertically(
+                                    animationSpec = tween(dockExit, easing = Motion.Curve),
+                                    targetOffsetY = { it / 2 },
+                                )
+                        AnimatedVisibility(
+                            visible = dockShown,
+                            modifier =
+                                Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .navigationBarsPadding(),
+                            enter = dockEnterTransition,
+                            exit = dockExitTransition,
+                            label = "bottomNavigationDock",
+                        ) {
                             BottomNavigationDock(
                                 active = active,
                                 collapsed = navCollapsed,
@@ -426,41 +478,52 @@ fun App(root: RootComponent) {
                                 onSearch = { onSelectTab(Tab.Search) },
                                 backdrop = backdrop,
                                 cueKey = pendingInvite?.roomCode,
-                                modifier =
-                                    Modifier
-                                        .align(Alignment.BottomCenter)
-                                        .navigationBarsPadding(),
                             )
-                            // One slot above the tab bar, and the two things that can occupy it
-                            // never coexist: while a player is alive the mini player carries the
-                            // room note itself, and the room bar is for exactly the case where it
-                            // isn't — the player closed, the room still up.
-                            val bottomStackSlot =
-                                Modifier
-                                    .align(Alignment.BottomCenter)
-                                    .navigationBarsPadding()
-                                    .widthIn(max = 520.dp)
-                                    .padding(horizontal = Dimens.tabBarInset)
-                                    .padding(
-                                        bottom =
-                                            Dimens.tabBarHeight + 22.dp,
-                                    )
-                            // Video backgrounding is represented by Android PiP. The old long,
-                            // music-like mini controller duplicated transport controls and only
-                            // appeared at tab roots, so it is intentionally not rendered here.
-                            if (!miniPlayback.active && watchRoomNote != null && !roomBarHidden) {
-                                WatchRoomBar(
-                                    note = watchRoomNote,
-                                    attention =
-                                        watchState.reconnecting ||
-                                            watchState.syncWarning != null,
-                                    onEnter = root::enterWatchRoom,
-                                    onView = { roomInfoOpen = true },
-                                    onClose = { hiddenRoomCode = watchState.roomCode },
-                                    backdrop = backdrop,
-                                    modifier = bottomStackSlot,
+                        }
+                        // One slot above the tab bar, and the two things that can occupy it
+                        // never coexist: while a player is alive the mini player carries the
+                        // room note itself, and the room bar is for exactly the case where it
+                        // isn't — the player closed, the room still up.
+                        val bottomStackSlot =
+                            Modifier
+                                .align(Alignment.BottomCenter)
+                                .navigationBarsPadding()
+                                .widthIn(max = 520.dp)
+                                .padding(horizontal = Dimens.tabBarInset)
+                                .padding(
+                                    bottom =
+                                        Dimens.tabBarHeight + 22.dp,
                                 )
-                            }
+                        // Video backgrounding is represented by Android PiP. The old long,
+                        // music-like mini controller duplicated transport controls and only
+                        // appeared at tab roots, so it is intentionally not rendered here.
+                        //
+                        // The bar rides the dock's own enter and exit. It sits on top of the dock
+                        // and used to be dropped straight out of composition while the dock below
+                        // it slid away, so the pair came apart every time a route was pushed.
+                        val roomBarShown =
+                            dockShown && !miniPlayback.active && watchRoomNote != null && !roomBarHidden
+                        // An exit outlives the room that started it, so the bar keeps the last note
+                        // it carried rather than blanking its own text on the way out.
+                        var lastRoomNote by remember { mutableStateOf("") }
+                        if (watchRoomNote != null) lastRoomNote = watchRoomNote
+                        AnimatedVisibility(
+                            visible = roomBarShown,
+                            modifier = bottomStackSlot,
+                            enter = dockEnterTransition,
+                            exit = dockExitTransition,
+                            label = "watchRoomBar",
+                        ) {
+                            WatchRoomBar(
+                                note = lastRoomNote,
+                                attention =
+                                    watchState.reconnecting ||
+                                        watchState.syncWarning != null,
+                                onEnter = root::enterWatchRoom,
+                                onView = { roomInfoOpen = true },
+                                onClose = { hiddenRoomCode = watchState.roomCode },
+                                backdrop = backdrop,
+                            )
                         }
 
                         // A room survives the process: the client keeps the capabilities the

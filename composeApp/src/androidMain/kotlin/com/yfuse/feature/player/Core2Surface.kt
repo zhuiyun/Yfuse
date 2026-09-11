@@ -2,8 +2,10 @@ package com.yfuse.feature.player
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.view.Surface
 import android.view.SurfaceHolder
 import android.view.SurfaceView
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -19,6 +21,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -36,11 +39,15 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.yfuse.core.designsystem.LocalAccessibilityOptions
+import com.yfuse.core.designsystem.LocalRouteVisible
+import com.yfuse.core.designsystem.Motion
 import com.yfuse.core2.android.AndroidAssSubtitleRenderer
 import com.yfuse.core2.android.AndroidSurfaceVideoOutput
 import com.yfuse.core2.api.YPlayer
@@ -73,8 +80,16 @@ internal fun Core2Surface(
     subtitlePosition: Float,
     subtitleAppearance: SubtitleAppearance,
     modifier: Modifier = Modifier,
+    /**
+     * False while the player is in 画中画 or otherwise off screen. The ASS renderer's per-frame
+     * loop is the most expensive thing in this file; nothing should drive it for a picture the
+     * viewer is not reading captions from.
+     */
+    visible: Boolean = true,
     /** 氛围光 reads this surface; the view is the picture, so no source rect is needed. */
     ambientSampler: AmbientFrameSampler? = null,
+    /** Drawn above the surface and below the subtitle overlays, so light never covers a caption. */
+    ambientLayer: @Composable () -> Unit = {},
 ) {
     var layoutSize by remember { mutableStateOf(IntSize.Zero) }
     val surfaceSize =
@@ -84,13 +99,27 @@ internal fun Core2Surface(
             scaleMode = scaleMode,
         )
     val density = LocalDensity.current
+    // 画面比例 used to resize the picture between two frames, which is the one moment the change
+    // is hardest to read — the frame simply stands somewhere else. The first measurement stays a
+    // cut: there is no previous rectangle for it to travel from.
+    var measured by remember { mutableStateOf(false) }
+    LaunchedEffect(surfaceSize) { if (surfaceSize != IntSize.Zero) measured = true }
+    val pictureSpec = Motion.settle<Dp>(LocalAccessibilityOptions.current.reduceMotion || !measured)
+    val pictureWidth by animateDpAsState(
+        targetValue = with(density) { surfaceSize.width.toDp() },
+        animationSpec = pictureSpec,
+        label = "core2PictureWidth",
+    )
+    val pictureHeight by animateDpAsState(
+        targetValue = with(density) { surfaceSize.height.toDp() },
+        animationSpec = pictureSpec,
+        label = "core2PictureHeight",
+    )
     val surfaceModifier =
         if (surfaceSize == IntSize.Zero) {
             Modifier.fillMaxSize()
         } else {
-            with(density) {
-                Modifier.requiredSize(surfaceSize.width.toDp(), surfaceSize.height.toDp())
-            }
+            Modifier.requiredSize(pictureWidth, pictureHeight)
         }
     Box(
         modifier = modifier.clipToBounds().onSizeChanged { layoutSize = it },
@@ -115,6 +144,7 @@ internal fun Core2Surface(
                 view.unbind()
             },
         )
+        ambientLayer()
         Core2SubtitleOverlay(
             engine = engine,
             canvasSize = IntSize(videoWidth, videoHeight),
@@ -124,6 +154,7 @@ internal fun Core2Surface(
             brightness = subtitleBrightness,
             position = subtitlePosition,
             appearance = subtitleAppearance,
+            visible = visible,
             modifier = surfaceModifier,
         )
         DiscNavigationOverlay(engine = engine, layoutSize = layoutSize)
@@ -140,52 +171,71 @@ private fun Core2SubtitleOverlay(
     brightness: Float,
     position: Float,
     appearance: SubtitleAppearance,
+    visible: Boolean,
     modifier: Modifier,
 ) {
-    val playerState by engine.player.state.collectAsState()
+    // Narrow projections of the player state. Read whole, it put this overlay — and therefore
+    // every caption on screen — on the position tick, and rebuilt it for diagnostics counters
+    // no caption has ever looked at.
+    val livePlayerState = engine.player.state.collectAsState()
+    val clockSample by remember(livePlayerState) {
+        derivedStateOf {
+            val current = livePlayerState.value
+            Core2SubtitleClockSample(
+                positionMs = current.positionMs,
+                advancing = current.playing && !current.buffering,
+                speed = current.speed,
+            )
+        }
+    }
+    val primaryCues by remember(livePlayerState) { derivedStateOf { livePlayerState.value.subtitleCues } }
+    val secondaryCues by remember(livePlayerState) { derivedStateOf { livePlayerState.value.secondarySubtitleCues } }
+    val secondaryOffsetMs by remember(livePlayerState) {
+        derivedStateOf { livePlayerState.value.secondarySubtitleOffsetMs }
+    }
+    val dual by remember(livePlayerState) {
+        derivedStateOf { livePlayerState.value.secondarySubtitleTrackId != null }
+    }
+    val timelineGeneration by remember(livePlayerState) {
+        derivedStateOf { livePlayerState.value.diagnostics.outputEvidenceGeneration }
+    }
 
     // Android Lint resolves this commonMain return type as Unit; the cached anchor is immutable.
     @SuppressLint("RememberReturnType")
     val clock: YSubtitleClockAnchor =
-        remember<YSubtitleClockAnchor>(
-            playerState.positionMs,
-            playerState.playing,
-            playerState.buffering,
-            playerState.speed,
-        ) {
+        remember<YSubtitleClockAnchor>(clockSample) {
             YSubtitleClockAnchor(
-                playerState.positionMs,
+                clockSample.positionMs,
                 System.nanoTime(),
-                playerState.playing && !playerState.buffering,
-                playerState.speed,
+                clockSample.advancing,
+                clockSample.speed,
             )
         }
 
-    fun activeAss(
-        cues: List<YSubtitleCue>,
-        delayMs: Long,
-    ): Boolean {
-        val timeUs = (clock.positionMs - delayMs) * MICROS_PER_MILLISECOND
-        return cues.any { it.payload is YSubtitlePayload.AssEvent && timeUs >= it.startUs && timeUs < it.endUs }
-    }
+    // Whether an ASS event is on screen decided whether a per-frame loop runs at all, and it was
+    // answered by scanning both whole tracks on every tick. Merged once per track, it is a
+    // binary search over disjoint windows instead.
+    val primaryAss = remember(primaryCues) { AssActivityWindows(primaryCues) }
+    val secondaryAss = remember(secondaryCues) { AssActivityWindows(secondaryCues) }
     // Preserve the shared clock for mixed ASS/text tracks and their boundary timing.
     val animateFrames =
-        clock.advancing &&
+        visible &&
+            LocalRouteVisible.current &&
+            clock.advancing &&
             (
-                activeAss(playerState.subtitleCues, offsetMs) ||
-                    activeAss(playerState.secondarySubtitleCues, playerState.secondarySubtitleOffsetMs)
+                primaryAss.activeAt((clock.positionMs - offsetMs) * MICROS_PER_MILLISECOND) ||
+                    secondaryAss.activeAt((clock.positionMs - secondaryOffsetMs) * MICROS_PER_MILLISECOND)
             )
     BoxWithConstraints(modifier) {
         val viewport = DpSize(maxWidth, maxHeight)
-        val dual = playerState.secondarySubtitleTrackId != null
         val channel: @Composable (Boolean) -> Unit = { secondary ->
             Core2SubtitleChannel(
-                cues = if (secondary) playerState.secondarySubtitleCues else playerState.subtitleCues,
+                cues = if (secondary) secondaryCues else primaryCues,
                 clock = clock,
                 animateFrames = animateFrames,
-                timelineGeneration = playerState.diagnostics.outputEvidenceGeneration,
+                timelineGeneration = timelineGeneration,
                 canvasSize = canvasSize,
-                offsetMs = if (secondary) playerState.secondarySubtitleOffsetMs else offsetMs,
+                offsetMs = if (secondary) secondaryOffsetMs else offsetMs,
                 scale = if (secondary) secondaryScale else scale,
                 brightness = brightness,
                 position = position,
@@ -238,7 +288,9 @@ private fun Core2SubtitleChannel(
             val index: YSubtitleTimeline = YSubtitleTimeline(cues)
             index
         }
-    var activeCues by remember(timeline, clock, offsetMs) {
+    // Keyed on the track alone: re-created on every clock tick, this state could never hold a
+    // previous cue set to compare against, so the comparison below would never save anything.
+    var activeCues by remember(timeline) {
         mutableStateOf(timeline.activeAt(clock.positionMs * MICROS_PER_MILLISECOND, offsetMs * MICROS_PER_MILLISECOND))
     }
     val assRenderer = remember { AndroidAssSubtitleRenderer() }
@@ -246,7 +298,11 @@ private fun Core2SubtitleChannel(
     val assOverrides = remember(appearance) { appearance.assStyleOverrides() }
     LaunchedEffect(assRenderer, cues, clock, animateFrames, timelineGeneration, offsetMs, canvasSize, assOverrides) {
         fun submit(positionMs: Long) {
-            activeCues = timeline.activeAt(positionMs * MICROS_PER_MILLISECOND, offsetMs * MICROS_PER_MILLISECOND)
+            // The loop below runs at display rate. Writing a freshly built list back every frame
+            // recomposed this channel sixty times a second for a caption that had not changed;
+            // only a different set of cues is a change worth publishing.
+            val next = timeline.activeAt(positionMs * MICROS_PER_MILLISECOND, offsetMs * MICROS_PER_MILLISECOND)
+            if (!sameSubtitleCues(activeCues, next)) activeCues = next
             assRenderer.submit(
                 cues,
                 (positionMs - offsetMs) * MICROS_PER_MILLISECOND,
@@ -315,6 +371,73 @@ private fun Core2SubtitleChannel(
             }
         }
     }
+}
+
+/** The clock inputs, and only those, so an unrelated diagnostic change cannot re-anchor captions. */
+private data class Core2SubtitleClockSample(
+    val positionMs: Long,
+    val advancing: Boolean,
+    val speed: Float,
+)
+
+/**
+ * Merged, disjoint windows in which a track has an ASS event on screen.
+ *
+ * The windows are built once per track so the per-frame gate is a binary search rather than a
+ * scan of every cue in the file, twice, on every engine tick.
+ */
+private class AssActivityWindows(
+    cues: List<YSubtitleCue>,
+) {
+    private val starts: LongArray
+    private val ends: LongArray
+
+    init {
+        val windows = ArrayList<LongArray>()
+        cues
+            .asSequence()
+            .filter { it.payload is YSubtitlePayload.AssEvent && it.endUs > it.startUs }
+            .sortedBy(YSubtitleCue::startUs)
+            .forEach { cue ->
+                val last = windows.lastOrNull()
+                if (last != null && cue.startUs <= last[1]) {
+                    last[1] = maxOf(last[1], cue.endUs)
+                } else {
+                    windows.add(longArrayOf(cue.startUs, cue.endUs))
+                }
+            }
+        starts = LongArray(windows.size) { windows[it][0] }
+        ends = LongArray(windows.size) { windows[it][1] }
+    }
+
+    fun activeAt(timeUs: Long): Boolean {
+        if (starts.isEmpty()) return false
+        var low = 0
+        var high = starts.size - 1
+        var candidate = -1
+        while (low <= high) {
+            val mid = (low + high) ushr 1
+            if (starts[mid] <= timeUs) {
+                candidate = mid
+                low = mid + 1
+            } else {
+                high = mid - 1
+            }
+        }
+        return candidate >= 0 && timeUs < ends[candidate]
+    }
+}
+
+/** Identity and order of the drawn cues; a cue's payload never changes in place under one id. */
+private fun sameSubtitleCues(
+    current: List<YSubtitleCue>,
+    next: List<YSubtitleCue>,
+): Boolean {
+    if (current.size != next.size) return false
+    for (index in current.indices) {
+        if (current[index].id != next[index].id) return false
+    }
+    return true
 }
 
 /** Normalized bounds after scaling, shared by measurement and placement. */
@@ -449,29 +572,43 @@ private class Core2SurfaceView(
     private var player: YPlayer? = null
     private var protectedContent = false
 
+    /**
+     * The Surface the current player already renders into.
+     *
+     * `surfaceChanged` fires for a pure resize too, and the picture rectangle is now animated:
+     * re-publishing a video output on every frame of that would hand MediaCodec a new output
+     * twenty times in a third of a second for a Surface it never lost.
+     */
+    private var attached: Surface? = null
+
     init {
         holder.addCallback(this)
     }
 
     fun bind(next: YPlayer) {
         if (player === next) return
-        player?.setVideoOutput(null)
+        detachOutput()
         player = next
         attachCurrentSurface()
     }
 
     fun setProtectedContent(required: Boolean) {
         if (protectedContent == required) return
-        player?.setVideoOutput(null)
+        detachOutput()
         protectedContent = required
         setSecure(required)
         attachCurrentSurface()
     }
 
     fun unbind() {
-        player?.setVideoOutput(null)
+        detachOutput()
         player = null
         holder.removeCallback(this)
+    }
+
+    private fun detachOutput() {
+        attached = null
+        player?.setVideoOutput(null)
     }
 
     override fun surfaceCreated(holder: SurfaceHolder) {
@@ -488,13 +625,16 @@ private class Core2SurfaceView(
     }
 
     override fun surfaceDestroyed(holder: SurfaceHolder) {
-        player?.setVideoOutput(null)
+        detachOutput()
     }
 
     private fun attachCurrentSurface() {
         val surface = holder.surface
         if (!surface.isValid) return
-        player?.setVideoOutput(
+        val target = player ?: return
+        if (attached === surface) return
+        attached = surface
+        target.setVideoOutput(
             AndroidSurfaceVideoOutput(
                 surface = surface,
                 protectedContent = protectedContent,

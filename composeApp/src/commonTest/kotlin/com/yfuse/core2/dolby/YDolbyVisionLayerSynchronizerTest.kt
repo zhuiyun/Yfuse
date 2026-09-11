@@ -31,9 +31,13 @@ class YDolbyVisionLayerSynchronizerTest {
         assertEquals(0x11, split.baseLayer.last().toInt() and 0xff)
     }
 
-    private fun sample(track: Int, pts: Long) =
-        YCompressedSample(YTrackId(track), byteArrayOf(track.toByte()), pts)
+    private fun sample(
+        track: Int,
+        pts: Long,
+    ) = YCompressedSample(YTrackId(track), byteArrayOf(track.toByte()), pts)
 
-    private fun annexB(type: Int, payload: Int): ByteArray =
-        byteArrayOf(0, 0, 0, 1, (type shl 1).toByte(), 1, payload.toByte())
+    private fun annexB(
+        type: Int,
+        payload: Int,
+    ): ByteArray = byteArrayOf(0, 0, 0, 1, (type shl 1).toByte(), 1, payload.toByte())
 }

@@ -163,7 +163,12 @@ class CalendarFollowStoreTest {
 
         store.follow(candidate)
 
-        assertEquals(CalendarTrackingOrigin.Manual, store.followed.value.single().trackingOrigin)
+        assertEquals(
+            CalendarTrackingOrigin.Manual,
+            store.followed.value
+                .single()
+                .trackingOrigin,
+        )
         store.unfollow(candidate.tmdbId)
         assertEquals(0, store.autoFollowLibrarySeries(listOf(candidate)))
     }
@@ -187,9 +192,24 @@ class CalendarFollowStoreTest {
             )
 
         assertEquals(1, result.removed)
-        assertEquals(setOf(1, 3, 4), store.followed.value.map(FollowedSeries::tmdbId).toSet())
-        assertEquals("继续追（新标题）", store.followed.value.first { it.tmdbId == 1 }.title)
-        assertEquals(CalendarTrackingOrigin.Manual, store.followed.value.first { it.tmdbId == 4 }.trackingOrigin)
+        assertEquals(
+            setOf(1, 3, 4),
+            store.followed.value
+                .map(FollowedSeries::tmdbId)
+                .toSet(),
+        )
+        assertEquals(
+            "继续追（新标题）",
+            store.followed.value
+                .first { it.tmdbId == 1 }
+                .title,
+        )
+        assertEquals(
+            CalendarTrackingOrigin.Manual,
+            store.followed.value
+                .first { it.tmdbId == 4 }
+                .trackingOrigin,
+        )
     }
 
     @Test

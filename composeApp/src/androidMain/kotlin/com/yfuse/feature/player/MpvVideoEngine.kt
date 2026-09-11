@@ -246,6 +246,7 @@ class MpvVideoEngine(
 
     @Volatile
     private var mpv: MPVLib? = null
+    private var subtitleUseMargins = true
 
     @Volatile
     private var released = false
@@ -883,6 +884,7 @@ class MpvVideoEngine(
 
             instance.setPropertyDouble("speed", startSpeed.toDouble())
             instance.setPropertyBoolean("pause", !playRequested)
+            instance.setPropertyString("sub-use-margins", if (subtitleUseMargins) "yes" else "no")
 
             mpv = instance
             instance.addObserver(observer)
@@ -1159,6 +1161,18 @@ class MpvVideoEngine(
             instance.setPropertyDouble("sub-pos", percent)
             instance.setPropertyDouble("secondary-sub-pos", percent)
         }
+
+    /**
+     * Whether captions may sit in the black borders. 氛围光 paints those borders from a layer
+     * above the surface, so while it is on the captions stay inside the picture. Remembered for
+     * the next mpv instance as well.
+     */
+    fun setSubtitleUseMargins(useMargins: Boolean): Boolean {
+        subtitleUseMargins = useMargins
+        return withMpvResult { instance ->
+            instance.setPropertyString("sub-use-margins", if (useMargins) "yes" else "no")
+        }
+    }
 
     override fun setSubtitleAppearance(appearance: SubtitleAppearance): Boolean =
         withMpvResult { instance ->

@@ -6,35 +6,36 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.view.PixelCopy
-import android.view.SurfaceView
 import android.view.SurfaceHolder
+import android.view.SurfaceView
 import android.view.View
 import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-import com.yfuse.core.designsystem.AmbientLight
-import com.yfuse.core.designsystem.ambientLightDiffers
-import com.yfuse.core.designsystem.ambientLightFromPixels
-import com.yfuse.core.designsystem.drawAmbientLight
-import com.yfuse.core.designsystem.ambientLightFalloffBrushes
-import com.yfuse.core.designsystem.LocalRouteVisible
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.yfuse.core.designsystem.AmbientInset
+import com.yfuse.core.designsystem.AmbientLight
+import com.yfuse.core.designsystem.LocalRouteVisible
+import com.yfuse.core.designsystem.ambientLightDiffers
+import com.yfuse.core.designsystem.ambientLightFalloffBrushes
+import com.yfuse.core.designsystem.ambientLightFromPixels
+import com.yfuse.core.designsystem.drawAmbientLight
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -60,6 +61,14 @@ class AmbientFrameSampler {
     private val _light = MutableStateFlow<AmbientLight?>(null)
     val light: StateFlow<AmbientLight?> = _light.asStateFlow()
 
+    private val _unreadable = MutableStateFlow(false)
+
+    /**
+     * True once three reads in a row have failed: the surface is protected, or its output cannot
+     * be copied. A null [light] without this is only the first read still on its way.
+     */
+    val unreadable: StateFlow<Boolean> = _unreadable.asStateFlow()
+
     private var view: SurfaceView? = null
     private val handler = Handler(Looper.getMainLooper())
     private val copies = AmbientCopyQueue()
@@ -68,19 +77,34 @@ class AmbientFrameSampler {
     private var hasContentIdentity = false
     private var revision by mutableIntStateOf(0)
     private var letterboxed = false
-    private val surfaceCallback = object : SurfaceHolder.Callback {
-        override fun surfaceCreated(holder: SurfaceHolder) = invalidate()
-        override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) = invalidate()
-        override fun surfaceDestroyed(holder: SurfaceHolder) = invalidate()
-    }
-    private val layoutListener = View.OnLayoutChangeListener { _, l, t, r, b, oldL, oldT, oldR, oldB ->
-        if (l != oldL || t != oldT || r != oldR || b != oldB) invalidate()
-    }
+    private val surfaceCallback =
+        object : SurfaceHolder.Callback {
+            override fun surfaceCreated(holder: SurfaceHolder) = invalidate(clear = false)
 
-    private fun invalidate() {
+            override fun surfaceChanged(
+                holder: SurfaceHolder,
+                format: Int,
+                width: Int,
+                height: Int,
+            ) = invalidate(clear = false)
+
+            override fun surfaceDestroyed(holder: SurfaceHolder) = invalidate(clear = true)
+        }
+    private val layoutListener =
+        View.OnLayoutChangeListener { _, l, t, r, b, oldL, oldT, oldR, oldB ->
+            if (l != oldL || t != oldT || r != oldR || b != oldB) invalidate(clear = false)
+        }
+
+    /**
+     * Discards any copy in flight and reads again at once. Only losing the source [clear]s the
+     * published colour: a resize or a new picture rectangle keeps the last light until the next
+     * read lands, so changing the scale mode does not dip through the artwork glow and back.
+     */
+    private fun invalidate(clear: Boolean) {
         revision++
         policy.reset()
-        publish(null)
+        _unreadable.value = false
+        if (clear) publish(null)
     }
 
     /** Where the picture sits inside the attached view, in view pixels. Null when the view is the picture. */
@@ -88,17 +112,20 @@ class AmbientFrameSampler {
         set(value) {
             if (field == value) return
             field = value
-            invalidate()
+            invalidate(clear = false)
         }
 
-    fun attach(surfaceView: SurfaceView, letterboxed: Boolean = false) {
+    fun attach(
+        surfaceView: SurfaceView,
+        letterboxed: Boolean = false,
+    ) {
         if (view === surfaceView && this.letterboxed == letterboxed) return
         view?.let(::detach)
         view = surfaceView
         this.letterboxed = letterboxed
         surfaceView.holder.addCallback(surfaceCallback)
         surfaceView.addOnLayoutChangeListener(layoutListener)
-        invalidate()
+        invalidate(clear = true)
     }
 
     fun detach(surfaceView: SurfaceView) {
@@ -106,7 +133,7 @@ class AmbientFrameSampler {
         surfaceView.holder.removeCallback(surfaceCallback)
         surfaceView.removeOnLayoutChangeListener(layoutListener)
         view = null
-        invalidate()
+        invalidate(clear = true)
     }
 
     /** One read; null when the surface cannot be read right now. Main thread. */
@@ -115,29 +142,40 @@ class AmbientFrameSampler {
         if (target.width <= 0 || target.height <= 0 || !target.holder.surface.isValid) return null
         val requestRevision = revision
         val frame = target.holder.surfaceFrame
-        val source = ambientCopyRect(
-            letterboxed, picture, IntSize(target.width, target.height), IntSize(frame.width(), frame.height()),
-        )?.let { Rect(it.left, it.top, it.right, it.bottom) }
-        return copies.copy(
-            create = { Bitmap.createBitmap(WIDTH, HEIGHT, Bitmap.Config.ARGB_8888) },
-            request = { bitmap, complete ->
-                if (requestRevision != revision || target !== view || !target.holder.surface.isValid) {
-                    throw IllegalArgumentException("Ambient source changed before copy")
-                }
-                policy.started(SystemClock.elapsedRealtime())
-                PixelCopy.request(target, source, bitmap, { complete(it == PixelCopy.SUCCESS) }, handler)
-            },
-            read = { bitmap ->
-                if (requestRevision != revision || target !== view) {
-                    null
-                } else {
-                    val pixels = IntArray(WIDTH * HEIGHT)
-                    bitmap.getPixels(pixels, 0, WIDTH, 0, 0, WIDTH, HEIGHT)
-                    ambientLightFromPixels(pixels, WIDTH, HEIGHT)
-                }
-            },
-            release = Bitmap::recycle,
-        ).takeIf { requestRevision == revision && target === view }
+        val source =
+            ambientCopyRect(
+                letterboxed,
+                picture,
+                IntSize(target.width, target.height),
+                IntSize(frame.width(), frame.height()),
+            )?.let { Rect(it.left, it.top, it.right, it.bottom) }
+        return copies
+            .copy(
+                create = { Bitmap.createBitmap(WIDTH, HEIGHT, Bitmap.Config.ARGB_8888) },
+                request = { bitmap, complete ->
+                    if (requestRevision != revision || target !== view || !target.holder.surface.isValid) {
+                        throw IllegalArgumentException("Ambient source changed before copy")
+                    }
+                    PixelCopy.request(target, source, bitmap, { complete(it == PixelCopy.SUCCESS) }, handler)
+                },
+                read = { bitmap ->
+                    if (requestRevision != revision || target !== view) {
+                        null
+                    } else {
+                        val pixels = IntArray(WIDTH * HEIGHT)
+                        bitmap.getPixels(pixels, 0, WIDTH, 0, 0, WIDTH, HEIGHT)
+                        ambientLightFromPixels(pixels, WIDTH, HEIGHT)
+                    }
+                },
+                release = Bitmap::recycle,
+            ).takeIf { requestRevision == revision && target === view }
+    }
+
+    /** A new item or a disabled light starts from nothing: no colour, no failure history. */
+    private fun forget() {
+        policy.reset()
+        _unreadable.value = false
+        publish(null)
     }
 
     private fun publish(next: AmbientLight?): Boolean {
@@ -166,12 +204,10 @@ class AmbientFrameSampler {
             if (!hasContentIdentity || contentIdentity != contentKey) {
                 contentIdentity = contentKey
                 hasContentIdentity = true
-                policy.reset()
-                publish(null)
+                forget()
             }
             if (!enabled) {
-                policy.reset()
-                publish(null)
+                forget()
                 return@LaunchedEffect
             }
             var urgent = true
@@ -181,9 +217,12 @@ class AmbientFrameSampler {
                 policy.started(SystemClock.elapsedRealtime())
                 val read = sample()
                 if (read != null) {
+                    _unreadable.value = false
                     policy.succeeded(changed = publish(read))
                     if (!playing) break
                 } else if (policy.failed()) {
+                    // Three misses: the caller takes the artwork glow while this keeps probing slowly.
+                    _unreadable.value = true
                     publish(null)
                 }
             }
@@ -191,8 +230,10 @@ class AmbientFrameSampler {
     }
 
     private companion object {
-        const val WIDTH = 32
-        const val HEIGHT = 18
+        // The copy scales with linear filtering and no mipmaps, so a tiny target is a few stray
+        // pixels rather than an average. 96×54 is still ~5k pixels to add up twice a second.
+        const val WIDTH = 96
+        const val HEIGHT = 54
     }
 }
 
@@ -236,13 +277,44 @@ internal fun AmbientLightLayer(
         modifier
             .onSizeChanged { container = it }
             .drawWithCache {
-                val rect = androidx.compose.ui.geometry.Rect(
-                    left.toFloat(), top.toFloat(), (left + picture.width).toFloat(), (top + picture.height).toFloat(),
-                )
+                val rect =
+                    androidx.compose.ui.geometry.Rect(
+                        left.toFloat(),
+                        top.toFloat(),
+                        (left + picture.width).toFloat(),
+                        (top + picture.height).toFloat(),
+                    )
                 val falloffs = ambientLightFalloffBrushes(rect, size)
+                // Bars baked into the frame move the lit edge inward; their geometry is cached per inset.
+                var insetKey = AmbientInset.None
+                var insetRect = rect
+                var insetFalloffs = falloffs
                 onDrawBehind {
-                    if (!ambientLightHasVisibleBars(container, picture, guard.roundToInt())) return@onDrawBehind
-                    drawAmbientLight(light.value, rect, size, guard.roundToInt().toFloat(), falloffs)
+                    val current = light.value
+                    val inset = current.inset
+                    val layoutBars = ambientLightHasVisibleBars(container, picture, guard.roundToInt())
+                    if (!layoutBars && inset.isZero) return@onDrawBehind
+                    val content: androidx.compose.ui.geometry.Rect
+                    val fades: List<androidx.compose.ui.graphics.Brush>
+                    if (inset.isZero) {
+                        content = rect
+                        fades = falloffs
+                    } else {
+                        if (inset != insetKey) {
+                            insetKey = inset
+                            insetRect =
+                                androidx.compose.ui.geometry.Rect(
+                                    rect.left + rect.width * inset.left,
+                                    rect.top + rect.height * inset.top,
+                                    rect.right - rect.width * inset.right,
+                                    rect.bottom - rect.height * inset.bottom,
+                                )
+                            insetFalloffs = ambientLightFalloffBrushes(insetRect, size)
+                        }
+                        content = insetRect
+                        fades = insetFalloffs
+                    }
+                    drawAmbientLight(current, content, size, guard.roundToInt().toFloat(), fades)
                 }
             },
     )

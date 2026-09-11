@@ -8,6 +8,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -67,6 +68,7 @@ import com.yfuse.core.network.playbackNetworkClasses
 import com.yfuse.core.network.rememberLocalNetworkPermissionRequest
 import com.yfuse.core.playback.PlaybackDeviceCapabilities
 import com.yfuse.core.playback.PlaybackDeviceCapabilitiesProvider
+import com.yfuse.core.playback.PlaybackDiscNavigationState
 import com.yfuse.core.playback.PlaybackDolbyVisionRuntimeCapabilities
 import com.yfuse.core.playback.PlaybackEngineSelection
 import com.yfuse.core.playback.PlaybackFailureKind
@@ -89,6 +91,7 @@ import com.yfuse.core2.legacy.asYPlayer
 import com.yfuse.tv.player.TvPlayerChromeBridge
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collect
@@ -97,6 +100,8 @@ import kotlinx.coroutines.withTimeoutOrNull
 import org.koin.core.context.GlobalContext
 import kotlin.math.roundToInt
 
+/** Seek requests inside this window collapse into one, always at the latest target. */
+private const val SEEK_MERGE_DEBOUNCE_MS = 120L
 private const val RESUME_NOTICE_MIN_MS = 30_000L
 private const val END_OF_EPISODE_ARM_WINDOW_MS = 2_000L
 private const val MAX_NATIVE_ONLY_RECOVERY_ATTEMPTS = 2
@@ -703,18 +708,25 @@ internal fun PlayerRoot(
         val castManager = remember { GlobalContext.get().get<CastManager>() }
         val liveCastState = castManager.state.collectAsState()
         val castState by remember(liveCastState) { derivedStateOf { liveCastState.value.copy(positionMs = 0L) } }
-        var pendingSeek by remember { mutableStateOf(SeekMergeState()) }
-        LaunchedEffect(pendingSeek.sequence) {
-            val request = pendingSeek
-            val positionMs = request.positionMs ?: return@LaunchedEffect
-            delay(SEEK_MERGE_DEBOUNCE_MS)
-            if (pendingSeek.sequence != request.sequence) return@LaunchedEffect
-            if (castState.hasActiveSession) {
-                castManager.seekTo(positionMs)
-            } else {
-                playbackGate.seekTo(positionMs)
+        // Seek requests travel on a conflating channel rather than through composition. As a
+        // `sequence` counter in a MutableState, a held rewind key re-keyed this effect — and so
+        // recomposed the entire player root — every 300ms while the finger stayed down.
+        val seekRequests = remember { Channel<Long>(Channel.CONFLATED) }
+        LaunchedEffect(seekRequests, castManager, playbackGate) {
+            for (offered in seekRequests) {
+                var positionMs = offered
+                // Trailing debounce: a newer target arriving inside the window replaces this one
+                // and restarts it, so only the position the user stopped on is ever sent.
+                while (true) {
+                    delay(SEEK_MERGE_DEBOUNCE_MS)
+                    positionMs = seekRequests.tryReceive().getOrNull() ?: break
+                }
+                if (castState.hasActiveSession) {
+                    castManager.seekTo(positionMs)
+                } else {
+                    playbackGate.seekTo(positionMs)
+                }
             }
-            pendingSeek = pendingSeek.consumed(request.sequence)
         }
         val requestCastDiscovery =
             rememberLocalNetworkPermissionRequest(
@@ -2279,8 +2291,10 @@ internal fun PlayerRoot(
             )
             Toast.makeText(context, "当前线路播放失败，已切换服务器", Toast.LENGTH_SHORT).show()
         }
-        val (volume, setVolume) = rememberSystemVolume()
-        val (brightness, setBrightness) = rememberWindowBrightness()
+        // Held as State and read where the level is drawn. Destructured to a Float here, every
+        // pointer sample of a volume/brightness drag invalidated this whole runtime scope.
+        val (volumeLevel, setVolume) = rememberSystemVolume()
+        val (brightnessLevel, setBrightness) = rememberWindowBrightness()
 
         suspend fun loadCastItem(
             deviceId: String,
@@ -2344,12 +2358,67 @@ internal fun PlayerRoot(
                 engine,
                 currentItem,
                 state,
+                livePlayback,
                 scaleMode,
                 inPictureInPicture,
                 ambientPowerLimited =
                     runtimeEnvironment.pressure != PlaybackResourcePressure.Normal ||
                         resolvedOptimization.mode == com.yfuse.core.playback.PlaybackOptimizationMode.PowerSaver,
             )
+        // Each host places this above its surface and below its subtitle overlays: bars an engine
+        // paints inside its own surface are lit, and captions placed in the letterbox stay legible.
+        // The picture rectangle is clipped out, so it never draws over the frame.
+        val ambientLayer: @Composable () -> Unit = {
+            AmbientLightLayer(
+                light = ambient.light,
+                sampler = ambient.sampler,
+                videoSize = ambient.videoSize,
+                scaleMode = scaleMode,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+        // The continuity artwork and the two status strings are built here, outside the timeline
+        // scope below, and handed down as values that do not change per tick: the list and the
+        // reader lambdas kept being reallocated twice a second, and the strings — 「已缓冲 N 秒」
+        // among them — were formatted on every one of those ticks whether or not anything was
+        // on screen to read them. The readers take their snapshots where they are drawn instead.
+        val continuityArtwork =
+            remember(currentItem?.stillUrl, currentItem?.posterUrl) {
+                listOf(currentItem?.stillUrl, currentItem?.posterUrl)
+            }
+        val continuityMessage =
+            remember(livePlayback, networkRecovery, startIndex) {
+                {
+                    val live = livePlayback.value
+                    when {
+                        networkRecovery.pending -> "网络已恢复，正在续播"
+                        live.currentIndex != startIndex && live.positionMs < 3_000L -> "正在衔接下一集"
+                        else -> "正在准备画面"
+                    }
+                }
+            }
+        val statusChipMessage =
+            remember(livePlayback, networkRecovery) {
+                {
+                    val diagnostics = livePlayback.value.diagnostics
+                    val bufferedSeconds =
+                        maxOf(
+                            diagnostics.bufferedDurationMs,
+                            diagnostics.sourceBufferedMs,
+                        ) / 1_000
+                    when {
+                        networkRecovery.pending -> "网络已恢复，正在续播"
+                        diagnostics.networkBitsPerSecond > 0L &&
+                            diagnostics.bitrateBitsPerSecond > 0L &&
+                            diagnostics.networkBitsPerSecond < diagnostics.bitrateBitsPerSecond ->
+                            "网络速度不足 · 已缓冲 $bufferedSeconds 秒"
+                        else -> "正在重新缓冲 · 已缓冲 $bufferedSeconds 秒"
+                    }
+                }
+            }
+        // Every layer that only belongs to the full-size window crosses the 画中画 boundary on the
+        // same short fade, so the overlays leave together instead of blinking out one by one.
+        val pictureInPictureFadeMs = if (LocalAccessibilityOptions.current.reduceMotion) 0 else Motion.QUICK
         Box(
             Modifier
                 .fillMaxSize()
@@ -2391,14 +2460,24 @@ internal fun PlayerRoot(
                         subtitlePosition = presentationSubtitleControls.position,
                         subtitleAppearance = presentationSubtitleControls.appearance,
                         modifier = Modifier.fillMaxSize(),
+                        visible = !inPictureInPicture,
                         ambientSampler = ambient.sampler,
+                        ambientLayer = ambientLayer,
                     )
-                is MdkVideoEngine -> MdkSurface(engine, Modifier.fillMaxSize(), ambientSampler = ambient.sampler)
+                is MdkVideoEngine ->
+                    MdkSurface(
+                        engine,
+                        Modifier.fillMaxSize(),
+                        ambientSampler = ambient.sampler,
+                        ambientLayer = ambientLayer,
+                    )
                 is MpvVideoEngine ->
                     MpvSurface(
                         engine,
                         Modifier.fillMaxSize(),
                         ambientSampler = ambient.sampler,
+                        ambientLayer = ambientLayer,
+                        subtitlesInsidePicture = ambient.enabled,
                         subtitleControls = presentationSubtitleControls,
                     )
                 is ExoVideoEngine ->
@@ -2412,22 +2491,16 @@ internal fun PlayerRoot(
                         subtitleAppearance = presentationSubtitleControls.appearance,
                         modifier = Modifier.fillMaxSize(),
                         ambientSampler = ambient.sampler,
+                        ambientLayer = ambientLayer,
                     )
             }
 
-            // Above the surface hosts so bars an engine paints inside its own surface are lit too;
-            // the picture rectangle is clipped out, so this never draws over the frame.
-            AmbientLightLayer(
-                light = ambient.light,
-                sampler = ambient.sampler,
-                videoSize = ambient.videoSize,
-                scaleMode = scaleMode,
-                modifier = Modifier.fillMaxSize(),
-            )
-
+            // Placed outside the timeline scope so the chip's anchor is not rebuilt per tick.
+            val statusChipModifier =
+                Modifier.align(androidx.compose.ui.Alignment.TopCenter).padding(top = 68.dp)
             PlaybackTimelineContent(livePlayback) { state ->
                 PlaybackContinuityOverlay(
-                    artworkUrls = listOf(currentItem?.stillUrl, currentItem?.posterUrl),
+                    artworkUrls = continuityArtwork,
                     title = currentItem?.title.orEmpty(),
                     visible =
                         artworkMorph?.visible != true &&
@@ -2440,12 +2513,7 @@ internal fun PlayerRoot(
                                     currentItem.activeVersion?.sourceVideoCodec.isNullOrBlank()
                             ) &&
                             state.diagnostics.effectiveVideoReadiness != PlaybackOutputReadiness.Rendering,
-                    message =
-                        when {
-                            networkRecovery.pending -> "网络已恢复，正在续播"
-                            state.currentIndex != startIndex && state.positionMs < 3_000L -> "正在衔接下一集"
-                            else -> "正在准备画面"
-                        },
+                    message = continuityMessage,
                     modifier = Modifier.fillMaxSize(),
                 )
                 PlayerArtworkMorph(
@@ -2461,44 +2529,39 @@ internal fun PlayerRoot(
                             null
                         },
                 )
-                val sourceBufferMs =
-                    maxOf(
-                        state.diagnostics.bufferedDurationMs,
-                        state.diagnostics.sourceBufferedMs,
-                    )
                 PlaybackStatusChip(
                     visible =
                         state.diagnostics.effectiveVideoReadiness == PlaybackOutputReadiness.Rendering &&
                             (state.buffering || networkRecovery.pending),
-                    message =
-                        when {
-                            networkRecovery.pending -> "网络已恢复，正在续播"
-                            state.diagnostics.networkBitsPerSecond > 0L &&
-                                state.diagnostics.bitrateBitsPerSecond > 0L &&
-                                state.diagnostics.networkBitsPerSecond < state.diagnostics.bitrateBitsPerSecond ->
-                                "网络速度不足 · 已缓冲 ${sourceBufferMs / 1_000} 秒"
-                            else -> "正在重新缓冲 · 已缓冲 ${sourceBufferMs / 1_000} 秒"
-                        },
-                    modifier = Modifier.align(androidx.compose.ui.Alignment.TopCenter).padding(top = 68.dp),
+                    message = statusChipMessage,
+                    modifier = statusChipModifier,
                 )
 
-                if (!inPictureInPicture && danmaku.enabled && danmaku.visibleComments.isNotEmpty()) {
-                    DanmakuOverlay(
-                        comments = danmaku.visibleComments,
-                        positionMs = state.positionMs,
-                        playing = state.playing && !state.buffering,
-                        playbackRate = state.speed,
-                        displayArea = danmaku.displayArea,
-                        fontSize = danmaku.fontSize,
-                        speed = danmaku.speed,
-                        opacity = danmaku.opacity,
-                    )
+                if (danmaku.enabled && danmaku.visibleComments.isNotEmpty()) {
+                    // Entering 画中画 used to cut the comment layer out between two frames, which
+                    // reads as the picture glitching rather than as the window changing shape.
+                    AnimatedVisibility(
+                        visible = !inPictureInPicture,
+                        enter = fadeIn(tween(pictureInPictureFadeMs)),
+                        exit = fadeOut(tween(pictureInPictureFadeMs)),
+                    ) {
+                        DanmakuOverlay(
+                            comments = danmaku.visibleComments,
+                            positionMs = state.positionMs,
+                            playing = state.playing && !state.buffering,
+                            playbackRate = state.speed,
+                            displayArea = danmaku.displayArea,
+                            fontSize = danmaku.fontSize,
+                            speed = danmaku.speed,
+                            opacity = danmaku.opacity,
+                        )
+                    }
                 }
             }
 
             AnimatedVisibility(
                 visible = !inPictureInPicture,
-                enter = fadeIn(tween(if (LocalAccessibilityOptions.current.reduceMotion) 0 else Motion.QUICK)),
+                enter = fadeIn(tween(pictureInPictureFadeMs)),
                 exit = ExitTransition.None,
             ) {
                 PlayerControls(
@@ -2574,7 +2637,7 @@ internal fun PlayerRoot(
                             }
                         },
                     onSeek = { positionMs ->
-                        pendingSeek = pendingSeek.offer(positionMs)
+                        seekRequests.trySend(positionMs.coerceAtLeast(0L))
                     },
                     onSelectItem = { index ->
                         if (sleepTimerOption == SleepTimerOption.EndOfEpisode) {
@@ -3075,7 +3138,7 @@ internal fun PlayerRoot(
                         Toast.makeText(context, "画面：${scaleMode.label}", Toast.LENGTH_SHORT).show()
                     },
                     trickplay = currentTrickplay,
-                    volume = castState.volume?.takeIf { castState.hasActiveSession } ?: volume,
+                    volume = castState.volume?.takeIf { castState.hasActiveSession } ?: volumeLevel.value,
                     onVolume = { requestedVolume ->
                         if (castState.hasActiveSession) {
                             scope.launch { castManager.setVolume(requestedVolume) }
@@ -3084,7 +3147,7 @@ internal fun PlayerRoot(
                         }
                     },
                     volumeKeyPresses = volumeKeyPresses.collectAsState().value,
-                    brightness = brightness,
+                    brightness = brightnessLevel.value,
                     onBrightness = { setBrightness(it) },
                     engineOptions =
                         PlaybackEngineSelection.selectable.map { selection ->
@@ -3124,20 +3187,29 @@ internal fun PlayerRoot(
                             .makeText(context, "YCore 学习数据已重置", Toast.LENGTH_SHORT)
                             .show()
                     },
+                    // A disc jump changes nothing the eye can read — the picture keeps playing and
+                    // the settings row is behind the finger. Name the destination the way the
+                    // aspect-ratio toggle names its mode, so the press is answered at all.
                     onNextDiscTitle = {
                         val disc = state.discNavigation
                         if (disc.titleCount > 1) {
-                            backendExtensions.selectDiscTitle(
-                                (disc.selectedTitleIndex + 1) % disc.titleCount,
-                            )
+                            val next = (disc.selectedTitleIndex + 1) % disc.titleCount
+                            if (backendExtensions.selectDiscTitle(next)) {
+                                Toast
+                                    .makeText(context, discTitleToast(disc, next), Toast.LENGTH_SHORT)
+                                    .show()
+                            }
                         }
                     },
                     onNextDiscChapter = {
                         val disc = state.discNavigation
                         if (disc.chapterCount > 1) {
-                            backendExtensions.selectDiscChapter(
-                                (disc.selectedChapterIndex + 1) % disc.chapterCount,
-                            )
+                            val next = (disc.selectedChapterIndex + 1) % disc.chapterCount
+                            if (backendExtensions.selectDiscChapter(next)) {
+                                Toast
+                                    .makeText(context, discChapterToast(disc, next), Toast.LENGTH_SHORT)
+                                    .show()
+                            }
                         }
                     },
                     onShowDiscMenu = {
@@ -3289,22 +3361,47 @@ internal fun PlayerRoot(
                 )
             }
 
-            if (!inPictureInPicture) {
-                OledPauseProtectionOverlay(
-                    visible = oledPauseProtectionActive,
-                    onResume = {
-                        oledPauseProtectionActive = false
-                        playbackGate.play()
-                    },
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
+            // Folded into the overlay's own visibility rather than an `if`, so leaving the
+            // screensaver for 画中画 fades out instead of vanishing between two frames.
+            OledPauseProtectionOverlay(
+                visible = oledPauseProtectionActive && !inPictureInPicture,
+                onResume = {
+                    oledPauseProtectionActive = false
+                    playbackGate.play()
+                },
+                modifier = Modifier.fillMaxSize(),
+            )
         }
     }
 }
 
 private const val HDR_DEFAULT_SUBTITLE_BRIGHTNESS = 0.78f
 private const val OLED_PAUSE_PROTECTION_DELAY_MS = 5L * 60L * 1_000L
+
+/** 「标题 N」, or the disc's own edition/playlist name where it authored one. */
+private fun discTitleToast(
+    navigation: PlaybackDiscNavigationState,
+    index: Int,
+): String = navigation.titleOptions.getOrNull(index)?.label ?: "标题 ${index + 1}"
+
+/**
+ * 「第 N 章 · 章节名」.
+ *
+ * The authored name is appended only when the disc carries one: the chapter's own label falls
+ * back to 「章节 N」, which next to the number would just say the same thing twice.
+ */
+private fun discChapterToast(
+    navigation: PlaybackDiscNavigationState,
+    index: Int,
+): String {
+    val authored =
+        navigation.chapterOptions
+            .getOrNull(index)
+            ?.title
+            ?.trim()
+            ?.takeIf(String::isNotEmpty)
+    return "第 ${index + 1} 章" + authored?.let { " · $it" }.orEmpty()
+}
 
 /** Explicit Android return types keep Compose lint from treating common constructors as Unit. */
 private fun createPlaybackFailureMemory(preferences: PlaybackPreferences): PlaybackFailureMemory =

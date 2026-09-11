@@ -56,6 +56,7 @@ import com.yfuse.core.account.AccountState
 import com.yfuse.core.account.IssuedInviteCode
 import com.yfuse.core.account.canIssueInvites
 import com.yfuse.core.data.WatchTogetherPreferences
+import com.yfuse.core.designsystem.ActionToast
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
@@ -100,60 +101,78 @@ internal fun AccountSettingsScreen(
 ) {
     val state by account.state.collectAsState()
     val palette = LocalPalette.current
-    LazyColumn(
-        modifier = Modifier.fillMaxSize().statusBarsPadding(),
-        contentPadding =
-            PaddingValues(
-                top = SettingsHeaderTop,
-                bottom = TabBarInset,
-                start = Dimens.pageHorizontal,
-                end = Dimens.pageHorizontal,
-            ),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
-        motionItem { AccountHeader(onBack) }
-        when (val current = state) {
-            AccountState.Restoring ->
-                motionItem {
-                    AccountCard {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 18.dp),
-                            horizontalArrangement = Arrangement.Center,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            OrbProgress(size = 22.dp)
-                            Spacer(Modifier.width(10.dp))
-                            Text("正在安全恢复账号…", style = AppTypography.body.medium, color = palette.sub)
+    // 保存资料 and 退出账号 both end with the card redrawing itself into something that looks
+    // like it always did. AccountRepository publishes no completion of its own, so the
+    // confirmation is posted from the callbacks that already know the call succeeded.
+    var notice by remember { mutableStateOf<String?>(null) }
+
+    Box(Modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().statusBarsPadding(),
+            contentPadding =
+                PaddingValues(
+                    top = SettingsHeaderTop,
+                    bottom = TabBarInset,
+                    start = Dimens.pageHorizontal,
+                    end = Dimens.pageHorizontal,
+                ),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            motionItem { AccountHeader(onBack) }
+            when (val current = state) {
+                AccountState.Restoring ->
+                    motionItem {
+                        AccountCard {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 18.dp),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                OrbProgress(size = 22.dp)
+                                Spacer(Modifier.width(10.dp))
+                                Text("正在安全恢复账号…", style = AppTypography.body.medium, color = palette.sub)
+                            }
                         }
                     }
-                }
 
-            is AccountState.RestoreFailed ->
-                motionItem {
-                    AccountCard {
-                        Text("暂时无法恢复账号", style = AppTypography.body.strong, color = palette.text)
-                        Spacer(Modifier.height(6.dp))
-                        Text(current.message, style = AppTypography.caption.regular, color = palette.sub)
-                        Spacer(Modifier.height(10.dp))
-                        YfButton(
-                            label = "重试",
-                            onClick = account::retryRestore,
+                is AccountState.RestoreFailed ->
+                    motionItem {
+                        AccountCard {
+                            Text("暂时无法恢复账号", style = AppTypography.body.strong, color = palette.text)
+                            Spacer(Modifier.height(6.dp))
+                            Text(current.message, style = AppTypography.caption.regular, color = palette.sub)
+                            Spacer(Modifier.height(10.dp))
+                            YfButton(
+                                label = "重试",
+                                onClick = account::retryRestore,
+                            )
+                        }
+                    }
+
+                AccountState.SignedOut ->
+                    motionItem {
+                        SignedOutAccountCard(account)
+                    }
+
+                is AccountState.SignedIn ->
+                    motionItem {
+                        SignedInAccountCard(
+                            account = account,
+                            state = current,
+                            onOpenSessions = onOpenSessions,
+                            onNotice = { notice = it },
                         )
                     }
-                }
+            }
 
-            AccountState.SignedOut ->
-                motionItem {
-                    SignedOutAccountCard(account)
-                }
-
-            is AccountState.SignedIn ->
-                motionItem {
-                    SignedInAccountCard(account, current, onOpenSessions)
-                }
+            motionItem { EncryptionInfoCard() }
         }
 
-        motionItem { EncryptionInfoCard() }
+        ActionToast(
+            message = notice,
+            onDismiss = { notice = null },
+            modifier = Modifier.padding(bottom = TabBarInset),
+        )
     }
 }
 
@@ -282,6 +301,7 @@ private fun SignedInAccountCard(
     account: AccountRepository,
     state: AccountState.SignedIn,
     onOpenSessions: () -> Unit,
+    onNotice: (String) -> Unit,
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
@@ -291,7 +311,6 @@ private fun SignedInAccountCard(
     var avatarId by rememberSaveable(user.id) { mutableStateOf(user.avatarId) }
     var busy by remember { mutableStateOf(false) }
     var localError by remember { mutableStateOf<String?>(null) }
-    var profileSaved by remember { mutableStateOf(false) }
     var showPasswordForm by remember { mutableStateOf(false) }
     var currentPassword by remember { mutableStateOf("") }
     var newPassword by remember { mutableStateOf("") }
@@ -348,10 +367,7 @@ private fun SignedInAccountCard(
         Spacer(Modifier.height(15.dp))
         YfFormField(
             value = nickname,
-            onValueChange = {
-                nickname = it.take(24)
-                profileSaved = false
-            },
+            onValueChange = { nickname = it.take(24) },
             label = "昵称",
             enabled = !busy && !state.syncing,
         )
@@ -361,10 +377,7 @@ private fun SignedInAccountCard(
         AvatarPicker(
             selected = avatarId,
             enabled = !busy && !state.syncing,
-            onSelect = {
-                avatarId = it
-                profileSaved = false
-            },
+            onSelect = { avatarId = it },
         )
         Spacer(Modifier.height(14.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -373,11 +386,10 @@ private fun SignedInAccountCard(
                 onClick = {
                     busy = true
                     localError = null
-                    profileSaved = false
                     scope.launch {
                         account
                             .updateProfile(nickname, avatarId)
-                            .onSuccess { profileSaved = true }
+                            .onSuccess { onNotice("资料已保存") }
                             .onFailure { localError = it.message ?: "保存资料失败" }
                         busy = false
                     }
@@ -399,10 +411,6 @@ private fun SignedInAccountCard(
                 enabled = !busy && !state.syncing,
                 tone = YfButtonTone.Secondary,
             )
-        }
-        if (profileSaved) {
-            Spacer(Modifier.height(8.dp))
-            Text("资料已保存", style = AppTypography.caption.medium, color = accent.accent)
         }
         if (showPasswordForm) {
             Spacer(Modifier.height(12.dp))
@@ -611,6 +619,10 @@ private fun SignedInAccountCard(
             loading = busy,
             onClick = {
                 busy = true
+                // Posted from the press rather than from the continuation: signing out replaces
+                // this card with the signed-out one, and the scope that ran the call goes with
+                // it. The repository clears the session locally either way.
+                onNotice("已退出 Yfuse 账号")
                 scope.launch {
                     account.logout()
                     busy = false

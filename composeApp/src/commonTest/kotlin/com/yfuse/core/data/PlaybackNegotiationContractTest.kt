@@ -78,7 +78,11 @@ class PlaybackNegotiationContractTest {
 
             assertEquals(
                 "/Videos/movie/master.m3u8",
-                result.getOrThrow().MediaSources.single().TranscodingUrl,
+                result
+                    .getOrThrow()
+                    .MediaSources
+                    .single()
+                    .TranscodingUrl,
             )
         }
 }

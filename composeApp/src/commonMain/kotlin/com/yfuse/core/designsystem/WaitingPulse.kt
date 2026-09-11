@@ -32,7 +32,7 @@ import kotlinx.coroutines.flow.first
  * searching looked alive and a button that was working looked stuck. This is that same pulse
  * as a modifier, so the two read as the same state.
  *
- * Draws nothing until [active] has held for [WAITING_PULSE_DELAY_MS]: a fast response never
+ * Draws nothing until [active] has held for [Motion.STANDARD]: a fast response never
  * flashes an ornament. Reduced motion or reduced transparency draws nothing at all.
  */
 @Composable
@@ -50,7 +50,7 @@ fun Modifier.waitingPulse(
         pulse.snapTo(0f)
         shown.value = false
         if (!waiting) return@LaunchedEffect
-        delay(WAITING_PULSE_DELAY_MS)
+        delay(Motion.STANDARD.toLong())
         shown.value = true
         val durationScale = coroutineContext[MotionDurationScale]
         while (true) {
@@ -60,8 +60,8 @@ fun Modifier.waitingPulse(
                 snapshotFlow { durationScale.scaleFactor }.first { it > 0f }
                 shown.value = true
             }
-            pulse.animateTo(1f, tween(WAITING_PULSE_LEG_MS, easing = Motion.Curve))
-            pulse.animateTo(0f, tween(WAITING_PULSE_LEG_MS, easing = Motion.Curve))
+            pulse.animateTo(1f, tween(Motion.WAIT_HALF_CYCLE, easing = Motion.Curve))
+            pulse.animateTo(0f, tween(Motion.WAIT_HALF_CYCLE, easing = Motion.Curve))
             delay(16)
         }
     }
@@ -94,6 +94,3 @@ fun Modifier.waitingPulse(
         }
     }
 }
-
-const val WAITING_PULSE_LEG_MS = Motion.WAIT_HALF_CYCLE
-const val WAITING_PULSE_DELAY_MS = Motion.STANDARD * 1L

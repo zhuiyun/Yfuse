@@ -2,6 +2,14 @@
 
 package com.yfuse.feature.servers
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -33,6 +41,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -53,13 +62,17 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
+import com.yfuse.app.systemNavigationContentInset
+import com.yfuse.core.designsystem.ActionToast
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalAccentColors
+import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.OfficialNavDisplay
 import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.StatusBarIconStyle
@@ -72,6 +85,7 @@ import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.designsystem.waitingPulse
 import com.yfuse.core.model.MediaServerKind
+import com.yfuse.core.network.DiscoveredServer
 import com.yfuse.core.network.rememberLocalNetworkPermissionRequest
 import com.yfuse.core.network.validateEmbyServerEndpoint
 import com.yfuse.core.designsystem.ThemeIcon as Icon
@@ -98,203 +112,220 @@ fun ServersScreen(component: ServersComponent) {
         if (!state.dialogVisible) store.accept(ServersIntent.OpenAddDialog)
     }
 
-    if (showOnboarding) {
-        OnboardingScreen(
-            state = state,
-            form = form,
-            onIntent = store::accept,
-            onManual = { showOnboarding = false },
-            onBack = component.onBack,
-        )
-        return
-    }
-
-    Box(
-        Modifier
-            .fillMaxSize()
-            .statusBarsPadding()
-            .imePadding()
-            .imeNestedScroll(),
-    ) {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(top = Dimens.contentTop, bottom = 118.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp),
-        ) {
-            motionItem {
-                // Back chevron + title, `gap:12px`, title `800 19px`.
-                Row(
-                    Modifier.fillMaxWidth().padding(horizontal = Dimens.pageHorizontal),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+    Box(Modifier.fillMaxSize()) {
+        if (showOnboarding) {
+            OnboardingScreen(
+                state = state,
+                form = form,
+                onIntent = store::accept,
+                onManual = { showOnboarding = false },
+                onBack = component.onBack,
+            )
+        } else {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .imePadding()
+                    .imeNestedScroll(),
+            ) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(top = Dimens.contentTop, bottom = 118.dp),
+                    verticalArrangement = Arrangement.spacedBy(20.dp),
                 ) {
-                    Icon(
-                        AppIcons.ChevronLeft,
-                        contentDescription = "返回",
-                        tint = palette.sub,
-                        modifier =
-                            Modifier
-                                .pressable(onClickLabel = "返回", onClick = component.onBack)
-                                .touchTarget(48.dp)
-                                .size(36.dp)
-                                .glass(
-                                    shape = CircleShape,
-                                    fill = palette.card,
-                                    border = palette.border,
-                                ).padding(10.dp),
-                    )
-                    Text("添加服务器", style = AppTypography.section.strong, color = palette.text, maxLines = 1)
-                }
-            }
+                    motionItem {
+                        // Back chevron + title, `gap:12px`, title `800 19px`.
+                        Row(
+                            Modifier.fillMaxWidth().padding(horizontal = Dimens.pageHorizontal),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                AppIcons.ChevronLeft,
+                                contentDescription = "返回",
+                                tint = palette.sub,
+                                modifier =
+                                    Modifier
+                                        .pressable(onClickLabel = "返回", onClick = component.onBack)
+                                        .touchTarget(48.dp)
+                                        .size(36.dp)
+                                        .glass(
+                                            shape = CircleShape,
+                                            fill = palette.card,
+                                            border = palette.border,
+                                        ).padding(10.dp),
+                            )
+                            Text("添加服务器", style = AppTypography.section.strong, color = palette.text, maxLines = 1)
+                        }
+                    }
 
-            motionItem {
-                Column(Modifier.padding(horizontal = Dimens.pageHorizontal)) {
-                    Text(
-                        "手动输入地址",
-                        style = AppTypography.caption.strong.copy(letterSpacing = 0.5.sp),
-                        color = palette.sub2,
-                        modifier = Modifier.padding(bottom = 8.dp),
-                    )
-                    // `--pg-card` over 1px `--pg-border`, `radius:16px`, `padding:4px`.
-                    Column(Modifier.fillMaxWidth().glass(GlassShapes.card).padding(4.dp)) {
-                        FormField(label = "服务类型", divider = true) {
-                            Row(
-                                modifier = Modifier.selectableGroup(),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    motionItem {
+                        Column(Modifier.padding(horizontal = Dimens.pageHorizontal)) {
+                            Text(
+                                "手动输入地址",
+                                style = AppTypography.caption.strong.copy(letterSpacing = 0.5.sp),
+                                color = palette.sub2,
+                                modifier = Modifier.padding(bottom = 8.dp),
+                            )
+                            // `--pg-card` over 1px `--pg-border`, `radius:16px`, `padding:4px`.
+                            Column(Modifier.fillMaxWidth().glass(GlassShapes.card).padding(4.dp)) {
+                                FormField(label = "服务类型", divider = true) {
+                                    Row(
+                                        modifier = Modifier.selectableGroup(),
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    ) {
+                                        listOf(
+                                            MediaServerKind.Emby to "Emby",
+                                            MediaServerKind.Jellyfin to "Jellyfin",
+                                            MediaServerKind.Plex to "Plex",
+                                        ).forEach { (kind, label) ->
+                                            ProtocolSegment(
+                                                label = label,
+                                                selected = form.kind == kind,
+                                                modifier = Modifier.weight(1f),
+                                            ) { store.accept(ServersIntent.ProviderChanged(kind)) }
+                                        }
+                                    }
+                                }
+                                FormField(label = "协议", divider = true) {
+                                    Row(
+                                        modifier = Modifier.selectableGroup(),
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    ) {
+                                        ProtocolSegment(
+                                            label = "HTTPS",
+                                            selected = form.https,
+                                            modifier = Modifier.weight(1f),
+                                        ) { store.accept(ServersIntent.ProtocolChanged(true)) }
+                                        ProtocolSegment(
+                                            label = "HTTP",
+                                            selected = !form.https,
+                                            modifier = Modifier.weight(1f),
+                                        ) { store.accept(ServersIntent.ProtocolChanged(false)) }
+                                    }
+                                }
+                                FormInput(
+                                    label = "服务器地址",
+                                    value = form.host,
+                                    placeholder = "https://media.example.com/emby",
+                                    enabled = !form.submitting,
+                                    keyboardType = KeyboardType.Uri,
+                                    divider = true,
+                                    onValueChange = { store.accept(ServersIntent.HostChanged(it)) },
+                                )
+                                FormInput(
+                                    label = "端口",
+                                    value = form.port,
+                                    enabled = !form.submitting,
+                                    keyboardType = KeyboardType.Number,
+                                    divider = true,
+                                    onValueChange = { store.accept(ServersIntent.PortChanged(it)) },
+                                )
+                                FormInput(
+                                    label = "基础路径（可选）",
+                                    value = form.basePath,
+                                    placeholder = "/emby",
+                                    enabled = !form.submitting,
+                                    keyboardType = KeyboardType.Uri,
+                                    divider = true,
+                                    onValueChange = { store.accept(ServersIntent.BasePathChanged(it)) },
+                                )
+                                if (form.kind == MediaServerKind.Plex) {
+                                    FormInput(
+                                        label = "Plex Token",
+                                        value = form.password,
+                                        placeholder = "输入 X-Plex-Token",
+                                        enabled = !form.submitting,
+                                        password = true,
+                                        divider = false,
+                                        onValueChange = { store.accept(ServersIntent.PasswordChanged(it)) },
+                                    )
+                                } else {
+                                    FormInput(
+                                        label = "用户名",
+                                        value = form.username,
+                                        enabled = !form.submitting,
+                                        divider = true,
+                                        onValueChange = { store.accept(ServersIntent.UsernameChanged(it)) },
+                                    )
+                                    FormInput(
+                                        label = "密码",
+                                        value = form.password,
+                                        enabled = !form.submitting,
+                                        password = true,
+                                        divider = false,
+                                        onValueChange = { store.accept(ServersIntent.PasswordChanged(it)) },
+                                    )
+                                }
+                            }
+
+                            Spacer(Modifier.height(10.dp))
+                            QuickConnectPanel(
+                                state = state.quickConnect,
+                                enabled = form.canStartQuickConnect,
+                                onStart = { store.accept(ServersIntent.StartQuickConnect) },
+                                onCancel = { store.accept(ServersIntent.CancelQuickConnect) },
+                            )
+                            val manualError = rememberLastNonNull(form.error)
+                            AnimatedVisibility(
+                                visible = form.error != null,
+                                enter = formRevealEnter(),
+                                exit = formRevealExit(),
                             ) {
-                                listOf(
-                                    MediaServerKind.Emby to "Emby",
-                                    MediaServerKind.Jellyfin to "Jellyfin",
-                                    MediaServerKind.Plex to "Plex",
-                                ).forEach { (kind, label) ->
-                                    ProtocolSegment(
-                                        label = label,
-                                        selected = form.kind == kind,
-                                        modifier = Modifier.weight(1f),
-                                    ) { store.accept(ServersIntent.ProviderChanged(kind)) }
+                                Column(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        // The gap above the card belongs to the card, so it collapses
+                                        // with it instead of being left behind as a stray 8dp.
+                                        .padding(top = 8.dp)
+                                        .glass(
+                                            AppShapes.control,
+                                            palette.error.copy(alpha = 0.08f),
+                                            palette.error.copy(alpha = 0.26f),
+                                        ).padding(12.dp),
+                                ) {
+                                    Text(
+                                        "连接失败",
+                                        style = AppTypography.body.strong,
+                                        color = palette.error,
+                                    )
+                                    Text(
+                                        "$manualError。请检查地址、端口、协议和账号后重试。",
+                                        style = AppTypography.caption.regular,
+                                        color = palette.sub,
+                                    )
                                 }
                             }
                         }
-                        FormField(label = "协议", divider = true) {
-                            Row(
-                                modifier = Modifier.selectableGroup(),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            ) {
-                                ProtocolSegment(
-                                    label = "HTTPS",
-                                    selected = form.https,
-                                    modifier = Modifier.weight(1f),
-                                ) { store.accept(ServersIntent.ProtocolChanged(true)) }
-                                ProtocolSegment(
-                                    label = "HTTP",
-                                    selected = !form.https,
-                                    modifier = Modifier.weight(1f),
-                                ) { store.accept(ServersIntent.ProtocolChanged(false)) }
-                            }
-                        }
-                        FormInput(
-                            label = "服务器地址",
-                            value = form.host,
-                            placeholder = "https://media.example.com/emby",
-                            enabled = !form.submitting,
-                            keyboardType = KeyboardType.Uri,
-                            divider = true,
-                            onValueChange = { store.accept(ServersIntent.HostChanged(it)) },
-                        )
-                        FormInput(
-                            label = "端口",
-                            value = form.port,
-                            enabled = !form.submitting,
-                            keyboardType = KeyboardType.Number,
-                            divider = true,
-                            onValueChange = { store.accept(ServersIntent.PortChanged(it)) },
-                        )
-                        FormInput(
-                            label = "基础路径（可选）",
-                            value = form.basePath,
-                            placeholder = "/emby",
-                            enabled = !form.submitting,
-                            keyboardType = KeyboardType.Uri,
-                            divider = true,
-                            onValueChange = { store.accept(ServersIntent.BasePathChanged(it)) },
-                        )
-                        if (form.kind == MediaServerKind.Plex) {
-                            FormInput(
-                                label = "Plex Token",
-                                value = form.password,
-                                placeholder = "输入 X-Plex-Token",
-                                enabled = !form.submitting,
-                                password = true,
-                                divider = false,
-                                onValueChange = { store.accept(ServersIntent.PasswordChanged(it)) },
-                            )
-                        } else {
-                            FormInput(
-                                label = "用户名",
-                                value = form.username,
-                                enabled = !form.submitting,
-                                divider = true,
-                                onValueChange = { store.accept(ServersIntent.UsernameChanged(it)) },
-                            )
-                            FormInput(
-                                label = "密码",
-                                value = form.password,
-                                enabled = !form.submitting,
-                                password = true,
-                                divider = false,
-                                onValueChange = { store.accept(ServersIntent.PasswordChanged(it)) },
-                            )
-                        }
                     }
 
-                    Spacer(Modifier.height(10.dp))
-                    QuickConnectPanel(
-                        state = state.quickConnect,
-                        enabled = form.canStartQuickConnect,
-                        onStart = { store.accept(ServersIntent.StartQuickConnect) },
-                        onCancel = { store.accept(ServersIntent.CancelQuickConnect) },
-                    )
-                    if (form.error != null) {
-                        Spacer(Modifier.height(8.dp))
-                        Column(
-                            Modifier
-                                .fillMaxWidth()
-                                .glass(
-                                    AppShapes.control,
-                                    palette.error.copy(alpha = 0.08f),
-                                    palette.error.copy(alpha = 0.26f),
-                                ).padding(12.dp),
-                        ) {
-                            Text(
-                                "连接失败",
-                                style = AppTypography.body.strong,
-                                color = palette.error,
-                            )
-                            Text(
-                                "${form.error}。请检查地址、端口、协议和账号后重试。",
-                                style = AppTypography.caption.regular,
-                                color = palette.sub,
-                            )
-                        }
+                    motionItem {
+                        Text(
+                            "支持 Emby / Jellyfin / Plex · 登录后即可浏览媒体库",
+                            style = AppTypography.caption.regular.copy(lineHeight = 17.6.sp),
+                            color = palette.hint,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = Dimens.pageHorizontal),
+                        )
                     }
                 }
-            }
 
-            motionItem {
-                Text(
-                    "支持 Emby / Jellyfin / Plex · 登录后即可浏览媒体库",
-                    style = AppTypography.caption.regular.copy(lineHeight = 17.6.sp),
-                    color = palette.hint,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = Dimens.pageHorizontal),
+                ManualConnectAction(
+                    form = form,
+                    onSubmit = { store.accept(ServersIntent.Submit) },
+                    modifier = Modifier.align(Alignment.BottomCenter),
                 )
             }
         }
 
-        ManualConnectAction(
-            form = form,
-            onSubmit = { store.accept(ServersIntent.Submit) },
-            modifier = Modifier.align(Alignment.BottomCenter),
+        // 添加服务器 ends by closing the form, and on the onboarding route the page it closes
+        // into looks the same as the one before the login. The store says which of the two
+        // saves just happened; the toast is the only thing that says anything happened at all.
+        ActionToast(
+            message = state.notice,
+            onDismiss = { store.accept(ServersIntent.DismissNotice) },
+            modifier = Modifier.padding(bottom = systemNavigationContentInset()),
         )
     }
 }
@@ -590,87 +621,76 @@ private fun OnboardingScreen(
                                 color = palette.sub,
                             )
                         }
-                        if (state.scanning) {
-                            repeat(2) {
-                                Box(
-                                    Modifier
-                                        .fillMaxWidth()
-                                        .height(64.dp)
-                                        .background(
-                                            palette.card2,
-                                            AppShapes.card,
-                                        ),
-                                )
+                        // One slot for the four mutually exclusive discovery states, so the
+                        // placeholders can collapse while the result they resolve into grows in
+                        // their place. As a spaced sibling of the section a collapsed
+                        // AnimatedVisibility would still claim its 16dp of Arrangement.spacedBy.
+                        Column(Modifier.fillMaxWidth()) {
+                            AnimatedVisibility(
+                                visible = state.scanning,
+                                enter = formRevealEnter(),
+                                exit = formRevealExit(),
+                            ) {
+                                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                                    repeat(2) {
+                                        Box(
+                                            Modifier
+                                                .fillMaxWidth()
+                                                .height(64.dp)
+                                                .background(
+                                                    palette.card2,
+                                                    AppShapes.card,
+                                                ),
+                                        )
+                                    }
+                                }
                             }
-                        } else if (state.discovered.isNotEmpty()) {
-                            state.discovered.forEach { server ->
-                                Row(
-                                    Modifier
-                                        .fillMaxWidth()
-                                        .pressable {
-                                            onIntent(ServersIntent.SelectDiscovered(server))
-                                            currentStep = 2
-                                        }.glass(AppShapes.card, palette.card, palette.border)
-                                        .padding(horizontal = 14.dp, vertical = 13.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Box(
-                                        Modifier
-                                            .size(38.dp)
-                                            .background(
-                                                com.yfuse.core.designsystem.PrimaryGradient,
-                                                AppShapes.control,
-                                            ),
-                                        contentAlignment = Alignment.Center,
-                                    ) {
-                                        Text(
-                                            server.name.take(1),
-                                            style = AppTypography.body.strong,
-                                            color = Color.White,
-                                        )
-                                    }
-                                    Column(Modifier.weight(1f)) {
-                                        Text(server.name, style = AppTypography.body.strong, color = palette.text)
-                                        Spacer(Modifier.height(3.dp))
-                                        Text(
-                                            listOfNotNull(
-                                                server.address,
-                                                server.version?.let { "Emby $it" },
-                                                when {
-                                                    server.address.startsWith("https://", ignoreCase = true) -> "HTTPS"
-                                                    server.address.startsWith("http://", ignoreCase = true) -> "HTTP"
-                                                    else -> "局域网"
+                            // The result was the one half of the slot that still appeared and
+                            // disappeared between two frames, beside a skeleton that had been
+                            // taught to collapse. Same transition, so the two cross.
+                            val settled = rememberSettledDiscovery(state)
+                            AnimatedVisibility(
+                                visible = !state.scanning,
+                                enter = formRevealEnter(),
+                                exit = formRevealExit(),
+                            ) {
+                                val (found, scanError) = settled
+                                if (found.isNotEmpty()) {
+                                    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                                        found.forEach { server ->
+                                            DiscoveredServerRow(
+                                                name = server.name,
+                                                detail =
+                                                    listOfNotNull(
+                                                        server.address,
+                                                        server.version?.let { "Emby $it" },
+                                                        discoveredServerTransport(server.address),
+                                                    ).joinToString(" · "),
+                                                onClick = {
+                                                    onIntent(ServersIntent.SelectDiscovered(server))
+                                                    currentStep = 2
                                                 },
-                                            ).joinToString(" · "),
-                                            style = AppTypography.caption.regular,
-                                            color = palette.sub2,
-                                        )
+                                            )
+                                        }
                                     }
-                                    Icon(
-                                        AppIcons.ChevronRight,
-                                        null,
-                                        tint = palette.sub2,
-                                        modifier = Modifier.size(15.dp),
+                                } else if (scanError != null) {
+                                    Text(
+                                        scanError,
+                                        style = AppTypography.caption.medium,
+                                        color = palette.error,
+                                        textAlign = TextAlign.Center,
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
+                                    )
+                                } else {
+                                    Text(
+                                        "没有发现服务器，可以手动输入地址",
+                                        style = AppTypography.caption.regular,
+                                        color = palette.hint,
+                                        textAlign = TextAlign.Center,
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
                                     )
                                 }
                             }
-                        } else if (state.scanError != null) {
-                            Text(
-                                state.scanError,
-                                style = AppTypography.caption.medium,
-                                color = palette.error,
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
-                            )
-                        } else {
-                            Text(
-                                "没有发现服务器，可以手动输入地址",
-                                style = AppTypography.caption.regular,
-                                color = palette.hint,
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
-                            )
                         }
                         Text(
                             "手动输入地址",
@@ -710,15 +730,30 @@ private fun OnboardingScreen(
                                 placeholder = "输入用户名",
                                 onValueChange = { onIntent(ServersIntent.UsernameChanged(it)) },
                             )
-                            OnboardInput(
-                                label = "密码",
-                                value = form.password,
-                                placeholder = "输入密码",
-                                password = true,
-                                onValueChange = { onIntent(ServersIntent.PasswordChanged(it)) },
-                            )
-                            if (form.error != null) {
-                                Text(form.error, style = AppTypography.caption.medium, color = palette.error)
+                            // The error travels with the password field rather than as a spaced
+                            // sibling: a collapsed AnimatedVisibility still takes its share of
+                            // Arrangement.spacedBy, which would leave a permanent 10dp gap.
+                            Column {
+                                OnboardInput(
+                                    label = "密码",
+                                    value = form.password,
+                                    placeholder = "输入密码",
+                                    password = true,
+                                    onValueChange = { onIntent(ServersIntent.PasswordChanged(it)) },
+                                )
+                                val loginError = rememberLastNonNull(form.error)
+                                AnimatedVisibility(
+                                    visible = form.error != null,
+                                    enter = formRevealEnter(),
+                                    exit = formRevealExit(),
+                                ) {
+                                    Text(
+                                        loginError.orEmpty(),
+                                        style = AppTypography.caption.medium,
+                                        color = palette.error,
+                                        modifier = Modifier.padding(top = 10.dp),
+                                    )
+                                }
                             }
                         }
                         QuickConnectPanel(
@@ -842,6 +877,105 @@ private fun OnboardingScreen(
         }
     }
 }
+
+/**
+ * Rows that exist only while the form is in one particular state — a connection error, a scan
+ * in flight — used to be inserted and removed between two frames, so everything under them
+ * jumped by a card's height in one step. They now fade while the column grows or collapses
+ * around them, on [Motion.DISCLOSURE] — the one duration every expand and collapse in the app
+ * shares. 减弱动态效果 runs the same transition in zero time rather than keeping a shortened
+ * version of the movement it exists to remove.
+ */
+@Composable
+private fun formRevealEnter(): EnterTransition {
+    val duration = if (LocalAccessibilityOptions.current.reduceMotion) 0 else Motion.DISCLOSURE
+    return fadeIn(tween(duration, easing = Motion.Curve)) +
+        expandVertically(tween(duration, easing = Motion.Curve))
+}
+
+/** The closing half of [formRevealEnter]. */
+@Composable
+private fun formRevealExit(): ExitTransition {
+    val duration = if (LocalAccessibilityOptions.current.reduceMotion) 0 else Motion.DISCLOSURE
+    return fadeOut(tween(duration, easing = Motion.Curve)) +
+        shrinkVertically(tween(duration, easing = Motion.Curve))
+}
+
+/**
+ * The last non-null value seen at this call site.
+ *
+ * A collapsing card is still composed for as long as the exit runs, by which time the state
+ * that produced it has already been cleared — reading the live value there paints the word
+ * "null" over the closing frames. Held in a plain array rather than snapshot state: this only
+ * records what has already been composed, and writing it must not invalidate anything.
+ */
+@Composable
+private fun rememberLastNonNull(value: String?): String? {
+    val held = remember { arrayOfNulls<String>(1) }
+    value?.let { held[0] = it }
+    return value ?: held[0]
+}
+
+/**
+ * What discovery had settled on before the current scan started.
+ *
+ * [rememberLastNonNull]'s problem in the other direction: the results are still composed for as
+ * long as their collapse runs, and by then the new scan has emptied the list they were drawing.
+ * Held only while a scan is in flight, so a rescan that genuinely finds nothing still says so.
+ */
+@Composable
+private fun rememberSettledDiscovery(state: ServersState): Pair<List<DiscoveredServer>, String?> {
+    val held = remember { arrayOfNulls<Pair<List<DiscoveredServer>, String?>>(1) }
+    if (!state.scanning) held[0] = state.discovered to state.scanError
+    return held[0] ?: (state.discovered to state.scanError)
+}
+
+/** One LAN discovery result — initial, name, and how the reply reached us. */
+@Composable
+private fun DiscoveredServerRow(
+    name: String,
+    detail: String,
+    onClick: () -> Unit,
+) {
+    val palette = LocalPalette.current
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .pressable(onClick = onClick)
+            .glass(AppShapes.card, palette.card, palette.border)
+            .padding(horizontal = 14.dp, vertical = 13.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier
+                .size(38.dp)
+                .background(com.yfuse.core.designsystem.PrimaryGradient, AppShapes.control),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(name.take(1), style = AppTypography.body.strong, color = Color.White)
+        }
+        Column(Modifier.weight(1f)) {
+            Text(name, style = AppTypography.body.strong, color = palette.text)
+            Spacer(Modifier.height(3.dp))
+            Text(detail, style = AppTypography.caption.regular, color = palette.sub2)
+        }
+        Icon(
+            AppIcons.ChevronRight,
+            null,
+            tint = palette.sub2,
+            modifier = Modifier.size(15.dp),
+        )
+    }
+}
+
+/** Which transport the discovery reply arrived on, for the row's detail line. */
+private fun discoveredServerTransport(address: String): String =
+    when {
+        address.startsWith("https://", ignoreCase = true) -> "HTTPS"
+        address.startsWith("http://", ignoreCase = true) -> "HTTP"
+        else -> "局域网"
+    }
 
 @Composable
 private fun OnboardInput(

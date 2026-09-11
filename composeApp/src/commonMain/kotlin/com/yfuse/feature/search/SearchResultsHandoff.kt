@@ -8,37 +8,38 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.MotionDurationScale
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.clipPath
-import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
-import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.LocalPulseSweepEnabled
 import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.drawDiagonalSweep
-import com.yfuse.core.designsystem.drawMotionSweep
+import com.yfuse.core.designsystem.rememberSkeletonSweepReader
+import com.yfuse.core.designsystem.skeletonSweepBand
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
-private const val SEARCH_REVEAL_MS = Motion.SEARCH_REVEAL
-private const val SEARCH_WAIT_HALF_CYCLE_MS = Motion.WAIT_HALF_CYCLE
+/** How long one result row takes to float in, and the step between neighbouring rows. */
+internal const val SEARCH_ROW_MS = Motion.ARRIVAL_REVEAL
+internal const val SEARCH_ROW_STAGGER_MS = Motion.SEARCH_ROW_STAGGER
+private const val SEARCH_STAGGER_LIMIT = 12
 
 internal enum class SearchResultsPhase {
     Idle,
@@ -76,7 +77,10 @@ internal fun SearchState.presentationKey(): List<Any?> =
         error,
     )
 
-/** Remembers both the phase and the actual presentation so in-place result changes also reveal. */
+/**
+ * Remembers the last committed phase and presentation, so the screen can tell a search
+ * landing from a change to the page it already shows.
+ */
 internal class SearchResultsHandoff(
     initialPhase: SearchResultsPhase,
     initialKey: Any? = null,
@@ -94,6 +98,9 @@ internal class SearchResultsHandoff(
             next != SearchResultsPhase.Idle &&
             next != SearchResultsPhase.Loading
 
+    /** A different phase replaces what is on the page; the same phase with a new key only adds to it. */
+    fun isFresh(next: SearchResultsPhase): Boolean = next != committedPhase
+
     fun committed(
         phase: SearchResultsPhase,
         key: Any? = null,
@@ -102,68 +109,104 @@ internal class SearchResultsHandoff(
         committedKey = key
     }
 
+    /**
+     * The page sweep belongs to a search landing from its skeleton.
+     * Later servers, more pages and filter changes add rows; they do not replay the landing.
+     */
     fun shouldSweep(
         next: SearchResultsPhase,
         moving: Boolean,
-        key: Any? = null,
-    ): Boolean =
-        moving &&
-            next == SearchResultsPhase.Results &&
-            (committedPhase == SearchResultsPhase.Loading || key != committedKey)
+    ): Boolean = moving && next == SearchResultsPhase.Results && committedPhase == SearchResultsPhase.Loading
 }
 
-internal fun searchRevealProgress(
-    progress: Float,
-    index: Int,
+/** One row's entry: wait for its slot in elapsed time, then ease over [rowMs]. */
+internal fun searchRowProgress(
+    elapsedMs: Float,
+    slot: Int,
+    rowMs: Int = SEARCH_ROW_MS,
+    staggered: Boolean = true,
 ): Float {
-    // Stagger in elapsed time, then ease each row. Easing the shared clock first made
-    // nearly every row enter together during the first few frames.
-    val delay = index.coerceIn(0, 12) * Motion.SEARCH_ROW_STAGGER.toFloat() / SEARCH_REVEAL_MS
-    val localProgress = ((progress - delay) / (1f - delay)).coerceIn(0f, 1f)
-    return Motion.Curve.transform(localProgress)
+    val delay = if (staggered) slot.coerceIn(0, SEARCH_STAGGER_LIMIT) * SEARCH_ROW_STAGGER_MS else 0
+    return Motion.Curve.transform(((elapsedMs - delay) / rowMs).coerceIn(0f, 1f))
 }
 
-/** Retains each visible result's first delay until this handoff finishes. */
-internal class SearchRevealOrder {
-    private val indices = mutableMapOf<String, Int>()
+/**
+ * One opening of the reveal. Rows first seen while it runs enter on its clock, in the
+ * order they are first drawn; rows the page already showed are not touched.
+ */
+internal class SearchRevealBatch(
+    val startMs: Float,
+    val rowMs: Int = SEARCH_ROW_MS,
+    val staggered: Boolean = true,
+    val lift: Boolean = staggered,
+    /** Where the page band starts, or null when this batch adds rows without a landing sweep. */
+    val sweepFrom: Float? = null,
+) {
+    private var slots = 0
+
+    fun nextSlot(): Int = if (staggered) slots++ else 0
+
+    val endMs: Float
+        get() = startMs + (if (staggered) SEARCH_STAGGER_LIMIT * SEARCH_ROW_STAGGER_MS else 0) + rowMs
+}
+
+/**
+ * Which batch each row entered with. A row keeps its batch and slot for as long as it
+ * stays on the page, so results reordering under it or arriving after it cannot fade it
+ * back out; a fresh phase forgets every row so the replacement page enters as a whole.
+ */
+internal class SearchRevealSchedule {
+    private class Row(
+        val batch: SearchRevealBatch?,
+        val slot: Int,
+    )
+
+    private val rows = HashMap<String, Row>()
+    private var open: SearchRevealBatch? = null
+
+    fun open(
+        batch: SearchRevealBatch,
+        fresh: Boolean,
+    ) {
+        if (fresh) rows.clear()
+        open = batch
+    }
+
+    val endMs: Float
+        get() = open?.endMs ?: 0f
 
     fun progress(
-        progress: Float,
         key: String,
-        index: Int,
+        elapsedMs: Float,
     ): Float {
-        if (progress >= 1f) {
-            indices.clear()
-            return 1f
-        }
-        return searchRevealProgress(progress, indices.getOrPut(key) { index })
+        val row = rows.getOrPut(key) { open.let { Row(it, it?.nextSlot() ?: 0) } }
+        val batch = row.batch ?: return 1f
+        return searchRowProgress(elapsedMs - batch.startMs, row.slot, batch.rowMs, batch.staggered)
     }
+
+    fun lifts(key: String): Boolean = rows[key]?.batch?.lift == true
 }
 
 internal class SearchRevealMotion(
-    private val progress: Animatable<Float, androidx.compose.animation.core.AnimationVector1D>,
-    private val layered: Boolean,
-    private val order: SearchRevealOrder,
+    private val schedule: SearchRevealSchedule,
+    private val clock: Animatable<Float, androidx.compose.animation.core.AnimationVector1D>,
     val field: Modifier,
     val icon: Modifier,
-    /** For the whole results page: the same pulse and sweep the field carries, at page scale. */
+    /** For the whole results page: the request bloom and, on a landing, the one band of light. */
     val page: Modifier,
 ) {
+    /** [key] is the row's identity across result changes; [index] only names rows that have none. */
     fun item(
         index: Int = 0,
         key: String? = null,
-    ): Modifier =
-        Modifier.graphicsLayer {
-            val elapsed = progress.value
-            val amount =
-                when {
-                    !layered -> elapsed
-                    key != null -> order.progress(elapsed, key, index)
-                    else -> searchRevealProgress(elapsed, index)
-                }
+    ): Modifier {
+        val identity = key ?: "index:$index"
+        return Modifier.graphicsLayer {
+            val amount = schedule.progress(identity, clock.value)
             alpha = amount
-            translationY = if (layered) 18.dp.toPx() * (1f - amount) else 0f
+            translationY = if (schedule.lifts(identity)) 18.dp.toPx() * (1f - amount) else 0f
         }
+    }
 }
 
 /** One clock for the visible lazy items: later pages never create their own entry animations. */
@@ -177,28 +220,44 @@ internal fun rememberSearchResultsHandoff(
     val enhanced = moving && LocalPulseSweepEnabled.current
     val highlights = enhanced && !LocalAccessibilityOptions.current.reduceTransparency
     val accent = LocalAccentColors.current.accent
-    val palette = LocalPalette.current
+    val band = skeletonSweepBand()
+    val skeletonSweep = rememberSkeletonSweepReader()
     val handoff = remember { SearchResultsHandoff(phase, presentationKey) }
-    val progress =
+    // Policy changes discard the schedule; returning to the route reveals nothing again.
+    val schedule = remember(moving) { SearchRevealSchedule() }
+    val clock = remember(schedule) { Animatable(0f) }
+    val sweep = remember(schedule) { Animatable(1f) }
+    // One batch per presentation change. Rows already on the page keep their opacity, only the
+    // rows the change adds enter, and only a landing from the skeleton sweeps the page. The
+    // band continues from wherever the skeleton's band is, so the light never jumps.
+    val batch =
         remember(phase, presentationKey, moving) {
-            Animatable(if (handoff.shouldReveal(phase, moving, presentationKey)) 0f else 1f)
+            if (!handoff.shouldReveal(phase, moving, presentationKey)) return@remember null
+            val rows = phase == SearchResultsPhase.Results
+            val sweeping = enhanced && handoff.shouldSweep(phase, moving)
+            SearchRevealBatch(
+                startMs = Snapshot.withoutReadObservation { clock.value },
+                rowMs = if (rows) SEARCH_ROW_MS else Motion.STATE_HANDOFF,
+                staggered = rows,
+                lift = rows,
+                sweepFrom = if (sweeping) skeletonSweep().coerceAtLeast(0f) else null,
+            ).also { schedule.open(it, fresh = handoff.isFresh(phase)) }
         }
-    // Keep delays across result reordering and style changes, but reset for a new handoff.
-    val order = remember(progress) { SearchRevealOrder() }
-    val incomingResults =
-        remember(phase, presentationKey, moving) { handoff.shouldSweep(phase, moving, presentationKey) }
-    val layered = enhanced && incomingResults
     // Update only after a successful composition, including completions while the route is hidden.
     SideEffect { handoff.committed(phase, presentationKey) }
-    LaunchedEffect(progress, enhanced) {
-        if (progress.value < 1f) {
-            val animation =
-                if (layered) {
-                    tween<Float>(SEARCH_REVEAL_MS, easing = LinearEasing)
-                } else {
-                    tween(Motion.STATE_HANDOFF, easing = Motion.Curve)
-                }
-            progress.animateTo(1f, animation)
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(batch) {
+        batch ?: return@LaunchedEffect
+        batch.sweepFrom?.let { from ->
+            // Outlives this effect: a batch that lands while the band is crossing must not freeze it.
+            scope.launch {
+                sweep.snapTo(from)
+                sweep.animateTo(1f, tween(((1f - from) * Motion.SEARCH_REVEAL).roundToInt(), easing = LinearEasing))
+            }
+        }
+        val end = batch.endMs
+        if (clock.value < end) {
+            clock.animateTo(end, tween((end - clock.value).roundToInt(), easing = LinearEasing))
         }
     }
     val pulse = remember { Animatable(0f) }
@@ -215,8 +274,8 @@ internal fun rememberSearchResultsHandoff(
                     pulse.snapTo(0f)
                     snapshotFlow { durationScale.scaleFactor }.first { it > 0f }
                 }
-                pulse.animateTo(1f, tween(SEARCH_WAIT_HALF_CYCLE_MS, easing = Motion.Curve))
-                pulse.animateTo(0f, tween(SEARCH_WAIT_HALF_CYCLE_MS, easing = Motion.Curve))
+                pulse.animateTo(1f, tween(Motion.WAIT_HALF_CYCLE, easing = Motion.Curve))
+                pulse.animateTo(0f, tween(Motion.WAIT_HALF_CYCLE, easing = Motion.Curve))
                 delay(16)
             }
         }
@@ -229,62 +288,38 @@ internal fun rememberSearchResultsHandoff(
                 .graphicsLayer {
                     scaleX = 1f - 0.012f * tension.value
                     scaleY = 1f + 0.02f * tension.value
-                }.drawWithContent {
-                    val release = if (layered) kotlin.math.sin(progress.value * kotlin.math.PI).toFloat() else 0f
-                    val split = 52.dp.toPx().coerceAtMost(size.width / 3f)
-                    val gap = 5.dp.toPx() * release
-                    val radius = size.height / 2f * release
-                    val leftLobe =
-                        Path().apply {
-                            addRoundRect(RoundRect(Rect(0f, 0f, split - gap, size.height), CornerRadius(radius)))
-                        }
-                    val rightLobe =
-                        Path().apply {
-                            addRoundRect(
-                                RoundRect(Rect(split + gap, 0f, size.width, size.height), CornerRadius(radius)),
-                            )
-                        }
-                    clipPath(leftLobe) {
-                        translate(left = -gap) { this@drawWithContent.drawContent() }
-                    }
-                    clipPath(rightLobe) {
-                        translate(left = gap) { this@drawWithContent.drawContent() }
-                    }
                 }.drawBehind {
-                    val rect = Rect(Offset.Zero, size)
-                    if (waiting || pulse.value > 0f) {
-                        drawRoundRect(
-                            brush =
-                                Brush.radialGradient(
-                                    listOf(accent.copy(alpha = 0.20f + 0.12f * pulse.value), Color.Transparent),
-                                    center = Offset(size.width * (0.15f + pulse.value * 0.60f), size.height * 0.5f),
-                                    radius = (size.width * 0.65f).coerceAtLeast(1f),
+                    if (!waiting && pulse.value <= 0f) return@drawBehind
+                    drawRoundRect(
+                        brush =
+                            Brush.radialGradient(
+                                listOf(accent.copy(alpha = 0.20f + 0.12f * pulse.value), Color.Transparent),
+                                center = Offset(size.width * (0.15f + pulse.value * 0.60f), size.height * 0.5f),
+                                radius = (size.width * 0.65f).coerceAtLeast(1f),
+                            ),
+                        cornerRadius = CornerRadius(size.height / 2f),
+                    )
+                    val inset = 1.dp.toPx()
+                    drawRoundRect(
+                        brush =
+                            Brush.linearGradient(
+                                listOf(
+                                    accent.copy(alpha = 0.12f),
+                                    accent.copy(alpha = 0.72f),
+                                    accent.copy(alpha = 0.12f),
                                 ),
-                            cornerRadius = CornerRadius(size.height / 2f),
-                        )
-                        val inset = 1.dp.toPx()
-                        drawRoundRect(
-                            brush =
-                                Brush.linearGradient(
-                                    listOf(
-                                        accent.copy(alpha = 0.12f),
-                                        accent.copy(alpha = 0.72f),
-                                        accent.copy(alpha = 0.12f),
-                                    ),
-                                    start = Offset(size.width * (pulse.value - 0.5f), 0f),
-                                    end = Offset(size.width * (pulse.value + 0.5f), size.height),
-                                ),
-                            topLeft = Offset(inset, inset),
-                            size =
-                                Size(
-                                    (size.width - inset * 2f).coerceAtLeast(0f),
-                                    (size.height - inset * 2f).coerceAtLeast(0f),
-                                ),
-                            cornerRadius = CornerRadius((size.height / 2f - inset).coerceAtLeast(0f)),
-                            style = Stroke(1.5.dp.toPx()),
-                        )
-                    }
-                    if (layered) drawMotionSweep(rect, accent, progress.value, alpha = 1.7f)
+                                start = Offset(size.width * (pulse.value - 0.5f), 0f),
+                                end = Offset(size.width * (pulse.value + 0.5f), size.height),
+                            ),
+                        topLeft = Offset(inset, inset),
+                        size =
+                            Size(
+                                (size.width - inset * 2f).coerceAtLeast(0f),
+                                (size.height - inset * 2f).coerceAtLeast(0f),
+                            ),
+                        cornerRadius = CornerRadius((size.height / 2f - inset).coerceAtLeast(0f)),
+                        style = Stroke(1.5.dp.toPx()),
+                    )
                 }
         }
     val icon =
@@ -297,9 +332,9 @@ internal fun rememberSearchResultsHandoff(
                 rotationZ = 8f * pulse.value
             }
         }
-    // The design's sweep crosses the page, not just the field. While the request runs, a
-    // faint accent bloom drifts across the whole page on the same beat as the field's pulse;
-    // when the results land, one diagonal band of light crosses the page over them.
+    // While the request runs, a faint accent bloom drifts across the page on the same beat as
+    // the field's pulse. When the results land, the skeleton's diagonal band finishes its
+    // crossing over them: one band, the same one, not a second light.
     val page =
         if (!highlights) {
             Modifier
@@ -320,26 +355,15 @@ internal fun rememberSearchResultsHandoff(
                             ),
                     )
                 }
-                if (layered) {
-                    val band = if (palette.isDark) Color.White.copy(alpha = 0.08f) else accent.copy(alpha = 0.10f)
-                    val p = progress.value
-                    val front = (size.height + 160.dp.toPx()) * p - 80.dp.toPx()
-                    val height = 72.dp.toPx()
-                    drawRect(
-                        brush =
-                            Brush.verticalGradient(
-                                listOf(Color.Transparent, palette.card2.copy(alpha = 0.17f), band, Color.Transparent),
-                                startY = front - height,
-                                endY = front,
-                            ),
-                        topLeft = Offset(0f, front - height),
-                        size = Size(size.width, height),
-                    )
-                    drawDiagonalSweep(band, p)
-                }
+                val p = sweep.value
+                if (p > 0f && p < 1f) drawDiagonalSweep(band, p)
             }
         }
-    return remember(progress, layered, order, field, icon, page) {
-        SearchRevealMotion(progress, layered, order, field, icon, page)
+    // The wrapper was rebuilt on every recomposition of the screen, so every row reading it
+    // got a fresh object — and a fresh [item] modifier — for changes that had nothing to do
+    // with the reveal. Each part it holds is already a new instance only when its own inputs
+    // change, so the same keys are enough to make the wrapper as stable as its contents.
+    return remember(schedule, clock, field, icon, page) {
+        SearchRevealMotion(schedule, clock, field, icon, page)
     }
 }

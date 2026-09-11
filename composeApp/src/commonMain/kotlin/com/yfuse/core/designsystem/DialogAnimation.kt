@@ -73,6 +73,13 @@ enum class DialogAnimation(
 
 val LocalDialogAnimation = staticCompositionLocalOf { DialogAnimation.Lift }
 
+/**
+ * Debug-only: 弹窗动画 offers 柔和浮起 / 触点展开 / 底部升起 unless this is on, and every implemented
+ * style when it is. One polished way in is the product decision; the rest stay in the enum
+ * because they are how that one was arrived at, and they still render if they are stored.
+ */
+val LocalDialogAnimationLab = staticCompositionLocalOf { false }
+
 internal class DialogMotionHost {
     var origin = Offset.Zero
     var height = 0f
@@ -248,13 +255,26 @@ internal fun Modifier.dialogMotion(
     val poster = remember { host.poster?.takeIf { animation == DialogAnimation.PosterMorph } }
     val posterLayer = if (animation == DialogAnimation.PosterMorph) rememberGraphicsLayer() else null
     val layerOnly = animation == DialogAnimation.Slide || animation == DialogAnimation.Touch
+    // A panel pushed away leaves along the finger, not along its style. Composing the two put the
+    // flight on top of an exit that was already travelling — 底部升起 went the distance twice, and
+    // 全息扫描 / 菱镜光圈 / 方格织入 / 双幕展开 / 风车开页 came apart mid-air. 磁吸归位 is the one
+    // style authored around this gesture, so its own exit is the one that stays.
+    val neutralDragExit = animation != DialogAnimation.MagneticDrag
     val transformed =
         onGloballyPositioned { position.origin = it.positionInWindow() }
             .graphicsLayer {
                 val entered = progress().coerceIn(0f, 1f)
-                val frame = frames.frame(entered)
+                val flung = drag != null && drag.dismissedByDrag && neutralDragExit
+                val frame = if (flung) RestingDialogMotionFrame else frames.frame(entered)
                 // Binary endpoint visibility requires no translucent offscreen layer during motion.
-                alpha = if (layerOnly && entered <= 0f) 0f else 1f
+                // The flight is the exception: it is a fade, so that the panel is gone before the
+                // travel would have to be long enough to clear the screen on its own.
+                alpha =
+                    when {
+                        flung -> entered
+                        layerOnly && entered <= 0f -> 0f
+                        else -> 1f
+                    }
                 transformOrigin =
                     when {
                         animation == DialogAnimation.Touch && anchor != null ->
@@ -270,7 +290,7 @@ internal fun Modifier.dialogMotion(
                 scaleX = frame.scaleX
                 scaleY = frame.scaleY
                 translationY =
-                    if (animation == DialogAnimation.Slide) {
+                    if (animation == DialogAnimation.Slide && !flung) {
                         (host.origin.y + host.height - position.origin.y + size.height).coerceAtLeast(size.height) *
                             frame.offsetY
                     } else {
@@ -282,7 +302,14 @@ internal fun Modifier.dialogMotion(
                 cameraDistance = 1200f * density
                 if (drag != null) {
                     translationY += drag.offset
-                    if (drag.dismissedByDrag) translationY += (host.height + size.height) * (1f - entered)
+                    if (drag.dismissedByDrag) {
+                        translationY +=
+                            if (flung) {
+                                size.height * 0.3f * (1f - entered)
+                            } else {
+                                (host.height + size.height) * (1f - entered)
+                            }
+                    }
                     val stretch = (drag.offset / size.height.coerceAtLeast(1f)).coerceIn(0f, 1f)
                     scaleX *= 1f - 0.035f * stretch
                     scaleY *= 1f + 0.015f * stretch
@@ -295,7 +322,9 @@ internal fun Modifier.dialogMotion(
             val entered = progress().coerceIn(0f, 1f)
             // Both endpoints bypass effects, including when reduced motion snaps to them.
             if (entered <= 0f) return@drawWithContent
-            if (entered >= 1f) {
+            // A panel on its way out under the finger draws whole: a style that shatters, folds or
+            // wipes itself is telling a story about arriving, and it has nothing to say here.
+            if (entered >= 1f || (drag != null && drag.dismissedByDrag && neutralDragExit)) {
                 drawContent()
                 return@drawWithContent
             }

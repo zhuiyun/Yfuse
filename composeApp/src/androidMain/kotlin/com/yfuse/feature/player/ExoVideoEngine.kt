@@ -1082,7 +1082,13 @@ class ExoVideoEngine(
                 _state.update {
                     it.copy(
                         videoHeight = videoSize.height,
-                        diagnostics = it.diagnostics.copy(videoWidth = videoSize.width),
+                        diagnostics =
+                            it.diagnostics.copy(
+                                // PlayerView lays the picture out at its display ratio. The coded
+                                // width of an anamorphic source would put the letterbox, and the
+                                // light painted into it, in the wrong place.
+                                videoWidth = Math.round(videoSize.width * videoSize.pixelWidthHeightRatio),
+                            ),
                     )
                 }
             }

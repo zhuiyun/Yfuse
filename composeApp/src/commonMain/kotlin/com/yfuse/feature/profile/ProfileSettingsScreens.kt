@@ -12,6 +12,7 @@ import com.yfuse.core.data.VideoCacheSize
 import com.yfuse.core.data.YCoreBufferDuration
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.SettingTint
+import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core.playback.PlaybackEngineSelection
@@ -191,8 +192,10 @@ internal fun PlaybackSettingsScreen(
         subtitle = "播放行为、性能与兼容性",
         onBack = onBack,
     ) {
-        item {
+        motionItem(key = "playback-progress") {
             Section(title = "播放进度") {
+                // No animateContentSize around the card: SwitchRow crossfades the helper copy
+                // itself, so a second size animation here only chased the first one.
                 SettingsCard {
                     SwitchRow(
                         title = "进度同步",
@@ -209,7 +212,7 @@ internal fun PlaybackSettingsScreen(
                 }
             }
         }
-        item {
+        motionItem(key = "playback-behavior") {
             Section(title = "播放行为") {
                 SettingsCard {
                     SwitchRow("自动播放下一集", autoNext, true, onChange = onAutoNext)
@@ -227,7 +230,7 @@ internal fun PlaybackSettingsScreen(
                 }
             }
         }
-        item {
+        motionItem(key = "playback-mode") {
             Section(title = "播放模式") {
                 SettingsCard {
                     SettingRow(
@@ -246,7 +249,7 @@ internal fun PlaybackSettingsScreen(
                 }
             }
         }
-        item {
+        motionItem(key = "playback-advanced") {
             Section(title = "高级") {
                 SettingsCard {
                     SettingRow(
@@ -258,7 +261,7 @@ internal fun PlaybackSettingsScreen(
                 }
             }
         }
-        item {
+        motionItem(key = "playback-privacy") {
             Section(title = "隐私") {
                 SettingsCard {
                     SwitchRow(
@@ -296,7 +299,7 @@ internal fun AdvancedPlaybackSettingsScreen(
         subtitle = "内核锁定、解码与设备输出",
         onBack = onBack,
     ) {
-        item {
+        motionItem(key = "advanced-engine") {
             Section(title = "策略与内核") {
                 SettingsCard {
                     SettingRow(
@@ -343,7 +346,7 @@ internal fun AdvancedPlaybackSettingsScreen(
                 }
             }
         }
-        item {
+        motionItem(key = "advanced-output") {
             Section(title = "显示与音频输出") {
                 SettingsCard {
                     SettingSegmentRow(
@@ -388,7 +391,7 @@ internal fun DanmakuSettingsScreen(
         subtitle = "来源与内容过滤",
         onBack = onBack,
     ) {
-        item {
+        motionItem(key = "danmaku-sources") {
             Section(title = "弹幕设置") {
                 SettingsCard {
                     SettingRow("弹幕来源", sourceSummary, true, onSources)
@@ -418,7 +421,7 @@ internal fun WatchTogetherSettingsScreen(
         subtitle = "房间、资料与聊天显示",
         onBack = onBack,
     ) {
-        item {
+        motionItem(key = "watch-room") {
             Section(title = "房间") {
                 SettingsCard {
                     SettingRow(
@@ -432,7 +435,7 @@ internal fun WatchTogetherSettingsScreen(
                 }
             }
         }
-        item {
+        motionItem(key = "watch-chat") {
             Section(title = "聊天显示") {
                 SettingsCard {
                     SwitchRow("聊天弹幕", chatDanmaku, true, onChange = onChatDanmaku)
@@ -469,7 +472,7 @@ internal fun AppearanceSettingsScreen(
         subtitle = "背景、启动与辅助显示",
         onBack = onBack,
     ) {
-        item {
+        motionItem(key = "appearance-look") {
             Section(title = "外观") {
                 SettingsCard {
                     SwitchRow(
@@ -519,7 +522,7 @@ internal fun AppearanceSettingsScreen(
                 }
             }
         }
-        item {
+        motionItem(key = "appearance-accessibility") {
             Section(title = "辅助功能") {
                 SettingsCard {
                     SwitchRow(

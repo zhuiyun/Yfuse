@@ -1,12 +1,12 @@
 package com.yfuse.feature.calendar
 
+import com.yfuse.core.data.CalendarReminderMode
+import com.yfuse.core.data.FollowedSeries
 import com.yfuse.core.model.AiringEpisode
 import com.yfuse.core.model.CalendarDay
 import com.yfuse.core.model.CalendarEntry
 import com.yfuse.core.model.LibraryStatus
 import com.yfuse.core.model.ShowOrigin
-import com.yfuse.core.data.CalendarReminderMode
-import com.yfuse.core.data.FollowedSeries
 import kotlin.test.Test
 import kotlin.test.assertEquals
 

@@ -93,13 +93,12 @@ class ContinueWatchingPolicyTest {
         durationMs: Long,
         mediaType: ContinueWatchingMediaType = ContinueWatchingMediaType.Movie,
         lastEngagementEpochMs: Long = 1L,
-    ) =
-        ContinueWatchingEntry(
-            identity = identity,
-            mediaType = mediaType,
-            title = "Title",
-            positionMs = positionMs,
-            durationMs = durationMs,
-            lastEngagementEpochMs = lastEngagementEpochMs,
-        )
+    ) = ContinueWatchingEntry(
+        identity = identity,
+        mediaType = mediaType,
+        title = "Title",
+        positionMs = positionMs,
+        durationMs = durationMs,
+        lastEngagementEpochMs = lastEngagementEpochMs,
+    )
 }

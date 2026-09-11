@@ -51,14 +51,15 @@ fun OrbProgress(
         transition?.animateFloat(
             initialValue = 0f,
             targetValue = 1f,
-            animationSpec = infiniteRepeatable(tween(ORB_COMET_MS, easing = LinearEasing)),
+            animationSpec = infiniteRepeatable(tween(Motion.ORB_COMET, easing = LinearEasing)),
             label = "orbComet",
         ) ?: rememberUpdatedState(0f)
     val breathPhase =
         transition?.animateFloat(
             initialValue = 0f,
             targetValue = 1f,
-            animationSpec = infiniteRepeatable(tween(ORB_BREATH_MS, easing = LinearEasing), RepeatMode.Restart),
+            // Breathes on the skeleton beat, so an orb beside placeholders shares their pulse.
+            animationSpec = infiniteRepeatable(tween(Motion.SKELETON_PULSE, easing = LinearEasing), RepeatMode.Restart),
             label = "orbBreath",
         ) ?: rememberUpdatedState(0f)
     val head = lerp(color, Color.White, 0.55f)
@@ -121,8 +122,6 @@ internal fun orbCoreScale(phase: Float): Float {
     return 1f + ORB_CORE_SWELL * wave
 }
 
-internal const val ORB_COMET_MS = Motion.ORB_COMET
-internal const val ORB_BREATH_MS = SKELETON_PULSE_MS_INT
 private const val ORB_RING_FRACTION = 0.2f
 private const val ORB_CORE_FRACTION = 0.36f
 private const val ORB_CORE_SWELL = 0.18f

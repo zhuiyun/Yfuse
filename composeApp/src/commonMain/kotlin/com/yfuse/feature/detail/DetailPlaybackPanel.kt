@@ -1,5 +1,11 @@
 package com.yfuse.feature.detail
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -24,13 +30,16 @@ import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalAccentColors
+import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.OverlayOptionRow
 import com.yfuse.core.designsystem.OverlayOptionSpacing
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.motionItemsIndexed
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.selectionColor
 import com.yfuse.core.model.MediaVersion
 import com.yfuse.core.model.ServerSource
 import com.yfuse.core.designsystem.ThemeIcon as Icon
@@ -281,14 +290,19 @@ private fun ComparisonCard(
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
+    // Choosing a copy re-ranks the rail, so the cards move at the same time as the choice
+    // changes. Easing the surfaces keeps the two readable as one gesture; cutting the fill and
+    // border made the selection look like a redraw of the whole row.
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val checkSpec = tween<Float>(if (reduceMotion) 0 else Motion.QUICK, easing = Motion.Curve)
     Column(
         Modifier
             .width(ComparisonCardWidth)
             .pressable(onClick = onClick)
             .glass(
                 shape = GlassShapes.card,
-                fill = if (selected) accent.container else palette.card2,
-                border = if (selected) accent.border else palette.border,
+                fill = selectionColor(if (selected) accent.container else palette.card2),
+                border = selectionColor(if (selected) accent.border else palette.border),
             ).padding(12.dp),
     ) {
         Row(
@@ -299,8 +313,14 @@ private fun ComparisonCard(
             if (best) {
                 CardBadge("最佳", accent.accent, accent.container, accent.border)
             }
-            if (selected) {
-                Spacer(Modifier.weight(1f))
+            // The spacer is unconditional so the tick keeps its trailing position while it
+            // grows in, rather than being pushed there by its own appearance.
+            Spacer(Modifier.weight(1f))
+            AnimatedVisibility(
+                visible = selected,
+                enter = fadeIn(checkSpec) + scaleIn(checkSpec, initialScale = 0.6f),
+                exit = fadeOut(checkSpec) + scaleOut(checkSpec, targetScale = 0.6f),
+            ) {
                 Icon(
                     AppIcons.Check,
                     contentDescription = "已选择",

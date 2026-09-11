@@ -3,6 +3,7 @@ package com.yfuse.feature.player
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -35,6 +36,13 @@ internal fun rememberPlayerAmbient(
     engine: VideoEngine,
     currentItem: PlayerMediaItem?,
     state: PlaybackState,
+    /**
+     * The unprojected timeline. [state] is the runtime projection, whose `positionMs` is clamped
+     * to 0/1 for routing — seeking while paused therefore never changed the sampler's key and the
+     * still picture kept its pre-seek colour. Only the paused clock is read from here, so a
+     * playing timeline still does not tick this composition.
+     */
+    livePlayback: State<PlaybackState>,
     scaleMode: VideoScaleMode,
     inPictureInPicture: Boolean,
     ambientPowerLimited: Boolean,
@@ -63,21 +71,36 @@ internal fun rememberPlayerAmbient(
         currentItem?.let { item ->
             item.drmConfiguration != null || item.activeVersion?.drmConfiguration != null
         } == true
+    // An HDR surface hands PixelCopy PQ or HLG code values, which read as sRGB come out grey and
+    // dull; only tone-mapped or SDR output is worth sampling. mpv tone-maps itself.
+    val ambientOutputMode = state.diagnostics.outputEvidence.dynamicRangeOutputMode
+    val ambientHdrOutput =
+        ambientOutputMode == PlaybackDynamicRangeOutputMode.DolbyVisionMediaCodec ||
+            ambientOutputMode == PlaybackDynamicRangeOutputMode.Hdr10BaseLayer
     val ambientLive =
         ambientNeeded &&
             !ambientPowerLimited &&
             !LocalAccessibilityOptions.current.reduceMotion &&
             !ambientProtected &&
+            !ambientHdrOutput &&
             !inPictureInPicture &&
             state.videoHeight > 0 &&
             state.diagnostics.effectiveVideoReadiness == PlaybackOutputReadiness.Rendering
+    val ambientPlaying = state.playing && !state.buffering
+    val ambientPausedPositionMs by remember(livePlayback) {
+        derivedStateOf {
+            val live = livePlayback.value
+            if (live.playing && !live.buffering) 0L else live.positionMs
+        }
+    }
     ambientSampler.Collect(
         active = ambientLive,
-        playing = state.playing && !state.buffering,
-        pausedPositionMs = state.positionMs,
+        playing = ambientPlaying,
+        pausedPositionMs = ambientPausedPositionMs,
         contentKey = listOf(engine, currentItem?.serverId, currentItem?.id, currentItem?.versionId),
     )
     val ambientSampled by ambientSampler.light.collectAsState()
+    val ambientUnreadable by ambientSampler.unreadable.collectAsState()
     val ambientArtwork =
         rememberDominantColor(
             url = (currentItem?.stillUrl ?: currentItem?.posterUrl).takeIf { ambientNeeded },
@@ -93,6 +116,9 @@ internal fun rememberPlayerAmbient(
             when {
                 !ambientLightEnabled -> null
                 ambientLive && ambientSampled != null -> ambientSampled
+                // The first read is at most a sample interval away: stay dark for it rather than
+                // lighting the artwork colour and then crossing over to the picture's own.
+                ambientLive && !ambientUnreadable -> AmbientLight.Off
                 else -> ambientFallback
             },
             active = ambientNeeded,

@@ -12,26 +12,33 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.LocalActivity
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.view.ViewCompat
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.playback.PlaybackDiscMenuCommand
 import kotlin.math.roundToInt
 
+/**
+ * The level is handed back as a [State] rather than a Float on purpose.
+ *
+ * A vertical drag writes it on every pointer sample. Read at the top of the player's runtime
+ * scope that invalidated ~2800 lines per sample; as a [State] the read happens where the level
+ * is actually drawn — the slider, the gesture HUD — and the rest of the tree stays put.
+ */
 @Composable
-internal fun rememberWindowBrightness(): Pair<Float, (Float) -> Unit> {
+internal fun rememberWindowBrightness(): Pair<State<Float>, (Float) -> Unit> {
     val activity = LocalActivity.current
-    var level by remember(activity) {
-        val current = activity?.window?.attributes?.screenBrightness ?: -1f
-        mutableFloatStateOf(if (current in 0f..1f) current else 0.5f)
-    }
+    val level =
+        remember(activity) {
+            val current = activity?.window?.attributes?.screenBrightness ?: -1f
+            mutableFloatStateOf(if (current in 0f..1f) current else 0.5f)
+        }
     return level to { target: Float ->
         val clamped = target.coerceIn(0.02f, 1f)
-        level = clamped
+        level.floatValue = clamped
         activity?.window?.let { window ->
             window.attributes = window.attributes.apply { screenBrightness = clamped }
         }
@@ -40,7 +47,7 @@ internal fun rememberWindowBrightness(): Pair<Float, (Float) -> Unit> {
 
 /** Reads and writes STREAM_MUSIC so the player's level chip reflects real system volume. */
 @Composable
-internal fun rememberSystemVolume(): Pair<Float, (Float) -> Unit> {
+internal fun rememberSystemVolume(): Pair<State<Float>, (Float) -> Unit> {
     val context = LocalContext.current
     val audio = remember(context) { context.getSystemService(AudioManager::class.java) }
     val max = remember(audio) { audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1) }
@@ -52,20 +59,21 @@ internal fun rememberSystemVolume(): Pair<Float, (Float) -> Unit> {
                 0
             }
         }
-    var level by remember(audio, min, max) {
-        mutableFloatStateOf(
-            streamVolumeFraction(
-                current = audio.getStreamVolume(AudioManager.STREAM_MUSIC),
-                min = min,
-                max = max,
-            ),
-        )
-    }
+    val level =
+        remember(audio, min, max) {
+            mutableFloatStateOf(
+                streamVolumeFraction(
+                    current = audio.getStreamVolume(AudioManager.STREAM_MUSIC),
+                    min = min,
+                    max = max,
+                ),
+            )
+        }
     DisposableEffect(context, audio, min, max) {
         val observer =
             object : ContentObserver(Handler(Looper.getMainLooper())) {
                 override fun onChange(selfChange: Boolean) {
-                    level =
+                    level.floatValue =
                         streamVolumeFraction(
                             current = audio.getStreamVolume(AudioManager.STREAM_MUSIC),
                             min = min,
@@ -95,7 +103,7 @@ internal fun rememberSystemVolume(): Pair<Float, (Float) -> Unit> {
                 attributes = mapOf("requestedLevel" to requested.toString()),
             )
         }
-        level =
+        level.floatValue =
             streamVolumeFraction(
                 current = audio.getStreamVolume(AudioManager.STREAM_MUSIC),
                 min = min,

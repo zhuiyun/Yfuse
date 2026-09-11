@@ -244,9 +244,19 @@ class CalendarStateTest {
 
         assertEquals(
             LibraryStatus.Available,
-            result.days.first().entries.single().status,
+            result.days
+                .first()
+                .entries
+                .single()
+                .status,
         )
-        assertFalse(result.days.first().entries.single().availabilityStale)
+        assertFalse(
+            result.days
+                .first()
+                .entries
+                .single()
+                .availabilityStale,
+        )
         assertEquals(2, result.days.size)
     }
 

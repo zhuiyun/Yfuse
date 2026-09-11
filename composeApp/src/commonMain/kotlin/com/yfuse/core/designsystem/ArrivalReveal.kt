@@ -59,36 +59,6 @@ class ArrivalMotion internal constructor(
             alpha = amount
             translationY = REVEAL_LIFT.toPx() * (1f - amount)
         }
-
-    /** The page's artwork: it fades in and settles from a slight zoom rather than rising. */
-    fun hero(): Modifier =
-        Modifier.graphicsLayer {
-            val amount = Motion.Curve.transform(progress.value)
-            alpha = amount
-            val scale = HERO_SETTLE_SCALE - (HERO_SETTLE_SCALE - 1f) * amount
-            scaleX = scale
-            scaleY = scale
-        }
-}
-
-/**
- * Starts the arrival once [arrived] turns true while the route is visible; content that is
- * already there when the page is first composed, or that arrives with motion reduced, is
- * shown at rest.
- */
-@Composable
-fun rememberArrivalReveal(arrived: Boolean): ArrivalMotion {
-    val moving = LocalRouteVisible.current && !LocalAccessibilityOptions.current.reduceMotion
-    val initiallyArrived = remember { arrived }
-    val progress = remember { Animatable(if (arrived || !moving) 1f else 0f) }
-    LaunchedEffect(arrived, moving) {
-        when {
-            !arrived -> progress.snapTo(0f)
-            !moving || initiallyArrived -> progress.snapTo(1f)
-            progress.value < 1f -> progress.animateTo(1f, tween(REVEAL_MS, easing = LinearEasing))
-        }
-    }
-    return remember(progress) { ArrivalMotion(progress) }
 }
 
 /**
@@ -100,7 +70,7 @@ fun rememberEntranceReveal(): ArrivalMotion {
     val moving = LocalRouteVisible.current && !LocalAccessibilityOptions.current.reduceMotion
     val progress = remember { Animatable(if (moving) 0f else 1f) }
     LaunchedEffect(Unit) {
-        if (progress.value < 1f) progress.animateTo(1f, tween(REVEAL_MS, easing = LinearEasing))
+        if (progress.value < 1f) progress.animateTo(1f, tween(Motion.ARRIVAL_REVEAL, easing = LinearEasing))
     }
     return remember(progress) { ArrivalMotion(progress) }
 }
@@ -121,7 +91,7 @@ fun rememberRefreshReveal(refreshing: Boolean): ArrivalMotion {
         wasRefreshing = refreshing
         if (landed && moving) {
             progress.snapTo(0f)
-            progress.animateTo(1f, tween(REVEAL_MS, easing = LinearEasing))
+            progress.animateTo(1f, tween(Motion.ARRIVAL_REVEAL, easing = LinearEasing))
         }
     }
     return remember(progress) { ArrivalMotion(progress) }
@@ -163,7 +133,7 @@ fun Modifier.attentionSweep(key: Any?): Modifier {
     LaunchedEffect(key, moving) {
         if (key == null || !moving) return@LaunchedEffect
         progress.snapTo(0f)
-        progress.animateTo(1f, tween(ATTENTION_SWEEP_MS, easing = LinearEasing))
+        progress.animateTo(1f, tween(Motion.ATTENTION_SWEEP, easing = LinearEasing))
     }
     val band = accent.copy(alpha = ATTENTION_SWEEP_ALPHA)
     return drawWithContent {
@@ -195,12 +165,9 @@ internal fun DrawScope.drawDiagonalSweep(
     )
 }
 
-const val REVEAL_MS = Motion.ARRIVAL_REVEAL
 const val REVEAL_STEP = 0.07f
 const val REVEAL_MAX_INDEX = 5
 val REVEAL_LIFT = 9.dp
-private const val HERO_SETTLE_SCALE = 1.06f
-const val ATTENTION_SWEEP_MS = Motion.ATTENTION_SWEEP
 private const val ATTENTION_SWEEP_ALPHA = 0.22f
 private const val ARRIVAL_SWEEP_ALPHA_DARK = 0.07f
 private const val ARRIVAL_SWEEP_ALPHA_LIGHT = 0.09f

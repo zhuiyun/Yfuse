@@ -10,8 +10,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -21,15 +19,13 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppIcons
-import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.DarkPalette
 import com.yfuse.core.designsystem.GlassShapes
+import com.yfuse.core.designsystem.PillSwitch
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberAccentColorsForSurface
-import com.yfuse.core.designsystem.rememberSegmentIndicator
-import com.yfuse.core.designsystem.selectionColor
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
@@ -60,41 +56,23 @@ internal fun DiagnosticRow(
     }
 }
 
+/**
+ * Hand-off to [com.yfuse.core.designsystem.SegmentedRow], which now owns the implementation.
+ *
+ * Kept so the player panels can keep calling the name they already use; they migrate to the
+ * design-system import in a later pass.
+ */
 @Composable
 internal fun SegmentedRow(
     options: List<String>,
     selectedIndex: Int,
     onSelect: (Int) -> Unit,
 ) {
-    val accent = rememberAccentColorsForSurface(dark = true)
-    val indicator = rememberSegmentIndicator(selectedIndex, accent.container, accent.border)
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .glass(
-                shape = AppShapes.pill,
-                fill = Color.White.copy(alpha = 0.07f),
-                border = Color.White.copy(alpha = 0.12f),
-            ).padding(3.dp)
-            .then(indicator.container),
-    ) {
-        options.forEachIndexed { index, label ->
-            val active = index == selectedIndex
-            Text(
-                label,
-                style = if (active) AppTypography.caption.strong else AppTypography.caption.medium,
-                color = selectionColor(if (active) accent.accent else Color.White.copy(alpha = 0.62f)),
-                maxLines = 1,
-                textAlign = TextAlign.Center,
-                modifier =
-                    Modifier
-                        .weight(1f)
-                        .then(indicator.item(index))
-                        .noRippleClickable { onSelect(index) }
-                        .padding(vertical = 9.dp),
-            )
-        }
-    }
+    com.yfuse.core.designsystem.SegmentedRow(
+        options = options,
+        selectedIndex = selectedIndex,
+        onSelect = onSelect,
+    )
 }
 
 @Composable
@@ -200,18 +178,11 @@ internal fun PopupToggleHeader(
             style = AppTypography.section.medium,
             color = Color.White.copy(alpha = 0.94f),
         )
-        Switch(
-            checked = checked,
-            onCheckedChange = { onToggle() },
-            colors =
-                SwitchDefaults.colors(
-                    checkedThumbColor = Color.White,
-                    checkedTrackColor = Color(0xFF55C766),
-                    uncheckedThumbColor = Color.White.copy(alpha = 0.82f),
-                    uncheckedTrackColor = Color.White.copy(alpha = 0.18f),
-                    uncheckedBorderColor = Color.White.copy(alpha = 0.12f),
-                ),
-        )
+        // The design system's switch, not Material's: this row is the last place in the player
+        // where a stock control was drawing its own knob, its own track and its own ripple over
+        // the picture. The row already owns the gesture, which is exactly what [PillSwitch]
+        // expects of whoever draws it.
+        PillSwitch(checked)
     }
 }
 

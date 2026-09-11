@@ -11,7 +11,10 @@ internal class AmbientSamplingPolicy {
     var intervalMs: Long = AMBIENT_LIGHT_SAMPLE_MS
         private set
 
-    fun waitMs(nowMs: Long, urgent: Boolean = false): Long {
+    fun waitMs(
+        nowMs: Long,
+        urgent: Boolean = false,
+    ): Long {
         val last = lastRequestMs ?: return 0L
         val interval = if (urgent) AMBIENT_LIGHT_SAMPLE_MS else intervalMs
         return (last + interval - nowMs).coerceAtLeast(0L)
@@ -24,23 +27,25 @@ internal class AmbientSamplingPolicy {
     fun succeeded(changed: Boolean) {
         failures = 0
         unchangedSamples = if (changed) 0 else (unchangedSamples + 1).coerceAtMost(10)
-        intervalMs = when {
-            unchangedSamples >= 10 -> 2_000L
-            unchangedSamples >= 4 -> 1_000L
-            else -> AMBIENT_LIGHT_SAMPLE_MS
-        }
+        intervalMs =
+            when {
+                unchangedSamples >= 10 -> 2_000L
+                unchangedSamples >= 4 -> 1_000L
+                else -> AMBIENT_LIGHT_SAMPLE_MS
+            }
     }
 
     fun failed(): Boolean {
         unchangedSamples = 0
         failures = (failures + 1).coerceAtMost(6)
-        intervalMs = when (failures) {
-            1, 2 -> AMBIENT_LIGHT_SAMPLE_MS
-            3 -> 2_000L
-            4 -> 5_000L
-            5 -> 10_000L
-            else -> 30_000L
-        }
+        intervalMs =
+            when (failures) {
+                1, 2 -> AMBIENT_LIGHT_SAMPLE_MS
+                3 -> 2_000L
+                4 -> 5_000L
+                5 -> 10_000L
+                else -> 30_000L
+            }
         return failures >= 3
     }
 
@@ -52,6 +57,13 @@ internal class AmbientSamplingPolicy {
     }
 }
 
-internal fun ambientLightHasVisibleBars(container: IntSize, picture: IntSize, guardPx: Int): Boolean =
-    container.width > 0 && container.height > 0 && picture.width > 0 && picture.height > 0 &&
+internal fun ambientLightHasVisibleBars(
+    container: IntSize,
+    picture: IntSize,
+    guardPx: Int,
+): Boolean =
+    container.width > 0 &&
+        container.height > 0 &&
+        picture.width > 0 &&
+        picture.height > 0 &&
         ((container.width - picture.width) / 2 > guardPx || (container.height - picture.height) / 2 > guardPx)

@@ -27,6 +27,7 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 internal const val HANDOFF_ROW_MS = 55
@@ -114,8 +115,13 @@ internal fun Modifier.skeletonArrival(key: Any): Modifier {
 internal fun PageLoadingSkeleton(
     modifier: Modifier = Modifier,
     rows: Int = 4,
+    /** Lists that already pad their content pass 0.dp so the placeholder lines up with the real rows. */
+    horizontalPadding: Dp = 18.dp,
 ) {
-    Column(modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
+    Column(
+        modifier.fillMaxWidth().padding(horizontal = horizontalPadding, vertical = 18.dp),
+        verticalArrangement = Arrangement.spacedBy(18.dp),
+    ) {
         SkeletonBlock(Modifier.width(120.dp).height(24.dp))
         repeat(rows.coerceIn(1, 4)) { index ->
             SkeletonBlock(Modifier.fillMaxWidth().height(76.dp), phaseMs = index * HANDOFF_ROW_MS)

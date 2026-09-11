@@ -274,6 +274,8 @@ data class ServersState(
      *  id is preserved so [ServersStore] can replace it on submit (the user may change the
      *  host or account, which would otherwise create a new entry). */
     val editingServerId: String? = null,
+    /** One-shot confirmation for a save the form closed on; cleared by [ServersIntent.DismissNotice]. */
+    val notice: String? = null,
 )
 
 sealed interface ServersIntent {
@@ -346,6 +348,9 @@ sealed interface ServersIntent {
     data object Submit : ServersIntent
 
     data object Scan : ServersIntent
+
+    /** The confirmation toast finished or was swiped away. */
+    data object DismissNotice : ServersIntent
 
     data object LocalNetworkPermissionDenied : ServersIntent
 
@@ -443,6 +448,10 @@ private sealed interface Msg {
     data object Submitting : Msg
 
     data object SubmitDone : Msg
+
+    data class Notice(
+        val value: String?,
+    ) : Msg
 
     data class SubmitError(
         val m: String,
@@ -553,6 +562,7 @@ class ServersStoreFactory(
                     cancelDialogJobs()
                     dispatch(Msg.DialogClose)
                 }
+                ServersIntent.DismissNotice -> dispatch(Msg.Notice(null))
                 is ServersIntent.EditServer -> {
                     cancelDialogJobs()
                     dispatch(Msg.EditOpen(intent.server))
@@ -1321,6 +1331,9 @@ class ServersStoreFactory(
                     copy(
                         dialogVisible = false,
                         form = LoginForm(),
+                        // Read before the copy clears it: an edit and a first login close the
+                        // same form and are otherwise indistinguishable afterwards.
+                        notice = if (editingServerId != null) "服务器已更新" else "服务器已添加",
                         editingServerId = null,
                         scanning = false,
                         discovered = emptyList(),
@@ -1339,6 +1352,7 @@ class ServersStoreFactory(
                         this
                     }
                 is Msg.PublicUsers -> if (dialogVisible) copy(publicUsers = msg.users) else this
+                is Msg.Notice -> copy(notice = msg.value)
             }
     }
 }

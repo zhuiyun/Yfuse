@@ -39,32 +39,6 @@ expect fun rememberArtworkPageColor(
 ): Color?
 
 /**
- * [rememberDominantColor], eased into place.
- *
- * The artwork accent reaches a long way — the library hero's content wash, the detail
- * page's play key and section rules, the TMDB sheet — and it changed as a hard cut,
- * because the raw value is a plain [Color] with nothing interpolating it. Every carousel
- * slide repainted half the page in one frame.
- */
-@Composable
-fun rememberAnimatedDominantColor(
-    url: String?,
-    fallback: Color,
-    durationMillis: Int = Motion.ACCENT,
-): AnimatedColorState {
-    val extracted = rememberDominantColor(url, fallback)
-    // [rememberDominantColor] snaps back to [fallback] the moment the URL changes and only
-    // reports a real colour once Palette has run. Easing to that reset would take the page
-    // through the fallback on the way to the new artwork — a blue flash between every two
-    // slides — so the last real colour is held until the next one lands.
-    var target by remember(fallback) { mutableStateOf(extracted) }
-    LaunchedEffect(extracted, fallback) {
-        if (extracted != fallback) target = extracted
-    }
-    return rememberAnimatedColorState(target, durationMillis)
-}
-
-/**
  * Harmonizes the extracted artwork colour once, then animates that final UI target.
  *
  * Running [harmonizeArtworkAccent] on every intermediate animation frame is not continuous:

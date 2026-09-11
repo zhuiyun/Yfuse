@@ -4,7 +4,6 @@ package com.yfuse.feature.player
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
@@ -32,6 +31,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -151,13 +151,16 @@ internal fun PlayerSidePanel(
         },
     )
 
-    val openFraction = (1f - offsetPx / widthPx.coerceAtLeast(1f)).coerceIn(0f, 1f)
+    // A reader, not a value. Computed in composition it recomposed this whole shell — 房间聊天's
+    // message list included — on every frame of a drag, a fling settle and a predictive back.
+    // Read inside graphicsLayer and drawBehind, the same frames only re-run those two lambdas.
+    val openFraction = { (1f - offsetPx / widthPx.coerceAtLeast(1f)).coerceIn(0f, 1f) }
     Box(
         Modifier
             .fillMaxSize()
             .then(
                 if (dim) {
-                    Modifier.background(Color.Black.copy(alpha = 0.4f * openFraction))
+                    Modifier.drawBehind { drawRect(Color.Black, alpha = DIM_ALPHA * openFraction()) }
                 } else {
                     Modifier
                 },
@@ -172,9 +175,10 @@ internal fun PlayerSidePanel(
                 offsetPx = offsetPx / widthPx.coerceAtLeast(1f) * newWidth
                 widthPx = newWidth
             }.graphicsLayer {
+                val open = openFraction()
                 translationX = offsetPx
-                alpha = openFraction
-                scaleY = if (reduceMotion) 1f else 0.98f + 0.02f * openFraction
+                alpha = open
+                scaleY = if (reduceMotion) 1f else 0.98f + 0.02f * open
             }.draggable(
                 state =
                     rememberDraggableState { delta ->
@@ -242,6 +246,9 @@ internal fun predictiveDrawerProgress(progress: Float): Float {
     return 1f - (1f - clamped) * (1f - clamped)
 }
 
+/** A panel being typed into has taken the screen over; the picture behind it says so. */
+private const val DIM_ALPHA = 0.4f
+
 private const val DRAWER_WRONG_WAY_RESISTANCE = 0.18f
 private const val DRAWER_MAX_TRAVEL = 1.08f
 private const val DRAWER_DISMISS_FRACTION = 0.42f
@@ -273,20 +280,24 @@ internal fun PlayerPopupPanel(
         animationSpec = Motion.settle(reduceMotion),
         label = "popupPredictiveBack",
     )
+    // The system animator scale is a statement about animation, not about gestures. Taking it as
+    // a reason to refuse the drag left a device with animations off unable to push the popup away
+    // at all; only the user's own 减弱动态效果 switch retires the gesture.
+    val reduceMotionByUser = LocalAccessibilityOptions.current.reduceMotionByUser
     val requestDismiss = remember { { leaving = true } }
     val drag =
         rememberDialogDragState(
+            // Pushing the popup away is a gesture every style gets; 磁吸归位 only keeps its handle.
             enabled = {
-                animation == DialogAnimation.MagneticDrag &&
-                    !reduceMotion &&
+                !reduceMotionByUser &&
                     !leaving &&
                     backProgress == 0f &&
                     progress() >= 1f
             },
             dismiss = requestDismiss,
         )
-    LaunchedEffect(reduceMotion, leaving) {
-        if (reduceMotion) {
+    LaunchedEffect(reduceMotionByUser, leaving) {
+        if (reduceMotionByUser) {
             drag.reset()
         } else if (leaving) {
             drag.stopSettling()
@@ -307,7 +318,7 @@ internal fun PlayerPopupPanel(
     Column(
         modifier
             .width(PlayerPopupWidth)
-            .dialogMotion(animation, drag.takeIf { animation == DialogAnimation.MagneticDrag && !reduceMotion }) {
+            .dialogMotion(animation, drag.takeIf { !reduceMotionByUser }) {
                 progress() * (1f - backOffset * 0.25f)
             }.heightIn(
                 min = (if (compact) PlayerPopupCompactMinHeight else PlayerPopupMinHeight) + handleHeight,
@@ -319,15 +330,8 @@ internal fun PlayerPopupPanel(
             .noRippleClickable { }
             .imePadding()
             .imeNestedScroll()
-            .then(
-                if (animation == DialogAnimation.MagneticDrag &&
-                    !reduceMotion
-                ) {
-                    Modifier.nestedScroll(drag)
-                } else {
-                    Modifier
-                },
-            ).padding(horizontal = 12.dp, vertical = 10.dp),
+            .then(if (reduceMotionByUser) Modifier else Modifier.nestedScroll(drag))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.Top,
         content = {
             CompositionLocalProvider(
@@ -341,7 +345,7 @@ internal fun PlayerPopupPanel(
                     }
                 },
             ) {
-                if (animation == DialogAnimation.MagneticDrag) DialogDragHandle(drag, !reduceMotion && !leaving)
+                if (animation == DialogAnimation.MagneticDrag) DialogDragHandle(drag, !reduceMotionByUser && !leaving)
                 content()
             }
         },

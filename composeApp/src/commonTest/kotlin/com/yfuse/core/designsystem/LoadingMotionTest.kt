@@ -7,7 +7,7 @@ import kotlin.test.assertTrue
 class LoadingMotionTest {
     @Test
     fun skeleton_pulse_is_a_full_breath_per_period_and_a_phase_shifts_it() {
-        val period = SKELETON_PULSE_MS_INT.toLong()
+        val period = Motion.SKELETON_PULSE.toLong()
         assertEquals(skeletonPulseAt(0L), skeletonPulseAt(period), absoluteTolerance = 1e-4f)
         assertTrue(skeletonPulseAt(period / 2) > skeletonPulseAt(0L))
         // A block phased by half a period is at the opposite point of its breath.
@@ -24,7 +24,7 @@ class LoadingMotionTest {
     fun sweep_crosses_then_rests_and_is_off_while_the_clock_is_stopped() {
         assertEquals(-1f, skeletonSweepAt(-1L))
         assertEquals(0f, skeletonSweepAt(0L), absoluteTolerance = 1e-4f)
-        val period = SKELETON_SWEEP_MS.toLong()
+        val period = Motion.SKELETON_SWEEP.toLong()
         assertTrue(skeletonSweepAt(period * 35 / 100) in 0.49f..0.51f)
         assertTrue(skeletonSweepAt(period * 69 / 100) > 0.98f)
         assertEquals(-1f, skeletonSweepAt(period * 80 / 100))

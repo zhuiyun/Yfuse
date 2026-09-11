@@ -33,6 +33,7 @@ class ThemePreferences(
         const val KEY_SPLASH_VARIANT = "appearance.splashVariant.v2"
         const val KEY_STARTUP_TAB = "appearance.startupTab"
         const val KEY_DIALOG_ANIMATION = "appearance.dialogAnimation"
+        const val KEY_DIALOG_ANIMATION_LAB = "appearance.dialogAnimationLab"
         const val KEY_GLASS_STYLE = "appearance.glassStyle"
         const val KEY_SERVER_LAYOUT = "appearance.serverLayout"
         const val KEY_BACKGROUND_IMAGE = "appearance.backgroundImage"
@@ -89,6 +90,19 @@ class ThemePreferences(
     fun setDialogAnimation(animation: DialogAnimation) {
         _dialogAnimation.value = animation
         settings.putString(KEY_DIALOG_ANIMATION, animation.name)
+    }
+
+    /**
+     * Debug switch for 弹窗动画: off, the sheet offers the three shipped styles; on, it lists every
+     * implemented one. The enum keeps all of them either way — this decides what is *offered*,
+     * not what can be stored, so a selection made in the lab survives the switch going back off.
+     */
+    private val _dialogAnimationLab = MutableStateFlow(settings.getBoolean(KEY_DIALOG_ANIMATION_LAB, false))
+    val dialogAnimationLab: StateFlow<Boolean> = _dialogAnimationLab.asStateFlow()
+
+    fun setDialogAnimationLab(enabled: Boolean) {
+        _dialogAnimationLab.value = enabled
+        settings.putBoolean(KEY_DIALOG_ANIMATION_LAB, enabled)
     }
 
     private val _glassStyle = MutableStateFlow(load(KEY_GLASS_STYLE, GlassStyle.entries, GlassStyle.Liquid))

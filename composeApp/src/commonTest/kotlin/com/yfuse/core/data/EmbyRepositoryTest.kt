@@ -64,13 +64,15 @@ class EmbyRepositoryTest {
                     assertEquals("source-a", request.url.parameters["MediaSourceId"])
                     assertEquals("tok", request.headers["X-Emby-Token"])
                     json(
-                        """{
+                        """
+                        {
                             "AspectRatio":2.0,
                             "Thumbnails":[
                                 {"PositionTicks":100000000,"ImageTag":"tag/second"},
                                 {"PositionTicks":0,"ImageTag":"tag-first"}
                             ]
-                        }""".trimIndent(),
+                        }
+                        """.trimIndent(),
                     )
                 }
 
@@ -97,7 +99,8 @@ class EmbyRepositoryTest {
                     assertEquals("/Users/u1/Items/movie-1", request.url.encodedPath)
                     assertEquals("Trickplay", request.url.parameters["Fields"])
                     json(
-                        """{
+                        """
+                        {
                             "Id":"movie-1",
                             "Name":"Movie",
                             "Type":"Movie",
@@ -105,7 +108,8 @@ class EmbyRepositoryTest {
                                 "source-a":{"160":{"Width":160,"Height":90,"TileWidth":5,"TileHeight":5,"ThumbnailCount":25,"Interval":10000}},
                                 "source-b":{"320":{"Width":320,"Height":180,"TileWidth":10,"TileHeight":10,"ThumbnailCount":100,"Interval":5000}}
                             }
-                        }""".trimIndent(),
+                        }
+                        """.trimIndent(),
                     )
                 }
 

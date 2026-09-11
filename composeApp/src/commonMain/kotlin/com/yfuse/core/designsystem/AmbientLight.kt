@@ -20,16 +20,18 @@ import androidx.compose.ui.graphics.drawscope.clipRect
 import kotlinx.coroutines.delay
 import kotlin.coroutines.coroutineContext
 import kotlin.math.abs
+import kotlin.math.roundToInt
 import kotlin.time.TimeSource
 
 /**
  * 氛围光: the picture's own edge colours, leaked into the letterbox around it.
  *
- * The player reads a 32×18 thumbnail at an adaptive interval. The two pixel rows hugging each
- * edge are averaged into buckets — five down each side, eight along the top and bottom — and
- * the whole frame into [mean]. Those colours are then painted into the black bars outside the
- * picture, brightest at the picture's edge and falling to true black at the screen's edge, and
- * [mean] tints the chrome scrims and the seek bar's accent. The picture itself is never touched.
+ * The player reads a 96×54 thumbnail at an adaptive interval. Bars encoded into the frame are
+ * set aside as [inset]; inside the content, a strip along each edge is averaged into buckets —
+ * five down each side, eight along the top and bottom — and the whole content into [mean]. Those
+ * colours are then painted into the black bars outside the content, brightest at its edge and
+ * falling toward black at the screen's edge, and [mean] tints the chrome scrims and the seek
+ * bar's accent. The picture itself is never touched.
  *
  * The bucket lists are ordered along their edge: [left]/[right] top to bottom, [top]/[bottom]
  * start to end. Lists are always the sizes named here, so buckets can be interpolated pairwise.
@@ -43,6 +45,8 @@ data class AmbientLight(
     /** Harmonize each sampled target once; intermediate frames interpolate these final colours. */
     val accent: Color = harmonizeArtworkAccent(mean, darkTheme = true),
     val accentWeight: Float = if (mean == Color.Black) 0f else 1f,
+    /** Black bars the frame itself carries; the light continues into them as if they were letterbox. */
+    val inset: AmbientInset = AmbientInset.None,
 ) {
     init {
         require(left.size == SIDE_BUCKETS && right.size == SIDE_BUCKETS) { "side buckets must be $SIDE_BUCKETS" }
@@ -82,18 +86,31 @@ const val AMBIENT_LIGHT_SAMPLE_MS = 500L
 /** At most about 30 published animation frames/s, independent of a 60/120Hz display clock. */
 internal const val AMBIENT_LIGHT_FRAME_MS = 34L
 
-/** Every bucket slides from its old colour to its new one over this long, on [Motion.Curve]. */
-const val AMBIENT_LIGHT_FADE_MS = Motion.AMBIENT_LIGHT_FADE
-
 /** Below this HSL lightness a bucket is kept black: 片头片尾 and night scenes must not glow grey. */
 private const val AMBIENT_BLACK_FLOOR = 0.06f
 
-/** A bucket brighter than this is dimmed to it; light in the bars must never compete with the picture. */
-private const val AMBIENT_LIGHTNESS_CAP = 0.42f
+/**
+ * A bucket brighter than this is dimmed to it. Light in the bars must not compete with the
+ * picture, but at 0.42 a daytime sky came out as a navy slab that no longer read as the same
+ * colour; the black falloff toward the screen edge already keeps the bars quieter than the frame.
+ */
+private const val AMBIENT_LIGHTNESS_CAP = 0.55f
 
-/** Chroma is boosted only when a hue is really there; true greys stay grey. */
+/** Chroma is boosted only when a hue is really there, and only a little; true greys stay grey. */
 private const val AMBIENT_NEUTRAL_GUARD = 0.08f
-private const val AMBIENT_SATURATION_BOOST = 1.25f
+private const val AMBIENT_SATURATION_BOOST = 1.1f
+
+/** A thumbnail row or column whose brightest pixel is under this 8-bit luma is a bar, not a dark scene. */
+private const val AMBIENT_BAR_LUMA = 18
+
+/** A baked-in bar never takes more than this share of a dimension; a fade to black is not a bar. */
+private const val AMBIENT_BAR_MAX = 0.4f
+
+/** Encoded bars are symmetric to within this many thumbnail rows; a dark sky at the top alone is not one. */
+private const val AMBIENT_BAR_SYMMETRY = 2
+
+/** The strip along each content edge that the light continues: 15% of the content, not two pixels. */
+private const val AMBIENT_RIM = 0.15f
 
 /**
  * Turns an averaged frame colour into a light that can sit in the letterbox.
@@ -130,6 +147,42 @@ fun lerpAmbientLight(
         mean = interpolateArtworkPageColor(start.mean, end.mean, fraction),
         accent = interpolateArtworkPageColor(start.accent, end.accent, fraction),
         accentWeight = start.accentWeight + (end.accentWeight - start.accentWeight) * progress,
+        inset = lerpAmbientInset(start.inset, end.inset, progress),
+    )
+}
+
+/**
+ * Fractions of the picture, from each edge, that the frame itself fills with black: a 2.39:1
+ * film encoded inside a 16:9 frame carries its letterbox in the pixels, where no layout can see it.
+ */
+data class AmbientInset(
+    val left: Float = 0f,
+    val top: Float = 0f,
+    val right: Float = 0f,
+    val bottom: Float = 0f,
+) {
+    val isZero: Boolean
+        get() = left == 0f && top == 0f && right == 0f && bottom == 0f
+
+    companion object {
+        val None: AmbientInset = AmbientInset()
+    }
+}
+
+fun lerpAmbientInset(
+    start: AmbientInset,
+    end: AmbientInset,
+    fraction: Float,
+): AmbientInset {
+    fun mix(
+        a: Float,
+        b: Float,
+    ) = a + (b - a) * fraction
+    return AmbientInset(
+        left = mix(start.left, end.left),
+        top = mix(start.top, end.top),
+        right = mix(start.right, end.right),
+        bottom = mix(start.bottom, end.bottom),
     )
 }
 
@@ -158,11 +211,18 @@ fun ambientLightDiffers(
         for (index in a.indices) if (far(a[index], b[index])) return true
         return false
     }
+
+    fun insetDiffers(): Boolean {
+        val a = current.inset
+        val b = next.inset
+        return abs(a.left - b.left) + abs(a.top - b.top) + abs(a.right - b.right) + abs(a.bottom - b.bottom) > 0.01f
+    }
     return far(current.mean, next.mean) ||
         edgeDiffers(current.left, next.left) ||
         edgeDiffers(current.right, next.right) ||
         edgeDiffers(current.top, next.top) ||
-        edgeDiffers(current.bottom, next.bottom)
+        edgeDiffers(current.bottom, next.bottom) ||
+        insetDiffers()
 }
 
 /**
@@ -217,7 +277,8 @@ fun rememberAmbientLight(
             runAmbientLightTransition(
                 start = transition.start,
                 target = transition.target,
-                durationMs = (AMBIENT_LIGHT_FADE_MS * durationScale).toLong(),
+                // Every bucket slides from its old colour to its new one on the shared curve.
+                durationMs = (Motion.AMBIENT_LIGHT_FADE * durationScale).toLong(),
                 elapsedMs = { started.elapsedNow().inWholeMilliseconds },
                 publish = { output.value = it },
             )
@@ -255,7 +316,8 @@ private data class AmbientLightTransition(
  * Paints [light] into the bars around [picture] inside [bounds], never over the picture.
  *
  * Each bar is a band of its edge's bucket colours laid along the picture's edge, then a black
- * falloff from transparent at the picture to opaque at the screen edge (alpha 0 → .35 → .75 → 1).
+ * falloff from transparent at the picture toward the screen edge (alpha 0 → .2 → .55 → .8). It no
+ * longer reaches true black: a bar that went black over its outer two thirds read as no light at all.
  * Two gradients per bar, no blur, no extra layer. The exclusion is grown by [guard] so a rect that
  * is off by a pixel leaves a hairline of black rather than a hairline of light on the picture.
  */
@@ -325,9 +387,9 @@ fun ambientLightFalloffBrushes(
         to: Offset,
     ) = Brush.linearGradient(
         0f to Color.Transparent,
-        0.35f to Color.Black.copy(alpha = 0.35f),
-        0.7f to Color.Black.copy(alpha = 0.75f),
-        1f to Color.Black,
+        0.4f to Color.Black.copy(alpha = 0.2f),
+        0.8f to Color.Black.copy(alpha = 0.55f),
+        1f to Color.Black.copy(alpha = 0.8f),
         start = from,
         end = to,
     )
@@ -340,8 +402,13 @@ fun ambientLightFalloffBrushes(
 }
 
 /**
- * Averages [pixels] (row-major ARGB, [width]×[height]) into an [AmbientLight]: the outer two
- * pixel rows/columns bucketed along each edge, everything into the mean, each bucket toned.
+ * Averages [pixels] (row-major ARGB, [width]×[height]) into an [AmbientLight].
+ *
+ * Black bars encoded into the frame are found first — uniformly black rows or columns, symmetric
+ * about the picture, never more than [AMBIENT_BAR_MAX] of a side — and reported as [AmbientLight.inset].
+ * Inside what remains, a strip [AMBIENT_RIM] deep along each edge is bucketed along that edge and
+ * the whole content averaged into the mean; every bucket is then toned. The thumbnail should be big
+ * enough that this is an average of the picture rather than a handful of stray pixels.
  * Platform samplers hand their thumbnail here so the arithmetic lives in one testable place.
  */
 fun ambientLightFromPixels(
@@ -350,7 +417,43 @@ fun ambientLightFromPixels(
     height: Int,
 ): AmbientLight {
     require(pixels.size >= width * height && width >= 4 && height >= 4) { "thumbnail too small" }
-    val rim = 2
+
+    fun luma(p: Int): Int = (((p shr 16) and 0xFF) * 299 + ((p shr 8) and 0xFF) * 587 + (p and 0xFF) * 114) / 1000
+
+    fun rowIsBar(y: Int): Boolean {
+        for (x in 0 until width) if (luma(pixels[y * width + x]) >= AMBIENT_BAR_LUMA) return false
+        return true
+    }
+
+    fun columnIsBar(
+        x: Int,
+        ys: IntRange,
+    ): Boolean {
+        for (y in ys) if (luma(pixels[y * width + x]) >= AMBIENT_BAR_LUMA) return false
+        return true
+    }
+    val maxRows = (height * AMBIENT_BAR_MAX).toInt()
+    val maxColumns = (width * AMBIENT_BAR_MAX).toInt()
+    var top = 0
+    while (top < maxRows && rowIsBar(top)) top++
+    var bottom = 0
+    while (bottom < maxRows && rowIsBar(height - 1 - bottom)) bottom++
+    if (abs(top - bottom) > AMBIENT_BAR_SYMMETRY) {
+        top = 0
+        bottom = 0
+    }
+    val rows = top until height - bottom
+    var left = 0
+    while (left < maxColumns && columnIsBar(left, rows)) left++
+    var right = 0
+    while (right < maxColumns && columnIsBar(width - 1 - right, rows)) right++
+    if (abs(left - right) > AMBIENT_BAR_SYMMETRY) {
+        left = 0
+        right = 0
+    }
+    val columns = left until width - right
+    val rimX = (columns.count() * AMBIENT_RIM).roundToInt().coerceAtLeast(1)
+    val rimY = (rows.count() * AMBIENT_RIM).roundToInt().coerceAtLeast(1)
 
     fun bucketAverage(
         xs: IntRange,
@@ -373,22 +476,39 @@ fun ambientLightFromPixels(
     }
 
     fun along(
-        total: Int,
+        range: IntRange,
         buckets: Int,
         index: Int,
     ): IntRange {
+        val total = range.count()
         val start = index * total / buckets
-        val end = ((index + 1) * total / buckets).coerceAtLeast(start + 1)
-        return start until end.coerceAtMost(total)
+        val end = ((index + 1) * total / buckets).coerceAtLeast(start + 1).coerceAtMost(total)
+        return range.first + start until range.first + end
     }
     val side = AmbientLight.SIDE_BUCKETS
     val edge = AmbientLight.EDGE_BUCKETS
-    return AmbientLight(
-        left = List(side) { toneAmbientLight(bucketAverage(0 until rim, along(height, side, it))) },
-        right = List(side) { toneAmbientLight(bucketAverage(width - rim until width, along(height, side, it))) },
-        top = List(edge) { toneAmbientLight(bucketAverage(along(width, edge, it), 0 until rim)) },
-        bottom = List(edge) { toneAmbientLight(bucketAverage(along(width, edge, it), height - rim until height)) },
-        mean = toneAmbientLight(bucketAverage(0 until width, 0 until height)),
+    val leftRim = columns.first until columns.first + rimX
+    val rightRim = columns.last + 1 - rimX..columns.last
+    val topRim = rows.first until rows.first + rimY
+    val bottomRim = rows.last + 1 - rimY..rows.last
+    val light =
+        AmbientLight(
+            left = List(side) { toneAmbientLight(bucketAverage(leftRim, along(rows, side, it))) },
+            right = List(side) { toneAmbientLight(bucketAverage(rightRim, along(rows, side, it))) },
+            top = List(edge) { toneAmbientLight(bucketAverage(along(columns, edge, it), topRim)) },
+            bottom = List(edge) { toneAmbientLight(bucketAverage(along(columns, edge, it), bottomRim)) },
+            mean = toneAmbientLight(bucketAverage(columns, rows)),
+        )
+    // A frame that is dark all the way through has no bars worth moving the light for.
+    if (light.isDark || (left == 0 && right == 0 && top == 0 && bottom == 0)) return light
+    return light.copy(
+        inset =
+            AmbientInset(
+                left = left / width.toFloat(),
+                top = top / height.toFloat(),
+                right = right / width.toFloat(),
+                bottom = bottom / height.toFloat(),
+            ),
     )
 }
 

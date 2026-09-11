@@ -1,5 +1,10 @@
 package com.yfuse.feature.player
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -42,6 +47,8 @@ import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.DarkPalette
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
+import com.yfuse.core.designsystem.LocalAccessibilityOptions
+import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.OverlayButton
 import com.yfuse.core.designsystem.OverlayButtonTone
@@ -382,23 +389,42 @@ internal fun DanmakuSearchPanel(
             }
         }
 
-        when {
-            search.running ->
-                Box(
-                    Modifier.fillMaxWidth().padding(vertical = 30.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    OrbProgress(size = 22.dp, color = Color.White)
-                }
+        // Searching, failing, and three kinds of list all land in this one slot below the field,
+        // and every step between them used to be a cut: type, and the hint is replaced by a
+        // spinner replaced by a list, each arriving with no relationship to the last. Keyed on
+        // the stage rather than on the state, so a keyword typed into the field does not restart
+        // the transition under the results it has not changed yet.
+        val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+        AnimatedContent(
+            targetState = search,
+            contentKey = { it.stage() },
+            transitionSpec = {
+                val duration = if (reduceMotion) 0 else Motion.STATE_HANDOFF
+                (
+                    fadeIn(tween(duration, easing = Motion.Curve)) togetherWith
+                        fadeOut(tween(duration, easing = Motion.Curve))
+                ).using(null)
+            },
+            modifier = Modifier.fillMaxWidth(),
+            label = "danmaku-search-stage",
+        ) { current ->
+            when (current.stage()) {
+                DanmakuSearchStage.Running ->
+                    Box(
+                        Modifier.fillMaxWidth().padding(vertical = 30.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        OrbProgress(size = 22.dp, color = Color.White)
+                    }
 
-            search.error != null -> PanelNote(search.error, DarkPalette.error)
+                DanmakuSearchStage.Failed -> PanelNote(current.error.orEmpty(), DarkPalette.error)
 
-            search.openResult != null ->
-                if (search.episodes.isEmpty()) {
+                DanmakuSearchStage.NoEpisodes ->
                     PanelNote("这个作品下没有可用的集", Color.White.copy(alpha = 0.5f))
-                } else {
+
+                DanmakuSearchStage.Episodes ->
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        motionItems(search.episodes, key = { it.episodeId }) { episode ->
+                        motionItems(current.episodes, key = { it.episodeId }) { episode ->
                             SearchRow(
                                 title = episode.title,
                                 subtitle = null,
@@ -406,55 +432,85 @@ internal fun DanmakuSearchPanel(
                             )
                         }
                     }
-                }
 
-            search.results.isNotEmpty() ->
-                LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    motionItems(search.results, key = { it.animeId }) { result ->
-                        SearchRow(
-                            title = result.title,
-                            subtitle = result.subtitle.takeIf { it.isNotBlank() },
-                            onClick = { actions.onOpenResult(result) },
-                        )
+                DanmakuSearchStage.Results ->
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        motionItems(current.results, key = { it.animeId }) { result ->
+                            SearchRow(
+                                title = result.title,
+                                subtitle = result.subtitle.takeIf { it.isNotBlank() },
+                                onClick = { actions.onOpenResult(result) },
+                            )
+                        }
                     }
-                }
 
-            search.searched -> PanelNote("没有搜到这个名字", Color.White.copy(alpha = 0.5f))
+                DanmakuSearchStage.NoResults ->
+                    PanelNote("没有搜到这个名字", Color.White.copy(alpha = 0.5f))
 
-            search.recent.isNotEmpty() ->
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    // The same show, next episode, tomorrow night. Retyping a title on a
-                    // landscape keyboard is the sort of chore a list of eight strings removes.
-                    Text(
-                        "最近搜索",
-                        style = AppTypography.caption.medium,
-                        color = Color.White.copy(alpha = 0.42f),
-                        modifier = Modifier.padding(vertical = 2.dp),
+                DanmakuSearchStage.Recent ->
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        // The same show, next episode, tomorrow night. Retyping a title on a
+                        // landscape keyboard is the sort of chore a list of eight strings removes.
+                        Text(
+                            "最近搜索",
+                            style = AppTypography.caption.medium,
+                            color = Color.White.copy(alpha = 0.42f),
+                            modifier = Modifier.padding(vertical = 2.dp),
+                        )
+                        current.recent.forEach { keyword ->
+                            SearchRow(
+                                title = keyword,
+                                subtitle = null,
+                                onClick = {
+                                    actions.onQueryChange(keyword)
+                                    actions.onSubmitSearch()
+                                },
+                            )
+                        }
+                    }
+
+                DanmakuSearchStage.Hint ->
+                    PanelNote(
+                        "输入片名后搜索，选中的集会记住，下次进入这一集直接用。",
+                        Color.White.copy(alpha = 0.5f),
                     )
-                    search.recent.forEach { keyword ->
-                        SearchRow(
-                            title = keyword,
-                            subtitle = null,
-                            onClick = {
-                                actions.onQueryChange(keyword)
-                                actions.onSubmitSearch()
-                            },
-                        )
-                    }
-                }
-
-            else ->
-                PanelNote(
-                    "输入片名后搜索，选中的集会记住，下次进入这一集直接用。",
-                    Color.White.copy(alpha = 0.5f),
-                )
+            }
         }
     }
 }
+
+/**
+ * Which answer the search sheet is showing.
+ *
+ * The crossfade below keys on this rather than on [DanmakuSearchState] itself: the state also
+ * carries the keyword, which changes on every keystroke while the slot's contents do not.
+ */
+private enum class DanmakuSearchStage {
+    Running,
+    Failed,
+    NoEpisodes,
+    Episodes,
+    Results,
+    NoResults,
+    Recent,
+    Hint,
+}
+
+private fun DanmakuSearchState.stage(): DanmakuSearchStage =
+    when {
+        running -> DanmakuSearchStage.Running
+        error != null -> DanmakuSearchStage.Failed
+        openResult != null ->
+            if (episodes.isEmpty()) DanmakuSearchStage.NoEpisodes else DanmakuSearchStage.Episodes
+        results.isNotEmpty() -> DanmakuSearchStage.Results
+        searched -> DanmakuSearchStage.NoResults
+        recent.isNotEmpty() -> DanmakuSearchStage.Recent
+        else -> DanmakuSearchStage.Hint
+    }
 
 /**
  * 发送弹幕 — one line, onto the episode the player is matched to.

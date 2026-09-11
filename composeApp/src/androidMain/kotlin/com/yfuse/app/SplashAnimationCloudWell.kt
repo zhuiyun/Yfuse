@@ -622,7 +622,7 @@ private val TriangleFill: List<Pair<Float, Float>> =
 
 // ---- Timeline, in milliseconds. Reference beats at 0.4x. ----
 
-/** This choreography's own hand-off window; the shared [FadeMs] is the water-fire one. */
+/** This choreography's own hand-off window; the shared [FADE_MS] is the water-fire one. */
 private const val CloudWellFadeMs = 240f
 private const val IntroMs = 200f
 

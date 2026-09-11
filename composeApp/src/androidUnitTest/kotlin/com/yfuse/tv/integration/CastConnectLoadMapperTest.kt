@@ -163,18 +163,17 @@ class CastConnectLoadMapperTest {
         contentId: String? = null,
         positionMs: Long = 0L,
         credentialsSupplied: Boolean = false,
-    ) =
-        CastConnectLoadEnvelope(
-            senderId = "sender",
-            entity = entity,
-            contentId = contentId,
-            contentUrl = null,
-            contentType = "video/mp4",
-            title = " Movie ",
-            autoplay = true,
-            positionMs = positionMs,
-            credentialsSupplied = credentialsSupplied,
-        )
+    ) = CastConnectLoadEnvelope(
+        senderId = "sender",
+        entity = entity,
+        contentId = contentId,
+        contentUrl = null,
+        contentType = "video/mp4",
+        title = " Movie ",
+        autoplay = true,
+        positionMs = positionMs,
+        credentialsSupplied = credentialsSupplied,
+    )
 
     private fun identity() =
         ContinueWatchingIdentity(

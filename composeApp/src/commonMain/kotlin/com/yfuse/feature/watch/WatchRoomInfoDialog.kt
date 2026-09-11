@@ -25,9 +25,9 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import coil3.compose.AsyncImage
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.Brand
+import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
@@ -182,10 +182,16 @@ private fun NowWatching(
                 .background(palette.card3),
         ) {
             if (poster != null) {
-                AsyncImage(
-                    model = poster,
+                // Raw [AsyncImage] had no answer for a poster that fails to load: the box
+                // stayed on whatever it happened to be showing. [FallbackImage] leaves the
+                // card colour behind it and fades the artwork in over that. No blur — a
+                // 44dp thumbnail has nothing to resolve into.
+                FallbackImage(
+                    urls = listOf(poster),
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
+                    progressive = false,
+                    alphaOnly = true,
                     modifier = Modifier.fillMaxSize(),
                 )
             }

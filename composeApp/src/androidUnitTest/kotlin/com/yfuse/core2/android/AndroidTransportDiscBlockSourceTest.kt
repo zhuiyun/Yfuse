@@ -117,7 +117,11 @@ private class DiscMemoryTransport(
         )
     }
 
-    override suspend fun read(destination: ByteArray, offset: Int, length: Int): Int {
+    override suspend fun read(
+        destination: ByteArray,
+        offset: Int,
+        length: Int,
+    ): Int {
         if (position >= endExclusive) return -1
         val count = minOf(length, endExclusive - position)
         media.copyInto(destination, offset, position, position + count)
@@ -140,7 +144,11 @@ private class ZeroReadDiscTransport : YMediaTransport {
             features = features,
         )
 
-    override suspend fun read(destination: ByteArray, offset: Int, length: Int): Int = 0
+    override suspend fun read(
+        destination: ByteArray,
+        offset: Int,
+        length: Int,
+    ): Int = 0
 
     override suspend fun close() = Unit
 }
@@ -164,7 +172,11 @@ private class SparseDiscTransport(
         )
     }
 
-    override suspend fun read(destination: ByteArray, offset: Int, length: Int): Int {
+    override suspend fun read(
+        destination: ByteArray,
+        offset: Int,
+        length: Int,
+    ): Int {
         if (remaining == 0) return -1
         val count = minOf(remaining, length)
         destination.fill(0, offset, offset + count)

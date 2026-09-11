@@ -8,7 +8,7 @@ import com.yfuse.core.designsystem.SplashMark
  * Which launcher icon the app presents.
  *
  * The current water-fire mark is available on light and graphite grounds, and the previous
- * cloud-player mark remains a real alternate for people who recognise the app by that shape.
+ * cloud-player mark remains available alongside the light and dark Aurora artwork.
  */
 enum class AppIconVariant(
     val label: String,
@@ -26,6 +26,8 @@ enum class AppIconVariant(
      * it brings that mark's own launch animations back with it.
      */
     CloudPlayer("旧版云朵播放器", "旧版云朵播放器 Logo，配水滴砸云开屏"),
+    AuroraDark("极光 · 深色", "青蓝紫渐变折带，深色底"),
+    AuroraLight("极光 · 浅色", "青蓝紫渐变折带，浅色底"),
 }
 
 /**
@@ -39,6 +41,8 @@ val AppIconVariant.splashMark: SplashMark
         when (this) {
             AppIconVariant.Default, AppIconVariant.Graphite -> SplashMark.WaterFire
             AppIconVariant.CloudPlayer -> SplashMark.CloudPlayer
+            AppIconVariant.AuroraDark -> SplashMark.AuroraDark
+            AppIconVariant.AuroraLight -> SplashMark.AuroraLight
         }
 
 /**
@@ -54,6 +58,8 @@ fun SplashMark.appIconFor(current: AppIconVariant): AppIconVariant =
         when (this) {
             SplashMark.WaterFire -> AppIconVariant.Default
             SplashMark.CloudPlayer -> AppIconVariant.CloudPlayer
+            SplashMark.AuroraDark -> AppIconVariant.AuroraDark
+            SplashMark.AuroraLight -> AppIconVariant.AuroraLight
         }
     }
 

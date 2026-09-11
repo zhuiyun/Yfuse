@@ -46,9 +46,11 @@ import com.yfuse.core.data.TmdbSeriesIdentityCandidate
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.ArtworkPageTheme
+import com.yfuse.core.designsystem.BurstIcon
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
+import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OrbProgress
@@ -60,6 +62,7 @@ import com.yfuse.core.designsystem.overlayDismiss
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberDominantColor
 import com.yfuse.core.designsystem.resolveAccentColors
+import com.yfuse.core.designsystem.selectionColor
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.AiringScheduleAuthority
 import com.yfuse.core.model.CalendarDay
@@ -351,6 +354,7 @@ private fun SeriesCalendarSummaryControls(
     val palette = LocalPalette.current
     val follow = resolveAccentColors(SeriesCalendarTeal, palette.isDark)
     val reminder = resolveAccentColors(SeriesCalendarCoral, palette.isDark)
+    val reminding = followed && reminderMode != CalendarReminderMode.Off
     Row(
         Modifier
             .fillMaxWidth()
@@ -361,7 +365,9 @@ private fun SeriesCalendarSummaryControls(
             Modifier
                 .weight(1f)
                 .heightIn(min = 66.dp)
-                .pressable(role = Role.Switch, onClick = onToggleFollow)
+                // 加入追剧 and 更新提醒 both change state in place and navigate nowhere: the
+                // sheet stays exactly as it was, so the tap has to be felt as well as seen.
+                .pressable(haptic = HapticSignal.Confirm, role = Role.Switch, onClick = onToggleFollow)
                 .semantics { stateDescription = if (followed) "已加入追剧" else "未加入追剧" }
                 .flatGlass(
                     GlassShapes.card,
@@ -371,6 +377,15 @@ private fun SeriesCalendarSummaryControls(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            BurstIcon(
+                icon = if (followed) AppIcons.Check else AppIcons.Add,
+                active = followed,
+                contentDescription = null,
+                tint = follow.accent,
+                burstColor = follow.accent,
+                iconSize = 16.dp,
+                modifier = Modifier.size(20.dp),
+            )
             Column(Modifier.weight(1f)) {
                 Text(
                     if (followed) "已加入追剧" else "加入追剧",
@@ -394,8 +409,12 @@ private fun SeriesCalendarSummaryControls(
             Modifier
                 .weight(1f)
                 .heightIn(min = 66.dp)
-                .pressable(enabled = followed, role = Role.Button, onClick = onToggleReminder)
-                .flatGlass(
+                .pressable(
+                    enabled = followed,
+                    haptic = HapticSignal.Confirm,
+                    role = Role.Button,
+                    onClick = onToggleReminder,
+                ).flatGlass(
                     GlassShapes.card,
                     lerp(palette.card2, reminder.container, if (followed) 0.72f else 0.22f),
                     if (followed) reminder.border.copy(alpha = 0.55f) else palette.border,
@@ -403,11 +422,14 @@ private fun SeriesCalendarSummaryControls(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(7.dp),
         ) {
-            Icon(
-                AppIcons.Bell,
+            BurstIcon(
+                icon = AppIcons.Bell,
+                active = reminding,
                 contentDescription = null,
                 tint = if (followed) reminder.accent else palette.hint,
-                modifier = Modifier.size(18.dp),
+                burstColor = reminder.accent,
+                iconSize = 18.dp,
+                modifier = Modifier.size(22.dp),
             )
             Column(Modifier.weight(1f)) {
                 Text(
@@ -485,7 +507,7 @@ private fun SeriesReminderPicker(
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .pressable(role = Role.RadioButton) { onSelect(mode) }
+                    .pressable(haptic = HapticSignal.Select, role = Role.RadioButton) { onSelect(mode) }
                     .semantics { this.selected = active }
                     .clip(GlassShapes.chip)
                     .background(if (active) reminder.container else Color.Transparent)
@@ -520,8 +542,9 @@ private fun SeriesReminderPicker(
                             color = if (minuteActive) reminder.accent else palette.sub,
                             modifier =
                                 Modifier
-                                    .pressable(role = Role.RadioButton) { onMinutes(minutes) }
-                                    .semantics { this.selected = minuteActive }
+                                    .pressable(haptic = HapticSignal.Select, role = Role.RadioButton) {
+                                        onMinutes(minutes)
+                                    }.semantics { this.selected = minuteActive }
                                     .clip(CircleShape)
                                     .background(if (minuteActive) reminder.container else palette.card3)
                                     .padding(horizontal = 10.dp, vertical = 7.dp),
@@ -602,12 +625,15 @@ private fun SeriesCalendarDateChip(
     Column(
         modifier
             .heightIn(min = 54.dp)
-            .pressable(role = Role.RadioButton, onClick = onClick)
+            .pressable(haptic = HapticSignal.Select, role = Role.RadioButton, onClick = onClick)
             .semantics { selected = active }
             .flatGlass(
                 GlassShapes.chip,
-                lerp(palette.card2, role.container, if (active) 0.92f else 0.44f),
-                if (active) role.border else role.border.copy(alpha = 0.28f),
+                // The selection moves between three chips at once — the one leaving and the one
+                // arriving. Bare [lerp] gave each its new colour between two frames while the
+                // date under them animated; [selectionColor] puts all three on the same settle.
+                selectionColor(lerp(palette.card2, role.container, if (active) 0.92f else 0.44f)),
+                selectionColor(if (active) role.border else role.border.copy(alpha = 0.28f)),
             ).padding(horizontal = 4.dp, vertical = 7.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -622,7 +648,7 @@ private fun SeriesCalendarDateChip(
         Text(
             isoWeekdayLabel(date),
             style = AppTypography.caption.regular,
-            color = if (active) role.accent else palette.sub2,
+            color = selectionColor(if (active) role.accent else palette.sub2),
             maxLines = 1,
         )
     }

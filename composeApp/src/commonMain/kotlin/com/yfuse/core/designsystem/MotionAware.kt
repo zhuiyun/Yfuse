@@ -9,18 +9,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.ui.Modifier
 
-/** 0f collapsed, 1f expanded; snaps when the user asks for reduced motion. */
-@Composable
-fun animateExpansionAsState(
-    expanded: Boolean,
-    label: String = "expansion",
-): State<Float> =
-    animateFloatAsState(
-        targetValue = if (expanded) 1f else 0f,
-        animationSpec = Motion.settle(LocalAccessibilityOptions.current.reduceMotion),
-        label = label,
-    )
-
 /** A shared rotation transition for chevrons and disclosure controls. */
 @Composable
 fun animateRotationAsState(

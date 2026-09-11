@@ -1,5 +1,10 @@
 package com.yfuse.feature.player
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -38,6 +43,7 @@ import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.DarkPalette
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
+import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.WatchAvatar
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.motionItems
@@ -257,23 +263,40 @@ internal fun WatchChatPanel(
 
         Spacer(Modifier.height(10.dp))
         Box(Modifier.weight(1f).fillMaxWidth()) {
-            if (messages.isEmpty()) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(
-                        "还没有消息\n发一句开始聊天吧",
-                        style = AppTypography.caption.medium,
-                        color = Color.White.copy(alpha = 0.42f),
-                    )
-                }
-            } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    state = listState,
-                    verticalArrangement = Arrangement.spacedBy(9.dp),
-                ) {
-                    motionItems(messages, key = { it.id }) { message ->
-                        // Someone else's message arriving mid-film should not be a jump cut.
-                        WatchChatBubble(message, onRetry, Modifier)
+            // The first message in a room replaces the invitation to send one. Crossfaded rather
+            // than switched: the transcript and the placeholder occupy the same rectangle, and a
+            // cut between them reads as the panel flickering. No size transform — the rectangle
+            // is already fixed by the weight above.
+            AnimatedContent(
+                targetState = messages.isEmpty(),
+                transitionSpec = {
+                    val duration = if (reduceMotion) 0 else Motion.STATE_HANDOFF
+                    (
+                        fadeIn(tween(duration, easing = Motion.Curve)) togetherWith
+                            fadeOut(tween(duration, easing = Motion.Curve))
+                    ).using(null)
+                },
+                modifier = Modifier.fillMaxSize(),
+                label = "watch-chat-transcript",
+            ) { empty ->
+                if (empty) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(
+                            "还没有消息\n发一句开始聊天吧",
+                            style = AppTypography.caption.medium,
+                            color = Color.White.copy(alpha = 0.42f),
+                        )
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        state = listState,
+                        verticalArrangement = Arrangement.spacedBy(9.dp),
+                    ) {
+                        motionItems(messages, key = { it.id }) { message ->
+                            // Someone else's message arriving mid-film should not be a jump cut.
+                            WatchChatBubble(message, onRetry, Modifier)
+                        }
                     }
                 }
             }

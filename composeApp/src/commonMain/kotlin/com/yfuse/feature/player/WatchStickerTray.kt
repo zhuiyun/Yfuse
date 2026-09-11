@@ -55,7 +55,6 @@ import com.yfuse.core.designsystem.ThemeText as Text
 
 /** One clock for every visible preset in the tray; standalone sent stickers may own one. */
 private val LocalStickerClock = compositionLocalOf<State<Float>?> { null }
-private const val SHARED_CLOCK_MS = Motion.STICKER_CLOCK
 
 /**
  * One sticker, moving.
@@ -87,7 +86,7 @@ fun WatchStickerGlyph(
             else ->
                 remember(motion, sharedClock) {
                     derivedStateOf {
-                        ((sharedClock.value * SHARED_CLOCK_MS) % motion.periodMs) / motion.periodMs
+                        ((sharedClock.value * Motion.STICKER_CLOCK) % motion.periodMs) / motion.periodMs
                     }
                 }
         }
@@ -238,7 +237,7 @@ internal fun WatchStickerTray(
                 targetValue = 1f,
                 animationSpec =
                     infiniteRepeatable(
-                        animation = tween(SHARED_CLOCK_MS, easing = LinearEasing),
+                        animation = tween(Motion.STICKER_CLOCK, easing = LinearEasing),
                     ),
                 label = "sticker-tray-phase",
             )

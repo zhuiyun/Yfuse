@@ -44,7 +44,10 @@ class YHdr10PlusParserTest {
     private class BitWriter {
         private val bits = mutableListOf<Int>()
 
-        fun write(value: Int, count: Int) {
+        fun write(
+            value: Int,
+            count: Int,
+        ) {
             for (shift in count - 1 downTo 0) bits += (value ushr shift) and 1
         }
 

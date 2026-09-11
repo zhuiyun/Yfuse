@@ -6,6 +6,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import com.yfuse.core.data.VideoCacheSize
 import com.yfuse.core.designsystem.Dimens
+import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.security.RelayMigrationDescriptor
 import com.yfuse.core.security.RelayMigrationPackage
 
@@ -33,7 +34,7 @@ internal fun DataAndDiagnosticsScreen(
         subtitle = "网络兼容、迁移与问题排查",
         onBack = onBack,
     ) {
-        item {
+        motionItem(key = "data-network") {
             Section(title = "网络与兼容") {
                 SettingsCard {
                     SettingRow(
@@ -45,7 +46,7 @@ internal fun DataAndDiagnosticsScreen(
                 }
             }
         }
-        item {
+        motionItem(key = "data-backup") {
             Box(Modifier.padding(horizontal = Dimens.pageHorizontal)) {
                 ServerBackupTools(
                     serverCount = serverCount,
@@ -58,7 +59,7 @@ internal fun DataAndDiagnosticsScreen(
                 )
             }
         }
-        item {
+        motionItem(key = "data-cache") {
             Section(title = "缓存") {
                 SettingsCard {
                     SettingRow(
@@ -78,10 +79,10 @@ internal fun DataAndDiagnosticsScreen(
                 }
             }
         }
-        item {
+        motionItem(key = "data-permissions") {
             Section(title = "权限与后台能力") { PermissionHealthTools() }
         }
-        item {
+        motionItem(key = "data-diagnostics") {
             Section(title = "问题诊断") { DiagnosticLogTools() }
         }
     }

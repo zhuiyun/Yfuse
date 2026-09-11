@@ -45,16 +45,21 @@ val LocalTabIdentity = staticCompositionLocalOf<String?> { null }
  * The shell clears the replayed value before a real tab switch, so collecting the current
  * event is intentional: a fast second tap remains observable even if the incoming branch's
  * effect starts one frame later.
+ *
+ * The tick is the other half of the answer. A page already at the top has nowhere to go, and
+ * without it the gesture looks broken rather than finished — so the tap is acknowledged
+ * whether or not it moves anything, and moves nothing further when there is nothing to move.
  */
 @Composable
 fun ScrollToTopOnReselect(listState: LazyListState) {
     val signal = LocalTabReselected.current ?: return
     val tabIdentity = LocalTabIdentity.current ?: return
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val haptics = LocalHaptics.current
     // Effects restart when accessibility options change. Remember the consumed occurrence so
     // StateFlow's replay cannot make an old tap scroll the page a second time.
     var lastHandledOccurrence by rememberSaveable(tabIdentity) { mutableLongStateOf(0L) }
-    LaunchedEffect(signal, tabIdentity, listState, reduceMotion) {
+    LaunchedEffect(signal, tabIdentity, listState, reduceMotion, haptics) {
         signal.collect { event ->
             if (event == null) {
                 // A real tab switch — and a fresh RootComponent after process recreation —
@@ -65,6 +70,10 @@ fun ScrollToTopOnReselect(listState: LazyListState) {
                 event.occurrence > lastHandledOccurrence
             ) {
                 lastHandledOccurrence = event.occurrence
+                haptics.play(HapticSignal.Select)
+                if (listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0) {
+                    return@collect
+                }
                 listState.motionAwareScrollToItem(index = 0, reduceMotion = reduceMotion)
             }
         }
@@ -77,8 +86,9 @@ fun ScrollToTopOnReselect(gridState: LazyGridState) {
     val signal = LocalTabReselected.current ?: return
     val tabIdentity = LocalTabIdentity.current ?: return
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val haptics = LocalHaptics.current
     var lastHandledOccurrence by rememberSaveable(tabIdentity) { mutableLongStateOf(0L) }
-    LaunchedEffect(signal, tabIdentity, gridState, reduceMotion) {
+    LaunchedEffect(signal, tabIdentity, gridState, reduceMotion, haptics) {
         signal.collect { event ->
             if (event == null) {
                 lastHandledOccurrence = 0L
@@ -86,6 +96,10 @@ fun ScrollToTopOnReselect(gridState: LazyGridState) {
                 event.occurrence > lastHandledOccurrence
             ) {
                 lastHandledOccurrence = event.occurrence
+                haptics.play(HapticSignal.Select)
+                if (gridState.firstVisibleItemIndex == 0 && gridState.firstVisibleItemScrollOffset == 0) {
+                    return@collect
+                }
                 gridState.motionAwareScrollToItem(index = 0, reduceMotion = reduceMotion)
             }
         }

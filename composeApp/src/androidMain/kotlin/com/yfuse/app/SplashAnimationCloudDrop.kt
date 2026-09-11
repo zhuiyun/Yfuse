@@ -470,7 +470,7 @@ private const val DropLeadingEdge = 0.055f
 
 // ---- Timeline, in milliseconds from the start of the splash. ----
 
-/** This choreography's own hand-off window; the shared [FadeMs] is the water-fire one. */
+/** This choreography's own hand-off window; the shared [FADE_MS] is the water-fire one. */
 private const val CloudDropFadeMs = 260f
 private const val IntroMs = 240f
 

@@ -1,5 +1,7 @@
 package com.yfuse.feature.home
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -61,6 +63,7 @@ import com.yfuse.core.designsystem.CloudPlayerLogo
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.FallbackImage
+import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HeroActionDock
 import com.yfuse.core.designsystem.HeroPageFade
@@ -77,6 +80,9 @@ import com.yfuse.core.designsystem.MediaSizing
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.OrbProgressDefaults
+import com.yfuse.core.designsystem.OverlayHeader
+import com.yfuse.core.designsystem.OverlayOptionRow
+import com.yfuse.core.designsystem.OverlayOptionSpacing
 import com.yfuse.core.designsystem.Poster
 import com.yfuse.core.designsystem.PrimaryGradient
 import com.yfuse.core.designsystem.RefreshIndicator
@@ -181,6 +187,7 @@ fun HomeScreen(component: HomeComponent) {
         HomeContent(
             component = component,
             heroPageColor = pageColor,
+            heroPageSampled = retainedPageColor.value != null,
             onHeroAccent = { heroAccent = it },
             onHeroPageColor = retainedPageColor::update,
         )
@@ -192,6 +199,7 @@ fun HomeScreen(component: HomeComponent) {
 private fun HomeContent(
     component: HomeComponent,
     heroPageColor: State<Color>,
+    heroPageSampled: Boolean,
     onHeroAccent: (Color) -> Unit,
     onHeroPageColor: (Color) -> Unit,
 ) {
@@ -224,6 +232,7 @@ private fun HomeContent(
         calendarState = calendarState,
         listState = listState,
         heroPageColor = heroPageColor,
+        heroPageSampled = heroPageSampled,
         onHeroAccent = onHeroAccent,
         onHeroPageColor = onHeroPageColor,
         onIntent = component.store::accept,
@@ -251,11 +260,14 @@ internal fun HomeContentBody(
     onOpenCalendar: () -> Unit,
     onOpenLibrary: () -> Unit,
     onOpenCalendarEntry: (CalendarEntry) -> Unit,
+    /** False until a slide's artwork has been sampled: there is no page colour to paint yet. */
+    heroPageSampled: Boolean = true,
 ) {
     val calendarItems = remember(calendarState.days, state) { homeCalendarPreviews(calendarState.days, state) }
     val palette = LocalPalette.current
     val themeAccent = LocalAccentColors.current.accent
     var expandedRow by remember { mutableStateOf<TmdbRow?>(null) }
+    var quickActions by remember { mutableStateOf<HomeQuickActions?>(null) }
 
     val pullState = rememberPullToRefreshState()
     RefreshThresholdHaptics(pullState, refreshing = state.refreshing)
@@ -268,7 +280,31 @@ internal fun HomeContentBody(
         val showSidePreview = maxWidth >= 600.dp || maxWidth > maxHeight
         // The artwork alpha dissolves directly into this one opaque, poster-derived colour.
         // No seam overlay or local colour band exists between the hero and the page.
-        Box(Modifier.fillMaxSize().drawBehind { drawRect(heroPageColor.value) })
+        //
+        // Until a slide has been sampled there is no such colour, only the palette's own
+        // ground — the very colour the shared app backdrop already draws, under the ambient
+        // field and the user's wallpaper. Painting it hid both behind an opaque slab, on
+        // every root tab, for as long as the hero took to decode. The ground now arrives
+        // instead: it fades up over the backdrop on the theme crossfade's own clock once a
+        // poster has earned it, and snaps under 减弱动态效果. Both the colour and the fade are
+        // read in the draw phase, so neither a settled slide nor the fade recomposes the feed.
+        val pageGround =
+            animateFloatAsState(
+                targetValue = if (heroPageSampled) 1f else 0f,
+                animationSpec =
+                    if (LocalAccessibilityOptions.current.reduceMotion) {
+                        snap()
+                    } else {
+                        tween(Motion.THEME_CROSSFADE, easing = Motion.Curve)
+                    },
+                label = "home-page-ground",
+            )
+        Box(
+            Modifier.fillMaxSize().drawBehind {
+                val amount = pageGround.value
+                if (amount > 0f) drawRect(heroPageColor.value, alpha = amount)
+            },
+        )
 
         val scrolledPastHero by rememberScrolledPastHero(listState, heroHeight)
         val heroVisible = !scrolledPastHero
@@ -385,6 +421,7 @@ internal fun HomeContentBody(
                                 items = state.resume,
                                 onSeeAll = onOpenLibrary,
                                 onClick = { onIntent(HomeIntent.OpenResume(it)) },
+                                onQuickActions = { quickActions = it.homeQuickActions(onIntent) },
                             )
                         }
                     }
@@ -396,6 +433,7 @@ internal fun HomeContentBody(
                                 items = state.favorites,
                                 onSeeAll = onOpenLibrary,
                                 onClick = { onIntent(HomeIntent.OpenResume(it)) },
+                                onQuickActions = { quickActions = it.homeQuickActions(onIntent) },
                             )
                         }
                     }
@@ -407,6 +445,18 @@ internal fun HomeContentBody(
                                     items = calendarItems,
                                     onSeeAll = onOpenCalendar,
                                     onClick = { onOpenCalendarEntry(it.entry) },
+                                    onQuickActions = { preview ->
+                                        quickActions =
+                                            HomeQuickActions(
+                                                title = preview.entry.episode.showTitle,
+                                                actions =
+                                                    listOf(
+                                                        HomeQuickAction("查看详情") {
+                                                            onOpenCalendarEntry(preview.entry)
+                                                        },
+                                                    ),
+                                            )
+                                    },
                                 )
                             }
                         }
@@ -444,6 +494,21 @@ internal fun HomeContentBody(
                                     // showed none of what the chip had just offered.
                                     onSeeAll = { expandedRow = row },
                                     onClick = { onIntent(HomeIntent.Open(it)) },
+                                    onQuickActions = { item ->
+                                        quickActions =
+                                            HomeQuickActions(
+                                                title = item.title,
+                                                actions =
+                                                    listOf(
+                                                        HomeQuickAction("查看详情") {
+                                                            onIntent(HomeIntent.Open(item))
+                                                        },
+                                                        HomeQuickAction("加入收藏") {
+                                                            onIntent(HomeIntent.Favorite(item))
+                                                        },
+                                                    ),
+                                            )
+                                    },
                                 )
                             }
                         }
@@ -462,6 +527,10 @@ internal fun HomeContentBody(
 
         if (state.resolving) {
             OrbProgress(modifier = Modifier.align(Alignment.Center), size = OrbProgressDefaults.Page)
+        }
+
+        quickActions?.let { sheet ->
+            HomeQuickActionsSheet(sheet = sheet, onDismiss = { quickActions = null })
         }
 
         expandedRow?.let { row ->
@@ -1025,12 +1094,63 @@ private fun HomeSourceBadge(source: String) {
     )
 }
 
+/**
+ * What a long press on a 首页 poster offers.
+ *
+ * 媒体库 has answered this gesture since its grid was written — hold a poster and the handful
+ * of things people do to a title without opening it appear. The rails here show the same
+ * posters and answered nothing, so the gesture was learned in one place and silently absent in
+ * the other. The rows differ by rail because 首页's store does: a shelf built from the media
+ * library can only be opened from here, while a TMDB pick can also be resolved and favourited.
+ */
+private data class HomeQuickAction(
+    val label: String,
+    val onSelect: () -> Unit,
+)
+
+private data class HomeQuickActions(
+    val title: String,
+    val actions: List<HomeQuickAction>,
+)
+
+/** Library-backed shelves: 首页's store can open a title, but it owns none of its flags. */
+private fun HomeResumeEntry.homeQuickActions(onIntent: (HomeIntent) -> Unit): HomeQuickActions {
+    val entry = this
+    return HomeQuickActions(
+        title = entry.item.title,
+        actions = listOf(HomeQuickAction("查看详情") { onIntent(HomeIntent.OpenResume(entry)) }),
+    )
+}
+
+@Composable
+private fun HomeQuickActionsSheet(
+    sheet: HomeQuickActions,
+    onDismiss: () -> Unit,
+) {
+    GlassDialog(onDismiss = onDismiss) {
+        OverlayHeader(title = sheet.title, onClose = onDismiss)
+        Column(verticalArrangement = Arrangement.spacedBy(OverlayOptionSpacing)) {
+            sheet.actions.forEach { action ->
+                OverlayOptionRow(
+                    label = action.label,
+                    selected = false,
+                    onClick = {
+                        onDismiss()
+                        action.onSelect()
+                    },
+                )
+            }
+        }
+    }
+}
+
 /** 继续观看 — Forward-style still, exact resume position and progress at first glance. */
 @Composable
 private fun ContinueWatching(
     items: List<HomeResumeEntry>,
     onSeeAll: () -> Unit,
     onClick: (HomeResumeEntry) -> Unit,
+    onQuickActions: (HomeResumeEntry) -> Unit,
 ) {
     val palette = LocalPalette.current
     Column {
@@ -1065,7 +1185,11 @@ private fun ContinueWatching(
             horizontalArrangement = Arrangement.spacedBy(11.dp),
         ) {
             motionItems(items, key = { "${it.server.id}:${it.item.id}" }) { entry ->
-                ContinueWatchingCard(entry = entry, onClick = { onClick(entry) })
+                ContinueWatchingCard(
+                    entry = entry,
+                    onClick = { onClick(entry) },
+                    onLongClick = { onQuickActions(entry) },
+                )
             }
         }
     }
@@ -1075,6 +1199,7 @@ private fun ContinueWatching(
 private fun ContinueWatchingCard(
     entry: HomeResumeEntry,
     onClick: () -> Unit,
+    onLongClick: () -> Unit,
 ) {
     val palette = LocalPalette.current
     val item = entry.item
@@ -1097,6 +1222,7 @@ private fun ContinueWatchingCard(
             progress = item.playedPercentage?.let { (it / 100.0).toFloat() },
             contentDescription = "继续观看 ${item.title}${item.subtitle?.let { "，$it" }.orEmpty()}",
             onClick = onClick,
+            onLongClick = onLongClick,
             sharedTransitionKey = MediaSharedElementKey(entry.server.id, item.id),
             modifier = Modifier.fillMaxWidth().height(MediaSizing.landscapeCardHeight),
         ) {
@@ -1160,6 +1286,7 @@ private fun LibraryMediaShelf(
     items: List<HomeResumeEntry>,
     onSeeAll: () -> Unit,
     onClick: (HomeResumeEntry) -> Unit,
+    onQuickActions: (HomeResumeEntry) -> Unit,
 ) {
     Column {
         HomeShelfHeader(title = title, source = "媒体库", onSeeAll = onSeeAll)
@@ -1184,6 +1311,7 @@ private fun LibraryMediaShelf(
                             entry.server.serverName.takeIf(String::isNotBlank),
                         ).joinToString(" · "),
                     onClick = { onClick(entry) },
+                    onLongClick = { onQuickActions(entry) },
                     modifier = Modifier.width(MediaSizing.posterRailWidth),
                     posterModifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f),
                 )
@@ -1335,6 +1463,7 @@ private fun HomeCalendarShelf(
     items: List<HomeCalendarPreview>,
     onSeeAll: () -> Unit,
     onClick: (HomeCalendarPreview) -> Unit,
+    onQuickActions: (HomeCalendarPreview) -> Unit,
 ) {
     val palette = LocalPalette.current
     Column {
@@ -1388,6 +1517,7 @@ private fun HomeCalendarShelf(
                     title = entry.episode.showTitle,
                     year = "${preview.priorityLabel} · ${preview.episodeLabel}",
                     onClick = { onClick(preview) },
+                    onLongClick = { onQuickActions(preview) },
                     modifier = Modifier.width(MediaSizing.posterRailWidth),
                     posterModifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f),
                 )
@@ -1406,6 +1536,7 @@ private fun Recommended(
     showReleaseDate: Boolean,
     onSeeAll: () -> Unit,
     onClick: (TmdbItem) -> Unit,
+    onQuickActions: (TmdbItem) -> Unit,
 ) {
     val palette = LocalPalette.current
     Column {
@@ -1463,6 +1594,7 @@ private fun Recommended(
                     // shelf posters use the route fade instead of competing for
                     // one shared element (which made the duplicate turn blank).
                     onClick = { onClick(item) },
+                    onLongClick = { onQuickActions(item) },
                     modifier = Modifier.width(MediaSizing.posterRailWidth).then(arrival.item(index)),
                     posterModifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f),
                 )

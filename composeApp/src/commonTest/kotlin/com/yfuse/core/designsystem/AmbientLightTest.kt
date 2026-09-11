@@ -16,9 +16,9 @@ class AmbientLightTest {
 
         val creamSky = Color(0xFFF6DDB0)
         val toned = toneAmbientLight(creamSky)
-        // A saturated amber at 42% HSL lightness sits near a third of full luminance.
+        // A saturated amber at 55% HSL lightness sits under half of full luminance.
         assertTrue(toned.luminance() < creamSky.luminance())
-        assertTrue(toned.luminance() < 0.40f)
+        assertTrue(toned.luminance() < 0.50f)
         // Warm hue survives: red stays ahead of blue after the dim.
         assertTrue(toned.red > toned.blue)
     }
@@ -62,6 +62,52 @@ class AmbientLightTest {
         val light = ambientLightFromPixels(IntArray(32 * 18) { 0xFF000000.toInt() }, 32, 18)
         assertTrue(light.isDark)
         assertNull(ambientLightAccent(light))
+        assertEquals(AmbientInset.None, light.inset)
+    }
+
+    @Test
+    fun fromPixels_liftsBakedInLetterboxOutOfThePicture() {
+        val width = 96
+        val height = 54
+        val bars = 6
+        val pixels =
+            IntArray(width * height) { index ->
+                val y = index / width
+                if (y < bars || y >= height - bars) 0xFF050505.toInt() else 0xFFE0783C.toInt()
+            }
+        val light = ambientLightFromPixels(pixels, width, height)
+
+        assertEquals(bars / height.toFloat(), light.inset.top)
+        assertEquals(bars / height.toFloat(), light.inset.bottom)
+        assertEquals(0f, light.inset.left)
+        assertEquals(0f, light.inset.right)
+        // The rim is read inside the content, so the baked-in bars glow with the picture's colour.
+        assertTrue(light.top.all { it != Color.Black })
+        assertTrue(light.bottom.all { it != Color.Black })
+        assertTrue(light.mean != Color.Black)
+    }
+
+    @Test
+    fun fromPixels_darkSkyOnOneEdgeIsNotABar() {
+        val width = 96
+        val height = 54
+        val pixels =
+            IntArray(width * height) { index ->
+                if (index / width < 10) 0xFF050505.toInt() else 0xFFE0783C.toInt()
+            }
+        val light = ambientLightFromPixels(pixels, width, height)
+        assertEquals(AmbientInset.None, light.inset)
+        assertTrue(light.top.all { it == Color.Black })
+        assertTrue(light.bottom.all { it != Color.Black })
+    }
+
+    @Test
+    fun inset_interpolatesAndCountsAsAChange() {
+        val flat = AmbientLight.uniform(Color(0xFF8A4A20))
+        val boxed = flat.copy(inset = AmbientInset(top = 0.1f, bottom = 0.1f))
+        assertTrue(ambientLightDiffers(flat, boxed))
+        assertEquals(AmbientInset(top = 0.05f, bottom = 0.05f), lerpAmbientLight(flat, boxed, 0.5f).inset)
+        assertEquals(boxed, lerpAmbientLight(flat, boxed, 1f))
     }
 
     @Test

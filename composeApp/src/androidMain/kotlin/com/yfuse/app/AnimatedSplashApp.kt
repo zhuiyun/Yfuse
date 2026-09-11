@@ -48,6 +48,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.yfuse.core.designsystem.DarkPalette
 import com.yfuse.core.designsystem.LightPalette
 import com.yfuse.core.designsystem.LocalRouteVisible
+import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.SplashAnimation
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.defaultAnimation
@@ -118,15 +119,39 @@ fun AnimatedSplashApp(
         }
     }
 
+    // The hand-off used to be a removal: the splash layer left the tree and the first screen was
+    // simply already there, at full strength, in the one frame nobody animates. This is the app's
+    // own arrival — the same short lift every route gets — driven from an Animatable read only in
+    // the draw phase, so it costs the busiest moment in the process's life no recomposition.
+    val arrival = remember { Animatable(if (splashVisible) 0f else 1f) }
+    LaunchedEffect(splashVisible, stillFrame) {
+        if (splashVisible || arrival.value >= 1f) return@LaunchedEffect
+        if (stillFrame) {
+            arrival.snapTo(1f)
+        } else {
+            arrival.animateTo(1f, tween(Motion.EMPHASIZED, easing = Motion.Curve))
+        }
+    }
+
     Box(Modifier.fillMaxSize()) {
         val parentRouteVisible = LocalRouteVisible.current
         CompositionLocalProvider(LocalRouteVisible provides (parentRouteVisible && !splashVisible)) {
             Box(
-                Modifier.fillMaxSize().drawWithContent {
-                    // The splash background stays opaque through its final frame. Keep data and layout
-                    // preparation active, but do not record wallpaper, posters and glass underneath it.
-                    if (!splashVisible) drawContent()
-                },
+                Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        // Both halves of the arrival live here. While the splash is still up the
+                        // layer is fully transparent, which is also the cheapest possible frame:
+                        // the app composes and lays out, and nothing it draws is composited.
+                        val entered = arrival.value
+                        alpha = entered
+                        scaleX = SPLASH_HANDOFF_SCALE_FROM + (1f - SPLASH_HANDOFF_SCALE_FROM) * entered
+                        scaleY = scaleX
+                    }.drawWithContent {
+                        // The splash background stays opaque through its final frame. Keep data and layout
+                        // preparation active, but do not record wallpaper, posters and glass underneath it.
+                        if (!splashVisible) drawContent()
+                    },
             ) {
                 App(root)
             }
@@ -378,6 +403,13 @@ private const val REDUCED_MOTION_FADE_MS = 80
 private const val SYSTEM_ANIMATIONS_OFF_HOLD_MS = 180L
 
 private const val ENTRY_TINT_MS = 300f
+
+/**
+ * How far back the first screen starts. Restrained on purpose: this is a whole page arriving, not
+ * a card, and the app's own 平级切 tab scale is 0.986 — a deeper zoom on the first thing the user
+ * sees reads as the launch not being finished yet.
+ */
+private const val SPLASH_HANDOFF_SCALE_FROM = 0.98f
 
 /**
  * 水 → 火, the palette from 「Yfuse 水火 Logo」, run across the wordmark in the same

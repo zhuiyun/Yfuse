@@ -1,5 +1,9 @@
 package com.yfuse.feature.calendar
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -26,6 +30,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -34,7 +39,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
@@ -60,6 +70,7 @@ import com.yfuse.core.designsystem.InlineLoadingContent
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.MediaSharedElementKey
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.PageHint
 import com.yfuse.core.designsystem.SkeletonBlock
@@ -74,6 +85,8 @@ import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberDisclosureProgress
 import com.yfuse.core.designsystem.rememberSegmentIndicator
 import com.yfuse.core.designsystem.selectionColor
+import com.yfuse.core.designsystem.sharedMediaArtwork
+import com.yfuse.core.designsystem.sharedMediaOnClick
 import com.yfuse.core.designsystem.solidGlass
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.AiringAccessTier
@@ -535,6 +548,7 @@ private fun AdaptiveCalendarResults(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun CalendarListResults(
     days: List<CalendarDay>,
@@ -621,15 +635,30 @@ private fun CalendarListResults(
             }
             Box(Modifier.fillMaxWidth().height(1.dp).background(palette.border))
         }
-        timelineDays.forEach { day ->
+        timelineDays.forEachIndexed { dayIndex, day ->
             val expanded = day.date in expandedDates
             val displayEntries = displayEntriesByDate[day.date].orEmpty()
-            motionItem(key = "day-header:${day.date}", contentType = "calendar-day-header") {
+            // A day and its rows are one block, and the date it belongs to used to scroll out
+            // of the viewport long before the block did — so a reader half way down 周四 was
+            // looking at episodes with no date over them. The header stays instead.
+            stickyHeader(key = "day-header:${day.date}", contentType = "calendar-day-header") {
+                // Which item this header is: the 展开全部 row, then two items per day.
+                val headerIndex = dayIndex * 2 + 1
+                val stuck by remember(listState, headerIndex) {
+                    derivedStateOf {
+                        listState.firstVisibleItemIndex > headerIndex ||
+                            (
+                                listState.firstVisibleItemIndex == headerIndex &&
+                                    listState.firstVisibleItemScrollOffset > 0
+                            )
+                    }
+                }
                 CalendarDayHeader(
                     day = day,
                     today = today,
                     expanded = expanded,
                     showCount = displayEntries.size,
+                    stuck = stuck,
                     onToggle = {
                         expandedDates = if (expanded) expandedDates - day.date else expandedDates + day.date
                     },
@@ -679,76 +708,113 @@ private fun CalendarDayHeader(
     today: String,
     expanded: Boolean,
     showCount: Int,
+    stuck: Boolean,
     onToggle: () -> Unit,
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
     val rotation = animateRotationAsState(if (expanded) 90f else 0f)
     val isToday = day.isToday(today)
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .defaultMinSize(minHeight = 64.dp)
-            .pressable(
-                onClickLabel = if (expanded) "收起${day.date}" else "展开${day.date}",
-                onClick = onToggle,
-            ).background(selectionColor(if (expanded) accent.container.copy(alpha = 0.24f) else Color.Transparent))
-            .padding(horizontal = 14.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        if (expanded) {
-            Box(
-                Modifier
-                    .width(3.dp)
-                    .height(30.dp)
-                    .clip(CircleShape)
-                    .background(accent.accent),
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    // Pinned, this header has the rows it belongs to sliding underneath it: it takes the
+    // list's own ground so they cannot read through, and casts a short shade past its lower
+    // edge so it reads as being in front of them. Released, both fade back out over
+    // Motion.QUICK — and snap, like every other animation here, under 减弱动态效果.
+    val pinned =
+        animateFloatAsState(
+            targetValue = if (stuck) 1f else 0f,
+            animationSpec = if (reduceMotion) snap() else tween(Motion.QUICK, easing = Motion.Curve),
+            label = "calendarDayHeaderPinned",
+        )
+    val ground = palette.card2.compositeOver(palette.background)
+    val shade = (if (palette.isDark) Color.Black else Color(0xFF1E2846)).copy(alpha = 0.16f)
+    Column(
+        Modifier.fillMaxWidth().drawBehind {
+            val amount = pinned.value
+            if (amount <= 0f) return@drawBehind
+            drawRect(ground, alpha = amount)
+            val depth = CalendarStuckShade.toPx()
+            drawRect(
+                brush =
+                    Brush.verticalGradient(
+                        0f to shade.copy(alpha = shade.alpha * amount),
+                        1f to Color.Transparent,
+                        startY = size.height,
+                        endY = size.height + depth,
+                    ),
+                topLeft = Offset(0f, size.height),
+                size = Size(size.width, depth),
             )
-        }
-        Column(Modifier.weight(1f)) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(7.dp),
-            ) {
-                Text(
-                    isoWeekdayLabel(day.date),
-                    style = AppTypography.body.strong,
-                    color = if (expanded) accent.accent else palette.text,
+        },
+    ) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .defaultMinSize(minHeight = 64.dp)
+                .pressable(
+                    onClickLabel = if (expanded) "收起${day.date}" else "展开${day.date}",
+                    onClick = onToggle,
+                ).background(selectionColor(if (expanded) accent.container.copy(alpha = 0.24f) else Color.Transparent))
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            if (expanded) {
+                Box(
+                    Modifier
+                        .width(3.dp)
+                        .height(30.dp)
+                        .clip(CircleShape)
+                        .background(accent.accent),
                 )
-                if (isToday) {
+            }
+            Column(Modifier.weight(1f)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                ) {
                     Text(
-                        "今天",
-                        style = AppTypography.caption.strong,
-                        color = accent.onAccent,
-                        modifier =
-                            Modifier
-                                .clip(GlassShapes.chip)
-                                .background(accent.accent)
-                                .padding(horizontal = 7.dp, vertical = 2.dp),
+                        isoWeekdayLabel(day.date),
+                        style = AppTypography.body.strong,
+                        color = if (expanded) accent.accent else palette.text,
                     )
+                    if (isToday) {
+                        Text(
+                            "今天",
+                            style = AppTypography.caption.strong,
+                            color = accent.onAccent,
+                            modifier =
+                                Modifier
+                                    .clip(GlassShapes.chip)
+                                    .background(accent.accent)
+                                    .padding(horizontal = 7.dp, vertical = 2.dp),
+                        )
+                    }
                 }
+                Text(
+                    isoShortDate(day.date),
+                    style = AppTypography.caption.regular,
+                    color = palette.sub2,
+                )
             }
             Text(
-                isoShortDate(day.date),
-                style = AppTypography.caption.regular,
-                color = palette.sub2,
+                if (showCount > 0) "$showCount 部更新" else "无更新",
+                style = AppTypography.caption.medium,
+                color = if (showCount > 0) palette.sub else palette.sub2,
+            )
+            Icon(
+                AppIcons.ChevronRight,
+                contentDescription = if (expanded) "收起" else "展开",
+                tint = if (expanded) accent.accent else palette.sub2,
+                modifier = Modifier.size(16.dp).graphicsLayer { rotationZ = rotation.value },
             )
         }
-        Text(
-            if (showCount > 0) "$showCount 部更新" else "无更新",
-            style = AppTypography.caption.medium,
-            color = if (showCount > 0) palette.sub else palette.sub2,
-        )
-        Icon(
-            AppIcons.ChevronRight,
-            contentDescription = if (expanded) "收起" else "展开",
-            tint = if (expanded) accent.accent else palette.sub2,
-            modifier = Modifier.size(16.dp).graphicsLayer { rotationZ = rotation.value },
-        )
+        Box(Modifier.fillMaxWidth().height(1.dp).background(palette.border))
     }
-    Box(Modifier.fillMaxWidth().height(1.dp).background(palette.border))
 }
+
+/** How far a pinned day header's shade reaches past its own lower edge. */
+private val CalendarStuckShade = 6.dp
 
 @Composable
 private fun CalendarDateRail(
@@ -1268,15 +1334,23 @@ private fun CalendarTrackingPane(
             LaunchedEffect(series.serverId, series.seriesItemId) {
                 resolvedPosters = component.resolvedTrackingPosterUrls(series)
             }
+            // These rows push the detail page, so their artwork is the same artwork the detail
+            // hero is about to show — the one list in 追剧中心 that can hand its poster over
+            // instead of cross-fading a new page in over it. A row with nothing in the library
+            // has no item to open and therefore no key.
+            val seriesItemId = series.seriesItemId
+            val sharedKey = seriesItemId?.let { MediaSharedElementKey(series.serverId, it) }
+            val openSeriesDetail =
+                sharedMediaOnClick(sharedKey) {
+                    seriesItemId?.let { component.onOpenItem(series.serverId, it) }
+                }
             Row(
                 Modifier
                     .fillMaxWidth()
                     .glass(GlassShapes.card, palette.card2, palette.border)
                     .then(
-                        if (series.seriesItemId != null) {
-                            Modifier.pressable {
-                                component.onOpenItem(series.serverId, series.seriesItemId)
-                            }
+                        if (seriesItemId != null) {
+                            Modifier.pressable(onClick = openSeriesDetail)
                         } else {
                             Modifier
                         },
@@ -1295,6 +1369,7 @@ private fun CalendarTrackingPane(
                     contentDescription = null,
                     modifier =
                         Modifier
+                            .sharedMediaArtwork(sharedKey)
                             .width(48.dp)
                             .height(68.dp)
                             .clip(GlassShapes.thumb)

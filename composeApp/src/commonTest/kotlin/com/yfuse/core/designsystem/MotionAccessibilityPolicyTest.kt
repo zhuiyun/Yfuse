@@ -7,14 +7,14 @@ class MotionAccessibilityPolicyTest {
     @Test
     fun overlays_leave_faster_and_reduce_motion_is_instant() {
         assertEquals(DialogAnimation.Lift.enterMillis, overlayDurationMillis(leaving = false, reduceMotion = false))
-        assertEquals(OVERLAY_EXIT_DURATION_MS, overlayDurationMillis(leaving = true, reduceMotion = false))
+        assertEquals(Motion.Dialog.EXIT_QUICK, overlayDurationMillis(leaving = true, reduceMotion = false))
         assertEquals(0, overlayDurationMillis(leaving = false, reduceMotion = true))
         assertEquals(0, overlayDurationMillis(leaving = true, reduceMotion = true))
     }
 
     @Test
     fun dense_posters_use_a_short_fade_and_fallbacks_keep_identity() {
-        assertEquals(180, POSTER_FADE_DURATION_MS)
+        assertEquals(180, Motion.POSTER_FADE)
         assertEquals("海", imageFallbackMonogram(" 海报 "))
         assertEquals("Y", imageFallbackMonogram("yfuse"))
         assertEquals("—", imageFallbackMonogram(null))

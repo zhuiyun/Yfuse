@@ -53,6 +53,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.BackOverlay
 import com.yfuse.core.designsystem.BackdropState
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.GlassShapes
@@ -67,6 +68,7 @@ import com.yfuse.core.designsystem.backdropBlur
 import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.motionItemsIndexed
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.selectionColor
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.solidGlass
 import com.yfuse.core.model.Episode
@@ -234,7 +236,13 @@ internal fun SeasonPickerOverlay(
             )
         }
     }
-    PlatformBackHandler(enabled = open, onBack = onDismiss)
+    // The back key belongs to the open state, not to whether the list can be drawn. The
+    // [BackOverlay] below carries the predictive transform and so lives inside the panel —
+    // past both early returns — which left one reachable state with no way out of it: open,
+    // but with no anchor yet, so nothing below this line is composed and the key did nothing.
+    // This commit-only handler covers exactly that gap and stands down as soon as the
+    // overlay itself is composed.
+    PlatformBackHandler(enabled = open && anchor == null, onBack = onDismiss)
     // Composed while opening, open, or still animating shut.
     if (!open && progress.value <= 0f) return
     if (anchor == null) return
@@ -259,60 +267,67 @@ internal fun SeasonPickerOverlay(
             // Everything outside the list closes it; the list consumes its own taps.
             Box(Modifier.fillMaxSize().pointerInput(onDismiss) { detectTapGestures { onDismiss() } })
         }
-        Layout(
-            modifier = Modifier.fillMaxSize(),
-            content = {
-                Column(
-                    Modifier
-                        .graphicsLayer {
-                            val entered = progress.value
-                            alpha = entered
-                            val scale = SEASON_PICKER_SCALE_FROM + (1f - SEASON_PICKER_SCALE_FROM) * entered
-                            scaleX = scale
-                            scaleY = scale
-                            transformOrigin = TransformOrigin(0f, if (placement.above) 1f else 0f)
-                        }.shadow(Shadows.menu, shape)
-                        .backdropBlur(backdrop, shape, radius = SeasonPickerBlurRadius)
-                        .liquidGlass(shape = shape, fill = fill, border = border, sheen = 0.5f)
-                        .heightIn(max = SeasonPickerMaxHeight)
-                        .verticalScroll(rememberScrollState())
-                        .padding(10.dp),
-                ) {
-                    seasons.forEach { (id, name) ->
-                        SeasonRow(
-                            name = name,
-                            selected = id == selectedSeasonId,
-                            accent = accent,
-                            onClick = { onSelectSeason(id) },
-                        )
+        // The return gesture now previews: a drag leans the list away and lets go of it, and
+        // releasing it short of the commit point brings the same list back. Only the panel is
+        // inside the overlay's transform — [origin] is read from the untransformed box above,
+        // because a translated coordinate space would cancel itself out of the placement below.
+        BackOverlay(onBack = onDismiss, enabled = open) {
+            Layout(
+                modifier = Modifier.fillMaxSize(),
+                content = {
+                    Column(
+                        Modifier
+                            .graphicsLayer {
+                                val entered = progress.value
+                                alpha = entered
+                                val scale =
+                                    SEASON_PICKER_SCALE_FROM + (1f - SEASON_PICKER_SCALE_FROM) * entered
+                                scaleX = scale
+                                scaleY = scale
+                                transformOrigin = TransformOrigin(0f, if (placement.above) 1f else 0f)
+                            }.shadow(Shadows.menu, shape)
+                            .backdropBlur(backdrop, shape, radius = SeasonPickerBlurRadius)
+                            .liquidGlass(shape = shape, fill = fill, border = border, sheen = 0.5f)
+                            .heightIn(max = SeasonPickerMaxHeight)
+                            .verticalScroll(rememberScrollState())
+                            .padding(10.dp),
+                    ) {
+                        seasons.forEach { (id, name) ->
+                            SeasonRow(
+                                name = name,
+                                selected = id == selectedSeasonId,
+                                accent = accent,
+                                onClick = { onSelectSeason(id) },
+                            )
+                        }
                     }
-                }
-            },
-        ) { measurables, constraints ->
-            val pageWidth = constraints.maxWidth
-            val pageHeight = constraints.maxHeight
-            val width =
-                (pageWidth * SEASON_PICKER_WIDTH_FRACTION)
-                    .toInt()
-                    .coerceIn(SeasonPickerMinWidth.roundToPx(), SeasonPickerMaxWidth.roundToPx())
-                    .coerceAtMost(pageWidth)
-            val panel =
-                measurables.first().measure(
-                    constraints.copy(minWidth = width, maxWidth = width, minHeight = 0),
-                )
-            val gap = SeasonPickerGap.roundToPx()
-            val margin = Dimens.pageHorizontal.roundToPx()
-            val anchorLeft = (anchor.left - origin.x).toInt()
-            val anchorTop = (anchor.top - origin.y).toInt()
-            val anchorBottom = (anchor.bottom - origin.y).toInt()
-            // Never off the page, and never inside the page margin while there is room to respect it.
-            val maxX = (pageWidth - width - margin).coerceAtLeast(0)
-            val x = anchorLeft.coerceIn(margin.coerceAtMost(maxX), maxX)
-            val below = anchorBottom + gap
-            val fitsBelow = below + panel.height <= pageHeight
-            placement.above = !fitsBelow
-            val y = if (fitsBelow) below else (anchorTop - gap - panel.height).coerceAtLeast(0)
-            layout(pageWidth, pageHeight) { panel.place(x, y) }
+                },
+            ) { measurables, constraints ->
+                val pageWidth = constraints.maxWidth
+                val pageHeight = constraints.maxHeight
+                val width =
+                    (pageWidth * SEASON_PICKER_WIDTH_FRACTION)
+                        .toInt()
+                        .coerceIn(SeasonPickerMinWidth.roundToPx(), SeasonPickerMaxWidth.roundToPx())
+                        .coerceAtMost(pageWidth)
+                val panel =
+                    measurables.first().measure(
+                        constraints.copy(minWidth = width, maxWidth = width, minHeight = 0),
+                    )
+                val gap = SeasonPickerGap.roundToPx()
+                val margin = Dimens.pageHorizontal.roundToPx()
+                val anchorLeft = (anchor.left - origin.x).toInt()
+                val anchorTop = (anchor.top - origin.y).toInt()
+                val anchorBottom = (anchor.bottom - origin.y).toInt()
+                // Never off the page, and never inside the page margin while there is room to respect it.
+                val maxX = (pageWidth - width - margin).coerceAtLeast(0)
+                val x = anchorLeft.coerceIn(margin.coerceAtMost(maxX), maxX)
+                val below = anchorBottom + gap
+                val fitsBelow = below + panel.height <= pageHeight
+                placement.above = !fitsBelow
+                val y = if (fitsBelow) below else (anchorTop - gap - panel.height).coerceAtLeast(0)
+                layout(pageWidth, pageHeight) { panel.place(x, y) }
+            }
         }
     }
 }
@@ -337,6 +352,9 @@ private fun SeasonRow(
     onClick: () -> Unit,
 ) {
     val palette = LocalPalette.current
+    // The highlight fades between the two rows rather than jumping across the list. The
+    // unselected fill is the same accent at zero alpha rather than Color.Transparent, so the
+    // interpolation only moves the alpha and never drifts towards black on the way out.
     Row(
         Modifier
             .fillMaxWidth()
@@ -345,12 +363,9 @@ private fun SeasonRow(
                 role = Role.RadioButton,
                 focusShape = GlassShapes.chip,
                 onClick = onClick,
-            ).then(
-                if (selected) {
-                    Modifier.background(accent.copy(alpha = 0.12f), GlassShapes.chip)
-                } else {
-                    Modifier
-                },
+            ).background(
+                selectionColor(accent.copy(alpha = if (selected) 0.12f else 0f)),
+                GlassShapes.chip,
             ).heightIn(min = 52.dp)
             .padding(horizontal = 16.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -359,7 +374,7 @@ private fun SeasonRow(
         Text(
             name,
             style = if (selected) AppTypography.body.strong else AppTypography.body.medium,
-            color = if (selected) accent else palette.text,
+            color = selectionColor(if (selected) accent else palette.text),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),

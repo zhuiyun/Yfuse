@@ -54,13 +54,14 @@ class EngageContinueWatchingPublisherTest {
                 }
             val unavailable =
                 EngageThenWatchNextPublisher(
-                    engage = ContinueWatchingPublisher {
-                        ContinueWatchingPublishResult.Unavailable(
-                            ContinueWatchingBackend.Engage,
-                            "missing",
-                            terminal = true,
-                        )
-                    },
+                    engage =
+                        ContinueWatchingPublisher {
+                            ContinueWatchingPublishResult.Unavailable(
+                                ContinueWatchingBackend.Engage,
+                                "missing",
+                                terminal = true,
+                            )
+                        },
                     watchNext = fallback,
                 )
             assertIs<ContinueWatchingPublishResult.Published>(unavailable.replace(listOf(entry())))
@@ -69,13 +70,14 @@ class EngageContinueWatchingPublisherTest {
             fallbackCalled = false
             val failed =
                 EngageThenWatchNextPublisher(
-                    engage = ContinueWatchingPublisher {
-                        ContinueWatchingPublishResult.Failed(
-                            ContinueWatchingBackend.Engage,
-                            "network",
-                            retryable = true,
-                        )
-                    },
+                    engage =
+                        ContinueWatchingPublisher {
+                            ContinueWatchingPublishResult.Failed(
+                                ContinueWatchingBackend.Engage,
+                                "network",
+                                retryable = true,
+                            )
+                        },
                     watchNext = fallback,
                 )
             assertIs<ContinueWatchingPublishResult.Failed>(failed.replace(listOf(entry())))

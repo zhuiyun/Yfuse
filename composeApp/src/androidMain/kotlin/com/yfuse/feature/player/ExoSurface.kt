@@ -29,6 +29,11 @@ internal fun ExoSurface(
     modifier: Modifier = Modifier,
     /** 氛围光 reads PlayerView's own SurfaceView, which RESIZE_MODE_FIT sizes to the picture. */
     ambientSampler: AmbientFrameSampler? = null,
+    /**
+     * Drawn above PlayerView and below the stacked captions. PlayerView's own SubtitleView lives
+     * inside its picture-sized content frame, so the light in the bars never reaches it.
+     */
+    ambientLayer: @Composable () -> Unit = {},
 ) {
     val channels by engine.subtitleChannels.collectAsState()
     Box(modifier) {
@@ -81,6 +86,7 @@ internal fun ExoSurface(
             },
             modifier = Modifier.fillMaxSize(),
         )
+        ambientLayer()
         if (channels.dual) {
             val appearance = subtitleAppearance.withBrightness(subtitleBrightness)
             BottomSubtitleStack(

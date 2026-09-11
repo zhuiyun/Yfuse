@@ -1,10 +1,7 @@
 package com.yfuse.feature.profile
 
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -18,18 +15,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.selection.selectableGroup
-import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.Slider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -42,9 +34,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
@@ -65,21 +55,20 @@ import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.VideoCacheSize
 import com.yfuse.core.data.YCoreBufferDuration
 import com.yfuse.core.data.activeOr
+import com.yfuse.core.designsystem.ActionToast
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.ConfirmDialog
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.GlassDialog
-import com.yfuse.core.designsystem.GlassLift
 import com.yfuse.core.designsystem.GlassShapes
+import com.yfuse.core.designsystem.GlassSlider
 import com.yfuse.core.designsystem.GlassStyle
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LocalAccentColors
-import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.MinTouchTarget
-import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.OfficialNavDisplay
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.OverlayOptionRow
@@ -87,6 +76,7 @@ import com.yfuse.core.designsystem.OverlayOptionSpacing
 import com.yfuse.core.designsystem.PageLoadingSkeleton
 import com.yfuse.core.designsystem.ReportOverlayVisible
 import com.yfuse.core.designsystem.ScrollToTopOnReselect
+import com.yfuse.core.designsystem.SettingIconTile
 import com.yfuse.core.designsystem.SettingTint
 import com.yfuse.core.designsystem.SkeletonHandoff
 import com.yfuse.core.designsystem.SplashAnimation
@@ -101,9 +91,6 @@ import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.pressable
-import com.yfuse.core.designsystem.rememberSegmentIndicator
-import com.yfuse.core.designsystem.selectionColor
-import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.designsystem.windowWidthTier
 import com.yfuse.core.model.DecoderMode
@@ -276,6 +263,10 @@ fun ProfileScreen(component: ProfileComponent) {
     var sheet by remember { mutableStateOf<Sheet?>(null) }
     var confirmClearCache by remember { mutableStateOf(false) }
     var confirmClearVideoCache by remember { mutableStateOf(false) }
+    // Clearing a cache leaves nothing behind to look at — the row it was started from just
+    // reads "0 B" afterwards, which is indistinguishable from a tap that did nothing. The
+    // cache work has no store of its own, so the toast is posted where the work finishes.
+    var notice by remember { mutableStateOf<String?>(null) }
     var imageCacheUsageBytes by remember { mutableStateOf<Long?>(null) }
     var videoCacheUsageBytes by remember { mutableStateOf<Long?>(null) }
     var pageStack by rememberSaveable { mutableStateOf<List<String>>(emptyList()) }
@@ -941,6 +932,7 @@ fun ProfileScreen(component: ProfileComponent) {
                     screenScope.launch {
                         component.onClearCache()
                         imageCacheUsageBytes = component.imageCacheUsageBytes()
+                        notice = "图片缓存已清除"
                     }
                 },
                 onDismiss = { confirmClearCache = false },
@@ -958,11 +950,20 @@ fun ProfileScreen(component: ProfileComponent) {
                     screenScope.launch {
                         component.onClearVideoCache()
                         videoCacheUsageBytes = component.videoCacheUsageBytes()
+                        notice = "视频缓存已清除"
                     }
                 },
                 onDismiss = { confirmClearVideoCache = false },
             )
         }
+
+        // Both cache actions live on a settings sub-page, where the floating tab bar is gone
+        // and only the system navigation is under the toast.
+        ActionToast(
+            message = notice,
+            onDismiss = { notice = null },
+            modifier = Modifier.padding(bottom = systemNavigationContentInset()),
+        )
     }
 }
 
@@ -1131,22 +1132,6 @@ private fun SettingsSearchResults(
 }
 
 @Composable
-private fun SettingIconTile(
-    icon: ImageVector,
-    tint: Color,
-) {
-    Box(
-        Modifier
-            .size(28.dp)
-            .clip(AppShapes.thumb)
-            .background(Brush.linearGradient(listOf(lerp(tint, Color.White, 0.16f), tint))),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(15.dp))
-    }
-}
-
-@Composable
 internal fun SettingRow(
     title: String,
     value: String,
@@ -1248,7 +1233,7 @@ private fun BrandAndSplashScreen(
 
     SettingsPage(
         title = "Logo 与开屏动画",
-        subtitle = "更换 Logo 会带上它自己的开屏；启动器可能需要几秒刷新",
+        subtitle = "更换 Logo 会同步开屏；返回桌面后更新图标，可能需要几秒刷新",
         onBack = onBack,
     ) {
         motionItem {
@@ -1378,6 +1363,12 @@ private fun AppIconRow(
     }
 }
 
+/**
+ * Hand-off to [com.yfuse.core.designsystem.SwitchRow], which now owns the implementation.
+ *
+ * Kept so the settings screens can keep calling the name they already import; they migrate
+ * to the design-system import in a later pass.
+ */
 @Composable
 internal fun SwitchRow(
     title: String,
@@ -1388,43 +1379,15 @@ internal fun SwitchRow(
     description: String? = null,
     onChange: (Boolean) -> Unit,
 ) {
-    val palette = LocalPalette.current
-    val interactionSource = remember { MutableInteractionSource() }
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .let { if (embedded) it else it.glass(AppShapes.control, palette.card2, palette.border) }
-            .toggleable(
-                value = checked,
-                interactionSource = interactionSource,
-                indication = null,
-                role = Role.Switch,
-                onValueChange = onChange,
-            ).heightIn(min = MinTouchTarget)
-            .padding(horizontal = 16.dp, vertical = 13.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        if (icon != null) SettingIconTile(icon, iconTint)
-        Column(Modifier.weight(1f)) {
-            Text(
-                title,
-                style = AppTypography.body.medium,
-                color = palette.text,
-                maxLines = 2,
-            )
-            description?.takeIf(String::isNotBlank)?.let { copy ->
-                Spacer(Modifier.height(3.dp))
-                Text(
-                    copy,
-                    style = AppTypography.caption.regular,
-                    color = palette.sub2,
-                    maxLines = 3,
-                )
-            }
-        }
-        PillSwitch(checked)
-    }
+    com.yfuse.core.designsystem.SwitchRow(
+        title = title,
+        checked = checked,
+        embedded = embedded,
+        icon = icon,
+        iconTint = iconTint,
+        description = description,
+        onChange = onChange,
+    )
 }
 
 @Composable
@@ -1482,7 +1445,7 @@ private fun BackgroundImageSheet(
                 )
             }
             Spacer(Modifier.height(6.dp))
-            Slider(value = dim, onValueChange = onDim, valueRange = 0.3f..1f)
+            GlassSlider(value = dim, onValueChange = onDim, valueRange = 0.3f..1f)
             Text("越低，背景图越清晰；越高，文字越容易读", style = AppTypography.caption.regular, color = palette.sub2)
         }
     }
@@ -1550,6 +1513,7 @@ internal fun SettingSegmentRow(
     }
 }
 
+/** Hand-off to [com.yfuse.core.designsystem.SettingSegmentControl], which owns the pill. */
 @Composable
 private fun SettingSegmentControl(
     options: List<String>,
@@ -1557,45 +1521,12 @@ private fun SettingSegmentControl(
     expanded: Boolean,
     onSelect: (Int) -> Unit,
 ) {
-    val palette = LocalPalette.current
-    val accent = LocalAccentColors.current
-    val indicator = rememberSegmentIndicator(selectedIndex, palette.card2, accent.border)
-    Row(
-        Modifier
-            .then(if (expanded) Modifier.fillMaxWidth() else Modifier)
-            .selectableGroup()
-            .flatGlass(GlassShapes.chip, palette.card3, palette.border)
-            .padding(2.dp)
-            .then(indicator.container),
-        horizontalArrangement = Arrangement.spacedBy(2.dp),
-    ) {
-        options.forEachIndexed { index, label ->
-            val isSelected = index == selectedIndex
-            Box(
-                Modifier
-                    .then(if (expanded) Modifier.weight(1f) else Modifier)
-                    .heightIn(min = 30.dp)
-                    .then(indicator.item(index))
-                    .pressable(
-                        pressedScale = 0.97f,
-                        haptic = HapticSignal.Select,
-                        role = Role.RadioButton,
-                        focusShape = GlassShapes.chip,
-                        onClickLabel = label,
-                        onClick = { onSelect(index) },
-                    ).semantics { selected = isSelected }
-                    .padding(horizontal = if (expanded) 6.dp else 12.dp, vertical = 6.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    label,
-                    style = if (isSelected) AppTypography.caption.strong else AppTypography.caption.medium,
-                    color = selectionColor(if (isSelected) accent.accent else palette.sub2),
-                    maxLines = 1,
-                )
-            }
-        }
-    }
+    com.yfuse.core.designsystem.SettingSegmentControl(
+        options = options,
+        selectedIndex = selectedIndex,
+        expanded = expanded,
+        onSelect = onSelect,
+    )
 }
 
 @Composable
@@ -1607,78 +1538,6 @@ internal fun SettingsDivider() {
         ),
     )
 }
-
-@Composable
-private fun DescribedSwitchRow(
-    title: String,
-    description: String,
-    checked: Boolean,
-    onChange: (Boolean) -> Unit,
-) {
-    val palette = LocalPalette.current
-    val interactionSource = remember { MutableInteractionSource() }
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .toggleable(
-                value = checked,
-                interactionSource = interactionSource,
-                indication = null,
-                role = Role.Switch,
-                onValueChange = onChange,
-            ).heightIn(min = MinTouchTarget)
-            .glass(AppShapes.control, palette.card2, palette.border)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(title, style = AppTypography.body.medium, color = palette.text, maxLines = 2)
-            Spacer(Modifier.height(3.dp))
-            Text(description, style = AppTypography.caption.regular, color = palette.sub2, maxLines = 3)
-        }
-        PillSwitch(checked)
-    }
-}
-
-@Composable
-private fun PillSwitch(checked: Boolean) {
-    val palette = LocalPalette.current
-    val accent = LocalAccentColors.current
-    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
-    val progress by animateFloatAsState(
-        targetValue = if (checked) 1f else 0f,
-        animationSpec = Motion.settle<Float>(reduceMotion),
-        label = "switchKnob",
-    )
-    val track by animateColorAsState(
-        targetValue = if (checked) accent.accent else palette.sub2.copy(alpha = if (palette.isDark) 0.30f else 0.28f),
-        animationSpec = Motion.settle<Color>(reduceMotion),
-        label = "switchTrack",
-    )
-    Box(
-        Modifier
-            .width(46.dp)
-            .height(28.dp)
-            .clip(AppShapes.pill)
-            .background(track),
-        contentAlignment = Alignment.CenterStart,
-    ) {
-        Box(
-            Modifier
-                .padding(
-                    horizontal = 3.dp,
-                ).offset(
-                    x = SwitchTravel * progress,
-                ).size(22.dp)
-                .shadow(GlassLift.control, CircleShape)
-                .clip(CircleShape)
-                .background(Color.White),
-        )
-    }
-}
-
-private val SwitchTravel = 18.dp
 
 @Composable
 private fun OptionSheet(

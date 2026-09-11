@@ -1,17 +1,24 @@
 package com.yfuse.feature.player
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
@@ -33,7 +40,9 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.State
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -41,6 +50,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -87,6 +97,8 @@ import com.yfuse.core.designsystem.ambientSeekAccent
 import com.yfuse.core.designsystem.cssLinearGradient
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.rememberAnimatedArtworkAccent
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.abs
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
@@ -117,6 +129,7 @@ internal fun RefinedTopBar(
     /** 氛围光, read only inside the scrim's draw node; null keeps the plain black scrim. */
     ambientLight: State<AmbientLight>? = null,
 ) {
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     Row(
         modifier
             .fillMaxWidth()
@@ -150,17 +163,42 @@ internal fun RefinedTopBar(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false),
                     )
-                    if (dolbyVision) DolbyChip("VISION", Color.White.copy(alpha = 0.88f))
-                    if (dolbyAtmos) DolbyChip("ATMOS", Color.White.copy(alpha = 0.88f))
+                    // Both badges are discovered from the stream, not from the library entry, so
+                    // they land a beat after the title they sit beside. They expand out of it
+                    // rather than appearing on top of it, which is also what stops the title
+                    // from snapping narrower under them.
+                    AnimatedVisibility(
+                        visible = dolbyVision,
+                        enter = barControlEnter(reduceMotion),
+                        exit = barControlExit(reduceMotion),
+                    ) {
+                        DolbyChip("VISION", Color.White.copy(alpha = 0.88f))
+                    }
+                    AnimatedVisibility(
+                        visible = dolbyAtmos,
+                        enter = barControlEnter(reduceMotion),
+                        exit = barControlExit(reduceMotion),
+                    ) {
+                        DolbyChip("ATMOS", Color.White.copy(alpha = 0.88f))
+                    }
                 }
-                if (subtitle.isNotEmpty()) {
-                    Spacer(Modifier.height(2.dp))
+                // The readout is assembled from engine diagnostics, so it arrives after the title
+                // and goes away again whenever a source stops reporting. Growing the line rather
+                // than inserting it keeps the title from hopping up and down the bar. The last
+                // non-empty text is kept so the line still has something to say on its way out.
+                val shownSubtitle = rememberLastNonNull(subtitle.takeIf(String::isNotEmpty)).orEmpty()
+                AnimatedVisibility(
+                    visible = subtitle.isNotEmpty(),
+                    enter = barLineEnter(reduceMotion),
+                    exit = barLineExit(reduceMotion),
+                ) {
                     Text(
-                        subtitle,
+                        shownSubtitle,
                         style = AppTypography.caption.regular,
                         color = Color.White.copy(alpha = 0.44f),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 2.dp),
                     )
                 }
             }
@@ -173,15 +211,28 @@ internal fun RefinedTopBar(
             PlayerClock()
             PlayerBatteryStatus()
             Spacer(Modifier.width(6.dp))
-            if (watchConnected) {
-                CircleControl(
-                    AppIcons.Chat,
-                    if (unreadChat) "房间聊天，有新消息" else "房间聊天",
-                    28.dp,
-                    12.dp,
-                    filled = unreadChat,
-                    onClick = onOpenChat,
-                )
+            AnimatedVisibility(
+                visible = watchConnected,
+                enter = barControlEnter(reduceMotion),
+                exit = barControlExit(reduceMotion),
+            ) {
+                // 有新消息 is a change of treatment on one key rather than a second key, so the
+                // disc fills through a crossfade instead of being swapped for a filled one.
+                AnimatedContent(
+                    targetState = unreadChat,
+                    contentKey = { it },
+                    transitionSpec = { barSwapTransform(reduceMotion) },
+                    label = "player-chat-unread",
+                ) { unread ->
+                    CircleControl(
+                        AppIcons.Chat,
+                        if (unread) "房间聊天，有新消息" else "房间聊天",
+                        28.dp,
+                        12.dp,
+                        filled = unread,
+                        onClick = onOpenChat,
+                    )
+                }
             }
             CircleControl(
                 AppIcons.PictureInPicture,
@@ -190,13 +241,22 @@ internal fun RefinedTopBar(
                 12.dp,
                 onClick = onEnterPictureInPicture,
             )
-            CircleControl(
-                icon = if (filled) AppIcons.AspectFill else AppIcons.AspectFit,
-                description = if (filled) "画面比例：填充" else "画面比例：适应",
-                size = 28.dp,
-                iconSize = 12.dp,
-                onClick = onToggleFill,
-            )
+            // One key with two readings, so the glyph dissolves into the other one. The key keeps
+            // its size through the swap, which is the whole reason there is no size transform.
+            AnimatedContent(
+                targetState = filled,
+                contentKey = { it },
+                transitionSpec = { barSwapTransform(reduceMotion) },
+                label = "player-aspect-mode",
+            ) { fill ->
+                CircleControl(
+                    icon = if (fill) AppIcons.AspectFill else AppIcons.AspectFit,
+                    description = if (fill) "画面比例：填充" else "画面比例：适应",
+                    size = 28.dp,
+                    iconSize = 12.dp,
+                    onClick = onToggleFill,
+                )
+            }
             CircleControl(
                 AppIcons.Cast,
                 "投屏",
@@ -247,13 +307,137 @@ internal fun RefinedBottomBar(
     /** 氛围光; the scrim reads it per frame, the seek accent follows its mean. Null keeps both plain. */
     ambientLight: State<AmbientLight>? = null,
 ) {
+    // A new timeline sample arrives twice a second, and this function is called with it. Only
+    // this frame stops here: everything below takes the holder and reads it from a draw or a
+    // layout lambda, so a new position repaints the rail instead of recomposing the transport
+    // row, the six chip keys, their three AnimatedVisibility scopes and the full-width scrim.
+    val timeline = rememberUpdatedState(state)
+    // The identity is usually a boxed item index. Held by value rather than by box, so the bar
+    // below compares equal to last frame's even when the platform hands out a new Integer.
+    val stableArtworkIdentity = remember(artworkIdentity) { artworkIdentity }
+    RefinedBottomBarContent(
+        timeline = timeline,
+        buttons = state.buttons,
+        durationMs = state.durationMs,
+        speed = state.speed,
+        seekLocked = seekLocked,
+        onPlayPause = onPlayPause,
+        onPrevious = onPrevious,
+        onNext = onNext,
+        onSeek = onSeek,
+        onScrub = onScrub,
+        trickplay = trickplay,
+        progressMarkers = progressMarkers,
+        hasEpisodes = hasEpisodes,
+        onOpenEpisodes = onOpenEpisodes,
+        hasMultipleSources = hasMultipleSources,
+        onOpenSources = onOpenSources,
+        onOpenSubtitles = onOpenSubtitles,
+        onOpenAudio = onOpenAudio,
+        onOpenSpeed = onOpenSpeed,
+        skipSettingsAvailable = skipSettingsAvailable,
+        onOpenSkipSettings = onOpenSkipSettings,
+        danmakuEnabled = danmakuEnabled,
+        onOpenDanmaku = onOpenDanmaku,
+        artworkUrl = artworkUrl,
+        artworkIdentity = stableArtworkIdentity,
+        modifier = modifier,
+        ambientLight = ambientLight,
+    )
+}
+
+@Composable
+private fun RefinedBottomBarContent(
+    timeline: State<PlaybackTransportState>,
+    buttons: PlaybackButtonState,
+    durationMs: Long,
+    speed: Float,
+    seekLocked: Boolean,
+    onPlayPause: () -> Unit,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
+    onSeek: (Long) -> Unit,
+    onScrub: () -> Unit,
+    trickplay: TrickplayStoryboard?,
+    progressMarkers: List<PlaybackProgressMarker>,
+    hasEpisodes: Boolean,
+    onOpenEpisodes: () -> Unit,
+    hasMultipleSources: Boolean,
+    onOpenSources: () -> Unit,
+    onOpenSubtitles: () -> Unit,
+    onOpenAudio: () -> Unit,
+    onOpenSpeed: () -> Unit,
+    skipSettingsAvailable: Boolean,
+    onOpenSkipSettings: () -> Unit,
+    danmakuEnabled: Boolean,
+    onOpenDanmaku: () -> Unit,
+    artworkUrl: String?,
+    artworkIdentity: Any?,
+    modifier: Modifier = Modifier,
+    ambientLight: State<AmbientLight>? = null,
+) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
-    var scrubbed by remember { mutableStateOf<Float?>(null) }
-    val latestTransport by rememberUpdatedState(state)
-    val fraction = scrubbed ?: playbackProgressFraction(state.positionMs, state.durationMs)
+    // Where the finger left the thumb. Read from derived state only, never from composition:
+    // under a drag it changes sixty times a second.
+    val scrubbed = remember { mutableStateOf<Float?>(null) }
+    // The fraction a committed seek is still waiting for the engine to reach, and the one a
+    // cancelled drag is travelling back from.
+    var pendingSeek by remember { mutableStateOf<Float?>(null) }
+    var cancelledFrom by remember { mutableStateOf<Float?>(null) }
+    val releasing = remember { mutableStateOf<Float?>(null) }
+    val scrubbing = remember { derivedStateOf { scrubbed.value != null } }
+    val shownFraction =
+        remember {
+            derivedStateOf {
+                scrubbed.value
+                    ?: releasing.value
+                    ?: playbackProgressFraction(timeline.value.positionMs, timeline.value.durationMs)
+            }
+        }
     val bufferedFraction =
-        playbackProgressFraction(state.bufferedPositionMs, state.durationMs)
-    val shownPosition = scrubbed?.let { scrubPositionMs(it, state.durationMs) } ?: state.positionMs
+        remember {
+            derivedStateOf {
+                playbackProgressFraction(timeline.value.bufferedPositionMs, timeline.value.durationMs)
+            }
+        }
+    val shownPositionMs =
+        remember {
+            {
+                val held = scrubbed.value ?: releasing.value
+                if (held != null) scrubPositionMs(held, timeline.value.durationMs) else timeline.value.positionMs
+            }
+        }
+    // A committed seek is not reported back for about half a second. Clearing the scrubbed
+    // fraction on release therefore threw the thumb back to where the film still was and then
+    // forward again — twice the distance, in the wrong order. It stays where the finger left it
+    // until the engine's own position arrives there, or until the seek has plainly not landed.
+    LaunchedEffect(pendingSeek) {
+        val target = pendingSeek ?: return@LaunchedEffect
+        val targetMs = scrubPositionMs(target, timeline.value.durationMs)
+        withTimeoutOrNull(SEEK_COMMIT_TIMEOUT_MS) {
+            snapshotFlow { timeline.value.positionMs }
+                .first { abs(it - targetMs) <= SEEK_COMMIT_EPSILON_MS }
+        }
+        scrubbed.value = null
+        pendingSeek = null
+    }
+    // A cancelled drag has no seek behind it, so the thumb travels back to the playhead rather
+    // than teleporting to it.
+    LaunchedEffect(cancelledFrom, reduceMotion) {
+        val from = cancelledFrom
+        if (from == null || reduceMotion) {
+            releasing.value = null
+            cancelledFrom = null
+            return@LaunchedEffect
+        }
+        releasing.value = from
+        Animatable(from).animateTo(
+            playbackProgressFraction(timeline.value.positionMs, timeline.value.durationMs),
+            Motion.settle(),
+        ) { releasing.value = value }
+        releasing.value = null
+        cancelledFrom = null
+    }
     val artworkAccent =
         rememberAnimatedArtworkAccent(
             url = artworkUrl,
@@ -285,12 +469,12 @@ internal fun RefinedBottomBar(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Box(Modifier.height(44.dp), contentAlignment = Alignment.Center) {
-                RefinedTimeText(shownPosition.coerceAtLeast(0L) / 1_000L)
+                RefinedTimeText { shownPositionMs().coerceAtLeast(0L) / 1_000L }
             }
             Column(Modifier.weight(1f)) {
                 val preview = trickplay
                 AnimatedVisibility(
-                    visible = scrubbed != null && preview != null,
+                    visible = scrubbing.value && preview != null,
                     enter =
                         if (reduceMotion) {
                             EnterTransition.None
@@ -322,41 +506,62 @@ internal fun RefinedBottomBar(
                                 .fillMaxWidth()
                                 .height(previewHeight + 8.dp),
                         ) {
-                            val availableWidth = (maxWidth - RefinedTrickplayPreviewWidth).coerceAtLeast(0.dp)
-                            val previewX =
-                                (maxWidth * fraction - RefinedTrickplayPreviewWidth / 2f)
-                                    .coerceIn(0.dp, availableWidth)
+                            // The still follows the finger, so the card is placed rather than
+                            // laid out again on every sample of it.
+                            val trackWidthPx = constraints.maxWidth
                             TrickplayPreview(
                                 storyboard = preview,
-                                positionMs = shownPosition,
-                                modifier = Modifier.offset(x = previewX),
+                                positionMs = shownPositionMs(),
+                                modifier =
+                                    Modifier.offset {
+                                        val cardPx = RefinedTrickplayPreviewWidth.roundToPx()
+                                        IntOffset(
+                                            x =
+                                                (trackWidthPx * shownFraction.value - cardPx / 2f)
+                                                    .toInt()
+                                                    .coerceIn(0, (trackWidthPx - cardPx).coerceAtLeast(0)),
+                                            y = 0,
+                                        )
+                                    },
                             )
                         }
                     }
                 }
                 StandardSeekBar(
-                    fraction = fraction,
+                    fraction = shownFraction,
                     bufferedFraction = bufferedFraction,
-                    positionMs = shownPosition,
-                    durationMs = state.durationMs,
+                    positionMs = shownPositionMs,
+                    durationMs = durationMs,
                     progressMarkers = progressMarkers,
                     accent = progressAccent,
-                    enabled = !seekLocked && state.durationMs > 0L,
+                    enabled = !seekLocked && durationMs > 0L,
                     showTimeBubble = trickplay == null,
                     onScrubTo = {
-                        scrubbed = it
+                        scrubbed.value = it
+                        if (pendingSeek != null) pendingSeek = null
+                        if (cancelledFrom != null) cancelledFrom = null
+                        releasing.value = null
                         onScrub()
                     },
                     onCommit = {
-                        onSeek(scrubPositionMs(it, state.durationMs))
-                        scrubbed = null
+                        // Stays on the committed fraction; the effect above lets go of it once
+                        // the engine reports its way there.
+                        scrubbed.value = it
+                        pendingSeek = it
+                        onSeek(scrubPositionMs(it, timeline.value.durationMs))
                     },
-                    onCancel = { scrubbed = null },
+                    onCancel = {
+                        // Handed to the release animation in the same breath, so the thumb never
+                        // shows the playhead's position for the frame in between.
+                        releasing.value = scrubbed.value
+                        cancelledFrom = scrubbed.value
+                        scrubbed.value = null
+                    },
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
             Box(Modifier.height(44.dp), contentAlignment = Alignment.Center) {
-                RefinedTimeText(state.durationMs.coerceAtLeast(0L) / 1_000L)
+                RefinedTimeText { durationMs.coerceAtLeast(0L) / 1_000L }
             }
         }
 
@@ -368,16 +573,16 @@ internal fun RefinedBottomBar(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             TransportRow(
-                state = state.buttons,
+                state = buttons,
                 locked = seekLocked,
                 onPlayPause = onPlayPause,
                 onPrevious = onPrevious,
                 onNext = onNext,
                 onSeekBackward = {
-                    onSeek((latestTransport.positionMs - REFINED_SEEK_STEP_MS).coerceAtLeast(0L))
+                    onSeek((timeline.value.positionMs - REFINED_SEEK_STEP_MS).coerceAtLeast(0L))
                 },
                 onSeekForward = {
-                    val latest = latestTransport
+                    val latest = timeline.value
                     val target = latest.positionMs + REFINED_SEEK_STEP_MS
                     onSeek(if (latest.durationMs > 0L) target.coerceAtMost(latest.durationMs) else target)
                 },
@@ -397,8 +602,16 @@ internal fun RefinedBottomBar(
                     active = danmakuEnabled,
                     onClick = onOpenDanmaku,
                 )
-                RefinedSpeedControl(state.speed, onOpenSpeed)
-                if (hasMultipleSources) {
+                RefinedSpeedControl(speed, onOpenSpeed)
+                // Which of these three exist is decided by the item, and the item changes under
+                // the bar every time the queue advances: a source list resolves, a series gains
+                // 片头 markers, a film has no 选集. Each one used to blink into the cluster and
+                // shove its neighbours across; the row's width follows them instead.
+                AnimatedVisibility(
+                    visible = hasMultipleSources,
+                    enter = barControlEnter(reduceMotion),
+                    exit = barControlExit(reduceMotion),
+                ) {
                     CircleControl(
                         AppIcons.PlaybackSource,
                         "播放服务器",
@@ -407,7 +620,11 @@ internal fun RefinedBottomBar(
                         onClick = onOpenSources,
                     )
                 }
-                if (skipSettingsAvailable) {
+                AnimatedVisibility(
+                    visible = skipSettingsAvailable,
+                    enter = barControlEnter(reduceMotion),
+                    exit = barControlExit(reduceMotion),
+                ) {
                     CircleControl(
                         AppIcons.SkipMarkers,
                         "标记片头片尾",
@@ -416,7 +633,11 @@ internal fun RefinedBottomBar(
                         onClick = onOpenSkipSettings,
                     )
                 }
-                if (hasEpisodes) {
+                AnimatedVisibility(
+                    visible = hasEpisodes,
+                    enter = barControlEnter(reduceMotion),
+                    exit = barControlExit(reduceMotion),
+                ) {
                     CircleControl(
                         icon = AppIcons.EpisodeList,
                         description = "选集",
@@ -464,11 +685,100 @@ internal fun CompactAutoSkipPill(
     }
 }
 
+private class RetainedLine<T>(
+    var value: T?,
+)
+
+/**
+ * The last value that was actually there, so a line can finish its exit still saying something.
+ *
+ * The cache is written from a [SideEffect] rather than during composition: composition can be
+ * abandoned and replayed, and filling a cache from it is a side effect either way. A plain holder
+ * rather than a state, for the same reason [ChromeContent] uses one — remembering the outgoing
+ * value must not cost the bar a second pass.
+ */
+@Composable
+private fun <T : Any> rememberLastNonNull(value: T?): T? {
+    val retained = remember { RetainedLine(value) }
+    SideEffect { if (value != null) retained.value = value }
+    return value ?: retained.value
+}
+
+/**
+ * How a control that comes and goes inside one of the bars arrives and leaves.
+ *
+ * Expanding, not only fading: these rows are laid out horizontally with a fixed gap, so a control
+ * that simply appears shoves every neighbour sideways in a single frame — the 选集 key landing
+ * when a series loads used to move 字幕, 音轨 and 弹幕 with it. The row's width follows the
+ * control instead. Under 减弱动态效果 the fade stays and the travel goes: chrome appearing over a
+ * moving picture is harder to follow than chrome that fades, and a fade is not the kind of motion
+ * that setting exists to suppress.
+ */
+private fun barControlEnter(reduceMotion: Boolean): EnterTransition =
+    if (reduceMotion) {
+        fadeIn(snap())
+    } else {
+        fadeIn(tween(Motion.QUICK, easing = Motion.Curve)) +
+            expandHorizontally(
+                tween(Motion.QUICK, easing = Motion.Curve),
+                expandFrom = Alignment.Start,
+            )
+    }
+
+private fun barControlExit(reduceMotion: Boolean): ExitTransition =
+    if (reduceMotion) {
+        fadeOut(snap())
+    } else {
+        fadeOut(tween(Motion.QUICK, easing = Motion.Curve)) +
+            shrinkHorizontally(
+                tween(Motion.QUICK, easing = Motion.Curve),
+                shrinkTowards = Alignment.Start,
+            )
+    }
+
+/** [barControlEnter] for a line stacked under another one rather than a key beside one. */
+private fun barLineEnter(reduceMotion: Boolean): EnterTransition =
+    if (reduceMotion) {
+        fadeIn(snap())
+    } else {
+        fadeIn(tween(Motion.QUICK, easing = Motion.Curve)) +
+            expandVertically(
+                tween(Motion.QUICK, easing = Motion.Curve),
+                expandFrom = Alignment.Top,
+            )
+    }
+
+private fun barLineExit(reduceMotion: Boolean): ExitTransition =
+    if (reduceMotion) {
+        fadeOut(snap())
+    } else {
+        fadeOut(tween(Motion.QUICK, easing = Motion.Curve)) +
+            shrinkVertically(
+                tween(Motion.QUICK, easing = Motion.Curve),
+                shrinkTowards = Alignment.Top,
+            )
+    }
+
+/**
+ * One control changing what it shows without changing size.
+ *
+ * Deliberately no size transform: these keys are fixed discs and fixed rings, and 1× handing over
+ * to 1.75× must not make the key breathe. The bars' layout stays where it is.
+ */
+private fun AnimatedContentTransitionScope<*>.barSwapTransform(reduceMotion: Boolean): ContentTransform {
+    val duration = if (reduceMotion) 0 else Motion.QUICK
+    return (
+        fadeIn(tween(duration, easing = Motion.Curve)) togetherWith
+            fadeOut(tween(duration, easing = Motion.Curve))
+    ).using(null)
+}
+
 @Composable
 private fun RefinedSpeedControl(
     speed: Float,
     onClick: () -> Unit,
 ) {
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val label = if (speed % 1f == 0f) "${speed.toInt()}×" else "$speed×"
     Box(
         Modifier.noRippleClickable(onClick).size(40.dp),
@@ -480,20 +790,35 @@ private fun RefinedSpeedControl(
                 .border(1.dp, Color.White.copy(alpha = 0.62f), CircleShape),
             contentAlignment = Alignment.Center,
         ) {
-            Text(
-                label,
-                style = AppTypography.caption.strong,
-                color = Color.White,
-                maxLines = 1,
-            )
+            AnimatedContent(
+                targetState = label,
+                contentKey = { it },
+                transitionSpec = { barSwapTransform(reduceMotion) },
+                label = "player-speed-readout",
+            ) { current ->
+                Text(
+                    current,
+                    style = AppTypography.caption.strong,
+                    color = Color.White,
+                    maxLines = 1,
+                )
+            }
         }
     }
 }
 
+/**
+ * A clock that reads its own source.
+ *
+ * [seconds] is a lambda rather than a number so the position lands here instead of in the bar
+ * that contains it: the readout changes once a second, and the row around it never has to.
+ */
 @Composable
-private fun RefinedTimeText(seconds: Long) {
+private fun RefinedTimeText(seconds: () -> Long) {
+    val latestSeconds by rememberUpdatedState(seconds)
+    val label by remember { derivedStateOf { formatTime(latestSeconds() * 1_000L) } }
     Text(
-        formatTime(seconds * 1_000L),
+        label,
         style = AppTypography.caption.regular,
         color = PlayerTokens.timeTextLandscape,
         maxLines = 1,
@@ -515,9 +840,10 @@ private fun ambientScrim(
  */
 @Composable
 private fun StandardSeekBar(
-    fraction: Float,
-    bufferedFraction: Float,
-    positionMs: Long,
+    /** The played fraction as a state, so a new sample of it reaches the rail and nothing else. */
+    fraction: State<Float>,
+    bufferedFraction: State<Float>,
+    positionMs: () -> Long,
     durationMs: Long,
     progressMarkers: List<PlaybackProgressMarker>,
     accent: () -> Color,
@@ -546,17 +872,22 @@ private fun StandardSeekBar(
     val latestOnScrubTo by rememberUpdatedState(onScrubTo)
     val latestOnCommit by rememberUpdatedState(onCommit)
     val latestOnCancel by rememberUpdatedState(onCancel)
-    val shownFraction = if (dragging) dragFraction else fraction.coerceIn(0f, 1f)
-    val interaction by animateFloatAsState(
-        targetValue = if (dragging) 1f else 0f,
-        animationSpec = Motion.pressSpec(pressed = dragging, reduceMotion = reduceMotion),
-        label = "artwork-seek-interaction",
-    )
-    // Under a finger the track thickens to nearly twice itself: the thing being dragged
-    // should look like it can take the weight.
-    val trackHeight = 3.5.dp + 2.5.dp * interaction
-    val thumbDiameter = 10.dp + 3.dp * interaction
-    val haloDiameter = 20.dp + 8.dp * interaction
+    val latestPositionMs by rememberUpdatedState(positionMs)
+    // Where the thumb is, read from the offset and draw lambdas below rather than from
+    // composition. Under a finger this value follows the pointer — sixty samples a second — and
+    // reading it here recomposed the whole bar, its markers, its halo and its bubble on every
+    // one of them, to move three boxes that only ever needed placing again. The played fraction
+    // now arrives as a state for the same reason: off a finger it still changes twice a second.
+    val shownFraction =
+        remember {
+            derivedStateOf { if (dragging) dragFraction else fraction.value.coerceIn(0f, 1f) }
+        }
+    val interaction =
+        animateFloatAsState(
+            targetValue = if (dragging) 1f else 0f,
+            animationSpec = Motion.pressSpec(pressed = dragging, reduceMotion = reduceMotion),
+            label = "artwork-seek-interaction",
+        )
     val keyStep = (5_000f / durationMs.coerceAtLeast(1L)).coerceIn(0.01f, 0.1f)
     val commit: (Float) -> Boolean = { target ->
         if (!enabled) {
@@ -596,14 +927,14 @@ private fun StandardSeekBar(
                     if (focused) drawOutline(outline, accent().copy(alpha = 0.72f), style = stroke)
                 }
             }.semantics {
-                stateDescription = "播放进度 ${formatTime(positionMs)} / ${formatTime(durationMs)}"
-                progressBarRangeInfo = ProgressBarRangeInfo(shownFraction, 0f..1f)
+                stateDescription = "播放进度 ${formatTime(latestPositionMs())} / ${formatTime(durationMs)}"
+                progressBarRangeInfo = ProgressBarRangeInfo(shownFraction.value, 0f..1f)
                 if (enabled) setProgress { commit(it) } else disabled()
             }.onKeyEvent { event ->
                 if (!enabled || event.type != KeyEventType.KeyDown) return@onKeyEvent false
                 when (event.key) {
-                    Key.DirectionLeft, Key.DirectionDown -> commit(shownFraction - keyStep)
-                    Key.DirectionRight, Key.DirectionUp -> commit(shownFraction + keyStep)
+                    Key.DirectionLeft, Key.DirectionDown -> commit(shownFraction.value - keyStep)
+                    Key.DirectionRight, Key.DirectionUp -> commit(shownFraction.value + keyStep)
                     else -> false
                 }
             }.onFocusChanged { focused = it.isFocused }
@@ -649,31 +980,42 @@ private fun StandardSeekBar(
         contentAlignment = Alignment.CenterStart,
     ) {
         // Both rails keep fixed geometry; progress invalidates paint, not child measurement.
-        val played = rememberUpdatedState(shownFraction)
-        val buffered = remember(durationMs) { Animatable(bufferedFraction.coerceIn(0f, 1f)) }
+        val buffered = remember(durationMs) { Animatable(0f) }
         val moving = !reduceMotion && LocalRouteVisible.current
-        LaunchedEffect(bufferedFraction, durationMs, moving) {
-            val target = bufferedFraction.coerceIn(0f, 1f)
-            if (!moving || target < buffered.value) {
-                buffered.snapTo(target)
-            } else {
-                buffered.animateTo(target, tween(Motion.STANDARD, easing = Motion.Curve))
+        // Collected rather than read in composition: the buffer advances on the same clock as
+        // the playhead, and the rail is the only thing that has anything to do with it. The
+        // first sample is where the buffer already is, so raising the chrome never replays it.
+        LaunchedEffect(durationMs, moving) {
+            var arrived = false
+            snapshotFlow { bufferedFraction.value.coerceIn(0f, 1f) }.collect { target ->
+                if (!arrived || !moving || target < buffered.value) {
+                    arrived = true
+                    buffered.snapTo(target)
+                } else {
+                    buffered.animateTo(target, tween(Motion.STANDARD, easing = Motion.Curve))
+                }
             }
         }
+        // The rail is laid out at its pressed height and scaled down to its resting one, so the
+        // press spring repaints a layer instead of re-measuring the row sixty times a second.
+        // The pill's radius follows the scale, which is what keeps the ends round at both sizes.
         Box(
             Modifier
                 .fillMaxWidth()
-                .height(trackHeight)
-                .clip(AppShapes.track)
+                .height(SeekTrackPressedHeight)
+                .graphicsLayer {
+                    scaleY = (SeekTrackRestingHeight + SeekTrackGrowth * interaction.value) / SeekTrackPressedHeight
+                }.clip(AppShapes.track)
                 .drawBehind {
                     val color = accent()
-                    val playedWidth = size.width * played.value
+                    val played = shownFraction.value
+                    val playedWidth = size.width * played
                     drawRect(Color.White.copy(alpha = 0.16f))
                     drawRect(
                         lerp(color, Color.Gray, 0.62f).copy(alpha = 0.50f),
                         size =
                             androidx.compose.ui.geometry.Size(
-                                size.width * buffered.value.coerceIn(played.value, 1f),
+                                size.width * buffered.value.coerceIn(played, 1f),
                                 size.height,
                             ),
                     )
@@ -691,9 +1033,9 @@ private fun StandardSeekBar(
                 },
         )
 
-        progressMarkers.forEach { marker ->
-            val markerFraction =
-                (marker.positionMs.toFloat() / durationMs.coerceAtLeast(1L)).coerceIn(0f, 1f)
+        // The same list the magnet snaps to, rather than a second copy of the same arithmetic.
+        progressMarkers.forEachIndexed { index, marker ->
+            val markerFraction = markerFractions.getOrElse(index) { 0f }
             Box(
                 Modifier
                     .width(if (marker.emphasized) 2.dp else 1.dp)
@@ -711,36 +1053,48 @@ private fun StandardSeekBar(
             )
         }
 
+        // Halo and thumb are laid out at their pressed diameters and scaled about their own
+        // centres, so growing under a finger never moves the boxes they sit in.
         Box(
             Modifier
-                .size(haloDiameter)
+                .size(SeekHaloPressedDiameter)
                 .offset {
-                    val haloPx = haloDiameter.roundToPx()
+                    val haloPx = SeekHaloPressedDiameter.roundToPx()
                     IntOffset(
                         x =
-                            (widthPx * shownFraction - haloPx / 2f)
+                            (widthPx * shownFraction.value - haloPx / 2f)
                                 .toInt()
                                 .coerceIn(-haloPx / 2, (widthPx - haloPx / 2).coerceAtLeast(0)),
                         y = 0,
                     )
-                }.graphicsLayer { alpha = if (enabled) 0.28f + 0.18f * interaction else 0.10f }
-                .drawBehind { drawCircle(accent()) },
+                }.graphicsLayer {
+                    alpha = if (enabled) 0.28f + 0.18f * interaction.value else 0.10f
+                    val scale =
+                        (SeekHaloRestingDiameter + SeekHaloGrowth * interaction.value) / SeekHaloPressedDiameter
+                    scaleX = scale
+                    scaleY = scale
+                }.drawBehind { drawCircle(accent()) },
         )
 
         Box(
             Modifier
-                .size(thumbDiameter)
+                .size(SeekThumbPressedDiameter)
                 .offset {
-                    val thumbPx = thumbDiameter.roundToPx()
+                    val thumbPx = SeekThumbPressedDiameter.roundToPx()
                     IntOffset(
                         x =
-                            (widthPx * shownFraction - thumbPx / 2f)
+                            (widthPx * shownFraction.value - thumbPx / 2f)
                                 .toInt()
                                 .coerceIn(-thumbPx / 2, (widthPx - thumbPx / 2).coerceAtLeast(0)),
                         y = 0,
                     )
-                }.graphicsLayer { alpha = if (enabled) 1f else 0.45f }
-                .background(Color.White, CircleShape)
+                }.graphicsLayer {
+                    alpha = if (enabled) 1f else 0.45f
+                    val scale =
+                        (SeekThumbRestingDiameter + SeekThumbGrowth * interaction.value) / SeekThumbPressedDiameter
+                    scaleX = scale
+                    scaleY = scale
+                }.background(Color.White, CircleShape)
                 .drawWithCache {
                     val stroke = Stroke(2.dp.toPx())
                     onDrawBehind {
@@ -753,7 +1107,14 @@ private fun StandardSeekBar(
                 },
         )
 
-        if (showTimeBubble) {
+        // The storyboard usually resolves a beat into the drag, and the bubble is what the
+        // preview replaces. Cutting it out with an `if` took the readout away mid-gesture; the
+        // two hand over to each other instead.
+        AnimatedVisibility(
+            visible = showTimeBubble,
+            enter = if (reduceMotion) fadeIn(snap()) else fadeIn(tween(Motion.QUICK, easing = Motion.Curve)),
+            exit = if (reduceMotion) fadeOut(snap()) else fadeOut(tween(Motion.QUICK, easing = Motion.Curve)),
+        ) {
             // Grows out of the thumb on the same spring as the track, and settles back into
             // it on release — the preview bubble's smaller sibling.
             Box(
@@ -764,22 +1125,23 @@ private fun StandardSeekBar(
                         val bubblePx = SeekTimeBubbleWidth.roundToPx()
                         IntOffset(
                             x =
-                                (widthPx * shownFraction - bubblePx / 2f)
+                                (widthPx * shownFraction.value - bubblePx / 2f)
                                     .toInt()
                                     .coerceIn(0, (widthPx - bubblePx).coerceAtLeast(0)),
                             y = -SeekTimeBubbleRise.roundToPx(),
                         )
                     }.graphicsLayer {
-                        alpha = interaction
-                        val scale = 0.8f + 0.2f * interaction
+                        alpha = interaction.value
+                        val scale = 0.8f + 0.2f * interaction.value
                         scaleX = scale
                         scaleY = scale
-                        translationY = 6.dp.toPx() * (1f - interaction)
+                        translationY = 6.dp.toPx() * (1f - interaction.value)
                     }.background(Color.Black.copy(alpha = 0.58f), AppShapes.pill)
                     .border(1.dp, Color.White.copy(alpha = 0.20f), AppShapes.pill),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(formatTime(positionMs), style = AppTypography.caption.medium, color = Color.White)
+                val bubbleLabel by remember { derivedStateOf { formatTime(latestPositionMs()) } }
+                Text(bubbleLabel, style = AppTypography.caption.medium, color = Color.White)
             }
         }
     }
@@ -788,6 +1150,27 @@ private fun StandardSeekBar(
 private val SeekTimeBubbleWidth = 60.dp
 private val SeekTimeBubbleHeight = 22.dp
 private val SeekTimeBubbleRise = 26.dp
+
+/**
+ * Rail and thumb geometry.
+ *
+ * Under a finger the track thickens to nearly twice itself and the thumb grows with it: the thing
+ * being dragged should look like it can take the weight. Both are laid out at the pressed size and
+ * scaled down to the resting one, so the press spring never re-measures the row it sits in.
+ */
+private val SeekTrackRestingHeight = 3.5.dp
+private val SeekTrackGrowth = 2.5.dp
+private val SeekTrackPressedHeight = SeekTrackRestingHeight + SeekTrackGrowth
+private val SeekThumbRestingDiameter = 10.dp
+private val SeekThumbGrowth = 3.dp
+private val SeekThumbPressedDiameter = SeekThumbRestingDiameter + SeekThumbGrowth
+private val SeekHaloRestingDiameter = 20.dp
+private val SeekHaloGrowth = 8.dp
+private val SeekHaloPressedDiameter = SeekHaloRestingDiameter + SeekHaloGrowth
+
+/** How close the engine has to land for a committed seek to hand the thumb back, and how long. */
+private const val SEEK_COMMIT_EPSILON_MS = 1_000L
+private const val SEEK_COMMIT_TIMEOUT_MS = 1_500L
 
 internal data class MagneticSeekTarget(
     val fraction: Float,

@@ -1,7 +1,6 @@
 package com.yfuse.core.designsystem
 
 import androidx.compose.animation.core.animate
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
@@ -45,11 +44,23 @@ internal class DialogDragState(
     private val enabled: () -> Boolean,
     private val dismiss: () -> Unit,
     private val threshold: Float,
+    /** Read at release time, not construction: the preference can change while a panel is held. */
+    private val reduceMotion: () -> Boolean = { false },
+    /**
+     * Ticks once when the panel first passes the point where letting go would close it.
+     *
+     * The commit point is invisible until it has already happened — the panel looks the same on
+     * either side of it — which is the same problem pull-to-refresh has, and the same answer:
+     * see [RefreshThresholdHaptics]. Re-armed by the release, so a panel held around the
+     * threshold does not rattle.
+     */
+    private val onThresholdCrossed: () -> Unit = {},
 ) : NestedScrollConnection {
     var offset by mutableFloatStateOf(0f)
         private set
     var dismissedByDrag = false
         private set
+    private var crossedThreshold = false
     private var settle: Job? = null
 
     fun stopSettling() {
@@ -61,6 +72,7 @@ internal class DialogDragState(
         stopSettling()
         offset = 0f
         dismissedByDrag = false
+        crossedThreshold = false
     }
 
     fun move(delta: Float): Float {
@@ -68,12 +80,17 @@ internal class DialogDragState(
         stopSettling()
         val before = offset
         offset = (offset + delta).coerceIn(0f, threshold * 3f)
+        if (!crossedThreshold && offset >= threshold) {
+            crossedThreshold = true
+            onThresholdCrossed()
+        }
         return offset - before
     }
 
     fun release(velocity: Float) {
         if (dismissedByDrag) return
         stopSettling()
+        crossedThreshold = false
         if (offset <= 0f) return
         if (enabled() && shouldDismissDialogDrag(offset, velocity, threshold)) {
             dismissedByDrag = true
@@ -85,7 +102,10 @@ internal class DialogDragState(
                         offset,
                         0f,
                         velocity.coerceIn(-threshold * 10f, threshold * 10f),
-                        spring(dampingRatio = 1f, stiffness = 450f),
+                        // The shared resting-state spring, so 减弱动态效果 cuts the panel home the
+                        // way it cuts every other settle. Its slight overshoot never shows: the
+                        // clamp below is the panel's resting position.
+                        Motion.settle<Float>(reduceMotion()),
                     ) { value, _ ->
                         offset = value.coerceAtLeast(0f)
                     }
@@ -126,8 +146,19 @@ internal fun rememberDialogDragState(
     val scope = rememberCoroutineScope()
     val currentEnabled by rememberUpdatedState(enabled)
     val currentDismiss by rememberUpdatedState(dismiss)
+    val reduceMotion by rememberUpdatedState(LocalAccessibilityOptions.current.reduceMotion)
+    val haptics by rememberUpdatedState(LocalHaptics.current)
     val threshold = with(LocalDensity.current) { 96.dp.toPx() }
-    return remember(scope, threshold) { DialogDragState(scope, { currentEnabled() }, { currentDismiss() }, threshold) }
+    return remember(scope, threshold) {
+        DialogDragState(
+            scope = scope,
+            enabled = { currentEnabled() },
+            dismiss = { currentDismiss() },
+            threshold = threshold,
+            reduceMotion = { reduceMotion },
+            onThresholdCrossed = { haptics.play(HapticSignal.Threshold) },
+        )
+    }
 }
 
 @Composable

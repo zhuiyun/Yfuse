@@ -42,6 +42,7 @@ import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
+import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.MotionSwap
@@ -605,6 +606,7 @@ private fun GenreChip(
         modifier =
             modifier
                 .pressable(
+                    haptic = HapticSignal.Select,
                     role = Role.RadioButton,
                     onClickLabel = "选择分类",
                     onClick = onClick,

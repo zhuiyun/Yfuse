@@ -44,6 +44,7 @@ import com.yfuse.core.designsystem.ArtworkPageTheme
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
+import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.artworkPageSurface
@@ -415,7 +416,7 @@ private fun ReminderOptions(
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .pressable(role = Role.RadioButton) { onSelect(timing) }
+                    .pressable(haptic = HapticSignal.Select, role = Role.RadioButton) { onSelect(timing) }
                     .semantics { this.selected = active }
                     .clip(GlassShapes.chip)
                     .background(if (active) accent.container else Color.Transparent)
@@ -506,7 +507,7 @@ private fun DialogDateChip(
     Column(
         modifier
             .defaultMinSize(minHeight = 54.dp)
-            .pressable(role = Role.RadioButton, onClick = onClick)
+            .pressable(haptic = HapticSignal.Select, role = Role.RadioButton, onClick = onClick)
             .semantics { selected = active }
             .flatGlass(
                 GlassShapes.chip,

@@ -58,6 +58,8 @@ enum class SplashMark(
 
     /** The mark the app carried before it. */
     CloudPlayer("云朵播放器 Logo"),
+    AuroraDark("极光深色 Logo"),
+    AuroraLight("极光浅色 Logo"),
 }
 
 /**
@@ -80,6 +82,8 @@ enum class SplashAnimation(
     // story, and they read as nothing at all next to the water-fire ribbon.
     CloudDrop("水滴入云", "水滴坠落 → 云朵回弹 → 水花聚成播放键", SplashMark.CloudPlayer),
     CloudWell("水漾成键", "水滴落进凹槽 → 沸腾冒泡 → 水花四溅成播放键", SplashMark.CloudPlayer),
+    AuroraDark("极光浮现 · 深色", "深色极光折带渐显 → 字标浮起", SplashMark.AuroraDark),
+    AuroraLight("极光浮现 · 浅色", "浅色极光折带渐显 → 字标浮起", SplashMark.AuroraLight),
 }
 
 /** The choreographies drawn around this mark, in the order they are offered. */
@@ -231,7 +235,18 @@ fun rememberAccentColorsForSurface(dark: Boolean): AccentColors {
 data class AccessibilityOptions(
     val reduceTransparency: Boolean = false,
     val largeText: Boolean = false,
+    /** 减弱动态效果, with the system's 「移除动画」 folded in: how long anything is allowed to take. */
     val reduceMotion: Boolean = false,
+    /**
+     * The user's own 减弱动态效果, without the system flag.
+     *
+     * Shortening every transition is not the same request as giving up a way of doing something.
+     * Folding the two together took the drag-to-dismiss gesture away from everyone whose device
+     * has animations off system-wide, leaving those dialogs closable only by the scrim or a
+     * button — so a control that exists *because of* a gesture reads this, and durations read
+     * [reduceMotion].
+     */
+    val reduceMotionByUser: Boolean = reduceMotion,
 )
 
 val LocalAccessibilityOptions = staticCompositionLocalOf { AccessibilityOptions() }
@@ -293,6 +308,7 @@ fun YfuseTheme(
     accessibility: AccessibilityOptions = AccessibilityOptions(),
     glassStyle: GlassStyle = GlassStyle.Liquid,
     dialogAnimation: DialogAnimation = DialogAnimation.Lift,
+    dialogAnimationLab: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     val targetPalette = if (dark) DarkPalette else LightPalette
@@ -309,6 +325,7 @@ fun YfuseTheme(
         LocalAccessibilityOptions provides accessibility,
         LocalGlassStyle provides glassStyle,
         LocalDialogAnimation provides dialogAnimation,
+        LocalDialogAnimationLab provides dialogAnimationLab,
         LocalDensity provides adjustedDensity,
         LocalHaptics provides rememberHaptics(),
     ) {

@@ -14,7 +14,7 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
  */
 internal object SplashOne : SplashChoreography {
     override val durationMs = 1_200f
-    override val fadeStartMs = durationMs - FadeMs
+    override val fadeStartMs = durationMs - FADE_MS
 
     override fun DrawScope.drawMark(
         nowMs: Float,

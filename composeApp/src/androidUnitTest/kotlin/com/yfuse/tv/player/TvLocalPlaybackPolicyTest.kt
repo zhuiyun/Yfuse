@@ -21,8 +21,18 @@ class TvLocalPlaybackPolicyTest {
         assertTrue(sanitized.transcodeUrl.isEmpty())
         assertTrue(sanitized.fallbackTranscodeUrl.isEmpty())
         assertFalse(sanitized.serverTranscodeSupported)
-        assertTrue(sanitized.versions.single().transcodeUrl.isEmpty())
-        assertTrue(sanitized.serverFallbacks.single().transcodeUrl.isEmpty())
+        assertTrue(
+            sanitized.versions
+                .single()
+                .transcodeUrl
+                .isEmpty(),
+        )
+        assertTrue(
+            sanitized.serverFallbacks
+                .single()
+                .transcodeUrl
+                .isEmpty(),
+        )
     }
 
     @Test

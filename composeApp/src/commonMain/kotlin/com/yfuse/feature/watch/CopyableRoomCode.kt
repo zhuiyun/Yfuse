@@ -15,6 +15,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.contentHandoff
@@ -51,6 +52,10 @@ fun CopyableRoomCode(
         modifier =
             modifier
                 .pressable(
+                    // Both gestures do the same thing to the clipboard and neither moves the
+                    // page, so both have to be felt. Only the long press was, because
+                    // [pressable] gives that one a tick of its own.
+                    haptic = HapticSignal.Confirm,
                     onClickLabel = "复制房间码",
                     onLongClickLabel = "复制房间码",
                     onLongClick = copyCode,

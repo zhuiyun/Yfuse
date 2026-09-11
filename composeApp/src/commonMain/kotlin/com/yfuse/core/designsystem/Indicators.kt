@@ -1,10 +1,14 @@
 package com.yfuse.core.designsystem
 
+import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
@@ -17,12 +21,20 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import kotlin.math.abs
+import kotlin.math.floor
 
 object HeroPageIndicatorDefaults {
     val activeWidth = 26.dp
     val inactiveWidth = 10.dp
     val dotHeight = 3.dp
 }
+
+/**
+ * How much pager offset still counts as "the pager is moving". Anything above this and the page
+ * change is part of a travel the offset is already drawing; at rest it is a jump.
+ */
+private const val CAROUSEL_DOT_IN_FLIGHT = 0.05f
 
 /**
  * Shared hero pagination with one fixed 48dp tab target per visual dot.
@@ -47,6 +59,30 @@ fun HeroPageIndicator(
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val palette = LocalPalette.current
+    // Which dot is the selected one, as a float the row can be halfway between.
+    //
+    // The pager's own offset is continuous while the pager is moving, and that carried the whole
+    // animation — but a tap on a distant dot is fulfilled by `animateScrollToPage`, which closes
+    // most of the distance by snapping and only animates the tail. The row answered that with a
+    // cut: one dot at full width, another instantly narrow, nothing in between.
+    val currentOffset = rememberUpdatedState(pageOffsetProvider)
+    val currentPageOffset = rememberUpdatedState(pageOffset)
+    val drawnPage = remember { Animatable(selectedPage.toFloat()) }
+    LaunchedEffect(selectedPage, pageCount, reduceMotion) {
+        val live = if (reduceMotion) 0f else currentOffset.value?.invoke() ?: currentPageOffset.value
+        val target = selectedPage.toFloat()
+        val gap = abs(target - drawnPage.value)
+        // A drag, or a scroll that is already in flight, delivers every page in between and the
+        // offset is what draws it: following that exactly is the whole of the animation, and a
+        // spring on top would be fighting the finger. Only a page that arrives with nothing in
+        // flight is a jump, and going the long way round the ends of the row is a wrap, not a
+        // journey across it.
+        if (reduceMotion || abs(live) > CAROUSEL_DOT_IN_FLIGHT || gap <= 1f || gap >= pageCount - 1f) {
+            drawnPage.snapTo(target)
+        } else {
+            drawnPage.animateTo(target, Motion.settle<Float>())
+        }
+    }
     Row(
         modifier = modifier.selectableGroup(),
         verticalAlignment = Alignment.CenterVertically,
@@ -66,7 +102,15 @@ fun HeroPageIndicator(
                     .drawBehind {
                         // Stable touch/layout slots; fractional pager movement invalidates drawing only.
                         val offset = if (reduceMotion) 0f else pageOffsetProvider?.invoke() ?: pageOffset
-                        val weight = carouselIndicatorWeight(index, selectedPage, offset, pageCount)
+                        // One source of truth at a time. While the tap's spring is running it owns
+                        // the whole position: `animateScrollToPage` snaps most of the way and then
+                        // animates the tail, so its offset comes back to life partway through and
+                        // adding the two counted the same travel twice — the dot overshot its
+                        // neighbour and came back. Otherwise the pager's own offset is the
+                        // animation, and `selectedPage` is where it started.
+                        val position = if (drawnPage.isRunning) drawnPage.value else selectedPage + offset
+                        val page = floor(position).toInt()
+                        val weight = carouselIndicatorWeight(index, page, position - page, pageCount)
                         val width =
                             (
                                 HeroPageIndicatorDefaults.inactiveWidth +

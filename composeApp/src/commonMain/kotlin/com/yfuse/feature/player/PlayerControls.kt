@@ -1,6 +1,7 @@
 package com.yfuse.feature.player
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -12,7 +13,9 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
@@ -89,6 +92,21 @@ private enum class QuickPopup {
     Source,
     Speed,
 }
+
+/**
+ * What a just-picked track is called, for the acknowledgement HUD.
+ *
+ * The list is this frame's, so a track that has already gone — a downloaded subtitle replaced by
+ * the next search — still gets a name rather than an id. 关闭 is not in any list and never will be.
+ */
+internal fun trackLabel(
+    tracks: List<EngineTrack>,
+    id: String,
+): String =
+    when {
+        id == EngineTrack.OFF -> "关闭"
+        else -> tracks.firstOrNull { it.id == id }?.label ?: "已切换"
+    }
 
 internal fun shouldShowManualSkipPill(
     segmentLabel: String?,
@@ -267,6 +285,8 @@ internal fun PlayerControls(
     // confirmed scrub and a refused one, played identically. [HapticSignal.Reject] existed
     // for exactly the locked case and had never been called from anywhere.
     val haptics = LocalHaptics.current
+    // Read once for the whole surface: several transitions below have to collapse together.
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val accessibilityManager = LocalAccessibilityManager.current
     // Bumped by every interaction so the auto-hide timer restarts.
     var interactions by remember { mutableIntStateOf(0) }
@@ -729,9 +749,19 @@ internal fun PlayerControls(
                             poke()
                         },
                         onLongPress = { offset ->
-                            // Left half rewinds, right half fast-forwards — the same split
-                            // the double tap already uses, so one gesture explains the other.
+                            // Thirds, exactly as the double tap divides the picture: left
+                            // rewinds, right fast-forwards, and the middle — where the double
+                            // tap plays and pauses rather than seeking — holds nothing. The
+                            // hold used to split the frame in halves, so the same spot on the
+                            // picture meant 播放 to one gesture and 快进 to the other.
+                            val direction =
+                                when {
+                                    offset.x < size.width / 3f -> -1
+                                    offset.x > size.width * 2f / 3f -> 1
+                                    else -> 0
+                                }
                             when {
+                                direction == 0 -> Unit
                                 latestWatchLocked -> {
                                     gestureHud = "房主控制播放"
                                     haptics.play(HapticSignal.Reject)
@@ -739,7 +769,7 @@ internal fun PlayerControls(
                                 latestDuration <= 0L -> Unit
                                 else -> {
                                     holdSeekTarget = latestPosition
-                                    holdSeekDirection = if (offset.x < size.width / 2f) -1 else 1
+                                    holdSeekDirection = direction
                                     // A hold that has taken hold — the same signal a long
                                     // press gets everywhere else in the app.
                                     haptics.play(HapticSignal.Confirm)
@@ -816,28 +846,22 @@ internal fun PlayerControls(
                 },
         )
 
-        state.error?.let { message ->
-            val otherVersions =
-                versions
-                    .filter { (id, _) -> id != selectedVersionId }
-                    .take(MAX_ERROR_ALTERNATIVES)
-                    .map { (id, label) -> "版本 · $label" to { onSelectVersion(id) } }
-            val otherEngines =
-                engineOptions
-                    .mapIndexedNotNull { index, (label, selected) ->
-                        if (selected) null else label to { onSelectEngine(index) }
-                    }.take(MAX_ERROR_ALTERNATIVES)
-            PlaybackErrorOverlay(
-                message = message,
-                onRetry = onRetry,
-                onExternalPlayer = onExternalPlayer,
-                onBack = onBack,
-                alternatives = otherVersions + otherEngines,
-            )
-            return@Box
-        }
+        // The failure surface takes over from the chrome instead of deleting it.
+        //
+        // This block used to end in `return@Box`, which tore every control out of the tree on
+        // the frame the error arrived: the chrome disappeared in one frame underneath an overlay
+        // that was still fading in, and came back the same way on a successful retry. Both sides
+        // animate now — the chrome leaves through the same [ChromeVisibility] it arrives
+        // through, and the error surface enters through [ChromeContent] below, which also keeps
+        // the message on screen for the length of its own exit. Neither is composed at all once
+        // its exit has finished, so nothing behind an error is live or reachable.
+        val errorMessage = state.error
 
-        ChromeVisibility(visible = locked, modifier = Modifier.fillMaxSize()) {
+        ChromeVisibility(
+            visible = locked && errorMessage == null,
+            modifier = Modifier.fillMaxSize(),
+            coversScreen = true,
+        ) {
             LockedOverlay(onUnlock = {
                 if (locked) {
                     locked = false
@@ -845,7 +869,11 @@ internal fun PlayerControls(
                 }
             })
         }
-        ChromeVisibility(visible = !locked, modifier = Modifier.fillMaxSize()) {
+        ChromeVisibility(
+            visible = !locked && errorMessage == null,
+            modifier = Modifier.fillMaxSize(),
+            coversScreen = true,
+        ) {
             Box(Modifier.fillMaxSize()) {
                 PlayerResumeNotice(
                     notice = resumeNotice,
@@ -1030,7 +1058,12 @@ internal fun PlayerControls(
                         SettingsPanel(
                             modifier = functionPopupModifier,
                             kind = kind,
-                            state = playback.value,
+                            // The projection for everything the panel lists, and the live state
+                            // for the two pages that genuinely read a clock. Handing the whole
+                            // panel `playback.value` put twenty-five lines of diagnostics
+                            // formatting, and every list around them, on the position tick.
+                            state = state,
+                            playback = playback,
                             containerLabel = containerLabel,
                             engineOptions = engineOptions,
                             transcodeLabel = transcodeLabel,
@@ -1040,7 +1073,8 @@ internal fun PlayerControls(
                             castDiscovering = castDiscovering,
                             castError = castError,
                             castStatus = castStatus,
-                            castPosition = castPositionSource?.invoke() ?: castPosition,
+                            castPosition = castPosition,
+                            castPositionSource = castPositionSource,
                             castCapabilities = castCapabilities,
                             danmaku = danmaku,
                             danmakuActions = danmakuActions,
@@ -1053,8 +1087,12 @@ internal fun PlayerControls(
                                 settingsPanelKind = null
                                 danmakuSendOpen = true
                             },
-                            onSelectSubtitle = {
-                                onSelectSubtitle(it)
+                            // Picking a track closes the panel, which used to be the only sign
+                            // anything had happened — and the picture behind it rarely says so
+                            // within the second. The HUD the gestures already use answers it.
+                            onSelectSubtitle = { id ->
+                                onSelectSubtitle(id)
+                                gestureHud = "字幕 · ${trackLabel(state.subtitleTracks, id)}"
                                 settingsPanelKind = null
                             },
                             subtitleControls = subtitleControls,
@@ -1071,13 +1109,11 @@ internal fun PlayerControls(
                                 }),
                             remoteSubtitles = remoteSubtitles,
                             remoteSubtitleActions = remoteSubtitleActions,
-                            audioControls =
-                                audioControls.copy(
-                                    measuredAvOffsetMs = playback.value.diagnostics.avSyncOffsetMs,
-                                ),
+                            audioControls = audioControls,
                             audioActions = audioActions,
-                            onSelectAudio = {
-                                onSelectAudio(it)
+                            onSelectAudio = { id ->
+                                onSelectAudio(id)
+                                gestureHud = "音轨 · ${trackLabel(state.audioTracks, id)}"
                                 settingsPanelKind = null
                             },
                             sleepTimer = sleepTimer,
@@ -1135,30 +1171,51 @@ internal fun PlayerControls(
 
                 ChromeContent(quickPopup, modifier = Modifier.fillMaxSize(), edge = ChromeEdge.End) { popup ->
                     BackOverlay(onBack = { quickPopup = null }) {
-                        when (popup) {
-                            QuickPopup.Source ->
-                                SourcePickerPopup(
-                                    options = sourceOptions,
-                                    selectedId = selectedSourceId,
-                                    onSelect = {
-                                        onSelectSource(it)
-                                        quickPopup = null
+                        // 线路 and 倍速 share this anchor and this shell, so going from one to the
+                        // other is a change of contents rather than of surface: the panel stays
+                        // where it is and settles into the new list's height instead of being
+                        // replaced by a differently-sized one in a single frame.
+                        AnimatedContent(
+                            targetState = popup,
+                            contentKey = { it },
+                            transitionSpec = {
+                                val duration = if (reduceMotion) 0 else Motion.STATE_HANDOFF
+                                (
+                                    fadeIn(tween(duration, easing = Motion.Curve)) togetherWith
+                                        fadeOut(tween(duration, easing = Motion.Curve))
+                                ).using(
+                                    SizeTransform(clip = false) { _, _ ->
+                                        if (reduceMotion) snap() else Motion.settle()
                                     },
-                                    onDismiss = { quickPopup = null },
-                                    modifier = functionPopupModifier,
                                 )
+                            },
+                            contentAlignment = Alignment.BottomEnd,
+                            modifier = functionPopupModifier,
+                            label = "player-quick-popup",
+                        ) { current ->
+                            when (current) {
+                                QuickPopup.Source ->
+                                    SourcePickerPopup(
+                                        options = sourceOptions,
+                                        selectedId = selectedSourceId,
+                                        onSelect = {
+                                            onSelectSource(it)
+                                            quickPopup = null
+                                        },
+                                        onDismiss = { quickPopup = null },
+                                    )
 
-                            QuickPopup.Speed ->
-                                SpeedPickerPopup(
-                                    speeds = SPEEDS,
-                                    selectedSpeed = state.speed,
-                                    onSelect = {
-                                        onSpeed(it)
-                                        quickPopup = null
-                                    },
-                                    onDismiss = { quickPopup = null },
-                                    modifier = functionPopupModifier,
-                                )
+                                QuickPopup.Speed ->
+                                    SpeedPickerPopup(
+                                        speeds = SPEEDS,
+                                        selectedSpeed = state.speed,
+                                        onSelect = {
+                                            onSpeed(it)
+                                            quickPopup = null
+                                        },
+                                        onDismiss = { quickPopup = null },
+                                    )
+                            }
                         }
                     }
                 }
@@ -1400,11 +1457,52 @@ internal fun PlayerControls(
                     )
                 }
 
+                /**
+                 * The end of the last episode, where nothing used to be.
+                 *
+                 * 下一集 owns the end of everything else, and this is the case it does not cover:
+                 * a film, or the last entry in a series. The picture stops on its final frame with
+                 * no controls, nothing saying the film is over rather than stalled, and no way
+                 * back that does not start with a tap to summon the chrome. Two keys at the same
+                 * size and in the same place as 继续播放, because it is the same question — what
+                 * happens if I touch this — asked one moment later.
+                 */
+                val showEndedKeys = state.ended && !state.hasNext && state.error == null
+                ChromeVisibility(
+                    visible = showEndedKeys,
+                    modifier = Modifier.align(Alignment.Center),
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+                        CircleControl(
+                            icon = AppIcons.Refresh,
+                            description = "重播",
+                            size = CenterKeySize,
+                            iconSize = CenterKeyIconSize,
+                            enabled = !watchLocked,
+                            filled = true,
+                            // Back to the first frame, and playing again: the engine reports the
+                            // ended item as paused, so the seek alone would leave it standing on
+                            // frame one.
+                            onClick = {
+                                latestOnSeek(0L)
+                                if (!playback.value.playing) onPlayPause()
+                                poke()
+                            },
+                        )
+                        CircleControl(
+                            icon = AppIcons.Close,
+                            description = "返回",
+                            size = CenterKeySize,
+                            iconSize = CenterKeyIconSize,
+                            onClick = onBack,
+                        )
+                    }
+                }
+
                 // Suppressed while the resume button occupies the same spot: the double tap that
                 // pauses would otherwise stack "暂停" directly on top of it.
-                val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
                 AnimatedContent(
-                    targetState = gestureHud?.takeIf { !showPausedKey },
+                    targetState = gestureHud?.takeIf { !showPausedKey && !showEndedKeys },
                     contentKey = ::gestureHudMotionKey,
                     transitionSpec = {
                         if (reduceMotion) {
@@ -1476,6 +1574,27 @@ internal fun PlayerControls(
                     modifier = Modifier.align(Alignment.BottomEnd).padding(end = 22.dp, bottom = 96.dp),
                 )
             }
+        }
+
+        // Last in the box, so it covers the chrome on its way out rather than fading in under it.
+        ChromeContent(errorMessage, modifier = Modifier.fillMaxSize(), coversScreen = true) { message ->
+            val otherVersions =
+                versions
+                    .filter { (id, _) -> id != selectedVersionId }
+                    .take(MAX_ERROR_ALTERNATIVES)
+                    .map { (id, label) -> "版本 · $label" to { onSelectVersion(id) } }
+            val otherEngines =
+                engineOptions
+                    .mapIndexedNotNull { index, (label, selected) ->
+                        if (selected) null else label to { onSelectEngine(index) }
+                    }.take(MAX_ERROR_ALTERNATIVES)
+            PlaybackErrorOverlay(
+                message = message,
+                onRetry = onRetry,
+                onExternalPlayer = onExternalPlayer,
+                onBack = onBack,
+                alternatives = otherVersions + otherEngines,
+            )
         }
     }
 }

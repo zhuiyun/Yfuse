@@ -25,12 +25,6 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 
-/** How long the ring takes to leave the icon behind. */
-private const val BURST_MS = Motion.BURST
-
-/** Turning something off is an undo, not an event: it settles rather than celebrates. */
-private const val RELEASE_MS = Motion.BURST_RELEASE
-
 /**
  * An icon that answers being switched on.
  *
@@ -81,7 +75,8 @@ fun BurstIcon(
         if (turnedOn) {
             ring.snapTo(0f)
             launch {
-                ring.animateTo(1f, tween(BURST_MS, easing = LinearOutSlowInEasing))
+                // The ring takes one burst to leave the icon behind.
+                ring.animateTo(1f, tween(Motion.BURST, easing = LinearOutSlowInEasing))
             }
             pop.snapTo(0.6f)
             pop.animateTo(
@@ -95,7 +90,8 @@ fun BurstIcon(
         } else {
             ring.snapTo(1f)
             pop.snapTo(1.16f)
-            pop.animateTo(1f, tween(RELEASE_MS, easing = Motion.Curve))
+            // Turning something off is an undo, not an event: it settles rather than celebrates.
+            pop.animateTo(1f, tween(Motion.BURST_RELEASE, easing = Motion.Curve))
         }
     }
 

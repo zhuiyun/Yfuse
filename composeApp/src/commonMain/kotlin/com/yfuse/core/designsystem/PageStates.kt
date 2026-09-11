@@ -24,6 +24,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -139,12 +140,9 @@ private fun AccentChipButton(
 @Composable
 fun skeletonFill(): Color = if (LocalPalette.current.isDark) Color.White.copy(alpha = 0.08f) else Color(0x2996A0B4)
 
-internal const val SKELETON_PULSE_MS_INT = Motion.SKELETON_PULSE
-private const val SKELETON_PULSE_MS = Motion.SKELETON_PULSE * 1f
 private const val SKELETON_PULSE_FLOOR = 0.45f
 
-/** One sweep crosses in the first [SKELETON_SWEEP_ACTIVE] of the period, then rests. */
-internal const val SKELETON_SWEEP_MS = Motion.SKELETON_SWEEP * 1f
+/** One sweep crosses this much of [Motion.SKELETON_SWEEP], then rests for the remainder. */
 private const val SKELETON_SWEEP_ACTIVE = 0.7f
 
 @Stable
@@ -173,7 +171,7 @@ internal fun skeletonPulseAt(
     phaseMs: Int = 0,
 ): Float {
     val shifted = (millis + phaseMs).coerceAtLeast(0L)
-    val phase = (shifted % SKELETON_PULSE_MS.toLong()) / SKELETON_PULSE_MS
+    val phase = (shifted % Motion.SKELETON_PULSE) / Motion.SKELETON_PULSE.toFloat()
     val wave = (1f - cos(phase * 2f * PI.toFloat())) / 2f
     return SKELETON_PULSE_FLOOR + (1f - SKELETON_PULSE_FLOOR) * wave
 }
@@ -184,7 +182,7 @@ internal fun skeletonPulseAt(
  */
 internal fun skeletonSweepAt(millis: Long): Float {
     if (millis < 0L) return -1f
-    val phase = (millis % SKELETON_SWEEP_MS.toLong()) / SKELETON_SWEEP_MS
+    val phase = (millis % Motion.SKELETON_SWEEP) / Motion.SKELETON_SWEEP.toFloat()
     return if (phase < SKELETON_SWEEP_ACTIVE) phase / SKELETON_SWEEP_ACTIVE else -1f
 }
 
@@ -250,7 +248,7 @@ fun SkeletonBlock(
 }
 
 /**
- * A soft diagonal band of light crossing the skeleton every [SKELETON_SWEEP_MS]: the
+ * A soft diagonal band of light crossing the skeleton every [Motion.SKELETON_SWEEP]: the
  * "something is happening" half of the loading language, beside the blocks' "we are
  * waiting" breath. Apply it to the container that holds the blocks; it draws over them
  * and over nothing else, and stops with the shared clock.
@@ -258,14 +256,7 @@ fun SkeletonBlock(
 @Composable
 fun Modifier.skeletonSweep(): Modifier {
     val clock = LocalSkeletonPulseClock.current ?: return this
-    val palette = LocalPalette.current
-    val accent = LocalAccentColors.current.accent
-    val band =
-        if (palette.isDark) {
-            Color.White.copy(alpha = SWEEP_ALPHA_DARK)
-        } else {
-            accent.copy(alpha = SWEEP_ALPHA_LIGHT)
-        }
+    val band = skeletonSweepBand()
     return drawWithContent {
         drawContent()
         val progress = skeletonSweepAt(clock.millis.longValue)
@@ -273,6 +264,28 @@ fun Modifier.skeletonSweep(): Modifier {
         // The band travels the diagonal, 120° like the page-level sweep in the design:
         // enter past the top-left corner, leave past the bottom-right.
         drawDiagonalSweep(band, progress)
+    }
+}
+
+/** The colour of the page band, for a handoff that carries the same band on after the skeleton. */
+@Composable
+internal fun skeletonSweepBand(): Color {
+    val palette = LocalPalette.current
+    val accent = LocalAccentColors.current.accent
+    return if (palette.isDark) Color.White.copy(alpha = SWEEP_ALPHA_DARK) else accent.copy(alpha = SWEEP_ALPHA_LIGHT)
+}
+
+/**
+ * Reads where the page band is at the moment of the call: 0 → 1 mid-crossing, or -1 at rest.
+ * The read is unobserved, so a composition may take the value without following every frame.
+ */
+@Composable
+internal fun rememberSkeletonSweepReader(): () -> Float {
+    val clock = LocalSkeletonPulseClock.current
+    return remember(clock) {
+        {
+            if (clock == null) -1f else Snapshot.withoutReadObservation { skeletonSweepAt(clock.millis.longValue) }
+        }
     }
 }
 

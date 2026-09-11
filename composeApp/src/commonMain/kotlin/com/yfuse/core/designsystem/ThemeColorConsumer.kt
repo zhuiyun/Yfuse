@@ -3,6 +3,7 @@ package com.yfuse.core.designsystem
 import androidx.compose.animation.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.State
@@ -20,6 +21,13 @@ import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.isSpecified
+
+/** Stable destination colours, published once per theme change. Consumers own their paint clocks. */
+@Immutable
+data class ThemeColors(
+    val palette: Palette,
+    val accent: AccentColors,
+)
 
 internal val LocalThemeColorTarget = compositionLocalOf<ThemeColors?> { null }
 
@@ -61,7 +69,7 @@ internal fun rememberThemeConsumerColor(target: Color): State<Color> {
             if (reduced || !target.isSpecified) {
                 animation.snapTo(if (target.isSpecified) target else animation.value)
             } else {
-                animation.animateTo(target, tween(THEME_CROSSFADE_MS, easing = Motion.Curve))
+                animation.animateTo(target, tween(Motion.THEME_CROSSFADE, easing = Motion.Curve))
             }
             finished = true
         }

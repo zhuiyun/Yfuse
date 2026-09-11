@@ -1,5 +1,11 @@
 package com.yfuse.feature.home
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -48,12 +54,15 @@ import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HeroPageFade
 import com.yfuse.core.designsystem.InlineLoadingContent
 import com.yfuse.core.designsystem.LocalAccentColors
+import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.Poster
 import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.fadeIntoPage
+import com.yfuse.core.designsystem.heroScrollCollapse
 import com.yfuse.core.designsystem.heroTopScrim
 import com.yfuse.core.designsystem.liftOverHero
 import com.yfuse.core.designsystem.motionItem
@@ -67,6 +76,7 @@ import com.yfuse.core.designsystem.rememberRetainedArtworkPageColor
 import com.yfuse.core.designsystem.rememberScrolledPastHero
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.solidGlass
+import com.yfuse.core.designsystem.themeBackground
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.designsystem.waitingPulse
 import com.yfuse.core.model.ServerSource
@@ -129,19 +139,25 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
             val listState = rememberLazyListState()
             val lightPageReached by rememberScrolledPastHero(listState, heroHeight)
             StatusBarIconStyle(darkIcons = lightPageReached && !palette.isDark)
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .background(pageColor ?: palette.background),
-            )
+            // Covering the shared app backdrop is only worth a colour this particular poster
+            // earned. The flat palette background is the same ground the backdrop already
+            // draws, so leaving it unpainted lets the ambient field — and the wallpaper under
+            // it — through instead of hiding both behind an opaque slab. [themeBackground]
+            // reads its colour in the draw phase, so an appearance change crossfades the page
+            // over Motion.THEME_CROSSFADE rather than switching it between two frames, and
+            // nothing recomposes for the fade.
+            val pageBackground = if (pageColor != null) Modifier.themeBackground(pageColor) else Modifier
+            Box(Modifier.fillMaxSize().then(pageBackground))
 
             LazyColumn(
-                Modifier.fillMaxSize().background(pageColor ?: palette.background),
+                Modifier.fillMaxSize().then(pageBackground),
                 state = listState,
                 contentPadding = PaddingValues(bottom = Dimens.contentBottom),
             ) {
                 motionItem {
-                    Box(Modifier.fillMaxWidth().height(heroHeight)) {
+                    // The 影视详情页 and 媒体库 heroes both recede as the page scrolls over them;
+                    // this one stayed rigid until it was clipped away at the top of the list.
+                    Box(Modifier.fillMaxWidth().height(heroHeight).heroScrollCollapse(listState, heroHeight)) {
                         FallbackImage(
                             urls = heroUrls,
                             contentDescription = item.title,
@@ -405,7 +421,20 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                             }
                         }
 
-                        if (state.loading) {
+                        // Cast and genres arrive before the rest of the TMDB payload, so this
+                        // row appears below content that is already on screen. It fades and
+                        // expands into place instead of being inserted between two frames.
+                        val loadingReveal =
+                            if (LocalAccessibilityOptions.current.reduceMotion) 0 else Motion.STANDARD
+                        AnimatedVisibility(
+                            visible = state.loading,
+                            enter =
+                                fadeIn(tween(loadingReveal, easing = Motion.Curve)) +
+                                    expandVertically(tween(loadingReveal, easing = Motion.Curve)),
+                            exit =
+                                fadeOut(tween(loadingReveal, easing = Motion.Curve)) +
+                                    shrinkVertically(tween(loadingReveal, easing = Motion.Curve)),
+                        ) {
                             Row(
                                 Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.Center,

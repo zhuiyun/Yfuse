@@ -30,19 +30,29 @@ class Core2SurfaceTest {
 
     @Test
     fun bitmap_bounds_normalize_different_source_canvases() {
-        val bounds = core2SubtitleBitmapBounds(
-            listOf(bitmap(y = 100, height = 40), bitmap(y = 360, height = 40, canvasHeight = 2000)), 1f,
-        )
+        val bounds =
+            core2SubtitleBitmapBounds(
+                listOf(bitmap(y = 100, height = 40), bitmap(y = 360, height = 40, canvasHeight = 2000)),
+                1f,
+            )
         assertEquals(0.1f, bounds.first, 0.0001f)
         assertEquals(0.2f, bounds.second, 0.0001f)
         assertEquals(0f to 0f, core2SubtitleBitmapBounds(emptyList(), 1f))
     }
 
-    private fun bitmap(y: Int, height: Int, canvasHeight: Int = 1000) =
-        YSubtitlePayload.BitmapArgb(
-            width = 10, height = height, x = 10, y = y,
-            canvasWidth = 1000, canvasHeight = canvasHeight, pixels = IntArray(10 * height),
-        )
+    private fun bitmap(
+        y: Int,
+        height: Int,
+        canvasHeight: Int = 1000,
+    ) = YSubtitlePayload.BitmapArgb(
+        width = 10,
+        height = height,
+        x = 10,
+        y = y,
+        canvasWidth = 1000,
+        canvasHeight = canvasHeight,
+        pixels = IntArray(10 * height),
+    )
 
     @Test
     fun fit_preserves_aspect_ratio_inside_the_container() {

@@ -19,6 +19,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
@@ -34,13 +35,20 @@ import com.yfuse.core.designsystem.pressable
 import kotlinx.coroutines.delay
 import com.yfuse.core.designsystem.ThemeText as Text
 
-/** Keeps artwork on screen until a replacement engine has produced a verified video frame. */
+/**
+ * Keeps artwork on screen until a replacement engine has produced a verified video frame.
+ *
+ * [message] is a reader rather than a string because the copy it produces is derived from the
+ * live timeline — buffer seconds, recovery state, which episode is being joined. Built at the
+ * call site it would be rebuilt on every position tick whether or not this overlay is even up;
+ * invoked here it is only read where it is drawn.
+ */
 @Composable
 internal fun PlaybackContinuityOverlay(
     artworkUrls: List<String?>,
     title: String,
     visible: Boolean,
-    message: String,
+    message: () -> String,
     modifier: Modifier = Modifier,
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
@@ -54,8 +62,8 @@ internal fun PlaybackContinuityOverlay(
     }
     AnimatedVisibility(
         visible = visible,
-        enter = fadeIn(tween(if (reduceMotion) 0 else CONTINUITY_ENTER_MS)),
-        exit = fadeOut(tween(if (reduceMotion) 0 else CONTINUITY_EXIT_MS)),
+        enter = fadeIn(tween(if (reduceMotion) 0 else Motion.CONTINUITY_ENTER)),
+        exit = fadeOut(tween(if (reduceMotion) 0 else Motion.CONTINUITY_EXIT)),
         modifier = modifier,
     ) {
         Box(Modifier.fillMaxSize().background(Color.Black)) {
@@ -66,15 +74,28 @@ internal fun PlaybackContinuityOverlay(
                     contentScale = ContentScale.Crop,
                     progressive = false,
                     alphaOnly = true,
-                    modifier = Modifier.fillMaxSize(),
+                    // The artwork is held back from full brightness so the chip stays readable
+                    // over it. Drawn into the picture's own node rather than stacked as a third
+                    // full-screen Box, it is one fewer layer to measure, place and composite on
+                    // an overlay that covers the whole screen during every handover.
+                    modifier =
+                        Modifier.fillMaxSize().drawWithContent {
+                            drawContent()
+                            drawRect(Color.Black, alpha = CONTINUITY_ARTWORK_DIM)
+                        },
                 )
             }
-            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.34f)))
-            if (statusVisible) {
+            // The chip is held back for [CONTINUITY_STATUS_DELAY_MS] so a fast handover never
+            // flashes an explanation nobody needed. Once that wait is over it has earned a fade
+            // of its own — appearing instantly over a still frame reads as a glitch in the frame.
+            AnimatedVisibility(
+                visible = statusVisible,
+                enter = fadeIn(tween(if (reduceMotion) 0 else Motion.STATE_HANDOFF, easing = Motion.Curve)),
+                exit = fadeOut(tween(if (reduceMotion) 0 else Motion.STATE_HANDOFF, easing = Motion.Curve)),
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 70.dp),
+            ) {
                 Row(
                     Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = 70.dp)
                         .glass(
                             shape = AppShapes.pill,
                             fill = Color.Black.copy(alpha = 0.58f),
@@ -84,7 +105,7 @@ internal fun PlaybackContinuityOverlay(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     OrbProgress(size = 15.dp, color = Color.White)
-                    Text(message, style = AppTypography.caption.medium, color = Color.White)
+                    Text(message(), style = AppTypography.caption.medium, color = Color.White)
                 }
             }
         }
@@ -101,8 +122,8 @@ internal fun OledPauseProtectionOverlay(
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     AnimatedVisibility(
         visible = visible,
-        enter = fadeIn(tween(if (reduceMotion) 0 else OLED_FADE_MS)),
-        exit = fadeOut(tween(if (reduceMotion) 0 else OLED_FADE_MS)),
+        enter = fadeIn(tween(if (reduceMotion) 0 else Motion.OLED_PROTECTION)),
+        exit = fadeOut(tween(if (reduceMotion) 0 else Motion.OLED_PROTECTION)),
         modifier = modifier,
     ) {
         Box(
@@ -125,18 +146,24 @@ internal fun OledPauseProtectionOverlay(
     }
 }
 
-/** Names a rebuffer/reconnect state without replacing the last good video frame. */
+/**
+ * Names a rebuffer/reconnect state without replacing the last good video frame.
+ *
+ * [message] is a reader for the same reason as [PlaybackContinuityOverlay]'s: 「已缓冲 N 秒」
+ * changes twice a second, and formatting it at the call site put a fresh string on the heap
+ * every tick of every playback, chip on screen or not.
+ */
 @Composable
 internal fun PlaybackStatusChip(
     visible: Boolean,
-    message: String,
+    message: () -> String,
     modifier: Modifier = Modifier,
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     AnimatedVisibility(
         visible = visible,
-        enter = fadeIn(tween(if (reduceMotion) 0 else CONTINUITY_ENTER_MS)),
-        exit = fadeOut(tween(if (reduceMotion) 0 else CONTINUITY_EXIT_MS)),
+        enter = fadeIn(tween(if (reduceMotion) 0 else Motion.CONTINUITY_ENTER)),
+        exit = fadeOut(tween(if (reduceMotion) 0 else Motion.CONTINUITY_EXIT)),
         modifier = modifier,
     ) {
         Row(
@@ -150,12 +177,11 @@ internal fun PlaybackStatusChip(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             OrbProgress(size = 14.dp, color = Color.White)
-            Text(message, style = AppTypography.caption.medium, color = Color.White)
+            Text(message(), style = AppTypography.caption.medium, color = Color.White)
         }
     }
 }
 
 private const val CONTINUITY_STATUS_DELAY_MS = 550L
-private const val CONTINUITY_ENTER_MS = Motion.CONTINUITY_ENTER
-private const val CONTINUITY_EXIT_MS = Motion.CONTINUITY_EXIT
-private const val OLED_FADE_MS = Motion.OLED_PROTECTION
+
+private const val CONTINUITY_ARTWORK_DIM = 0.34f

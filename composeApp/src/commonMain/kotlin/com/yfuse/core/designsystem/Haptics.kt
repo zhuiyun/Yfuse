@@ -31,7 +31,7 @@ enum class HapticSignal {
     /** The action could not be taken: locked by the room host, nothing to play. */
     Reject,
 
-    /** A drag crossed the point where releasing would commit — pull-to-refresh. */
+    /** A drag crossed the point where releasing would commit — pull-to-refresh, 拖动关闭弹窗. */
     Threshold,
 }
 

@@ -9,6 +9,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -30,11 +31,23 @@ fun MpvSurface(
     modifier: Modifier = Modifier,
     /** 氛围光 reads this surface; mpv letterboxes inside it, so the sampler is given the picture rect. */
     ambientSampler: AmbientFrameSampler? = null,
+    /** Drawn above the surface and below the stacked captions. */
+    ambientLayer: @Composable () -> Unit = {},
+    /**
+     * mpv places captions in the black borders by default; while the light fills them, captions
+     * are kept inside the picture so the layer above the surface cannot cover them.
+     */
+    subtitlesInsidePicture: Boolean = false,
     subtitleControls: SubtitleControlState = SubtitleControlState(),
 ) {
     val playbackPreferences = remember { GlobalContext.get().get<PlaybackPreferences>() }
+    LaunchedEffect(engine, subtitlesInsidePicture) { engine.setSubtitleUseMargins(!subtitlesInsidePicture) }
     val frameRatePreference by playbackPreferences.frameRateMatch.collectAsState()
-    val playbackState by engine.state.collectAsState()
+    // Only the reported content frame rate belongs to this surface. Reading the whole
+    // PlaybackState re-ran the AndroidView update — and the caption stack under it — on every
+    // position tick, which is several times a second for the entire film.
+    val playbackState = engine.state.collectAsState()
+    val contentFrameRate by remember(playbackState) { derivedStateOf { playbackState.value.diagnostics.frameRate } }
     val subtitles by engine.subtitleText.collectAsState()
     val surfaceState = remember { mutableStateOf<Surface?>(null) }
     val frameRateMode = frameRatePreference.toPlayerMode()
@@ -43,10 +56,10 @@ fun MpvSurface(
     LaunchedEffect(
         surfaceState.value,
         frameRateMode,
-        playbackState.diagnostics.frameRate,
+        contentFrameRate,
     ) {
         val surface = surfaceState.value ?: return@LaunchedEffect
-        val fps = playbackState.diagnostics.frameRate
+        val fps = contentFrameRate
         if (frameRateMode == FrameRateMatchMode.Disabled || fps <= 0f) {
             clearSurfaceFrameRate(surface)
         } else {
@@ -104,6 +117,7 @@ fun MpvSurface(
             onRelease = { view -> ambientSampler?.detach(view) },
             modifier = Modifier.fillMaxSize(),
         )
+        ambientLayer()
 
         if (subtitles.stacked) {
             val appearance = subtitleControls.appearance.withBrightness(subtitleControls.brightness)

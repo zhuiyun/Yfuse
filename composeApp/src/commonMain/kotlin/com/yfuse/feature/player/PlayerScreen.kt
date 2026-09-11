@@ -1,5 +1,10 @@
 package com.yfuse.feature.player
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,6 +27,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.LocalAccessibilityOptions
+import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.OrbProgressDefaults
 import com.yfuse.core.designsystem.glass
@@ -48,22 +55,39 @@ internal fun PlayerPreparationContent(
     onRetry: () -> Unit,
     onBack: () -> Unit,
 ) {
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     Box(Modifier.fillMaxSize().background(Color.Black)) {
-        when {
-            state.loading ->
-                OrbProgress(
-                    modifier = Modifier.align(Alignment.Center),
-                    size = OrbProgressDefaults.Page,
-                    color = Color.White,
-                )
+        // Spinner and failure occupy the same spot, so one has to hand over to the other rather
+        // than be swapped for it: a retry that fails again used to blink between the two states
+        // on a black screen with nothing to say which way it had gone. Keyed on the stage, so a
+        // changing error message re-renders the copy without restarting the crossfade.
+        AnimatedContent(
+            targetState = state,
+            contentKey = { it.preparationStage() },
+            transitionSpec = {
+                val duration = if (reduceMotion) 0 else Motion.STATE_HANDOFF
+                fadeIn(tween(duration, easing = Motion.Curve)) togetherWith
+                    fadeOut(tween(duration, easing = Motion.Curve))
+            },
+            contentAlignment = Alignment.Center,
+            modifier = Modifier.align(Alignment.Center),
+            label = "player-preparation",
+        ) { current ->
+            val error = current.error
+            when {
+                current.loading ->
+                    OrbProgress(
+                        size = OrbProgressDefaults.Page,
+                        color = Color.White,
+                    )
 
-            state.error != null ->
-                PlayerLoadError(
-                    message = state.error!!,
-                    onRetry = onRetry,
-                    onBack = onBack,
-                    modifier = Modifier.align(Alignment.Center),
-                )
+                error != null ->
+                    PlayerLoadError(
+                        message = error,
+                        onRetry = onRetry,
+                        onBack = onBack,
+                    )
+            }
         }
 
         Box(
@@ -92,6 +116,20 @@ internal fun PlayerPreparationContent(
         }
     }
 }
+
+/** What the preparation screen is showing; the crossfade switches on this, not on the copy. */
+private enum class PreparationStage {
+    Loading,
+    Error,
+    Idle,
+}
+
+private fun PlayerState.preparationStage(): PreparationStage =
+    when {
+        loading -> PreparationStage.Loading
+        error != null -> PreparationStage.Error
+        else -> PreparationStage.Idle
+    }
 
 @Composable
 private fun PlayerLoadError(

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -37,6 +38,9 @@ internal fun SeekBurstFeedback(
     val moving = LocalRouteVisible.current && !LocalAccessibilityOptions.current.reduceMotion
     val pulse = remember(itemKey) { Animatable(1f) }
     var active by remember(itemKey) { mutableStateOf(false) }
+    // The revision whose pulse has already played out. Without it the two full-screen layers below
+    // stayed in the tree — measured, laid out and composited — for the whole film to draw nothing.
+    var finishedRevision by remember(itemKey) { mutableIntStateOf(0) }
     LaunchedEffect(revision, moving, pulse) {
         if (revision == 0 || !moving) {
             pulse.snapTo(1f)
@@ -45,34 +49,36 @@ internal fun SeekBurstFeedback(
             pulse.snapTo(0f)
             pulse.animateTo(1f, tween(Motion.PLAYER_SEEK_FEEDBACK, easing = Motion.Curve))
             active = false
+            finishedRevision = revision
         }
     }
-    if (moving) {
-        Canvas(Modifier.fillMaxSize()) {
-            val remaining = 1f - pulse.value
-            if (remaining > 0f) {
-                val radius = (24.dp.toPx() + 56.dp.toPx() * pulse.value).coerceAtMost(size.minDimension / 2f)
-                drawCircle(Color.White.copy(alpha = 0.10f * remaining), radius, position)
-                drawCircle(Color.White.copy(alpha = 0.45f * remaining), radius, position, style = Stroke(1.5.dp.toPx()))
-            }
+    // Composed from the press that starts the pulse until the pulse ends, so [BurstIcon] is in
+    // the tree before [active] turns on — it deliberately does not burst on its first frame.
+    if (!moving || revision == 0 || revision == finishedRevision) return
+    Canvas(Modifier.fillMaxSize()) {
+        val remaining = 1f - pulse.value
+        if (remaining > 0f) {
+            val radius = (24.dp.toPx() + 56.dp.toPx() * pulse.value).coerceAtMost(size.minDimension / 2f)
+            drawCircle(Color.White.copy(alpha = 0.10f * remaining), radius, position)
+            drawCircle(Color.White.copy(alpha = 0.45f * remaining), radius, position, style = Stroke(1.5.dp.toPx()))
         }
-        BoxWithConstraints(Modifier.fillMaxSize()) {
-            val density = LocalDensity.current
-            val half = with(density) { 20.dp.toPx() }
-            BurstIcon(
-                icon = if (position.x < constraints.maxWidth / 2f) AppIcons.Rewind else AppIcons.Forward,
-                active = active,
-                contentDescription = null,
-                tint = Color.White,
-                burstColor = Color.White,
-                iconSize = 24.dp,
-                modifier =
-                    Modifier
-                        .offset {
-                            IntOffset((position.x - half).roundToInt(), (position.y - half).roundToInt())
-                        }.size(40.dp)
-                        .graphicsLayer { alpha = 1f - pulse.value },
-            )
-        }
+    }
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val density = LocalDensity.current
+        val half = with(density) { 20.dp.toPx() }
+        BurstIcon(
+            icon = if (position.x < constraints.maxWidth / 2f) AppIcons.Rewind else AppIcons.Forward,
+            active = active,
+            contentDescription = null,
+            tint = Color.White,
+            burstColor = Color.White,
+            iconSize = 24.dp,
+            modifier =
+                Modifier
+                    .offset {
+                        IntOffset((position.x - half).roundToInt(), (position.y - half).roundToInt())
+                    }.size(40.dp)
+                    .graphicsLayer { alpha = 1f - pulse.value },
+        )
     }
 }

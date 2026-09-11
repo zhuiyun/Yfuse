@@ -2,6 +2,10 @@
 
 package com.yfuse.feature.search
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -64,10 +68,13 @@ import com.yfuse.core.designsystem.DisclosureContent
 import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassShapes
+import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LocalAccentColors
+import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.MediaSharedElementKey
+import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.OfficialNavDisplay
 import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.Poster
@@ -249,7 +256,7 @@ private fun SearchHomeScreen(
             if ((state.hasSearched || state.error != null) && !awaitingFirstResults) {
                 motionItem(key = "search-results-heading") {
                     Column(
-                        Modifier.padding(horizontal = Dimens.pageHorizontal).then(resultHandoff.item()),
+                        Modifier.padding(horizontal = Dimens.pageHorizontal).then(resultHandoff.item(key = "heading")),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
                         ResultsHeading(
@@ -279,14 +286,18 @@ private fun SearchHomeScreen(
                                     Modifier
                                         .fillMaxWidth()
                                         .padding(horizontal = Dimens.pageHorizontal)
-                                        .then(resultHandoff.item()),
+                                        .then(resultHandoff.item(key = "error")),
                             )
                         }
 
                     // 没有找到相关内容 — `400 12px Manrope`, `--pg-hint`, `padding:20px 0`.
                     state.visibleGroups.all { it.items.isEmpty() } && !state.loading ->
                         motionItem(key = "search-results-empty") {
-                            Box(Modifier.padding(horizontal = Dimens.pageHorizontal).then(resultHandoff.item())) {
+                            Box(
+                                Modifier
+                                    .padding(horizontal = Dimens.pageHorizontal)
+                                    .then(resultHandoff.item(key = "empty")),
+                            ) {
                                 EmptyResults(filtered = state.type != SearchType.All)
                             }
                         }
@@ -388,8 +399,9 @@ internal fun SearchField(
             .padding(horizontal = Dimens.pageHorizontal)
             .heightIn(min = 50.dp)
             .searchFieldArrival()
-            .then(motion)
+            // Keep the shadow stable while loading feedback animates inside the intact field.
             .shadow(Shadows.searchBarFocused, shape)
+            .then(motion)
             .glass(shape, palette.card3, accent.border)
             // The conditional clear action already owns a 48dp touch target. Vertical padding
             // here would add to that real layout height and make the field jump when text appears.
@@ -420,7 +432,14 @@ internal fun SearchField(
         // The field itself says the search is running: the same orb as every other loader,
         // at the end of the row where the answer will land.
         Box(Modifier.size(SearchFieldOrbSize), contentAlignment = Alignment.Center) {
-            if (loading) OrbProgress(size = SearchFieldOrbSize, contentDescription = "正在搜索")
+            val reduce = LocalAccessibilityOptions.current.reduceMotion || !LocalRouteVisible.current
+            this@Row.AnimatedVisibility(
+                visible = loading,
+                enter = fadeIn(tween(if (reduce) 0 else Motion.QUICK)),
+                exit = fadeOut(tween(if (reduce) 0 else Motion.QUICK)),
+            ) {
+                OrbProgress(size = SearchFieldOrbSize, contentDescription = "正在搜索")
+            }
         }
         if (query.isNotEmpty()) {
             Icon(
@@ -490,7 +509,7 @@ private fun TypeChip(
         color = selectionColor(if (selected) accent.accent else palette.body),
         modifier =
             Modifier
-                .pressable(role = Role.RadioButton, onClick = onClick)
+                .pressable(haptic = HapticSignal.Select, role = Role.RadioButton, onClick = onClick)
                 .semantics { this.selected = selected }
                 .touchTarget()
                 .glass(
@@ -526,8 +545,7 @@ private fun PeopleRow(
         ) {
             motionItems(people, key = { "${it.serverId}-${it.personId}" }) { person ->
                 Column(
-                    // Cast lands after the titles do, so the row grows into place.
-                    Modifier.width(64.dp).then(Modifier).pressable { onSelect(person) },
+                    Modifier.width(64.dp).pressable { onSelect(person) },
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     // The image draws nothing when the server has no headshot, so the
