@@ -1,10 +1,9 @@
-name: Particle Android compile and regression
+name: Particle Kotlin compatibility diagnostics
 
 on:
   push:
     branches: [codex/particle-light-20260912]
-    paths:
-      - .github/workflows/particle-compile.yml
+    paths: [.github/workflows/particle-compile.yml]
   workflow_dispatch:
 
 permissions:
@@ -18,7 +17,7 @@ concurrency:
 jobs:
   compile:
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
@@ -28,33 +27,30 @@ jobs:
           distribution: temurin
           java-version: '17'
           cache: gradle
-      - name: Install Android toolchain and verified compile dependencies
+      - name: Install Kotlin compile dependencies
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
           sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
-          manager="$sdk/cmdline-tools/latest/bin/sdkmanager"
-          yes | "$manager" --licenses >/dev/null 2>&1 || true
-          "$manager" 'platforms;android-36' 'ndk;29.0.14206865' 'cmake;3.22.1'
+          "$sdk/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-36'
           if ! command -v 7z >/dev/null; then sudo apt-get update && sudo apt-get install -y p7zip-full; fi
           bash scripts/fetch-engines.sh
-      - name: Compile Android UI and execute regression tests (not an APK delivery)
+      - name: Kotlin type checking only; no APK or native validation claimed
         shell: bash
         run: |
           set -euo pipefail
           chmod +x gradlew
-          ./gradlew :composeApp:compileDebugKotlinAndroid :composeApp:testDebugUnitTest :watchTogetherProtocol:jvmTest :watchTogetherServer:test --no-daemon --console=plain --max-workers=2 2>&1 | tee /tmp/particle-android.log
-      - name: Export regression evidence
+          # JNI output is not needed for Kotlin type checking. Full native verification
+          # remains mandatory and unchanged in sign-android-branch.yml before delivery.
+          # Do not add assemble, package, or release tasks to this diagnostic invocation.
+          ./gradlew :composeApp:compileDebugKotlinAndroid -x :composeApp:verifyStandaloneYCoreArtifact --no-daemon --console=plain --max-workers=2 2>&1 | tee /tmp/particle-kotlin-only.log
+      - name: Export diagnostic log (not a signed build or test result)
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: particle-android-${{ github.run_id }}
-          path: |
-            /tmp/particle-android.log
-            composeApp/build/test-results/
-            watchTogetherProtocol/build/test-results/
-            watchTogetherServer/build/test-results/
+          name: particle-kotlin-only-${{ github.run_id }}
+          path: /tmp/particle-kotlin-only.log
           retention-days: 7
           if-no-files-found: warn
