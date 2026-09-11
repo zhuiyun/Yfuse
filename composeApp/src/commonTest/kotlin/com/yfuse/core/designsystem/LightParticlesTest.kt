@@ -60,4 +60,11 @@ class LightParticlesTest {
         pool.clear()
         assertEquals(0, budget.active)
     }
+
+    @Test
+    fun appearanceCannotReplayAfterFocusOrSettingChange() {
+        val gate = LightAppearanceGate()
+        assertTrue(gate.consume())
+        repeat(100) { assertFalse(gate.consume()) }
+    }
 }

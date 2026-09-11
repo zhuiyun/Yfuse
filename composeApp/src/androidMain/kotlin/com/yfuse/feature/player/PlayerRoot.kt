@@ -1,3 +1,5 @@
+@file:kotlin.OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package com.yfuse.feature.player
 
 import android.graphics.Rect

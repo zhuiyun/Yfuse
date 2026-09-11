@@ -714,6 +714,7 @@ internal fun PlayerControls(
                             }
                         },
                         onDoubleTap = { offset ->
+                            if (!allowsPlayerDrag(offset.y, currentSystemGestureTop)) return@detectTapGestures
                             if (latestWatchLocked) {
                                 gestureHud = "房主控制播放"
                                 haptics.play(HapticSignal.Reject)
@@ -752,6 +753,7 @@ internal fun PlayerControls(
                             poke()
                         },
                         onLongPress = { offset ->
+                            if (!allowsPlayerDrag(offset.y, currentSystemGestureTop)) return@detectTapGestures
                             // Thirds, exactly as the double tap divides the picture: left
                             // rewinds, right fast-forwards, and the middle — where the double
                             // tap plays and pauses rather than seeking — holds nothing. The

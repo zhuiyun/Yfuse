@@ -127,6 +127,8 @@ private fun ActionToastEntry(
     val visibility = remember(entry) { MutableTransitionState(false) }
     visibility.targetState = entry.visible
     var dragging by remember { mutableStateOf(false) }
+    val exitLight = rememberLightFeedback(enhancedOnly = true)
+    val currentExitLight by rememberUpdatedState(exitLight)
     var offset by remember { mutableFloatStateOf(0f) }
     val animatedOffset =
         animateFloatAsState(
@@ -171,6 +173,8 @@ private fun ActionToastEntry(
             modifier =
                 Modifier
                     .padding(horizontal = Dimens.pageHorizontal)
+                    .lightOnAppear()
+                    .lightFeedback(exitLight)
                     .graphicsLayer {
                         translationX = animatedOffset.value
                         alpha = (1f - abs(animatedOffset.value) / (threshold * 2f)).coerceIn(0.25f, 1f)
@@ -184,6 +188,7 @@ private fun ActionToastEntry(
                             if (abs(offset) >= threshold ||
                                 (abs(offset) > threshold / 4f && abs(velocity) > threshold * 8f)
                             ) {
+                                currentExitLight.emit(LightEffect.Dissolve, directionX = if (offset < 0f) -1f else 1f)
                                 latestClose()
                             } else {
                                 offset = 0f

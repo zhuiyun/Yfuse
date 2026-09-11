@@ -55,6 +55,7 @@ import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.WindowWidthTier
 import com.yfuse.core.designsystem.backdropSource
 import com.yfuse.core.designsystem.liftOverHero
+import com.yfuse.core.designsystem.lightOnAppear
 import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.playerArtworkOnClick
 import com.yfuse.core.designsystem.rememberAnimatedArtworkAccent
@@ -475,7 +476,7 @@ fun DetailScreen(component: DetailComponent) {
                                 contentPadding = PaddingValues(bottom = Dimens.contentBottom),
                             ) {
                                 motionItem(key = "hero") {
-                                    Box {
+                                    Box(Modifier.lightOnAppear(enhancedOnly = true)) {
                                         Hero(
                                             urls = heroUrls,
                                             title = displayTitle,

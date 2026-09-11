@@ -61,6 +61,7 @@ import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.GlassShapes
+import com.yfuse.core.designsystem.LightEffect
 import com.yfuse.core.designsystem.LocalAccent
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
@@ -69,6 +70,7 @@ import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.Semantic
 import com.yfuse.core.designsystem.SettingTint
 import com.yfuse.core.designsystem.glass
+import com.yfuse.core.designsystem.lightOnChange
 import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.pressable
@@ -796,6 +798,12 @@ private fun DownloadTaskRow(
                 )
                 Text(
                     downloadStatusText(item),
+                    modifier =
+                        Modifier.lightOnChange(
+                            item.status,
+                            if (item.status == DownloadStatus.Completed) LightEffect.Converge else LightEffect.Node,
+                            emitWhen = item.status != DownloadStatus.Failed,
+                        ),
                     style = AppTypography.caption.medium,
                     color =
                         when {

@@ -47,11 +47,16 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.yfuse.core.designsystem.DarkPalette
 import com.yfuse.core.designsystem.LightPalette
+import com.yfuse.core.designsystem.LightParticleBudget
+import com.yfuse.core.designsystem.LocalParticleBudget
+import com.yfuse.core.designsystem.LocalParticleLight
 import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.SplashAnimation
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.defaultAnimation
+import com.yfuse.core.designsystem.drawPhaseLight
+import com.yfuse.core.designsystem.rememberPhaseLightCount
 import com.yfuse.core.designsystem.resolveDark
 import com.yfuse.feature.profile.currentAppIconVariant
 import com.yfuse.feature.profile.splashMark
@@ -164,18 +169,24 @@ fun AnimatedSplashApp(
         }
 
         if (splashVisible) {
-            AnimatedSplashScreen(
-                variant = variant,
-                dark = dark,
-                // The system painted the starting window from the -night resources, so it
-                // followed the OS rather than our own setting. Opening on that colour and
-                // easing to ours removes the black/white flash the two used to trade on every
-                // cold start where the phone and the app disagreed.
-                entryDark = systemDark,
-                stillFrame = stillFrame,
-                timing = timing,
-                onFinished = { splashVisible = false },
-            )
+            val particleLight by root.themePreferences.particleLight.collectAsState()
+            CompositionLocalProvider(
+                LocalParticleLight provides particleLight,
+                LocalParticleBudget provides remember { LightParticleBudget() },
+            ) {
+                AnimatedSplashScreen(
+                    variant = variant,
+                    dark = dark,
+                    // The system painted the starting window from the -night resources, so it
+                    // followed the OS rather than our own setting. Opening on that colour and
+                    // easing to ours removes the black/white flash the two used to trade on every
+                    // cold start where the phone and the app disagreed.
+                    entryDark = systemDark,
+                    stillFrame = stillFrame,
+                    timing = timing,
+                    onFinished = { splashVisible = false },
+                )
+            }
         }
     }
 }
@@ -226,6 +237,7 @@ private fun AnimatedSplashScreen(
         onFinished()
     }
 
+    val lightCount = rememberPhaseLightCount(!stillFrame, enhancedOnly = true)
     val entryColor = splashBackground(entryDark)
     val targetColor = splashBackground(dark)
 
@@ -273,6 +285,17 @@ private fun AnimatedSplashScreen(
                     .aspectRatio(1f),
             ) {
                 with(choreography) { drawMark(clock.value, mark) }
+                drawPhaseLight(
+                    androidx.compose.ui.geometry.Rect(
+                        size.width * 0.25f,
+                        size.height * 0.3f,
+                        size.width * 0.75f,
+                        size.height * 0.7f,
+                    ),
+                    (clock.value / choreography.fadeStartMs).coerceIn(0f, 1f),
+                    lightCount,
+                    if (dark) Color.White else Color.Black,
+                )
             }
             Spacer(Modifier.height(18.dp))
             SplashWordmark(wordmark = { choreography.wordmark(clock.value) })

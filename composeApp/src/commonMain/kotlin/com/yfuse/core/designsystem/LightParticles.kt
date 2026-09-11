@@ -362,3 +362,28 @@ internal fun Modifier.lightOnChange(
     }
     return lightFeedback(light)
 }
+
+internal class LightAppearanceGate {
+    private var consumed = false
+
+    fun consume(): Boolean {
+        if (consumed) return false
+        consumed = true
+        return true
+    }
+}
+
+/** For newly created notices/previews, never for recycled media rows. */
+@Composable
+internal fun Modifier.lightOnAppear(
+    effect: LightEffect = LightEffect.Edge,
+    enabled: Boolean = true,
+    enhancedOnly: Boolean = false,
+): Modifier {
+    val light = rememberLightFeedback(enabled, enhancedOnly)
+    val gate = remember { LightAppearanceGate() }
+    return lightFeedback(light).onSizeChanged { size ->
+        light.resize(size.width, size.height)
+        if (gate.consume()) light.emit(effect)
+    }
+}

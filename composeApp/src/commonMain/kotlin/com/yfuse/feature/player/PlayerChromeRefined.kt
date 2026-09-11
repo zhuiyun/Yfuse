@@ -98,6 +98,8 @@ import com.yfuse.core.designsystem.ambientSeekAccent
 import com.yfuse.core.designsystem.cssLinearGradient
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.lightFeedback
+import com.yfuse.core.designsystem.lightOnAppear
+import com.yfuse.core.designsystem.lightOnChange
 import com.yfuse.core.designsystem.rememberAnimatedArtworkAccent
 import com.yfuse.core.designsystem.rememberLightFeedback
 import kotlinx.coroutines.flow.first
@@ -223,6 +225,7 @@ internal fun RefinedTopBar(
                 // disc fills through a crossfade instead of being swapped for a filled one.
                 AnimatedContent(
                     targetState = unreadChat,
+                    modifier = Modifier.lightOnChange(unreadChat, emitWhen = unreadChat),
                     contentKey = { it },
                     transitionSpec = { barSwapTransform(reduceMotion) },
                     label = "player-chat-unread",
@@ -516,16 +519,17 @@ private fun RefinedBottomBarContent(
                                 storyboard = preview,
                                 positionMs = shownPositionMs(),
                                 modifier =
-                                    Modifier.offset {
-                                        val cardPx = RefinedTrickplayPreviewWidth.roundToPx()
-                                        IntOffset(
-                                            x =
-                                                (trackWidthPx * shownFraction.value - cardPx / 2f)
-                                                    .toInt()
-                                                    .coerceIn(0, (trackWidthPx - cardPx).coerceAtLeast(0)),
-                                            y = 0,
-                                        )
-                                    },
+                                    Modifier
+                                        .offset {
+                                            val cardPx = RefinedTrickplayPreviewWidth.roundToPx()
+                                            IntOffset(
+                                                x =
+                                                    (trackWidthPx * shownFraction.value - cardPx / 2f)
+                                                        .toInt()
+                                                        .coerceIn(0, (trackWidthPx - cardPx).coerceAtLeast(0)),
+                                                y = 0,
+                                            )
+                                        }.lightOnAppear(enabled = !reduceMotion),
                             )
                         }
                     }

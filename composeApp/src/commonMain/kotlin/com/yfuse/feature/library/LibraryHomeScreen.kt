@@ -71,6 +71,7 @@ import com.yfuse.core.designsystem.HeroActionDock
 import com.yfuse.core.designsystem.HeroPageFade
 import com.yfuse.core.designsystem.HeroPageIndicator
 import com.yfuse.core.designsystem.HeroTextShadow
+import com.yfuse.core.designsystem.LightEffect
 import com.yfuse.core.designsystem.LivingPosterAmbient
 import com.yfuse.core.designsystem.LivingPosterDefaults
 import com.yfuse.core.designsystem.LocalAccentColors
@@ -100,6 +101,7 @@ import com.yfuse.core.designsystem.heroDurationLabel
 import com.yfuse.core.designsystem.heroMediaTypeLabel
 import com.yfuse.core.designsystem.heroScrollCollapse
 import com.yfuse.core.designsystem.heroTopScrim
+import com.yfuse.core.designsystem.lightFeedback
 import com.yfuse.core.designsystem.livingPosterFrame
 import com.yfuse.core.designsystem.livingPosterHeroHeight
 import com.yfuse.core.designsystem.loopingCarouselItemIndex
@@ -118,6 +120,7 @@ import com.yfuse.core.designsystem.rememberArtworkPageColor
 import com.yfuse.core.designsystem.rememberArtworkPagePalette
 import com.yfuse.core.designsystem.rememberCarouselCaptionProgress
 import com.yfuse.core.designsystem.rememberCarouselPageColor
+import com.yfuse.core.designsystem.rememberLightFeedback
 import com.yfuse.core.designsystem.rememberLoopingCarouselState
 import com.yfuse.core.designsystem.rememberRefreshReveal
 import com.yfuse.core.designsystem.rememberRetainedArtworkPageColor
@@ -231,6 +234,10 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
     val slideIndex = loopingCarouselItemIndex(pagerState.settledPage, slides.size)
     val carouselDragging by pagerState.interactionSource.collectIsDraggedAsState()
     val carouselScope = rememberCoroutineScope()
+    val carouselLight = rememberLightFeedback(enhancedOnly = true)
+    LaunchedEffect(carouselDragging, carouselLight) {
+        if (carouselDragging) carouselLight.emit(LightEffect.Dust)
+    }
     // Interaction restarts the reel's clock instead of stopping it; see 首页's hero.
     var interaction by remember { mutableStateOf(0) }
     val slide = slides.getOrNull(slideIndex)
@@ -384,7 +391,8 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                                 ).heroScrollCollapse(
                                                     listState,
                                                     heroHeight,
-                                                ).carouselTouchPause(carouselTouched),
+                                                ).carouselTouchPause(carouselTouched)
+                                                .lightFeedback(carouselLight),
                                         ) {
                                             // No second full-bleed copy on phones: it would show through the dissolve.
                                             if (showSidePreview) {
@@ -499,6 +507,14 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                                             ),
                                                         pageOffsetProvider = { pagerState.currentPageOffsetFraction },
                                                         onPageSelected = { targetIndex ->
+                                                            if (targetIndex !=
+                                                                loopingCarouselItemIndex(
+                                                                    pagerState.currentPage,
+                                                                    slides.size,
+                                                                )
+                                                            ) {
+                                                                carouselLight.emit(LightEffect.Dust)
+                                                            }
                                                             interaction++
                                                             carouselScope.launch {
                                                                 val targetPage =
