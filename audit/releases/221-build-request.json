@@ -1,5 +1,5 @@
 {
-  "status": "prepared-not-built",
+  "status": "paused-for-project-review",
   "versionName": "1.0.59",
   "versionCode": 221,
   "packageName": "com.yfuse",
@@ -18,5 +18,8 @@
   "workflow": ".github/workflows/sign-android-branch.yml",
   "signingBranch": "codex/ycore-sign-20260830",
   "productionPublishing": false,
-  "httpPlaybackAllowed": true
+  "httpPlaybackAllowed": true,
+  "cancelledRunId": 34684242349,
+  "reviewRunId": 34684713420,
+  "apkSizeBudgetBytes": 30000000
 }

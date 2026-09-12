@@ -22,6 +22,32 @@ import kotlin.test.assertTrue
 
 class PlaybackTransportAuditTest {
     @Test
+    fun unavailableDiskCacheDoesNotInterruptNetworkPlayback() {
+        val blockedDirectory = Files.createTempFile("ycore-cache-unavailable", ".tmp").toFile()
+        val media = ByteArray(24) { (it + 30).toByte() }
+        val source =
+            AndroidTransportMediaDataSource(
+                uri = "http://origin.example/movie.mkv",
+                protocol = YSourceProtocol.Http,
+                headers = emptyMap(),
+                cacheDirectory = blockedDirectory,
+                cacheIdentity = YCacheIdentity("scope", "media", "source"),
+                cacheMaximumBytes = 1024,
+                blockSizeOverride = 8,
+                createTransport = { AuditRangeTransport(media) },
+            )
+        try {
+            assertEquals(24L, source.size)
+            val output = ByteArray(8)
+            assertEquals(8, source.readAt(16, output, 0, 8))
+            assertContentEquals(media.copyOfRange(16, 24), output)
+        } finally {
+            source.close()
+            blockedDirectory.delete()
+        }
+    }
+
+    @Test
     fun changedOriginLengthDoesNotTrapTheNextOpenInOldDiskMetadata() {
         val directory = Files.createTempDirectory("ycore-source-refresh").toFile()
         val identity = YCacheIdentity("scope", "media", "source")

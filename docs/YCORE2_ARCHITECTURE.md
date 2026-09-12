@@ -2,11 +2,15 @@
 
 ## Current production status (2026-09-12)
 
-Production artifacts have used the native-only YCore route since 1.0.23. Direct, Enhanced and
-Tunnel are selected by the current router. Legacy adapters retained in source are historical
-migration/optional-build code; they are not a production rollback promise. The migration plan and
-early device records below describe earlier milestones. Source fixes and remaining evidence needs
-are tracked in [the September audit follow-up](YCORE_AUDIT_FIXES_20260912.md).
+The default Auto playback preference enables Core2, whose router selects Direct, Enhanced,
+Tunnel and fallback routes. This is separate from the APK profile: the current Gradle default
+and signing workflow build the full profile with MPV/MDK compatibility libraries. The verified
+1.0.58 (220) signed baseline also contains those libraries. A native-only APK requires the
+explicit `yfuseNativeOnlyRuntime` option and its release confirmation; runtime fallback behavior
+also depends on the user's playback preferences. Do not infer the current package profile from
+the historical 1.0.23 native-only delivery. The migration plan and early device records below
+describe earlier milestones. Source fixes and remaining evidence needs are tracked in
+[the September audit follow-up](YCORE_AUDIT_FIXES_20260912.md).
 
 ## Original migration decision (historical)
 

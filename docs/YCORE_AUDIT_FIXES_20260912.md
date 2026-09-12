@@ -37,7 +37,7 @@ HTTPS → HTTP 播放重定向能力继续保留；没有新增 HTTPS 强制要�
 - 使用 Kotlin 2.2.21 编译实际 `core2` common/Android 播放源码，Android API 使用 API 36
   类库；与本次逻辑无关的 AppLog、网络环境、遗留工厂和部分光盘 UI 依赖使用边界替身。
   这不是整个 APK 的 Gradle 构建。光盘 source wrapper 本身不在这次整体编译集合中。
-- 117 项 JVM 回归通过，包含新增 `PlaybackAuditRegressionTest`、
+- 120 项 JVM 回归通过，包含新增 `PlaybackAuditRegressionTest`、
   `PlaybackTransportAuditTest`、实际预读节点、磁盘缓存、远程随机读、光盘块读、
   HTTP/重定向、代理、音轨选择、EOS/Surface 完成策略测试。
   JVM 运行时的 `MediaDataSource` 基类与 `Looper` 使用 API 替身；实际 transport/cache/
@@ -60,3 +60,38 @@ HTTPS → HTTP 播放重定向能力继续保留；没有新增 HTTPS 强制要�
 纯音频 Enhanced、软件高位深渲染/拷贝成本、offload、夜间动态压缩、直播时移及服务器音频
 重协商属于独立能力或架构工作，本次缺陷修复不宣称已实现。旧文档中的同名缺口也不代表
 native-only 制品的实时能力，应按当前路由与设备逐项验证。
+
+## 打包暂停后的追加检查
+
+用户要求先检查项目再打包。签名运行 `34684242349` 已取消；检查运行
+`34684713420` 只编译、测试和 lint，不生成或签署 APK。
+
+- 缓存元数据持久化失败曾直接中断播放。校验失败现在停用该实例的磁盘缓存并继续网络读取；
+  旧块删除失败时不能确认新 epoch，避免将未清理的数据当作新内容。新增不可写缓存路径回归。
+- PCM/encoded 共用的备用时钟没有扩展 AudioTrack 的 32 位播放头。现已处理计数回绕，
+  configure/flush/release 清除扩展状态；新增跨回绕、暂停及重置测试。
+  平台计数语义见 [Android AudioTrack API](https://developer.android.com/reference/android/media/AudioTrack#getPlaybackHeadPosition())。
+- 实际 1.0.58 (220) APK 为 30,522,248 字节，超过现有 30,000,000 字节门禁。
+  当前仅使用 BC 的轻量 Ed25519 验签，排除未使用的 legacy Picnic 查表资源；不提高体积预算。
+  使用实际 Android 验签源码和 BC 1.84、去掉这些资源并禁用 JDK Ed25519 提供者后，
+  已验证 bundled 回退接受有效签名，拒绝改动后的数据、签名和错误公钥。
+  此 JVM 检查仅将 Android Base64 API 替换为等效 JDK Base64。
+- 默认 Auto 启用 Core2 不等于 native-only APK。当前 Gradle 默认及已核验的 220 包均为
+  full profile，文档已依据当前配置和制品更正。
+- 发布脚本测试 37 项、构建/模块契约测试 16 项通过；手机/TV 模块边界及 TV 源清单检查通过。
+  完整 Gradle、NDK 和 lint 以检查运行的最终结果为准，不能以局部 JVM 检查代替。
+
+- 供应链扫描曾漏掉被 Gradle 从 lockfile 排除的安全覆盖依赖（包括实际使用的 BC provider），
+  并将缺失/截断的 OSV 批量响应当作无漏洞。现扫描覆盖清单中的固定版本，响应不完整时停止
+  并报告扫描未完成；3 项回归覆盖依赖清单和响应映射。批量响应约定见
+  [OSV API 文档](https://google.github.io/osv.dev/post-v1-querybatch/)。
+
+- 在线扫描了 746 个 Maven 依赖，初次结果有 1 个阻塞项：测试工具链的
+  `netty-handler:4.1.136.Final` 命中 GHSA-c4c3-7fpv-j4q5。已将统一解析版本和三个
+  模块锁文件更新到 [官方修复版本 4.1.137.Final](https://github.com/netty/netty/security/advisories/GHSA-c4c3-7fpv-j4q5)。
+  这些 Netty 条目属于 AGP 的测试宿主配置；一起看服务使用 CIO，不据此声称线上服务存在
+  同样暴露。复扫和完整 Gradle 验证仍需确认。
+
+- 首次完整检查运行失败于冷缓存 MPV facade 构建：Java target 21 / Kotlin target 17。
+  公共 native composite action 现在为原生依赖设置 Java 21，并在结束后恢复调用方 JAVA_HOME。
+  该运行的格式/设计契约已通过，lint 因上游 AAR 未生成而失败；不将其记作通过的完整检查。

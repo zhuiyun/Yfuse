@@ -83,6 +83,12 @@ def read_dependencies(root: pathlib.Path) -> list[Dependency]:
                 source += f"; effective security override from {SECURITY_OVERRIDES}"
             dep = Dependency(group, name, version, source)
             found[dep.coordinate] = dep
+    # Gradle deliberately excludes security overrides from its lockfiles. Scan those pins
+    # as well, including a runtime such as bcprov that has no remaining lock entry at all.
+    for coordinate, version in overrides.items():
+        group, name = coordinate.split(":", 1)
+        dep = Dependency(group, name, version, str(SECURITY_OVERRIDES))
+        found.setdefault(dep.coordinate, dep)
     return sorted(found.values(), key=lambda item: item.coordinate)
 
 
@@ -113,11 +119,22 @@ def query_osv(dependencies: list[Dependency]) -> list[tuple[Dependency, str]]:
         )
         with urllib.request.urlopen(request, timeout=60) as response:
             result = json.load(response)
-        for dep, result_item in zip(batch, result.get("results", [])):
-            for vulnerability in result_item.get("vulns", []):
+        results = result.get("results") if isinstance(result, dict) else None
+        if not isinstance(results, list) or len(results) != len(batch):
+            raise ValueError("OSV batch did not return exactly one result per dependency")
+        for dep, result_item in zip(batch, results):
+            if not isinstance(result_item, dict) or result_item.get("next_page_token"):
+                raise ValueError("OSV returned an invalid or incomplete dependency result")
+            vulnerabilities = result_item.get("vulns", [])
+            if not isinstance(vulnerabilities, list):
+                raise ValueError("OSV returned invalid vulnerability records")
+            for vulnerability in vulnerabilities:
+                if not isinstance(vulnerability, dict):
+                    raise ValueError("OSV returned an invalid vulnerability record")
                 identifier = vulnerability.get("id")
-                if identifier:
-                    findings.append((dep, str(identifier)))
+                if not isinstance(identifier, str) or not identifier.strip():
+                    raise ValueError("OSV vulnerability record has no identifier")
+                findings.append((dep, identifier))
     return findings
 
 
@@ -299,7 +316,7 @@ def main() -> int:
     try:
         matches = query_osv(dependencies)
         details = fetch_details({identifier for _, identifier in matches})
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+    except (urllib.error.URLError, TimeoutError, ValueError) as exc:
         print(f"::error::OSV supply-chain query failed: {exc}")
         return 2
     # A withdrawn advisory is one the upstream database has retracted; it is not a finding.

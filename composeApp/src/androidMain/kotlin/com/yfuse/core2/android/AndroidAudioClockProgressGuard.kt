@@ -26,6 +26,8 @@ internal class AndroidAudioClockProgressGuard(
     private var lastTimestampProgressNs = 0L
     private var lastPlaybackHeadFrames: Long? = null
     private var lastPlaybackHeadProgressNs = 0L
+    private var lastRawPlaybackHeadFrames: Long? = null
+    private var playbackHeadEpoch = 0L
 
     init {
         require(staleAfterNs > 0L)
@@ -39,8 +41,9 @@ internal class AndroidAudioClockProgressGuard(
         timestampRealtimeNs: Long?,
         playbackHeadFrames: Long,
     ): YAudioClockFrameSelection? {
+        val extendedPlaybackHeadFrames = extendPlaybackHead(playbackHeadFrames)
         observeTimestamp(timestampFrames, nowNs)
-        observePlaybackHead(playbackHeadFrames, nowNs)
+        observePlaybackHead(extendedPlaybackHeadFrames, nowNs)
 
         if (!playing) {
             return timestampFrames?.let { frames ->
@@ -50,7 +53,7 @@ internal class AndroidAudioClockProgressGuard(
                     source = YAudioClockFrameSource.Timestamp,
                 )
             } ?: YAudioClockFrameSelection(
-                framePosition = playbackHeadFrames,
+                framePosition = extendedPlaybackHeadFrames,
                 realtimeNs = nowNs,
                 source = YAudioClockFrameSource.PlaybackHead,
             )
@@ -70,9 +73,9 @@ internal class AndroidAudioClockProgressGuard(
         }
         // A present zero counter is not rendered audio. Granting it a warm-up window creates
         // a false Rendering -> Waiting transition ~500 ms after each empty sink restart.
-        if (playbackHeadFrames > 0L && nowNs - lastPlaybackHeadProgressNs <= staleAfterNs) {
+        if (extendedPlaybackHeadFrames > 0L && nowNs - lastPlaybackHeadProgressNs <= staleAfterNs) {
             return YAudioClockFrameSelection(
-                framePosition = playbackHeadFrames,
+                framePosition = extendedPlaybackHeadFrames,
                 realtimeNs = nowNs,
                 source = YAudioClockFrameSource.PlaybackHead,
             )
@@ -86,6 +89,19 @@ internal class AndroidAudioClockProgressGuard(
         lastTimestampProgressNs = 0L
         lastPlaybackHeadFrames = null
         lastPlaybackHeadProgressNs = 0L
+        lastRawPlaybackHeadFrames = null
+        playbackHeadEpoch = 0L
+    }
+
+    /** AudioTrack exposes an unsigned 32-bit head even during playback longer than one wrap. */
+    private fun extendPlaybackHead(frames: Long): Long {
+        val previous = lastRawPlaybackHeadFrames
+        // A small OEM counter correction is not a wrap. Configure/flush/release call reset().
+        if (previous != null && previous - frames > PLAYBACK_HEAD_PERIOD / 2L) {
+            playbackHeadEpoch += PLAYBACK_HEAD_PERIOD
+        }
+        lastRawPlaybackHeadFrames = frames
+        return playbackHeadEpoch + frames
     }
 
     private fun observeTimestamp(
@@ -111,3 +127,4 @@ internal class AndroidAudioClockProgressGuard(
 }
 
 private const val DEFAULT_AUDIO_CLOCK_STALE_AFTER_NS = 500_000_000L
+private const val PLAYBACK_HEAD_PERIOD = 0x1_0000_0000L

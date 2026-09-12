@@ -8,6 +8,7 @@ import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.File
 import java.io.FileOutputStream
+import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
@@ -50,29 +51,54 @@ internal class AndroidYCoreBlockCache(
 
     @Volatile private var acceptedEpoch = representationEpoch.get()
 
+    @Volatile private var persistenceEnabled = true
+
     /** Reuse bytes across opens only after the origin proves the same strong entity and length. */
     fun validateRepresentation(
         length: Long?,
         entityTag: String?,
     ) {
         synchronized(index.writeLock) {
-            val storedTag = runCatching { entityTagFile.readText() }.getOrNull()
-            if (entityTag == null || storedTag != entityTag || contentLength != length) invalidateLocked()
-            acceptedEpoch = representationEpoch.get()
-            sourceDirectory.mkdirs()
-            if (entityTag != null) writeAtomically(entityTagFile, entityTag.encodeToByteArray())
-            if (length != null) writeAtomically(contentLengthFile, length.toString().encodeToByteArray())
+            persistenceEnabled = false
+            try {
+                val storedTag = runCatching { entityTagFile.readText() }.getOrNull()
+                if (entityTag == null || storedTag != entityTag || contentLength != length) invalidateLocked()
+                sourceDirectory.mkdirs()
+                if (entityTag != null) writeAtomically(entityTagFile, entityTag.encodeToByteArray())
+                if (length != null) writeAtomically(contentLengthFile, length.toString().encodeToByteArray())
+                acceptedEpoch = representationEpoch.get()
+                persistenceEnabled = true
+            } catch (_: IOException) {
+                writeFailures.incrementAndGet()
+            } catch (_: SecurityException) {
+                writeFailures.incrementAndGet()
+            }
         }
     }
 
     /** Old source instances and already queued writes may never repopulate an invalidated entry. */
-    fun invalidate() = synchronized(index.writeLock) { invalidateLocked() }
+    fun invalidate() {
+        synchronized(index.writeLock) {
+            persistenceEnabled = false
+            try {
+                invalidateLocked()
+            } catch (_: IOException) {
+                writeFailures.incrementAndGet()
+            } catch (_: SecurityException) {
+                writeFailures.incrementAndGet()
+            }
+        }
+    }
 
     private fun invalidateLocked() {
         representationEpoch.incrementAndGet()
         index.initialize()
         sourceDirectory.listFiles()?.forEach { file ->
-            if (file.delete() || !file.exists()) index.remove(file)
+            if (file.delete() || !file.exists()) {
+                index.remove(file)
+            } else {
+                throw IOException("Cannot retire obsolete media cache entry")
+            }
         }
     }
 
@@ -84,7 +110,11 @@ internal class AndroidYCoreBlockCache(
     val maximumWriteMs: Long get() = maximumWriteNs.get() / 1_000_000L
     val failedWriteCount: Long get() = writeFailures.get()
     val droppedWriteCount: Long get() = droppedWrites.get()
-    val canAcceptWrite: Boolean get() = writeQueue.hasCapacity(blockSizeBytes)
+    val canAcceptWrite: Boolean
+        get() =
+            persistenceEnabled &&
+                acceptedEpoch == representationEpoch.get() &&
+                writeQueue.hasCapacity(blockSizeBytes)
 
     /** Used by cache verification and orderly maintenance, never by the foreground reader. */
     fun awaitPendingWrites(timeoutMs: Long): Boolean = writeQueue.awaitIdle(timeoutMs)
@@ -95,6 +125,7 @@ internal class AndroidYCoreBlockCache(
         bytes: ByteArray,
         contentLength: Long?,
     ) {
+        if (!persistenceEnabled) return
         val scheduledEpoch = acceptedEpoch
         if (!writeQueue.enqueue(blockFile(blockIndex).absolutePath, bytes.size) {
                 val startedNs = System.nanoTime()
@@ -139,7 +170,7 @@ internal class AndroidYCoreBlockCache(
 
     fun readBlock(index: Long): ByteArray? =
         run {
-            if (acceptedEpoch != representationEpoch.get()) return@run null
+            if (!persistenceEnabled || acceptedEpoch != representationEpoch.get()) return@run null
             require(index >= 0L)
             val file = blockFile(index)
             val length = file.length()
@@ -157,13 +188,13 @@ internal class AndroidYCoreBlockCache(
             }
             file.setLastModified(System.currentTimeMillis())
             this.index.touch(file)
-            block.takeIf { acceptedEpoch == representationEpoch.get() }
+            block.takeIf { persistenceEnabled && acceptedEpoch == representationEpoch.get() }
         }
 
     /** Metadata-only lookup for forward-cache scheduling; readBlock still validates the CRC before serving bytes. */
     fun cachedBlockLength(index: Long): Int? =
         run {
-            if (acceptedEpoch != representationEpoch.get()) return@run null
+            if (!persistenceEnabled || acceptedEpoch != representationEpoch.get()) return@run null
             val file = blockFile(index)
             this.index.length(file, blockSizeBytes)?.let { length ->
                 if (file.isFile && file.length() == BLOCK_HEADER_BYTES + length.toLong()) return@run length
@@ -186,7 +217,7 @@ internal class AndroidYCoreBlockCache(
     ) {
         require(index >= 0L && bytes.isNotEmpty())
         synchronized(this.index.writeLock) {
-            if (acceptedEpoch != representationEpoch.get()) return
+            if (!persistenceEnabled || acceptedEpoch != representationEpoch.get()) return
             this.index.initialize()
             sourceDirectory.mkdirs()
             if (!sourceDirectory.isDirectory) return

@@ -8,13 +8,55 @@ even with a CRITICAL dependency. These tests pin the behaviour that broke silent
 from __future__ import annotations
 
 import unittest
+import io
+import json
+import pathlib
+import tempfile
+from unittest.mock import patch
 
 from supply_chain_check import (
     UNRESOLVED,
+    Dependency,
     cvss_v3_score,
+    query_osv,
     rating_for_score,
+    read_dependencies,
     severity,
 )
+
+
+class ScanCoverageTest(unittest.TestCase):
+    def test_unlocked_security_override_is_still_scanned(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "scripts").mkdir()
+            (root / "scripts/security-overrides.properties").write_text(
+                "org.bouncycastle\\:bcprov-jdk18on=1.84\n"
+            )
+            (root / "gradle.lockfile").write_text("example:locked:1.0=runtime\n")
+            self.assertEqual(
+                {item.coordinate for item in read_dependencies(root)},
+                {"example:locked:1.0", "org.bouncycastle:bcprov-jdk18on:1.84"},
+            )
+
+    def test_incomplete_or_malformed_batch_cannot_be_reported_clean(self) -> None:
+        dependencies = [Dependency("example", "one", "1", "lock"), Dependency("example", "two", "1", "lock")]
+        for response in ({}, {"results": [{}]}, {"results": [None, {}]},
+                         {"results": [{"vulns": [{}]}, {}]},
+                         {"results": [{"next_page_token": "more"}, {}]}):
+            with self.subTest(response=response), patch(
+                "supply_chain_check.urllib.request.urlopen",
+                return_value=io.BytesIO(json.dumps(response).encode()),
+            ):
+                with self.assertRaises(ValueError):
+                    query_osv(dependencies)
+
+    def test_complete_batch_preserves_dependency_to_advisory_mapping(self) -> None:
+        dependencies = [Dependency("example", "one", "1", "lock"), Dependency("example", "two", "1", "lock")]
+        with patch("supply_chain_check.urllib.request.urlopen", return_value=io.BytesIO(
+            b'{"results":[{}, {"vulns":[{"id":"GHSA-test"}]}]}'
+        )):
+            self.assertEqual(query_osv(dependencies), [(dependencies[1], "GHSA-test")])
 
 
 class SeverityFromAdvisoryTest(unittest.TestCase):

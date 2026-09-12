@@ -174,6 +174,7 @@ internal class AndroidTransportMediaDataSource(
         } finally {
             runCatching { runBlocking { transport.close() } }
             if (foregroundRead === operation) foregroundRead = null
+            operation.finish()
         }
     }
 
