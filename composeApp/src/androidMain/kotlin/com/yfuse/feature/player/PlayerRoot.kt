@@ -63,6 +63,7 @@ import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.Motion
+import com.yfuse.core.designsystem.PlatformBackHandler
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.logging.playbackDiagnosticTrace
 import com.yfuse.core.model.DecoderMode
@@ -2528,12 +2529,8 @@ internal fun PlayerRoot(
                         state.error != null ||
                             state.diagnostics.effectiveVideoReadiness == PlaybackOutputReadiness.Rendering,
                     inPictureInPicture = inPictureInPicture,
-                    aspectRatio =
-                        if (scaleMode == VideoScaleMode.Fit && state.videoHeight > 0) {
-                            state.diagnostics.videoWidth.toFloat() / state.videoHeight
-                        } else {
-                            null
-                        },
+                    aspectRatio = artworkMorphAspectRatio(scaleMode, state),
+                    layer = PlayerArtworkMorphLayer.Entrance,
                 )
                 PlaybackStatusChip(
                     visible =
@@ -2564,6 +2561,13 @@ internal fun PlayerRoot(
                     }
                 }
             }
+
+            // A player that arrived on the poster morph leaves on it too, whichever way the viewer
+            // closes it. Without this the system back gesture went straight to Activity.finish(),
+            // so the on-screen close button played the reverse morph while the gesture played the
+            // plain window fade. Registered before the chrome so a drawer or a disc menu composed
+            // later still takes the gesture first.
+            PlatformBackHandler(enabled = artworkMorph != null && !inPictureInPicture, onBack = onBack)
 
             AnimatedVisibility(
                 visible = !inPictureInPicture,
@@ -3382,9 +3386,33 @@ internal fun PlayerRoot(
                 },
                 modifier = Modifier.fillMaxSize(),
             )
+
+            // The departure draws last so it covers the chrome and the paused frame; the
+            // arrival stays under the chrome above so the back button is reachable while the
+            // picture is still being prepared.
+            PlaybackTimelineContent(livePlayback) { state ->
+                PlayerArtworkMorph(
+                    state = artworkMorph,
+                    ready = true,
+                    inPictureInPicture = inPictureInPicture,
+                    aspectRatio = artworkMorphAspectRatio(scaleMode, state),
+                    layer = PlayerArtworkMorphLayer.Exit,
+                )
+            }
         }
     }
 }
+
+/** The fitted video rectangle the poster morphs to; the whole surface when the picture fills it. */
+private fun artworkMorphAspectRatio(
+    scaleMode: VideoScaleMode,
+    state: PlaybackState,
+): Float? =
+    if (scaleMode == VideoScaleMode.Fit && state.videoHeight > 0) {
+        state.diagnostics.videoWidth.toFloat() / state.videoHeight
+    } else {
+        null
+    }
 
 private const val HDR_DEFAULT_SUBTITLE_BRIGHTNESS = 0.78f
 private const val OLED_PAUSE_PROTECTION_DELAY_MS = 5L * 60L * 1_000L

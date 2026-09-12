@@ -56,6 +56,7 @@ import com.yfuse.core.designsystem.AccentColor
 import com.yfuse.core.designsystem.AccessibilityOptions
 import com.yfuse.core.designsystem.DialogAnimation
 import com.yfuse.core.designsystem.ParticleLight
+import com.yfuse.core.designsystem.PlatformBackHandler
 import com.yfuse.core.designsystem.YfuseTheme
 import com.yfuse.core.designsystem.platformAnimationsDisabled
 import com.yfuse.core.logging.AppLog
@@ -493,12 +494,15 @@ class PlayerActivity : ComponentActivity() {
                 particleLimit = 32,
                 particleActive = false,
             ) {
+                val leavePreparation = {
+                    if (artworkMorph?.requestExit { finish() } != true) finish()
+                }
+                // The system back gesture leaves on the poster morph too, not only the button.
+                PlatformBackHandler(enabled = artworkMorph != null, onBack = leavePreparation)
                 PlayerPreparationContent(
                     state = state,
                     onRetry = { pending.store.accept(PlayerIntent.Retry) },
-                    onBack = {
-                        if (artworkMorph?.requestExit { finish() } != true) finish()
-                    },
+                    onBack = leavePreparation,
                 )
                 PlayerArtworkMorph(artworkMorph, ready = state.error != null, inPictureInPicture = false)
             }
