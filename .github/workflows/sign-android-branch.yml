@@ -1,4 +1,4 @@
-name: Project review before signing
+name: Validate and sign Android branch artifact
 
 on:
   push:
@@ -25,7 +25,10 @@ concurrency:
 
 jobs:
   native:
-    if: ${{ false }}
+    if: >-
+      github.event_name != 'pull_request' ||
+      (github.head_ref == 'codex/merge-all-sign-20260815' &&
+      github.event.pull_request.head.repo.full_name == github.repository)
     name: Build current YCore native sources
     runs-on: ubuntu-24.04
     timeout-minutes: 240
@@ -171,8 +174,11 @@ jobs:
           retention-days: 7
 
   sign:
-    if: ${{ false }}
-    needs: native
+    needs: [native, review, independent-checks]
+    permissions:
+      contents: read
+      actions: read
+      statuses: write
     name: Compile, sign, and verify APK
     runs-on: ubuntu-24.04
     timeout-minutes: 60

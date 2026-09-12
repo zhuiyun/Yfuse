@@ -1,5 +1,5 @@
 {
-  "status": "paused-for-project-review",
+  "status": "signing-retry-requested",
   "versionName": "1.0.59",
   "versionCode": 221,
   "packageName": "com.yfuse",
@@ -20,7 +20,7 @@
   "productionPublishing": false,
   "httpPlaybackAllowed": true,
   "cancelledRunId": 34684242349,
-  "reviewRunId": 34686076092,
+  "reviewRunId": 34687116398,
   "apkSizeBudgetBytes": 30000000,
   "tvReviewRunId": 34686076101,
   "independentReview": {
@@ -39,5 +39,10 @@
     "lintErrors": 1,
     "lintWarnings": 9,
     "repairedLocalRegressionTests": 128
+  },
+  "signingRetry": {
+    "reason": "Explicit particle budget remember type; resume signing after project checks pass",
+    "versionUnchanged": true,
+    "productionPublishing": false
   }
 }
