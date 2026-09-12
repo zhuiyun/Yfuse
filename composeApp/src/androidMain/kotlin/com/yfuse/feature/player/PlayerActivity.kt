@@ -1074,11 +1074,13 @@ class PlayerActivity : ComponentActivity() {
         if (stopRequested) return
         stopRequested = true
         activePlayer?.pause()
+        // Only the cheap bookkeeping happens before finish(). The engine itself is released when
+        // PlayerRoot's composition is disposed in onDestroy, which Android delivers after the
+        // Activity underneath has resumed and drawn. Releasing it here used to block the main
+        // thread for the whole Media3 or mpv teardown while the last frame of the departure sat
+        // on screen, so the player looked frozen for a beat before it finally went away.
+        // Audio focus is abandoned first, so nothing resumes the paused engine in between.
         val finishPlayback = {
-            activePlayer?.release()
-            activePlayer = null
-            activeQueueAppender = null
-            activeQueueUpdater = null
             abandonAudioFocus()
             ActivePlayback.clear()
             stopPlaybackKeepAliveService()
