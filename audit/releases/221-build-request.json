@@ -20,6 +20,24 @@
   "productionPublishing": false,
   "httpPlaybackAllowed": true,
   "cancelledRunId": 34684242349,
-  "reviewRunId": 34684713420,
-  "apkSizeBudgetBytes": 30000000
+  "reviewRunId": 34686076092,
+  "apkSizeBudgetBytes": 30000000,
+  "tvReviewRunId": 34686076101,
+  "independentReview": {
+    "jobId": 103533208871,
+    "jvmTests": 183,
+    "pythonTests": 53,
+    "mavenDependenciesScanned": 745,
+    "activeVulnerabilityRecords": 0,
+    "conclusion": "success"
+  },
+  "reviewFailure": {
+    "runId": 34686076092,
+    "compiled": true,
+    "appTests": 2523,
+    "failedTests": 3,
+    "lintErrors": 1,
+    "lintWarnings": 9,
+    "repairedLocalRegressionTests": 128
+  }
 }

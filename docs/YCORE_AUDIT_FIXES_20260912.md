@@ -27,7 +27,7 @@ HTTPS → HTTP 播放重定向能力继续保留；没有新增 HTTPS 强制要�
 | 14. OEM 修改时间戳被硬失败 | 首次隔离时间戳映射失败后重建硬解并用原媒体 PTS 重试；不复用旧 decoder；兼容模式 seek 时重建硬解隔离旧回调 | 类型检查；目标 OEM 硬解待真机 |
 | 15. 子资源凭据 | 清单派生 URL 保留凭据来源，实际请求按源范围过滤敏感头/账号；未显式配置许可证 URI 时不向 PSSH URL 继承凭据 | 同源 HTTP、跨源 CDN、默认许可证头策略回归 |
 | 16. 请求行/路由资源 | 请求行与头部逐字符限制分配；路由达到容量时淘汰旧资源并清关联解析记录；退役播放目标同时清理解析记录 | 超长输入分配上限回归；长直播待真机 |
-| 17. Native 生命周期 | Tunnel 使用独立阻塞工作线程并随 worker 释放；蓝光打开/标题扫描检查取消、取消传到 Kotlin 关闭远程 IO；JNI 回调加入 R8 保留规则；Vulkan 获取 image 后失败统一退役 swapchain 并重建同步对象 | 远程光盘取消回归；JNI/Vulkan 修改尚未完成 NDK 构建与设备验证 |
+| 17. Native 生命周期 | Tunnel 使用独立阻塞工作线程并随 worker 释放；蓝光打开/标题扫描检查取消、取消传到 Kotlin 关闭远程 IO；JNI 回调加入 R8 保留规则；Vulkan 获取 image 后失败统一退役 swapchain 并重建同步对象 | 远程光盘取消回归；JNI/Vulkan 修改已完成 NDK 构建，设备验证待完成 |
 
 源站更换内容时，本次打开会中止不一致的范围读取；下次打开重新验证内容，避免将旧文件
 与新文件拼接。代理的资源容量和请求行长度约束是内存生命周期处理，不区分 HTTP/HTTPS。
@@ -37,14 +37,15 @@ HTTPS → HTTP 播放重定向能力继续保留；没有新增 HTTPS 强制要�
 - 使用 Kotlin 2.2.21 编译实际 `core2` common/Android 播放源码，Android API 使用 API 36
   类库；与本次逻辑无关的 AppLog、网络环境、遗留工厂和部分光盘 UI 依赖使用边界替身。
   这不是整个 APK 的 Gradle 构建。光盘 source wrapper 本身不在这次整体编译集合中。
-- 122 项 JVM 回归通过，包含新增 `PlaybackAuditRegressionTest`、
+- 128 项 JVM 回归通过，包含新增 `PlaybackAuditRegressionTest`、
   `PlaybackTransportAuditTest`、实际预读节点、磁盘缓存、远程随机读、光盘块读、
   HTTP/重定向、代理、音轨选择、EOS/Surface 完成策略测试。
   JVM 运行时的 `MediaDataSource` 基类与 `Looper` 使用 API 替身；实际 transport/cache/
   prefetch 实现参与测试。该结果不能当作 MediaCodec、AudioTrack 或 Cronet 真机证据。
 - 修改的 Kotlin 文件通过 ktlint 格式检查，`git diff --check` 无空白错误。
-- 当前环境未完成 Gradle/AGP、NDK/FFmpeg/libbluray/Vulkan 完整构建、R8 APK 打包或签名验证。
-  最终集成仍应运行 Android unit tests、release 编译和媒体真机套件。
+- 检查运行 `34685607802` 已成功完成当前 JNI/GPU 的 NDK 构建及验证，包括冷缓存依赖构建。
+  完整 Android 编译、单元测试和 lint 由后续检查运行验证；R8 打包及正式签名仍暂停。
+  媒体真机套件不能由编译结果代替。
 
 ## 文档与能力状态
 
@@ -90,7 +91,7 @@ native-only 制品的实时能力，应按当前路由与设备逐项验证。
   `netty-handler:4.1.136.Final` 命中 GHSA-c4c3-7fpv-j4q5。已将统一解析版本和三个
   模块锁文件更新到 [官方修复版本 4.1.137.Final](https://github.com/netty/netty/security/advisories/GHSA-c4c3-7fpv-j4q5)。
   这些 Netty 条目属于 AGP 的测试宿主配置；一起看服务使用 CIO，不据此声称线上服务存在
-  同样暴露。复扫和完整 Gradle 验证仍需确认。
+  同样暴露。后续复扫结果见下文，完整 Gradle 验证单独记录。
 
 - 首次完整检查运行失败于冷缓存 MPV facade 构建：Java target 21 / Kotlin target 17。
   公共 native composite action 现在为原生依赖设置 Java 21，并在结束后恢复调用方 JAVA_HOME。
@@ -106,3 +107,18 @@ native-only 制品的实时能力，应按当前路由与设备逐项验证。
 - 检查模式保留签名工作流的配置，只禁用 native/sign 两个出包任务；
   原来直接替换签名工作流导致配置契约测试失败，已更正并验证其 8 项原有测试通过。
   TV 检查在本次签名分支只编译和测试，不产生附带 APK。
+
+- 检查提交 `0fc7188b8c69ac2c41864b367f609bd3f65fe61b` 的独立检查任务
+  `103533208871` 已通过：协议/服务端 26 个测试套件共 183 项测试，0 失败、0 错误；
+  37 + 16 项 Python 脚本测试通过；在线依赖扫描为 745 项、0 条活动漏洞记录。
+  TV 检查运行 `34686076101` 也已通过。本轮 native/sign 出包任务均为 skipped。
+
+- 本轮完整 Android 源码编译通过，2523 项应用测试中有 3 项失败，lint 报 1 错误、9 警告，
+  因此未恢复签名。两项 ABR 测试暴露了固定资源重连后跳过重开评估的回归：现将重开计划
+  评估与已固定的媒体字节分离，重复 URL 仍可使用新吞吐/缓冲反馈，资源本身不改码率。
+  下一集缓存测试更新为带强 ETag 的源；新 reader 必须只读取 128 KiB 校验范围，三处
+  预热播放范围仍从磁盘读取。原有“完全没有源站读取”的断言不符合新的缓存有效性契约。
+  启动动画的粒子预算改为显式类型的 remembered 局部变量，避免 infix provider 表达式的
+  `RememberReturnType` 错误；不添加 lint 抑制或提高门禁阈值。
+
+- 追加的 3 个失败场景及相关播放回归在本地重新编译后全部通过（共 128 项）。完整 CI 重跑待完成。

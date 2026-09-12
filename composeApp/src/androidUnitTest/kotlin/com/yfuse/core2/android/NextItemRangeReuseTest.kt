@@ -9,6 +9,7 @@ import com.yfuse.core2.network.YMediaTransportResponse
 import com.yfuse.core2.network.YSourceProtocol
 import com.yfuse.core2.network.YTransportFeature
 import java.nio.file.Files
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
@@ -20,6 +21,7 @@ class NextItemRangeReuseTest {
         val directory = Files.createTempDirectory("ycore-next-ranges").toFile()
         val media = ByteArray(6 * 1024 * 1024) { (it % 251).toByte() }
         val transferred = AtomicLong()
+        val requestedRanges = CopyOnWriteArrayList<YByteRange>()
         val memory = PlaybackMemoryPool(32L * 1024 * 1024)
         val item =
             YMediaItem(
@@ -40,12 +42,14 @@ class NextItemRangeReuseTest {
                 override suspend fun open(request: YMediaTransportRequest): YMediaTransportResponse {
                     assertEquals(item.headers, request.headers)
                     val range = requireNotNull(request.range)
+                    requestedRanges += range
                     position = range.startInclusive.toInt()
                     end = minOf(media.size, ((range.endInclusive ?: media.lastIndex.toLong()) + 1L).toInt())
                     return YMediaTransportResponse(
                         206,
                         media.size.toLong(),
                         YByteRange(position.toLong(), end.toLong() - 1L),
+                        entityTag = "\"episode-version\"",
                     )
                 }
 
@@ -74,6 +78,7 @@ class NextItemRangeReuseTest {
             }
             assertTrue(transferred.get() > 0L)
             transferred.set(0)
+            requestedRanges.clear()
             AndroidTransportMediaDataSource(
                 uri = item.uri,
                 protocol = YSourceProtocol.Https,
@@ -91,7 +96,10 @@ class NextItemRangeReuseTest {
                 }
                 assertTrue(reader.awaitCacheWrites(2_000L))
             }
-            assertEquals(0L, transferred.get(), "Prepared file ranges should not be downloaded by the new reader")
+            // Reopening must validate the origin before trusting persisted bytes. Only that bounded
+            // validation range is transferred; the three prepared playback ranges come from disk.
+            assertEquals(listOf(YByteRange(0L, 128L * 1024L - 1L)), requestedRanges.toList())
+            assertEquals(128L * 1024L, transferred.get(), "Only origin validation should download bytes")
         } finally {
             directory.deleteRecursively()
         }

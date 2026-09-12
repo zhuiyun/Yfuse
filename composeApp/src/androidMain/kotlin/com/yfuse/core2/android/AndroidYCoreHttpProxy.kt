@@ -386,6 +386,25 @@ internal class AndroidYCoreHttpProxy(
 
         @Synchronized
         fun select(segment: YHlsAlignedSegment): com.yfuse.core2.adaptive.YHlsAlignedSegmentResource {
+            reconsiderReopen(segment)
+            val resources = alignedSegments[segment.sequence]?.resources ?: segment.resources
+            val currentForSegment =
+                currentVariantId.takeIf { current -> resources.any { it.variant.id == current } }
+                    ?: resources
+                        .minBy { it.variant.selectionBandwidthBitsPerSecond }
+                        .variant.id
+            val selected =
+                YAdaptiveVariantSelector.select(
+                    variants = resources.map { it.variant },
+                    conditions = selectionConditions(),
+                    currentVariantId = currentForSegment,
+                )
+            currentVariantId = selected.id
+            return resources.first { it.variant.id == selected.id }
+        }
+
+        @Synchronized
+        fun reconsiderReopen(segment: YHlsAlignedSegment) {
             applyLatestFeedback()
             val resources = alignedSegments[segment.sequence]?.resources ?: segment.resources
             requestReopen?.let { request ->
@@ -397,20 +416,6 @@ internal class AndroidYCoreHttpProxy(
                     )
                 if (resources.none { it.variant.id == ideal.id }) request(ideal.id)
             }
-            val currentForSegment =
-                currentVariantId.takeIf { current -> resources.any { it.variant.id == current } }
-                    ?: resources
-                        .minBy { it.variant.selectionBandwidthBitsPerSecond }
-                        .variant.id
-            val selected =
-                YAdaptiveVariantSelector.select(
-                    variants = resources.map { it.variant },
-                    conditions =
-                        selectionConditions(),
-                    currentVariantId = currentForSegment,
-                )
-            currentVariantId = selected.id
-            return resources.first { it.variant.id == selected.id }
         }
 
         private fun selectionConditions() =
@@ -465,34 +470,39 @@ internal class AndroidYCoreHttpProxy(
         @Synchronized
         fun select(representations: List<YDashRepresentation>): YDashRepresentation {
             require(representations.isNotEmpty())
-            applyLatestFeedback()
-            val variants = representations.map(YDashRepresentation::asAdaptiveVariant)
-            val conditions =
-                YAdaptiveSelectionConditions(
-                    estimatedBandwidthBitsPerSecond =
-                        bandwidthEstimator.estimateBitsPerSecond.takeIf { it > 0L }
-                            ?: INITIAL_BANDWIDTH_BITS_PER_SECOND,
-                    bufferedDurationUs = bufferModel.estimate(),
-                    metered = isMeteredNetwork(),
-                )
-            if (reopenCandidates.isNotEmpty() && requestReopen != null) {
-                val ideal =
-                    YAdaptiveVariantSelector.select(
-                        reopenCandidates.map(YDashRepresentation::asAdaptiveVariant),
-                        conditions,
-                        currentRepresentationId,
-                    )
-                if (variants.none { it.id == ideal.id }) requestReopen.invoke(ideal.id)
-            }
+            reconsiderReopen(representations)
             val selected =
                 YAdaptiveVariantSelector.select(
-                    variants = variants,
-                    conditions = conditions,
+                    variants = representations.map(YDashRepresentation::asAdaptiveVariant),
+                    conditions = selectionConditions(),
                     currentVariantId = currentRepresentationId,
                 )
             currentRepresentationId = selected.id
             return representations.first { it.id == selected.id }
         }
+
+        @Synchronized
+        fun reconsiderReopen(representations: List<YDashRepresentation>) {
+            applyLatestFeedback()
+            val variants = representations.map(YDashRepresentation::asAdaptiveVariant)
+            if (reopenCandidates.isNotEmpty() && requestReopen != null) {
+                val ideal =
+                    YAdaptiveVariantSelector.select(
+                        reopenCandidates.map(YDashRepresentation::asAdaptiveVariant),
+                        selectionConditions(),
+                        currentRepresentationId,
+                    )
+                if (variants.none { it.id == ideal.id }) requestReopen.invoke(ideal.id)
+            }
+        }
+
+        private fun selectionConditions() =
+            YAdaptiveSelectionConditions(
+                estimatedBandwidthBitsPerSecond =
+                    bandwidthEstimator.estimateBitsPerSecond.takeIf { it > 0L } ?: INITIAL_BANDWIDTH_BITS_PER_SECOND,
+                bufferedDurationUs = bufferModel.estimate(),
+                metered = isMeteredNetwork(),
+            )
 
         @Synchronized
         fun recordNetworkSample(
@@ -866,7 +876,14 @@ internal class AndroidYCoreHttpProxy(
                         base
                     } else {
                         val key = "$id/$routeSuffix"
-                        resolvedResources[key]
+                        resolvedResources[key]?.also {
+                            // A retry keeps its original bytes, but fresh bandwidth/buffer feedback
+                            // must still be allowed to schedule a new decoder target.
+                            base.hlsAbrResource?.let { abr -> abr.session.reconsiderReopen(abr.segment) }
+                            base.dashTemplate?.let { template ->
+                                template.abrSession?.reconsiderReopen(template.switchingRepresentations)
+                            }
+                        }
                             ?: base.resolveDashTemplate(routeSuffix)?.resolveHlsAbr()?.also { resolved ->
                                 resolvedResources[key] = resolved
                                 while (resolvedResources.size > MAX_ROUTES) {

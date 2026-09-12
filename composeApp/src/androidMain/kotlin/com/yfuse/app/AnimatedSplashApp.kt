@@ -172,10 +172,11 @@ fun AnimatedSplashApp(
         if (splashVisible) {
             val particleLight by root.themePreferences.particleLight.collectAsState()
             val particleStyle by root.themePreferences.particleStyle.collectAsState()
+            val particleBudget: LightParticleBudget = remember { LightParticleBudget() }
             CompositionLocalProvider(
                 LocalParticleLight provides particleLight,
                 LocalParticleStyle provides particleStyle,
-                LocalParticleBudget provides remember { LightParticleBudget() },
+                LocalParticleBudget provides particleBudget,
             ) {
                 AnimatedSplashScreen(
                     variant = variant,
