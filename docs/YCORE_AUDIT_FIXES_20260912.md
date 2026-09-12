@@ -37,7 +37,7 @@ HTTPS → HTTP 播放重定向能力继续保留；没有新增 HTTPS 强制要�
 - 使用 Kotlin 2.2.21 编译实际 `core2` common/Android 播放源码，Android API 使用 API 36
   类库；与本次逻辑无关的 AppLog、网络环境、遗留工厂和部分光盘 UI 依赖使用边界替身。
   这不是整个 APK 的 Gradle 构建。光盘 source wrapper 本身不在这次整体编译集合中。
-- 120 项 JVM 回归通过，包含新增 `PlaybackAuditRegressionTest`、
+- 122 项 JVM 回归通过，包含新增 `PlaybackAuditRegressionTest`、
   `PlaybackTransportAuditTest`、实际预读节点、磁盘缓存、远程随机读、光盘块读、
   HTTP/重定向、代理、音轨选择、EOS/Surface 完成策略测试。
   JVM 运行时的 `MediaDataSource` 基类与 `Looper` 使用 API 替身；实际 transport/cache/
@@ -95,3 +95,14 @@ native-only 制品的实时能力，应按当前路由与设备逐项验证。
 - 首次完整检查运行失败于冷缓存 MPV facade 构建：Java target 21 / Kotlin target 17。
   公共 native composite action 现在为原生依赖设置 Java 21，并在结束后恢复调用方 JAVA_HOME。
   该运行的格式/设计契约已通过，lint 因上游 AAR 未生成而失败；不将其记作通过的完整检查。
+
+- 后续复扫的 7 条低/中等级记录来自 ktlint 的 Logback 及 Kotlin Swift 导出工具的 OpenTelemetry。
+  固定 Logback 1.5.38、OpenTelemetry API/context 1.62.0 及配套 SLF4J 2.0.17 后，
+  2026-09-12 的在线扫描结果为 745 个依赖、0 条活动漏洞记录。参考
+  [Logback 发行记录](https://logback.qos.ch/news.html) 和
+  [OpenTelemetry 公告](https://github.com/open-telemetry/opentelemetry-java/security/advisories/GHSA-rcgg-9c38-7xpx)。
+- 音频回绕处理同时覆盖可能回绕的 AudioTimestamp，并在时间戳首次出现时对齐播放头周期。
+  回绕、缺失时间戳后恢复、暂停及 flush/reset 回归通过。
+- 检查模式保留签名工作流的配置，只禁用 native/sign 两个出包任务；
+  原来直接替换签名工作流导致配置契约测试失败，已更正并验证其 8 项原有测试通过。
+  TV 检查在本次签名分支只编译和测试，不产生附带 APK。

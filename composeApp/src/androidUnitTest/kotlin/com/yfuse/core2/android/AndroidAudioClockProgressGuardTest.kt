@@ -6,6 +6,25 @@ import kotlin.test.assertNull
 
 class AndroidAudioClockProgressGuardTest {
     @Test
+    fun `hardware timestamp wraps without jumping behind the playback head`() {
+        val guard = AndroidAudioClockProgressGuard()
+        guard.select(1_000L, true, 0xffff_fff0L, 900L, 0xffff_fff8L)
+        guard.select(1_100L, true, 0xffff_fff0L, 900L, 48L)
+        val selected = guard.select(1_200L, true, 32L, 1_100L, 96L)
+        assertEquals(YAudioClockFrameSource.Timestamp, selected?.source)
+        assertEquals(0x1_0000_0020L, selected?.framePosition)
+    }
+
+    @Test
+    fun `first timestamp after a wrap uses the playback head cycle`() {
+        val guard = AndroidAudioClockProgressGuard()
+        guard.select(1_000L, true, null, null, 0xffff_fff0L)
+        guard.select(1_100L, true, null, null, 48L)
+        assertEquals(0xffff_fff8L, guard.select(1_200L, true, 0xffff_fff8L, 1_100L, 96L)?.framePosition)
+        assertEquals(0x1_0000_0060L, guard.select(1_300L, true, 96L, 1_200L, 144L)?.framePosition)
+    }
+
+    @Test
     fun `playback head remains continuous across unsigned counter wrap`() {
         val guard = AndroidAudioClockProgressGuard(staleAfterNs = 500L)
         guard.select(1_000L, true, 0xffff_fff0L, 900L, 0xffff_fff0L)

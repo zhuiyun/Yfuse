@@ -26,8 +26,8 @@ internal class AndroidAudioClockProgressGuard(
     private var lastTimestampProgressNs = 0L
     private var lastPlaybackHeadFrames: Long? = null
     private var lastPlaybackHeadProgressNs = 0L
-    private var lastRawPlaybackHeadFrames: Long? = null
-    private var playbackHeadEpoch = 0L
+    private val playbackHeadCounter = AudioFrameCounter()
+    private val timestampCounter = AudioFrameCounter()
 
     init {
         require(staleAfterNs > 0L)
@@ -41,12 +41,13 @@ internal class AndroidAudioClockProgressGuard(
         timestampRealtimeNs: Long?,
         playbackHeadFrames: Long,
     ): YAudioClockFrameSelection? {
-        val extendedPlaybackHeadFrames = extendPlaybackHead(playbackHeadFrames)
-        observeTimestamp(timestampFrames, nowNs)
+        val extendedPlaybackHeadFrames = playbackHeadCounter.extend(playbackHeadFrames)
+        val extendedTimestampFrames = timestampFrames?.let { timestampCounter.extend(it, extendedPlaybackHeadFrames) }
+        observeTimestamp(extendedTimestampFrames, nowNs)
         observePlaybackHead(extendedPlaybackHeadFrames, nowNs)
 
         if (!playing) {
-            return timestampFrames?.let { frames ->
+            return extendedTimestampFrames?.let { frames ->
                 YAudioClockFrameSelection(
                     framePosition = frames,
                     realtimeNs = timestampRealtimeNs ?: nowNs,
@@ -60,13 +61,13 @@ internal class AndroidAudioClockProgressGuard(
         }
 
         if (
-            timestampFrames != null &&
-            timestampFrames > 0L &&
+            extendedTimestampFrames != null &&
+            extendedTimestampFrames > 0L &&
             timestampRealtimeNs != null &&
             nowNs - lastTimestampProgressNs <= staleAfterNs
         ) {
             return YAudioClockFrameSelection(
-                framePosition = timestampFrames,
+                framePosition = extendedTimestampFrames,
                 realtimeNs = timestampRealtimeNs,
                 source = YAudioClockFrameSource.Timestamp,
             )
@@ -89,19 +90,8 @@ internal class AndroidAudioClockProgressGuard(
         lastTimestampProgressNs = 0L
         lastPlaybackHeadFrames = null
         lastPlaybackHeadProgressNs = 0L
-        lastRawPlaybackHeadFrames = null
-        playbackHeadEpoch = 0L
-    }
-
-    /** AudioTrack exposes an unsigned 32-bit head even during playback longer than one wrap. */
-    private fun extendPlaybackHead(frames: Long): Long {
-        val previous = lastRawPlaybackHeadFrames
-        // A small OEM counter correction is not a wrap. Configure/flush/release call reset().
-        if (previous != null && previous - frames > PLAYBACK_HEAD_PERIOD / 2L) {
-            playbackHeadEpoch += PLAYBACK_HEAD_PERIOD
-        }
-        lastRawPlaybackHeadFrames = frames
-        return playbackHeadEpoch + frames
+        playbackHeadCounter.reset()
+        timestampCounter.reset()
     }
 
     private fun observeTimestamp(
@@ -123,6 +113,34 @@ internal class AndroidAudioClockProgressGuard(
             lastPlaybackHeadFrames = frames
             lastPlaybackHeadProgressNs = nowNs
         }
+    }
+}
+
+/** Both the playback head and some AudioTimestamp implementations wrap at 32 bits. */
+private class AudioFrameCounter {
+    private var previous: Long? = null
+    private var epoch = 0L
+
+    fun extend(
+        frames: Long,
+        referenceFrames: Long = frames,
+    ): Long {
+        val last = previous
+        if (last == null) {
+            // A timestamp may first become available after the playback head has wrapped.
+            epoch = ((referenceFrames - frames + PLAYBACK_HEAD_PERIOD / 2L) / PLAYBACK_HEAD_PERIOD)
+                .coerceAtLeast(0L) * PLAYBACK_HEAD_PERIOD
+        } else if (last - frames > PLAYBACK_HEAD_PERIOD / 2L) {
+            // Small OEM corrections are not wraps; configure/flush/release explicitly reset us.
+            epoch += PLAYBACK_HEAD_PERIOD
+        }
+        previous = frames
+        return epoch + frames
+    }
+
+    fun reset() {
+        previous = null
+        epoch = 0L
     }
 }
 
