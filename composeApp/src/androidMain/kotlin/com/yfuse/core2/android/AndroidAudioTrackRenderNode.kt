@@ -60,19 +60,24 @@ internal class AndroidAudioTrackRenderNode(
     private val routingGeneration = AtomicLong()
     private val routingListener =
         AudioRouting.OnRoutingChangedListener {
-            routingGeneration.incrementAndGet()
-            // Android may change the start threshold when an output device changes.
-            track?.let(::configureStartThreshold)
-            configuredFormat?.let { format ->
-                spatialAudioState = spatialAudioProbe?.current(format) ?: AndroidSpatialAudioState()
+            synchronized(this@AndroidAudioTrackRenderNode) {
+                routingGeneration.incrementAndGet()
+                // Android may change the start threshold when an output device changes.
+                track?.let(::configureStartThreshold)
+                configuredFormat?.let { format ->
+                    spatialAudioState = spatialAudioProbe?.current(format) ?: AndroidSpatialAudioState()
+                }
             }
         }
 
+    @get:Synchronized
     val routingChangeGeneration: Long get() = routingGeneration.get()
 
+    @get:Synchronized
     val outputAdvancing: Boolean get() = currentRouteOutputAdvancing()
 
     /** Numeric sink evidence only: no media URL, credentials, or account identifiers. */
+    @Synchronized
     fun outputDiagnostics(): Map<String, String> =
         mapOf(
             "pcmWrittenBytes" to writtenBytes.toString(),
@@ -89,9 +94,11 @@ internal class AndroidAudioTrackRenderNode(
             "audioUnderruns" to underrunCount.toString(),
         )
 
+    @get:Synchronized
     val spatialAudioOutput: Boolean
         get() = currentRouteOutputAdvancing() && spatialAudioState.active
 
+    @get:Synchronized
     val headTrackingAvailable: Boolean
         get() = spatialAudioOutput && spatialAudioState.headTrackerAvailable
 
@@ -101,17 +108,24 @@ internal class AndroidAudioTrackRenderNode(
             return activeTrack.activeRouteEvidence(clockAdvancing = currentRouteOutputAdvancing())
         }
 
+    @get:Synchronized
     val audioRouteLabel: String get() = routeEvidence.label
+
+    @get:Synchronized
     val audioRouteFingerprint: String get() = routeEvidence.fingerprint
 
+    @get:Synchronized
     val audioRouteVerified: Boolean get() = routeEvidence.verified
 
+    @get:Synchronized
     val clockSource: String
         get() = lastClockSource?.name ?: if (staleClockFallback) "WallClockFallback" else "Unavailable"
 
+    @get:Synchronized
     val clockStalled: Boolean
         get() = staleClockFallback
 
+    @Synchronized
     fun configure(format: MediaFormat) {
         release()
         sampleRate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
@@ -128,6 +142,7 @@ internal class AndroidAudioTrackRenderNode(
         resetClockProgress()
     }
 
+    @Synchronized
     fun play() {
         requestedPlay = true
         track?.let { audioTrack ->
@@ -135,6 +150,7 @@ internal class AndroidAudioTrackRenderNode(
         }
     }
 
+    @Synchronized
     fun pause() {
         requestedPlay = false
         track?.let { audioTrack ->
@@ -142,6 +158,7 @@ internal class AndroidAudioTrackRenderNode(
         }
     }
 
+    @Synchronized
     fun setSpeed(value: Float) {
         require(value.isFinite() && value > 0f) { "Audio playback speed must be finite and positive" }
         speed = value
@@ -156,15 +173,18 @@ internal class AndroidAudioTrackRenderNode(
         }
     }
 
+    @Synchronized
     fun setAudioDelayMs(value: Long) {
         audioDelayMs = value.coerceIn(-5_000L, 5_000L)
     }
 
     /** Only for video pacing. Position/progress/route verification keep using the unmodified clock. */
+    @Synchronized
     fun videoClockPositionUs(fallbackPositionUs: Long): Long =
         clockSnapshot()?.let { audioDelayVideoPositionUs(it.positionUs, audioDelayMs) } ?: fallbackPositionUs
 
     /** Writes the complete decoded PCM access unit or throws on an AudioTrack error. */
+    @Synchronized
     fun write(
         data: ByteBuffer,
         presentationTimeUs: Long,
@@ -195,6 +215,7 @@ internal class AndroidAudioTrackRenderNode(
      * the sink has room would also stop MediaCodec video dequeue/release, producing visible bursts
      * and stalls. The caller keeps the codec output buffer until [data] is fully consumed.
      */
+    @Synchronized
     fun writeNonBlocking(
         data: ByteBuffer,
         presentationTimeUs: Long,
@@ -216,10 +237,12 @@ internal class AndroidAudioTrackRenderNode(
         return written
     }
 
+    @get:Synchronized
     val underrunCount: Int
-        get() = track?.underrunCount?.coerceAtLeast(0) ?: 0
+        get() = runCatching { track?.underrunCount?.coerceAtLeast(0) ?: 0 }.getOrDefault(0)
 
     /** Hardware-clock position, not decoder EOS, determines whether submitted PCM remains. */
+    @Synchronized
     fun hasPendingPcm(): Boolean {
         val format = configuredFormat ?: return false
         val base = basePresentationTimeUs ?: return false
@@ -243,6 +266,7 @@ internal class AndroidAudioTrackRenderNode(
         return pcmTail.pending(frameBytes, sampleRate, played)
     }
 
+    @Synchronized
     fun clockSnapshot(): YAudioClockSnapshot? {
         val audioTrack = track ?: return null
         val baseUs = basePresentationTimeUs ?: return null
@@ -251,7 +275,8 @@ internal class AndroidAudioTrackRenderNode(
         val timestamp = AudioTimestamp()
         val hasTimestamp = runCatching { audioTrack.getTimestamp(timestamp) }.getOrDefault(false)
         lastTimestampFrames = timestamp.framePosition.takeIf { hasTimestamp }
-        lastPlaybackHeadFrames = audioTrack.playbackHeadPosition.toLong() and 0xffff_ffffL
+        lastPlaybackHeadFrames =
+            runCatching { audioTrack.playbackHeadPosition.toLong() and 0xffff_ffffL }.getOrElse { return null }
         val selection =
             clockProgressGuard.select(
                 nowNs = nowNs,
@@ -274,6 +299,7 @@ internal class AndroidAudioTrackRenderNode(
         )
     }
 
+    @Synchronized
     fun presentationTimeNs(
         videoPresentationTimeUs: Long,
         fallbackRealtimeNs: Long,
@@ -288,6 +314,7 @@ internal class AndroidAudioTrackRenderNode(
         )
     }
 
+    @Synchronized
     override fun flush() {
         val audioTrack = track ?: return
         val resume = requestedPlay
@@ -299,6 +326,7 @@ internal class AndroidAudioTrackRenderNode(
         if (resume) audioTrack.play()
     }
 
+    @Synchronized
     override fun release() {
         val audioTrack = track
         track = null
@@ -320,6 +348,7 @@ internal class AndroidAudioTrackRenderNode(
         }
     }
 
+    @Synchronized
     private fun resetClockProgress() {
         clockProgressGuard.reset()
         routedOutputProgress.reset()
@@ -329,6 +358,7 @@ internal class AndroidAudioTrackRenderNode(
         lastPlaybackHeadFrames = 0L
     }
 
+    @Synchronized
     private fun configureStartThreshold(audioTrack: AudioTrack) {
         if (sampleRate <= 0) return
         var target = 0
@@ -357,6 +387,7 @@ internal class AndroidAudioTrackRenderNode(
         }
     }
 
+    @Synchronized
     private fun currentRouteOutputAdvancing(): Boolean {
         val audioTrack = track ?: return false
         return routedOutputProgress.observe(

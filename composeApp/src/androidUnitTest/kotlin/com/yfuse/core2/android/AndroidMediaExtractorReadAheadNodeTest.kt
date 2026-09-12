@@ -23,6 +23,24 @@ import kotlin.test.assertTrue
  */
 class AndroidMediaExtractorReadAheadNodeTest {
     @Test
+    fun `sample held by caller before seek cannot reenter new queue`() {
+        val node = AndroidMediaExtractorReadAheadNode(FakeExtractorSource(1024, 100_000L))
+        try {
+            node.open(SOURCE)
+            node.selectTracks(setOf(VIDEO_TRACK))
+            node.awaitQueued(1)
+            val old = (node.pollSample() as YQueuedExtractorResult.Sample).value
+            node.seekTo(9_000_000L)
+            node.returnSample(old)
+            node.awaitQueued(1)
+            val fresh = (node.pollSample() as YQueuedExtractorResult.Sample).value
+            assertTrue(fresh.presentationTimeUs >= 9_000_000L)
+        } finally {
+            node.close()
+        }
+    }
+
+    @Test
     fun `seek cancels blocked old read and resumes without publishing stale samples or failure`() {
         val blocked = CountDownLatch(1)
         val cancelled = CountDownLatch(1)

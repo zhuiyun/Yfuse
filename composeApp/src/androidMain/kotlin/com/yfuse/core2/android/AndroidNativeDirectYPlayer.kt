@@ -66,16 +66,15 @@ import java.util.concurrent.Executors
 /**
  * First runnable Core2 player: MediaExtractor → MediaCodec → Surface plus MediaCodec → AudioTrack.
  *
- * This implementation is intentionally not wired as the production default yet. It exists so
- * Phase 1 can harden the native lifecycle and timing behind the stable YPlayer API while Legacy
- * remains the fallback for every user.
+ * This implementation is the production Direct route selected by the adaptive router.
+ * Lifecycle, timing and device capability handling remain behind the stable YPlayer API.
  */
 internal class AndroidNativeDirectYPlayer(
     context: Context,
     private val request: YPlayerOpenRequest,
     private val decoderName: String? = null,
     private val runtimeCapabilityKey: YRuntimeVideoCapabilityKey? = null,
-    private val plannedAudioOutputPath: YAudioOutputPath? = null,
+    private var plannedAudioOutputPath: YAudioOutputPath? = null,
     private val frameRateSwitchMode: YFrameRateSwitchMode = YFrameRateSwitchMode.SeamlessOnly,
     private val plannedDolbyVisionConfig: YDolbyVisionConfig? = null,
     private val confirmedDolbyVisionNalIdentity: Boolean = false,
@@ -550,6 +549,7 @@ internal class AndroidNativeDirectYPlayer(
         @Volatile
         private var lastAvSyncOffsetUs: Long? = null
 
+        private var isolateVideoTimestamps = true
         private var inputEnded = false
         private var videoInputEnded = false
         private var audioInputEnded = false
@@ -655,7 +655,7 @@ internal class AndroidNativeDirectYPlayer(
             get() =
                 prepared &&
                     (requestedPlay || pausedPreview.active) &&
-                    (videoRenderable || audioPumpAllowed) &&
+                    (if (pausedPreview.active) videoRenderable else videoRenderable || audioPumpAllowed) &&
                     mutableState.value.phase != YPlaybackPhase.Failed &&
                     mutableState.value.phase != YPlaybackPhase.Ended
 
@@ -766,6 +766,20 @@ internal class AndroidNativeDirectYPlayer(
                 publishClockPosition()
                 if (requestedPlay) finishIfEnded()
                 return didWork
+            } catch (failure: CodecTimestampIdentityException) {
+                if (!isolateVideoTimestamps) throw failure
+                val positionUs = currentPositionUs()
+                isolateVideoTimestamps = false
+                videoDecoder.release()
+                videoConfigured = false
+                surfaceOutput?.surface?.takeIf { it.isValid }?.let { configureVideoDecoder(it) }
+                seekTo(positionUs, flushVideoDecoder = false)
+                AppLog.warning(
+                    category = "player.core2",
+                    event = "codec_media_timestamp_retry",
+                    message = "Retrying hardware decoder with original media timestamps",
+                )
+                return true
             } finally {
                 val durationNs = (System.nanoTime() - pumpStartedNs).coerceAtLeast(0L)
                 maximumPumpDurationNs = maxOf(maximumPumpDurationNs, durationNs)
@@ -1118,6 +1132,10 @@ internal class AndroidNativeDirectYPlayer(
                 seekTo(previewResumeUs)
                 return
             }
+            if (prepared && mutableState.value.phase == YPlaybackPhase.Ended) {
+                seekTo(0L)
+                return
+            }
             if (!prepared) {
                 prepareCurrent(mutableState.value.positionMs * MICROS_PER_MILLISECOND)
                 return
@@ -1203,7 +1221,16 @@ internal class AndroidNativeDirectYPlayer(
             ) {
                 demux.seekTo(targetUs)
             }
-            if (videoConfigured && flushVideoDecoder) videoDecoder.flush()
+            if (videoConfigured && flushVideoDecoder) {
+                if (isolateVideoTimestamps) {
+                    videoDecoder.flush()
+                } else {
+                    // Original PTS can repeat across seeks; retire the old callback source as well.
+                    videoDecoder.release()
+                    videoConfigured = false
+                    surfaceOutput?.surface?.takeIf { it.isValid }?.let { configureVideoDecoder(it) }
+                }
+            }
             if (audioInputFormat != null && !isAudioPassthrough()) {
                 releasePendingAudioOutput()
                 audioDecoder.flush()
@@ -1278,15 +1305,45 @@ internal class AndroidNativeDirectYPlayer(
             val format = demux.trackFormat(trackIndex)
             if (format.getString(MediaFormat.KEY_MIME)?.startsWith(AUDIO_MIME_PREFIX) != true) return
             val positionUs = currentPositionUs()
-            audioTrackIndex = trackIndex
-            audioInputFormat = format
-            demux.selectTracks(
-                selectedDemuxTrackIndices(),
-                bufferingTrackIndices = setOfNotNull(videoTrackIndex, audioTrackIndex),
-            )
-            releaseAudioPath()
-            configureAudioPath(format)
-            seekTo(positionUs)
+            val previousIndex = audioTrackIndex
+            val previousFormat = audioInputFormat
+            val previousPlannedPath = plannedAudioOutputPath
+
+            fun apply(
+                index: Int?,
+                selectedFormat: MediaFormat?,
+            ) {
+                audioTrackIndex = index
+                audioInputFormat = selectedFormat
+                // A plan selected for the previous audio track is not a capability result for this one.
+                plannedAudioOutputPath = null
+                demux.selectTracks(
+                    selectedDemuxTrackIndices(),
+                    startReadAhead = false,
+                    bufferingTrackIndices = setOfNotNull(videoTrackIndex, audioTrackIndex),
+                )
+                releaseAudioPath()
+                configureAudioPath(selectedFormat)
+                seekTo(positionUs)
+            }
+            if (!playbackTrackSwitch(
+                    change = { apply(trackIndex, format) },
+                    restore = {
+                        apply(previousIndex, previousFormat)
+                        plannedAudioOutputPath = previousPlannedPath
+                    },
+                    rejected = { error ->
+                        AppLog.warning(
+                            category = "player.core2",
+                            event = "audio_track_switch_rejected",
+                            message = "Restored previous audio track",
+                            throwable = error,
+                        )
+                    },
+                )
+            ) {
+                return
+            }
             mutableState.update { current ->
                 current.copy(
                     audioTracks = audioTracks(),
@@ -2442,7 +2499,7 @@ internal class AndroidNativeDirectYPlayer(
                     safeDetail = "NativeDirect MediaCodec configure",
                 ) {
                     val reused =
-                        if (drmBinding == null && !isAudioPassthrough()) {
+                        if (isolateVideoTimestamps && drmBinding == null && !isAudioPassthrough()) {
                             videoHandoff?.take(videoDecoderReuseKey(format, decoderName), surface)
                         } else {
                             null
@@ -2456,7 +2513,7 @@ internal class AndroidNativeDirectYPlayer(
                             surface = surface,
                             decoderName = decoderName,
                             mediaCrypto = drmBinding?.mediaCrypto,
-                            isolateFrameTimestamps = true,
+                            isolateFrameTimestamps = isolateVideoTimestamps,
                         )
                     }
                 }
@@ -2780,6 +2837,7 @@ internal class AndroidNativeDirectYPlayer(
                     val surface = surfaceOutput?.surface
                     val key = videoFormat?.let { videoDecoderReuseKey(it, decoderName) }
                     if (videoHandoffRequested &&
+                        isolateVideoTimestamps &&
                         videoConfigured &&
                         drmBinding == null &&
                         !isAudioPassthrough() &&

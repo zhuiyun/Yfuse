@@ -33,6 +33,7 @@ internal data class YExtractorSample(
     val presentationTimeUs: Long,
     val flags: Int,
     val cryptoInfo: YExtractorCryptoInfo? = null,
+    val queueGeneration: Long = -1L,
 )
 
 /**

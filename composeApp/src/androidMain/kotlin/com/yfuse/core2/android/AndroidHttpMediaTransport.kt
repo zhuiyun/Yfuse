@@ -326,18 +326,6 @@ internal fun Map<String, String>.withoutCredentials(required: Boolean): Map<Stri
 
 private fun String.isSafeTransportHeader(): Boolean = isNotBlank() && none { it == '\r' || it == '\n' || it == ':' }
 
-internal fun String.isCredentialHeader(): Boolean {
-    val normalized = trim().lowercase()
-    return normalized == "authorization" ||
-        normalized == "proxy-authorization" ||
-        normalized == "cookie" ||
-        normalized == "cookie2" ||
-        normalized.contains("auth") ||
-        normalized.contains("token") ||
-        normalized.contains("api-key") ||
-        normalized.contains("apikey")
-}
-
 internal fun Map<String, String>.withHttpBasicCredentials(credentials: YTransportCredentials?): Map<String, String> {
     if (keys.any { it.equals("Authorization", ignoreCase = true) }) return this
     val usernamePassword = credentials as? YTransportCredentials.UsernamePassword ?: return this

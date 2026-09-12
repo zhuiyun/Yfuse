@@ -442,7 +442,7 @@ internal class AndroidMediaCodecVideoNode(
                             endOfStreamPositionUs ?: 0L
                         } else {
                             decoder.releaseOutputBuffer(outputIndex, false)
-                            error("Video decoder did not preserve its queued frame timestamp identity")
+                            throw CodecTimestampIdentityException()
                         }
                     }
                 YCodecOutputResult.Buffer(
@@ -699,3 +699,6 @@ private const val DEFAULT_EMPTY_TAIL_SEEK_RETRY_STEP_US = 1_000_000L
 private const val DEFAULT_EMPTY_TAIL_SEEK_RETRIES = 3
 private const val MIME_DOLBY_VISION = "video/dolby-vision"
 private const val CSD_2 = "csd-2"
+
+internal class CodecTimestampIdentityException :
+    IllegalStateException("Video decoder rewrote queued frame timestamp identity")

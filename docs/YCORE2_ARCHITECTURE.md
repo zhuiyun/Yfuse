@@ -1,6 +1,14 @@
 # YCore 2.0 Architecture and Migration Plan
 
-## Decision
+## Current production status (2026-09-12)
+
+Production artifacts have used the native-only YCore route since 1.0.23. Direct, Enhanced and
+Tunnel are selected by the current router. Legacy adapters retained in source are historical
+migration/optional-build code; they are not a production rollback promise. The migration plan and
+early device records below describe earlier milestones. Source fixes and remaining evidence needs
+are tracked in [the September audit follow-up](YCORE_AUDIT_FIXES_20260912.md).
+
+## Original migration decision (historical)
 
 YCore 2.0 follows the parallel-migration model:
 
@@ -270,9 +278,10 @@ A Core2 change may merge only when:
 - a new route has an explicit fallback path and does not poison long-lived device failure memory for
   transient network/auth errors.
 
-## Current production switch
+## Historical production switch
 
-**Core2 is not the default engine.** Legacy remains authoritative, while users can explicitly enable
+**Historical rollout state (superseded by native-only production):** Legacy remained authoritative,
+while users could explicitly enable
 `YCore 2.0 播放内核` in advanced playback settings. The switch is persisted separately from the selected
 Legacy engine so disabling or failing the trial never changes the user's Exo/mpv/MDK preference.
 

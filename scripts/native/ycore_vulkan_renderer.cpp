@@ -203,6 +203,7 @@ public:
         }
         update_hdr_metadata(parameters);
 
+        if (acquisition_failed_) return 0;
         const size_t slot_index = next_frame_slot_++ % kFramesInFlight;
         FrameSlot& slot = frame_slots_[slot_index];
         if (vkWaitForFences(device_, 1, &slot.fence, VK_TRUE, kFenceTimeoutNs) != VK_SUCCESS) {
@@ -219,6 +220,28 @@ public:
         }
         if (acquire != VK_SUCCESS && acquire != VK_SUBOPTIMAL_KHR) return feature_mask_;
         const bool recreate_after_present = acquire == VK_SUBOPTIMAL_KHR;
+        // Any failure after acquisition must retire that swapchain and its signaled binary
+        // semaphores. A plain return leaks acquisition and poisons the next use of this slot.
+        auto abandon_acquired_image = [this, &slot](void*) {
+            if (vkDeviceWaitIdle(device_) != VK_SUCCESS) {
+                feature_mask_ = 0;
+                acquisition_failed_ = true;
+                return;
+            }
+            const bool recreated = recreate_swapchain();
+            vkDestroySemaphore(device_, slot.image_available, nullptr);
+            vkDestroySemaphore(device_, slot.render_finished, nullptr);
+            slot.image_available = slot.render_finished = VK_NULL_HANDLE;
+            VkSemaphoreCreateInfo info{};
+            info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+            const bool sync_ready =
+                vkCreateSemaphore(device_, &info, nullptr, &slot.image_available) == VK_SUCCESS &&
+                vkCreateSemaphore(device_, &info, nullptr, &slot.render_finished) == VK_SUCCESS;
+            restore_signaled_fence(slot);
+            acquisition_failed_ = !recreated || !sync_ready || slot.fence == VK_NULL_HANDLE;
+            if (acquisition_failed_) feature_mask_ = 0;
+        };
+        std::unique_ptr<void, decltype(abandon_acquired_image)> acquisition(this, abandon_acquired_image);
 
         VkDescriptorImageInfo descriptor{};
         descriptor.sampler = ycbcr_sampler_;
@@ -339,11 +362,9 @@ public:
         present.pSwapchains = &swapchain_;
         present.pImageIndices = &image_index;
         VkResult presented = vkQueuePresentKHR(queue_, &present);
-        if (presented == VK_ERROR_OUT_OF_DATE_KHR) {
-            recreate_swapchain();
-            return feature_mask_;
-        }
+        if (presented == VK_ERROR_OUT_OF_DATE_KHR) return feature_mask_;
         if (presented != VK_SUCCESS && presented != VK_SUBOPTIMAL_KHR) return feature_mask_;
+        acquisition.release();
         feature_mask_ |= ycore::gpu::kSwapchainPresented | ycore::gpu::kDecodedFramePresented;
         ++presented_frames_;
 
@@ -1064,6 +1085,7 @@ private:
         window_ = nullptr;
     }
 
+    bool acquisition_failed_ = false;
     mutable std::mutex mutex_;
     ANativeWindow* window_ = nullptr;
     VkInstance instance_ = VK_NULL_HANDLE;

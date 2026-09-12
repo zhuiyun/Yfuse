@@ -40,6 +40,42 @@ internal class AndroidYCoreBlockCache(
     private val supersededRoots = SUPERSEDED_CACHE_ROOT_DIRECTORIES.map { name -> File(cacheDirectory, name) }
     private val sourceDirectory = File(root, yCoreCacheDirectoryKey(identity))
     private val contentLengthFile = File(sourceDirectory, CONTENT_LENGTH_FILE)
+    private val entityTagFile = File(sourceDirectory, "entity-tag")
+    private val representationEpoch =
+        synchronized(EPOCHS) {
+            EPOCHS.entries.removeAll { it.value.get() == null }
+            EPOCHS[sourceDirectory.absolutePath]?.get()
+                ?: AtomicLong().also { EPOCHS[sourceDirectory.absolutePath] = java.lang.ref.WeakReference(it) }
+        }
+
+    @Volatile private var acceptedEpoch = representationEpoch.get()
+
+    /** Reuse bytes across opens only after the origin proves the same strong entity and length. */
+    fun validateRepresentation(
+        length: Long?,
+        entityTag: String?,
+    ) {
+        synchronized(index.writeLock) {
+            val storedTag = runCatching { entityTagFile.readText() }.getOrNull()
+            if (entityTag == null || storedTag != entityTag || contentLength != length) invalidateLocked()
+            acceptedEpoch = representationEpoch.get()
+            sourceDirectory.mkdirs()
+            if (entityTag != null) writeAtomically(entityTagFile, entityTag.encodeToByteArray())
+            if (length != null) writeAtomically(contentLengthFile, length.toString().encodeToByteArray())
+        }
+    }
+
+    /** Old source instances and already queued writes may never repopulate an invalidated entry. */
+    fun invalidate() = synchronized(index.writeLock) { invalidateLocked() }
+
+    private fun invalidateLocked() {
+        representationEpoch.incrementAndGet()
+        index.initialize()
+        sourceDirectory.listFiles()?.forEach { file ->
+            if (file.delete() || !file.exists()) index.remove(file)
+        }
+    }
+
     private val index = synchronized(ROOTS) { ROOTS.getOrPut(root.absolutePath) { CacheIndex(root) } }
     private val maximumWriteNs = AtomicLong()
     private val writeFailures = AtomicLong()
@@ -59,10 +95,13 @@ internal class AndroidYCoreBlockCache(
         bytes: ByteArray,
         contentLength: Long?,
     ) {
+        val scheduledEpoch = acceptedEpoch
         if (!writeQueue.enqueue(blockFile(blockIndex).absolutePath, bytes.size) {
                 val startedNs = System.nanoTime()
                 try {
-                    writeBlock(blockIndex, bytes, contentLength)
+                    synchronized(index.writeLock) {
+                        if (scheduledEpoch == representationEpoch.get()) writeBlock(blockIndex, bytes, contentLength)
+                    }
                 } catch (_: Exception) {
                     // Cache persistence is optional; it must never turn delivered media into an EOF.
                     writeFailures.incrementAndGet()
@@ -100,6 +139,7 @@ internal class AndroidYCoreBlockCache(
 
     fun readBlock(index: Long): ByteArray? =
         run {
+            if (acceptedEpoch != representationEpoch.get()) return@run null
             require(index >= 0L)
             val file = blockFile(index)
             val length = file.length()
@@ -117,12 +157,13 @@ internal class AndroidYCoreBlockCache(
             }
             file.setLastModified(System.currentTimeMillis())
             this.index.touch(file)
-            block
+            block.takeIf { acceptedEpoch == representationEpoch.get() }
         }
 
     /** Metadata-only lookup for forward-cache scheduling; readBlock still validates the CRC before serving bytes. */
     fun cachedBlockLength(index: Long): Int? =
         run {
+            if (acceptedEpoch != representationEpoch.get()) return@run null
             val file = blockFile(index)
             this.index.length(file, blockSizeBytes)?.let { length ->
                 if (file.isFile && file.length() == BLOCK_HEADER_BYTES + length.toLong()) return@run length
@@ -145,6 +186,7 @@ internal class AndroidYCoreBlockCache(
     ) {
         require(index >= 0L && bytes.isNotEmpty())
         synchronized(this.index.writeLock) {
+            if (acceptedEpoch != representationEpoch.get()) return
             this.index.initialize()
             sourceDirectory.mkdirs()
             if (!sourceDirectory.isDirectory) return
@@ -210,6 +252,7 @@ internal class AndroidYCoreBlockCache(
 
     private companion object {
         val ROOTS = mutableMapOf<String, CacheIndex>()
+        val EPOCHS = mutableMapOf<String, java.lang.ref.WeakReference<AtomicLong>>()
         val WRITER = AndroidCacheWriteQueue()
     }
 }

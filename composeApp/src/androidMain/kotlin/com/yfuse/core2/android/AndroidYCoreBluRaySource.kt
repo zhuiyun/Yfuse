@@ -52,6 +52,12 @@ internal class AndroidYCoreBluRaySource private constructor(
         nativeId = id.takeIf { it > 0L } ?: 0L
     }
 
+    /** Called from native cancellation without waiting for the readBlocksNative monitor. */
+    @Suppress("unused")
+    fun cancelPendingReadNative() {
+        remoteSource?.cancelPendingRead()
+    }
+
     /** JNI callback. A null result selects bd_open_stream() and [readBlocksNative]. */
     @Suppress("unused")
     fun discPathNative(): String? = discPath

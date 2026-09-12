@@ -394,12 +394,12 @@ data class YDashManifest(
     val periods: List<YDashPeriod> = emptyList(),
 ) {
     init {
-        require(minimumUpdatePeriodUs == null || minimumUpdatePeriodUs > 0L)
+        require(minimumUpdatePeriodUs == null || minimumUpdatePeriodUs >= 0L)
         require(mediaPresentationDurationUs == null || mediaPresentationDurationUs > 0L)
         require(availabilityStartTime == null || availabilityStartTime.isSafeDashMetadata())
         require(publishTime == null || publishTime.isSafeDashMetadata())
         require(timeShiftBufferDepthUs == null || timeShiftBufferDepthUs > 0L)
-        require(suggestedPresentationDelayUs == null || suggestedPresentationDelayUs > 0L)
+        require(suggestedPresentationDelayUs == null || suggestedPresentationDelayUs >= 0L)
         require(periodStartUs == null || periodStartUs >= 0L)
         require(representations.isNotEmpty())
         require(periods.distinctBy(YDashPeriod::id).size == periods.size)

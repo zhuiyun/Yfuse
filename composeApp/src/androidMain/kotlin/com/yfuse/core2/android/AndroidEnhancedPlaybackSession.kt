@@ -167,6 +167,7 @@ internal class AndroidEnhancedPlaybackSession(
     private var prepared = false
     private var audioRendererConfigured = false
     private val rejectedPassthroughTracks = mutableSetOf<YTrackId>()
+    private var isolateVideoTimestamps = true
     private var inputEnded = false
     private var videoInputEnded = false
     private var audioInputEnded = false
@@ -425,7 +426,7 @@ internal class AndroidEnhancedPlaybackSession(
                         AndroidMediaFormatFactory.video(effectiveVideo),
                         decoderSurface,
                         plan.decoderName,
-                        isolateFrameTimestamps = plan.renderPath == YRenderPath.SurfaceDirect,
+                        isolateFrameTimestamps = isolateVideoTimestamps && plan.renderPath == YRenderPath.SurfaceDirect,
                     )
                 }
                 videoConfiguredForProbe = true
@@ -616,6 +617,28 @@ internal class AndroidEnhancedPlaybackSession(
     fun selectAudioTrack(
         trackId: YTrackId,
         capabilities: YDeviceCapabilities,
+    ): Boolean {
+        val previous = audioTrack?.id ?: return false
+        val positionUs = currentPositionUs()
+        return playbackTrackSwitch(
+            change = { applyAudioTrack(trackId, capabilities, positionUs, false) },
+            restore = { applyAudioTrack(previous, capabilities, positionUs, true) },
+            rejected = { error ->
+                AppLog.warning(
+                    category = "player.core2",
+                    event = "audio_track_switch_rejected",
+                    message = "Restored previous Enhanced audio track",
+                    throwable = error,
+                )
+            },
+        )
+    }
+
+    private fun applyAudioTrack(
+        trackId: YTrackId,
+        capabilities: YDeviceCapabilities,
+        positionUs: Long,
+        restoring: Boolean,
     ) {
         check(prepared) { "Enhanced session is not prepared" }
         val nextTrack =
@@ -646,6 +669,7 @@ internal class AndroidEnhancedPlaybackSession(
         if (nextUsesSoftware) nextPath = YAudioOutputPath.DecodePcm
         require(nextPath != YAudioOutputPath.None) { "Selected audio track has no device output path" }
         if (
+            !restoring &&
             audioTrack?.id == trackId &&
             audioOutputPath == nextPath &&
             softwareAudioActive == nextUsesSoftware
@@ -707,15 +731,8 @@ internal class AndroidEnhancedPlaybackSession(
         softwareAudioActive = nextUsesSoftware
         captureAudioRoutingGeneration()
         demuxReadAhead.selectTracks(selectedTrackIds())
-        if (sourceRemote) {
-            bufferGate.reset()
-            suspendOutputForBuffering()
-        }
-        audioInputEnded = false
-        audioOutputEnded = false
-        seekAudioTargetUs = currentPositionUs()
-        lastAvSyncOffsetUs = null
-        if (outputActive && audioRendererConfigured) playAudio()
+        seekToInternal(positionUs, tailRetry = false, resetVideoDecoder = false)
+        if (playing) refreshOutputGate()
     }
 
     fun selectSubtitleTrack(
@@ -791,7 +808,7 @@ internal class AndroidEnhancedPlaybackSession(
         if (softwareVideoActive) softwareVideoRenderer.flush()
         if (softwareVideoActive || softwareAudioActive) softwareDecoder?.flush()
         if (!softwareVideoActive) {
-            if (resetVideoDecoder) {
+            if (resetVideoDecoder || !isolateVideoTimestamps && surface?.isValid == true) {
                 videoDecoder.release()
                 yPlaybackStage(
                     category = YPlaybackFailureCategory.Decoder,
@@ -803,7 +820,8 @@ internal class AndroidEnhancedPlaybackSession(
                         gpuVideoOutput?.decoderSurface
                             ?: requireNotNull(surface).also { check(it.isValid) },
                         requireNotNull(plan).decoderName,
-                        isolateFrameTimestamps = requireNotNull(plan).renderPath == YRenderPath.SurfaceDirect,
+                        isolateFrameTimestamps =
+                            isolateVideoTimestamps && requireNotNull(plan).renderPath == YRenderPath.SurfaceDirect,
                     )
                 }
                 runtimeCapabilityKey?.let { runtimeCapabilities?.recordConfigured(it) }
@@ -844,8 +862,24 @@ internal class AndroidEnhancedPlaybackSession(
     }
 
     /** Runs one bounded non-blocking media iteration. */
-    fun pump(): Boolean {
+    fun pump(): Boolean =
+        try {
+            pumpInternal()
+        } catch (failure: CodecTimestampIdentityException) {
+            if (!isolateVideoTimestamps) throw failure
+            isolateVideoTimestamps = false
+            seekToInternal(currentPositionUs(), tailRetry = false, resetVideoDecoder = true)
+            AppLog.warning(
+                category = "player.core2",
+                event = "codec_media_timestamp_retry",
+                message = "Retrying Enhanced hardware decoder with original media timestamps",
+            )
+            true
+        }
+
+    private fun pumpInternal(): Boolean {
         if (!prepared || (!playing && !pausedPreview.active)) return false
+        if (pausedPreview.active && surface?.isValid != true) return false
         // Complete an elapsed Surface deadline before any gate can skip the terminal side effects.
         if (ended()) {
             pauseAtEnd()
@@ -1799,7 +1833,22 @@ internal class AndroidEnhancedPlaybackSession(
         wallClock.pause(endUs, System.nanoTime())
     }
 
-    private fun ended(): Boolean =
+    private var audioDrainStartedNs: Long? = null
+
+    private fun ended(): Boolean {
+        if (!decoderEnded()) {
+            audioDrainStartedNs = null
+            return false
+        }
+        if (!isAudioPassthrough() && audioTrack != null && audioRenderer.hasPendingPcm()) {
+            val now = System.nanoTime()
+            val started = audioDrainStartedNs ?: now.also { audioDrainStartedNs = it }
+            if (now - started < 2_000_000_000L) return false
+        }
+        return true
+    }
+
+    private fun decoderEnded(): Boolean =
         if (!softwareVideoActive && plan?.renderPath == YRenderPath.SurfaceDirect) {
             surfaceCompletion.ended(
                 decoderOutputEnded = videoOutputEnded,
@@ -1814,6 +1863,7 @@ internal class AndroidEnhancedPlaybackSession(
         }
 
     private fun resetEndState() {
+        audioDrainStartedNs = null
         videoEosGate.reset()
         surfaceCompletion.reset()
         inputGeneration++

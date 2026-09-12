@@ -6,8 +6,11 @@ import com.yfuse.core2.network.YTransportCredentials
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import java.util.LinkedHashMap
+import java.util.concurrent.atomic.AtomicLong
 
 internal interface YCoreDiscBlockSource : AutoCloseable {
+    fun cancelPendingRead() {}
+
     fun readBlocks(
         lba: Int,
         blockCount: Int,
@@ -27,6 +30,15 @@ internal class AndroidTransportDiscBlockSource(
     private val maximumCacheBytes: Int = DEFAULT_DISC_CACHE_BYTES,
 ) : YCoreDiscBlockSource {
     @Volatile private var closed = false
+
+    @Volatile private var activeTransport: YMediaTransport? = null
+    private val readGeneration = AtomicLong()
+
+    override fun cancelPendingRead() {
+        readGeneration.incrementAndGet()
+        activeTransport?.let { transport -> runCatching { runBlocking { transport.close() } } }
+    }
+
     private val cachedWindows = LinkedHashMap<Long, ByteArray>(16, 0.75f, true)
     private var cachedBytes = 0
     private var knownLength = -1L
@@ -87,9 +99,12 @@ internal class AndroidTransportDiscBlockSource(
         if (knownLength >= 0L && start >= knownLength) return DiscWindowResult.EndOfFile
         val unboundedEnd = start + readAheadBytes - 1L
         val end = if (knownLength >= 0L) minOf(unboundedEnd, knownLength - 1L) else unboundedEnd
+        val generation = readGeneration.get()
         val transport = createTransport()
+        activeTransport = transport
         return runBlocking {
             try {
+                if (closed || generation != readGeneration.get()) return@runBlocking DiscWindowResult.Failure
                 val response =
                     transport.open(
                         yCoreRandomAccessRequest(
@@ -129,6 +144,7 @@ internal class AndroidTransportDiscBlockSource(
                 var total = 0
                 var emptyReads = 0
                 while (total < expected) {
+                    if (closed || generation != readGeneration.get()) return@runBlocking DiscWindowResult.Failure
                     val count = transport.read(bytes, total, expected - total)
                     if (count < 0) break
                     if (count == 0) {
@@ -140,12 +156,20 @@ internal class AndroidTransportDiscBlockSource(
                     emptyReads = 0
                     total += count
                 }
-                if (total != expected) DiscWindowResult.Failure else DiscWindowResult.Loaded(bytes)
+                if (total != expected ||
+                    closed ||
+                    generation != readGeneration.get()
+                ) {
+                    DiscWindowResult.Failure
+                } else {
+                    DiscWindowResult.Loaded(bytes)
+                }
             } catch (error: Throwable) {
                 if (error is CancellationException) throw error
                 DiscWindowResult.Failure
             } finally {
                 runCatching { transport.close() }
+                if (activeTransport === transport) activeTransport = null
             }
         }
     }
@@ -164,12 +188,14 @@ internal class AndroidTransportDiscBlockSource(
         }
     }
 
-    @Synchronized
     override fun close() {
         closed = true
-        cachedWindows.clear()
-        cachedBytes = 0
-        knownLength = -1L
+        cancelPendingRead()
+        synchronized(this) {
+            cachedWindows.clear()
+            cachedBytes = 0
+            knownLength = -1L
+        }
     }
 }
 

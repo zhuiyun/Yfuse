@@ -276,7 +276,7 @@ internal class AndroidMediaExtractorReadAheadNode(
 
     fun returnSample(sample: YExtractorSample) {
         synchronized(monitor) {
-            if (!opened) return
+            if (!opened || sample.queueGeneration != generation) return
             samples.addFirst(sample)
             queuedBytes += sample.data.remaining()
             starved = false
@@ -431,7 +431,7 @@ internal class AndroidMediaExtractorReadAheadNode(
                     extracted?.let { sample ->
                         val bytes = ByteArray(sample.data.remaining())
                         sample.data.duplicate().get(bytes)
-                        sample.copy(data = ByteBuffer.wrap(bytes))
+                        sample.copy(data = ByteBuffer.wrap(bytes), queueGeneration = readingGeneration)
                     }
                 if (copied != null) delegate.advance()
                 synchronized(monitor) {
