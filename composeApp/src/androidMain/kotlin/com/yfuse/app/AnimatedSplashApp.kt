@@ -172,7 +172,7 @@ fun AnimatedSplashApp(
         if (splashVisible) {
             val particleLight by root.themePreferences.particleLight.collectAsState()
             val particleStyle by root.themePreferences.particleStyle.collectAsState()
-            val particleBudget: LightParticleBudget = remember { LightParticleBudget() }
+            val particleBudget = remember<LightParticleBudget>(calculation = ::LightParticleBudget)
             CompositionLocalProvider(
                 LocalParticleLight provides particleLight,
                 LocalParticleStyle provides particleStyle,
