@@ -7,6 +7,7 @@ import com.yfuse.core.designsystem.DEFAULT_BACKGROUND_DIM
 import com.yfuse.core.designsystem.DialogAnimation
 import com.yfuse.core.designsystem.GlassStyle
 import com.yfuse.core.designsystem.ParticleLight
+import com.yfuse.core.designsystem.ParticleStyle
 import com.yfuse.core.designsystem.SplashAnimation
 import com.yfuse.core.designsystem.ThemeMode
 import com.yfuse.core.model.DecoderMode
@@ -30,6 +31,7 @@ class ThemePreferences(
         const val KEY_LARGE_TEXT = "accessibility.largeText"
         const val KEY_REDUCE_MOTION = "accessibility.reduceMotion"
         const val KEY_PARTICLE_LIGHT = "appearance.particleLight"
+        const val KEY_PARTICLE_STYLE = "appearance.particleStyle"
         const val KEY_PULSE_SWEEP = "appearance.pulseSweep"
         const val KEY_SPLASH_ANIMATION = "appearance.splashAnimation"
         const val KEY_SPLASH_VARIANT = "appearance.splashVariant.v2"
@@ -77,6 +79,15 @@ class ThemePreferences(
     fun setParticleLight(mode: ParticleLight) {
         _particleLight.value = mode
         settings.putString(KEY_PARTICLE_LIGHT, mode.name)
+    }
+
+    private val _particleStyle =
+        MutableStateFlow(load(KEY_PARTICLE_STYLE, ParticleStyle.entries, ParticleStyle.Stardust))
+    val particleStyle: StateFlow<ParticleStyle> = _particleStyle.asStateFlow()
+
+    fun setParticleStyle(style: ParticleStyle) {
+        _particleStyle.value = style
+        settings.putString(KEY_PARTICLE_STYLE, style.name)
     }
 
     private val _pulseSweep = MutableStateFlow(settings.getBoolean(KEY_PULSE_SWEEP, true))

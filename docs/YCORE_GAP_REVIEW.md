@@ -1,5 +1,8 @@
 # YCore 自研内核 · 待办审查
 
+> 当前 native-only 路线的修复与验证边界见 [2026-09-12 审查跟进](YCORE_AUDIT_FIXES_20260912.md)。
+
+
 审查日期：2026-08-16 · 基线：`master` @ `ba9a244` + 本分支改动
 配套文档：[`YCORE_ARCHITECTURE.md`](YCORE_ARCHITECTURE.md) · [`YCORE_VALIDATION_MATRIX.md`](YCORE_VALIDATION_MATRIX.md)
 

@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.imeNestedScroll
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -198,8 +197,8 @@ internal fun PlayerSidePanel(
             .mutedGlassPanel(PlayerPanelShape, samplePage = false, dark = true)
             // Taps inside the panel must not reach the catcher behind it.
             .noRippleClickable { }
+            // Padding only; see [GlassDialog] for why the keyboard is not driven by scroll.
             .imePadding()
-            .imeNestedScroll()
             .padding(horizontal = 14.dp, vertical = 16.dp),
         verticalArrangement = verticalArrangement,
         content = {
@@ -328,8 +327,8 @@ internal fun PlayerPopupPanel(
             .dialogInteriorMotion(animation, progress)
             // Taps inside the popup must not reach the dismiss catcher behind it.
             .noRippleClickable { }
+            // Padding only; see [GlassDialog] for why the keyboard is not driven by scroll.
             .imePadding()
-            .imeNestedScroll()
             .then(if (reduceMotionByUser) Modifier else Modifier.nestedScroll(drag))
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.Top,

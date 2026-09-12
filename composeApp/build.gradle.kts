@@ -1064,6 +1064,9 @@ android {
                     "/META-INF/versions/**",
                     "DebugProbesKt.bin",
                     "kotlin-tooling-metadata.json",
+                    // Only the lightweight Ed25519 verifier is used from BC. Picnic is never
+                    // registered or invoked; its legacy lookup tables add over 1 MiB to every APK.
+                    "org/bouncycastle/pqc/legacy/picnic/lowmc*.bin.properties",
                 )
         }
     }

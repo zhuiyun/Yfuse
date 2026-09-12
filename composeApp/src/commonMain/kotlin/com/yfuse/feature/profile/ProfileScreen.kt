@@ -225,6 +225,7 @@ fun ProfileScreen(component: ProfileComponent) {
     val reduceMotion by prefs.reduceMotion.collectAsState()
     val pulseSweep by prefs.pulseSweep.collectAsState()
     val particleLight by prefs.particleLight.collectAsState()
+    val particleStyle by prefs.particleStyle.collectAsState()
     val decoder by prefs.decoder.collectAsState()
     val autoNext by prefs.autoNext.collectAsState()
     val splashAnimation by prefs.splashAnimation.collectAsState()
@@ -433,7 +434,7 @@ fun ProfileScreen(component: ProfileComponent) {
                             },
                         startupSummary = "${startupTab.label} ›",
                         dialogAnimationSummary = "${dialogAnimation.label} · 全部 43 款 ›",
-                        particleLightSummary = "${particleLight.label} ›",
+                        particleLightSummary = "${particleLight.label} · ${particleStyle.label} ›",
                         onParticleLight = { sheet = Sheet.ParticleLight },
                         onDialogAnimation = { sheet = Sheet.DialogAnimation },
                         reduceTransparency = reduceTransparency,
@@ -708,7 +709,9 @@ fun ProfileScreen(component: ProfileComponent) {
             Sheet.ParticleLight ->
                 ParticleLightSheet(
                     selected = particleLight,
+                    style = particleStyle,
                     onSelect = prefs::setParticleLight,
+                    onSelectStyle = prefs::setParticleStyle,
                     onDismiss = { sheet = null },
                 )
 

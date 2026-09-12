@@ -124,6 +124,8 @@ fun Modifier.pressable(
     pressedScale: Float = 0.97f,
     tilt: Boolean = false,
     lightFeedback: Boolean = true,
+    /** What the press draws; null keeps the default 节点 / 边缘 pairing. */
+    lightEffect: LightEffect? = null,
     haptic: HapticSignal? = null,
     role: Role? = Role.Button,
     focusShape: Shape = AppShapes.control,
@@ -198,7 +200,7 @@ fun Modifier.pressable(
 
     val onClickWithHaptic: () -> Unit = {
         haptic?.let(haptics::play)
-        light.emit(if (tilt) LightEffect.Edge else LightEffect.Node, at = pressPoint)
+        light.emit(lightEffect ?: if (tilt) LightEffect.Edge else LightEffect.Node, at = pressPoint)
         onClick()
     }
     val onLongClickWithHaptic: (() -> Unit)? =

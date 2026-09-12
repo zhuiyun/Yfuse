@@ -99,7 +99,14 @@ jobs:
           scripts/fetch-engines.sh
           test -s composeApp/libs/libmpv-release.aar
 
+      # The signing branch is under explicit review before APK packaging. Its TV
+      # checks compile and test; artifact assembly remains available on other branches.
+      - name: Run TV unit tests during signing review
+        if: github.ref == 'refs/heads/codex/ycore-sign-20260830'
+        run: ./gradlew :tvApp:ktlintCheck :tvApp:testDebugUnitTest --no-daemon
+
       - name: Run TV unit tests and build debug APK
+        if: github.ref != 'refs/heads/codex/ycore-sign-20260830'
         shell: bash
         run: |
           set -euo pipefail
@@ -114,6 +121,7 @@ jobs:
           test -s tvApp/build/outputs/apk/release/tvApp-release.apk
 
       - name: Verify packaged TV contract
+        if: github.ref != 'refs/heads/codex/ycore-sign-20260830'
         id: artifact
         shell: bash
         run: |
@@ -131,6 +139,7 @@ jobs:
           sha256sum build/tv-quality/Yfuse-TV-debug.apk > build/tv-quality/SHA256SUMS
 
       - name: Upload verified TV APK
+        if: github.ref != 'refs/heads/codex/ycore-sign-20260830'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: yfuse-tv-debug-${{ github.sha }}

@@ -46,11 +46,12 @@ both JNI registry symbol sets, both private protocols, ARM64 ELF architecture an
 alignment against Android's 16 KiB page requirement before installation/promotion.
 `install-yfuse-mpv-bluray.sh` reuses that verifier and replaces the app AAR only after all checks pass.
 
-The build workflow is wired to branch/PR native changes. At the time this document was updated there
-is still no confirmed successful runner execution for this branch: Actions creates jobs but they fail
-before any step executes. Therefore the ISO/BDMV native bridges have **not yet produced a
-release-verified AAR**. Do not promote capability-marker source to a release claim until the native job
-really compiles, links and passes verification.
+The custom libmpv AAR workflow and verifier describe the retained legacy build route. They do
+not establish the status of the current native-only YCore artifact. Earlier revisions of this
+file contradicted each other about a verified AAR. Neither statement is a release receipt: use
+an artifact SHA-256, source manifest and successful verifier output for the exact build under test.
+The September source audit does not supply a new AAR or replace the physical disc/device corpus.
+See [the current audit follow-up](YCORE_AUDIT_FIXES_20260912.md).
 
 ## Remote ISO transport
 
@@ -193,8 +194,8 @@ native renderer without turning a valid resolved Blu-ray DirectStream into serve
   can compose it, but the output label still requires its independent JNI post-render evidence.
 - **Encrypted commercial-disc circumvention is not included.** AACS/BD+ handling depends on external,
   legally supplied components/keys; Yfuse does not ship bypass material.
-- **The native ISO/BDMV/HDMV AAR release gate now passes.** Physical-disc/device corpus validation is
-  still required before claiming every authored disc and phone combination as validated.
+- **Native ISO/BDMV/HDMV release status requires per-artifact evidence.** A source capability marker
+  or a historical AAR claim is insufficient; physical-disc/device corpus validation remains required.
 
 ## Release gates
 

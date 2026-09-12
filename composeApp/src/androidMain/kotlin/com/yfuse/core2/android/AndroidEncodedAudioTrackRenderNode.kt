@@ -28,6 +28,7 @@ internal class AndroidEncodedAudioTrackRenderNode(
     private var basePresentationTimeUs: Long? = null
     private var requestedPlay = false
     private val routedOutputProgress = AndroidRoutedOutputProgress()
+    private val clockProgressGuard = AndroidAudioClockProgressGuard()
 
     @Volatile
     private var exactDolbyAtmosTransport = false
@@ -35,11 +36,14 @@ internal class AndroidEncodedAudioTrackRenderNode(
     private val routingGeneration = AtomicLong()
     private val routingListener = AudioRouting.OnRoutingChangedListener { routingGeneration.incrementAndGet() }
 
+    @get:Synchronized
     val routingChangeGeneration: Long get() = routingGeneration.get()
 
+    @get:Synchronized
     val outputAdvancing: Boolean get() = currentRouteOutputAdvancing()
 
-    val underrunCount: Int get() = track?.underrunCount?.coerceAtLeast(0) ?: 0
+    @get:Synchronized
+    val underrunCount: Int get() = runCatching { track?.underrunCount?.coerceAtLeast(0) ?: 0 }.getOrDefault(0)
 
     private val routeEvidence: AndroidAudioRouteEvidence
         get() {
@@ -47,6 +51,7 @@ internal class AndroidEncodedAudioTrackRenderNode(
             return activeTrack.activeRouteEvidence(clockAdvancing = currentRouteOutputAdvancing())
         }
 
+    @get:Synchronized
     val dolbyAtmosOutputMode: YDolbyAtmosOutputMode
         get() {
             val sourceCodec = format?.codec
@@ -69,19 +74,26 @@ internal class AndroidEncodedAudioTrackRenderNode(
             )
         }
 
+    @get:Synchronized
     val immersiveCarrierOutput: Boolean
         get() =
             currentRouteOutputAdvancing() &&
                 format?.codec in setOf(YAudioCodec.Eac3Joc, YAudioCodec.TrueHdAtmos, YAudioCodec.DtsX)
 
+    @get:Synchronized
     val dolbyAtmosOutput: Boolean
         get() = dolbyAtmosOutputMode.encodedPassthrough
 
+    @get:Synchronized
     val audioRouteLabel: String get() = routeEvidence.label
+
+    @get:Synchronized
     val audioRouteFingerprint: String get() = routeEvidence.fingerprint
 
+    @get:Synchronized
     val audioRouteVerified: Boolean get() = routeEvidence.verified
 
+    @Synchronized
     fun configure(
         format: YAudioTrackFormat,
         exactDolbyAtmosTransport: Boolean = false,
@@ -103,14 +115,17 @@ internal class AndroidEncodedAudioTrackRenderNode(
         basePresentationTimeUs = null
         requestedPlay = false
         routedOutputProgress.reset()
+        clockProgressGuard.reset()
     }
 
+    @Synchronized
     fun updateExactDolbyAtmosTransport(value: Boolean) {
         exactDolbyAtmosTransport =
             value &&
             format?.codec in setOf(YAudioCodec.Eac3Joc, YAudioCodec.TrueHdAtmos)
     }
 
+    @Synchronized
     fun play() {
         requestedPlay = true
         track?.let { audioTrack ->
@@ -118,6 +133,7 @@ internal class AndroidEncodedAudioTrackRenderNode(
         }
     }
 
+    @Synchronized
     fun pause() {
         requestedPlay = false
         track?.let { audioTrack ->
@@ -125,6 +141,7 @@ internal class AndroidEncodedAudioTrackRenderNode(
         }
     }
 
+    @Synchronized
     fun write(
         data: ByteBuffer,
         presentationTimeUs: Long,
@@ -150,6 +167,7 @@ internal class AndroidEncodedAudioTrackRenderNode(
      * backpressure while the receiver locks to a carrier. Keeping this call non-blocking prevents
      * that device-side wait from stopping video dequeue and Surface release on the playback lane.
      */
+    @Synchronized
     fun writeNonBlocking(
         data: ByteBuffer,
         presentationTimeUs: Long,
@@ -165,6 +183,7 @@ internal class AndroidEncodedAudioTrackRenderNode(
         return written
     }
 
+    @Synchronized
     fun clockSnapshot(): YAudioClockSnapshot? {
         val audioTrack = track ?: return null
         val source = format ?: return null
@@ -172,18 +191,23 @@ internal class AndroidEncodedAudioTrackRenderNode(
         if (source.sampleRate <= 0) return null
         val timestamp = AudioTimestamp()
         val hasTimestamp = runCatching { audioTrack.getTimestamp(timestamp) }.getOrDefault(false)
-        val frames =
-            if (hasTimestamp) {
-                timestamp.framePosition
-            } else {
-                audioTrack.playbackHeadPosition.toLong() and 0xffff_ffffL
-            }
+        val nowNs = System.nanoTime()
+        val head = runCatching { audioTrack.playbackHeadPosition.toLong() and 0xffff_ffffL }.getOrElse { return null }
+        val selection =
+            clockProgressGuard.select(
+                nowNs = nowNs,
+                playing = requestedPlay && audioTrack.playState == AudioTrack.PLAYSTATE_PLAYING,
+                timestampFrames = timestamp.framePosition.takeIf { hasTimestamp },
+                timestampRealtimeNs = timestamp.nanoTime.takeIf { hasTimestamp },
+                playbackHeadFrames = head,
+            ) ?: return null
         return YAudioClockSnapshot(
-            positionUs = (baseUs + frames * MICROS_PER_SECOND / source.sampleRate).coerceAtLeast(0L),
-            realtimeNs = if (hasTimestamp) timestamp.nanoTime else System.nanoTime(),
+            positionUs = (baseUs + selection.framePosition * MICROS_PER_SECOND / source.sampleRate).coerceAtLeast(0L),
+            realtimeNs = selection.realtimeNs,
         )
     }
 
+    @Synchronized
     fun presentationTimeNs(
         videoPresentationTimeUs: Long,
         fallbackRealtimeNs: Long,
@@ -192,6 +216,7 @@ internal class AndroidEncodedAudioTrackRenderNode(
         return clock.realtimeNs + (videoPresentationTimeUs - clock.positionUs) * NANOS_PER_MICROSECOND
     }
 
+    @Synchronized
     override fun flush() {
         val audioTrack = track ?: return
         val resume = requestedPlay
@@ -199,9 +224,11 @@ internal class AndroidEncodedAudioTrackRenderNode(
         audioTrack.flush()
         basePresentationTimeUs = null
         routedOutputProgress.reset()
+        clockProgressGuard.reset()
         if (resume) audioTrack.play()
     }
 
+    @Synchronized
     override fun release() {
         val audioTrack = track
         track = null
@@ -211,6 +238,7 @@ internal class AndroidEncodedAudioTrackRenderNode(
         basePresentationTimeUs = null
         exactDolbyAtmosTransport = false
         routedOutputProgress.reset()
+        clockProgressGuard.reset()
         if (audioTrack != null) {
             runCatching { audioTrack.removeOnRoutingChangedListener(routingListener) }
             runCatching { audioTrack.pause() }
@@ -219,6 +247,7 @@ internal class AndroidEncodedAudioTrackRenderNode(
         }
     }
 
+    @Synchronized
     private fun currentRouteOutputAdvancing(): Boolean {
         val audioTrack = track ?: return false
         return routedOutputProgress.observe(

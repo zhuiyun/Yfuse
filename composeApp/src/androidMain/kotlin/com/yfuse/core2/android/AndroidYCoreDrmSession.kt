@@ -239,11 +239,12 @@ internal class AndroidYCoreDrmSession(
         licenseUri: String,
         challenge: ByteArray,
     ): ByteArray {
+        val scopedHeaders = scopedMediaHeaders(configuration.requestHeaders, configuration.licenseUri, licenseUri)
         val requestHeaders =
-            if (configuration.requestHeaders.keys.any { it.equals(CONTENT_TYPE_HEADER, ignoreCase = true) }) {
-                configuration.requestHeaders
+            if (scopedHeaders.keys.any { it.equals(CONTENT_TYPE_HEADER, ignoreCase = true) }) {
+                scopedHeaders
             } else {
-                configuration.requestHeaders + (CONTENT_TYPE_HEADER to DRM_BINARY_CONTENT_TYPE)
+                scopedHeaders + (CONTENT_TYPE_HEADER to DRM_BINARY_CONTENT_TYPE)
             }
         return postDrmRequest(
             uri = licenseUri,

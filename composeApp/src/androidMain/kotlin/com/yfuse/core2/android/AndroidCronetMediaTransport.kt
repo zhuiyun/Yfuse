@@ -17,7 +17,6 @@ import org.chromium.net.UrlRequest
 import org.chromium.net.UrlResponseInfo
 import java.io.IOException
 import java.nio.ByteBuffer
-import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -29,7 +28,7 @@ internal class AndroidCronetMediaTransport(
     private val engine: CronetEngine = AndroidCronetRuntime.engine(context.applicationContext),
     private val callbackExecutor: ExecutorService = AndroidCronetRuntime.callbackExecutor,
     private val followMediaRedirects: Boolean = false,
-    private val allowCrossProtocolRedirects: Boolean = false,
+    private val allowCrossProtocolRedirects: Boolean = true,
     private val redirectState: AndroidHttpMediaRedirectState? = null,
 ) : YMediaTransport {
     override val supportedProtocols: Set<YSourceProtocol> =
@@ -43,30 +42,41 @@ internal class AndroidCronetMediaTransport(
             YTransportFeature.RandomAccess,
         )
 
-    private val chunks = ArrayBlockingQueue<CronetChunk>(2)
-    private var request: UrlRequest? = null
-    private var activeChunk: ByteArray? = null
-    private var activeOffset = 0
-    private var endOfStream = false
+    private class Exchange {
+        val chunks = CancellableChunkQueue<CronetChunk>(2)
+        val ready = CountDownLatch(1)
 
-    @Volatile private var callbackFailure: Throwable? = null
+        @Volatile var request: UrlRequest? = null
+
+        @Volatile var failure: Throwable? = null
+        var activeChunk: ByteArray? = null
+        var activeOffset = 0
+        var endOfStream = false
+
+        fun close() {
+            chunks.close()
+            ready.countDown()
+            val active = request
+            request = null
+            active?.cancel()
+        }
+    }
+
+    @Volatile private var exchange = Exchange()
 
     override suspend fun open(request: YMediaTransportRequest): YMediaTransportResponse =
         withContext(Dispatchers.IO) {
             require(request.protocol in supportedProtocols)
             closeRequest()
-            chunks.clear()
-            callbackFailure = null
-            activeChunk = null
-            activeOffset = 0
-            endOfStream = false
+            val current = Exchange().also { exchange = it }
+            val chunks = current.chunks
             val originalUri = request.uri
             val originalHeaders = request.headers.withHttpBasicCredentials(request.credentials)
             val cachedRoute = redirectState?.resolve(originalUri)
             val targetUri = cachedRoute?.targetUri ?: originalUri
             val requestHeaders = originalHeaders.withoutCredentials(cachedRoute?.stripCredentials == true)
             val requestMethod = request.method
-            val responseReady = CountDownLatch(1)
+            val responseReady = current.ready
             var responseInfo: UrlResponseInfo? = null
             var activeUrl = targetUri.toHttpUrlOrNull()
             var redirectCount = 0
@@ -96,11 +106,11 @@ internal class AndroidCronetMediaTransport(
                                 (!redirectsToCleartext || allowCrossProtocolRedirects) &&
                                 (!crossesOrigin || !carriesCredentials)
                         if (!canFollow) {
-                            callbackFailure =
+                            current.failure =
                                 IOException("Cronet media redirect requires OkHttp policy fallback")
                             request.cancel()
                             responseReady.countDown()
-                            chunks.offer(CronetChunk.Failed)
+                            chunks.put(CronetChunk.Failed)
                             return
                         }
                         redirectCount += 1
@@ -108,10 +118,10 @@ internal class AndroidCronetMediaTransport(
                         strippedCredentials = strippedCredentials || crossesOrigin
                         activeUrl = target
                         runCatching(request::followRedirect).onFailure { failure ->
-                            callbackFailure = failure
+                            current.failure = failure
                             request.cancel()
                             responseReady.countDown()
-                            chunks.offer(CronetChunk.Failed)
+                            chunks.put(CronetChunk.Failed)
                         }
                     }
 
@@ -144,14 +154,21 @@ internal class AndroidCronetMediaTransport(
                         chunks.put(CronetChunk.End)
                     }
 
+                    override fun onCanceled(
+                        request: UrlRequest,
+                        info: UrlResponseInfo?,
+                    ) {
+                        current.close()
+                    }
+
                     override fun onFailed(
                         request: UrlRequest,
                         info: UrlResponseInfo?,
                         error: CronetException,
                     ) {
-                        callbackFailure = error
+                        current.failure = error
                         responseReady.countDown()
-                        chunks.offer(CronetChunk.Failed)
+                        chunks.put(CronetChunk.Failed)
                     }
                 }
             val builder = engine.newUrlRequestBuilder(targetUri, callback, callbackExecutor)
@@ -163,19 +180,19 @@ internal class AndroidCronetMediaTransport(
             }
             request.range?.let { builder.addHeader("Range", "bytes=${it.startInclusive}-${it.endInclusive ?: ""}") }
             val opened = builder.build()
-            this@AndroidCronetMediaTransport.request = opened
+            current.request = opened
             opened.start()
             if (!responseReady.await(CRONET_OPEN_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
-                closeRequest()
+                current.close()
                 throw IOException("Cronet response timed out")
             }
-            callbackFailure?.let { failure ->
-                closeRequest()
+            current.failure?.let { failure ->
+                current.close()
                 throw IOException("Cronet request failed", failure)
             }
             val info =
                 responseInfo ?: run {
-                    closeRequest()
+                    current.close()
                     throw IOException("Cronet response metadata is unavailable")
                 }
             val rawContentRange = info.headerValue("Content-Range")
@@ -226,42 +243,44 @@ internal class AndroidCronetMediaTransport(
         length: Int,
     ): Int =
         withContext(Dispatchers.IO) {
+            val current = exchange
+            val chunks = current.chunks
             require(offset >= 0 && length >= 0 && offset + length <= destination.size)
             if (length == 0) return@withContext 0
-            if (endOfStream) return@withContext -1
+            if (current.endOfStream) return@withContext -1
             var outputOffset = offset
             var remaining = length
             while (remaining > 0) {
-                val current = activeChunk
-                if (current != null && activeOffset < current.size) {
-                    val count = minOf(remaining, current.size - activeOffset)
-                    current.copyInto(destination, outputOffset, activeOffset, activeOffset + count)
-                    activeOffset += count
+                val activeBytes = current.activeChunk
+                if (activeBytes != null && current.activeOffset < activeBytes.size) {
+                    val count = minOf(remaining, activeBytes.size - current.activeOffset)
+                    activeBytes.copyInto(destination, outputOffset, current.activeOffset, current.activeOffset + count)
+                    current.activeOffset += count
                     outputOffset += count
                     remaining -= count
-                    if (activeOffset == current.size) {
-                        activeChunk = null
-                        activeOffset = 0
+                    if (current.activeOffset == activeBytes.size) {
+                        current.activeChunk = null
+                        current.activeOffset = 0
                     }
                     continue
                 }
                 val next = chunks.poll(CRONET_READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
                 if (next == null) {
-                    closeRequest()
+                    current.close()
                     throw IOException("Cronet streaming read timed out")
                 }
                 when (next) {
                     is CronetChunk.Data -> {
-                        activeChunk = next.bytes
-                        activeOffset = 0
+                        current.activeChunk = next.bytes
+                        current.activeOffset = 0
                     }
                     CronetChunk.End -> {
-                        endOfStream = true
+                        current.endOfStream = true
                         return@withContext if (outputOffset == offset) -1 else outputOffset - offset
                     }
                     CronetChunk.Failed -> {
-                        val failure = callbackFailure
-                        closeRequest()
+                        val failure = current.failure
+                        current.close()
                         throw IOException("Cronet streaming read failed", failure)
                     }
                 }
@@ -274,12 +293,7 @@ internal class AndroidCronetMediaTransport(
     }
 
     private fun closeRequest() {
-        request?.cancel()
-        request = null
-        chunks.clear()
-        activeChunk = null
-        activeOffset = 0
-        endOfStream = false
+        exchange.close()
     }
 }
 

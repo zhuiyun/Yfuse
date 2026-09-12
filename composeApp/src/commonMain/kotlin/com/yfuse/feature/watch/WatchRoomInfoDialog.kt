@@ -14,7 +14,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -30,10 +32,12 @@ import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
+import com.yfuse.core.designsystem.LightEffect
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OverlayButton
 import com.yfuse.core.designsystem.OverlayButtonTone
 import com.yfuse.core.designsystem.OverlayHeader
+import com.yfuse.core.designsystem.lightOnChange
 import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.sync.WatchControlMode
 import com.yfuse.core.sync.WatchInvite
@@ -112,7 +116,16 @@ fun WatchRoomInfoDialog(
             // The roster arrives with the room from protocol v3 on. The count is stated in the
             // heading because that is the one figure every room reports; the list is what a
             // room that sent participants can add to it.
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            // A join sweeps light along the roster's edge; a leave lets it fall away. Read
+            // before the count is remembered, so the first composition is silent.
+            val previousCount = remember { mutableIntStateOf(state.participantCount) }
+            val rosterEffect =
+                if (state.participantCount >= previousCount.intValue) LightEffect.Edge else LightEffect.Dissolve
+            SideEffect { previousCount.intValue = state.participantCount }
+            Column(
+                Modifier.lightOnChange(state.participantCount, rosterEffect),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 Text(
                     "参与者 · ${state.participantCount} 人",
                     style = AppTypography.body.strong,

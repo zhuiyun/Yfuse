@@ -23,7 +23,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.imeNestedScroll
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
@@ -221,8 +220,11 @@ fun GlassDialog(
                 Column(
                     Modifier
                         .safeDrawingPadding()
+                        // Only the padding, never [imeNestedScroll]: that one drives the keyboard
+                        // from leftover scroll, and once a panel is at its top every upward pull
+                        // is leftover. The dismiss drag only takes the downward half, so on a panel
+                        // with nothing to type into a swipe up summoned an empty keyboard.
                         .imePadding()
-                        .imeNestedScroll()
                         .padding(windowPadding)
                         .widthIn(max = maxWidth)
                         .fillMaxWidth()

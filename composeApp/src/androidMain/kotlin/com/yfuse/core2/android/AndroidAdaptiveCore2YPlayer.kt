@@ -1178,6 +1178,7 @@ internal class AndroidAdaptiveCore2YPlayer(
             var failureRecorded = false
             var successRecorded = false
             var learningRecorded = false
+            var autoNextQueued = false
             var recoveryQueued = false
             val networkRecoveryWindow = AndroidNetworkRecoveryWindow()
             val learningStartPositionMs = next.currentPositionMs() + (attachedTarget?.presentationOffsetMs ?: 0L)
@@ -1483,6 +1484,17 @@ internal class AndroidAdaptiveCore2YPlayer(
                                 YPlaybackRecoveryAction.Stop -> Unit
                             }
                         }
+                        val naturalAutoNext =
+                            childState.phase == YPlaybackPhase.Ended &&
+                                request.autoNext &&
+                                childIndex() + 1 < queueItems.size
+                        if (childState.phase == YPlaybackPhase.Failed ||
+                            childState.phase == YPlaybackPhase.Ended &&
+                            !naturalAutoNext
+                        ) {
+                            requestedPlay = false
+                        }
+                        if (childState.phase == YPlaybackPhase.Ready) autoNextQueued = false
                         mutableState.value =
                             childState.copy(
                                 currentIndex = childIndex(),
@@ -1533,8 +1545,10 @@ internal class AndroidAdaptiveCore2YPlayer(
                         if (
                             childState.phase == YPlaybackPhase.Ended &&
                             request.autoNext &&
+                            !autoNextQueued &&
                             childIndex() + 1 < queueItems.size
                         ) {
+                            autoNextQueued = true
                             commands.trySend(Command.SelectItem(queueItems[childIndex() + 1].id))
                         }
                     }
@@ -1793,6 +1807,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                             audioRouteChangeQueued.set(false)
                             val phase = mutableState.value.phase
                             when {
+                                phase == YPlaybackPhase.Ended || phase == YPlaybackPhase.Failed -> Unit
                                 child == null && phase == YPlaybackPhase.Idle -> Unit
                                 // A route change during startup is nearly always the system
                                 // settling the output around the AudioTrack this graph is in the
@@ -1812,6 +1827,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                             }
                         }
                         Command.ThermalPressure -> {
+                            if (mutableState.value.phase in setOf(YPlaybackPhase.Ended, YPlaybackPhase.Failed)) continue
                             discardNextPreparation()
                             val activeRoute =
                                 child

@@ -1,6 +1,8 @@
 package com.yfuse.core.data
 
 import com.russhwolf.settings.MapSettings
+import com.yfuse.core.designsystem.ParticleLight
+import com.yfuse.core.designsystem.ParticleStyle
 import com.yfuse.core.designsystem.SplashAnimation
 import com.yfuse.core.designsystem.ThemeMode
 import com.yfuse.core.model.DecoderMode
@@ -26,6 +28,21 @@ class ThemePreferencesTest {
         val enabledAgain = ThemePreferences(settings)
         assertTrue(enabledAgain.pulseSweep.value)
         assertTrue(enabledAgain.reduceMotion.value)
+    }
+
+    @Test
+    fun particle_style_persists_independently_of_particle_level() {
+        val settings = MapSettings()
+        val original = ThemePreferences(settings)
+        assertEquals(ParticleLight.Gentle, original.particleLight.value)
+        assertEquals(ParticleStyle.Stardust, original.particleStyle.value)
+        original.setParticleStyle(ParticleStyle.Flow)
+        original.setParticleLight(ParticleLight.Off)
+        val restored = ThemePreferences(settings)
+        assertEquals(ParticleStyle.Flow, restored.particleStyle.value)
+        assertEquals(ParticleLight.Off, restored.particleLight.value)
+        restored.setParticleLight(ParticleLight.Enhanced)
+        assertEquals(ParticleStyle.Flow, ThemePreferences(settings).particleStyle.value)
     }
 
     @Test

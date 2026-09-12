@@ -38,6 +38,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -238,6 +239,17 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
     LaunchedEffect(carouselDragging, carouselLight) {
         if (carouselDragging) carouselLight.emit(LightEffect.Dust)
     }
+    // Same settle sweep as 首页's hero; see there.
+    val carouselSweep = rememberLightFeedback()
+    LaunchedEffect(pagerState, carouselSweep) {
+        var previous = pagerState.settledPage
+        snapshotFlow { pagerState.settledPage }.collect { page ->
+            if (page != previous) {
+                carouselSweep.emit(LightEffect.Converge, fractionX = if (page > previous) 0.04f else 0.96f)
+                previous = page
+            }
+        }
+    }
     // Interaction restarts the reel's clock instead of stopping it; see 首页's hero.
     var interaction by remember { mutableStateOf(0) }
     val slide = slides.getOrNull(slideIndex)
@@ -392,7 +404,8 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                                     listState,
                                                     heroHeight,
                                                 ).carouselTouchPause(carouselTouched)
-                                                .lightFeedback(carouselLight),
+                                                .lightFeedback(carouselLight)
+                                                .lightFeedback(carouselSweep),
                                         ) {
                                             // No second full-bleed copy on phones: it would show through the dissolve.
                                             if (showSidePreview) {

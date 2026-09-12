@@ -192,6 +192,7 @@ internal class AndroidYCoreHttpProxy(
         val hlsAbrResource: HlsAbrResourceRoute? = null,
         val mediaBitRateBitsPerSecond: Long = 0L,
         val playbackTarget: AdaptiveTargetConfiguration? = null,
+        val credentialOrigin: String = upstreamUri,
     )
 
     private class AdaptiveTargetConfiguration(
@@ -385,6 +386,25 @@ internal class AndroidYCoreHttpProxy(
 
         @Synchronized
         fun select(segment: YHlsAlignedSegment): com.yfuse.core2.adaptive.YHlsAlignedSegmentResource {
+            reconsiderReopen(segment)
+            val resources = alignedSegments[segment.sequence]?.resources ?: segment.resources
+            val currentForSegment =
+                currentVariantId.takeIf { current -> resources.any { it.variant.id == current } }
+                    ?: resources
+                        .minBy { it.variant.selectionBandwidthBitsPerSecond }
+                        .variant.id
+            val selected =
+                YAdaptiveVariantSelector.select(
+                    variants = resources.map { it.variant },
+                    conditions = selectionConditions(),
+                    currentVariantId = currentForSegment,
+                )
+            currentVariantId = selected.id
+            return resources.first { it.variant.id == selected.id }
+        }
+
+        @Synchronized
+        fun reconsiderReopen(segment: YHlsAlignedSegment) {
             applyLatestFeedback()
             val resources = alignedSegments[segment.sequence]?.resources ?: segment.resources
             requestReopen?.let { request ->
@@ -396,20 +416,6 @@ internal class AndroidYCoreHttpProxy(
                     )
                 if (resources.none { it.variant.id == ideal.id }) request(ideal.id)
             }
-            val currentForSegment =
-                currentVariantId.takeIf { current -> resources.any { it.variant.id == current } }
-                    ?: resources
-                        .minBy { it.variant.selectionBandwidthBitsPerSecond }
-                        .variant.id
-            val selected =
-                YAdaptiveVariantSelector.select(
-                    variants = resources.map { it.variant },
-                    conditions =
-                        selectionConditions(),
-                    currentVariantId = currentForSegment,
-                )
-            currentVariantId = selected.id
-            return resources.first { it.variant.id == selected.id }
         }
 
         private fun selectionConditions() =
@@ -464,34 +470,39 @@ internal class AndroidYCoreHttpProxy(
         @Synchronized
         fun select(representations: List<YDashRepresentation>): YDashRepresentation {
             require(representations.isNotEmpty())
-            applyLatestFeedback()
-            val variants = representations.map(YDashRepresentation::asAdaptiveVariant)
-            val conditions =
-                YAdaptiveSelectionConditions(
-                    estimatedBandwidthBitsPerSecond =
-                        bandwidthEstimator.estimateBitsPerSecond.takeIf { it > 0L }
-                            ?: INITIAL_BANDWIDTH_BITS_PER_SECOND,
-                    bufferedDurationUs = bufferModel.estimate(),
-                    metered = isMeteredNetwork(),
-                )
-            if (reopenCandidates.isNotEmpty() && requestReopen != null) {
-                val ideal =
-                    YAdaptiveVariantSelector.select(
-                        reopenCandidates.map(YDashRepresentation::asAdaptiveVariant),
-                        conditions,
-                        currentRepresentationId,
-                    )
-                if (variants.none { it.id == ideal.id }) requestReopen.invoke(ideal.id)
-            }
+            reconsiderReopen(representations)
             val selected =
                 YAdaptiveVariantSelector.select(
-                    variants = variants,
-                    conditions = conditions,
+                    variants = representations.map(YDashRepresentation::asAdaptiveVariant),
+                    conditions = selectionConditions(),
                     currentVariantId = currentRepresentationId,
                 )
             currentRepresentationId = selected.id
             return representations.first { it.id == selected.id }
         }
+
+        @Synchronized
+        fun reconsiderReopen(representations: List<YDashRepresentation>) {
+            applyLatestFeedback()
+            val variants = representations.map(YDashRepresentation::asAdaptiveVariant)
+            if (reopenCandidates.isNotEmpty() && requestReopen != null) {
+                val ideal =
+                    YAdaptiveVariantSelector.select(
+                        reopenCandidates.map(YDashRepresentation::asAdaptiveVariant),
+                        selectionConditions(),
+                        currentRepresentationId,
+                    )
+                if (variants.none { it.id == ideal.id }) requestReopen.invoke(ideal.id)
+            }
+        }
+
+        private fun selectionConditions() =
+            YAdaptiveSelectionConditions(
+                estimatedBandwidthBitsPerSecond =
+                    bandwidthEstimator.estimateBitsPerSecond.takeIf { it > 0L } ?: INITIAL_BANDWIDTH_BITS_PER_SECOND,
+                bufferedDurationUs = bufferModel.estimate(),
+                metered = isMeteredNetwork(),
+            )
 
         @Synchronized
         fun recordNetworkSample(
@@ -526,6 +537,8 @@ internal class AndroidYCoreHttpProxy(
     private val routesLock = Any()
     private val routes = LinkedHashMap<String, Route>()
     private val routeIds = HashMap<Route, String>()
+    private val resolvedResources = LinkedHashMap<String, Route>(16, 0.75f, true)
+    private val responsesStarted = ConcurrentHashMap.newKeySet<Socket>()
     private val closed = AtomicBoolean(false)
     private val requests = YCoreProxyRequests()
     private val activeRangeSources = ConcurrentHashMap.newKeySet<AndroidTransportMediaDataSource>()
@@ -560,12 +573,14 @@ internal class AndroidYCoreHttpProxy(
         allowDolbyVisionHls: Boolean = false,
         allowDolbyAtmosHls: Boolean = false,
         mediaBitRateBitsPerSecond: Long = 0L,
+        credentialOrigin: String = upstreamUri,
     ): String {
         if (closed.get() || upstreamUri.sourceProtocolOrNull() == null) return upstreamUri
         val route =
             Route(
                 upstreamUri = upstreamUri,
                 upstreamHeaders = upstreamHeaders,
+                credentialOrigin = credentialOrigin,
                 credentials = credentials,
                 cacheable = cacheable,
                 cacheIdentity = cacheIdentity,
@@ -693,6 +708,7 @@ internal class AndroidYCoreHttpProxy(
                 val target = entry.value.playbackTarget
                 if (target != null && target.presentation === presentation && target.revision < keepFromRevision) {
                     routeIds.remove(entry.value)
+                    resolvedResources.keys.removeAll { it.startsWith("${entry.key}/") }
                     iterator.remove()
                 }
             }
@@ -758,6 +774,7 @@ internal class AndroidYCoreHttpProxy(
         unmanagedManifestRoots.clear()
         workers.shutdownNow()
         synchronized(routesLock) {
+            resolvedResources.clear()
             routes.clear()
             routeIds.clear()
         }
@@ -766,7 +783,19 @@ internal class AndroidYCoreHttpProxy(
     private fun trackedTransport() = YCoreProxyTransport(createTransport(), requests)
 
     private fun registerRoute(route: Route): String {
-        require(routes.size < MAX_ROUTES) { "YCore adaptive route limit exceeded" }
+        while (routes.size >= MAX_ROUTES) {
+            val oldest =
+                routes.entries.firstOrNull {
+                    !it.value.hlsManifest &&
+                        !it.value.dashManifest &&
+                        it.value.playbackTarget == null
+                }
+                    ?: routes.entries.first()
+            routes.remove(oldest.key)
+            routeIds.remove(oldest.value)
+            val prefix = "${oldest.key}/"
+            resolvedResources.keys.removeAll { it.startsWith(prefix) }
+        }
         val routeId = UUID.randomUUID().toString().replace("-", "")
         routes[routeId] = route
         routeIds[route] = routeId
@@ -810,6 +839,7 @@ internal class AndroidYCoreHttpProxy(
                     } catch (_: Exception) {
                         // Closing a client can interrupt header reads before serve installs its response handling.
                     } finally {
+                        responsesStarted.remove(socket)
                         registration.close()
                     }
                 }
@@ -826,7 +856,7 @@ internal class AndroidYCoreHttpProxy(
             BufferedReader(
                 InputStreamReader(socket.getInputStream(), StandardCharsets.ISO_8859_1),
             )
-        val requestLine = reader.readLine()?.take(MAX_REQUEST_LINE_BYTES).orEmpty()
+        val requestLine = readProxyLine(reader, MAX_REQUEST_LINE_BYTES).orEmpty()
         val requestParts = requestLine.split(' ', limit = 3)
         val method = requestParts.getOrNull(0)?.uppercase().orEmpty()
         val requestTarget = requestParts.getOrNull(1).orEmpty()
@@ -838,7 +868,31 @@ internal class AndroidYCoreHttpProxy(
                 ?.takeIf(String::isNotEmpty)
         val routeId = localPath?.substringBefore('/')
         val routeSuffix = localPath?.substringAfter('/', missingDelimiterValue = "").orEmpty()
-        val resolvedRoute = routeId?.let(::findRoute)?.resolveDashTemplate(routeSuffix)?.resolveHlsAbr()
+        val resolvedRoute =
+            routeId?.let { id ->
+                synchronized(routesLock) {
+                    val base = findRoute(id) ?: return@synchronized null
+                    if (base.hlsManifest || base.dashManifest) {
+                        base
+                    } else {
+                        val key = "$id/$routeSuffix"
+                        resolvedResources[key]?.also {
+                            // A retry keeps its original bytes, but fresh bandwidth/buffer feedback
+                            // must still be allowed to schedule a new decoder target.
+                            base.hlsAbrResource?.let { abr -> abr.session.reconsiderReopen(abr.segment) }
+                            base.dashTemplate?.let { template ->
+                                template.abrSession?.reconsiderReopen(template.switchingRepresentations)
+                            }
+                        }
+                            ?: base.resolveDashTemplate(routeSuffix)?.resolveHlsAbr()?.also { resolved ->
+                                resolvedResources[key] = resolved
+                                while (resolvedResources.size > MAX_ROUTES) {
+                                    resolvedResources.remove(resolvedResources.keys.first())
+                                }
+                            }
+                    }
+                }
+            }
         val route =
             resolvedRoute?.let { candidate ->
                 if (candidate.hlsManifest) {
@@ -861,7 +915,7 @@ internal class AndroidYCoreHttpProxy(
                 serveBinary(socket, route, method, headers["range"])
             }
         }.onFailure {
-            runCatching { writeEmptyResponse(socket, 502, "Bad Gateway") }
+            if (socket !in responsesStarted) runCatching { writeEmptyResponse(socket, 502, "Bad Gateway") }
         }
     }
 
@@ -942,7 +996,7 @@ internal class AndroidYCoreHttpProxy(
     private fun readRequestHeaders(reader: BufferedReader): Map<String, String> {
         val headers = linkedMapOf<String, String>()
         repeat(MAX_REQUEST_HEADER_COUNT) {
-            val line = reader.readLine() ?: return headers
+            val line = readProxyLine(reader, MAX_REQUEST_HEADER_BYTES) ?: return headers
             if (line.isEmpty()) return headers
             val separator = line.indexOf(':')
             if (separator > 0) {
@@ -988,6 +1042,7 @@ internal class AndroidYCoreHttpProxy(
                     localUrl(
                         upstreamUri = upstreamUri,
                         upstreamHeaders = route.upstreamHeaders,
+                        credentialOrigin = route.credentialOrigin,
                         credentials = route.credentials,
                         cacheable = false,
                         cacheIdentity = route.cacheIdentity?.forStableAdaptiveUri(upstreamUri),
@@ -1044,6 +1099,7 @@ internal class AndroidYCoreHttpProxy(
                     localUrl(
                         upstreamUri = upstreamUri,
                         upstreamHeaders = route.upstreamHeaders,
+                        credentialOrigin = route.credentialOrigin,
                         credentials = route.credentials,
                         cacheable = persistent,
                         cacheIdentity =
@@ -1176,6 +1232,7 @@ internal class AndroidYCoreHttpProxy(
                 localUrl(
                     upstreamUri = upstreamUri,
                     upstreamHeaders = route.upstreamHeaders,
+                    credentialOrigin = route.credentialOrigin,
                     credentials = route.credentials,
                     cacheable = false,
                     cacheIdentity = null,
@@ -1329,6 +1386,7 @@ internal class AndroidYCoreHttpProxy(
                         localUrl(
                             upstreamUri = upstreamUri,
                             upstreamHeaders = route.upstreamHeaders,
+                            credentialOrigin = route.credentialOrigin,
                             credentials = route.credentials,
                             cacheable = route.cacheable,
                             cacheIdentity =
@@ -1462,7 +1520,7 @@ internal class AndroidYCoreHttpProxy(
                 uri = route.upstreamUri,
                 protocol = requireNotNull(route.upstreamUri.sourceProtocolOrNull()),
                 headers = route.upstreamHeadersWithUserAgent(),
-                credentials = route.credentials,
+                credentials = route.credentialsFor(route.upstreamUri),
                 createTransport = ::trackedTransport,
                 initialMediaBitRateBitsPerSecond = route.mediaBitRateBitsPerSecond,
                 cacheDirectory = cacheDirectory.takeIf { route.cacheable },
@@ -1538,7 +1596,7 @@ internal class AndroidYCoreHttpProxy(
                         uri = route.upstreamUri,
                         protocol = requireNotNull(route.upstreamUri.sourceProtocolOrNull()),
                         headers = route.upstreamHeadersWithUserAgent(),
-                        credentials = route.credentials,
+                        credentials = route.credentialsFor(route.upstreamUri),
                     ),
                 )
             require(response.statusCode in 200..299) { "Upstream returned ${response.statusCode}" }
@@ -1634,8 +1692,8 @@ internal class AndroidYCoreHttpProxy(
                         YMediaTransportRequest(
                             uri = upstreamUri,
                             protocol = requireNotNull(upstreamUri.sourceProtocolOrNull()),
-                            headers = route.upstreamHeadersWithUserAgent(),
-                            credentials = route.credentials,
+                            headers = route.upstreamHeadersWithUserAgent(upstreamUri),
+                            credentials = route.credentialsFor(upstreamUri),
                         ),
                     )
                 require(response.statusCode in 200..299) { "Manifest returned ${response.statusCode}" }
@@ -1678,9 +1736,12 @@ internal class AndroidYCoreHttpProxy(
         output.flush()
     }
 
-    private fun Route.upstreamHeadersWithUserAgent(): Map<String, String> =
+    private fun Route.credentialsFor(targetUri: String): YTransportCredentials? =
+        credentials.takeIf { mediaCredentialOriginsMatch(credentialOrigin, targetUri) }
+
+    private fun Route.upstreamHeadersWithUserAgent(targetUri: String = upstreamUri): Map<String, String> =
         yCoreProxyUpstreamRequestContext(
-            upstreamHeaders = upstreamHeaders,
+            upstreamHeaders = scopedMediaHeaders(upstreamHeaders, credentialOrigin, targetUri),
             configuredUserAgent = userAgent,
             credentials = credentials,
         ).headers
@@ -1694,6 +1755,7 @@ internal class AndroidYCoreHttpProxy(
         contentRange: String? = null,
     ) {
         val output = socket.getOutputStream()
+        responsesStarted.add(socket)
         output.write("HTTP/1.1 $status $reason\r\n".toByteArray(StandardCharsets.ISO_8859_1))
         output.write("Content-Type: $contentType\r\n".toByteArray(StandardCharsets.ISO_8859_1))
         output.write("Accept-Ranges: bytes\r\n".toByteArray(StandardCharsets.ISO_8859_1))
@@ -1711,6 +1773,7 @@ internal class AndroidYCoreHttpProxy(
         totalLength: Long,
     ) {
         val output = socket.getOutputStream()
+        responsesStarted.add(socket)
         output.write(
             "HTTP/1.1 416 Range Not Satisfiable\r\nContent-Range: bytes */$totalLength\r\n".toByteArray(
                 StandardCharsets.ISO_8859_1,
@@ -1725,6 +1788,7 @@ internal class AndroidYCoreHttpProxy(
         status: Int,
         reason: String,
     ) {
+        responsesStarted.add(socket)
         socket.getOutputStream().write(
             "HTTP/1.1 $status $reason\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".toByteArray(
                 StandardCharsets.ISO_8859_1,

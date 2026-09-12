@@ -235,7 +235,7 @@ private fun parseMediaPlaylist(
             }
             line.startsWith(EXTINF_TAG) ->
                 pendingDurationUs =
-                    line.substringAfter(':').substringBefore(',').secondsToUs("segment duration")
+                    line.substringAfter(':').substringBefore(',').secondsToUs("segment duration", allowZero = true)
             line.startsWith(BYTE_RANGE_TAG) -> {
                 pendingRange = line.substringAfter(':').parseByteRange(nextRangeOffset)
                 nextRangeOffset =
@@ -476,8 +476,13 @@ private fun requireSafeManifestUri(uri: String) {
     require(uri.isNotBlank() && '\r' !in uri && '\n' !in uri) { "Unsafe localized HLS URI" }
 }
 
-private fun String.secondsToUs(label: String): Long {
-    val seconds = toDoubleOrNull()?.takeIf { it.isFinite() && it > 0.0 } ?: error("Invalid HLS $label")
+private fun String.secondsToUs(
+    label: String,
+    allowZero: Boolean = false,
+): Long {
+    val seconds =
+        toDoubleOrNull()?.takeIf { it.isFinite() && (it > 0.0 || allowZero && it == 0.0) }
+            ?: error("Invalid HLS $label")
     return (seconds * MICROS_PER_SECOND).roundToLong().coerceAtLeast(1L)
 }
 

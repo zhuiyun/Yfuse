@@ -57,6 +57,7 @@ internal class AmbientSamplingPolicy {
     }
 }
 
+/** Side bars stay unlit and do not request background frame sampling. */
 internal fun ambientLightHasVisibleBars(
     container: IntSize,
     picture: IntSize,
@@ -66,4 +67,4 @@ internal fun ambientLightHasVisibleBars(
         container.height > 0 &&
         picture.width > 0 &&
         picture.height > 0 &&
-        ((container.width - picture.width) / 2 > guardPx || (container.height - picture.height) / 2 > guardPx)
+        (container.height - picture.height) / 2 > guardPx

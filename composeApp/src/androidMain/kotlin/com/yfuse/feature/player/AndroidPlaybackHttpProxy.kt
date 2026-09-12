@@ -86,6 +86,10 @@ internal class AndroidPlaybackHttpProxy(
     val port: Int
         get() = server.localPort
 
+    /** State of this listener, independent of later reuse of its ephemeral port. */
+    val isListening: Boolean
+        get() = !server.isClosed
+
     fun localUrl(
         upstreamUrl: String,
         cacheable: Boolean = false,

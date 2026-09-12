@@ -902,10 +902,12 @@ internal class AndroidNativeEnhancedYPlayer(
                             }
                             is Command.SelectAudioTrack -> {
                                 if (prepared) {
-                                    session.selectAudioTrack(
-                                        YTrackId(command.trackId),
-                                        capabilityProvider.current(),
-                                    )
+                                    val changed =
+                                        session.selectAudioTrack(
+                                            YTrackId(command.trackId),
+                                            capabilityProvider.current(),
+                                        )
+                                    if (!changed) continue
                                     val selectedTrackId = "$AUDIO_TRACK_PREFIX${command.trackId}"
                                     mutableState.updateState { state ->
                                         state.copy(

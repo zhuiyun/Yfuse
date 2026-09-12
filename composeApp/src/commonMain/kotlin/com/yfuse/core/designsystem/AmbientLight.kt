@@ -313,7 +313,7 @@ private data class AmbientLightTransition(
 )
 
 /**
- * Paints [light] into the bars around [picture] inside [bounds], never over the picture.
+ * Paints [light] into the top/bottom bars, never over the picture or into its side bars.
  *
  * Each bar is a band of its edge's bucket colours laid along the picture's edge, then a black
  * falloff from transparent at the picture toward the screen edge (alpha 0 → .2 → .55 → .8). It no
@@ -329,6 +329,9 @@ fun DrawScope.drawAmbientLight(
     falloffs: List<Brush>? = null,
 ) {
     if (light.isDark) return
+    val barLeft = picture.left.coerceAtLeast(0f)
+    val barRight = picture.right.coerceAtMost(bounds.width)
+    if (barRight <= barLeft) return
     val fades = falloffs ?: ambientLightFalloffBrushes(picture, bounds)
     val excluded =
         Rect(
@@ -346,30 +349,16 @@ fun DrawScope.drawAmbientLight(
             drawRect(band, rect.topLeft, rect.size)
             drawRect(fade, rect.topLeft, rect.size)
         }
-        if (picture.left > 0.5f) {
-            bar(
-                rect = Rect(0f, 0f, picture.left, bounds.height),
-                band = Brush.verticalGradient(light.left, startY = picture.top, endY = picture.bottom),
-                fade = fades[0],
-            )
-        }
-        if (picture.right < bounds.width - 0.5f) {
-            bar(
-                rect = Rect(picture.right, 0f, bounds.width, bounds.height),
-                band = Brush.verticalGradient(light.right, startY = picture.top, endY = picture.bottom),
-                fade = fades[1],
-            )
-        }
         if (picture.top > 0.5f) {
             bar(
-                rect = Rect(0f, 0f, bounds.width, picture.top),
+                rect = Rect(barLeft, 0f, barRight, picture.top),
                 band = Brush.horizontalGradient(light.top, startX = picture.left, endX = picture.right),
                 fade = fades[2],
             )
         }
         if (picture.bottom < bounds.height - 0.5f) {
             bar(
-                rect = Rect(0f, picture.bottom, bounds.width, bounds.height),
+                rect = Rect(barLeft, picture.bottom, barRight, bounds.height),
                 band = Brush.horizontalGradient(light.bottom, startX = picture.left, endX = picture.right),
                 fade = fades[3],
             )

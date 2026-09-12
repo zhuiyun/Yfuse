@@ -1,6 +1,18 @@
 # YCore 2.0 Architecture and Migration Plan
 
-## Decision
+## Current production status (2026-09-12)
+
+The default Auto playback preference enables Core2, whose router selects Direct, Enhanced,
+Tunnel and fallback routes. This is separate from the APK profile: the current Gradle default
+and signing workflow build the full profile with MPV/MDK compatibility libraries. The verified
+1.0.58 (220) signed baseline also contains those libraries. A native-only APK requires the
+explicit `yfuseNativeOnlyRuntime` option and its release confirmation; runtime fallback behavior
+also depends on the user's playback preferences. Do not infer the current package profile from
+the historical 1.0.23 native-only delivery. The migration plan and early device records below
+describe earlier milestones. Source fixes and remaining evidence needs are tracked in
+[the September audit follow-up](YCORE_AUDIT_FIXES_20260912.md).
+
+## Original migration decision (historical)
 
 YCore 2.0 follows the parallel-migration model:
 
@@ -270,9 +282,10 @@ A Core2 change may merge only when:
 - a new route has an explicit fallback path and does not poison long-lived device failure memory for
   transient network/auth errors.
 
-## Current production switch
+## Historical production switch
 
-**Core2 is not the default engine.** Legacy remains authoritative, while users can explicitly enable
+**Historical rollout state (superseded by native-only production):** Legacy remained authoritative,
+while users could explicitly enable
 `YCore 2.0 播放内核` in advanced playback settings. The switch is persisted separately from the selected
 Legacy engine so disabling or failing the trial never changes the user's Exo/mpv/MDK preference.
 

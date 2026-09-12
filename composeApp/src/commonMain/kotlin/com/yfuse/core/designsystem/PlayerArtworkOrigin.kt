@@ -98,16 +98,7 @@ internal fun playerArtworkOnClick(
     }
 }
 
-/**
- * Normalized coordinates survive a phone's portrait/landscape Activity boundary.
- *
- * When the two windows share an orientation (a tablet, a television) the mapping is exact and
- * the artwork lands on the very pixels it came from. When they do not, the phone physically
- * rotates between the two Activities and no rectangle in the player's window is where the
- * artwork will actually be; stretching the image into the mapped area made a full-width hero
- * squash into a letterbox strip as it travelled. So the mapped area only fixes the position:
- * the artwork keeps its own aspect ratio and sits centred inside it.
- */
+/** Normalized coordinates survive a phone's portrait/landscape Activity boundary. */
 internal fun playerArtworkRect(
     origin: PlayerArtworkOrigin,
     width: Float,
@@ -118,17 +109,5 @@ internal fun playerArtworkRect(
     fun x(value: Float) = ((value - viewport.left) / viewport.width).coerceIn(0f, 1f) * width
 
     fun y(value: Float) = ((value - viewport.top) / viewport.height).coerceIn(0f, 1f) * height
-    val mapped = Rect(x(origin.bounds.left), y(origin.bounds.top), x(origin.bounds.right), y(origin.bounds.bottom))
-    val rotated = (viewport.width > viewport.height) != (width > height)
-    val aspect = origin.bounds.width / origin.bounds.height
-    if (!rotated || !aspect.isFinite() || aspect <= 0f || mapped.width <= 0f || mapped.height <= 0f) return mapped
-    val fittedWidth = minOf(mapped.width, mapped.height * aspect)
-    val fittedHeight = minOf(mapped.height, mapped.width / aspect)
-    val center = mapped.center
-    return Rect(
-        center.x - fittedWidth / 2f,
-        center.y - fittedHeight / 2f,
-        center.x + fittedWidth / 2f,
-        center.y + fittedHeight / 2f,
-    )
+    return Rect(x(origin.bounds.left), y(origin.bounds.top), x(origin.bounds.right), y(origin.bounds.bottom))
 }

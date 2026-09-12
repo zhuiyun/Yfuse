@@ -18,10 +18,10 @@ import com.yfuse.core2.api.invalidateOutputEvidence
 import com.yfuse.core2.render.YFrameRateSwitchMode
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -32,6 +32,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import java.util.concurrent.Executors
 
 /**
  * Unified YPlayer wrapper for Android multimedia tunneling.
@@ -70,7 +71,12 @@ internal class AndroidNativeTunnelYPlayer(
     override val playbackRequested: Boolean get() = mutableState.value.playbackRequested
 
     private val appContext = context.applicationContext
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val playbackDispatcher =
+        Executors
+            .newSingleThreadExecutor { runnable ->
+                Thread(runnable, "YCore-Tunnel").apply { isDaemon = true }
+            }.asCoroutineDispatcher()
+    private val scope = CoroutineScope(SupervisorJob() + playbackDispatcher)
     private val commands = Channel<Command>(Channel.UNLIMITED)
 
     /** Conflated hint that wakes an idle run loop as soon as a command is queued. */
@@ -85,7 +91,10 @@ internal class AndroidNativeTunnelYPlayer(
     @Volatile
     private var releasedAtMs: Long? = null
 
-    private val worker: Job = scope.launch { runLoop() }
+    private val worker: Job =
+        scope.launch { runLoop() }.also { job ->
+            job.invokeOnCompletion { playbackDispatcher.close() }
+        }
 
     override fun prepare() = send(Command.Prepare)
 

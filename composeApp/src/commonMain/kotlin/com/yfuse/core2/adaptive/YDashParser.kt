@@ -48,12 +48,12 @@ fun parseYDashManifest(
     }
     return YDashManifest(
         isLive = live,
-        minimumUpdatePeriodUs = mpd.attribute("minimumupdateperiod")?.parseIsoDurationUs(),
+        minimumUpdatePeriodUs = mpd.attribute("minimumupdateperiod")?.parseIsoDurationUsAllowZero(),
         mediaPresentationDurationUs = presentationDurationUs ?: periods.last().endUs.takeIf { !live },
         availabilityStartTime = mpd.attribute("availabilitystarttime"),
         publishTime = mpd.attribute("publishtime"),
         timeShiftBufferDepthUs = mpd.attribute("timeshiftbufferdepth")?.parseIsoDurationUs(),
-        suggestedPresentationDelayUs = mpd.attribute("suggestedpresentationdelay")?.parseIsoDurationUs(),
+        suggestedPresentationDelayUs = mpd.attribute("suggestedpresentationdelay")?.parseIsoDurationUsAllowZero(),
         periodStartUs = periods.singleOrNull()?.startUs,
         representations = periods.first().representations,
         periods = periods,
@@ -309,21 +309,20 @@ private fun String.parseDashFrameRate(): Double? {
     return (numerator / denominator).takeIf { it.isFinite() && it > 0.0 }
 }
 
-private fun String.parseIsoDurationUs(): Long {
+private fun String.parseIsoDurationUs(allowZero: Boolean = false): Long {
     val match = ISO_DURATION.matchEntire(trim()) ?: error("Unsupported ISO-8601 duration")
     val days = match.groupValues[1].toDoubleOrNull() ?: 0.0
     val hours = match.groupValues[2].toDoubleOrNull() ?: 0.0
     val minutes = match.groupValues[3].toDoubleOrNull() ?: 0.0
     val seconds = match.groupValues[4].toDoubleOrNull() ?: 0.0
     val totalSeconds = days * 86_400.0 + hours * 3_600.0 + minutes * 60.0 + seconds
-    require(totalSeconds.isFinite() && totalSeconds > 0.0)
+    require(match.groupValues.drop(1).any(String::isNotEmpty))
+    require(totalSeconds.isFinite() && (totalSeconds > 0.0 || allowZero && totalSeconds == 0.0))
+    require(totalSeconds <= Long.MAX_VALUE / 1_000_000.0)
     return (totalSeconds * 1_000_000.0).roundToLong()
 }
 
-private fun String.parseIsoDurationUsAllowZero(): Long {
-    if (trim().equals("PT0S", ignoreCase = true)) return 0L
-    return parseIsoDurationUs()
-}
+private fun String.parseIsoDurationUsAllowZero(): Long = parseIsoDurationUs(allowZero = true)
 
 private data class XmlNode(
     val name: String,

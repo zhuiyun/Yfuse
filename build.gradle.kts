@@ -22,7 +22,7 @@ plugins {
  * debt-reset operation and must never run automatically in CI.
  */
 val ktlintVersion = libs.versions.ktlint.asProvider()
-val secureNettyVersion = "4.1.136.Final"
+val secureNettyVersion = "4.1.137.Final"
 val secureProtobufVersion = "3.25.5"
 val secureWireVersion = "6.3.0"
 val securityOverrides =
@@ -30,8 +30,17 @@ val securityOverrides =
         rootProject.file("scripts/security-overrides.properties").inputStream().use { load(it) }
     }
 val nativeOnlyRuntimeRequested =
-    providers.gradleProperty("yfuseNativeOnlyRuntime").orNull?.trim()?.lowercase() in setOf("", "true")
-val sharedComposeSourceRoot = rootProject.file("composeApp/src").toPath().toAbsolutePath().normalize()
+    providers
+        .gradleProperty("yfuseNativeOnlyRuntime")
+        .orNull
+        ?.trim()
+        ?.lowercase() in setOf("", "true")
+val sharedComposeSourceRoot =
+    rootProject
+        .file("composeApp/src")
+        .toPath()
+        .toAbsolutePath()
+        .normalize()
 
 subprojects {
     apply(plugin = "org.jlleitschuh.gradle.ktlint")
@@ -46,7 +55,7 @@ subprojects {
                 }
                 requested.group == "io.netty" && requested.version.orEmpty().startsWith("4.1.") -> {
                     useVersion(secureNettyVersion)
-                    because("Netty versions before 4.1.136.Final contain high-severity DoS vulnerabilities")
+                    because("Netty 4.1.137.Final fixes the fragmented TLS ClientHello SNI routing bypass")
                 }
                 requested.group == "com.google.protobuf" &&
                     requested.version.orEmpty().startsWith("3.") &&
@@ -63,7 +72,9 @@ subprojects {
                 requested.group == "com.squareup.wire" &&
                     requested.name in setOf("wire-runtime", "wire-runtime-jvm") -> {
                     useVersion(secureWireVersion)
-                    because("Wire versions before 6.3.0 allow malformed groups to escape the documented decode failure path")
+                    because(
+                        "Wire versions before 6.3.0 allow malformed groups to escape the documented decode failure path",
+                    )
                 }
             }
         }

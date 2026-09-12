@@ -142,7 +142,41 @@ internal class AndroidTransportMediaDataSource(
     private val prefetchTransportLock = Any()
     private val bandwidthMeter = YAggregateBandwidthMeter()
     private var cachedBytes = 0L
-    private var knownSize = diskCache?.contentLength ?: -1L
+    private var knownSize = -1L
+
+    @Volatile private var cacheValidated = diskCache == null
+
+    private fun validatePersistentCache() {
+        if (cacheValidated) return
+        // One bounded foreground range validates even same-length replacements before any cached read.
+        val operation = YForegroundRangeRead()
+        foregroundRead = operation
+        val transport = createTransport()
+        try {
+            operation.bind(transport)
+            val fresh =
+                loadRemoteBlockWithRetries(
+                    0L,
+                    transport,
+                    -1L,
+                    requestedBytes = minOf(STARTUP_RANGE_BYTES, blockSize),
+                    isCancelled = { operation.cancelled },
+                    foreground = operation,
+                )
+            operation.checkActive()
+            diskCache?.validateRepresentation(fresh.contentLength, representationTag)
+            knownSize = fresh.contentLength ?: -1L
+            startupSlice = 0L to fresh
+            cacheValidated = true
+        } catch (failure: Throwable) {
+            if (!closed && !operation.cancelled && !failure.isTransportCancellation()) foregroundFailure = failure
+            throw failure
+        } finally {
+            runCatching { runBlocking { transport.close() } }
+            if (foregroundRead === operation) foregroundRead = null
+            operation.finish()
+        }
+    }
 
     @Volatile
     private var playbackWindow = YTransportPlaybackWindow()
@@ -164,7 +198,8 @@ internal class AndroidTransportMediaDataSource(
                 },
                 canWarm = {
                     val window = playbackWindow
-                    !closed &&
+                    cacheValidated &&
+                        !closed &&
                         allowsSpeculativeWork() &&
                         memoryLease.limitBytes >= 4L * blockSize &&
                         window.playing &&
@@ -232,6 +267,7 @@ internal class AndroidTransportMediaDataSource(
         throwIfReadFailed()
         require(position >= 0L && offset >= 0 && size >= 0 && offset <= buffer.size - size)
         if (size == 0) return 0
+        validatePersistentCache()
         if (knownSize >= 0L && position >= knownSize) return -1
         if (kotlin.math.abs(position - latestReadPosition) > blockSize.toLong() * 2L) {
             forwardCache?.updateWindow(0L, 0L)
@@ -413,7 +449,7 @@ internal class AndroidTransportMediaDataSource(
             maximumRemoteLoadMs = maxOf(maximumRemoteLoadMs, loaded.remoteLoadDurationMs)
             maximumCacheLoadMs = maxOf(maximumCacheLoadMs, loaded.cacheLoadDurationMs)
             loaded.contentLength?.let { contentLength ->
-                if (knownSize >= 0L) require(knownSize == contentLength) { "Remote media size changed during playback" }
+                if (knownSize >= 0L && knownSize != contentLength) representationChanged()
                 knownSize = contentLength
             }
             val completeBlock =
@@ -513,6 +549,14 @@ internal class AndroidTransportMediaDataSource(
                 } else {
                     minOf(STARTUP_RANGE_BYTES, blockSize - startupOffset)
                 },
+        )
+    }
+
+    private fun representationChanged(): Nothing {
+        diskCache?.invalidate()
+        throw YRangeReadException(
+            YTransportFailureKind.InvalidRange,
+            "Remote media representation changed; reopen required",
         )
     }
 
@@ -685,16 +729,15 @@ internal class AndroidTransportMediaDataSource(
                     )
                 }
                 synchronized(representationLock) {
-                    require(
-                        representationTag == null ||
-                            response.entityTag == null ||
-                            response.entityTag == representationTag,
-                    ) { "Remote media entity changed during playback" }
-                    require(
-                        representationLength == null ||
-                            responseContentLength == null ||
-                            responseContentLength == representationLength,
-                    ) { "Remote media size changed during playback" }
+                    if (representationTag != null &&
+                        response.entityTag != null &&
+                        response.entityTag != representationTag ||
+                        representationLength != null &&
+                        responseContentLength != null &&
+                        responseContentLength != representationLength
+                    ) {
+                        representationChanged()
+                    }
                     response.entityTag?.let { representationTag = it }
                     responseContentLength?.let { representationLength = it }
                 }
@@ -703,7 +746,7 @@ internal class AndroidTransportMediaDataSource(
                 partial.contentLength = responseContentLength
                 responseContentLength?.let { total ->
                     if (knownSizeSnapshot >= 0L) {
-                        require(knownSizeSnapshot == total) { "Remote media size changed during playback" }
+                        if (knownSizeSnapshot != total) representationChanged()
                     }
                 }
                 val effectiveKnownSize = responseContentLength ?: knownSizeSnapshot

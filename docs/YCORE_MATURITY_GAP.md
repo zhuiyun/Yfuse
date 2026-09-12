@@ -1,5 +1,8 @@
 # YCore 距离成熟内核还差什么
 
+> 当前 native-only 路线的修复与验证边界见 [2026-09-12 审查跟进](YCORE_AUDIT_FIXES_20260912.md)。
+
+
 审查日期：2026-08-16 · 基线：本分支（含前几轮修复）
 承接 [`YCORE_GAP_REVIEW.md`](YCORE_GAP_REVIEW.md)
 

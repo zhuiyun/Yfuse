@@ -26,6 +26,8 @@ internal class AndroidAudioClockProgressGuard(
     private var lastTimestampProgressNs = 0L
     private var lastPlaybackHeadFrames: Long? = null
     private var lastPlaybackHeadProgressNs = 0L
+    private val playbackHeadCounter = AudioFrameCounter()
+    private val timestampCounter = AudioFrameCounter()
 
     init {
         require(staleAfterNs > 0L)
@@ -39,40 +41,42 @@ internal class AndroidAudioClockProgressGuard(
         timestampRealtimeNs: Long?,
         playbackHeadFrames: Long,
     ): YAudioClockFrameSelection? {
-        observeTimestamp(timestampFrames, nowNs)
-        observePlaybackHead(playbackHeadFrames, nowNs)
+        val extendedPlaybackHeadFrames = playbackHeadCounter.extend(playbackHeadFrames)
+        val extendedTimestampFrames = timestampFrames?.let { timestampCounter.extend(it, extendedPlaybackHeadFrames) }
+        observeTimestamp(extendedTimestampFrames, nowNs)
+        observePlaybackHead(extendedPlaybackHeadFrames, nowNs)
 
         if (!playing) {
-            return timestampFrames?.let { frames ->
+            return extendedTimestampFrames?.let { frames ->
                 YAudioClockFrameSelection(
                     framePosition = frames,
                     realtimeNs = timestampRealtimeNs ?: nowNs,
                     source = YAudioClockFrameSource.Timestamp,
                 )
             } ?: YAudioClockFrameSelection(
-                framePosition = playbackHeadFrames,
+                framePosition = extendedPlaybackHeadFrames,
                 realtimeNs = nowNs,
                 source = YAudioClockFrameSource.PlaybackHead,
             )
         }
 
         if (
-            timestampFrames != null &&
-            timestampFrames > 0L &&
+            extendedTimestampFrames != null &&
+            extendedTimestampFrames > 0L &&
             timestampRealtimeNs != null &&
             nowNs - lastTimestampProgressNs <= staleAfterNs
         ) {
             return YAudioClockFrameSelection(
-                framePosition = timestampFrames,
+                framePosition = extendedTimestampFrames,
                 realtimeNs = timestampRealtimeNs,
                 source = YAudioClockFrameSource.Timestamp,
             )
         }
         // A present zero counter is not rendered audio. Granting it a warm-up window creates
         // a false Rendering -> Waiting transition ~500 ms after each empty sink restart.
-        if (playbackHeadFrames > 0L && nowNs - lastPlaybackHeadProgressNs <= staleAfterNs) {
+        if (extendedPlaybackHeadFrames > 0L && nowNs - lastPlaybackHeadProgressNs <= staleAfterNs) {
             return YAudioClockFrameSelection(
-                framePosition = playbackHeadFrames,
+                framePosition = extendedPlaybackHeadFrames,
                 realtimeNs = nowNs,
                 source = YAudioClockFrameSource.PlaybackHead,
             )
@@ -86,6 +90,8 @@ internal class AndroidAudioClockProgressGuard(
         lastTimestampProgressNs = 0L
         lastPlaybackHeadFrames = null
         lastPlaybackHeadProgressNs = 0L
+        playbackHeadCounter.reset()
+        timestampCounter.reset()
     }
 
     private fun observeTimestamp(
@@ -110,4 +116,33 @@ internal class AndroidAudioClockProgressGuard(
     }
 }
 
+/** Both the playback head and some AudioTimestamp implementations wrap at 32 bits. */
+private class AudioFrameCounter {
+    private var previous: Long? = null
+    private var epoch = 0L
+
+    fun extend(
+        frames: Long,
+        referenceFrames: Long = frames,
+    ): Long {
+        val last = previous
+        if (last == null) {
+            // A timestamp may first become available after the playback head has wrapped.
+            epoch = ((referenceFrames - frames + PLAYBACK_HEAD_PERIOD / 2L) / PLAYBACK_HEAD_PERIOD)
+                .coerceAtLeast(0L) * PLAYBACK_HEAD_PERIOD
+        } else if (last - frames > PLAYBACK_HEAD_PERIOD / 2L) {
+            // Small OEM corrections are not wraps; configure/flush/release explicitly reset us.
+            epoch += PLAYBACK_HEAD_PERIOD
+        }
+        previous = frames
+        return epoch + frames
+    }
+
+    fun reset() {
+        previous = null
+        epoch = 0L
+    }
+}
+
 private const val DEFAULT_AUDIO_CLOCK_STALE_AFTER_NS = 500_000_000L
+private const val PLAYBACK_HEAD_PERIOD = 0x1_0000_0000L

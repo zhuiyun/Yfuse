@@ -110,6 +110,7 @@ constexpr int64_t kBlurayClock = 90000;
 constexpr int64_t kMaxDiscOverlayPixels = 4096LL * 2160LL;
 
 struct BlurayIo;
+struct DemuxCancellation;
 
 struct DiscSource {
     JavaVM* vm = nullptr;
@@ -119,6 +120,7 @@ struct DiscSource {
     jmethodID overlay_frame = nullptr;
     jmethodID overlay_cleared = nullptr;
     jmethodID close_source = nullptr;
+    jmethodID cancel_read = nullptr;
     jmethodID open_file = nullptr;
     jmethodID read_file = nullptr;
     jmethodID seek_file = nullptr;
@@ -127,10 +129,12 @@ struct DiscSource {
     jmethodID open_dir = nullptr;
     jmethodID read_dir = nullptr;
     jmethodID close_dir = nullptr;
+    std::shared_ptr<DemuxCancellation> cancellation;
     bool filesystem_source = false;
     std::string path;
     std::mutex mutex;
     BlurayIo* active = nullptr;
+    bool opening = false;
     int preferred_title = -1;
 
     ~DiscSource();
@@ -200,6 +204,12 @@ int interrupt_demux(void* opaque) {
     if (!token) return 0;
     const int64_t deadline = token->deadline_ms.load();
     return token->cancelled.load() || (deadline > 0 && monotonic_ms() >= deadline);
+}
+
+bool disc_cancelled(const DiscSource* source) {
+    if (!source) return true;
+    const auto token = std::atomic_load(&source->cancellation);
+    return interrupt_demux(token.get()) != 0;
 }
 
 // Open demux sessions are handed to Kotlin as small positive ids, never as the session pointer.
@@ -387,6 +397,7 @@ int64_t read_bdmv_file(BD_FILE_H* api, uint8_t* destination, int64_t size) {
     ) {
         return -1;
     }
+    if (disc_cancelled(file->source)) return -1;
     if (size == 0) return 0;
     bool attached = false;
     JNIEnv* env = disc_env(file->source->vm, &attached);
@@ -424,7 +435,7 @@ int64_t read_bdmv_file(BD_FILE_H* api, uint8_t* destination, int64_t size) {
 
 BD_FILE_H* open_bdmv_file(void* opaque, const char* relative_path) {
     auto* source = static_cast<DiscSource*>(opaque);
-    if (!source || !source->filesystem_source || !relative_path) return nullptr;
+    if (!source || !source->filesystem_source || !relative_path || disc_cancelled(source)) return nullptr;
     bool attached = false;
     JNIEnv* env = disc_env(source->vm, &attached);
     if (!env) return nullptr;
@@ -514,7 +525,7 @@ int read_bdmv_directory(BD_DIR_H* api, BD_DIRENT* entry) {
 
 BD_DIR_H* open_bdmv_directory(void* opaque, const char* relative_path) {
     auto* source = static_cast<DiscSource*>(opaque);
-    if (!source || !source->filesystem_source || !relative_path) return nullptr;
+    if (!source || !source->filesystem_source || !relative_path || disc_cancelled(source)) return nullptr;
     bool attached = false;
     JNIEnv* env = disc_env(source->vm, &attached);
     if (!env) return nullptr;
@@ -555,11 +566,16 @@ BlurayIo::~BlurayIo() {
     if (source) {
         std::lock_guard<std::mutex> lock(source->mutex);
         if (source->active == this) source->active = nullptr;
+        source->opening = true;
     }
     if (title_info) bd_free_title_info(title_info);
     if (bd) {
         bd_register_overlay_proc(bd, nullptr, nullptr);
         bd_close(bd);
+    }
+    if (source) {
+        std::lock_guard<std::mutex> lock(source->mutex);
+        source->opening = false;
     }
 }
 
@@ -706,7 +722,7 @@ std::string build_headers(
 
 int disc_read_blocks(void* opaque, void* destination, int lba, int block_count) {
     auto* source = static_cast<DiscSource*>(opaque);
-    if (!source || !source->object || !destination || lba < 0 || block_count <= 0) return -1;
+    if (!source || !source->object || !destination || lba < 0 || block_count <= 0 || disc_cancelled(source)) return -1;
     const int64_t byte_count = static_cast<int64_t>(block_count) * kDiscBlockSize;
     if (byte_count <= 0 || byte_count > std::numeric_limits<jsize>::max()) return -1;
 
@@ -1045,7 +1061,14 @@ int open_bluray_demux(
     const std::shared_ptr<DiscSource> source = find_disc_source(source_id);
     if (!source || !session) return AVERROR(ENOENT);
     auto disc = std::make_shared<BlurayIo>();
-    disc->source = source;
+    {
+        std::lock_guard<std::mutex> lock(source->mutex);
+        if (source->active || source->opening) return AVERROR(EBUSY);
+        source->opening = true;
+        disc->source = source;
+        std::atomic_store(&source->cancellation, session->cancellation);
+    }
+    if (disc_cancelled(source.get())) return AVERROR_EXIT;
     if (source->path.empty()) {
         disc->bd = bd_init();
         const int opened =
@@ -1060,6 +1083,7 @@ int open_bluray_demux(
         disc->bd = bd_open(source->path.c_str(), nullptr);
         if (!disc->bd) return AVERROR_INVALIDDATA;
     }
+    if (disc_cancelled(source.get())) return AVERROR_EXIT;
     const BLURAY_DISC_INFO* info = bd_get_disc_info(disc->bd);
     if (
         !info ||
@@ -1071,7 +1095,9 @@ int open_bluray_demux(
     }
     disc->menu_supported = !info->no_menu_support && info->num_hdmv_titles > 0;
     bd_register_overlay_proc(disc->bd, disc.get(), disc_overlay_proc);
+    if (disc_cancelled(source.get())) return AVERROR_EXIT;
     disc->title_count = static_cast<int>(bd_get_titles(disc->bd, TITLES_RELEVANT, 0));
+    if (disc_cancelled(source.get())) return AVERROR_EXIT;
     if (disc->title_count <= 0) return AVERROR_INVALIDDATA;
     bd_get_event(disc->bd, nullptr);
     int title = source->preferred_title;
@@ -1079,11 +1105,12 @@ int open_bluray_demux(
     if (title < 0 || title >= disc->title_count) title = 0;
     if (!bd_select_title(disc->bd, static_cast<uint32_t>(title))) return AVERROR_INVALIDDATA;
     refresh_disc_title_info(disc.get());
+    if (disc_cancelled(source.get())) return AVERROR_EXIT;
 
     {
         std::lock_guard<std::mutex> lock(source->mutex);
-        if (source->active) return AVERROR(EBUSY);
         source->active = disc.get();
+        source->opening = false;
     }
     session->disc = disc;
     uint8_t* io_buffer = static_cast<uint8_t*>(av_malloc(kDiscAvioBufferBytes));
@@ -1687,6 +1714,9 @@ jlong native_register_bluray_source(JNIEnv* env, jclass, jobject source_object) 
     source->overlay_frame = env->GetMethodID(source_class, "onNativeOverlayFrame", "(II[I)V");
     source->overlay_cleared = env->GetMethodID(source_class, "onNativeOverlayCleared", "()V");
     source->close_source = env->GetMethodID(source_class, "closeNativeSource", "()V");
+    // Optional for compatibility with older source wrappers; token checks always remain active.
+    source->cancel_read = env->GetMethodID(source_class, "cancelPendingReadNative", "()V");
+    if (!source->cancel_read) env->ExceptionClear();
     const jmethodID path_method =
         env->GetMethodID(source_class, "discPathNative", "()Ljava/lang/String;");
     if (
@@ -2032,9 +2062,23 @@ jlong native_create_cancellation(JNIEnv*, jclass) {
     return id;
 }
 
-void native_cancel_demux(JNIEnv*, jclass, jlong id) {
+void native_cancel_demux(JNIEnv* env, jclass, jlong id) {
     const auto token = find_demux_cancellation(id);
-    if (token) token->cancelled.store(true);
+    if (!token) return;
+    token->cancelled.store(true);
+    std::vector<std::shared_ptr<DiscSource>> sources;
+    {
+        std::lock_guard<std::mutex> lock(g_disc_sources_mutex);
+        for (const auto& entry : g_disc_sources) {
+            if (std::atomic_load(&entry.second->cancellation) == token) sources.push_back(entry.second);
+        }
+    }
+    for (const auto& source : sources) {
+        if (source->object && source->cancel_read) {
+            env->CallVoidMethod(source->object, source->cancel_read);
+            clear_java_exception(env);
+        }
+    }
 }
 
 void native_set_demux_deadline(JNIEnv*, jclass, jlong id, jlong remaining_ms) {

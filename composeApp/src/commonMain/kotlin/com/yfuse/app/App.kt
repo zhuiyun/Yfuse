@@ -208,6 +208,7 @@ fun App(root: RootComponent) {
     val motionOff = reduceMotion || systemMotionOff
     val pulseSweep by root.themePreferences.pulseSweep.collectAsState()
     val particleLight by root.themePreferences.particleLight.collectAsState()
+    val particleStyle by root.themePreferences.particleStyle.collectAsState()
     val dialogAnimation by root.themePreferences.dialogAnimation.collectAsState()
     val dialogAnimationLab by root.themePreferences.dialogAnimationLab.collectAsState()
     val glassStyle by root.themePreferences.glassStyle.collectAsState()
@@ -232,6 +233,7 @@ fun App(root: RootComponent) {
         dialogAnimation = dialogAnimation,
         dialogAnimationLab = dialogAnimationLab,
         particleLight = particleLight,
+        particleStyle = particleStyle,
     ) {
         val active by root.activeTab.subscribeAsState()
         val homeStack by root.home.stack.subscribeAsState()

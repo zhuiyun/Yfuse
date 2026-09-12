@@ -60,6 +60,13 @@
 # unreachable; removing one method makes the entire YCore FFmpeg bridge fail to load.
 -keep class com.yfuse.core2.android.FfmpegNativeBridge { *; }
 
+# libbluray calls the source wrapper by GetMethodID, including cancellation during open/read.
+-keepclassmembers class com.yfuse.core2.android.AndroidYCoreBluRaySource {
+    public *** *Native(...);
+    public *** onNative*(...);
+    public void closeNativeSource();
+}
+
 # libmpv's AAR keeps MPVLib itself but not its nested observer/property callback types. Those types
 # are part of the runtime API and must remain present in compatibility packages after shrinking.
 -keep class dev.jdtech.mpv.MPVLib$* { *; }
