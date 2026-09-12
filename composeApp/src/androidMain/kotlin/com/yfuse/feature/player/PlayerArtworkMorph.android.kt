@@ -4,7 +4,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.GenericShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -13,7 +13,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.Constraints
@@ -127,15 +129,38 @@ internal fun PlayerArtworkMorph(
                                         a: Float,
                                         b: Float,
                                     ) = a + (b - a) * p
-                                    scaleX = mix(start.width, end.width) / child.width
-                                    scaleY = mix(start.height, end.height) / child.height
-                                    translationX = mix(start.left, end.left) - end.left
-                                    translationY = mix(start.top, end.top) - end.top
+                                    val transform =
+                                        playerArtworkTransform(
+                                            child.width.toFloat(),
+                                            child.height.toFloat(),
+                                            mix(start.width, end.width),
+                                            mix(start.height, end.height),
+                                        )
+                                    scaleX = transform.scale
+                                    scaleY = transform.scale
+                                    translationX =
+                                        mix(start.left, end.left) - end.left - transform.cropLeft * transform.scale
+                                    translationY =
+                                        mix(start.top, end.top) - end.top - transform.cropTop * transform.scale
                                     transformOrigin =
                                         androidx.compose.ui.graphics
                                             .TransformOrigin(0f, 0f)
                                     alpha = state.opacity.value
-                                    shape = RoundedCornerShape((16f * (1f - p)).dp)
+                                    val radius = (16f * (1f - p)).dp.toPx() / transform.scale
+                                    shape =
+                                        GenericShape { _, _ ->
+                                            addRoundRect(
+                                                RoundRect(
+                                                    Rect(
+                                                        transform.cropLeft,
+                                                        transform.cropTop,
+                                                        transform.cropLeft + transform.cropWidth,
+                                                        transform.cropTop + transform.cropHeight,
+                                                    ),
+                                                    CornerRadius(radius),
+                                                ),
+                                            )
+                                        }
                                     clip = true
                                 }
                             }

@@ -61,10 +61,10 @@ class AmbientSamplingPolicyTest {
     }
 
     @Test
-    fun only_black_bars_wider_than_the_picture_guard_need_live_colour() {
+    fun only_top_bottom_bars_larger_than_the_picture_guard_need_live_colour() {
         val container = IntSize(1920, 1080)
         assertTrue(ambientLightHasVisibleBars(container, IntSize(1920, 800), 1))
-        assertTrue(ambientLightHasVisibleBars(container, IntSize(1440, 1080), 1))
+        assertFalse(ambientLightHasVisibleBars(container, IntSize(1440, 1080), 1))
         assertFalse(ambientLightHasVisibleBars(container, container, 1))
         assertFalse(ambientLightHasVisibleBars(container, IntSize(2592, 1080), 1))
         assertFalse(ambientLightHasVisibleBars(container, IntSize(1920, 1078), 1))
