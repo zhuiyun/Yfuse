@@ -1,21 +1,77 @@
-name: Sign Android branch artifact
-
-on:
+name: Project review before signing
+'on':
   push:
     branches:
-      - codex/ycore-sign-20260830
-  workflow_dispatch:
-
+    - codex/ycore-sign-20260830
+  workflow_dispatch: null
 permissions:
   contents: read
-
+  actions: read
 concurrency:
   group: android-merged-sign-${{ github.ref }}
   cancel-in-progress: true
-
 jobs:
-  paused:
-    runs-on: ubuntu-latest
+  review:
+    name: Compile and validate project without APK packaging
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
     steps:
-      - name: Signing paused for project review
-        run: echo 'Signing paused at user request while project review is in progress.'
+    - name: Check out source
+      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      with:
+        fetch-depth: 0
+    - name: Set up Java
+      uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c
+      with:
+        distribution: temurin
+        java-version: '17'
+        cache: gradle
+    - name: Install Android 36 and native build tools
+      shell: bash
+      run: "set -euo pipefail\nandroid_sdk=\"${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}\"\n\
+        sdkmanager=\"$android_sdk/cmdline-tools/latest/bin/sdkmanager\"\nif [[ ! -x \"$sdkmanager\" ]]; then\n \
+        \ sdkmanager=\"$(find \"$android_sdk/cmdline-tools\" -type f -name sdkmanager -print -quit)\"\nfi\ntest\
+        \ -x \"$sdkmanager\"\nyes | \"$sdkmanager\" --licenses >/dev/null 2>&1 || true\n\"$sdkmanager\" 'platforms;android-36'\
+        \ 'ndk;29.0.14206865' 'cmake;3.22.1'\n"
+    - name: Download verified compatibility SDKs
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: "set -euo pipefail\nif ! command -v 7z >/dev/null 2>&1; then\n  sudo apt-get update\n  sudo apt-get install\
+        \ -y p7zip-full\nfi\nchmod +x gradlew scripts/fetch-engines.sh\nscripts/fetch-engines.sh\ntest -f composeApp/libs/mdk-sdk/lib/cmake/FindMDK.cmake\n"
+    - name: Build current native sources for validation
+      uses: ./.github/actions/build-current-ycore
+    - name: Validate release scripts and module contracts
+      run: 'python3 scripts/release_metadata.py
+
+        python3 -m unittest discover -s scripts -p ''test_*.py''
+
+        python3 -m unittest discover -s scripts/tests -p ''test_*.py''
+
+        python3 scripts/verify-module-boundaries.py'
+    - name: Compile application and run project tests
+      run: ./gradlew :composeApp:compileDebugKotlinAndroid :composeApp:testDebugUnitTest :tvApp:testDebugUnitTest
+        :watchTogetherProtocol:jvmTest :watchTogetherServer:test --max-workers=2 --no-daemon
+    - name: Verify formatting and design contracts
+      if: success() || failure()
+      run: ./gradlew :composeApp:ktlintCheck :tvApp:ktlintCheck :composeApp:verifyDesignSystemUsage --max-workers=2
+        --no-daemon
+    - name: Run Android lint
+      if: success() || failure()
+      run: ./gradlew :composeApp:lintDebug --max-workers=2 --no-daemon
+    - name: Upload validation reports
+      if: always()
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      with:
+        name: yfuse-project-review-${{ github.sha }}
+        path: 'composeApp/build/test-results/
+
+          composeApp/build/reports/
+
+          tvApp/build/test-results/
+
+          watchTogetherProtocol/build/test-results/
+
+          watchTogetherServer/build/test-results/'
+        retention-days: 7
+        if-no-files-found: warn
