@@ -11,16 +11,20 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.FallbackImage
@@ -49,13 +53,40 @@ internal class PlayerArtworkMorphState(
     fun requestExit(action: () -> Unit): Boolean {
         if (disabled) return false
         if (exiting) return true
-        val destination = PlayerArtworkOrigins.resolve(origin.key) ?: return false
-        origin = destination
+        // The departure shrinks into the close key, so it no longer needs the launching card to
+        // still be on screen underneath; a refreshed origin only serves as the fallback target.
+        PlayerArtworkOrigins.resolve(origin.key)?.let { origin = it }
         completeExit = action
         visible = true
         exiting = true
         return true
     }
+}
+
+/**
+ * The rectangle the departing artwork shrinks into, in the morph's own coordinates.
+ *
+ * The viewer just pressed the close key in the top-left corner, so the picture goes there: it
+ * collapses to the size of that key's ring and rounds off into a disc on the way. When the ring
+ * has never been measured, or its last measurement lies outside this window, the artwork falls
+ * back to the card it was launched from.
+ */
+internal fun playerArtworkExitRect(
+    anchor: Rect?,
+    morphOrigin: Offset,
+    width: Float,
+    height: Float,
+    fallback: () -> Rect,
+): Rect {
+    val local = anchor?.translate(-morphOrigin) ?: return fallback()
+    val inside =
+        local.width > 0f &&
+            local.height > 0f &&
+            local.left >= 0f &&
+            local.top >= 0f &&
+            local.right <= width &&
+            local.bottom <= height
+    return if (inside) local else fallback()
 }
 
 /**
@@ -96,7 +127,8 @@ internal fun PlayerArtworkMorph(
             PlayerArtworkMorphLayer.Exit -> state.exiting
         }
     if (state.visible && !disabled && drawsThisPhase) {
-        Box(Modifier.fillMaxSize()) {
+        var morphOrigin by remember { mutableStateOf(Offset.Zero) }
+        Box(Modifier.fillMaxSize().onGloballyPositioned { morphOrigin = it.positionInRoot() }) {
             if (state.exiting) {
                 // The paused frame and whatever chrome is up fade to black on the same curve
                 // as the poster surfaces, so the departure plays over the same ground the
@@ -107,7 +139,7 @@ internal fun PlayerArtworkMorph(
                     },
                 )
             }
-            PlayerArtworkMorphImage(state, ready, aspectRatio)
+            PlayerArtworkMorphImage(state, ready, aspectRatio, morphOrigin = { morphOrigin })
         }
     }
 }
@@ -151,6 +183,7 @@ private fun BoxScope.PlayerArtworkMorphImage(
     state: PlayerArtworkMorphState,
     ready: Boolean,
     aspectRatio: Float?,
+    morphOrigin: () -> Offset,
 ) {
     FallbackImage(
         urls = state.origin.urls,
@@ -161,7 +194,15 @@ private fun BoxScope.PlayerArtworkMorphImage(
                 .layout { measurable, constraints ->
                     val width = constraints.maxWidth.toFloat()
                     val height = constraints.maxHeight.toFloat()
-                    val start = playerArtworkRect(state.origin, width, height)
+                    val toCloseKey = state.exiting
+                    val start =
+                        if (toCloseKey) {
+                            playerArtworkExitRect(PlayerCloseAnchor.bounds, morphOrigin(), width, height) {
+                                playerArtworkRect(state.origin, width, height)
+                            }
+                        } else {
+                            playerArtworkRect(state.origin, width, height)
+                        }
                     val ratio = aspectRatio?.takeIf { it.isFinite() && it > 0f }
                     val targetWidth = if (ratio == null) width else minOf(width, height * ratio)
                     val targetHeight = if (ratio == null) height else minOf(height, width / ratio)
@@ -205,7 +246,15 @@ private fun BoxScope.PlayerArtworkMorphImage(
                                 androidx.compose.ui.graphics
                                     .TransformOrigin(0f, 0f)
                             alpha = state.opacity.value
-                            val radius = (16f * (1f - p)).dp.toPx() / transform.scale
+                            // Leaving, the frame rounds off into a disc as it reaches the key;
+                            // arriving, it only sheds the card's corner radius.
+                            val frameRadius =
+                                if (toCloseKey) {
+                                    (1f - p) * minOf(mix(start.width, end.width), mix(start.height, end.height)) / 2f
+                                } else {
+                                    (16f * (1f - p)).dp.toPx()
+                                }
+                            val radius = frameRadius / transform.scale
                             shape =
                                 GenericShape { _, _ ->
                                     addRoundRect(

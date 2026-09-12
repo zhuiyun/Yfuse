@@ -154,7 +154,14 @@ internal fun RefinedTopBar(
             horizontalArrangement = Arrangement.spacedBy(14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            CircleControl(AppIcons.Close, "关闭播放器", 28.dp, 12.dp, onClick = onBack)
+            CircleControl(
+                AppIcons.Close,
+                "关闭播放器",
+                28.dp,
+                12.dp,
+                onClick = onBack,
+                ringModifier = Modifier.playerCloseAnchor(),
+            )
             Column(Modifier.weight(1f)) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,

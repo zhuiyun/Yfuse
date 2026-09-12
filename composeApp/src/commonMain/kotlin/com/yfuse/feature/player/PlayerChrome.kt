@@ -623,6 +623,8 @@ internal fun CircleControl(
     active: Boolean = false,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Applied to the visible ring rather than the touch target, for callers that need its bounds. */
+    ringModifier: Modifier = Modifier,
 ) {
     // The ring is what you see; the touch target is bigger than the ring. Sizing them
     // together is what made these controls big enough to cover a face — a 48dp disc over
@@ -636,7 +638,7 @@ internal fun CircleControl(
         contentAlignment = Alignment.Center,
     ) {
         Box(
-            Modifier
+            ringModifier
                 .size(size)
                 // A filled key gets no ring. Outlined siblings are drawn *by* their hairline;
                 // putting the same hairline around a solid disc gave the play key two edges
