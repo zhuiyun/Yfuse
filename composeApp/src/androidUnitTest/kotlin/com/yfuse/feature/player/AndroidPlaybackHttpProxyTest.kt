@@ -22,6 +22,7 @@ class AndroidPlaybackHttpProxyTest {
             upstream.enqueue(MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE))
             upstream.start()
             val proxy = AndroidPlaybackHttpProxy(context = null, userAgent = "proxy-test", videoCacheBytes = 0)
+            assertTrue(proxy.isListening)
             val source = upstream.url("/held-video").toString()
             val local = URI(proxy.localUrl(source))
             val closer = Executors.newSingleThreadExecutor()
@@ -41,7 +42,9 @@ class AndroidPlaybackHttpProxyTest {
                     val read = result.getOrNull()
                     assertTrue(read == null || read == -1, "Cancelled client must receive no invented HTTP response")
                     assertEquals(source, proxy.localUrl(source))
-                    assertTrue(runCatching { Socket(local.host, local.port).use {} }.isFailure)
+                    // A fresh connection can race the OS accept queue or reach another owner
+                    // of the released ephemeral port. Inspect this proxy's listener instead.
+                    assertFalse(proxy.isListening, "Shutdown must close the original listening socket")
                 }
             } finally {
                 proxy.close()
