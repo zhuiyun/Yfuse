@@ -1,0 +1,219 @@
+package com.yfuse.app
+
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import com.yfuse.core.cast.CastManager
+import com.yfuse.core.cast.CastPlaybackStatus
+import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.GlassDialog
+import com.yfuse.core.designsystem.GlassShapes
+import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.OverlayHeader
+import com.yfuse.core.designsystem.OverlayOptionRow
+import com.yfuse.core.designsystem.liquidGlass
+import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.touchTarget
+import com.yfuse.core.offline.summarizeDownloads
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
+import org.koin.core.context.GlobalContext
+import com.yfuse.core.designsystem.ThemeText as Text
+
+/** One compact entry for ongoing work. State comes from the owners; no polling or fake progress. */
+@Composable
+internal fun ActivityStatusCapsule(
+    root: RootComponent,
+    onRoomInfo: () -> Unit,
+    visible: Boolean,
+    enter: EnterTransition,
+    exit: ExitTransition,
+    modifier: Modifier = Modifier,
+) {
+    val offline = root.dependencies.offlineMediaManager
+    val items by offline.items.collectAsState()
+    val summary = remember(items) { summarizeDownloads(items) }
+    val cast = remember { GlobalContext.get().get<CastManager>() }
+    val castSummary =
+        remember(cast) {
+            cast.state
+                .map {
+                    CastCapsuleState(
+                        it.hasActiveSession,
+                        it.status,
+                        it.activeDevice?.name,
+                    )
+                }.distinctUntilChanged()
+        }
+    val castState by castSummary.collectAsState(CastCapsuleState(false, CastPlaybackStatus.Idle, null))
+    val roomSummary =
+        remember(root) {
+            root.dependencies.watchTogether.state
+                .map {
+                    RoomCapsuleState(
+                        it.roomCode,
+                        it.connecting,
+                        it.reconnecting,
+                        it.participantCount,
+                        it.syncWarning,
+                        it.error,
+                    )
+                }.distinctUntilChanged()
+        }
+    val watch by roomSummary.collectAsState(RoomCapsuleState())
+    val casting = castState.hasActiveSession || castState.status == CastPlaybackStatus.Connecting
+    val room = watch.roomCode != null || watch.connecting || watch.reconnecting
+    val shown = visible && (summary.visible || casting || room)
+    var expanded by remember { mutableStateOf(false) }
+    var operationError by remember { mutableStateOf<String?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val palette = LocalPalette.current
+    val labels =
+        listOfNotNull(
+            if (casting) "投屏 · ${castState.deviceName ?: "连接中"}" else null,
+            if (room) {
+                if (watch.reconnecting) {
+                    "一起看 · 重连中"
+                } else {
+                    "一起看 · ${watch.participantCount} 人"
+                }
+            } else {
+                null
+            },
+            if (summary.visible) summary.title else null,
+        )
+    var lastLabel by remember { mutableStateOf("") }
+    if (labels.isNotEmpty()) lastLabel = labels.joinToString("  ·  ")
+    AnimatedVisibility(visible = shown, modifier = modifier, enter = enter, exit = exit, label = "activityCapsule") {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .pressable(onClick = { expanded = true })
+                .touchTarget()
+                .liquidGlass(
+                    shape = GlassShapes.chip,
+                    fill = palette.glassStrong,
+                    border = palette.border,
+                    over = palette.background,
+                ).padding(horizontal = 18.dp, vertical = 10.dp),
+        ) {
+            Text(lastLabel, style = AppTypography.caption.strong, color = palette.text, maxLines = 2)
+        }
+    }
+    // The dialog hides the dock through OverlayVisibility; it must not depend on dock visibility.
+    if (expanded) {
+        GlassDialog(onDismiss = { expanded = false }) {
+            OverlayHeader("正在进行", onClose = { expanded = false })
+            if (summary.visible) {
+                OverlayOptionRow(summary.title, false, {
+                    expanded = false
+                    root.openDownloads()
+                }, description = summary.detail)
+                if (summary.active > 0) OverlayOptionRow("暂停下载", false, offline::pauseAll)
+                if (summary.paused + summary.failed > 0) OverlayOptionRow("继续 / 重试下载", false, offline::resumeAll)
+            }
+            if (casting) {
+                OverlayOptionRow(
+                    if (castState.status == CastPlaybackStatus.Playing) "暂停投屏" else "继续投屏",
+                    false,
+                    {
+                        if (!busy) {
+                            busy = true
+                            scope.launch {
+                                try {
+                                    val accepted =
+                                        if (cast.state.value.status ==
+                                            CastPlaybackStatus.Playing
+                                        ) {
+                                            cast.pause()
+                                        } else {
+                                            cast.resume()
+                                        }
+                                    operationError = if (accepted) null else "投屏设备未确认操作，请重试"
+                                } catch (
+                                    cancelled: CancellationException,
+                                ) {
+                                    throw cancelled
+                                } catch (
+                                    _: Exception,
+                                ) {
+                                    operationError = "投屏操作失败，请检查设备连接后重试"
+                                } finally {
+                                    busy = false
+                                }
+                            }
+                        }
+                    },
+                    description = castState.deviceName,
+                )
+                OverlayOptionRow("结束投屏", false, {
+                    if (!busy) {
+                        busy = true
+                        scope.launch {
+                            try {
+                                operationError = if (cast.stop()) null else "投屏设备未确认停止，请重试"
+                            } catch (
+                                cancelled: CancellationException,
+                            ) {
+                                throw cancelled
+                            } catch (
+                                _: Exception,
+                            ) {
+                                operationError = "停止投屏失败，请检查设备连接后重试"
+                            } finally {
+                                busy = false
+                            }
+                        }
+                    }
+                })
+            }
+            if (room) {
+                OverlayOptionRow(
+                    "一起看房间",
+                    false,
+                    {
+                        expanded = false
+                        onRoomInfo()
+                    },
+                    description =
+                        watch.syncWarning ?: watch.error,
+                )
+                OverlayOptionRow("返回一起看", false, {
+                    expanded = false
+                    root.enterWatchRoom()
+                })
+            }
+            operationError?.let { Text(it, style = AppTypography.caption.regular, color = palette.error) }
+        }
+    }
+}
+
+private data class CastCapsuleState(
+    val hasActiveSession: Boolean,
+    val status: CastPlaybackStatus,
+    val deviceName: String?,
+)
+
+private data class RoomCapsuleState(
+    val roomCode: String? = null,
+    val connecting: Boolean = false,
+    val reconnecting: Boolean = false,
+    val participantCount: Int = 0,
+    val syncWarning: String? = null,
+    val error: String? = null,
+)

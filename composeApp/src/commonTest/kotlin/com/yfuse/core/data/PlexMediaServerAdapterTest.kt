@@ -27,6 +27,34 @@ class PlexMediaServerAdapterTest {
         )
 
     @Test
+    fun saved_rule_filters_type_and_played_and_keeps_server_sort_order() =
+        runTest {
+            val repo =
+                testRepo { request ->
+                    assertEquals("1", request.url.parameters["type"])
+                    assertEquals("0", request.url.parameters["unwatched"])
+                    assertEquals("addedAt:desc", request.url.parameters["sort"])
+                    json(
+                        """{"MediaContainer":{"totalSize":2,"Metadata":[{"ratingKey":"1","type":"movie","title":"Zebra"},{"ratingKey":"2","type":"movie","title":"Alpha"}]}}""",
+                    )
+                }
+            val page =
+                repo
+                    .searchPage(
+                        server,
+                        "",
+                        filter =
+                            MediaSearchFilter(
+                                includeItemTypes = "Movie",
+                                played = true,
+                                sortBy = "DateCreated",
+                                descending = true,
+                            ),
+                    ).getOrThrow()
+            assertEquals(listOf("Zebra", "Alpha"), page.items.map { it.title })
+        }
+
+    @Test
     fun authenticated_media_url_rejects_cross_origin_paths() {
         assertFailsWith<IllegalArgumentException> {
             plexAuthenticatedUrl("http://plex:32400", "https://attacker.test/file.mkv", "secret")

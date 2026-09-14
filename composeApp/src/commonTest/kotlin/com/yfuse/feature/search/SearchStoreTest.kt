@@ -47,6 +47,55 @@ class SearchStoreTest {
     }
 
     @Test
+    fun saved_rule_searches_without_keywords_and_paginates_on_the_selected_server() =
+        runTest {
+            val registry =
+                testRegistry().apply {
+                    addOrUpdate(SavedServer("a", "http://one", "甲", "u", "u", "tok"))
+                    addOrUpdate(SavedServer("b", "http://two", "乙", "u", "u", "tok"))
+                }
+            val offsets = mutableListOf<Int>()
+            val repo =
+                testRepo(dispatcher) { request ->
+                    assertEquals("one", request.url.host)
+                    if (request.url.encodedPath.endsWith("/Items")) {
+                        assertEquals("", request.url.parameters["SearchTerm"])
+                        assertEquals("false", request.url.parameters["IsPlayed"])
+                        assertEquals("Movie", request.url.parameters["IncludeItemTypes"])
+                        assertEquals("DateCreated", request.url.parameters["SortBy"])
+                        val offset = request.url.parameters["StartIndex"]?.toInt() ?: 0
+                        offsets += offset
+                        json("""{"Items":[{"Id":"m$offset","Name":"Movie","Type":"Movie"}],"TotalRecordCount":2}""")
+                    } else {
+                        json("""{"Items":[]}""")
+                    }
+                }
+            val store = SearchStoreFactory(DefaultStoreFactory(), repo, registry).create()
+            try {
+                store.accept(
+                    SearchIntent.ApplyPlaylist(
+                        com.yfuse.core.data
+                            .SmartPlaylist("未看", serverId = "a", type = "Movie", watchStatus = "Unplayed"),
+                    ),
+                )
+                advanceUntilIdle()
+                assertTrue(store.state.hasSearched)
+                assertEquals(1, store.state.items.size)
+                store.accept(SearchIntent.LoadMore("a"))
+                advanceUntilIdle()
+                assertEquals(listOf(0, 1), offsets)
+                assertEquals(
+                    2,
+                    store.state.groups
+                        .single()
+                        .items.size,
+                )
+            } finally {
+                store.dispose()
+            }
+        }
+
+    @Test
     fun submit_searches_default_server_and_exposes_results() =
         runTest {
             val registry = testRegistry()

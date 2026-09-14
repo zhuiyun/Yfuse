@@ -1,5 +1,13 @@
 # HarmonyOS Cangjie port status
 
+## 2026-09-14 transport parity update
+
+The connected login and server registry now accept valid HTTP and HTTPS endpoints without an
+extra cleartext confirmation. Endpoint validation and same-origin credential rules remain active.
+Structural, fixture and portable YCore checks pass in this environment. Cangjie host compilation
+is **skipped** because `cjc` is absent; the script's final host-check label is not compilation evidence.
+No HAP or Harmony device validation is claimed for this change.
+
 ## Source wiring completed; HAP verification blocked (2026-09-10)
 
 The root home, library, server and search screens now connect to a retained media session,

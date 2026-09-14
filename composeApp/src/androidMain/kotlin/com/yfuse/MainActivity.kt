@@ -187,6 +187,8 @@ class MainActivity : ComponentActivity() {
         // A cold start from a shared link arrives here rather than in onNewIntent.
         consumeInviteIntent(intent)
         consumeCalendarIntent(intent)
+        consumeDownloadIntent(intent)
+        consumeWidgetIntent(intent)
     }
 
     /**
@@ -253,6 +255,8 @@ class MainActivity : ComponentActivity() {
         if (rootComponent == null) return
         consumeInviteIntent(intent)
         consumeCalendarIntent(intent)
+        consumeDownloadIntent(intent)
+        consumeWidgetIntent(intent)
     }
 
     private companion object {
@@ -263,6 +267,44 @@ class MainActivity : ComponentActivity() {
         const val DOWNLOAD_NOTIFICATION_PERMISSION_REQUEST = 4104
         val ACTIVE_DOWNLOAD_STATUSES =
             setOf(DownloadStatus.Queued, DownloadStatus.WaitingForWifi, DownloadStatus.Downloading)
+    }
+
+    private fun consumeWidgetIntent(intent: Intent?) {
+        val action = intent?.getStringExtra("widget_action") ?: return
+        val serverId = intent.getStringExtra("widget_server")
+        val itemId = intent.getStringExtra("widget_item")
+        // A removed account/old launcher PendingIntent must never reopen a different server.
+        val exists =
+            GlobalContext
+                .get()
+                .get<ServerRegistry>()
+                .data.value.servers
+                .any { it.id == serverId }
+        if (exists && !itemId.isNullOrBlank()) {
+            if (action ==
+                "resume"
+            ) {
+                rootComponent?.resumePlayback(
+                    serverId,
+                    itemId,
+                    intent.getLongExtra("widget_position", 0L).coerceAtLeast(0L),
+                )
+            } else if (action == "follow") {
+                rootComponent?.openCalendarTarget(serverId, itemId)
+            }
+        }
+        if (action == "resume" && (!exists || itemId.isNullOrBlank())) {
+            rootComponent?.selectTab(com.yfuse.app.RootComponent.Tab.Browse)
+        }
+        listOf("widget_action", "widget_server", "widget_item", "widget_position").forEach(intent::removeExtra)
+    }
+
+    private fun consumeDownloadIntent(intent: Intent?) {
+        val key = com.yfuse.core.offline.DownloadNotificationActions.EXTRA_OPEN_DOWNLOADS
+        if (intent?.getBooleanExtra(key, false) == true) {
+            rootComponent?.openDownloads()
+            intent.removeExtra(key)
+        }
     }
 
     private fun consumeCalendarIntent(intent: Intent?) {

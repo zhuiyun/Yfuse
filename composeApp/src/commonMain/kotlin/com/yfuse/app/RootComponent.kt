@@ -137,6 +137,12 @@ class RootComponent(
 
     init {
         scope.launch {
+            dependencies.searchRequests.playlists.collect { rule ->
+                selectTab(Tab.Search)
+                search.openPlaylist(rule)
+            }
+        }
+        scope.launch {
             dependencies.searchRequests.requests.collect { query -> openSearch(query) }
         }
     }
@@ -192,6 +198,11 @@ class RootComponent(
             Tab.Search -> search.popToRoot()
             Tab.Profile -> profile.popToRoot()
         }
+    }
+
+    fun openDownloads() {
+        selectTab(Tab.Profile)
+        profile.openDownloads()
     }
 
     private fun openSearch() {

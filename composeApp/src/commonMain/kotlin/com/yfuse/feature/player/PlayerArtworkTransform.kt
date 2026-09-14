@@ -15,6 +15,11 @@ internal fun playerArtworkTransform(
     frameWidth: Float,
     frameHeight: Float,
 ): PlayerArtworkTransform {
+    // A drawable can report an unknown intrinsic size during a failed/rapid handoff.
+    // Keep the transform finite until a real image is available.
+    if (listOf(imageWidth, imageHeight, frameWidth, frameHeight).any { !it.isFinite() || it <= 0f }) {
+        return PlayerArtworkTransform(1f, 0f, 0f, 1f, 1f)
+    }
     val width = frameWidth.coerceAtLeast(1f)
     val height = frameHeight.coerceAtLeast(1f)
     val scale = maxOf(width / imageWidth, height / imageHeight)

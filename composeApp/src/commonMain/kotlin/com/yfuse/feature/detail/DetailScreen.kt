@@ -266,6 +266,7 @@ fun DetailScreen(component: DetailComponent) {
     val share = rememberShareHandler()
     var shareSheetOpen by remember { mutableStateOf(false) }
     var moreSheetOpen by remember { mutableStateOf(false) }
+    var metadataEditorOpen by remember { mutableStateOf(false) }
     var downloadSheetOpen by remember { mutableStateOf(false) }
     var organizationSheetOpen by remember { mutableStateOf(false) }
     var sourceListOpen by remember { mutableStateOf(false) }
@@ -785,6 +786,14 @@ fun DetailScreen(component: DetailComponent) {
                     OrbProgress(modifier = Modifier.align(Alignment.Center), size = OrbProgressDefaults.Page)
                 }
 
+                if (metadataEditorOpen && detail != null && state.server != null) {
+                    MetadataEditorDialog(
+                        server = state.server!!,
+                        itemId = detail.id,
+                        onChanged = { component.store.accept(DetailIntent.Retry) },
+                        onDismiss = { metadataEditorOpen = false },
+                    )
+                }
                 if (moreSheetOpen && detail != null) {
                     DetailMoreActionsDialog(
                         title = detail.title,
@@ -832,6 +841,10 @@ fun DetailScreen(component: DetailComponent) {
                             detailScope.launch {
                                 component.refreshServerMetadata(detail)
                             }
+                        },
+                        onEditMetadata = {
+                            moreSheetOpen = false
+                            metadataEditorOpen = true
                         },
                         onAnalyze = {
                             moreSheetOpen = false

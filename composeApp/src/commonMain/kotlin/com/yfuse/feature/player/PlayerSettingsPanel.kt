@@ -158,6 +158,8 @@ internal fun SettingsPanel(
     modifier: Modifier = Modifier,
 ) {
     var advancedPage by remember(kind) { mutableStateOf(AdvancedPage.Root) }
+    var problemOpen by remember { mutableStateOf(false) }
+    if (problemOpen) PlaybackProblemDialog(playback) { problemOpen = false }
     val discNavigationRevision by ActiveDiscNavigation.revision.collectAsState()
 
     PlayerPopupPanel(onDismiss = onDismiss, modifier = modifier) {
@@ -925,6 +927,11 @@ internal fun SettingsPanel(
                                     // stay off it.
                                     val liveDiagnostics = playback.value.diagnostics
                                     PopupBackLabel("媒体信息") { advancedPage = AdvancedPage.Root }
+                                    PopupMenuRow(
+                                        icon = AppIcons.Info,
+                                        title = "播放问题说明与诊断导出",
+                                        onClick = { problemOpen = true },
+                                    )
                                     DiagnosticRow("容器", containerLabel ?: "未知")
                                     DiagnosticRow(
                                         "YCore 管线",

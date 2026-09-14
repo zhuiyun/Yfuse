@@ -124,6 +124,11 @@ class SearchComponent(
         home.component.store.accept(SearchIntent.Submit)
     }
 
+    fun openPlaylist(rule: com.yfuse.core.data.SmartPlaylist) {
+        popToRoot()
+        (stack.value.active.instance as? Child.Home)?.component?.store?.accept(SearchIntent.ApplyPlaylist(rule))
+    }
+
     private fun openPlayer(config: Config.Player) {
         val active = stack.value.active.configuration as? Config.Player
         if (!playerNavigation.tryBegin(config, active)) return

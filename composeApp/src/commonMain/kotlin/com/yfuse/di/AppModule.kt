@@ -136,6 +136,14 @@ fun appModule(
     single { LibraryCache(get(), storage = feedCacheSettings) }
     single { TmdbHomeCache(lazy(feedCacheSettings)) }
     single { SearchHistory(get()) }
+    single {
+        com.yfuse.core.data
+            .SmartPlaylistStore(get())
+    }
+    single {
+        com.yfuse.core.data
+            .MetadataEditorService(get())
+    }
     single<LanDiscovery> { createLanDiscovery() }
     single<QuickConnectGateway> { EmbyQuickConnectGateway(get()) }
     single { SearchRequests() }

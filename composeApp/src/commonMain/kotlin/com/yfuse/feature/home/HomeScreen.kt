@@ -268,6 +268,9 @@ internal fun HomeContentBody(
     heroPageSampled: Boolean = true,
 ) {
     val calendarItems = remember(calendarState.days, state) { homeCalendarPreviews(calendarState.days, state) }
+    val showSmartPlaylists =
+        com.yfuse.feature.search
+            .hasPinnedSmartPlaylists()
     val palette = LocalPalette.current
     val themeAccent = LocalAccentColors.current.accent
     var expandedRow by remember { mutableStateOf<TmdbRow?>(null) }
@@ -366,6 +369,10 @@ internal fun HomeContentBody(
                         }
                     }
 
+                    motionItem(key = "smart-playlists") {
+                        com.yfuse.feature.search
+                            .SmartPlaylistShelf()
+                    }
                     if (state.loading && state.content.isEmpty) {
                         // Two shelves' worth of placeholders rather than one spinner: the page
                         // this becomes is a stack of rails, and a skeleton that is the wrong

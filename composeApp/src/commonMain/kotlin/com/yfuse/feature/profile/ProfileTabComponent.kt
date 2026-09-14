@@ -52,6 +52,11 @@ class ProfileTabComponent(
         ) : Child
     }
 
+    fun openDownloads() {
+        popToRoot()
+        (stack.value.active.instance as? Child.Home)?.component?.requestPage("Downloads")
+    }
+
     fun navigateBack() {
         navigation.pop()
     }

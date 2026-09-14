@@ -76,7 +76,6 @@ class ServerEditorScreen {
                 TextInput(placeholder: "密码")
                 Button("Quick Connect / PIN").width(100.percent)
             }
-            if (protocol == "http") { Text("HTTP 仅建议用于可信局域网，继续前需确认明文传输风险").fontSize(11) }
             Button("测试并保存").width(100.percent)
         }.padding(18).width(100.percent) }.height(100.percent)
     }

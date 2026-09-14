@@ -50,9 +50,9 @@ public class MediaRepository {
     public func login(kind: ProviderKind, endpoint: String, userName: String, password: String,
         cleartextConfirmed: Bool, completion: (ApiResult<SavedServer>) -> Unit): Unit {
         let checked = validateServerEndpoint(endpoint)
-        if (!checked.allowed || (checked.decision == TransportDecision.Cleartext && !cleartextConfirmed)) {
+        if (!checked.allowed) {
             completion(ApiResult<SavedServer>.Failure(ApiFailure(FailureKind.InvalidInput,
-                "请输入 HTTPS 地址；可信局域网 HTTP 需要勾选明文连接确认")))
+                checked.message)))
             return
         }
         if (kind == ProviderKind.Plex) {

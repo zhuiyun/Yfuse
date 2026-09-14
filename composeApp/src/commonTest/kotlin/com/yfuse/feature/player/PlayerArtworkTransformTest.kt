@@ -25,6 +25,16 @@ class PlayerArtworkTransformTest {
         assertEquals(1080f, transform.cropHeight)
     }
 
+    @Test
+    fun unknown_drawable_geometry_never_produces_nan_or_infinite_transforms() {
+        for (invalid in listOf(0f, -1f, Float.NaN, Float.POSITIVE_INFINITY)) {
+            val transform = playerArtworkTransform(invalid, 1080f, 180f, 270f)
+            assertTrue(transform.scale.isFinite())
+            assertTrue(transform.cropWidth.isFinite())
+            assertTrue(transform.cropHeight.isFinite())
+        }
+    }
+
     private fun verifyTransition(
         imageWidth: Float,
         imageHeight: Float,

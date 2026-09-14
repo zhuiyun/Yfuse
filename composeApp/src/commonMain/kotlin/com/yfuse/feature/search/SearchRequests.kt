@@ -14,6 +14,17 @@ class SearchRequests {
         MutableSharedFlow<String>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
     val requests: SharedFlow<String> = _requests
 
+    private val playlistRequests =
+        MutableSharedFlow<com.yfuse.core.data.SmartPlaylist>(
+            extraBufferCapacity = 1,
+            onBufferOverflow = BufferOverflow.DROP_OLDEST,
+        )
+    val playlists: SharedFlow<com.yfuse.core.data.SmartPlaylist> = playlistRequests
+
+    fun openPlaylist(rule: com.yfuse.core.data.SmartPlaylist) {
+        playlistRequests.tryEmit(rule)
+    }
+
     fun submit(query: String) {
         val trimmed = query.trim()
         if (trimmed.isEmpty()) return

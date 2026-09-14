@@ -1588,6 +1588,8 @@ internal fun PlayerControls(
         }
 
         // Last in the box, so it covers the chrome on its way out rather than fading in under it.
+        var showProblem by remember { mutableStateOf(false) }
+        if (showProblem) PlaybackProblemDialog(playback = playback, onDismiss = { showProblem = false })
         ChromeContent(errorMessage, modifier = Modifier.fillMaxSize(), coversScreen = true) { message ->
             val otherVersions =
                 versions
@@ -1605,6 +1607,7 @@ internal fun PlayerControls(
                 onExternalPlayer = onExternalPlayer,
                 onBack = onBack,
                 alternatives = otherVersions + otherEngines,
+                onExplain = { showProblem = true },
             )
         }
     }
