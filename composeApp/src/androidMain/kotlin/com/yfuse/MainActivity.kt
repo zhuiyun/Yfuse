@@ -284,11 +284,25 @@ class MainActivity : ComponentActivity() {
             if (action ==
                 "resume"
             ) {
-                rootComponent?.resumePlayback(
-                    serverId,
-                    itemId,
-                    intent.getLongExtra("widget_position", 0L).coerceAtLeast(0L),
-                )
+                // Launcher updates can be delayed by Doze; re-read progress at the tap.
+                val current =
+                    serverId?.let { id ->
+                        GlobalContext
+                            .get()
+                            .get<com.yfuse.core.sync.playback.PlaybackSyncStore>()
+                            .statesForServer(id)
+                            .filter { it.serverItemId == itemId }
+                            .maxByOrNull { it.lastPlayedAtEpochMs }
+                    }
+                if (current?.played == true) {
+                    rootComponent?.openCalendarTarget(serverId, itemId)
+                } else {
+                    rootComponent?.resumePlayback(
+                        serverId,
+                        itemId,
+                        current?.positionMs ?: intent.getLongExtra("widget_position", 0L).coerceAtLeast(0L),
+                    )
+                }
             } else if (action == "follow") {
                 rootComponent?.openCalendarTarget(serverId, itemId)
             }
