@@ -3,12 +3,18 @@
 
 #include <cassert>
 #include <cstring>
+#include <limits>
 #include <string>
 
 namespace {
 
 struct FakeEngine {
     int open_result = YCORE_OK;
+    int play_result = YCORE_OK;
+    int pause_result = YCORE_OK;
+    int speed_result = YCORE_OK;
+    int track_result = YCORE_OK;
+    int output_result = YCORE_OK;
     int open_count = 0;
     int close_count = 0;
     int play_count = 0;
@@ -40,6 +46,7 @@ int32_t fake_open(void *context, const ycore_media_request_t *request) {
 int32_t fake_play(void *context) {
     auto *fake = static_cast<FakeEngine *>(context);
     ++fake->play_count;
+    if (fake->play_result != YCORE_OK) return fake->play_result;
     fake->state.playback_requested = 1;
     fake->state.playing = 1;
     return YCORE_OK;
@@ -48,6 +55,7 @@ int32_t fake_play(void *context) {
 int32_t fake_pause(void *context) {
     auto *fake = static_cast<FakeEngine *>(context);
     ++fake->pause_count;
+    if (fake->pause_result != YCORE_OK) return fake->pause_result;
     fake->state.playback_requested = 0;
     fake->state.playing = 0;
     return YCORE_OK;
@@ -60,18 +68,21 @@ int32_t fake_seek(void *context, int64_t position) {
 
 int32_t fake_speed(void *context, float speed) {
     auto *fake = static_cast<FakeEngine *>(context);
+    if (fake->speed_result != YCORE_OK) return fake->speed_result;
     fake->speed = speed;
     fake->state.speed = speed;
     return YCORE_OK;
 }
 
 int32_t fake_track(void *context, ycore_track_type_t, const char *) {
-    ++static_cast<FakeEngine *>(context)->track_count;
-    return YCORE_OK;
+    auto *fake = static_cast<FakeEngine *>(context);
+    ++fake->track_count;
+    return fake->track_result;
 }
 int32_t fake_output(void *context, void *) {
-    ++static_cast<FakeEngine *>(context)->output_count;
-    return YCORE_OK;
+    auto *fake = static_cast<FakeEngine *>(context);
+    ++fake->output_count;
+    return fake->output_result;
 }
 int32_t fake_retry(void *) { return YCORE_ERROR_UNSUPPORTED; }
 
@@ -335,6 +346,128 @@ void test_drm_failure_does_not_change_backend() {
     ycore_session_destroy(session);
 }
 
+void test_initialization_failures_do_not_publish_ready() {
+    for (int failure = 0; failure < 4; ++failure) {
+        auto *session = ycore_session_create();
+        FakeEngine broken;
+        if (failure == 0) broken.play_result = YCORE_ERROR_UNSUPPORTED;
+        if (failure == 1) broken.pause_result = YCORE_ERROR_UNSUPPORTED;
+        if (failure == 2) broken.output_result = YCORE_ERROR_UNSUPPORTED;
+        if (failure == 3) broken.speed_result = YCORE_ERROR_UNSUPPORTED;
+        const auto value = registration("Broken", YCORE_ROUTE_SYSTEM, 1, YCORE_CAP_REMOTE_URL, &broken);
+        assert(ycore_session_register_engine(session, &value) == YCORE_OK);
+        bool published_ready = false;
+        assert(ycore_session_set_listener(session, [](const ycore_state_t *state, void *context) {
+            if (state->phase == YCORE_PHASE_READY) *static_cast<bool *>(context) = true;
+        }, &published_ready) == YCORE_OK);
+        int output = 1;
+        assert(ycore_session_set_video_output(session, &output) == YCORE_OK);
+        auto media = request();
+        media.auto_play = failure == 1 ? 0 : 1;
+        assert(ycore_session_open(session, &media) == YCORE_ERROR_UNSUPPORTED);
+        assert(ycore_session_state_phase(session) == YCORE_PHASE_FAILED);
+        assert(ycore_session_state_playing(session) == 0);
+        assert(!published_ready);
+        assert(std::string(ycore_session_state_reason(session)).find("failed") != std::string::npos);
+        assert(broken.close_count == 1);
+        ycore_session_destroy(session);
+        assert(broken.close_count == 1);
+    }
+}
+
+void test_initialization_failure_tries_the_next_backend() {
+    auto *session = ycore_session_create();
+    FakeEngine broken;
+    FakeEngine working;
+    broken.play_result = YCORE_ERROR_UNSUPPORTED;
+    const auto first = registration("Broken", YCORE_ROUTE_SYSTEM, 100, YCORE_CAP_REMOTE_URL, &broken);
+    const auto second = registration("Working", YCORE_ROUTE_NATIVE_DIRECT, 1, YCORE_CAP_REMOTE_URL, &working);
+    assert(ycore_session_register_engine(session, &first) == YCORE_OK);
+    assert(ycore_session_register_engine(session, &second) == YCORE_OK);
+    auto media = request();
+    assert(ycore_session_open(session, &media) == YCORE_OK);
+    assert(broken.close_count == 1);
+    assert(std::string(ycore_session_state_engine(session)) == "Working");
+    assert(ycore_session_state_playing(session) == 1);
+    ycore_session_destroy(session);
+}
+
+void test_track_restore_failure_is_reported() {
+    auto *session = ycore_session_create();
+    FakeEngine primary;
+    FakeEngine fallback;
+    fallback.track_result = YCORE_ERROR_UNSUPPORTED;
+    const auto first = registration("Primary", YCORE_ROUTE_SYSTEM, 100, YCORE_CAP_REMOTE_URL, &primary);
+    const auto second = registration("Fallback", YCORE_ROUTE_NATIVE_DIRECT, 1, YCORE_CAP_REMOTE_URL, &fallback);
+    assert(ycore_session_register_engine(session, &first) == YCORE_OK);
+    assert(ycore_session_register_engine(session, &second) == YCORE_OK);
+    auto media = request();
+    assert(ycore_session_open(session, &media) == YCORE_OK);
+    assert(ycore_session_select_track(session, YCORE_TRACK_AUDIO, "audio-2") == YCORE_OK);
+    assert(ycore_session_handover(session) == YCORE_ERROR_UNSUPPORTED);
+    assert(ycore_session_state_phase(session) == YCORE_PHASE_FAILED);
+    assert(std::string(ycore_session_state_reason(session)) == "backend track restore failed");
+    assert(fallback.close_count == 1);
+    ycore_session_destroy(session);
+}
+
+void test_new_media_clears_tracks_and_output_evidence() {
+    auto *session = ycore_session_create();
+    FakeEngine engine;
+    const auto value = registration("Reusable", YCORE_ROUTE_SYSTEM, 1, YCORE_CAP_REMOTE_URL, &engine);
+    assert(ycore_session_register_engine(session, &value) == YCORE_OK);
+    int output = 7;
+    assert(ycore_session_set_video_output(session, &output) == YCORE_OK);
+    auto media = request();
+    assert(ycore_session_open(session, &media) == YCORE_OK);
+    assert(ycore_session_select_track(session, YCORE_TRACK_AUDIO, "old-audio") == YCORE_OK);
+    assert(ycore_session_select_track(session, YCORE_TRACK_SUBTITLE, "old-subtitle") == YCORE_OK);
+    assert(ycore_session_set_speed(session, 1.5f) == YCORE_OK);
+    engine.state.duration_ms = 600'000;
+    engine.state.buffered_position_ms = 90'000;
+    engine.state.video_output_verified = 1;
+    engine.state.audio_output_verified = 1;
+    engine.state.dolby_vision_output_verified = 1;
+    engine.state.dolby_atmos_output_verified = 1;
+    engine.state.av_sync_offset_ms = 20;
+    std::strcpy(engine.state.decoder, "previous decoder");
+    std::strcpy(engine.state.renderer, "previous renderer");
+    assert(ycore_session_tick(session) == YCORE_OK);
+
+    media.media_id = "movie-2";
+    media.uri = "https://example.invalid/movie-2";
+    media.start_position_ms = 0;
+    assert(ycore_session_open(session, &media) == YCORE_OK);
+    ycore_state_t state{};
+    state.struct_size = sizeof(state);
+    state.abi_version = YCORE_ABI_VERSION;
+    assert(ycore_session_get_state(session, &state) == YCORE_OK);
+    assert(state.duration_ms == 0 && state.buffered_position_ms == 0);
+    assert(state.speed == 1.0f);
+    assert(state.video_output_verified == 0 && state.audio_output_verified == 0);
+    assert(state.dolby_vision_output_verified == 0 && state.dolby_atmos_output_verified == 0);
+    assert(state.av_sync_offset_ms == INT64_MIN);
+    assert(state.decoder[0] == '\0' && state.renderer[0] == '\0');
+    assert(engine.track_count == 2); // Only the explicit selections made for the old media.
+    assert(engine.output_count == 2); // The host surface is retained across media.
+    ycore_session_destroy(session);
+}
+
+void test_rejected_speed_does_not_replace_the_last_accepted_value() {
+    auto *session = ycore_session_create();
+    FakeEngine engine;
+    const auto value = registration("Engine", YCORE_ROUTE_SYSTEM, 1, YCORE_CAP_REMOTE_URL, &engine);
+    assert(ycore_session_register_engine(session, &value) == YCORE_OK);
+    auto media = request();
+    assert(ycore_session_open(session, &media) == YCORE_OK);
+    engine.speed_result = YCORE_ERROR_UNSUPPORTED;
+    assert(ycore_session_set_speed(session, 2.0f) == YCORE_ERROR_UNSUPPORTED);
+    assert(ycore_session_state_speed(session) == 1.0f);
+    assert(ycore_session_set_speed(session, std::numeric_limits<float>::quiet_NaN()) == YCORE_ERROR_INVALID_ARGUMENT);
+    assert(ycore_session_state_speed(session) == 1.0f);
+    ycore_session_destroy(session);
+}
+
 }  // namespace
 
 int main() {
@@ -348,5 +481,10 @@ int main() {
     test_handover_restores_tracks_output_and_pause_intent();
     test_handover_never_reopens_an_engine_this_request_exhausted();
     test_drm_failure_does_not_change_backend();
+    test_initialization_failures_do_not_publish_ready();
+    test_initialization_failure_tries_the_next_backend();
+    test_track_restore_failure_is_reported();
+    test_new_media_clears_tracks_and_output_evidence();
+    test_rejected_speed_does_not_replace_the_last_accepted_value();
     return 0;
 }

@@ -211,7 +211,7 @@ internal fun DetailActionDock(
             if (favoriteAvailable) {
                 GlassActionButton(
                     icon = if (favorite) AppIcons.HeartFilled else AppIcons.Heart,
-                    label = if (favorite) "已收藏" else "收藏",
+                    label = if (favorite) "服务器已收藏" else "服务器收藏",
                     active = favorite,
                     accent = accent,
                     onClick = onFavorite,
@@ -223,8 +223,8 @@ internal fun DetailActionDock(
                 label =
                     when {
                         watchLaterMutating -> "同步中"
-                        watchLater -> "已加入"
-                        else -> "稍后观看"
+                        watchLater -> "服务器已加入"
+                        else -> "服务器稍后看"
                     },
                 active = watchLater,
                 accent = accent,

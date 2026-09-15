@@ -75,6 +75,9 @@ reported as `500 response_too_large` instead of a generic internal error.
 | `GET /api/v1/account/export` | Bearer | Profile and opaque encrypted sync envelope |
 | `DELETE /api/v1/account` | Bearer plus `{password}` | Permanently delete account |
 
+Profile updates only change fields supplied in the request. Concurrent nickname-only and
+avatar-only updates preserve both changes; omitted fields retain their value at write time.
+
 `AuthResponse` is:
 
 ```json
@@ -150,6 +153,10 @@ record. A stale version returns `409 sync_version_conflict`; a key-version misma
 On success, one SQLite transaction updates the login-password digest, replaces only the sync
 wrapper fields, revokes every old session, and creates exactly one replacement session. The
 response is the new `AuthResponse`; all old access and refresh tokens are invalid immediately.
+Login verifies the password outside the SQLite lock, then compares the verified credential
+digest again in the session-insertion transaction. An old-password login that reaches this
+transaction after the password change receives `401 invalid_credentials` and creates no
+session. A login committed before the change is revoked with the other old sessions.
 An in-flight sync `PUT` or `DELETE` that authenticated with an old access token before the
 password-change transaction committed rechecks that exact session inside its own write
 transaction. It returns `401 unauthorized` without changing the payload, wrapper, nonce

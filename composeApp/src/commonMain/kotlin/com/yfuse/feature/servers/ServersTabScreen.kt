@@ -276,6 +276,15 @@ fun ServersTabScreen(component: ServersTabComponent) {
                             )
                         }
 
+                        motionItem(key = "source-setup", span = { GridItemSpan(maxLineSpan) }) {
+                            SourceSetupGuide(
+                                server = currentServer,
+                                onAdd = { component.store.accept(ServersIntent.OpenAddDialog) },
+                                check = component::checkSetup,
+                                onOpenLibrary = component.onOpenLibrary,
+                            )
+                        }
+
                         currentServer?.let { server ->
                             motionItem(
                                 key = server.id,

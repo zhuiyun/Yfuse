@@ -1,9 +1,8 @@
 #include "ycore/ycore.h"
 
 #include <algorithm>
-#include <array>
+#include <cmath>
 #include <cstring>
-#include <memory>
 #include <mutex>
 #include <string>
 #include <utility>
@@ -86,12 +85,19 @@ struct ycore_session {
     void *listener_user_data = nullptr;
 
     ycore_session() {
+        reset_media_state();
+    }
+
+    void reset_media_state() {
+        state = {};
         state.struct_size = sizeof(state);
         state.abi_version = YCORE_ABI_VERSION;
         state.phase = YCORE_PHASE_IDLE;
         state.failure_category = YCORE_FAILURE_NONE;
         state.speed = 1.0f;
         state.av_sync_offset_ms = INT64_MIN;
+        audio_track_id.clear();
+        subtitle_track_id.clear();
     }
 
     void publish() {
@@ -113,6 +119,17 @@ struct ycore_session {
         return std::find(attempted.begin(), attempted.end(), index) != attempted.end();
     }
 
+    int fail_activation(Engine &engine, int result, ycore_failure_category_t category, const char *reason) {
+        if (engine.vtable.close != nullptr) engine.vtable.close(engine.context);
+        active_index = -1;
+        state.phase = YCORE_PHASE_FAILED;
+        state.playing = 0;
+        state.buffering = 0;
+        state.failure_category = category;
+        copy_text(state.reason, reason);
+        return result;
+    }
+
     int activate(int index, int64_t position_ms, bool playback_requested) {
         Engine &engine = engines[static_cast<size_t>(index)];
         attempted.push_back(index);
@@ -126,30 +143,51 @@ struct ycore_session {
         state.position_ms = open_request.start_position_ms;
         state.route = engine.route;
         state.failure_category = YCORE_FAILURE_NONE;
+        state.video_output_verified = 0;
+        state.audio_output_verified = 0;
+        state.dolby_vision_output_verified = 0;
+        state.dolby_atmos_output_verified = 0;
+        state.av_sync_offset_ms = INT64_MIN;
+        state.decoder[0] = '\0';
+        state.renderer[0] = '\0';
         copy_text(state.engine, engine.name.c_str());
         copy_text(state.reason, "opening backend");
         publish();
 
-        if (engine.vtable.open == nullptr || engine.vtable.open(engine.context, &open_request) != YCORE_OK) {
-            if (engine.vtable.close != nullptr) engine.vtable.close(engine.context);
-            return YCORE_ERROR_ENGINE_OPEN;
+        const int opened = engine.vtable.open == nullptr
+            ? YCORE_ERROR_UNSUPPORTED : engine.vtable.open(engine.context, &open_request);
+        if (opened != YCORE_OK) {
+            return fail_activation(engine, opened, YCORE_FAILURE_UNKNOWN, "backend open failed");
         }
 
         active_index = index;
-        if (video_output != nullptr && engine.vtable.set_video_output != nullptr) {
-            engine.vtable.set_video_output(engine.context, video_output);
+        if (video_output != nullptr) {
+            const int result = engine.vtable.set_video_output == nullptr
+                ? YCORE_ERROR_UNSUPPORTED : engine.vtable.set_video_output(engine.context, video_output);
+            if (result != YCORE_OK) {
+                return fail_activation(engine, result, YCORE_FAILURE_RENDERER, "backend video output failed");
+            }
         }
-        if (engine.vtable.set_speed != nullptr) engine.vtable.set_speed(engine.context, state.speed);
-        if (!audio_track_id.empty() && engine.vtable.select_track != nullptr) {
-            engine.vtable.select_track(engine.context, YCORE_TRACK_AUDIO, audio_track_id.c_str());
+        if (engine.vtable.set_speed != nullptr || state.speed != 1.0f) {
+            const int result = engine.vtable.set_speed == nullptr
+                ? YCORE_ERROR_UNSUPPORTED : engine.vtable.set_speed(engine.context, state.speed);
+            if (result != YCORE_OK) {
+                return fail_activation(engine, result, YCORE_FAILURE_UNKNOWN, "backend speed restore failed");
+            }
         }
-        if (!subtitle_track_id.empty() && engine.vtable.select_track != nullptr) {
-            engine.vtable.select_track(engine.context, YCORE_TRACK_SUBTITLE, subtitle_track_id.c_str());
+        for (const auto type : {YCORE_TRACK_AUDIO, YCORE_TRACK_SUBTITLE}) {
+            const auto &track_id = type == YCORE_TRACK_AUDIO ? audio_track_id : subtitle_track_id;
+            if (track_id.empty()) continue;
+            const int result = engine.vtable.select_track == nullptr
+                ? YCORE_ERROR_UNSUPPORTED : engine.vtable.select_track(engine.context, type, track_id.c_str());
+            if (result != YCORE_OK) {
+                return fail_activation(engine, result, YCORE_FAILURE_UNKNOWN, "backend track restore failed");
+            }
         }
-        if (playback_requested && engine.vtable.play != nullptr) {
-            engine.vtable.play(engine.context);
-        } else if (!playback_requested && engine.vtable.pause != nullptr) {
-            engine.vtable.pause(engine.context);
+        const auto set_playback = playback_requested ? engine.vtable.play : engine.vtable.pause;
+        const int playback_result = set_playback == nullptr ? YCORE_ERROR_UNSUPPORTED : set_playback(engine.context);
+        if (playback_result != YCORE_OK) {
+            return fail_activation(engine, playback_result, YCORE_FAILURE_UNKNOWN, "backend playback intent failed");
         }
 
         state.phase = YCORE_PHASE_READY;
@@ -173,16 +211,20 @@ struct ycore_session {
 
         const int64_t resume_position = state.position_ms;
         const bool resume_playback = state.playback_requested != 0;
+        int last_error = YCORE_ERROR_NO_ENGINE;
         for (int candidate : candidates) {
-            if (activate(candidate, resume_position, resume_playback) == YCORE_OK) return YCORE_OK;
+            last_error = activate(candidate, resume_position, resume_playback);
+            if (last_error == YCORE_OK) return YCORE_OK;
         }
         state.phase = YCORE_PHASE_FAILED;
         state.playing = 0;
         state.buffering = 0;
-        if (state.failure_category == YCORE_FAILURE_NONE) state.failure_category = YCORE_FAILURE_UNKNOWN;
-        copy_text(state.reason, "no compatible backend opened the media");
+        if (state.failure_category == YCORE_FAILURE_NONE) {
+            state.failure_category = YCORE_FAILURE_UNKNOWN;
+            copy_text(state.reason, "no compatible backend opened the media");
+        }
         publish();
-        return candidates.empty() ? YCORE_ERROR_NO_ENGINE : YCORE_ERROR_ENGINE_OPEN;
+        return last_error;
     }
 };
 
@@ -250,6 +292,7 @@ int32_t ycore_session_open(ycore_session_t *session, const ycore_media_request_t
     }
     std::lock_guard<std::recursive_mutex> lock(session->mutex);
     session->close_active();
+    session->reset_media_state();
     session->request.media_id = request->media_id == nullptr ? "" : request->media_id;
     session->request.uri = request->uri;
     session->request.mime_type = request->mime_type == nullptr ? "" : request->mime_type;
@@ -305,14 +348,16 @@ int32_t ycore_session_seek_to(ycore_session_t *session, int64_t position_ms) {
 }
 
 int32_t ycore_session_set_speed(ycore_session_t *session, float speed) {
-    if (session == nullptr || speed < 0.25f || speed > 4.0f) return YCORE_ERROR_INVALID_ARGUMENT;
+    if (session == nullptr || !std::isfinite(speed) || speed < 0.25f || speed > 4.0f) {
+        return YCORE_ERROR_INVALID_ARGUMENT;
+    }
     std::lock_guard<std::recursive_mutex> lock(session->mutex);
-    session->state.speed = speed;
     if (session->active_index < 0) return YCORE_ERROR_NOT_READY;
     Engine &engine = session->engines[static_cast<size_t>(session->active_index)];
     const int32_t result = engine.vtable.set_speed == nullptr
         ? YCORE_ERROR_UNSUPPORTED
         : engine.vtable.set_speed(engine.context, speed);
+    if (result == YCORE_OK) session->state.speed = speed;
     session->publish();
     return result;
 }
@@ -323,14 +368,17 @@ int32_t ycore_session_select_track(
     const char *track_id) {
     if (session == nullptr || track_id == nullptr) return YCORE_ERROR_INVALID_ARGUMENT;
     std::lock_guard<std::recursive_mutex> lock(session->mutex);
-    if (type == YCORE_TRACK_AUDIO) session->audio_track_id = track_id;
-    else if (type == YCORE_TRACK_SUBTITLE) session->subtitle_track_id = track_id;
-    else return YCORE_ERROR_INVALID_ARGUMENT;
+    if (type != YCORE_TRACK_AUDIO && type != YCORE_TRACK_SUBTITLE) return YCORE_ERROR_INVALID_ARGUMENT;
     if (session->active_index < 0) return YCORE_ERROR_NOT_READY;
     Engine &engine = session->engines[static_cast<size_t>(session->active_index)];
-    return engine.vtable.select_track == nullptr
+    const int result = engine.vtable.select_track == nullptr
         ? YCORE_ERROR_UNSUPPORTED
         : engine.vtable.select_track(engine.context, type, track_id);
+    if (result == YCORE_OK) {
+        if (type == YCORE_TRACK_AUDIO) session->audio_track_id = track_id;
+        else session->subtitle_track_id = track_id;
+    }
+    return result;
 }
 
 int32_t ycore_session_set_video_output(ycore_session_t *session, void *native_output) {

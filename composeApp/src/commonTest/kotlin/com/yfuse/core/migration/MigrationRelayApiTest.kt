@@ -14,6 +14,29 @@ import kotlin.test.assertTrue
 
 class MigrationRelayApiTest {
     @Test
+    fun closing_api_keeps_an_injected_client_usable() =
+        runTest {
+            val engine =
+                MockEngine {
+                    respond(
+                        """{"code":"000042","expiresAtEpochMs":1234}""",
+                        HttpStatusCode.Created,
+                        headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
+                    )
+                }
+            val client = createMigrationRelayClient(engine, "https://account.example")
+            try {
+                val api = MigrationRelayApi(client, "https://account.example")
+                api.close()
+                api.close()
+                assertEquals("000042", api.create("relay", "secret", "hash").code)
+            } finally {
+                client.close()
+                engine.close()
+            }
+        }
+
+    @Test
     fun redirect_cannot_send_transfer_secret_to_another_origin() =
         runTest {
             var requests = 0

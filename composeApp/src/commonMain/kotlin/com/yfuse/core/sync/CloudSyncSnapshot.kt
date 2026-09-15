@@ -15,6 +15,9 @@ import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.designsystem.SplashAnimation
 import com.yfuse.core.designsystem.ThemeMode
 import com.yfuse.core.model.ServersData
+import com.yfuse.core.personal.PersonalLibraryRepository
+import com.yfuse.core.personal.PersonalSnapshot
+import com.yfuse.core.personal.validatePersonalSnapshot
 import kotlinx.serialization.Serializable
 
 /** Everything in this document is encrypted before it leaves the device. */
@@ -31,6 +34,7 @@ data class CloudSyncSnapshotV1(
     /** Null means a legacy snapshot that did not carry this domain; empty means clear it. */
     val skipTimesBySeries: Map<String, SkipTimes>? = null,
     val calendarFollows: List<FollowedSeries> = emptyList(),
+    val personal: PersonalSnapshot? = null,
 ) {
     companion object {
         const val CURRENT_SCHEMA_VERSION: Int = 1
@@ -79,9 +83,10 @@ fun captureCloudSyncSnapshot(
     skip: SkipSegmentPreferences,
     serverSync: ServerSyncManager,
     calendarFollows: CalendarFollowStore? = null,
+    personal: PersonalLibraryRepository? = null,
 ): CloudSyncSnapshotV1 =
     CloudSyncSnapshotV1(
-        servers = registry.data.value,
+        servers = registry.allDataForSync(),
         appearance =
             CloudAppearanceSettings(
                 themeMode = theme.mode.value.name,
@@ -110,6 +115,7 @@ fun captureCloudSyncSnapshot(
         skipMode = skip.skipMode.value.name,
         skipTimesBySeries = skip.bySeries.value,
         calendarFollows = calendarFollows?.followed?.value.orEmpty(),
+        personal = personal?.snapshot(),
     )
 
 /** Applies a successfully authenticated and decrypted snapshot through typed preference APIs. */
@@ -123,6 +129,7 @@ fun applyCloudSyncSnapshot(
     skip: SkipSegmentPreferences,
     serverSync: ServerSyncManager,
     calendarFollows: CalendarFollowStore? = null,
+    personal: PersonalLibraryRepository? = null,
 ): Result<Unit> =
     runCatching {
         require(snapshot.schemaVersion == CloudSyncSnapshotV1.CURRENT_SCHEMA_VERSION) {
@@ -153,6 +160,7 @@ fun applyCloudSyncSnapshot(
             )
         val skipMode = SkipMode.entries.named(snapshot.skipMode, SkipMode.Button)
         val normalizedDanmaku = danmaku.validateSnapshot(snapshot.danmaku).getOrThrow()
+        snapshot.personal?.let(::validatePersonalSnapshot)
 
         registry.replaceFromSync(snapshot.servers).getOrThrow()
         theme.setMode(mode)
@@ -177,7 +185,11 @@ fun applyCloudSyncSnapshot(
             remoteTimes.forEach(skip::set)
         }
         skip.setSkipMode(skipMode)
-        calendarFollows?.replaceFromSync(snapshot.calendarFollows)?.getOrThrow()
+        if (snapshot.personal != null && personal != null) {
+            personal.mergeRemote(snapshot.personal)
+        } else {
+            calendarFollows?.replaceFromSync(snapshot.calendarFollows)?.getOrThrow()
+        }
     }
 
 private fun <T : Enum<T>> List<T>.named(

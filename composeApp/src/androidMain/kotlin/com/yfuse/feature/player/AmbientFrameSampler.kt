@@ -48,7 +48,7 @@ import kotlin.math.roundToInt
  *
  * Every engine renders into a bare [SurfaceView] and Compose never sees a decoded frame, so the
  * only in-process way to know what colour the picture is right now is [PixelCopy] — a GPU
- * read-back of the surface, scaled straight into a 32×18 bitmap. Reads are at least 500ms
+ * read-back of the surface, scaled straight into a 96×54 bitmap. Reads are at least 500ms
  * apart and slow down on stable pictures; actual copy latency depends on the output mode.
  *
  * The copy fails on secure (DRM) surfaces and on some HDR/tunnelled outputs. After three misses
@@ -197,10 +197,20 @@ class AmbientFrameSampler {
         pausedPositionMs: Long,
         /** An item/version or engine switch invalidates a completed paused sample too. */
         contentKey: Any?,
+        /** Probe slowly when only baked-in bars, not the layout, could need colour. */
+        minimumIntervalMs: Long = com.yfuse.core.designsystem.AMBIENT_LIGHT_SAMPLE_MS,
     ) {
         val foreground = rememberAmbientRouteVisible()
         val enabled = active && foreground
-        LaunchedEffect(this, enabled, playing, contentKey, revision, if (playing) 0L else pausedPositionMs) {
+        LaunchedEffect(
+            this,
+            enabled,
+            playing,
+            contentKey,
+            revision,
+            if (playing) 0L else pausedPositionMs,
+            minimumIntervalMs,
+        ) {
             if (!hasContentIdentity || contentIdentity != contentKey) {
                 contentIdentity = contentKey
                 hasContentIdentity = true
@@ -212,7 +222,7 @@ class AmbientFrameSampler {
             }
             var urgent = true
             while (isActive) {
-                delay(policy.waitMs(SystemClock.elapsedRealtime(), urgent))
+                delay(policy.waitMs(SystemClock.elapsedRealtime(), urgent, minimumIntervalMs))
                 urgent = false
                 policy.started(SystemClock.elapsedRealtime())
                 val read = sample()

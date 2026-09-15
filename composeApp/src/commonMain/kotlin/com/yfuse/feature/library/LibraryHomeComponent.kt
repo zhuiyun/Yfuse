@@ -18,9 +18,11 @@ class LibraryHomeComponent(
     val onSeeAll: (libraryId: String, title: String) -> Unit,
     val onOpenItem: (itemId: String) -> Unit,
     val onPlayItem: (itemId: String) -> Unit,
+    val onOpenUnified: () -> Unit = {},
 ) : ComponentContext by componentContext {
     /** The library route stays in the Decompose back stack while detail covers it. */
     internal val listState = LazyListState()
+    val themePreferences = GlobalContext.get().get<com.yfuse.core.data.ThemePreferences>()
 
     val store =
         LibraryStoreFactory(

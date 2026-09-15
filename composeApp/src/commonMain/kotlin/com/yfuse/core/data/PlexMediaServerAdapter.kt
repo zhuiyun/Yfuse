@@ -39,6 +39,8 @@ import com.yfuse.core.model.Season
 import com.yfuse.core.model.ServerSource
 import com.yfuse.core.model.TrickplayInfo
 import com.yfuse.core.network.normalizeBaseUrl
+import com.yfuse.core.security.VaultCrypto
+import com.yfuse.core.security.toBase64Url
 import com.yfuse.core.sync.SyncedUserItem
 import com.yfuse.deviceId
 import io.ktor.client.HttpClient
@@ -92,6 +94,7 @@ internal class PlexMediaServerAdapter(
     suspend fun authenticate(
         baseUrl: String,
         token: String,
+        account: PlexAccountIdentity? = null,
     ): Result<AuthedServer> =
         embyApiCall("plex_authenticate") {
             require(token.isNotBlank()) { "Plex Token 不能为空" }
@@ -99,20 +102,35 @@ internal class PlexMediaServerAdapter(
             val identity = container(url, "/identity", token)
             require(!identity.machineIdentifier.isNullOrBlank()) { "这不是可用的 Plex Media Server" }
             val root = runCatching { container(url, "/", token) }.getOrNull()
-            val machineId = requireNotNull(identity.machineIdentifier)
-            val accountName = root?.myPlexUsername?.takeIf(String::isNotBlank)
+            val user = account ?: manualTokenIdentity(token)
             AuthedServer(
                 baseUrl = url,
                 serverName =
                     root?.friendlyName?.takeIf(String::isNotBlank)
                         ?: identity.friendlyName?.takeIf(String::isNotBlank)
                         ?: "Plex",
-                userId = accountName ?: "plex@$machineId",
-                userName = accountName ?: "Plex",
+                userId = user.id,
+                userName = user.name,
                 accessToken = token,
                 kind = MediaServerKind.Plex,
             )
         }
+
+    /** Manual LAN tokens have no verified Home subject; changing a token must break profile links. */
+    private fun manualTokenIdentity(token: String): PlexAccountIdentity {
+        val bytes = "yfuse-plex-manual-user-v1\u0000$token".encodeToByteArray()
+        val digest =
+            try {
+                VaultCrypto().sha256(bytes)
+            } finally {
+                bytes.fill(0)
+            }
+        return try {
+            PlexAccountIdentity("plex-token-sha256:${digest.toBase64Url()}", "Plex Token 用户", emptySet())
+        } finally {
+            digest.fill(0)
+        }
+    }
 
     suspend fun libraries(server: SavedServer): Result<List<MediaLibrary>> =
         embyApiCall("plex_libraries") {

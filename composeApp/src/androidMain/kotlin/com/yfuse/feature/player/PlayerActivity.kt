@@ -97,6 +97,7 @@ import org.koin.core.context.GlobalContext
  */
 class PlayerActivity : ComponentActivity() {
     private var completedOfflineKey: String? = null
+    private var personalAccessJob: Job? = null
 
     companion object {
         internal const val NOTIFICATION_CHANNEL = "yfuse_playback"
@@ -619,6 +620,29 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun initializePlayer(launchRequest: PlayerLaunchRequest) {
+        val personal = GlobalContext.get().get<com.yfuse.core.personal.PersonalLibraryRepository>()
+        val owner = personal.storageNamespace
+
+        fun permitted() =
+            personal.storageNamespace == owner &&
+                launchRequest.items.all { item ->
+                    item.serverId?.let(personal::canAccessServer) ?: !personal.policy.value.child
+                }
+        if (!permitted()) {
+            Toast.makeText(this, "当前家庭资料无权访问此内容", Toast.LENGTH_LONG).show()
+            finish()
+            return
+        }
+        personalAccessJob?.cancel()
+        personalAccessJob =
+            lifecycleScope.launch {
+                personal.state.collect {
+                    if (!permitted()) {
+                        activePlayer?.pause()
+                        finish()
+                    }
+                }
+            }
         val launchGeneration = ++playerLaunchGeneration
         launchViewModel.request = launchRequest
         val items =

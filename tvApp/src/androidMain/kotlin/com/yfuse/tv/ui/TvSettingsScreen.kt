@@ -63,6 +63,20 @@ internal fun TvSettingsScreen(
                 contentRequester = contentRequester,
                 onOpen = { page = it },
             )
+        TvSettingsPage.Personal,
+        TvSettingsPage.Family,
+        TvSettingsPage.SyncStatus,
+        TvSettingsPage.Handoff,
+        TvSettingsPage.Trakt,
+        ->
+            TvProductSettingsPage(
+                page = page,
+                component = component,
+                focusMemory = focusMemory,
+                navigationRequester = navigationRequester,
+                firstRowRequester = pageRequester,
+                onBack = { page = TvSettingsPage.Root },
+            )
         TvSettingsPage.Account ->
             TvAccountSettingsPage(
                 component = component,
@@ -165,6 +179,7 @@ private fun TvSettingsRootPage(
     val dialogAnimation by component.themePreferences.dialogAnimation.collectAsState()
     val autoNext by component.themePreferences.autoNext.collectAsState()
     val account by component.account.state.collectAsState()
+    val personal by component.personal.state.collectAsState()
     val danmakuEnabled by component.danmakuPreferences.enabled.collectAsState()
     val downloads by component.offlineMedia.items.collectAsState()
     val downloadCount = downloads.size
@@ -231,6 +246,32 @@ private fun TvSettingsRootPage(
             }
         }
 
+        item(key = "settings-section-personal") {
+            TvSettingsSectionTitle("我的 · ${personal.activeProfile.name}")
+        }
+        listOf(
+            TvSettingsPage.Personal,
+            TvSettingsPage.Family,
+            TvSettingsPage.SyncStatus,
+            TvSettingsPage.Handoff,
+            TvSettingsPage.Trakt,
+        ).forEach { target ->
+            item(key = "settings-product:${target.name}") {
+                TvSettingRow(
+                    title = target.title,
+                    value = if (target == TvSettingsPage.Family) personal.activeProfile.name else "",
+                    stableId = "settings:product:${target.name}",
+                    focusMemory = focusMemory,
+                    onClick = { onOpen(target) },
+                    icon = if (target == TvSettingsPage.Personal) AppIcons.Heart else AppIcons.User,
+                    focusScope = scope,
+                    subtitle = target.subtitle,
+                    focusRequester = contentRequester.takeIf { target == TvSettingsPage.Personal },
+                    navigationRequester = navigationRequester,
+                )
+            }
+        }
+
         item(key = "settings-section-server") {
             TvSettingsSectionTitle("服务器与账号")
         }
@@ -244,7 +285,6 @@ private fun TvSettingsRootPage(
                 icon = AppIcons.TabServers,
                 focusScope = scope,
                 subtitle = "添加、切换与登出媒体服务器",
-                focusRequester = contentRequester,
                 navigationRequester = navigationRequester,
             )
         }
@@ -472,6 +512,11 @@ private fun TvSettingsRootPage(
  */
 private val tvSettingsKeywords: Map<TvSettingsPage, String> =
     mapOf(
+        TvSettingsPage.Personal to "想看 收藏 观看 历史 清单 我的",
+        TvSettingsPage.Family to "家庭 用户 儿童 资料 新建 家长 PIN 隔离",
+        TvSettingsPage.SyncStatus to "同步 状态 重试 合并 冲突 恢复",
+        TvSettingsPage.Handoff to "接力 设备 手机 平板 电视 转移",
+        TvSettingsPage.Trakt to "trakt 历史 想看 授权 导入 上报",
         TvSettingsPage.Account to "登录 注册 同步 云端 密码 会话",
         TvSettingsPage.AccountSessions to "设备 退出 撤销 登录记录",
         TvSettingsPage.Playback to "进度 续播 片头 片尾 跳过 选源 隐私",

@@ -208,9 +208,17 @@ fun DetailScreen(component: DetailComponent) {
         serverVersions.firstOrNull { it.id == state.selectedVersionId }
             ?: serverVersions.firstOrNull()
     // 资源 has to describe the file that will play, not the server's default — see `describing`.
+    val sourceHealth by component.dependencies.serverHealthMonitor.health
+        .collectAsState()
+    val smartSourceRanking by component.dependencies.playbackPreferences.smartCrossServerSource
+        .collectAsState()
+    val sourceNetwork = currentPlaybackNetworkClass()
     val comparableSources =
         remember(
             state.sources,
+            sourceHealth,
+            smartSourceRanking,
+            sourceNetwork,
             selectedVersion,
             state.selectedSourceServerId,
             state.selectedSourceItemId,
@@ -224,17 +232,27 @@ fun DetailScreen(component: DetailComponent) {
                     selectedServerId = state.selectedSourceServerId,
                     selectedItemId = state.selectedSourceItemId,
                 ).let { sources ->
-                    if (component.dependencies.playbackPreferences.smartCrossServerSource.value) {
+                    if (smartSourceRanking) {
                         rankServerSources(
                             sources = sources,
-                            health = component.dependencies.serverHealthMonitor.health.value,
-                            network = currentPlaybackNetworkClass(),
+                            health = sourceHealth,
+                            network = sourceNetwork,
                         ).map { it.source }
                     } else {
                         sources.bestSourcesFirst()
                     }
                 }
         }
+    val sourcePresentation =
+        sourceSelectionPresentation(
+            sources = comparableSources,
+            selectedServerId = state.selectedSourceServerId,
+            selectedItemId = state.selectedSourceItemId,
+            selectedVersionName = selectedVersion?.name?.ifBlank { selectedVersion.qualityLabel },
+            health = sourceHealth,
+            network = sourceNetwork,
+            smartRanking = smartSourceRanking,
+        )
     // The action describes what will play. Server identity belongs to 资源; putting it here
     // made labels such as "WordPress · S1 E3" look like episode metadata.
     val playDetailLine =
@@ -550,6 +568,15 @@ fun DetailScreen(component: DetailComponent) {
                                     }
                                 }
 
+                                state.server?.let { server ->
+                                    motionItem(key = "personal-lists") {
+                                        com.yfuse.feature.personal.PersonalMediaActions(
+                                            detail,
+                                            server.id,
+                                            Modifier.sectionPadding(),
+                                        )
+                                    }
+                                }
                                 val overview = detail.overview
                                 if (!overview.isNullOrBlank()) {
                                     motionItem(key = "overview") {
@@ -658,6 +685,7 @@ fun DetailScreen(component: DetailComponent) {
                                         AnimatedColorContent(detailAccentState) { detailAccent ->
                                             SourceSection(
                                                 sources = comparableSources,
+                                                presentation = sourcePresentation,
                                                 selectedServerId = state.selectedSourceServerId,
                                                 selectedItemId = state.selectedSourceItemId,
                                                 accent = detailAccent,
@@ -959,6 +987,7 @@ fun DetailScreen(component: DetailComponent) {
                     AnimatedColorContent(detailAccentState) { detailAccent ->
                         SourceListDialog(
                             sources = comparableSources,
+                            presentation = sourcePresentation,
                             selectedServerId = state.selectedSourceServerId,
                             selectedItemId = state.selectedSourceItemId,
                             accent = detailAccent,

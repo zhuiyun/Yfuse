@@ -17,6 +17,26 @@ import kotlin.test.assertTrue
 
 class AndroidPlaybackHttpProxyTest {
     @Test
+    fun rewritten_manifest_segments_are_served_by_the_same_live_proxy() {
+        MockWebServer().use { upstream ->
+            upstream.enqueue(
+                MockResponse()
+                    .setHeader("Content-Type", "application/vnd.apple.mpegurl")
+                    .setBody("#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXTINF:6,\nsegment.ts\n"),
+            )
+            upstream.enqueue(MockResponse().setBody("segment-bytes"))
+            upstream.start()
+            AndroidPlaybackHttpProxy(context = null, userAgent = "proxy-test", videoCacheBytes = 0).use { proxy ->
+                val manifest = readProxyBody(proxy.localUrl(upstream.url("/live.m3u8").toString()))
+                val segment = manifest.lineSequence().first { it.startsWith("http://127.0.0.1:") }
+                assertEquals("segment-bytes", readProxyBody(segment))
+                assertEquals("/live.m3u8", upstream.takeRequest(2, TimeUnit.SECONDS)?.path)
+                assertEquals("/segment.ts", upstream.takeRequest(2, TimeUnit.SECONDS)?.path)
+            }
+        }
+    }
+
+    @Test
     fun close_does_not_wait_for_an_upstream_that_has_not_sent_response_headers() {
         MockWebServer().use { upstream ->
             upstream.enqueue(MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE))
@@ -161,5 +181,17 @@ class AndroidPlaybackHttpProxyTest {
             ),
             localized.keys,
         )
+    }
+
+    private fun readProxyBody(url: String): String {
+        val local = URI(url)
+        return Socket(local.host, local.port).use { client ->
+            client.soTimeout = 2_000
+            client.getOutputStream().write("GET ${local.rawPath} HTTP/1.1\r\nHost: localhost\r\n\r\n".toByteArray())
+            val input = client.getInputStream().bufferedReader()
+            assertTrue(assertNotNull(input.readLine()).contains("200"))
+            while (!input.readLine().isNullOrEmpty()) Unit
+            input.readText()
+        }
     }
 }

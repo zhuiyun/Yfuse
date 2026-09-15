@@ -3,6 +3,7 @@ package com.yfuse.tv.ui
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -19,6 +20,7 @@ import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.migration.MigrationRelayApi
 import com.yfuse.feature.profile.ProfileComponent
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -48,31 +50,46 @@ internal fun TvServerBackupPage(
     val state by component.store.states.collectAsState(component.store.state)
     val relayApi = remember { MigrationRelayApi() }
 
+    DisposableEffect(relayApi) {
+        onDispose(relayApi::close)
+    }
+
     val backupDirectory =
-        remember { File(context.getExternalFilesDir(null), "backups").apply { mkdirs() } }
+        remember { File(context.getExternalFilesDir(null) ?: context.filesDir, "backups") }
     var revision by remember { mutableIntStateOf(0) }
-    var files by remember { mutableStateOf<List<File>>(emptyList()) }
+    var files by remember { mutableStateOf<List<TvBackupFile>>(emptyList()) }
     var passphrase by remember { mutableStateOf("") }
     var selectedFile by remember { mutableStateOf<File?>(null) }
+    var selectedBackup by remember { mutableStateOf<TvSelectedBackup?>(null) }
+    var loadingSelection by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(revision) {
-        files =
-            withContext(Dispatchers.IO) {
-                backupDirectory
-                    .listFiles { file -> file.isFile && file.length() > 0L }
-                    ?.sortedByDescending(File::lastModified)
-                    ?: emptyList()
-            }
+        try {
+            files = listTvBackupFiles(backupDirectory)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            status = "无法读取备份目录：${error.message ?: "请稍后重试"}"
+        }
     }
 
-    val selectedIsRelay =
-        remember(selectedFile, revision) {
-            selectedFile?.let { file ->
-                runCatching { component.isRelayServers(file.readText()) }.getOrDefault(false)
-            } ?: false
+    LaunchedEffect(selectedFile, revision) {
+        selectedBackup = null
+        val file = selectedFile ?: return@LaunchedEffect
+        loadingSelection = true
+        try {
+            selectedBackup = loadTvBackupFile(file, component::isRelayServers)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            status = "无法读取备份：${error.message ?: "请重新选择文件"}"
+        } finally {
+            loadingSelection = false
         }
+    }
+    val selectedIsRelay = selectedBackup?.isRelay == true
 
     TvSettingsPageScaffold(page = TvSettingsPage.ServerBackup, status = status) {
         item(key = "backup-summary") {
@@ -107,19 +124,28 @@ internal fun TvServerBackupPage(
                     val secret = passphrase.toCharArray()
                     scope.launch {
                         val result =
-                            withContext(Dispatchers.IO) {
-                                component
-                                    .exportServers(secret, System.currentTimeMillis() / 1_000L)
-                                    .mapCatching { payload ->
-                                        val stamp =
-                                            SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
-                                        val target = File(backupDirectory, "yfuse-servers-$stamp.json")
-                                        target.writeText(payload)
-                                        target.absolutePath
-                                    }
+                            try {
+                                withContext(Dispatchers.IO) {
+                                    check(backupDirectory.isDirectory || backupDirectory.mkdirs()) { "无法创建备份目录" }
+                                    val payload =
+                                        component
+                                            .exportServers(
+                                                secret,
+                                                System.currentTimeMillis() / 1_000L,
+                                            ).getOrThrow()
+                                    val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
+                                    val target = File(backupDirectory, "yfuse-servers-$stamp.json")
+                                    target.writeText(payload)
+                                    Result.success(target.absolutePath)
+                                }
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (error: Exception) {
+                                Result.failure(error)
+                            } finally {
+                                secret.fill('\u0000')
+                                busy = false
                             }
-                        secret.fill(' ')
-                        busy = false
                         revision++
                         status =
                             result.fold(
@@ -143,7 +169,8 @@ internal fun TvServerBackupPage(
                 TvSettingsNote("${backupDirectory.absolutePath} 里还没有备份文件。把手机导出的文件放进这个目录即可导入。")
             }
         }
-        files.forEach { file ->
+        files.forEach { entry ->
+            val file = entry.file
             item(key = "backup-file:${file.name}") {
                 TvSettingRow(
                     title = file.name,
@@ -151,13 +178,15 @@ internal fun TvServerBackupPage(
                     stableId = "backup:file:${file.name}",
                     focusMemory = focusMemory,
                     onClick = {
-                        selectedFile = file
+                        if (selectedFile == file) revision++ else selectedFile = file
+                        selectedBackup = null
                         status = null
                     },
                     icon = AppIcons.PlaybackSource,
                     focusScope = focusScope,
-                    subtitle = "${formatBytes(file.length())} · ${formatEpoch(file.lastModified())}",
+                    subtitle = "${formatBytes(entry.sizeBytes)} · ${formatEpoch(entry.modifiedAt)}",
                     selected = selectedFile?.name == file.name,
+                    enabled = !busy,
                     navigationRequester = navigationRequester,
                 )
             }
@@ -165,7 +194,9 @@ internal fun TvServerBackupPage(
         selectedFile?.let { file ->
             item(key = "backup-selected-hint") {
                 TvSettingsNote(
-                    if (selectedIsRelay) {
+                    if (loadingSelection || selectedBackup == null) {
+                        if (loadingSelection) "正在读取备份…" else "请重新选择可读取的备份文件。"
+                    } else if (selectedIsRelay) {
                         "这是一次性迁移包，请在上方输入源设备显示的 6 位迁移码。"
                     } else {
                         "这是口令保护的备份，请在上方输入导出时设置的口令。"
@@ -180,43 +211,21 @@ internal fun TvServerBackupPage(
                     stableId = "backup:import",
                     focusMemory = focusMemory,
                     onClick = {
+                        val backup = selectedBackup?.takeIf { it.file == file } ?: return@TvSettingRow
+                        val enteredPassphrase = passphrase
                         busy = true
                         status = null
                         scope.launch {
-                            val now = System.currentTimeMillis() / 1_000L
                             val result =
-                                runCatching {
-                                    val payload = withContext(Dispatchers.IO) { file.readText() }
-                                    if (component.isRelayServers(payload)) {
-                                        require(passphrase.length == 6 && passphrase.all { it in '0'..'9' }) {
-                                            "请输入 6 位数字迁移码"
-                                        }
-                                        val descriptor = component.inspectRelayServers(payload)
-                                        val secret =
-                                            relayApi.redeem(
-                                                descriptor.relayId,
-                                                passphrase,
-                                                descriptor.payloadSha256,
-                                            )
-                                        try {
-                                            withContext(Dispatchers.Default) {
-                                                component.importRelayServers(payload, secret, now).getOrThrow()
-                                            }
-                                        } finally {
-                                            secret.fill(0)
-                                        }
-                                    } else {
-                                        val secret = passphrase.toCharArray()
-                                        try {
-                                            withContext(Dispatchers.Default) {
-                                                component.importServers(payload, secret, now).getOrThrow()
-                                            }
-                                        } finally {
-                                            secret.fill(' ')
-                                        }
-                                    }
+                                try {
+                                    Result.success(importTvBackup(backup, enteredPassphrase, component, relayApi))
+                                } catch (cancelled: CancellationException) {
+                                    throw cancelled
+                                } catch (error: Exception) {
+                                    Result.failure(error)
+                                } finally {
+                                    busy = false
                                 }
-                            busy = false
                             status =
                                 result.fold(
                                     onSuccess = { count ->
@@ -231,7 +240,7 @@ internal fun TvServerBackupPage(
                     icon = AppIcons.Check,
                     focusScope = focusScope,
                     subtitle = "同名服务器会被覆盖，其余保持不变",
-                    enabled = !busy && passphrase.isNotBlank(),
+                    enabled = !busy && !loadingSelection && selectedBackup?.file == file && passphrase.isNotBlank(),
                     navigationRequester = navigationRequester,
                 )
             }

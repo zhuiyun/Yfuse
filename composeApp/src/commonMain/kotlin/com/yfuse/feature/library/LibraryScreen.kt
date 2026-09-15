@@ -21,6 +21,13 @@ fun LibraryScreen(component: LibraryComponent) {
     ) { entry ->
         val instance = entry.instance
         when (instance) {
+            LibraryComponent.Child.Unified ->
+                UnifiedLibraryScreen(
+                    repository = component.repo,
+                    registry = component.registry,
+                    onBack = component::navigateBack,
+                    onOpenItem = { serverId, itemId -> component.openDetail(serverId, itemId) },
+                )
             is LibraryComponent.Child.Home -> LibraryHomeScreen(instance.component)
             is LibraryComponent.Child.Grid -> LibraryGridScreen(instance.component)
             is LibraryComponent.Child.Detail -> DetailScreen(instance.component)

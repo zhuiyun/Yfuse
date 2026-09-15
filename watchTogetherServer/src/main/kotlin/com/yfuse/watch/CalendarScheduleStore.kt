@@ -44,6 +44,7 @@ private class SqliteCalendarScheduleStore private constructor(
 ) : CalendarScheduleStore {
     private val lock = Any()
     private val json = Json { encodeDefaults = true }
+    private var cachedSnapshot: PublicationSnapshot? = null
 
     init {
         synchronized(lock) {
@@ -114,9 +115,17 @@ private class SqliteCalendarScheduleStore private constructor(
                     )
                     """.trimIndent(),
                 )
-                runCatching { statement.execute("ALTER TABLE calendar_series ADD COLUMN origin TEXT NOT NULL DEFAULT 'Domestic'") }
+                runCatching {
+                    statement.execute(
+                        "ALTER TABLE calendar_series ADD COLUMN origin TEXT NOT NULL DEFAULT 'Domestic'",
+                    )
+                }
                 runCatching { statement.execute("ALTER TABLE calendar_series ADD COLUMN availability_region TEXT") }
-                runCatching { statement.execute("ALTER TABLE calendar_series ADD COLUMN release_mode TEXT NOT NULL DEFAULT 'Scheduled'") }
+                runCatching {
+                    statement.execute(
+                        "ALTER TABLE calendar_series ADD COLUMN release_mode TEXT NOT NULL DEFAULT 'Scheduled'",
+                    )
+                }
                 runCatching { statement.execute("ALTER TABLE calendar_episodes ADD COLUMN release_at_utc TEXT") }
                 runCatching { statement.execute("ALTER TABLE calendar_episodes ADD COLUMN release_at_beijing TEXT") }
                 statement.execute(
@@ -168,132 +177,149 @@ private class SqliteCalendarScheduleStore private constructor(
 
     override fun current(): CalendarPublication? =
         synchronized(lock) {
-            val header = currentHeader() ?: return@synchronized null
-            val schedules =
-                connection
-                    .prepareStatement(
-                        """
-                        SELECT
-                            tmdb_id,
-                            season_number,
-                            title,
-                            poster_path,
-                            air_time,
-                            time_zone_id,
-                            origin,
-                            availability_region,
-                            release_mode,
-                            platforms_json,
-                            access_tier,
-                            source_url,
-                            updated_at,
-                            authority,
-                            confidence
-                        FROM calendar_series
-                        WHERE publication_id = ?
-                        ORDER BY tmdb_id, season_number
-                        """.trimIndent(),
-                    ).use { statement ->
-                        statement.setLong(1, header.id)
-                        statement.executeQuery().use { result ->
-                            buildList {
-                                while (result.next()) {
-                                    val tmdbId = result.getInt("tmdb_id")
-                                    val seasonNumber = result.getInt("season_number")
-                                    add(
-                                        CalendarSeries(
-                                            tmdbId = tmdbId,
-                                            seasonNumber = seasonNumber,
-                                            title = result.getString("title"),
-                                            posterPath = result.getString("poster_path"),
-                                            airTime = result.getString("air_time").takeIf(String::isNotBlank),
-                                            timeZoneId = result.getString("time_zone_id").takeIf(String::isNotBlank),
-                                            origin = result.getString("origin"),
-                                            availabilityRegion = result.getString("availability_region"),
-                                            releaseMode = result.getString("release_mode"),
-                                            platforms =
-                                                json.decodeFromString(
-                                                    result.getString("platforms_json"),
-                                                ),
-                                            accessTier = result.getString("access_tier"),
-                                            sourceUrl = result.getString("source_url"),
-                                            revision = header.revision,
-                                            updatedAt = result.getString("updated_at"),
-                                            authority = result.getString("authority"),
-                                            confidence = result.getInt("confidence"),
-                                            evidence = readEvidence(header.id, tmdbId, seasonNumber),
-                                            episodes = readEpisodes(header.id, tmdbId, seasonNumber),
-                                        ),
-                                    )
-                                }
+            transaction {
+                // A separate collector connection may publish or prune while this reader is open.
+                // Keep the header and cold reads in one SQLite snapshot; only the header is read
+                // on a cache hit, including conditional HTTP requests for the same revision.
+                val header = currentHeader()
+                if (header == null) {
+                    cachedSnapshot = null
+                    return@transaction null
+                }
+                cachedSnapshot?.takeIf { it.header == header }?.let { return@transaction it.publication }
+                readPublication(header).also { cachedSnapshot = PublicationSnapshot(header, it) }
+            }
+        }
+
+    private fun readPublication(header: PublicationHeader): CalendarPublication {
+        val evidenceBySeries = readEvidence(header.id)
+        val episodesBySeries = readEpisodes(header.id)
+        val schedules =
+            connection
+                .prepareStatement(
+                    """
+                    SELECT
+                        tmdb_id,
+                        season_number,
+                        title,
+                        poster_path,
+                        air_time,
+                        time_zone_id,
+                        origin,
+                        availability_region,
+                        release_mode,
+                        platforms_json,
+                        access_tier,
+                        source_url,
+                        updated_at,
+                        authority,
+                        confidence
+                    FROM calendar_series
+                    WHERE publication_id = ?
+                    ORDER BY tmdb_id, season_number
+                    """.trimIndent(),
+                ).use { statement ->
+                    statement.setLong(1, header.id)
+                    statement.executeQuery().use { result ->
+                        buildList {
+                            while (result.next()) {
+                                val tmdbId = result.getInt("tmdb_id")
+                                val seasonNumber = result.getInt("season_number")
+                                val seriesKey = SeriesKey(tmdbId, seasonNumber)
+                                add(
+                                    CalendarSeries(
+                                        tmdbId = tmdbId,
+                                        seasonNumber = seasonNumber,
+                                        title = result.getString("title"),
+                                        posterPath = result.getString("poster_path"),
+                                        airTime = result.getString("air_time").takeIf(String::isNotBlank),
+                                        timeZoneId = result.getString("time_zone_id").takeIf(String::isNotBlank),
+                                        origin = result.getString("origin"),
+                                        availabilityRegion = result.getString("availability_region"),
+                                        releaseMode = result.getString("release_mode"),
+                                        platforms =
+                                            json.decodeFromString(
+                                                result.getString("platforms_json"),
+                                            ),
+                                        accessTier = result.getString("access_tier"),
+                                        sourceUrl = result.getString("source_url"),
+                                        revision = header.revision,
+                                        updatedAt = result.getString("updated_at"),
+                                        authority = result.getString("authority"),
+                                        confidence = result.getInt("confidence"),
+                                        evidence = evidenceBySeries[seriesKey].orEmpty(),
+                                        episodes = episodesBySeries[seriesKey].orEmpty(),
+                                    ),
+                                )
                             }
                         }
                     }
-            CalendarPublication(
-                revision = header.revision,
-                generatedAt = header.generatedAt,
-                schedules = schedules,
-            ).also(::validateCalendarPublication)
-        }
+                }
+        return CalendarPublication(
+            revision = header.revision,
+            generatedAt = header.generatedAt,
+            schedules = schedules,
+        ).immutableCalendarSnapshot().also(::validateCalendarPublication)
+    }
 
     override fun replace(publication: CalendarPublication): Boolean {
-        validateCalendarPublication(publication)
+        val snapshot = publication.immutableCalendarSnapshot()
+        validateCalendarPublication(snapshot)
         return synchronized(lock) {
-            val current = currentHeader()
-            if (current?.revision == publication.revision) return@synchronized false
-            require(
-                current == null ||
-                    calendarServerRevisionIsAtLeast(publication.revision, current.revision),
-            ) {
-                "Calendar revision rollback rejected: ${publication.revision} < ${current?.revision}"
-            }
-
-            val previousAutoCommit = connection.autoCommit
-            connection.autoCommit = false
-            try {
-                connection
-                    .prepareStatement(
-                        """
-                        INSERT INTO calendar_publications(revision, generated_at, stored_at_ms)
-                        VALUES (?, ?, ?)
-                        """.trimIndent(),
-                    ).use { statement ->
-                        statement.setString(1, publication.revision)
-                        statement.setString(2, publication.generatedAt)
-                        statement.setLong(3, System.currentTimeMillis())
-                        statement.executeUpdate()
+            val publicationId =
+                transaction {
+                    val current = currentHeader()
+                    if (current?.revision == snapshot.revision) return@transaction null
+                    require(
+                        current == null ||
+                            calendarServerRevisionIsAtLeast(snapshot.revision, current.revision),
+                    ) {
+                        "Calendar revision rollback rejected: ${snapshot.revision} < ${current?.revision}"
                     }
-                val publicationId = publicationId(publication.revision)
-                publication.schedules.forEach { schedule ->
-                    insertSeries(publicationId, schedule)
-                    insertEpisodes(publicationId, schedule)
-                    insertEvidence(publicationId, schedule)
-                }
-                connection
-                    .prepareStatement(
-                        """
-                        INSERT INTO calendar_current(singleton, publication_id)
-                        VALUES (1, ?)
-                        ON CONFLICT(singleton) DO UPDATE SET publication_id = excluded.publication_id
-                        """.trimIndent(),
-                    ).use { statement ->
-                        statement.setLong(1, publicationId)
-                        statement.executeUpdate()
+                    connection
+                        .prepareStatement(
+                            """
+                            INSERT INTO calendar_publications(revision, generated_at, stored_at_ms)
+                            VALUES (?, ?, ?)
+                            """.trimIndent(),
+                        ).use { statement ->
+                            statement.setString(1, snapshot.revision)
+                            statement.setString(2, snapshot.generatedAt)
+                            statement.setLong(3, System.currentTimeMillis())
+                            statement.executeUpdate()
+                        }
+                    val publicationId = publicationId(snapshot.revision)
+                    snapshot.schedules.forEach { schedule ->
+                        insertSeries(publicationId, schedule)
+                        insertEpisodes(publicationId, schedule)
+                        insertEvidence(publicationId, schedule)
                     }
-                pruneOldPublications()
-                connection.commit()
-                true
-            } catch (failure: Exception) {
-                runCatching(connection::rollback)
-                throw failure
-            } finally {
-                connection.autoCommit = previousAutoCommit
-            }
+                    connection
+                        .prepareStatement(
+                            """
+                            INSERT INTO calendar_current(singleton, publication_id)
+                            VALUES (1, ?)
+                            ON CONFLICT(singleton) DO UPDATE SET publication_id = excluded.publication_id
+                            """.trimIndent(),
+                        ).use { statement ->
+                            statement.setLong(1, publicationId)
+                            statement.executeUpdate()
+                        }
+                    pruneOldPublications()
+                    publicationId
+                } ?: return@synchronized false
+            cachedSnapshot =
+                PublicationSnapshot(
+                    PublicationHeader(publicationId, snapshot.revision, snapshot.generatedAt),
+                    snapshot,
+                )
+            true
         }
     }
 
     override fun close() {
         synchronized(lock) {
+            cachedSnapshot = null
             connection.close()
         }
     }
@@ -415,48 +441,41 @@ private class SqliteCalendarScheduleStore private constructor(
             }
     }
 
-    private fun readEpisodes(
-        publicationId: Long,
-        tmdbId: Int,
-        seasonNumber: Int,
-    ): List<CalendarEpisode> =
+    private fun readEpisodes(publicationId: Long): Map<SeriesKey, List<CalendarEpisode>> =
         connection
             .prepareStatement(
                 """
-                SELECT episode_number, air_date, release_at_utc, release_at_beijing
+                SELECT tmdb_id, season_number, episode_number, air_date, release_at_utc, release_at_beijing
                 FROM calendar_episodes
-                WHERE publication_id = ? AND tmdb_id = ? AND season_number = ?
-                ORDER BY episode_number
+                WHERE publication_id = ?
+                ORDER BY tmdb_id, season_number, episode_number
                 """.trimIndent(),
             ).use { statement ->
                 statement.setLong(1, publicationId)
-                statement.setInt(2, tmdbId)
-                statement.setInt(3, seasonNumber)
                 statement.executeQuery().use { result ->
-                    buildList {
-                        while (result.next()) {
-                            add(
-                                CalendarEpisode(
-                                    episodeNumber = result.getInt("episode_number"),
-                                    airDate = result.getString("air_date"),
-                                    releaseAtUtc = result.getString("release_at_utc"),
-                                    releaseAtBeijing = result.getString("release_at_beijing"),
-                                ),
-                            )
-                        }
+                    val episodes = mutableMapOf<SeriesKey, MutableList<CalendarEpisode>>()
+                    while (result.next()) {
+                        val key = SeriesKey(result.getInt("tmdb_id"), result.getInt("season_number"))
+                        episodes.getOrPut(key) { mutableListOf() }.add(
+                            CalendarEpisode(
+                                episodeNumber = result.getInt("episode_number"),
+                                airDate = result.getString("air_date"),
+                                releaseAtUtc = result.getString("release_at_utc"),
+                                releaseAtBeijing = result.getString("release_at_beijing"),
+                            ),
+                        )
                     }
+                    episodes
                 }
             }
 
-    private fun readEvidence(
-        publicationId: Long,
-        tmdbId: Int,
-        seasonNumber: Int,
-    ): List<CalendarEvidence> =
+    private fun readEvidence(publicationId: Long): Map<SeriesKey, List<CalendarEvidence>> =
         connection
             .prepareStatement(
                 """
                 SELECT
+                    tmdb_id,
+                    season_number,
                     type,
                     publisher,
                     source_url,
@@ -464,28 +483,27 @@ private class SqliteCalendarScheduleStore private constructor(
                     content_hash,
                     extraction_method
                 FROM calendar_evidence
-                WHERE publication_id = ? AND tmdb_id = ? AND season_number = ?
-                ORDER BY position
+                WHERE publication_id = ?
+                ORDER BY tmdb_id, season_number, position
                 """.trimIndent(),
             ).use { statement ->
                 statement.setLong(1, publicationId)
-                statement.setInt(2, tmdbId)
-                statement.setInt(3, seasonNumber)
                 statement.executeQuery().use { result ->
-                    buildList {
-                        while (result.next()) {
-                            add(
-                                CalendarEvidence(
-                                    type = result.getString("type"),
-                                    publisher = result.getString("publisher"),
-                                    sourceUrl = result.getString("source_url"),
-                                    capturedAt = result.getString("captured_at"),
-                                    contentHash = result.getString("content_hash"),
-                                    extractionMethod = result.getString("extraction_method"),
-                                ),
-                            )
-                        }
+                    val evidence = mutableMapOf<SeriesKey, MutableList<CalendarEvidence>>()
+                    while (result.next()) {
+                        val key = SeriesKey(result.getInt("tmdb_id"), result.getInt("season_number"))
+                        evidence.getOrPut(key) { mutableListOf() }.add(
+                            CalendarEvidence(
+                                type = result.getString("type"),
+                                publisher = result.getString("publisher"),
+                                sourceUrl = result.getString("source_url"),
+                                capturedAt = result.getString("captured_at"),
+                                contentHash = result.getString("content_hash"),
+                                extractionMethod = result.getString("extraction_method"),
+                            ),
+                        )
                     }
+                    evidence
                 }
             }
 
@@ -551,6 +569,29 @@ private class SqliteCalendarScheduleStore private constructor(
         val generatedAt: String,
     )
 
+    private data class PublicationSnapshot(
+        val header: PublicationHeader,
+        val publication: CalendarPublication,
+    )
+
+    private data class SeriesKey(
+        val tmdbId: Int,
+        val seasonNumber: Int,
+    )
+
+    private inline fun <T> transaction(block: () -> T): T {
+        val previousAutoCommit = connection.autoCommit
+        connection.autoCommit = false
+        return try {
+            block().also { connection.commit() }
+        } catch (failure: Throwable) {
+            runCatching(connection::rollback)
+            throw failure
+        } finally {
+            connection.autoCommit = previousAutoCommit
+        }
+    }
+
     companion object {
         private const val RETAINED_REVISIONS = 12
 
@@ -600,7 +641,8 @@ private fun calendarServerRevisionIsAtLeast(
     val current = parse(existing)
     return if (next != null && current != null) {
         next.first > current.first ||
-            next.first == current.first && next.second >= current.second
+            next.first == current.first &&
+            next.second >= current.second
     } else {
         candidate >= existing
     }

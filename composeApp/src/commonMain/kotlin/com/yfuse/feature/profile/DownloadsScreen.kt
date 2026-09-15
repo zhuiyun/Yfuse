@@ -150,7 +150,15 @@ internal fun DownloadsScreen(
     val palette = LocalPalette.current
     val accent = LocalAccent.current.color
     val largeText = LocalDensity.current.fontScale >= 1.3f
-    val items by manager.items.collectAsState()
+    val personal =
+        remember {
+            org.koin.core.context.GlobalContext
+                .get()
+                .get<com.yfuse.core.personal.PersonalLibraryRepository>()
+        }
+    val access by personal.policy.collectAsState()
+    val allItems by manager.items.collectAsState()
+    val items = remember(allItems, access) { allItems.filter { access.allowsServer(it.serverId) } }
     val wifiOnly by manager.wifiOnly.collectAsState()
     val policy by manager.policy.collectAsState()
     val autoDownloadRuleCount by manager.autoDownloadRuleCount.collectAsState()
@@ -158,8 +166,9 @@ internal fun DownloadsScreen(
     val indexStatus by manager.indexStatus.collectAsState()
     val pickStorageDirectory =
         rememberOfflineStorageDirectoryPicker { treeUri, label ->
-            manager.setStorageDirectory(treeUri, label)
+            if (personal.policy.value.canManageServers) manager.setStorageDirectory(treeUri, label)
         }
+    var showSettings by remember { mutableStateOf(false) }
     var filter by remember { mutableStateOf(DownloadFilter.All) }
     var sort by remember { mutableStateOf(DownloadSort.Updated) }
     var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
@@ -263,110 +272,153 @@ internal fun DownloadsScreen(
             // The one setting the page owns, as the settings row it is everywhere else in 我的 —
             // rather than a "下载策略" card that also held a sort control disguised as a status
             // line and a pair of queue buttons for a queue that is usually empty.
-            motionItem {
-                Section(title = "下载设置") {
-                    SettingsCard {
-                        SettingRow(
-                            title = "离线视频容量上限",
-                            value =
-                                com.yfuse.core.offline
-                                    .offlineVideoBudgetLabel(policy.storageBudgetBytes),
-                            embedded = true,
-                            onClick = {
-                                val options = com.yfuse.core.offline.offlineVideoBudgetOptions
-                                val next = options[(options.indexOf(policy.storageBudgetBytes) + 1) % options.size]
-                                manager.setDownloadBudget(
-                                    next,
-                                    policy.autoDownloadChargingOnly,
-                                    policy.windowStartMinute,
-                                    policy.windowEndMinute,
-                                )
-                            },
-                        )
-                        SettingsDivider()
-                        SwitchRow(
-                            "自动追更仅在充电时下载",
-                            policy.autoDownloadChargingOnly,
-                            embedded = true,
-                            onChange = {
-                                manager.setDownloadBudget(
-                                    policy.storageBudgetBytes,
-                                    it,
-                                    policy.windowStartMinute,
-                                    policy.windowEndMinute,
-                                )
-                            },
-                        )
-                        SettingsDivider()
-                        SettingRow(
-                            title = "允许下载时段",
-                            value =
-                                com.yfuse.core.offline.offlineDownloadWindowLabel(
-                                    policy.windowStartMinute,
-                                    policy.windowEndMinute,
-                                ),
-                            embedded = true,
-                            onClick = {
-                                val options = com.yfuse.core.offline.offlineDownloadWindowOptions
-                                val next =
-                                    options[
-                                        (options.indexOf(policy.windowStartMinute to policy.windowEndMinute) + 1) %
-                                            options.size,
-                                    ]
-                                manager.setDownloadBudget(
-                                    policy.storageBudgetBytes,
-                                    policy.autoDownloadChargingOnly,
-                                    next.first,
-                                    next.second,
-                                )
-                            },
-                        )
-                        SettingsDivider()
-                        SettingRow(
-                            title = "保存位置",
-                            value = "${policy.storageLabel ?: "应用内部存储"} ›",
-                            embedded = true,
-                            onClick = pickStorageDirectory,
-                            icon = AppIcons.Download,
-                            iconTint = SettingTint.downloads,
-                        )
-                        if (policy.storageTreeUri != null) {
+            motionItem(key = "download-settings-toggle") {
+                SettingRow(
+                    title = if (showSettings) "收起下载设置" else "下载设置",
+                    value = if (access.canManageServers) "Wi-Fi、容量、自动追更 ›" else "请切换至家长资料管理",
+                    onClick = { if (access.canManageServers) showSettings = !showSettings },
+                )
+            }
+            if (showSettings && access.canManageServers) {
+                motionItem {
+                    Section(title = "下载设置") {
+                        SettingsCard {
+                            SettingRow(
+                                title = "离线视频容量上限",
+                                value =
+                                    com.yfuse.core.offline
+                                        .offlineVideoBudgetLabel(policy.storageBudgetBytes),
+                                embedded = true,
+                                onClick = {
+                                    val options = com.yfuse.core.offline.offlineVideoBudgetOptions
+                                    val next = options[(options.indexOf(policy.storageBudgetBytes) + 1) % options.size]
+                                    manager.setDownloadBudget(
+                                        next,
+                                        policy.autoDownloadChargingOnly,
+                                        policy.windowStartMinute,
+                                        policy.windowEndMinute,
+                                    )
+                                },
+                            )
+                            SettingsDivider()
+                            SwitchRow(
+                                "自动追更仅在充电时下载",
+                                policy.autoDownloadChargingOnly,
+                                embedded = true,
+                                onChange = {
+                                    manager.setDownloadBudget(
+                                        policy.storageBudgetBytes,
+                                        it,
+                                        policy.windowStartMinute,
+                                        policy.windowEndMinute,
+                                    )
+                                },
+                            )
                             SettingsDivider()
                             SettingRow(
-                                title = "改回内部存储",
-                                value = "仅影响新下载 ›",
+                                title = "允许下载时段",
+                                value =
+                                    com.yfuse.core.offline.offlineDownloadWindowLabel(
+                                        policy.windowStartMinute,
+                                        policy.windowEndMinute,
+                                    ),
                                 embedded = true,
-                                onClick = { manager.setStorageDirectory(null) },
+                                onClick = {
+                                    val options = com.yfuse.core.offline.offlineDownloadWindowOptions
+                                    val next =
+                                        options[
+                                            (options.indexOf(policy.windowStartMinute to policy.windowEndMinute) + 1) %
+                                                options.size,
+                                        ]
+                                    manager.setDownloadBudget(
+                                        policy.storageBudgetBytes,
+                                        policy.autoDownloadChargingOnly,
+                                        next.first,
+                                        next.second,
+                                    )
+                                },
                             )
-                        }
-                        SettingsDivider()
-                        SwitchRow(
-                            "仅 Wi-Fi 下载",
-                            wifiOnly,
-                            embedded = true,
-                            icon = AppIcons.Download,
-                            iconTint = SettingTint.downloads,
-                            onChange = manager::setWifiOnly,
-                        )
-                        SettingsDivider()
-                        SwitchRow(
-                            "看完自动删除",
-                            policy.autoDeleteWatched,
-                            embedded = true,
-                            icon = AppIcons.Close,
-                            iconTint = SettingTint.downloads,
-                            onChange = manager::setAutoDeleteWatched,
-                        )
-                        SettingsDivider()
-                        SwitchRow(
-                            "自动下载新集",
-                            policy.autoDownloadEnabled,
-                            embedded = true,
-                            icon = AppIcons.Refresh,
-                            iconTint = SettingTint.downloads,
-                            onChange = manager::setAutoDownloadEnabled,
-                        )
-                        if (autoDownloadRuleCount > 0) {
+                            SettingsDivider()
+                            SettingRow(
+                                title = "保存位置",
+                                value = "${policy.storageLabel ?: "应用内部存储"} ›",
+                                embedded = true,
+                                onClick = pickStorageDirectory,
+                                icon = AppIcons.Download,
+                                iconTint = SettingTint.downloads,
+                            )
+                            if (policy.storageTreeUri != null) {
+                                SettingsDivider()
+                                SettingRow(
+                                    title = "改回内部存储",
+                                    value = "仅影响新下载 ›",
+                                    embedded = true,
+                                    onClick = { manager.setStorageDirectory(null) },
+                                )
+                            }
+                            SettingsDivider()
+                            SwitchRow(
+                                "仅 Wi-Fi 下载",
+                                wifiOnly,
+                                embedded = true,
+                                icon = AppIcons.Download,
+                                iconTint = SettingTint.downloads,
+                                onChange = manager::setWifiOnly,
+                            )
+                            SettingsDivider()
+                            SwitchRow(
+                                "看完自动删除",
+                                policy.autoDeleteWatched,
+                                embedded = true,
+                                icon = AppIcons.Close,
+                                iconTint = SettingTint.downloads,
+                                onChange = manager::setAutoDeleteWatched,
+                            )
+                            SettingsDivider()
+                            SwitchRow(
+                                "自动下载新集",
+                                policy.autoDownloadEnabled,
+                                embedded = true,
+                                icon = AppIcons.Refresh,
+                                iconTint = SettingTint.downloads,
+                                onChange = manager::setAutoDownloadEnabled,
+                            )
+                            if (autoDownloadRuleCount > 0) {
+                                SettingsDivider()
+                                Column(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 13.dp),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                                ) {
+                                    Column {
+                                        Text("追更保留数量", style = AppTypography.body.medium, color = palette.text)
+                                        Text(
+                                            "$autoDownloadRuleCount 条规则 · 每季最多保留",
+                                            style = AppTypography.caption.regular,
+                                            color = palette.sub2,
+                                        )
+                                    }
+                                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        motionItems(listOf(1, 3, 5, 10)) { count ->
+                                            DownloadChip(
+                                                label = count.toString(),
+                                                active = policy.autoDownloadItemLimit == count,
+                                                role = Role.RadioButton,
+                                                onClickLabel = "每季保留 $count 集",
+                                                onClick = { manager.setAutoDownloadItemLimit(count) },
+                                            )
+                                        }
+                                    }
+                                }
+                                SettingsDivider()
+                                SettingRow(
+                                    title = "清除追更规则",
+                                    value = "$autoDownloadRuleCount 条 ›",
+                                    embedded = true,
+                                    onClick = manager::clearAutoDownloadRules,
+                                )
+                            }
                             SettingsDivider()
                             Column(
                                 Modifier
@@ -375,53 +427,19 @@ internal fun DownloadsScreen(
                                 verticalArrangement = Arrangement.spacedBy(10.dp),
                             ) {
                                 Column {
-                                    Text("追更保留数量", style = AppTypography.body.medium, color = palette.text)
-                                    Text(
-                                        "$autoDownloadRuleCount 条规则 · 每季最多保留",
-                                        style = AppTypography.caption.regular,
-                                        color = palette.sub2,
-                                    )
+                                    Text("同时下载", style = AppTypography.body.medium, color = palette.text)
+                                    Text("1–3 个任务", style = AppTypography.caption.regular, color = palette.sub2)
                                 }
                                 LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    motionItems(listOf(1, 3, 5, 10)) { count ->
+                                    motionItems((1..3).toList()) { count ->
                                         DownloadChip(
                                             label = count.toString(),
-                                            active = policy.autoDownloadItemLimit == count,
+                                            active = policy.maxConcurrentDownloads == count,
                                             role = Role.RadioButton,
-                                            onClickLabel = "每季保留 $count 集",
-                                            onClick = { manager.setAutoDownloadItemLimit(count) },
+                                            onClickLabel = "同时下载 $count 个任务",
+                                            onClick = { manager.setMaxConcurrentDownloads(count) },
                                         )
                                     }
-                                }
-                            }
-                            SettingsDivider()
-                            SettingRow(
-                                title = "清除追更规则",
-                                value = "$autoDownloadRuleCount 条 ›",
-                                embedded = true,
-                                onClick = manager::clearAutoDownloadRules,
-                            )
-                        }
-                        SettingsDivider()
-                        Column(
-                            Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 13.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp),
-                        ) {
-                            Column {
-                                Text("同时下载", style = AppTypography.body.medium, color = palette.text)
-                                Text("1–3 个任务", style = AppTypography.caption.regular, color = palette.sub2)
-                            }
-                            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                motionItems((1..3).toList()) { count ->
-                                    DownloadChip(
-                                        label = count.toString(),
-                                        active = policy.maxConcurrentDownloads == count,
-                                        role = Role.RadioButton,
-                                        onClickLabel = "同时下载 $count 个任务",
-                                        onClick = { manager.setMaxConcurrentDownloads(count) },
-                                    )
                                 }
                             }
                         }
@@ -499,19 +517,19 @@ internal fun DownloadsScreen(
                         if (largeText) {
                             Column(queueActions, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 BatchAction("全部暂停", Modifier.fillMaxWidth(), enabled = canPauseAll) {
-                                    manager.pauseAll()
+                                    manager.pauseMany(items.map { it.id })
                                 }
                                 BatchAction("全部继续/重试", Modifier.fillMaxWidth(), enabled = canResumeAll) {
-                                    manager.resumeAll()
+                                    manager.resumeMany(items.map { it.id })
                                 }
                             }
                         } else {
                             Row(queueActions, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 BatchAction("全部暂停", Modifier.weight(1f), enabled = canPauseAll) {
-                                    manager.pauseAll()
+                                    manager.pauseMany(items.map { it.id })
                                 }
                                 BatchAction("全部继续/重试", Modifier.weight(1f), enabled = canResumeAll) {
-                                    manager.resumeAll()
+                                    manager.resumeMany(items.map { it.id })
                                 }
                             }
                         }

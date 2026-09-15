@@ -9,6 +9,8 @@ import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.network.EmbyError
 import com.yfuse.core.network.EmbyErrorException
+import com.yfuse.core.personal.PersonalAccessPolicy
+import com.yfuse.core.personal.PersonalLibraryRepository
 import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -50,9 +52,30 @@ class PlaybackSyncManager(
     private val progressSyncEnabled: StateFlow<Boolean> = MutableStateFlow(true),
     private val nowEpochMs: () -> Long = { System.currentTimeMillis() },
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+    private val personal: PersonalLibraryRepository? = null,
 ) {
     private val syncMutex = Mutex()
-    private val serverApplier = EmbyCompatiblePlaybackStateApplier(repo, registry, nowEpochMs)
+    private val serverApplier = EmbyCompatiblePlaybackStateApplier(repo, registry, nowEpochMs, personal)
+    private val sessionOwners = mutableMapOf<String, String>()
+    private var lastForegroundRefresh = Long.MIN_VALUE
+
+    /** Explicit recovery may retry a previously unavailable endpoint; it never blocks playback. */
+    fun refreshNow() {
+        scope.launch {
+            cloudPlaybackEndpointUnavailable = false
+            retryNotBeforeEpochMs = Long.MIN_VALUE
+            syncNow(pullRemote = true)
+        }
+    }
+
+    fun setAppForeground(foreground: Boolean) {
+        if (!foreground) return
+        val now = nowEpochMs()
+        if (lastForegroundRefresh != Long.MIN_VALUE && now - lastForegroundRefresh < 30_000) return
+        lastForegroundRefresh = now
+        scope.launch { syncNow(pullRemote = true) }
+    }
+
     private var started = false
     private var debounceJob: Job? = null
     private var urgentJob: Job? = null
@@ -80,7 +103,8 @@ class PlaybackSyncManager(
             combine(
                 accessTokens.sessionAvailable,
                 progressSyncEnabled,
-            ) { sessionAvailable, enabled ->
+                personal?.policy ?: MutableStateFlow(PersonalAccessPolicy()),
+            ) { sessionAvailable, enabled, _ ->
                 sessionAvailable && enabled
             }.collectLatest { active ->
                 if (!active) {
@@ -113,30 +137,50 @@ class PlaybackSyncManager(
         serverItemId: String?,
         trigger: PlaybackSyncTrigger,
     ) {
-        if (mediaKey.isBlank()) return
-        val completed =
-            trigger == PlaybackSyncTrigger.Completed ||
-                durationMs > 0L &&
-                positionMs >= (durationMs * COMPLETED_RATIO).toLong()
-        store.updatePlayback(
-            mediaKey = mediaKey,
-            aliases = aliases,
-            positionMs = positionMs,
-            durationMs = durationMs,
-            played = completed,
-            sessionId = sessionId,
-            serverId = serverId,
-            serverItemId = serverItemId,
-            mutationKind =
-                if (completed) {
-                    PlaybackMutationKind.AutoFinished
-                } else {
-                    PlaybackMutationKind.AutoProgress
-                },
-            trigger = trigger,
-        )
-        updatePendingState()
-        scheduleCloudSync(trigger.isImmediateCloudTrigger)
+        synchronized(personal?.coordinationLock ?: sessionOwners) {
+            if (mediaKey.isBlank()) return
+            if (personal != null) {
+                val token = personal.scopeToken
+                val owner =
+                    if (sessionId == null) {
+                        token
+                    } else {
+                        synchronized(sessionOwners) {
+                            sessionOwners.getOrPut(sessionId) { token }.also {
+                                if (sessionOwners.size >
+                                    128
+                                ) {
+                                    sessionOwners.keys.firstOrNull()?.let(sessionOwners::remove)
+                                }
+                            }
+                        }
+                    }
+                if (owner != token || serverId?.let { !personal.canAccessServer(it) } == true) return
+            }
+            val completed =
+                trigger == PlaybackSyncTrigger.Completed ||
+                    durationMs > 0L &&
+                    positionMs >= (durationMs * COMPLETED_RATIO).toLong()
+            store.updatePlayback(
+                mediaKey = mediaKey,
+                aliases = aliases,
+                positionMs = positionMs,
+                durationMs = durationMs,
+                played = completed,
+                sessionId = sessionId,
+                serverId = serverId,
+                serverItemId = serverItemId,
+                mutationKind =
+                    if (completed) {
+                        PlaybackMutationKind.AutoFinished
+                    } else {
+                        PlaybackMutationKind.AutoProgress
+                    },
+                trigger = trigger,
+            )
+            updatePendingState()
+            scheduleCloudSync(trigger.isImmediateCloudTrigger)
+        }
     }
 
     fun markRestarted(
@@ -337,6 +381,7 @@ class PlaybackSyncManager(
                     entityKey = accepted.entityKey,
                     mutationId = accepted.mutationId,
                     cursor = accepted.cursor,
+                    profileId = local.document.state.profileId,
                 )
             }
             response.conflicts.forEach { conflict ->
@@ -669,10 +714,11 @@ private class EmbyCompatiblePlaybackStateApplier(
     private val repo: EmbyRepository,
     private val registry: ServerRegistry,
     private val nowEpochMs: () -> Long,
+    private val personal: PersonalLibraryRepository? = null,
 ) {
     private val unavailableUntilByServerId = mutableMapOf<String, Long>()
 
-    fun serverMissing(serverId: String): Boolean = registry.serverById(serverId) == null
+    fun serverMissing(serverId: String): Boolean = registry.allDataForSync().servers.none { it.id == serverId }
 
     fun coolDownServer(
         serverId: String,
@@ -687,13 +733,18 @@ private class EmbyCompatiblePlaybackStateApplier(
         val hasPortableIdentity = keys.any { !it.startsWith("emby:", ignoreCase = true) }
         val candidates =
             if (hasPortableIdentity) {
-                registry.data.value.servers
+                registry
+                    .allDataForSync()
+                    .servers
                     .map { it.id }
             } else {
-                listOfNotNull(state.serverId?.takeIf { registry.serverById(it) != null })
+                listOfNotNull(state.serverId?.takeUnless(::serverMissing))
             }
         // Keep the target queued even during cooldown; otherwise new progress is lost.
-        return candidates
+        return candidates.filter {
+            personal == null ||
+                personal.policyForProfile(state.profileId)?.allowsServer(it) == true
+        }
     }
 
     fun cooldownUntil(serverId: String): Long? {
@@ -709,6 +760,13 @@ private class EmbyCompatiblePlaybackStateApplier(
     ): Result<Unit> =
         runCatching {
             val state = document.state
+            val owner = personal?.scopeToken
+            check(personal == null || personal.activeProfileId == state.profileId) { "资料已切换，保留同步任务" }
+            if (personal != null &&
+                personal.policyForProfile(state.profileId)?.allowsServer(serverId) != true
+            ) {
+                return@runCatching
+            }
             val server = registry.serverById(serverId) ?: return@runCatching
             val lookupKeys =
                 playbackLookupKeys(
@@ -730,6 +788,7 @@ private class EmbyCompatiblePlaybackStateApplier(
                         },
                     )
                 } ?: return@runCatching
+            check(personal == null || personal.scopeToken == owner) { "资料已切换，保留同步任务" }
             val isOrigin = server.id == state.serverId && item.id == state.serverItemId
             if (isOrigin && state.mutationKind != PlaybackMutationKind.ManualUnwatched) {
                 return@runCatching

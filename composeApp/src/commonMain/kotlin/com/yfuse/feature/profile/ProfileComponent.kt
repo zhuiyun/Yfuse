@@ -29,7 +29,37 @@ class ProfileComponent(
     /** Switches to the 服务器 tab, which owns the list this page used to embed. */
     val onOpenServers: () -> Unit,
     val dependencies: AppDependencies,
+    val onOpenPersonalMedia: (com.yfuse.core.personal.PersonalMediaRef) -> Unit = {},
 ) : ComponentContext by componentContext {
+    val repository by lazy {
+        org.koin.core.context.GlobalContext
+            .get()
+            .get<com.yfuse.core.data.EmbyRepository>()
+    }
+    val personal by lazy {
+        org.koin.core.context.GlobalContext
+            .get()
+            .get<com.yfuse.core.personal.PersonalLibraryRepository>()
+    }
+    val playbackSync by lazy {
+        org.koin.core.context.GlobalContext
+            .get()
+            .get<com.yfuse.core.sync.playback.PlaybackSyncManager>()
+    }
+    val handoff by lazy {
+        org.koin.core.context.GlobalContext
+            .get()
+            .get<com.yfuse.core.handoff.HandoffController>()
+    }
+    val trakt by lazy {
+        org.koin.core.context.GlobalContext
+            .get()
+            .get<com.yfuse.core.trakt.TraktRepository>()
+    }
+
+    fun familyServers() =
+        if (personal.policy.value.canManageServers) registry.allDataForSync().servers else registry.data.value.servers
+
     val store = ProfileStoreFactory(storeFactory, registry).create()
 
     val offlineMedia: OfflineMediaManager = dependencies.offlineMediaManager

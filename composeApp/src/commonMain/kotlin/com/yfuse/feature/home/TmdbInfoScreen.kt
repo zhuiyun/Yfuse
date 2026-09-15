@@ -255,6 +255,34 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                             }
                         }
 
+                        val personal =
+                            remember {
+                                org.koin.core.context.GlobalContext
+                                    .get()
+                                    .get<com.yfuse.core.personal.PersonalLibraryRepository>()
+                            }
+                        val personalState by personal.state.collectAsState()
+                        val personalMedia =
+                            remember(item) {
+                                com.yfuse.core.personal.PersonalMediaRef(
+                                    mediaKey = "tmdb:${item.id}",
+                                    title = item.title,
+                                    mediaType = if (item.mediaType == "tv") "Series" else "Movie",
+                                    tmdbId = item.id,
+                                    year = item.year?.toIntOrNull(),
+                                    posterPath = item.posterPath,
+                                )
+                            }
+                        val favorite = personalState.favorites.any { it.media.identity == personalMedia.identity }
+                        com.yfuse.feature.library.LibraryAction(if (favorite) "已加入 Yfuse 收藏 · 移除" else "加入 Yfuse 收藏") {
+                            personal.setFavorite(personalMedia, !favorite)
+                        }
+                        val wanted = personalState.watchLater.any { it.media.identity == personalMedia.identity }
+                        com.yfuse.feature.library.LibraryAction(if (wanted) "已加入 Yfuse 想看 · 移除" else "加入 Yfuse 想看") {
+                            personal.setWatchLater(personalMedia, !wanted)
+                        }
+                        personalState.error?.let { Text(it, style = AppTypography.caption.regular) }
+
                         AnimatedColorContent(themeAccentState) { themeAccent ->
                             TmdbPlayDock(
                                 playable = state.playable,

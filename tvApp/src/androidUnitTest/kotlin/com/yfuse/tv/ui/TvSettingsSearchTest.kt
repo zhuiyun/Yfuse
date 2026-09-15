@@ -44,6 +44,16 @@ class TvSettingsSearchTest {
     }
 
     @Test
+    fun `personal features are discoverable with everyday terms`() {
+        assertTrue(TvSettingsPage.Personal in searchTvSettings("想看"))
+        assertTrue(TvSettingsPage.Family in searchTvSettings("儿童"))
+        assertTrue(TvSettingsPage.Family in searchTvSettings("新建"))
+        assertTrue(TvSettingsPage.SyncStatus in searchTvSettings("冲突"))
+        assertTrue(TvSettingsPage.Handoff in searchTvSettings("手机"))
+        assertTrue(TvSettingsPage.Trakt in searchTvSettings("TRAKT"))
+    }
+
+    @Test
     fun `matching ignores case for latin keywords`() {
         assertEquals(
             searchTvSettings("YCORE"),

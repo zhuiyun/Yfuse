@@ -222,6 +222,7 @@ private fun utcDate(epochMs: Long): String {
 @Composable
 fun LibraryHomeScreen(component: LibraryHomeComponent) {
     val state by component.store.states.collectAsState(component.store.state)
+    val compactLibrary by component.themePreferences.compactLibrary.collectAsState()
     val store = component.store
     val baseUrl = state.currentServer?.baseUrl.orEmpty()
     // Image endpoints answer 401 without it on a server that requires authentication, so
@@ -299,6 +300,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
     }
     LaunchedEffect(
         slides.size,
+        compactLibrary,
         carouselDragging,
         reduceMotion,
         routeVisible,
@@ -310,6 +312,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
         // Same reasoning as 首页's reel: the largest moving thing on the page, and the one
         // 减弱动态效果 was not reaching.
         if (
+            compactLibrary ||
             !routeVisible ||
             !carouselVisible ||
             serverMenuOpen ||
@@ -355,11 +358,11 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                 if (showSidePreview) LivingPosterDefaults.LEADING_INSET else 0.dp
             val indicatorEnd =
                 if (showSidePreview) LivingPosterDefaults.TRAILING_PEEK else 0.dp
-            StatusBarIconStyle(darkIcons = (slide == null || lightPageReached) && !palette.isDark)
+            StatusBarIconStyle(darkIcons = (compactLibrary || slide == null || lightPageReached) && !palette.isDark)
             when {
                 state.currentServer == null ->
                     PageHint(
-                        "还没有默认服务器，请到「我的」添加",
+                        "当前资料没有可用服务器，请到「服务器」添加或由家长关联",
                         Modifier.align(Alignment.Center),
                     )
 
@@ -393,7 +396,33 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                 verticalArrangement = Arrangement.spacedBy(Dimens.sectionGap),
                                 contentPadding = PaddingValues(bottom = bottomContentInset),
                             ) {
-                                if (slide != null) {
+                                motionItem(key = "library-mode") {
+                                    Column(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 16.dp)) {
+                                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                            LibraryAction("全部服务器", onClick = component.onOpenUnified)
+                                            LibraryAction(if (compactLibrary) "显示大海报" else "紧凑模式") {
+                                                component.themePreferences.setCompactLibrary(!compactLibrary)
+                                            }
+                                        }
+                                        Text(
+                                            state.currentServer?.serverName.orEmpty(),
+                                            style = AppTypography.caption.regular,
+                                            color = palette.sub2,
+                                        )
+                                    }
+                                }
+                                if (compactLibrary && state.content.resume.isNotEmpty()) {
+                                    motionItem(key = "library-resume-first") {
+                                        PlaybackHistory(
+                                            baseUrl = baseUrl,
+                                            accessToken = accessToken,
+                                            serverId = state.currentServer?.id,
+                                            items = state.content.resume,
+                                            onItemClick = { component.onOpenItem(it.id) },
+                                        )
+                                    }
+                                }
+                                if (slide != null && !compactLibrary) {
                                     motionItem {
                                         Box(
                                             Modifier
@@ -595,7 +624,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                         )
                                     }
                                 }
-                                if (state.content.resume.isNotEmpty()) {
+                                if (!compactLibrary && state.content.resume.isNotEmpty()) {
                                     motionItem(key = "library-resume") {
                                         PlaybackHistory(
                                             baseUrl = baseUrl,

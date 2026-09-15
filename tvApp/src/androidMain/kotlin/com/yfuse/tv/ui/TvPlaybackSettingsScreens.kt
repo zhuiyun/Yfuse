@@ -160,20 +160,26 @@ internal fun TvAdvancedPlaybackSettingsPage(
                 navigationRequester = navigationRequester,
             )
         }
-        item(key = "advanced-engine") {
-            TvChoiceRow(
-                title = "高级内核选择",
-                options = PlaybackEngineSelection.entries,
-                selected = engineSelection,
-                label = { it.playbackOptionCopy().label },
-                stableId = "advanced:engine",
-                focusMemory = focusMemory,
-                onSelect = component.playbackPreferences::setEngineSelection,
-                icon = AppIcons.Movie,
-                focusScope = focusScope,
-                subtitle = engineSelection.playbackOptionCopy().description,
-                navigationRequester = navigationRequester,
-            )
+        if (com.yfuse.BuildConfig.YFUSE_NATIVE_ONLY_RUNTIME) {
+            item(key = "advanced-engine-native") {
+                TvSettingsNote("此电视版本使用 YCore 本地播放。系统、MPV 和 MDK 兼容内核不可切换；下方解码、缓冲和输出设置会作用于当前内核。")
+            }
+        } else {
+            item(key = "advanced-engine") {
+                TvChoiceRow(
+                    title = "高级内核选择",
+                    options = PlaybackEngineSelection.selectable,
+                    selected = engineSelection,
+                    label = { it.playbackOptionCopy().label },
+                    stableId = "advanced:engine",
+                    focusMemory = focusMemory,
+                    onSelect = component.playbackPreferences::setEngineSelection,
+                    icon = AppIcons.Movie,
+                    focusScope = focusScope,
+                    subtitle = engineSelection.playbackOptionCopy().description,
+                    navigationRequester = navigationRequester,
+                )
+            }
         }
         item(key = "advanced-decoder") {
             TvChoiceRow(

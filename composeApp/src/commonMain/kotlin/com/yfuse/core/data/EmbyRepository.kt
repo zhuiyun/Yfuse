@@ -271,10 +271,11 @@ class EmbyRepository(
         resource: PlexCloudResource,
         ownerAccountToken: String = accountToken,
     ): Result<AuthedServer> {
+        val account = plexCloud.currentUser(accountToken).getOrElse { return Result.failure(it) }
         val serverToken = resource.accessToken ?: accountToken
         var lastError: Throwable? = null
         resource.rankedConnections().forEach { connection ->
-            val authenticated = plex.authenticate(connection.uri, serverToken)
+            val authenticated = plex.authenticate(connection.uri, serverToken, account)
             authenticated.onSuccess { server ->
                 return Result.success(
                     server.copy(
@@ -1046,7 +1047,7 @@ class EmbyRepository(
         language: String = "zh",
     ): Result<List<RemoteSubtitleInfoDto>> =
         if (!server.kind.capabilities().subtitleStore) {
-            Result.success(emptyList())
+            Result.failure(UnsupportedOperationException("此服务器不提供字幕商店，可导入本地字幕"))
         } else {
             subtitleService.search(server, itemId, language)
         }

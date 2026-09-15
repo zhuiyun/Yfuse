@@ -131,7 +131,7 @@ class TmdbInfoComponent(
                 return
             }
         val server =
-            source?.serverId?.let(registry::serverById) ?: registry.defaultServer ?: run {
+            (if (source == null) registry.defaultServer else registry.serverById(source.serverId)) ?: run {
                 _state.update { it.copy(error = "没有可用的服务器") }
                 return
             }

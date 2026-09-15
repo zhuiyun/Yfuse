@@ -45,6 +45,13 @@ data class PlexHomeUser(
     val admin: Boolean,
 )
 
+/** An account subject returned by Plex for the active token, never a media-server owner label. */
+internal data class PlexAccountIdentity(
+    val id: String,
+    val name: String,
+    val aliases: Set<String>,
+)
+
 data class PlexCloudConnection(
     val uri: String,
     val local: Boolean,
@@ -113,6 +120,17 @@ private data class PlexHomeUserDto(
     val authToken: String? = null,
 )
 
+private fun PlexHomeUserDto.accountIdentity(): PlexAccountIdentity {
+    val numericId = id?.takeIf { it > 0 }?.toString()
+    val uuidId = uuid?.takeIf { it.matches(Regex("[A-Za-z0-9-]{1,128}")) }
+    val subject = numericId ?: uuidId ?: error("Plex 未返回有效的用户身份")
+    return PlexAccountIdentity(
+        id = "plex-user:$subject",
+        name = listOfNotNull(friendlyName, title, username).firstOrNull(String::isNotBlank) ?: "Plex 用户",
+        aliases = setOfNotNull(numericId, uuidId),
+    )
+}
+
 @Serializable
 private data class PlexConnectionDto(
     val uri: String = "",
@@ -135,6 +153,16 @@ private data class PlexResourceDto(
 internal class PlexCloudAccountService(
     private val client: HttpClient,
 ) {
+    suspend fun currentUser(accountToken: String): Result<PlexAccountIdentity> =
+        embyApiCall("plex_current_user") {
+            require(accountToken.isNotBlank()) { "Plex Token 不能为空" }
+            client
+                .get("$PLEX_CLOUD_ORIGIN/api/v2/user") {
+                    cloudHeaders(accountToken)
+                }.body<PlexHomeUserDto>()
+                .accountIdentity()
+        }
+
     suspend fun startPin(nowEpochMs: Long): Result<PlexPinSession> =
         embyApiCall("plex_pin_start") {
             val pin =
@@ -185,7 +213,8 @@ internal class PlexCloudAccountService(
                     cloudHeaders(accountToken)
                 }.body<List<PlexHomeUserDto>>()
                 .mapNotNull { user ->
-                    val id = user.uuid ?: user.id?.toString() ?: return@mapNotNull null
+                    val identity = runCatching { user.accountIdentity() }.getOrNull() ?: return@mapNotNull null
+                    val id = user.uuid?.takeIf { it in identity.aliases } ?: user.id.toString()
                     PlexHomeUser(
                         id = id,
                         name = user.friendlyName ?: user.title ?: user.username ?: "Plex 用户",
@@ -209,7 +238,12 @@ internal class PlexCloudAccountService(
                         cloudHeaders(accountToken)
                         if (pin.isNotEmpty()) parameter("pin", pin)
                     }.body<PlexHomeUserDto>()
-            requireNotNull(switched.authToken?.takeIf(String::isNotBlank)) { "Plex 未返回切换后的账号令牌" }
+            val identity = switched.accountIdentity()
+            require(userId in identity.aliases) { "Plex 返回的家庭用户与所选用户不一致" }
+            val token = requireNotNull(switched.authToken?.takeIf(String::isNotBlank)) { "Plex 未返回切换后的账号令牌" }
+            val active = currentUser(token).getOrThrow()
+            require(identity.aliases.any { it in active.aliases }) { "Plex 切换令牌不属于所选家庭用户" }
+            token
         }
 
     suspend fun resources(accountToken: String): Result<List<PlexCloudResource>> =

@@ -121,7 +121,7 @@ class RootComponent(
             registry = registry,
             history = searchHistory,
             dependencies = dependencies,
-            onOpenServerSettings = { selectTab(Tab.Profile) },
+            onOpenServerSettings = { selectTab(Tab.Servers) },
         )
 
     val profile =
@@ -133,12 +133,37 @@ class RootComponent(
             onEnterWatchRoom = ::enterWatchRoom,
             onOpenServers = { selectTab(Tab.Servers) },
             dependencies = dependencies,
+            onOpenPersonalMedia = { media ->
+                val serverId = media.serverId?.takeIf { registry.serverById(it) != null }
+                if (serverId != null && media.serverItemId != null) {
+                    browse.openDetail(serverId, media.serverItemId)
+                    selectTab(Tab.Browse)
+                } else if (media.tmdbId != null &&
+                    media.mediaType in setOf("Movie", "Series") &&
+                    !org.koin.core.context.GlobalContext
+                        .get()
+                        .get<com.yfuse.core.personal.PersonalLibraryRepository>()
+                        .policy.value.child
+                ) {
+                    home.openPersonalTitle(media)
+                    selectTab(Tab.Home)
+                } else {
+                    openSearch(media.title)
+                }
+            },
         )
 
     init {
         scope.launch {
             dependencies.searchRequests.requests.collect { query -> openSearch(query) }
         }
+    }
+
+    fun resetPersonalRoutes() {
+        home.popToRoot()
+        browse.popToRoot()
+        search.clearForProfileSwitch()
+        dependencies.watchTogether.leave()
     }
 
     fun selectTab(tab: Tab) {

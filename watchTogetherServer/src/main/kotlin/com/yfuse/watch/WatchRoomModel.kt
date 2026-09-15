@@ -117,6 +117,8 @@ internal class Room(
     var controlMode: ControlMode = ControlMode.HostOnly,
     val moderatorIds: MutableSet<String> = linkedSetOf(),
     val removedAccountUserIds: MutableSet<String> = linkedSetOf(),
+    val removedClientIds: MutableSet<String> = linkedSetOf(),
+    /** Keyed by device clientId; account ownership is checked before every reconnect. */
     val memberships: LinkedHashMap<String, Membership> = linkedMapOf(),
     val participants: LinkedHashMap<String, Participant> = linkedMapOf(),
     val chatHistory: ArrayDeque<WatchWireChatMessage> = ArrayDeque(),

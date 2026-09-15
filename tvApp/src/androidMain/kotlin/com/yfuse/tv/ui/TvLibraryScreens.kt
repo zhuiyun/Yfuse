@@ -101,6 +101,19 @@ internal fun TvLibraryHomeScreen(
         contentPadding = PaddingValues(top = TvSafeVertical, bottom = TvSafeVertical + 32.dp),
         verticalArrangement = Arrangement.spacedBy(25.dp),
     ) {
+        item(key = "library-all-servers") {
+            TvSettingRow(
+                title = "全部服务器",
+                value = "按作品浏览所有可访问片源",
+                stableId = "library:unified:open",
+                focusMemory = focusMemory,
+                onClick = component.onOpenUnified,
+                icon = AppIcons.TabLibrary,
+                focusScope = "library:unified-entry",
+                focusRequester = contentRequester,
+                navigationRequester = navigationRequester,
+            )
+        }
         item(key = "library-server-selector") {
             TvLibraryServerSelector(
                 servers = state.servers,
@@ -119,7 +132,7 @@ internal fun TvLibraryHomeScreen(
                     onPlay = { component.onPlayItem(featured.id) },
                     focusMemory = focusMemory,
                     navigationRequester = navigationRequester,
-                    contentRequester = contentRequester,
+                    contentRequester = remember { FocusRequester() },
                 )
             }
         }

@@ -2,6 +2,21 @@ package com.yfuse.feature.player
 
 import androidx.compose.ui.unit.IntSize
 import com.yfuse.core.designsystem.AMBIENT_LIGHT_SAMPLE_MS
+import com.yfuse.core.designsystem.AmbientInset
+
+/** Full-frame pictures still need occasional reads to discover black bars encoded in the video. */
+internal const val AMBIENT_LIGHT_DISCOVERY_MS = 2_000L
+
+/** Android 14's HWUI Surface readback applies tone mapping before reading into the sRGB bitmap. */
+internal fun ambientOutputSupportsLiveSampling(
+    outputMode: PlaybackDynamicRangeOutputMode,
+    sdkInt: Int,
+): Boolean =
+    sdkInt >= 34 ||
+        (
+            outputMode != PlaybackDynamicRangeOutputMode.DolbyVisionMediaCodec &&
+                outputMode != PlaybackDynamicRangeOutputMode.Hdr10BaseLayer
+        )
 
 /** Survives effect restarts, so seeking cannot bypass the minimum request interval. */
 internal class AmbientSamplingPolicy {
@@ -14,9 +29,10 @@ internal class AmbientSamplingPolicy {
     fun waitMs(
         nowMs: Long,
         urgent: Boolean = false,
+        minimumIntervalMs: Long = AMBIENT_LIGHT_SAMPLE_MS,
     ): Long {
         val last = lastRequestMs ?: return 0L
-        val interval = if (urgent) AMBIENT_LIGHT_SAMPLE_MS else intervalMs
+        val interval = maxOf(if (urgent) AMBIENT_LIGHT_SAMPLE_MS else intervalMs, minimumIntervalMs)
         return (last + interval - nowMs).coerceAtLeast(0L)
     }
 
@@ -57,14 +73,18 @@ internal class AmbientSamplingPolicy {
     }
 }
 
-/** Side bars stay unlit and do not request background frame sampling. */
+/** Only visible top/bottom bars need fast sampling; side bars remain unlit. */
 internal fun ambientLightHasVisibleBars(
     container: IntSize,
     picture: IntSize,
     guardPx: Int,
+    inset: AmbientInset = AmbientInset.None,
 ): Boolean =
     container.width > 0 &&
         container.height > 0 &&
         picture.width > 0 &&
         picture.height > 0 &&
-        (container.height - picture.height) / 2 > guardPx
+        (
+            (container.height - picture.height) / 2 + picture.height * inset.top > guardPx ||
+                (container.height - picture.height) / 2 + picture.height * inset.bottom > guardPx
+        )

@@ -461,6 +461,10 @@ data class PlayerMediaItem(
     val transportCredentials: YTransportCredentials? = null,
     /** Stable persistence identity for per-series settings; external-provider based when known. */
     val seriesKey: String? = null,
+    /** Item-owned provider ids. Episode reporting must not substitute the parent series' ids. */
+    val providerIds: Map<String, String> = emptyMap(),
+    val mediaType: String = "",
+    val year: Int? = null,
 ) {
     /**
      * The file currently playing, when the entry's sources were fetched at all.
@@ -774,7 +778,7 @@ class PlayerStoreFactory(
         }
 
         private fun load() {
-            val primaryServer = serverId?.let(registry::serverById) ?: registry.defaultServer
+            val primaryServer = if (serverId == null) registry.defaultServer else registry.serverById(serverId)
             loadJob?.cancel()
             val attempt = ++loadAttempt
             val startedAt = TimeSource.Monotonic.markNow()
@@ -1028,6 +1032,8 @@ class PlayerStoreFactory(
                             url = unqualified.url,
                             transcodeUrl = unqualified.transcodeUrl,
                             title = title,
+                            providerIds = providerIds,
+                            mediaType = if (seriesId != null || episodeNumber != null) "Episode" else "Movie",
                             fallbackTranscodeUrl = unqualified.fallbackTranscodeUrl,
                             playSessionId = unqualified.playSessionId,
                             playMethod = unqualified.playMethod,
@@ -1499,6 +1505,9 @@ class PlayerStoreFactory(
                 url = playable.url,
                 transcodeUrl = playable.transcodeUrl,
                 title = detail.title.ifBlank { titleFallback },
+                providerIds = detail.providerIds,
+                mediaType = detail.type,
+                year = detail.year,
                 fallbackTranscodeUrl = playable.fallbackTranscodeUrl,
                 serverId = serverId,
                 playbackSegments = detail.playbackSegments,
@@ -1617,6 +1626,9 @@ internal fun Throwable.isPlaybackFailoverEligible(): Boolean =
 internal fun PlayerMediaItem.withQueueMetadata(metadata: PlayerMediaItem): PlayerMediaItem =
     copy(
         title = metadata.title,
+        providerIds = metadata.providerIds.ifEmpty { providerIds },
+        mediaType = metadata.mediaType.ifBlank { mediaType },
+        year = metadata.year ?: year,
         playbackSegments = metadata.playbackSegments,
         seasonNumber = metadata.seasonNumber ?: seasonNumber,
         episodeNumber = metadata.episodeNumber ?: episodeNumber,

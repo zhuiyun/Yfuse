@@ -64,6 +64,21 @@ class ServersTabComponent(
     /** Grid or list; see [ServerLayout]. */
     val layout: StateFlow<ServerLayout> = themePreferences.serverLayout
 
+    suspend fun checkSetup(serverId: String): Result<String> {
+        val server =
+            registry.serverById(serverId)
+                ?: return Result.failure(IllegalStateException("当前资料无法访问此服务器"))
+        val latency = repo.probeServer(server).getOrElse { return Result.failure(it) }
+        val libraries = repo.libraries(server).getOrElse { return Result.failure(it) }
+        return Result.success(
+            if (libraries.isEmpty()) {
+                "连接成功（${latency}ms），但该用户没有可见媒体库，请联系服务器管理员授权。"
+            } else {
+                "连接成功（${latency}ms），可访问 ${libraries.size} 个媒体库。"
+            },
+        )
+    }
+
     fun setLayout(value: ServerLayout) = themePreferences.setServerLayout(value)
 
     private val libraryCache: LibraryCache = dependencies.libraryCache

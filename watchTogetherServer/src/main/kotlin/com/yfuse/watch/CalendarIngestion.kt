@@ -48,149 +48,6 @@ private val ingestionJson =
     }
 
 @Serializable
-internal data class CalendarIngestionStatus(
-    val state: String = "idle",
-    val lastStartedAt: String? = null,
-    val lastFinishedAt: String? = null,
-    val changed: Boolean = false,
-    val configuredShows: Int = 0,
-    val discoveredShows: Int = 0,
-    val domesticDiscoveredShows: Int = 0,
-    val domesticCandidateShows: Int = 0,
-    val tmdbDomesticCandidates: Int = 0,
-    val platformDomesticCandidates: Int = 0,
-    val domesticEvidenceMatchedShows: Int = 0,
-    val overseasDiscoveredShows: Int = 0,
-    val publishedShows: Int = 0,
-    val ocrCacheHits: Int = 0,
-    val ocrFailureCacheHits: Int = 0,
-    val ocrProviderRequests: Int = 0,
-    val showDiagnostics: List<CalendarShowDiagnostic> = emptyList(),
-    val message: String? = null,
-)
-
-@Serializable
-internal data class CalendarShowDiagnostic(
-    val title: String,
-    val state: String = "pending",
-    val reasons: List<String> = emptyList(),
-    val sourceCount: Int = 0,
-    val imageCount: Int = 0,
-)
-
-internal object CalendarIngestionHealth {
-    @Volatile
-    private var value = CalendarIngestionStatus()
-    private val diagnostics = linkedMapOf<String, CalendarShowDiagnostic>()
-
-    @Synchronized
-    fun snapshot(): CalendarIngestionStatus = value.copy(showDiagnostics = diagnostics.values.toList())
-
-    @Synchronized
-    fun running(
-        configuredShows: Int,
-        discoveredShows: Int,
-    ) {
-        diagnostics.clear()
-        value =
-            CalendarIngestionStatus(
-                state = "running",
-                lastStartedAt = Instant.now().toString(),
-                configuredShows = configuredShows,
-                discoveredShows = discoveredShows,
-            )
-    }
-
-    @Synchronized
-    fun succeeded(
-        changed: Boolean,
-        publishedShows: Int,
-    ) {
-        value =
-            value.copy(
-                state = "success",
-                lastFinishedAt = Instant.now().toString(),
-                changed = changed,
-                publishedShows = publishedShows,
-                message = null,
-            )
-    }
-
-    @Synchronized
-    fun discovered(
-        domestic: Int,
-        overseas: Int,
-        candidates: DomesticCandidateCounts = DomesticCandidateCounts(),
-    ) {
-        value =
-            value.copy(
-                discoveredShows = domestic + overseas,
-                domesticDiscoveredShows = domestic,
-                domesticCandidateShows = candidates.merged,
-                tmdbDomesticCandidates = candidates.tmdb,
-                platformDomesticCandidates = candidates.platform,
-                domesticEvidenceMatchedShows = candidates.evidenceMatched,
-                overseasDiscoveredShows = overseas,
-            )
-    }
-
-    @Synchronized
-    fun failed(failure: Throwable) {
-        value =
-            value.copy(
-                state = "failed",
-                lastFinishedAt = Instant.now().toString(),
-                changed = false,
-                message = failure.message?.take(240) ?: failure::class.simpleName,
-            )
-    }
-
-    @Synchronized
-    fun registerShows(shows: List<CalendarIngestionShow>) {
-        shows.asSequence().filter { it.origin == "Domestic" }.take(MAX_STATUS_SHOW_DIAGNOSTICS).forEach { show ->
-            diagnostics.putIfAbsent(
-                normalizeTitle(show.title),
-                CalendarShowDiagnostic(
-                    title = show.title,
-                    sourceCount = show.sources.size,
-                    imageCount = show.sources.sumOf { it.imageUrls.size },
-                ),
-            )
-        }
-    }
-
-    @Synchronized
-    fun rejected(show: CalendarIngestionShow, reason: String) {
-        val key = normalizeTitle(show.title)
-        val previous = diagnostics[key] ?: CalendarShowDiagnostic(show.title)
-        diagnostics[key] =
-            previous.copy(
-                state = "rejected",
-                reasons = (previous.reasons + reason).distinct().take(MAX_STATUS_REASONS_PER_SHOW),
-            )
-    }
-
-    @Synchronized
-    fun completed(show: CalendarIngestionShow, state: String) {
-        val key = normalizeTitle(show.title)
-        val previous = diagnostics[key] ?: CalendarShowDiagnostic(show.title)
-        diagnostics[key] = previous.copy(state = state)
-    }
-
-    @Synchronized
-    fun ocrCacheHit(failure: Boolean) {
-        value =
-            if (failure) value.copy(ocrFailureCacheHits = value.ocrFailureCacheHits + 1)
-            else value.copy(ocrCacheHits = value.ocrCacheHits + 1)
-    }
-
-    @Synchronized
-    fun ocrProviderRequest() {
-        value = value.copy(ocrProviderRequests = value.ocrProviderRequests + 1)
-    }
-}
-
-@Serializable
 internal data class CalendarIngestionConfig(
     val refreshMinutes: Int = 30,
     val verifiedAccounts: List<VerifiedCalendarAccount> = emptyList(),
@@ -279,7 +136,8 @@ internal data class PaddleOcrJobSnapshot(
 internal object PaddleOcrResponseParser {
     fun submittedJobId(body: String): String? =
         runCatching {
-            ingestionJson.parseToJsonElement(body)
+            ingestionJson
+                .parseToJsonElement(body)
                 .jsonObject["data"]
                 ?.jsonObject
                 ?.get("jobId")
@@ -291,7 +149,12 @@ internal object PaddleOcrResponseParser {
     fun jobSnapshot(body: String): PaddleOcrJobSnapshot? =
         runCatching {
             val data = ingestionJson.parseToJsonElement(body).jsonObject["data"]?.jsonObject ?: return null
-            val state = data["state"]?.jsonPrimitive?.content?.lowercase()?.takeIf(String::isNotBlank) ?: return null
+            val state =
+                data["state"]
+                    ?.jsonPrimitive
+                    ?.content
+                    ?.lowercase()
+                    ?.takeIf(String::isNotBlank) ?: return null
             PaddleOcrJobSnapshot(
                 state = state,
                 resultUrl =
@@ -307,7 +170,8 @@ internal object PaddleOcrResponseParser {
 
     fun isSubmitQueueFull(body: String): Boolean =
         runCatching {
-            ingestionJson.parseToJsonElement(body)
+            ingestionJson
+                .parseToJsonElement(body)
                 .jsonObject["code"]
                 ?.jsonPrimitive
                 ?.content
@@ -317,13 +181,15 @@ internal object PaddleOcrResponseParser {
     fun extractMarkdownText(jsonLines: String): String? =
         runCatching {
             val results =
-                jsonLines.lineSequence()
+                jsonLines
+                    .lineSequence()
                     .filter(String::isNotBlank)
                     .mapNotNull { line ->
                         ingestionJson.parseToJsonElement(line).jsonObject["result"]?.jsonObject
                     }.toList()
             val markdown =
-                results.asSequence()
+                results
+                    .asSequence()
                     .flatMap { result ->
                         result["layoutParsingResults"]?.jsonArray.orEmpty().asSequence()
                     }.mapNotNull { layout ->
@@ -336,7 +202,8 @@ internal object PaddleOcrResponseParser {
                             ?.takeIf(String::isNotBlank)
                     }.joinToString("\n")
                     .takeIf(String::isNotBlank)
-            markdown ?: results.asSequence()
+            markdown ?: results
+                .asSequence()
                 .flatMap { result -> result["ocrResults"]?.jsonArray.orEmpty().asSequence() }
                 .flatMap { ocrResult ->
                     ocrResult.jsonObject["prunedResult"]
@@ -345,8 +212,11 @@ internal object PaddleOcrResponseParser {
                         ?.jsonArray
                         .orEmpty()
                         .asSequence()
-                }.mapNotNull { text -> text.jsonPrimitive.content.trim().takeIf(String::isNotBlank) }
-                .joinToString("\n")
+                }.mapNotNull { text ->
+                    text.jsonPrimitive.content
+                        .trim()
+                        .takeIf(String::isNotBlank)
+                }.joinToString("\n")
                 .takeIf(String::isNotBlank)
         }.getOrNull()
 }
@@ -571,221 +441,6 @@ internal object CalendarEvidenceGate {
 }
 
 /** Parser for the compact date/episode grammar used by mainland tracking-calendar posts. */
-internal object ChineseScheduleParser {
-    private val datePattern = Regex("(?:(20\\d{2})年)?(1[0-2]|0?[1-9])月(3[01]|[12]\\d|0?[1-9])日")
-    private val episodePattern =
-        Regex("(?:第|更新|上线|会员|SVIP|vip|VIP)?\\s*((?:\\d{1,3}\\s*[、,，~～—\\-至到]\\s*)*\\d{1,3})\\s*集")
-    private val dayAtStartPattern =
-        Regex("^(3[01]|[12]\\d|0?[1-9])(?=\\s|SVIP|VIP|会员|周|$)(.*)$", RegexOption.IGNORE_CASE)
-    private val monthHeaderPattern = Regex("^(1[0-2]|0?[1-9])月$")
-    private val weekdayPattern = Regex("周([一二三四五六日天])")
-
-    fun parse(
-        raw: String,
-        defaultYear: Int,
-        accessTier: String? = null,
-    ): Map<Int, String> {
-        val explicit = parseExplicitDates(raw, defaultYear)
-        if (accessTier == null) return explicit
-        val grid = parseCalendarGrid(raw, defaultYear, accessTier)
-        return mergeWithoutConflict(listOf(explicit, grid)) ?: emptyMap()
-    }
-
-    private fun parseExplicitDates(
-        raw: String,
-        defaultYear: Int,
-    ): Map<Int, String> {
-        val text =
-            raw.replace('\u00a0', ' ')
-                .replace("\r", " ")
-                .replace("\n", " ")
-                .replace(Regex("\\s+"), " ")
-        val dates = datePattern.findAll(text).toList()
-        val result = linkedMapOf<Int, String>()
-        dates.forEachIndexed { index, match ->
-            val year = match.groupValues[1].toIntOrNull() ?: defaultYear
-            val month = match.groupValues[2].toInt()
-            val day = match.groupValues[3].toInt()
-            val date = runCatching { LocalDate.of(year, month, day).toString() }.getOrNull() ?: return@forEachIndexed
-            val end = dates.getOrNull(index + 1)?.range?.first ?: minOf(text.length, match.range.last + 100)
-            val block = text.substring(match.range.last + 1, end)
-            episodePattern.findAll(block).forEach { episodeMatch ->
-                if (isUpdateCount(episodeMatch.value)) return@forEach
-                expandEpisodes(episodeMatch.groupValues[1]).forEach { episode ->
-                    val previous = result.putIfAbsent(episode, date)
-                    if (previous != null && previous != date) return emptyMap()
-                }
-            }
-        }
-        return result
-    }
-
-    private fun parseCalendarGrid(
-        raw: String,
-        defaultYear: Int,
-        accessTier: String,
-    ): Map<Int, String> {
-        val plain =
-            raw.replace(Regex("(?is)<[^>]+>"), " ")
-                .replace("\r", "\n")
-                .replace('\u00a0', ' ')
-        var currentMonth =
-            Regex("(?<!\\d)(1[0-2]|0?[1-9])月")
-                .find(plain)
-                ?.groupValues
-                ?.get(1)
-                ?.toIntOrNull()
-                ?: chineseMonthIn(plain)
-                ?: return emptyMap()
-        var currentDate: LocalDate? = null
-        var pendingPreferredTier = false
-        val result = linkedMapOf<Int, String>()
-
-        plain.lineSequence().map(String::trim).filter(String::isNotBlank).forEach { line ->
-            monthHeaderPattern.matchEntire(line)?.groupValues?.get(1)?.toIntOrNull()?.let { month ->
-                currentMonth = month
-                currentDate = null
-                pendingPreferredTier = false
-                return@forEach
-            }
-            chineseMonthHeader(line)?.let { month ->
-                currentMonth = month
-                currentDate = null
-                pendingPreferredTier = false
-                return@forEach
-            }
-
-            weekdayPattern.find(line)?.groupValues?.get(1)?.let { weekday ->
-                currentDate = alignToWeekday(currentDate, weekday)
-            }
-
-            val dayMatch = dayAtStartPattern.matchEntire(line)
-            if (dayMatch != null) {
-                val remainder = dayMatch.groupValues[2]
-                val otherBareNumbers = Regex("(?<![:\\d])\\d{1,2}(?![:\\d])").findAll(remainder).count()
-                if (otherBareNumbers >= 2 && "集" !in remainder) {
-                    currentDate = null
-                    pendingPreferredTier = false
-                    return@forEach
-                }
-                val day = dayMatch.groupValues[1].toInt()
-                currentDate = runCatching { LocalDate.of(defaultYear, currentMonth, day) }.getOrNull()
-            }
-
-            val markerOnly = line.matches(Regex("(?i)^(?:VIP|会员|VIP会员)$"))
-            val fragments = preferredTierFragments(line, accessTier).toMutableList()
-            if (pendingPreferredTier && fragments.isEmpty()) fragments += line
-            if (currentDate != null) {
-                fragments.forEach { fragment -> episodePattern.findAll(fragment).forEach { episodeMatch ->
-                    if (isUpdateCount(episodeMatch.value)) return@forEach
-                    expandEpisodes(episodeMatch.groupValues[1]).forEach { episode ->
-                        val date = currentDate!!.toString()
-                        val previous = result.putIfAbsent(episode, date)
-                        if (previous != null && previous != date) return emptyMap()
-                    }
-                } }
-            }
-            pendingPreferredTier = markerOnly && isPreferredTierLine(line, accessTier)
-        }
-        return result
-    }
-
-    private fun isPreferredTierLine(
-        line: String,
-        accessTier: String,
-    ): Boolean =
-        when (accessTier) {
-            "Member" -> "会员" in line && "非会员" !in line && !line.contains("SVIP", ignoreCase = true)
-            "SviP" -> line.contains("SVIP", ignoreCase = true)
-            "Free" -> "非会员" in line || "免费" in line
-            else ->
-                "会员" !in line &&
-                    !line.contains("SVIP", ignoreCase = true) &&
-                    !line.contains("VIP", ignoreCase = true)
-        }
-
-    private fun preferredTierFragments(
-        line: String,
-        accessTier: String,
-    ): List<String> =
-        when (accessTier) {
-            "Member" ->
-                Regex(
-                    "(?i)(?<!S)(?:VIP)?会员.{0,100}?(?=SVIP|东方卫视|CCTV|非会员|$)",
-                ).findAll(line).map(MatchResult::value).toList()
-            "SviP" ->
-                Regex("(?i)SVIP.{0,100}?(?=(?<!S)(?:VIP)?会员|东方卫视|CCTV|非会员|$)")
-                    .findAll(line).map(MatchResult::value).toList()
-            "Free" ->
-                Regex("(?:非会员|免费).{0,100}?(?=SVIP|(?<!S)(?:VIP)?会员|东方卫视|CCTV|$)")
-                    .findAll(line).map(MatchResult::value).toList()
-            else -> if (isPreferredTierLine(line, accessTier)) listOf(line) else emptyList()
-        }
-
-    private fun alignToWeekday(
-        date: LocalDate?,
-        chineseWeekday: String,
-    ): LocalDate? {
-        date ?: return null
-        val target =
-            when (chineseWeekday) {
-                "一" -> 1
-                "二" -> 2
-                "三" -> 3
-                "四" -> 4
-                "五" -> 5
-                "六" -> 6
-                else -> 7
-            }
-        if (date.dayOfWeek.value == target) return date
-        val daysAhead = (target - date.dayOfWeek.value + 7) % 7
-        return date.plusDays(daysAhead.toLong())
-    }
-
-    private fun chineseMonthIn(text: String): Int? =
-        CHINESE_MONTHS.entries.firstOrNull { (label, _) -> label in text }?.value
-
-    private fun chineseMonthHeader(line: String): Int? = CHINESE_MONTHS[line]
-
-    private fun isUpdateCount(value: String): Boolean =
-        value.replace(Regex("\\s+"), "").matches(Regex("(?:更新|上线)\\d{1,3}集"))
-
-    private fun expandEpisodes(raw: String): List<Int> {
-        val normalized = raw.replace(Regex("[至到~～—-]"), "-")
-        val range = Regex("^(\\d{1,3})\\s*-\\s*(\\d{1,3})$").matchEntire(normalized.trim())
-        if (range != null) {
-            val first = range.groupValues[1].toInt()
-            val last = range.groupValues[2].toInt()
-            return if (first in 1..500 && last in first..500 && last - first <= 100) {
-                (first..last).toList()
-            } else {
-                emptyList()
-            }
-        }
-        return normalized
-            .split(Regex("[、,，]"))
-            .mapNotNull(String::toIntOrNull)
-            .filter { it in 1..500 }
-            .distinct()
-    }
-
-    private val CHINESE_MONTHS =
-        mapOf(
-            "壹月" to 1,
-            "贰月" to 2,
-            "叁月" to 3,
-            "肆月" to 4,
-            "伍月" to 5,
-            "陆月" to 6,
-            "柒月" to 7,
-            "捌月" to 8,
-            "玖月" to 9,
-            "拾月" to 10,
-            "拾壹月" to 11,
-            "拾贰月" to 12,
-        )
-}
-
 internal data class OcrConsensusResolution(
     val episodes: Map<Int, String> = emptyMap(),
     val agreement: OcrAgreement = OcrAgreement.None,
@@ -803,20 +458,22 @@ internal object OcrConfidenceGate {
         if (distinct.size !in MIN_OCR_PROVIDERS..MAX_OCR_PROVIDERS) {
             return OcrConsensusResolution()
         }
-        val pairs = distinct.indices.flatMap { first ->
-            ((first + 1) until distinct.size).mapNotNull { second ->
-                val left = distinct[first]
-                val right = distinct[second]
-                if (left.independenceGroup == right.independenceGroup) null else left to right
+        val pairs =
+            distinct.indices.flatMap { first ->
+                ((first + 1) until distinct.size).mapNotNull { second ->
+                    val left = distinct[first]
+                    val right = distinct[second]
+                    if (left.independenceGroup == right.independenceGroup) null else left to right
+                }
             }
-        }
         if (pairs.isEmpty()) return OcrConsensusResolution()
         val pairResolutions = pairs.map { (first, second) -> resolvePair(first, second, defaultYear, accessTier) }
         if (distinct.size == MIN_OCR_PROVIDERS) return pairResolutions.single()
         val accepted = pairResolutions.filter { it.episodes.isNotEmpty() && it.agreement != OcrAgreement.None }
         if (accepted.isEmpty()) return OcrConsensusResolution(conflict = pairResolutions.any { it.conflict })
-        val merged = mergeWithoutConflict(accepted.map(OcrConsensusResolution::episodes))
-            ?: return OcrConsensusResolution(conflict = true)
+        val merged =
+            mergeWithoutConflict(accepted.map(OcrConsensusResolution::episodes))
+                ?: return OcrConsensusResolution(conflict = true)
         return OcrConsensusResolution(
             episodes = merged,
             agreement = OcrAgreement.Majority,
@@ -834,7 +491,11 @@ internal object OcrConfidenceGate {
         val pair = listOf(first, second)
         val dailyGrids = pair.map { dailyGridCoordinates(it.text, defaultYear, accessTier) }
         if (dailyGrids.all { it.isNotEmpty() } && dailyGrids.distinct().size == 1) {
-            return OcrConsensusResolution(dailyGrids.first(), OcrAgreement.SemanticCorroboration, providerIds = providerIds)
+            return OcrConsensusResolution(
+                dailyGrids.first(),
+                OcrAgreement.SemanticCorroboration,
+                providerIds = providerIds,
+            )
         }
         val sharedEpisodes = first.episodes.keys intersect second.episodes.keys
         if (sharedEpisodes.any { first.episodes[it] != second.episodes[it] }) {
@@ -857,7 +518,11 @@ internal object OcrConfidenceGate {
                     .filter { first.episodes[it] == second.episodes[it] }
                     .associateWith { first.episodes.getValue(it) }
             if (intersection.size >= MIN_PARTIAL_OCR_COORDINATES) {
-                return OcrConsensusResolution(intersection, OcrAgreement.CoordinateIntersection, providerIds = providerIds)
+                return OcrConsensusResolution(
+                    intersection,
+                    OcrAgreement.CoordinateIntersection,
+                    providerIds = providerIds,
+                )
             }
         }
 
@@ -921,7 +586,8 @@ internal object OcrConfidenceGate {
     }
 
     private fun fullSeriesEpisodeCount(raw: String): Int =
-        FULL_SERIES_RANGE_PATTERN.findAll(normalizeOcrText(raw))
+        FULL_SERIES_RANGE_PATTERN
+            .findAll(normalizeOcrText(raw))
             .mapNotNull { it.groupValues[1].toIntOrNull() }
             .filter { it in 2..MAX_CALENDAR_EPISODES }
             .maxOrNull()
@@ -963,7 +629,11 @@ internal object OcrConfidenceGate {
         cadence: ScheduleCadence,
     ): Boolean {
         if (!isContiguousFromOne(candidate)) return false
-        val parsed = candidate.mapValues { (_, date) -> runCatching { LocalDate.parse(date) }.getOrNull() ?: return false }
+        val parsed =
+            candidate.mapValues { (_, date) ->
+                runCatching { LocalDate.parse(date) }.getOrNull()
+                    ?: return false
+            }
         val maxDate = parsed.values.maxOrNull() ?: return false
         val expected = linkedMapOf<Int, String>()
         var episode = 1
@@ -1005,7 +675,8 @@ internal object OcrConfidenceGate {
                 }
             } ?: return emptyMap()
         val ranges =
-            DAILY_GRID_EPISODE_PATTERN.findAll(text)
+            DAILY_GRID_EPISODE_PATTERN
+                .findAll(text)
                 .mapNotNull { match ->
                     val first = match.groupValues[1].toIntOrNull() ?: return@mapNotNull null
                     val last = match.groupValues[2].toIntOrNull() ?: first
@@ -1013,14 +684,15 @@ internal object OcrConfidenceGate {
                 }.distinctBy { it.first to it.last }
                 .toList()
         val groups =
-            ranges.filterNot { candidate ->
-                ranges.any { other ->
-                    other != candidate &&
-                        candidate.first >= other.first &&
-                        candidate.last <= other.last &&
-                        (other.last - other.first) > (candidate.last - candidate.first)
-                }
-            }.sortedBy(IntRange::first)
+            ranges
+                .filterNot { candidate ->
+                    ranges.any { other ->
+                        other != candidate &&
+                            candidate.first >= other.first &&
+                            candidate.last <= other.last &&
+                            (other.last - other.first) > (candidate.last - candidate.first)
+                    }
+                }.sortedBy(IntRange::first)
         if (groups.size < 2) return emptyMap()
         val flattened = groups.flatMap(IntRange::toList)
         if (flattened != (1..flattened.size).toList()) return emptyMap()
@@ -1033,7 +705,8 @@ internal object OcrConfidenceGate {
     }
 
     private fun normalizeOcrText(raw: String): String =
-        raw.replace(Regex("(?is)<[^>]+>"), " ")
+        raw
+            .replace(Regex("(?is)<[^>]+>"), " ")
             .replace('\u00a0', ' ')
             .replace(Regex("\\s+"), " ")
 
@@ -1083,7 +756,8 @@ private class CalendarIngestionRuntime(
     private val ocrCache: CalendarOcrCache,
 ) {
     private val http =
-        HttpClient.newBuilder()
+        HttpClient
+            .newBuilder()
             .connectTimeout(Duration.ofSeconds(8))
             .followRedirects(HttpClient.Redirect.NORMAL)
             .build()
@@ -1106,7 +780,8 @@ private class CalendarIngestionRuntime(
             CalendarIngestionHealth.running(config.shows.size, discoveredShows = 0)
             val domesticDiscovery = discoverShows(config, today)
             val domesticDiscoveredShows = domesticDiscovery.shows
-            val overseasDiscoveredShows = discoverOverseasShows(config, today)
+            val overseasDiscoveredShows =
+                loadOverseasDiscovery(config.overseas, today) { url -> fetchText(url, MAX_TVMAZE_SCHEDULE_CHARS) }
             val discoveredShows = domesticDiscoveredShows + overseasDiscoveredShows
             CalendarIngestionHealth.discovered(
                 domestic = domesticDiscoveredShows.size,
@@ -1154,8 +829,7 @@ private class CalendarIngestionRuntime(
                     .filter { it.origin == "Domestic" }
                     .filter { schedule ->
                         schedule.episodes.maxOfOrNull(CalendarEpisode::airDate)?.let { it >= retentionDate } == true
-                    }
-                    .map { it.copy(revision = provisionalRevision) }
+                    }.map { it.copy(revision = provisionalRevision) }
             val schedules = (refreshedSchedules + retainedSchedules).distinctBy(CalendarSeries::tmdbId)
             if (schedules.isEmpty()) {
                 CalendarIngestionHealth.succeeded(changed = false, publishedShows = 0)
@@ -1189,13 +863,14 @@ private class CalendarIngestionRuntime(
             val platformCandidates = async { discoverPlatformDomesticCandidates(config, today.year) }
             val captures = capturedFeeds.await()
             val directShows =
-                captures.flatMap { captured ->
-                    captured.contents.flatMap { content ->
-                        discoverCalendarShowsFromHtml(captured.feed, content, today.year)
+                captures
+                    .flatMap { captured ->
+                        captured.contents.flatMap { content ->
+                            discoverCalendarShowsFromHtml(captured.feed, content, today.year)
+                        }
+                    }.filter { show ->
+                        show.sources.all { source -> runCatching { validateSource(source, config) }.isSuccess }
                     }
-                }.filter { show ->
-                    show.sources.all { source -> runCatching { validateSource(source, config) }.isSuccess }
-                }
             val tmdb = tmdbCandidates.await()
             val platform = platformCandidates.await()
             val candidates =
@@ -1234,18 +909,19 @@ private class CalendarIngestionRuntime(
 
     private suspend fun captureDiscoveryFeeds(config: CalendarIngestionConfig): List<CapturedCalendarDiscoveryFeed> =
         coroutineScope {
-            config.discoveryFeeds.map { feed ->
-                async {
-                    discoveryRequests.withPermit {
-                        val raw = fetchText(feed.url)
-                        val rendered = config.pageRenderer?.let { fetchRenderedText(feed.url, it) }
-                        CapturedCalendarDiscoveryFeed(
-                            feed = feed,
-                            contents = listOfNotNull(rendered, raw).distinct(),
-                        )
+            config.discoveryFeeds
+                .map { feed ->
+                    async {
+                        discoveryRequests.withPermit {
+                            val raw = fetchText(feed.url)
+                            val rendered = config.pageRenderer?.let { fetchRenderedText(feed.url, it) }
+                            CapturedCalendarDiscoveryFeed(
+                                feed = feed,
+                                contents = listOfNotNull(rendered, raw).distinct(),
+                            )
+                        }
                     }
-                }
-            }.awaitAll()
+                }.awaitAll()
         }
 
     private fun discoverTmdbDomesticCandidates(
@@ -1257,13 +933,14 @@ private class CalendarIngestionRuntime(
         if (!candidateConfig.enabled || !tmdbConfig.enabled) return emptyList()
         val token = tmdbToken?.takeIf(String::isNotBlank) ?: return emptyList()
         val encodedLanguage = java.net.URLEncoder.encode(tmdbConfig.language, Charsets.UTF_8)
-        return (1..tmdbConfig.maxPages).flatMap { page ->
-            val separator = if ('?' in tmdbConfig.endpoint) '&' else '?'
-            val url = "${tmdbConfig.endpoint}$separator" + "language=$encodedLanguage&page=$page"
-            fetchBearerJson(url, token)
-                ?.let { body -> DomesticCandidateParser.parseTmdbOnAir(body, today, tmdbConfig) }
-                .orEmpty()
-        }.distinctBy(DomesticShowCandidate::tmdbId)
+        return (1..tmdbConfig.maxPages)
+            .flatMap { page ->
+                val separator = if ('?' in tmdbConfig.endpoint) '&' else '?'
+                val url = "${tmdbConfig.endpoint}$separator" + "language=$encodedLanguage&page=$page"
+                fetchBearerJson(url, token)
+                    ?.let { body -> DomesticCandidateParser.parseTmdbOnAir(body, today, tmdbConfig) }
+                    .orEmpty()
+            }.distinctBy(DomesticShowCandidate::tmdbId)
             .sortedByDescending(DomesticShowCandidate::discoveryWeight)
             .take(tmdbConfig.maxShows)
     }
@@ -1274,34 +951,28 @@ private class CalendarIngestionRuntime(
     ): List<DomesticShowCandidate> {
         if (!config.domesticCandidates.enabled) return emptyList()
         return coroutineScope {
-            config.domesticCandidates.platformCatalogs.map { feed ->
-                async {
-                    discoveryRequests.withPermit {
-                        val raw = fetchText(feed.url)
-                        val rendered =
-                            if (feed.render) {
-                                config.pageRenderer?.let { fetchRenderedText(feed.url, it) }
-                            } else {
-                                null
-                            }
-                        listOfNotNull(rendered, raw)
-                            .distinct()
-                            .flatMap { body -> DomesticCandidateParser.parsePlatformCatalog(body, feed, defaultYear) }
-                            .distinctBy { normalizeTitle(it.title) }
-                            .take(feed.maxShows)
+            config.domesticCandidates.platformCatalogs
+                .map { feed ->
+                    async {
+                        discoveryRequests.withPermit {
+                            val raw = fetchText(feed.url)
+                            val rendered =
+                                if (feed.render) {
+                                    config.pageRenderer?.let { fetchRenderedText(feed.url, it) }
+                                } else {
+                                    null
+                                }
+                            listOfNotNull(rendered, raw)
+                                .distinct()
+                                .flatMap { body ->
+                                    DomesticCandidateParser.parsePlatformCatalog(body, feed, defaultYear)
+                                }.distinctBy { normalizeTitle(it.title) }
+                                .take(feed.maxShows)
+                        }
                     }
-                }
-            }.awaitAll().flatten()
+                }.awaitAll()
+                .flatten()
         }
-    }
-
-    private fun discoverOverseasShows(
-        config: CalendarIngestionConfig,
-        today: LocalDate,
-    ): List<CalendarIngestionShow> {
-        if (!config.overseas.enabled) return emptyList()
-        val body = fetchText(config.overseas.tvmazeFullScheduleUrl, MAX_TVMAZE_SCHEDULE_CHARS) ?: return emptyList()
-        return OverseasScheduleParser.discoverTvmazeShows(body, today, config.overseas)
     }
 
     private suspend fun collectShowSchedule(
@@ -1318,7 +989,8 @@ private class CalendarIngestionRuntime(
         val identity = resolveIdentity(show)
         if (identity == null) {
             logCalendarRejection(show, "identity")
-            return fallback?.copy(revision = revision)
+            return fallback
+                ?.copy(revision = revision)
                 .also { CalendarIngestionHealth.completed(show, if (it == null) "rejected" else "retained") }
         }
         if (show.origin == "Foreign") {
@@ -1430,32 +1102,42 @@ private class CalendarIngestionRuntime(
                 extractedImages = extractCalendarImages(source.url, rendered)
             }
         }
-        val imageUrls = prioritizeCalendarImages(
-            if (source.imageUrls.isNotEmpty()) source.imageUrls else extractedImages,
-        ).take(MAX_OCR_IMAGES_PER_SOURCE)
+        val imageUrls =
+            prioritizeCalendarImages(
+                if (source.imageUrls.isNotEmpty()) source.imageUrls else extractedImages,
+            ).take(MAX_OCR_IMAGES_PER_SOURCE)
         val ocrCaptures = mutableListOf<OcrConsensusCapture>()
         imageUrls.forEach { imageUrl ->
             val imageHash = fetchCalendarImageHash(imageUrl)
             val readings =
                 coroutineScope {
-                    config.ocrProviders.take(MIN_OCR_PROVIDERS).map { provider ->
-                        async {
-                            ocrRequests.withPermit {
-                                ocrReading(provider, imageUrl, imageHash, show)
+                    config.ocrProviders
+                        .take(MIN_OCR_PROVIDERS)
+                        .map { provider ->
+                            async {
+                                ocrRequests.withPermit {
+                                    ocrReading(provider, imageUrl, imageHash, show)
+                                }
                             }
-                        }
-                    }.awaitAll()
+                        }.awaitAll()
                         .filterNotNull()
                 }.toMutableList()
             var resolution = OcrConfidenceGate.resolve(readings, show.year, show.accessTier)
-            config.ocrProviders.drop(MIN_OCR_PROVIDERS).firstOrNull()
-                ?.takeIf { resolution.conflict || resolution.episodes.isEmpty() || resolution.agreement == OcrAgreement.None }
-                ?.let { fallback -> ocrRequests.withPermit { ocrReading(fallback, imageUrl, imageHash, show) } }
-                ?.let(readings::add)
+            config.ocrProviders
+                .drop(MIN_OCR_PROVIDERS)
+                .firstOrNull()
+                ?.takeIf {
+                    resolution.conflict ||
+                        resolution.episodes.isEmpty() ||
+                        resolution.agreement == OcrAgreement.None
+                }?.let { fallback ->
+                    ocrRequests.withPermit { ocrReading(fallback, imageUrl, imageHash, show) }
+                }?.let(readings::add)
             resolution = OcrConfidenceGate.resolve(readings, show.year, show.accessTier)
             if (readings.size < MIN_OCR_PROVIDERS) {
                 val successfulProviders =
-                    readings.map(OcrReading::providerId)
+                    readings
+                        .map(OcrReading::providerId)
                         .sorted()
                         .joinToString("+")
                         .replace(Regex("[^A-Za-z0-9._+-]"), "_")
@@ -1476,9 +1158,10 @@ private class CalendarIngestionRuntime(
                 OcrConsensusCapture(
                     imageUrl = imageUrl,
                     episodes = resolution.episodes,
-                    readingHashes = readings
-                        .filter { it.providerId in resolution.providerIds }
-                        .map { reading -> reading.providerId to reading.text.sha256() },
+                    readingHashes =
+                        readings
+                            .filter { it.providerId in resolution.providerIds }
+                            .map { reading -> reading.providerId to reading.text.sha256() },
                     agreement = resolution.agreement,
                 )
         }
@@ -1536,7 +1219,12 @@ private class CalendarIngestionRuntime(
         val language = if (show.origin == "Foreign") "en-US" else "zh-CN"
         val url = "https://api.themoviedb.org/3/search/tv?language=$language&query=$encodedTitle&year=${show.year}"
         val body = fetchBearerJson(url, token) ?: return null
-        val candidates = ingestionJson.parseToJsonElement(body).jsonObject["results"]?.jsonArray.orEmpty()
+        val candidates =
+            ingestionJson
+                .parseToJsonElement(body)
+                .jsonObject["results"]
+                ?.jsonArray
+                .orEmpty()
         val normalized = normalizeTitle(show.title)
         val exact =
             candidates.mapNotNull { node ->
@@ -1569,7 +1257,12 @@ private class CalendarIngestionRuntime(
         val imdbId = show.imdbId?.takeIf { it.matches(Regex("tt\\d{5,12}")) } ?: return null
         val url = "https://api.themoviedb.org/3/find/$imdbId?external_source=imdb_id&language=en-US"
         val body = fetchBearerJson(url, token) ?: return null
-        val matches = ingestionJson.parseToJsonElement(body).jsonObject["tv_results"]?.jsonArray.orEmpty()
+        val matches =
+            ingestionJson
+                .parseToJsonElement(body)
+                .jsonObject["tv_results"]
+                ?.jsonArray
+                .orEmpty()
         val match = matches.singleOrNull()?.jsonObject ?: return null
         val id = match["id"]?.jsonPrimitive?.content?.toIntOrNull() ?: return null
         return ResolvedCalendarIdentity(
@@ -1586,13 +1279,15 @@ private class CalendarIngestionRuntime(
         token: String,
     ): String? {
         val request =
-            HttpRequest.newBuilder(URI(url))
+            HttpRequest
+                .newBuilder(URI(url))
                 .timeout(Duration.ofSeconds(12))
                 .header("Authorization", "Bearer $token")
                 .header("Accept", "application/json")
                 .GET()
                 .build()
-        val response = runCatching { http.send(request, HttpResponse.BodyHandlers.ofString()) }.getOrNull() ?: return null
+        val response =
+            runCatching { http.send(request, HttpResponse.BodyHandlers.ofString()) }.getOrNull() ?: return null
         return response.body().takeIf { response.statusCode() in 200..299 && it.length <= MAX_SOURCE_CHARS }
     }
 
@@ -1632,28 +1327,33 @@ private class CalendarIngestionRuntime(
         show: CalendarIngestionShow,
     ): OcrReading? {
         val providerKey = ocrProviderCacheKey(provider)
-        val cachedText = imageHash?.let { hash ->
-            when (val cached = ocrCache.lookup(providerKey, hash)) {
-                is CalendarOcrCacheLookup.Success -> {
-                    CalendarIngestionHealth.ocrCacheHit(false)
-                    cached.text
+        val cachedText =
+            imageHash?.let { hash ->
+                when (val cached = ocrCache.lookup(providerKey, hash)) {
+                    is CalendarOcrCacheLookup.Success -> {
+                        CalendarIngestionHealth.ocrCacheHit(false)
+                        cached.text
+                    }
+                    CalendarOcrCacheLookup.RecentFailure -> {
+                        CalendarIngestionHealth.ocrCacheHit(true)
+                        return null
+                    }
+                    CalendarOcrCacheLookup.Miss -> null
                 }
-                CalendarOcrCacheLookup.RecentFailure -> {
-                    CalendarIngestionHealth.ocrCacheHit(true)
-                    return null
+            }
+        val text =
+            cachedText ?: run {
+                CalendarIngestionHealth.ocrProviderRequest()
+                val captured = ocr(provider, imageUrl)
+                if (imageHash != null) {
+                    if (captured == null) {
+                        ocrCache.putFailure(providerKey, imageHash)
+                    } else {
+                        ocrCache.putSuccess(providerKey, imageHash, captured)
+                    }
                 }
-                CalendarOcrCacheLookup.Miss -> null
+                captured
             }
-        }
-        val text = cachedText ?: run {
-            CalendarIngestionHealth.ocrProviderRequest()
-            val captured = ocr(provider, imageUrl)
-            if (imageHash != null) {
-                if (captured == null) ocrCache.putFailure(providerKey, imageHash)
-                else ocrCache.putSuccess(providerKey, imageHash, captured)
-            }
-            captured
-        }
         return text?.let {
             OcrReading(
                 providerId = provider.id,
@@ -1665,20 +1365,27 @@ private class CalendarIngestionRuntime(
     }
 
     private fun fetchCalendarImageHash(imageUrl: String): String? =
-        imageFingerprintCache.computeIfAbsent(imageUrl) { url ->
-            val uri = runCatching { requireHttps(url) }.getOrNull() ?: return@computeIfAbsent ""
-            val request = HttpRequest.newBuilder(uri)
-                .timeout(Duration.ofSeconds(20))
-                .header("User-Agent", "YfuseCalendarBot/1.1 (+official-schedule-evidence)")
-                .header("Accept", "image/*")
-                .GET()
-                .build()
-            val response = runCatching { http.send(request, HttpResponse.BodyHandlers.ofInputStream()) }
-                .getOrNull() ?: return@computeIfAbsent ""
-            val body = response.body().use { it.readNBytes(MAX_CALENDAR_IMAGE_BYTES + 1) }
-            if (response.statusCode() !in 200..299 || body.isEmpty() || body.size > MAX_CALENDAR_IMAGE_BYTES) ""
-            else body.sha256()
-        }.takeIf(String::isNotBlank)
+        imageFingerprintCache
+            .computeIfAbsent(imageUrl) { url ->
+                val uri = runCatching { requireHttps(url) }.getOrNull() ?: return@computeIfAbsent ""
+                val request =
+                    HttpRequest
+                        .newBuilder(uri)
+                        .timeout(Duration.ofSeconds(20))
+                        .header("User-Agent", "YfuseCalendarBot/1.1 (+official-schedule-evidence)")
+                        .header("Accept", "image/*")
+                        .GET()
+                        .build()
+                val response =
+                    runCatching { http.send(request, HttpResponse.BodyHandlers.ofInputStream()) }
+                        .getOrNull() ?: return@computeIfAbsent ""
+                val body = response.body().use { it.readNBytes(MAX_CALENDAR_IMAGE_BYTES + 1) }
+                if (response.statusCode() !in 200..299 || body.isEmpty() || body.size > MAX_CALENDAR_IMAGE_BYTES) {
+                    ""
+                } else {
+                    body.sha256()
+                }
+            }.takeIf(String::isNotBlank)
 
     private fun bridgeOcr(
         provider: CalendarOcrProviderConfig,
@@ -1687,7 +1394,8 @@ private class CalendarIngestionRuntime(
     ): String? {
         val payload = "{\"imageUrl\":${ingestionJson.encodeToString(imageUrl)}}"
         val builder =
-            HttpRequest.newBuilder(URI(provider.endpoint))
+            HttpRequest
+                .newBuilder(URI(provider.endpoint))
                 .timeout(Duration.ofSeconds(25))
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(payload))
@@ -1698,7 +1406,11 @@ private class CalendarIngestionRuntime(
                 ?: return null
         if (response.statusCode() !in 200..299) return null
         return runCatching {
-            ingestionJson.parseToJsonElement(response.body()).jsonObject["text"]?.jsonPrimitive?.content
+            ingestionJson
+                .parseToJsonElement(response.body())
+                .jsonObject["text"]
+                ?.jsonPrimitive
+                ?.content
         }.getOrNull()?.takeIf(String::isNotBlank)
     }
 
@@ -1726,7 +1438,8 @@ private class CalendarIngestionRuntime(
                 ),
             )
         val submitRequest =
-            HttpRequest.newBuilder(URI(provider.endpoint))
+            HttpRequest
+                .newBuilder(URI(provider.endpoint))
                 .timeout(Duration.ofSeconds(30))
                 .header("Authorization", "Bearer $key")
                 .header("Content-Type", "application/json")
@@ -1755,7 +1468,8 @@ private class CalendarIngestionRuntime(
         while (System.nanoTime() < deadline) {
             if (!sleepForPaddlePoll(provider.pollIntervalMillis)) return null
             val pollRequest =
-                HttpRequest.newBuilder(pollUri)
+                HttpRequest
+                    .newBuilder(pollUri)
                     .timeout(Duration.ofSeconds(20))
                     .header("Authorization", "Bearer $key")
                     .GET()
@@ -1795,7 +1509,8 @@ private class CalendarIngestionRuntime(
                     java.net.URLEncoder.encode(value, Charsets.UTF_8)
             }
         val request =
-            HttpRequest.newBuilder(URI(provider.endpoint))
+            HttpRequest
+                .newBuilder(URI(provider.endpoint))
                 .timeout(Duration.ofSeconds(provider.pollTimeoutSeconds))
                 .header("apikey", key)
                 .header("Content-Type", "application/x-www-form-urlencoded")
@@ -1843,7 +1558,8 @@ private class CalendarIngestionRuntime(
     private fun downloadPaddleResult(url: String): String? {
         val uri = runCatching { requireHttps(url) }.getOrNull() ?: return null
         val request =
-            HttpRequest.newBuilder(uri)
+            HttpRequest
+                .newBuilder(uri)
                 .timeout(Duration.ofSeconds(30))
                 .GET()
                 .build()
@@ -1861,7 +1577,8 @@ private class CalendarIngestionRuntime(
         val uri = runCatching { requireHttps(url) }.getOrNull() ?: return null
         repeat(SOURCE_FETCH_ATTEMPTS) { attempt ->
             val request =
-                HttpRequest.newBuilder(uri)
+                HttpRequest
+                    .newBuilder(uri)
                     .timeout(Duration.ofSeconds(12))
                     .header("User-Agent", "YfuseCalendarBot/1.1 (+official-schedule-evidence)")
                     .header("Accept", "text/html,application/xhtml+xml,application/json;q=0.8,*/*;q=0.5")
@@ -1898,7 +1615,8 @@ private class CalendarIngestionRuntime(
         if (renderer.apiKeyEnvironment != null && key.isNullOrBlank()) return null
         val payload = "{\"url\":${ingestionJson.encodeToString(url)}}"
         val builder =
-            HttpRequest.newBuilder(endpoint)
+            HttpRequest
+                .newBuilder(endpoint)
                 .timeout(Duration.ofSeconds(30))
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(payload))
@@ -1948,7 +1666,12 @@ private class CalendarIngestionRuntime(
                 require(runCatching { Regex(pattern) }.isSuccess)
             }
             val uri = requireHttps(feed.url)
-            require(PLATFORM_HOSTS.getValue(feed.platform).any { uri.host.equals(it, true) || uri.host.endsWith(".$it", true) })
+            require(
+                PLATFORM_HOSTS.getValue(feed.platform).any {
+                    uri.host.equals(it, true) ||
+                        uri.host.endsWith(".$it", true)
+                },
+            )
         }
         require(config.overseas.pastDays in 0..30)
         require(config.overseas.futureDays in 1..180)
@@ -1968,7 +1691,10 @@ private class CalendarIngestionRuntime(
             require(renderer.apiKeyEnvironment?.length?.let { it in 1..120 } != false)
         }
         require(
-            config.verifiedAccounts.map(VerifiedCalendarAccount::publisherId).distinct().size ==
+            config.verifiedAccounts
+                .map(VerifiedCalendarAccount::publisherId)
+                .distinct()
+                .size ==
                 config.verifiedAccounts.size,
         )
         config.verifiedAccounts.forEach { account ->
@@ -2080,22 +1806,28 @@ internal fun CoroutineScope.launchCalendarIngestionFromEnvironment(
     scheduleStore: CalendarScheduleStore = NoOpCalendarScheduleStore,
 ): Job? {
     val configPath =
-        System.getenv("YFUSE_CALENDAR_INGEST_CONFIG")
+        System
+            .getenv("YFUSE_CALENDAR_INGEST_CONFIG")
             ?.takeIf(String::isNotBlank)
             ?: return null
     val outputFile =
-        System.getenv("YFUSE_CALENDAR_SCHEDULES_PATH")
+        System
+            .getenv("YFUSE_CALENDAR_SCHEDULES_PATH")
             ?.takeIf(String::isNotBlank)
             ?.let(::File)
     if (outputFile == null && scheduleStore === NoOpCalendarScheduleStore) return null
-    val cacheFile = System.getenv("YFUSE_CALENDAR_OCR_CACHE_PATH")
-        ?.takeIf(String::isNotBlank)?.let(::File)
-        ?: outputFile?.resolveSibling("calendar-ocr-cache.db")
-        ?: File("/var/lib/yfuse/calendar-ocr-cache.db")
-    val ocrCache = runCatching { CalendarOcrCache.sqlite(cacheFile) }.getOrElse { failure ->
-        ServerLog.warn("calendar_ocr_cache_disabled", throwable = failure)
-        NoOpCalendarOcrCache
-    }
+    val cacheFile =
+        System
+            .getenv("YFUSE_CALENDAR_OCR_CACHE_PATH")
+            ?.takeIf(String::isNotBlank)
+            ?.let(::File)
+            ?: outputFile?.resolveSibling("calendar-ocr-cache.db")
+            ?: File("/var/lib/yfuse/calendar-ocr-cache.db")
+    val ocrCache =
+        runCatching { CalendarOcrCache.sqlite(cacheFile) }.getOrElse { failure ->
+            ServerLog.warn("calendar_ocr_cache_disabled", throwable = failure)
+            NoOpCalendarOcrCache
+        }
     val runtime =
         CalendarIngestionRuntime(
             configFile = File(configPath),
@@ -2117,9 +1849,13 @@ internal fun CoroutineScope.launchCalendarIngestionFromEnvironment(
                     CalendarIngestionHealth.failed(failure)
                     ServerLog.error("calendar_ingestion_failed", throwable = failure)
                 }
-                val minutes = runCatching {
-                    ingestionJson.decodeFromString<CalendarIngestionConfig>(File(configPath).readText()).refreshMinutes
-                }.getOrDefault(30)
+                val minutes =
+                    runCatching {
+                        ingestionJson
+                            .decodeFromString<CalendarIngestionConfig>(
+                                File(configPath).readText(),
+                            ).refreshMinutes
+                    }.getOrDefault(30)
                 delay(minutes.coerceIn(15, 1_440) * 60_000L)
             }
         } finally {
@@ -2128,7 +1864,7 @@ internal fun CoroutineScope.launchCalendarIngestionFromEnvironment(
     }
 }
 
-private fun mergeWithoutConflict(parts: List<Map<Int, String>>): Map<Int, String>? {
+internal fun mergeWithoutConflict(parts: List<Map<Int, String>>): Map<Int, String>? {
     val merged = linkedMapOf<Int, String>()
     parts.forEach { part ->
         part.forEach { (episode, date) ->
@@ -2150,7 +1886,8 @@ private fun ocrConfidenceBonus(agreement: OcrAgreement): Int =
     }
 
 private fun htmlToText(html: String): String =
-    html.replace(Regex("(?is)<script[^>]*>.*?</script>"), " ")
+    html
+        .replace(Regex("(?is)<script[^>]*>.*?</script>"), " ")
         .replace(Regex("(?is)<style[^>]*>.*?</style>"), " ")
         .replace(Regex("(?s)<[^>]+>"), " ")
         .replace("&nbsp;", " ")
@@ -2160,11 +1897,19 @@ private fun htmlToText(html: String): String =
         .replace("&quot;", "\"")
         .replace("&#39;", "'")
         .replace(Regex("&#(\\d+);")) { match ->
-            match.groupValues[1].toIntOrNull()?.takeIf { it in Char.MIN_VALUE.code..Char.MAX_VALUE.code }?.toChar()?.toString()
+            match.groupValues[1]
+                .toIntOrNull()
+                ?.takeIf { it in Char.MIN_VALUE.code..Char.MAX_VALUE.code }
+                ?.toChar()
+                ?.toString()
                 ?: match.value
-        }
-        .replace(Regex("&#x([0-9a-fA-F]+);")) { match ->
-            match.groupValues[1].toIntOrNull(16)?.takeIf { it in Char.MIN_VALUE.code..Char.MAX_VALUE.code }?.toChar()?.toString()
+        }.replace(Regex("&#x([0-9a-fA-F]+);")) { match ->
+            match.groupValues[1]
+                .toIntOrNull(
+                    16,
+                )?.takeIf { it in Char.MIN_VALUE.code..Char.MAX_VALUE.code }
+                ?.toChar()
+                ?.toString()
                 ?: match.value
         }
 
@@ -2254,8 +1999,7 @@ internal fun discoverCalendarShowsFromHtml(
                         ),
                     ),
             )
-        }
-        .toList()
+        }.toList()
 }
 
 /**
@@ -2303,6 +2047,7 @@ internal fun discoverCandidateCalendarShowsFromHtml(
     }
 
     val root = runCatching { ingestionJson.parseToJsonElement(html) }.getOrNull()
+
     fun visit(element: JsonElement) {
         when (element) {
             is JsonObject -> {
@@ -2375,18 +2120,19 @@ private fun matchDomesticCandidate(
     val compactText = text.replace(Regex("\\s+"), " ").take(MAX_CANDIDATE_EVIDENCE_TEXT_CHARS)
     val normalizedText = normalizeTitle(compactText)
     val matching =
-        candidates.filter { candidate ->
-            (candidate.aliases + candidate.title).distinctBy(::normalizeTitle).any { alias ->
-                val cleaned = alias.trim()
-                if (cleaned.isBlank()) return@any false
-                val escaped = Regex.escape(cleaned)
-                val explicitlyNamed =
-                    Regex("(?:#|《|「|『)\\s*$escaped\\s*(?:#|》|」|』)", RegexOption.IGNORE_CASE)
-                        .containsMatchIn(compactText)
-                val normalizedAlias = normalizeTitle(cleaned)
-                explicitlyNamed || (normalizedAlias.length >= 4 && normalizedText.contains(normalizedAlias))
-            }
-        }.distinctBy { candidate -> candidate.tmdbId?.let { "tmdb:$it" } ?: normalizeTitle(candidate.title) }
+        candidates
+            .filter { candidate ->
+                (candidate.aliases + candidate.title).distinctBy(::normalizeTitle).any { alias ->
+                    val cleaned = alias.trim()
+                    if (cleaned.isBlank()) return@any false
+                    val escaped = Regex.escape(cleaned)
+                    val explicitlyNamed =
+                        Regex("(?:#|《|「|『)\\s*$escaped\\s*(?:#|》|」|』)", RegexOption.IGNORE_CASE)
+                            .containsMatchIn(compactText)
+                    val normalizedAlias = normalizeTitle(cleaned)
+                    explicitlyNamed || (normalizedAlias.length >= 4 && normalizedText.contains(normalizedAlias))
+                }
+            }.distinctBy { candidate -> candidate.tmdbId?.let { "tmdb:$it" } ?: normalizeTitle(candidate.title) }
     return matching.singleOrNull()
 }
 
@@ -2394,23 +2140,25 @@ private fun extractCalendarArchiveAnchors(
     base: URI,
     html: String,
 ): List<CalendarArchiveAnchor> =
-    ARCHIVE_ANCHOR_REGEX.findAll(html).mapNotNull { anchor ->
-        val attributes = anchor.groupValues[1] + " " + anchor.groupValues[3]
-        val label =
-            buildString {
-                append(htmlToText(anchor.groupValues[4]))
-                Regex("(?is)(?:title|aria-label)=[\"']([^\"']+)[\"']")
-                    .find(attributes)
-                    ?.groupValues
-                    ?.getOrNull(1)
-                    ?.let {
-                        append(' ')
-                        append(htmlToText(it))
-                    }
-            }.replace(Regex("\\s+"), " ").trim()
-        val sourceUrl = resolveHttpsUrl(base, anchor.groupValues[2]) ?: return@mapNotNull null
-        CalendarArchiveAnchor(anchor.range.first, anchor.range.last + 1, sourceUrl, label)
-    }.toList()
+    ARCHIVE_ANCHOR_REGEX
+        .findAll(html)
+        .mapNotNull { anchor ->
+            val attributes = anchor.groupValues[1] + " " + anchor.groupValues[3]
+            val label =
+                buildString {
+                    append(htmlToText(anchor.groupValues[4]))
+                    Regex("(?is)(?:title|aria-label)=[\"']([^\"']+)[\"']")
+                        .find(attributes)
+                        ?.groupValues
+                        ?.getOrNull(1)
+                        ?.let {
+                            append(' ')
+                            append(htmlToText(it))
+                        }
+                }.replace(Regex("\\s+"), " ").trim()
+            val sourceUrl = resolveHttpsUrl(base, anchor.groupValues[2]) ?: return@mapNotNull null
+            CalendarArchiveAnchor(anchor.range.first, anchor.range.last + 1, sourceUrl, label)
+        }.toList()
 
 private fun extractCalendarArchiveTitle(
     sourceText: String,
@@ -2464,7 +2212,13 @@ private fun isUsableCalendarSource(
         return WEIBO_PERMALINK_PATH.matches(uri.path)
     }
     val allowedHosts = PLATFORM_HOSTS[feed.platform] ?: return false
-    if (Regex("\\.(?:jpe?g|png|webp|gif|svg)(?:$|[?#])", RegexOption.IGNORE_CASE).containsMatchIn(uri.path)) return false
+    if (Regex(
+            "\\.(?:jpe?g|png|webp|gif|svg)(?:$|[?#])",
+            RegexOption.IGNORE_CASE,
+        ).containsMatchIn(uri.path)
+    ) {
+        return false
+    }
     return url != feed.url && allowedHosts.any { uri.host.equals(it, true) || uri.host.endsWith(".$it", true) }
 }
 
@@ -2472,9 +2226,14 @@ private fun extractArchiveEntryImages(
     base: URI,
     html: String,
 ): List<String> =
-    ARCHIVE_IMAGE_REGEX.findAll(html)
+    ARCHIVE_IMAGE_REGEX
+        .findAll(html)
         .mapNotNull { match ->
-            val raw = match.groupValues[1].substringBefore(',').trim().substringBefore(' ')
+            val raw =
+                match.groupValues[1]
+                    .substringBefore(',')
+                    .trim()
+                    .substringBefore(' ')
             resolveHttpsUrl(base, raw)?.takeIf(::isLikelyCalendarMediaUrl)
         }.distinct()
         .take(MAX_IMAGES_PER_SOURCE)
@@ -2488,6 +2247,7 @@ private fun discoverCalendarArchiveJson(
 ): List<CalendarArchiveCandidate> {
     val root = runCatching { ingestionJson.parseToJsonElement(content) }.getOrNull() ?: return emptyList()
     val candidates = mutableListOf<CalendarArchiveCandidate>()
+
     fun visit(element: JsonElement) {
         when (element) {
             is JsonObject -> {
@@ -2544,6 +2304,7 @@ private fun collectJsonImageUrls(
 
     val urls = mutableListOf<RankedImageUrl>()
     var order = 0
+
     fun visit(
         current: JsonElement,
         key: String = "",
@@ -2558,7 +2319,8 @@ private fun collectJsonImageUrls(
                 if (values != null) {
                     values.forEach { visit(it, key, path) }
                 } else if (key.contains("url", true) || key.contains("image", true) || key.contains("pic", true)) {
-                    runCatching { current.jsonPrimitive.content }.getOrNull()
+                    runCatching { current.jsonPrimitive.content }
+                        .getOrNull()
                         ?.let { resolveHttpsUrl(base, it) }
                         ?.takeIf(::isLikelyCalendarMediaUrl)
                         ?.let { url ->
@@ -2593,8 +2355,7 @@ private fun collectJsonImageUrls(
                     ranked.url
                 }
             } ?: ranked.url
-        }
-        .map(RankedImageUrl::url)
+        }.map(RankedImageUrl::url)
         .take(MAX_IMAGES_PER_SOURCE)
 }
 
@@ -2624,7 +2385,12 @@ internal fun prioritizeCalendarImages(urls: List<String>): List<String> =
             val lower = url.lowercase()
             val score =
                 when {
-                    listOf("calendar", "schedule", "%e6%97%a5%e5%8e%86", "%e6%8e%92%e6%9c%9f").any(lower::contains) -> 100
+                    listOf(
+                        "calendar",
+                        "schedule",
+                        "%e6%97%a5%e5%8e%86",
+                        "%e6%8e%92%e6%9c%9f",
+                    ).any(lower::contains) -> 100
                     listOf("large", "largest", "original", "mw2000", "ori").any(lower::contains) -> 50
                     listOf("thumb", "thumbnail", "small", "square").any(lower::contains) -> -50
                     else -> 0
@@ -2670,15 +2436,19 @@ private fun extractCalendarImages(
 ): List<String> {
     val base = URI(pageUrl)
     val pageIsCalendar = CALENDAR_DISCOVERY_KEYWORDS.containsMatchIn(htmlToText(html))
-    return ARCHIVE_IMAGE_REGEX.findAll(html)
+    return ARCHIVE_IMAGE_REGEX
+        .findAll(html)
         .filter { match ->
             val tag = match.value.lowercase()
             listOf("日历", "calendar", "schedule", "追剧", "排期").any(tag::contains) || pageIsCalendar
         }.mapNotNull { match ->
-            val candidate = match.groupValues[1].substringBefore(',').trim().substringBefore(' ')
+            val candidate =
+                match.groupValues[1]
+                    .substringBefore(',')
+                    .trim()
+                    .substringBefore(' ')
             resolveHttpsUrl(base, candidate)?.takeIf(::isLikelyCalendarMediaUrl)
-        }
-        .distinct()
+        }.distinct()
         .take(MAX_IMAGES_PER_SOURCE)
         .toList()
 }
@@ -2774,9 +2544,16 @@ private fun ByteArray.sha256(): String =
     MessageDigest.getInstance("SHA-256").digest(this).joinToString("") { "%02x".format(it) }
 
 private fun ocrProviderCacheKey(provider: CalendarOcrProviderConfig): String =
-    listOf(provider.id, provider.protocol, provider.endpoint, provider.model.orEmpty(),
-        provider.engine?.toString().orEmpty(), provider.language.orEmpty(), provider.independenceGroup.orEmpty())
-        .joinToString("|").sha256()
+    listOf(
+        provider.id,
+        provider.protocol,
+        provider.endpoint,
+        provider.model.orEmpty(),
+        provider.engine?.toString().orEmpty(),
+        provider.language.orEmpty(),
+        provider.independenceGroup.orEmpty(),
+    ).joinToString("|")
+        .sha256()
 
 private val PLATFORM_HOSTS =
     mapOf(
@@ -2792,8 +2569,6 @@ private const val MAX_CALENDAR_IMAGE_BYTES = 12 * 1024 * 1024
 private const val MAX_CALENDAR_EPISODES = 500
 private const val MIN_OCR_PROVIDERS = 2
 private const val MAX_OCR_PROVIDERS = 3
-private const val MAX_STATUS_SHOW_DIAGNOSTICS = 200
-private const val MAX_STATUS_REASONS_PER_SHOW = 8
 private const val MIN_PARTIAL_OCR_COORDINATES = 3
 private const val MAX_SOURCES_PER_SHOW = 9
 private const val MAX_EVIDENCE_PER_SERIES = 20

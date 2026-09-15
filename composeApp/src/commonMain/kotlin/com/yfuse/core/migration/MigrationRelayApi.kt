@@ -1,7 +1,6 @@
 package com.yfuse.core.migration
 
 import com.yfuse.core.account.ACCOUNT_BASE_URL
-import com.yfuse.core.network.embyHttpEngine
 import com.yfuse.core.security.base64UrlToBytes
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
@@ -20,8 +19,12 @@ import io.ktor.http.Url
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import io.ktor.serialization.kotlinx.json.json
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+
+/** A short-lived engine whose connection pool belongs exclusively to one migration client. */
+internal expect fun migrationRelayHttpEngine(): HttpClientEngine
 
 @Serializable
 data class MigrationRelayTicket(
@@ -40,13 +43,26 @@ class MigrationRelayApiException(
 ) : Exception(message)
 
 class MigrationRelayApi(
-    private val client: HttpClient = createMigrationRelayClient(),
+    client: HttpClient? = null,
     baseUrl: String = ACCOUNT_BASE_URL,
 ) {
     private val origin =
         baseUrl.trimEnd('/').also {
             require(it.startsWith("https://")) { "迁移服务必须使用 HTTPS" }
         }
+    private val ownedEngine = if (client == null) migrationRelayHttpEngine() else null
+    private val client = client ?: createMigrationRelayClient(requireNotNull(ownedEngine), origin)
+
+    /** Injected clients and their engines belong to the caller and must stay usable after close. */
+    fun close() {
+        if (ownedEngine != null) {
+            try {
+                client.close()
+            } finally {
+                ownedEngine.close()
+            }
+        }
+    }
 
     suspend fun create(
         relayId: String,
@@ -77,7 +93,7 @@ class MigrationRelayApi(
 }
 
 fun createMigrationRelayClient(
-    engine: HttpClientEngine = embyHttpEngine(),
+    engine: HttpClientEngine = migrationRelayHttpEngine(),
     trustedOrigin: String = ACCOUNT_BASE_URL,
 ): HttpClient =
     HttpClient(engine) {
@@ -137,7 +153,14 @@ private data class RelayError(
 
 private suspend inline fun <reified T> HttpResponse.decoded(): T {
     if (status.isSuccess()) return body()
-    val error = runCatching { body<RelayError>() }.getOrNull()
+    val error =
+        try {
+            body<RelayError>()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            null
+        }
     throw MigrationRelayApiException(
         errorCode = error?.code ?: "invalid_request",
         message = error?.message ?: "迁移请求失败，请检查网络后重试",

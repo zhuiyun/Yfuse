@@ -32,7 +32,7 @@ class PlaybackVaultCipher(
         val signedIn = account.state.value as? AccountState.SignedIn ?: return null
         val key = requireVaultKey(signedIn.session.user.id) ?: return null
         return try {
-            val entityKey = opaqueEntityKey(key, document.state.mediaKey)
+            val entityKey = opaqueEntityKey(key, profileMediaKey(document))
             val plaintext = json.encodeToString(document).encodeToByteArray()
             try {
                 val encrypted =
@@ -74,7 +74,7 @@ class PlaybackVaultCipher(
                 require(plaintext.size <= MAX_PLAYBACK_PLAINTEXT_BYTES)
                 val document = json.decodeFromString<PlaybackSyncDocument>(plaintext.decodeToString())
                 require(document.schemaVersion == 1)
-                val expectedKey = opaqueEntityKey(key, document.state.mediaKey)
+                val expectedKey = opaqueEntityKey(key, profileMediaKey(document))
                 require(expectedKey == entity.entityKey) { "Playback entity identity mismatch" }
                 document
             } finally {
@@ -89,6 +89,13 @@ class PlaybackVaultCipher(
     }
 
     /** HMAC-SHA256 implemented from the vault's SHA-256 primitive; the server sees only this tag. */
+    private fun profileMediaKey(document: PlaybackSyncDocument): String =
+        if (document.state.profileId == com.yfuse.core.personal.DEFAULT_PERSONAL_PROFILE) {
+            document.state.mediaKey
+        } else {
+            "profile:${document.state.profileId}\u0000${document.state.mediaKey}"
+        }
+
     private fun opaqueEntityKey(
         key: ByteArray,
         mediaKey: String,

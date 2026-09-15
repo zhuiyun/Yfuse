@@ -298,32 +298,32 @@ internal class AccountService(
             usernameFailureLimiter.recordFailure(normalizedUsername)
             invalidCredentials()
         }
-        val verified =
-            try {
-                passwordHasher.verify(
-                    request.password,
-                    PasswordDigest(
-                        salt = credentials.passwordSalt,
-                        hash = credentials.passwordHash,
-                        iterations = credentials.passwordIterations,
-                    ),
-                )
-            } finally {
-                credentials.passwordSalt.fill(0)
-                credentials.passwordHash.fill(0)
+        val expectedDigest =
+            PasswordDigest(
+                salt = credentials.passwordSalt,
+                hash = credentials.passwordHash,
+                iterations = credentials.passwordIterations,
+            )
+        try {
+            if (!passwordHasher.verify(request.password, expectedDigest)) {
+                usernameFailureLimiter.recordFailure(normalizedUsername)
+                invalidCredentials()
             }
-        if (!verified) {
-            usernameFailureLimiter.recordFailure(normalizedUsername)
-            invalidCredentials()
-        }
 
-        val now = clock()
-        val issued = issueSession(now)
-        store.createSession(
-            issued.asNewSession(credentials.user.id, validateDeviceName(request.deviceName)),
-        )
-        usernameFailureLimiter.clear(normalizedUsername)
-        return issued.toResponse(credentials.user, capabilitiesFor(credentials.user.id))
+            val issued = issueSession(clock())
+            val user =
+                store.createSessionIfCredentialsMatch(
+                    issued.asNewSession(credentials.user.id, validateDeviceName(request.deviceName)),
+                    expectedDigest,
+                ) ?: run {
+                    usernameFailureLimiter.recordFailure(normalizedUsername)
+                    invalidCredentials()
+                }
+            usernameFailureLimiter.clear(normalizedUsername)
+            return issued.toResponse(user, capabilitiesFor(user.id))
+        } finally {
+            expectedDigest.wipe()
+        }
     }
 
     fun refresh(request: RefreshRequest): AuthResponse {
@@ -500,8 +500,8 @@ internal class AccountService(
             invalidRequest("profile_empty", "至少提供一个资料字段")
         }
         val current = authenticate(accessToken).user
-        val nickname = request.nickname?.let(::validateNickname) ?: current.nickname
-        val avatarId = request.avatarId?.let(::validateAvatarId) ?: current.avatarId
+        val nickname = request.nickname?.let(::validateNickname)
+        val avatarId = request.avatarId?.let(::validateAvatarId)
         return store
             .updateProfile(current.id, nickname, avatarId, clock())
             ?.let { it.toResponse(capabilitiesFor(it.id)) }

@@ -38,6 +38,11 @@ internal enum class TvSettingsPage(
     val subtitle: String,
 ) {
     Root("设置", ""),
+    Personal("个人中心", "想看、收藏与观看历史"),
+    Family("家庭资料", "新建资料、家长 PIN 与关联服务器用户"),
+    SyncStatus("同步状态", "个人数据合并、播放进度与冲突恢复"),
+    Handoff("设备接力", "把当前观看转到另一台在线设备"),
+    Trakt("Trakt", "授权、导入观看历史与想看、播放上报"),
     Account("账号与同步", "登录、加密同步与云端数据"),
     AccountSessions("设备会话", "在其他设备上的登录状态"),
     Playback("播放", "播放行为、进度与片头片尾"),

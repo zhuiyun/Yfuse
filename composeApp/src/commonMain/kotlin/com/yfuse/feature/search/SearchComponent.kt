@@ -114,6 +114,15 @@ class SearchComponent(
     }
 
     /** Runs [query] on this tab's root page, leaving whatever detail or player was on top. */
+    fun clearForProfileSwitch() {
+        popToRoot()
+        (
+            stack.value.items
+                .firstOrNull()
+                ?.instance as? Child.Home
+        )?.component?.store?.accept(SearchIntent.Clear)
+    }
+
     fun search(query: String) {
         popToRoot()
         val home =

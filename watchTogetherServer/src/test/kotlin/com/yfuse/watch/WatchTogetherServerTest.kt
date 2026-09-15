@@ -1843,7 +1843,7 @@ class WatchTogetherServerTest {
         }
 
     @Test
-    fun authenticatedAccountCannotAllocateFreshMembershipsOrBypassKickWithNewClientId() =
+    fun authenticatedAccountCanUseMultipleDevicesButCannotBypassAccountKick() =
         testApplication {
             val backend =
                 com.yfuse.watch.account.AccountBackend
@@ -1895,28 +1895,28 @@ class WatchTogetherServerTest {
                     .asJson()
             assertEquals("welcome", guestWelcome["type"]?.jsonPrimitive?.content)
 
-            val conflictingIdentity =
+            val secondDevice =
                 socketClient.webSocketSession("/watch") {
                     headers.append(HttpHeaders.Authorization, "Bearer ${guestAuth.accessToken}")
                 }
-            conflictingIdentity.send(
+            secondDevice.send(
                 """{"type":"hello","protocolVersion":5,"roomCode":"$roomCode","clientId":"guest-device-2"}""",
             )
-            val conflict =
-                (conflictingIdentity.incoming.receive() as Frame.Text)
-                    .readText()
-                    .asJson()
-            assertEquals("account_membership_conflict", conflict["errorCode"]?.jsonPrimitive?.content)
-            val conflictCloseReason =
-                withTimeout(2_000L) {
-                    (conflictingIdentity as DefaultWebSocketSession).closeReason.await()
-                }
-            assertEquals(1008, conflictCloseReason?.code?.toInt())
+            val secondWelcome = (secondDevice.incoming.receive() as Frame.Text).readText().asJson()
+            assertEquals("welcome", secondWelcome["type"]?.jsonPrimitive?.content)
+            assertFalse(secondWelcome.getValue("isHost").jsonPrimitive.boolean)
 
             host.send("""{"type":"kickParticipant","targetClientId":"guest-device"}""")
             withTimeout(2_000L) {
                 while (true) {
                     val payload = (guest.incoming.receive() as Frame.Text).readText().asJson()
+                    if (payload["type"]?.jsonPrimitive?.content == "kicked") break
+                }
+            }
+
+            withTimeout(2_000L) {
+                while (true) {
+                    val payload = (secondDevice.incoming.receive() as Frame.Text).readText().asJson()
                     if (payload["type"]?.jsonPrimitive?.content == "kicked") break
                 }
             }

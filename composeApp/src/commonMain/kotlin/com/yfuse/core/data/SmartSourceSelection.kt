@@ -91,6 +91,7 @@ private fun searchHealthRank(status: ServerHealthStatus?): Int =
 data class RankedServerSource(
     val source: ServerSource,
     val score: Int,
+    val reasons: List<String> = emptyList(),
 )
 
 /**
@@ -136,13 +137,55 @@ fun rankServerSources(
     network: PlaybackNetworkClass = PlaybackNetworkClass.Unknown,
 ): List<RankedServerSource> =
     sources
-        .map { source -> RankedServerSource(source, sourceScore(source, health[source.serverId], network)) }
-        .sortedWith(
+        .map { source ->
+            RankedServerSource(
+                source,
+                sourceScore(source, health[source.serverId], network),
+                sourceRecommendationReasons(source, health[source.serverId], network),
+            )
+        }.sortedWith(
             compareByDescending<RankedServerSource> { it.score }
                 .thenBy { health[it.source.serverId]?.latencyMs ?: Long.MAX_VALUE }
                 .thenBy { it.source.serverName.lowercase() }
                 .thenBy { it.source.serverId },
         )
+
+/** Facts used by the ranking, never a promise of measured bandwidth or decoder compatibility. */
+fun sourceRecommendationReasons(
+    source: ServerSource,
+    health: ServerHealth? = null,
+    network: PlaybackNetworkClass = PlaybackNetworkClass.Unknown,
+    smartRanking: Boolean = true,
+): List<String> =
+    buildList {
+        if (!source.reachable || source.source == null || source.itemId == null) {
+            add("来源尚不可用")
+            return@buildList
+        }
+        if (smartRanking) {
+            add(
+                when (health?.status) {
+                    ServerHealthStatus.Healthy -> "最近连接检查正常"
+                    ServerHealthStatus.Degraded -> "最近连接有波动"
+                    ServerHealthStatus.Offline -> "最近检查离线"
+                    ServerHealthStatus.AuthRequired -> "需要重新登录"
+                    ServerHealthStatus.Unknown, null -> "连接状态未测定"
+                },
+            )
+            health?.latencyMs?.takeIf { it >= 0L }?.let { add("请求响应 ${it}ms") }
+        }
+        val info = source.source
+        info.quality.takeIf(String::isNotBlank)?.let(::add)
+        if (info.dolbyVision) {
+            add("片源含杜比视界")
+        } else if (info.videoRange.orEmpty().contains("HDR", ignoreCase = true)) {
+            add("片源含 HDR")
+        }
+        if (info.dolbyAtmos) add("片源含 Atmos")
+        if (smartRanking && network == PlaybackNetworkClass.Metered) {
+            add("计费网络兼顾码率与流量")
+        }
+    }
 
 /** Ordered, distinct and bounded so a broken title can never cycle through servers forever. */
 fun smartFailoverServerIds(

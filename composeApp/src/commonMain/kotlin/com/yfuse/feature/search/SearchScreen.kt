@@ -147,6 +147,8 @@ private fun SearchHomeScreen(
     focusRequest: Int,
     consumeFocusRequest: (Int) -> Boolean,
 ) {
+    var showPeople by remember { mutableStateOf(false) }
+    var compactResults by remember { mutableStateOf(true) }
     val state by component.store.states.collectAsState(component.store.state)
     val palette = LocalPalette.current
     val store = component.store
@@ -225,19 +227,6 @@ private fun SearchHomeScreen(
                 }
             }
 
-            // 演员 sits above the titles: a cast match is a different kind of answer, and
-            // a title search can never surface it — `/Items` matches item names only.
-            if (state.people.isNotEmpty() && state.person == null) {
-                motionItem {
-                    PeopleRow(
-                        people = state.people,
-                        baseUrl = component::serverBaseUrl,
-                        accessToken = component::serverAccessToken,
-                        onSelect = { store.accept(SearchIntent.SelectPerson(it)) },
-                    )
-                }
-            }
-
             state.person?.let { person ->
                 motionItem {
                     PersonBanner(
@@ -259,6 +248,9 @@ private fun SearchHomeScreen(
                         Modifier.padding(horizontal = Dimens.pageHorizontal).then(resultHandoff.item(key = "heading")),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
+                        com.yfuse.feature.library.LibraryAction(
+                            if (compactResults) "显示简介" else "紧凑结果",
+                        ) { compactResults = !compactResults }
                         ResultsHeading(
                             count = state.visibleResultCount,
                             types = state.availableTypes,
@@ -314,6 +306,7 @@ private fun SearchHomeScreen(
                                 accessToken = component.serverAccessToken(recommended.serverId),
                                 serverId = recommended.serverId,
                                 item = recommended.item,
+                                compact = compactResults,
                                 sourceSummary =
                                     if (group.copies.size > 1) {
                                         "${group.copies.size} 个片源 · 推荐 ${recommended.serverName}"
@@ -356,6 +349,24 @@ private fun SearchHomeScreen(
                                     ),
                             )
                         }
+                }
+            }
+
+            if (state.people.isNotEmpty() && state.person == null) {
+                motionItem(key = "search-people-toggle") {
+                    com.yfuse.feature.library.LibraryAction(
+                        if (showPeople) "收起相关人物" else "查看相关人物（${state.people.size}）",
+                    ) { showPeople = !showPeople }
+                }
+                if (showPeople) {
+                    motionItem(key = "search-people") {
+                        PeopleRow(
+                            people = state.people,
+                            baseUrl = component::serverBaseUrl,
+                            accessToken = component::serverAccessToken,
+                            onSelect = { store.accept(SearchIntent.SelectPerson(it)) },
+                        )
+                    }
                 }
             }
 
@@ -932,6 +943,7 @@ private fun ResultRow(
     serverId: String,
     item: MediaItem,
     sourceSummary: String? = null,
+    compact: Boolean = false,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -951,13 +963,17 @@ private fun ResultRow(
             // accounts is two groups holding the same item ids. A shared-element key
             // repeated within one screen leaves one of its copies undrawn, so the group
             // it belongs to is part of the key.
-            modifier = Modifier.width(SearchPosterWidth).height(SearchPosterHeight),
+            modifier =
+                Modifier
+                    .width(
+                        if (compact) 52.dp else SearchPosterWidth,
+                    ).height(if (compact) 78.dp else SearchPosterHeight),
             sharedTransitionKey = MediaSharedElementKey(serverId, item.id),
         )
         Column(
             Modifier
                 .weight(1f)
-                .heightIn(min = SearchPosterHeight)
+                .heightIn(min = if (compact) 78.dp else SearchPosterHeight)
                 .padding(vertical = 2.dp),
         ) {
             Row(
@@ -1022,7 +1038,7 @@ private fun ResultRow(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            item.overview?.takeIf { it.isNotBlank() }?.let { overview ->
+            item.overview?.takeIf { !compact && it.isNotBlank() }?.let { overview ->
                 Spacer(Modifier.height(6.dp))
                 Text(
                     overview,

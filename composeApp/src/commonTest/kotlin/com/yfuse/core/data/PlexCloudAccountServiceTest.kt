@@ -59,6 +59,10 @@ class PlexCloudAccountServiceTest {
                             assertEquals("owner-token", request.headers["X-Plex-Token"])
                             json("""{"uuid":"kid","title":"Kid","authToken":"kid-token"}""")
                         }
+                        "/api/v2/user" -> {
+                            assertEquals("kid-token", request.headers["X-Plex-Token"])
+                            json("""{"uuid":"kid","title":"Kid"}""")
+                        }
                         "/api/v2/resources" -> {
                             assertEquals("kid-token", request.headers["X-Plex-Token"])
                             json(
@@ -88,6 +92,7 @@ class PlexCloudAccountServiceTest {
             assertEquals("kid-token", authenticated.cloudAccessToken)
             assertEquals("owner-token", authenticated.cloudOwnerAccessToken)
             assertEquals("server-token", authenticated.accessToken)
+            assertEquals("plex-user:kid", authenticated.userId)
             assertEquals(2, authenticated.routes.size)
             assertEquals("https://plex.example.com:32400", authenticated.baseUrl)
         }

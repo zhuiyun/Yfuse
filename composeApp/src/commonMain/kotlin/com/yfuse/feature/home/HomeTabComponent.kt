@@ -106,6 +106,25 @@ class HomeTabComponent(
         navigation.pop()
     }
 
+    fun openPersonalTitle(media: com.yfuse.core.personal.PersonalMediaRef) {
+        val tmdbId = media.tmdbId ?: return
+        navigation.push(
+            Config.Info(
+                TmdbItem(
+                    id = tmdbId,
+                    title = media.title,
+                    overview = null,
+                    posterPath = media.posterPath,
+                    backdropPath = null,
+                    year = media.year?.toString(),
+                    mediaType = if (media.mediaType.lowercase() in setOf("series", "tv")) "tv" else "movie",
+                    rating = null,
+                ),
+                embyItemId = null,
+            ),
+        )
+    }
+
     fun openCalendarItem(
         serverId: String?,
         itemId: String,

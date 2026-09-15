@@ -25,17 +25,19 @@ internal class AmbientCopyQueue(
         release: (T) -> Unit,
     ): R? {
         val lane = this.lane
-        lane.acquire()
-        val destination =
-            try {
-                currentCoroutineContext().ensureActive()
-                create()
-            } catch (error: Throwable) {
-                lane.release()
-                throw error
-            }
         val outcome =
             withTimeoutOrNull(timeoutMs) {
+                // A cancelled caller no longer runs its watchdog. Bound the next caller's
+                // wait too, so a missing callback from that request cannot stop all sampling.
+                lane.acquire()
+                val destination =
+                    try {
+                        currentCoroutineContext().ensureActive()
+                        create()
+                    } catch (error: Throwable) {
+                        lane.release()
+                        throw error
+                    }
                 Outcome(
                     awaitAmbientCopy(destination, request, read) {
                         try {

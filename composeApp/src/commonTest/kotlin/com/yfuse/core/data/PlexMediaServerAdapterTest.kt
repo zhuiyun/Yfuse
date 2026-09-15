@@ -64,7 +64,9 @@ class PlexMediaServerAdapterTest {
 
             assertTrue(result.isSuccess, result.toString())
             assertEquals(MediaServerKind.Plex, result.getOrThrow().kind)
-            assertEquals("yun", result.getOrThrow().userId)
+            assertTrue(result.getOrThrow().userId.startsWith("plex-token-sha256:"))
+            assertFalse(result.getOrThrow().userId.contains("secret-token"))
+            assertTrue(requests.all { it.startsWith("http://plex:32400/") })
             assertTrue(requests.none { "secret-token" in it })
         }
 

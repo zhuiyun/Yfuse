@@ -130,6 +130,8 @@ class CalendarReminderWorker(
             runCatching { koin.get<AiringCalendarRepository>() }
                 .getOrElse { return Result.retry() }
         val followStore = koin.get<CalendarFollowStore>()
+        val scopeToken = followStore.scopeToken
+        val settings = followStore.reminderSettings()
         val automaticRefreshCompleted =
             if (
                 followStore.automaticFollowRefreshDue(
@@ -144,13 +146,14 @@ class CalendarReminderWorker(
             } else {
                 true
             }
+        if (scopeToken != followStore.scopeToken) return Result.success()
         val follows = followStore.followed.value
         if (follows.isEmpty()) {
-            scheduleNextCalendarAlarm(applicationContext, null)
+            followStore.runInScope(scopeToken) { scheduleNextCalendarAlarm(applicationContext, null) }
             return if (automaticRefreshCompleted) Result.success() else Result.retry()
         }
         if (!notificationsAllowed()) {
-            scheduleNextCalendarAlarm(applicationContext, null)
+            followStore.runInScope(scopeToken) { scheduleNextCalendarAlarm(applicationContext, null) }
             return Result.success()
         }
         val calendarResult =
@@ -158,106 +161,107 @@ class CalendarReminderWorker(
                 repository.followedCalendar(pastDays = 1, futureDays = 2)
             } ?: return Result.retry()
         val days = calendarResult.getOrElse { return Result.retry() }
-        val settings = koin.get<Settings>()
-        pruneReminderDedupKeys(settings)
-        val now = currentEpochMillis()
-        val nextWakeCandidates = mutableListOf<Long>()
-        val followedByTmdb = follows.associateBy { it.tmdbId }
-        repository.scheduleChanges().forEach { change ->
-            val followed = followedByTmdb[change.tmdbId] ?: return@forEach
-            notifyOnce(
-                settings = settings,
-                key = "schedule-change.${change.tmdbId}.${change.revision}.${change.message.hashCode()}",
-                title = "${change.title} 排期有调整",
-                text = change.message,
-                followed = followed,
-            )
-        }
-        follows.forEach { followed ->
-            val entries = days.flatMap { it.entries }.filter { it.episode.showTmdbId == followed.tmdbId }
-            val available = entries.filter { it.status in setOf(LibraryStatus.Available, LibraryStatus.InProgress) }
-            if (followed.reminderMode == CalendarReminderMode.WhenAvailable) {
-                val baselineKey = "calendar.reminder.available.baseline.${followed.tmdbId}"
-                if (!settings.getBoolean(baselineKey, false)) {
-                    // Following an existing show must not announce its entire historical
-                    // library as newly downloaded. The first successful observation is a
-                    // baseline; only later transitions produce notifications.
-                    available.forEach { entry ->
-                        settings.putBoolean(availableSeenKey(followed.tmdbId, entry), true)
-                    }
-                    settings.putBoolean(baselineKey, true)
-                } else {
-                    val newlyAvailable =
-                        available.filterNot { entry ->
-                            settings.getBoolean(availableSeenKey(followed.tmdbId, entry), false)
-                        }
-                    if (newlyAvailable.isNotEmpty()) {
-                        val coordinates =
-                            newlyAvailable
-                                .joinToString("|") {
-                                    "${it.episode.seasonNumber}:${it.episode.episodeNumber}"
-                                }
-                        notifyOnce(
-                            settings = settings,
-                            key = "available.${followed.tmdbId}.${coordinates.hashCode()}",
-                            title = "${followed.title} 已入库",
-                            text = newlyAvailable.joinToString("、") { it.episode.episodeLabel },
-                            followed = followed,
-                        )
-                        newlyAvailable.forEach { entry ->
+        followStore.runInScope(scopeToken) {
+            pruneReminderDedupKeys(settings)
+            val now = currentEpochMillis()
+            val nextWakeCandidates = mutableListOf<Long>()
+            val followedByTmdb = follows.associateBy { it.tmdbId }
+            repository.scheduleChanges().forEach { change ->
+                val followed = followedByTmdb[change.tmdbId] ?: return@forEach
+                notifyOnce(
+                    settings = settings,
+                    key = "schedule-change.${change.tmdbId}.${change.revision}.${change.message.hashCode()}",
+                    title = "${change.title} 排期有调整",
+                    text = change.message,
+                    followed = followed,
+                )
+            }
+            follows.forEach { followed ->
+                val entries = days.flatMap { it.entries }.filter { it.episode.showTmdbId == followed.tmdbId }
+                val available = entries.filter { it.status in setOf(LibraryStatus.Available, LibraryStatus.InProgress) }
+                if (followed.reminderMode == CalendarReminderMode.WhenAvailable) {
+                    val baselineKey = "calendar.reminder.available.baseline.${followed.tmdbId}"
+                    if (!settings.getBoolean(baselineKey, false)) {
+                        // Following an existing show must not announce its entire historical
+                        // library as newly downloaded. The first successful observation is a
+                        // baseline; only later transitions produce notifications.
+                        available.forEach { entry ->
                             settings.putBoolean(availableSeenKey(followed.tmdbId, entry), true)
                         }
+                        settings.putBoolean(baselineKey, true)
+                    } else {
+                        val newlyAvailable =
+                            available.filterNot { entry ->
+                                settings.getBoolean(availableSeenKey(followed.tmdbId, entry), false)
+                            }
+                        if (newlyAvailable.isNotEmpty()) {
+                            val coordinates =
+                                newlyAvailable
+                                    .joinToString("|") {
+                                        "${it.episode.seasonNumber}:${it.episode.episodeNumber}"
+                                    }
+                            notifyOnce(
+                                settings = settings,
+                                key = "available.${followed.tmdbId}.${coordinates.hashCode()}",
+                                title = "${followed.title} 已入库",
+                                text = newlyAvailable.joinToString("、") { it.episode.episodeLabel },
+                                followed = followed,
+                            )
+                            newlyAvailable.forEach { entry ->
+                                settings.putBoolean(availableSeenKey(followed.tmdbId, entry), true)
+                            }
+                        }
+                    }
+                }
+                if (followed.reminderMode in
+                    setOf(CalendarReminderMode.AtBroadcast, CalendarReminderMode.BeforeAndAtBroadcast)
+                ) {
+                    entries.groupBy { it.episode.airDate to it.episode.airTime }.forEach { (_, sameSlot) ->
+                        val sample = sameSlot.first().episode
+                        val time = sample.airTime ?: return@forEach
+                        val zone = sample.timeZoneId ?: return@forEach
+                        val at = scheduledEpochMillis(sample.airDate, time, zone) ?: return@forEach
+                        val delta = at - now
+                        val beforeWindow = followed.remindBeforeMinutes * 60_000L
+                        if (at > now + 5_000L) nextWakeCandidates += at
+                        if (
+                            followed.reminderMode == CalendarReminderMode.BeforeAndAtBroadcast &&
+                            at - beforeWindow > now + 5_000L
+                        ) {
+                            nextWakeCandidates += at - beforeWindow
+                        }
+                        if (
+                            followed.reminderMode == CalendarReminderMode.BeforeAndAtBroadcast &&
+                            delta in 1L..beforeWindow
+                        ) {
+                            notifyOnce(
+                                settings,
+                                "before.${followed.tmdbId}.${sample.airDate}.$time." +
+                                    sameSlot.joinToString("-") {
+                                        "${it.episode.seasonNumber}e${it.episode.episodeNumber}"
+                                    },
+                                "${followed.title} 即将更新",
+                                "${sameSlot.joinToString("、") { it.episode.episodeLabel }} · $time",
+                                followed = followed,
+                            )
+                        }
+                        if (delta in -BROADCAST_LATE_WINDOW_MS..0L) {
+                            notifyOnce(
+                                settings,
+                                "air.${followed.tmdbId}.${sample.airDate}.$time." +
+                                    sameSlot.joinToString("-") {
+                                        "${it.episode.seasonNumber}e${it.episode.episodeNumber}"
+                                    },
+                                "${followed.title} 已播出",
+                                sameSlot.joinToString("、") { it.episode.episodeLabel },
+                                followed = followed,
+                            )
+                        }
                     }
                 }
             }
-            if (followed.reminderMode in
-                setOf(CalendarReminderMode.AtBroadcast, CalendarReminderMode.BeforeAndAtBroadcast)
-            ) {
-                entries.groupBy { it.episode.airDate to it.episode.airTime }.forEach { (_, sameSlot) ->
-                    val sample = sameSlot.first().episode
-                    val time = sample.airTime ?: return@forEach
-                    val zone = sample.timeZoneId ?: return@forEach
-                    val at = scheduledEpochMillis(sample.airDate, time, zone) ?: return@forEach
-                    val delta = at - now
-                    val beforeWindow = followed.remindBeforeMinutes * 60_000L
-                    if (at > now + 5_000L) nextWakeCandidates += at
-                    if (
-                        followed.reminderMode == CalendarReminderMode.BeforeAndAtBroadcast &&
-                        at - beforeWindow > now + 5_000L
-                    ) {
-                        nextWakeCandidates += at - beforeWindow
-                    }
-                    if (
-                        followed.reminderMode == CalendarReminderMode.BeforeAndAtBroadcast &&
-                        delta in 1L..beforeWindow
-                    ) {
-                        notifyOnce(
-                            settings,
-                            "before.${followed.tmdbId}.${sample.airDate}.$time." +
-                                sameSlot.joinToString("-") {
-                                    "${it.episode.seasonNumber}e${it.episode.episodeNumber}"
-                                },
-                            "${followed.title} 即将更新",
-                            "${sameSlot.joinToString("、") { it.episode.episodeLabel }} · $time",
-                            followed = followed,
-                        )
-                    }
-                    if (delta in -BROADCAST_LATE_WINDOW_MS..0L) {
-                        notifyOnce(
-                            settings,
-                            "air.${followed.tmdbId}.${sample.airDate}.$time." +
-                                sameSlot.joinToString("-") {
-                                    "${it.episode.seasonNumber}e${it.episode.episodeNumber}"
-                                },
-                            "${followed.title} 已播出",
-                            sameSlot.joinToString("、") { it.episode.episodeLabel },
-                            followed = followed,
-                        )
-                    }
-                }
-            }
+            scheduleNextCalendarAlarm(applicationContext, nextWakeCandidates.minOrNull())
         }
-        scheduleNextCalendarAlarm(applicationContext, nextWakeCandidates.minOrNull())
         return Result.success()
     }
 

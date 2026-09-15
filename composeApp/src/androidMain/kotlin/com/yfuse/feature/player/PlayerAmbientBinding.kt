@@ -1,5 +1,6 @@
 package com.yfuse.feature.player
 
+import android.os.Build
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
@@ -14,6 +15,8 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.data.PlaybackPreferences
+import com.yfuse.core.designsystem.AMBIENT_LIGHT_SAMPLE_MS
+import com.yfuse.core.designsystem.AmbientInset
 import com.yfuse.core.designsystem.AmbientLight
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.rememberAmbientLight
@@ -52,6 +55,8 @@ internal fun rememberPlayerAmbient(
     // still glow from this item's artwork, and switching the light off paints nothing at all.
     val ambientLightEnabled by playbackPreferences.ambientLight.collectAsState()
     val ambientSampler = remember { AmbientFrameSampler() }
+    val ambientSampled by ambientSampler.light.collectAsState()
+    val ambientUnreadable by ambientSampler.unreadable.collectAsState()
     var ambientContainer by remember { mutableStateOf(IntSize.Zero) }
     var ambientChromeVisible by remember { mutableStateOf(false) }
     val ambientVideoSize =
@@ -62,28 +67,38 @@ internal fun rememberPlayerAmbient(
     val ambientPictureSize = core2SurfaceSize(ambientContainer, ambientVideoSize, scaleMode)
     val ambientGuard = with(LocalDensity.current) { 1.dp.roundToPx() }
     val ambientForeground = rememberAmbientRouteVisible()
-    val ambientNeeded =
+    val ambientVisible =
         ambientLightEnabled &&
             ambientForeground &&
-            !inPictureInPicture &&
-            (ambientChromeVisible || ambientLightHasVisibleBars(ambientContainer, ambientPictureSize, ambientGuard))
+            !inPictureInPicture
+    val ambientNeeded =
+        ambientVisible &&
+            (
+                ambientChromeVisible ||
+                    ambientLightHasVisibleBars(
+                        ambientContainer,
+                        ambientPictureSize,
+                        ambientGuard,
+                        ambientSampled?.inset ?: AmbientInset.None,
+                    )
+            )
     val ambientProtected =
         currentItem?.let { item ->
             item.drmConfiguration != null || item.activeVersion?.drmConfiguration != null
         } == true
-    // An HDR surface hands PixelCopy PQ or HLG code values, which read as sRGB come out grey and
-    // dull; only tone-mapped or SDR output is worth sampling. mpv tone-maps itself.
-    val ambientOutputMode = state.diagnostics.outputEvidence.dynamicRangeOutputMode
-    val ambientHdrOutput =
-        ambientOutputMode == PlaybackDynamicRangeOutputMode.DolbyVisionMediaCodec ||
-            ambientOutputMode == PlaybackDynamicRangeOutputMode.Hdr10BaseLayer
+    // Android 14+ tone-maps Surface readback into the destination sRGB bitmap. Let these
+    // devices try HDR too; unreadable vendor outputs still use the normal failure fallback.
+    val ambientOutputSupported =
+        ambientOutputSupportsLiveSampling(
+            state.diagnostics.outputEvidence.dynamicRangeOutputMode,
+            Build.VERSION.SDK_INT,
+        )
     val ambientLive =
-        ambientNeeded &&
+        ambientVisible &&
             !ambientPowerLimited &&
             !LocalAccessibilityOptions.current.reduceMotion &&
             !ambientProtected &&
-            !ambientHdrOutput &&
-            !inPictureInPicture &&
+            ambientOutputSupported &&
             state.videoHeight > 0 &&
             state.diagnostics.effectiveVideoReadiness == PlaybackOutputReadiness.Rendering
     val ambientPlaying = state.playing && !state.buffering
@@ -98,9 +113,10 @@ internal fun rememberPlayerAmbient(
         playing = ambientPlaying,
         pausedPositionMs = ambientPausedPositionMs,
         contentKey = listOf(engine, currentItem?.serverId, currentItem?.id, currentItem?.versionId),
+        // Layout alone cannot reveal encoded bars. Keep a slow discovery read when the chrome
+        // is hidden; a detected bar restores normal sampling without needing another tap.
+        minimumIntervalMs = if (ambientNeeded) AMBIENT_LIGHT_SAMPLE_MS else AMBIENT_LIGHT_DISCOVERY_MS,
     )
-    val ambientSampled by ambientSampler.light.collectAsState()
-    val ambientUnreadable by ambientSampler.unreadable.collectAsState()
     val ambientArtwork =
         rememberDominantColor(
             url = (currentItem?.stillUrl ?: currentItem?.posterUrl).takeIf { ambientNeeded },

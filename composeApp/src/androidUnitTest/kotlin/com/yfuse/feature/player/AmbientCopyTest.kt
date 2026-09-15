@@ -7,6 +7,7 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -205,6 +206,106 @@ class AmbientCopyTest {
                 }
             assertEquals("fresh", second.await())
             assertEquals(0, stuck.reads)
+        }
+
+    @Test
+    fun a_cancelled_copy_with_no_callback_cannot_block_future_sampling() =
+        runTest {
+            val queue = AmbientCopyQueue(timeoutMs = 1_000L)
+            val stuck = Destination()
+            val first =
+                async(start = CoroutineStart.UNDISPATCHED) {
+                    queue.copy({ stuck }, { _, _ -> }, { it.reads++ }, { it.released = true })
+                }
+            first.cancelAndJoin()
+
+            var allocations = 0
+            val waiting =
+                async(start = CoroutineStart.UNDISPATCHED) {
+                    queue.copy(
+                        {
+                            allocations++
+                            Destination()
+                        },
+                        { _, _ -> error("The abandoned lane must not submit another copy") },
+                        { "blocked" },
+                        { it.released = true },
+                    )
+                }
+            withTimeout(2_000L) { assertNull(waiting.await()) }
+            assertEquals(0, allocations)
+            assertFalse(stuck.released)
+            assertEquals(0, stuck.reads)
+
+            assertEquals(
+                "fresh",
+                queue.copy(
+                    { Destination() },
+                    { _, callback -> callback(true) },
+                    { "fresh" },
+                    { it.released = true },
+                ),
+            )
+        }
+
+    @Test
+    fun a_late_cancelled_callback_cannot_release_the_recovered_copy_lane() =
+        runTest {
+            val queue = AmbientCopyQueue(timeoutMs = 1_000L)
+            val old = Destination()
+            lateinit var oldCallback: (Boolean) -> Unit
+            val first =
+                async(start = CoroutineStart.UNDISPATCHED) {
+                    queue.copy(
+                        { old },
+                        { _, callback -> oldCallback = callback },
+                        { it.reads++ },
+                        { it.released = true },
+                    )
+                }
+            first.cancelAndJoin()
+            withTimeout(2_000L) {
+                assertNull(
+                    queue.copy<Destination, String>(
+                        { error("Waiting for an abandoned copy must not allocate") },
+                        { _, _ -> },
+                        { "blocked" },
+                        {},
+                    ),
+                )
+            }
+
+            val fresh = Destination()
+            lateinit var freshCallback: (Boolean) -> Unit
+            val recovered =
+                async(start = CoroutineStart.UNDISPATCHED) {
+                    queue.copy(
+                        { fresh },
+                        { _, callback -> freshCallback = callback },
+                        { "recovered" },
+                        { it.released = true },
+                    )
+                }
+            oldCallback(true)
+            assertTrue(old.released)
+            assertEquals(0, old.reads)
+            assertFalse(fresh.released)
+            val submitted = CompletableDeferred<(Boolean) -> Unit>()
+            val following =
+                async(start = CoroutineStart.UNDISPATCHED) {
+                    queue.copy(
+                        { Destination() },
+                        { _, callback -> submitted.complete(callback) },
+                        { "following" },
+                        { it.released = true },
+                    )
+                }
+            assertFalse(submitted.isCompleted)
+            freshCallback(true)
+            assertEquals("recovered", recovered.await())
+            assertTrue(fresh.released)
+            submitted.await()(true)
+            assertEquals("following", following.await())
         }
 
     @Test

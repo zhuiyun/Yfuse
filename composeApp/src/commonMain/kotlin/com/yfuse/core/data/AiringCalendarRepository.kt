@@ -109,8 +109,9 @@ class AiringCalendarRepository(
      * that a new or niche library title is included. Next-up, favourites and the newest library
      * series bypass that cap and are queried by their exact TMDB id.
      */
-    private suspend fun activeLibrarySeries(forceRefresh: Boolean): List<FollowedSeries> =
-        coroutineScope {
+    private suspend fun activeLibrarySeries(forceRefresh: Boolean): List<FollowedSeries> {
+        val scopeToken = followStore.scopeToken
+        return coroutineScope {
             registry.data.value.servers
                 .map { server ->
                     async {
@@ -186,15 +187,19 @@ class AiringCalendarRepository(
                 scans
                     .filter(ActiveLibraryServerScan::authoritative)
                     .mapTo(mutableSetOf(), ActiveLibraryServerScan::serverId)
-            followStore.reconcileAutoFollowLibrarySeries(
-                series = followed,
-                authoritativeServerIds = authoritativeServerIds,
-            )
-            if (authoritativeServerIds.isNotEmpty() || scans.isEmpty()) {
-                followStore.markAutomaticFollowRefresh(currentEpochMillis())
-            }
-            followed
+            val applied =
+                followStore.runInScope(scopeToken) {
+                    followStore.reconcileAutoFollowLibrarySeries(
+                        series = followed,
+                        authoritativeServerIds = authoritativeServerIds,
+                    )
+                    if (authoritativeServerIds.isNotEmpty() || scans.isEmpty()) {
+                        followStore.markAutomaticFollowRefresh(currentEpochMillis())
+                    }
+                }
+            if (applied) followed else emptyList()
         }
+    }
 
     /** Refreshes automatic next-up, favourite and recently-added tracking without global discovery. */
     suspend fun refreshAutomaticFollows(forceRefresh: Boolean = false): List<FollowedSeries> =

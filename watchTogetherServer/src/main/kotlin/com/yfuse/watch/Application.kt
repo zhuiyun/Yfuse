@@ -1024,68 +1024,25 @@ internal fun Application.watchTogetherModule(
                                 }
                             joinFailureLimiter.clear(clientIp)
 
-                            var roomFull = false
-                            var removedByHost = false
-                            var authenticationFailed = false
-                            var accountIdentityConflict = false
-                            var hostAuthenticationFailed = false
+                            var joinRejected: RoomJoinRejection? = null
                             var staleSession: WebSocketSession? = null
                             var issuedResumeCapability: String? = null
                             var issuedHostCapability: String? = null
                             val roomStillCurrent =
                                 roomStore.mutateIfCurrent(room) {
-                                    if (membershipAccountUserId in room.removedAccountUserIds) {
-                                        removedByHost = true
-                                        return@mutateIfCurrent
-                                    }
-                                    val membership = room.memberships[membershipAccountUserId]
-                                    if (membership != null && membership.clientId != clientId) {
-                                        accountIdentityConflict = true
-                                        return@mutateIfCurrent
-                                    }
-                                    if (membership != null &&
-                                        !capabilityMatches(
-                                            room.code,
-                                            clientId,
-                                            CapabilityKind.Resume,
-                                            message.resumeCapability,
-                                            membership.resumeCapabilityDigest,
+                                    joinRejected =
+                                        room.validateJoin(
+                                            clientId = clientId,
+                                            accountUserId = membershipAccountUserId,
+                                            resumeCapability = message.resumeCapability,
+                                            hostCapability = message.hostCapability,
+                                            creatingRoom = message.roomCode == null,
+                                            maxParticipants = MAX_PARTICIPANTS_PER_ROOM,
+                                            maxMemberships = MAX_MEMBERSHIPS_PER_ROOM,
                                         )
-                                    ) {
-                                        authenticationFailed = true
-                                        return@mutateIfCurrent
-                                    }
-                                    if (membership == null && message.resumeCapability != null) {
-                                        authenticationFailed = true
-                                        return@mutateIfCurrent
-                                    }
-                                    if (membership == null &&
-                                        room.memberships.size >= MAX_MEMBERSHIPS_PER_ROOM
-                                    ) {
-                                        roomFull = true
-                                        return@mutateIfCurrent
-                                    }
+                                    if (joinRejected != null) return@mutateIfCurrent
+                                    val membership = room.memberships[clientId]
                                     val isHost = clientId == room.hostId
-                                    if (isHost &&
-                                        membership != null &&
-                                        !capabilityMatches(
-                                            room.code,
-                                            clientId,
-                                            CapabilityKind.Host,
-                                            message.hostCapability,
-                                            room.hostCapabilityDigest,
-                                        )
-                                    ) {
-                                        hostAuthenticationFailed = true
-                                        return@mutateIfCurrent
-                                    }
-                                    val rejoining = membership != null
-                                    if (!rejoining &&
-                                        room.participants.size >= MAX_PARTICIPANTS_PER_ROOM
-                                    ) {
-                                        roomFull = true
-                                        return@mutateIfCurrent
-                                    }
                                     staleSession = room.participants[clientId]?.session
                                     val activeMembership =
                                         membership ?: newMembership(
@@ -1093,7 +1050,7 @@ internal fun Application.watchTogetherModule(
                                             clientId = clientId,
                                             accountUserId = membershipAccountUserId,
                                         ).let { (createdMembership, capability) ->
-                                            room.memberships[membershipAccountUserId] = createdMembership
+                                            room.memberships[clientId] = createdMembership
                                             issuedResumeCapability = capability
                                             createdMembership
                                         }
@@ -1132,43 +1089,13 @@ internal fun Application.watchTogetherModule(
                             if (!roomStillCurrent) {
                                 return@consumeEach sendError("房间不存在或已关闭")
                             }
-                            if (removedByHost) {
-                                sendError("你已被房主移出当前房间", "removed_by_host")
-                                close(
-                                    CloseReason(
-                                        CloseReason.Codes.VIOLATED_POLICY,
-                                        "removed by host",
-                                    ),
-                                )
+                            joinRejected?.let { rejection ->
+                                sendError(rejection.message, rejection.code)
+                                rejection.closeReason?.let { reason ->
+                                    close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, reason))
+                                }
                                 return@consumeEach
                             }
-                            if (accountIdentityConflict) {
-                                sendError(
-                                    "当前账号已使用另一个客户端身份加入房间",
-                                    "account_membership_conflict",
-                                )
-                                close(
-                                    CloseReason(
-                                        CloseReason.Codes.VIOLATED_POLICY,
-                                        "account membership conflict",
-                                    ),
-                                )
-                                return@consumeEach
-                            }
-                            if (authenticationFailed || hostAuthenticationFailed) {
-                                sendError(
-                                    if (hostAuthenticationFailed) "主持人凭据无效" else "重连凭据无效",
-                                    if (hostAuthenticationFailed) "host_auth_failed" else "resume_auth_failed",
-                                )
-                                close(
-                                    CloseReason(
-                                        CloseReason.Codes.VIOLATED_POLICY,
-                                        "credential rejected",
-                                    ),
-                                )
-                                return@consumeEach
-                            }
-                            if (roomFull) return@consumeEach sendError("房间人数已满")
                             staleSession?.let {
                                 runCatching {
                                     it.close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "reconnected"))
@@ -1556,7 +1483,7 @@ internal fun Application.watchTogetherModule(
                                     ?: return@consumeEach
                             var denied = false
                             var removalLimitReached = false
-                            val targetSession =
+                            val removedParticipants =
                                 synchronized(room) {
                                     val actor =
                                         room.participants[clientId]
@@ -1569,19 +1496,9 @@ internal fun Application.watchTogetherModule(
                                     val participant =
                                         room.participants[target]
                                             ?: return@synchronized null
-                                    if (
-                                        !rememberRemovedAccountUserId(
-                                            room.removedAccountUserIds,
-                                            participant.accountUserId,
-                                        )
-                                    ) {
-                                        removalLimitReached = true
-                                        return@synchronized null
-                                    }
-                                    room.participants.remove(target)
-                                    room.memberships.remove(participant.accountUserId)
-                                    room.moderatorIds.remove(target)
-                                    participant.session
+                                    room
+                                        .removeMemberDevices(actor, participant, MAX_REMOVED_ACCOUNT_IDS_PER_ROOM)
+                                        .also { if (it == null) removalLimitReached = true }
                                 }
                             if (denied) {
                                 sendError("仅房主可以移出成员", "host_only")
@@ -1594,7 +1511,8 @@ internal fun Application.watchTogetherModule(
                                 )
                                 return@consumeEach
                             }
-                            targetSession?.let { session ->
+                            removedParticipants?.forEach { participant ->
+                                val session = participant.session
                                 runCatching {
                                     session.sendMessage(
                                         WatchWireMessage(
@@ -1609,8 +1527,8 @@ internal fun Application.watchTogetherModule(
                                         ),
                                     )
                                 }
-                                broadcastRoomUpdate(room)
                             }
+                            if (!removedParticipants.isNullOrEmpty()) broadcastRoomUpdate(room)
                         }
 
                         "updateProfile" -> {
@@ -1758,8 +1676,7 @@ internal fun Application.watchTogetherModule(
                             val now = System.currentTimeMillis()
                             val admission =
                                 synchronized(room) {
-                                    room.memberships.values
-                                        .firstOrNull { it.clientId == clientId }
+                                    room.memberships[clientId]
                                         ?.admitChat(
                                             nowMs = now,
                                             maxPerWindow = MAX_CHAT_MESSAGES_PER_WINDOW,

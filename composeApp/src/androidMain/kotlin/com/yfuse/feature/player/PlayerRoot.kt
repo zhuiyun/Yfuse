@@ -102,6 +102,8 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import org.koin.core.context.GlobalContext
@@ -162,6 +164,9 @@ internal fun PlayerRoot(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val personalLibrary =
+        remember { GlobalContext.get().getOrNull<com.yfuse.core.personal.PersonalLibraryRepository>() }
+    val personalPlaybackOwner = remember(personalLibrary) { personalLibrary?.scopeToken }
     val themePreferences = remember { GlobalContext.get().get<ThemePreferences>() }
     val playbackNetworkFlow = remember { playbackNetworkClasses() }
     val playbackNetworkClass by
@@ -305,8 +310,9 @@ internal fun PlayerRoot(
         remember(items) {
             items.mapIndexed { index, item -> index to item.serverFallbacks }.toMap()
         }
+    var importedSubtitles by remember { mutableStateOf(emptyMap<SubtitleItemKey, List<PlayerExternalSubtitle>>()) }
     val activeItems =
-        remember(items, serverChoices, versionChoices) {
+        remember(items, serverChoices, versionChoices, importedSubtitles) {
             val sourcedItems =
                 items.mapIndexed { index, item -> serverChoices[index] ?: item }
             val versionedItems =
@@ -317,7 +323,7 @@ internal fun PlayerRoot(
                         versionChoices[item.id]?.let(item::withVersion) ?: item
                     }
                 }
-            versionedItems
+            versionedItems.map { it.withImportedSubtitles(importedSubtitles) }
         }
 
     fun preflightItem(item: PlayerMediaItem): PlayerMediaItem {
@@ -1370,73 +1376,6 @@ internal fun PlayerRoot(
                 }
         }
         val currentTrickplay = currentItem?.trickplay ?: trickplayKey?.let(trickplayCache::get)
-        var remoteSubtitles by remember(currentItem?.serverId, currentItem?.id) {
-            mutableStateOf(RemoteSubtitlePanelState())
-        }
-        val remoteSubtitleActions =
-            RemoteSubtitleActions(
-                onSearch = {
-                    val item = currentItem
-                    val server = item?.serverId?.let(remoteSubtitleRegistry::serverById)
-                    if (item != null && server != null && !remoteSubtitles.loading) {
-                        remoteSubtitles = remoteSubtitles.copy(loading = true, message = null)
-                        scope.launch {
-                            remoteSubtitleRepository
-                                .searchRemoteSubtitles(server, item.id)
-                                .onSuccess { results ->
-                                    remoteSubtitles =
-                                        remoteSubtitles.copy(
-                                            loading = false,
-                                            results =
-                                                results.map { result ->
-                                                    RemoteSubtitleOption(
-                                                        id = result.Id,
-                                                        label = result.Name ?: result.Language ?: "中文字幕",
-                                                        detail =
-                                                            listOfNotNull(
-                                                                result.ProviderName,
-                                                                result.Format?.uppercase(),
-                                                            ).joinToString(" · "),
-                                                    )
-                                                },
-                                            message = "未找到字幕".takeIf { results.isEmpty() },
-                                        )
-                                }.onFailure { error ->
-                                    remoteSubtitles =
-                                        remoteSubtitles.copy(
-                                            loading = false,
-                                            message = error.message ?: "字幕搜索失败",
-                                        )
-                                }
-                        }
-                    }
-                },
-                onDownload = { subtitleId ->
-                    val item = currentItem
-                    val server = item?.serverId?.let(remoteSubtitleRegistry::serverById)
-                    if (item != null && server != null && remoteSubtitles.downloadingId == null) {
-                        remoteSubtitles = remoteSubtitles.copy(downloadingId = subtitleId, message = null)
-                        scope.launch {
-                            remoteSubtitleRepository
-                                .downloadRemoteSubtitle(server, item.id, subtitleId)
-                                .onSuccess {
-                                    remoteSubtitles =
-                                        remoteSubtitles.copy(
-                                            downloadingId = null,
-                                            message = "字幕已下载，正在刷新播放轨道",
-                                        )
-                                    player.retry()
-                                }.onFailure { error ->
-                                    remoteSubtitles =
-                                        remoteSubtitles.copy(
-                                            downloadingId = null,
-                                            message = error.message ?: "字幕下载失败",
-                                        )
-                                }
-                        }
-                    }
-                },
-            )
         // Selection is its own state, separate from position/buffering updates. Keying this on
         // the identifiers guarantees that a version-only change is handed back to the detail
         // page even when the replacement engine starts with a PlaybackState equal to the old one.
@@ -1530,6 +1469,96 @@ internal fun PlayerRoot(
             }
         }
 
+        val handoffBridge = remember { GlobalContext.get().getOrNull<com.yfuse.core.handoff.HandoffPlaybackRegistry>() }
+        val receivedPreferences by (
+            handoffBridge?.pendingPreferences ?: remember {
+                kotlinx.coroutines.flow.MutableStateFlow<com.yfuse.core.handoff.HandoffMedia?>(null)
+            }
+        ).collectAsState()
+        val handoffReady by remember(player) {
+            player.state.map { it.phase == com.yfuse.core2.api.YPlaybackPhase.Ready }.distinctUntilChanged()
+        }.collectAsState(false)
+        val handoffPreferenceWait =
+            remember(receivedPreferences) { HandoffPreferenceWait(SystemClock.elapsedRealtime()) }
+        var handoffPreferenceDeadlineElapsed by remember(receivedPreferences) { mutableStateOf(false) }
+        LaunchedEffect(receivedPreferences, handoffPreferenceWait) {
+            if (receivedPreferences == null) return@LaunchedEffect
+            delay(handoffPreferenceWait.remainingMs(SystemClock.elapsedRealtime()))
+            handoffPreferenceDeadlineElapsed = true
+        }
+        LaunchedEffect(
+            player,
+            currentItem?.subtitleItemKey(),
+            handoffReady,
+            state.audioTracks,
+            state.subtitleTracks,
+            receivedPreferences,
+            handoffPreferenceDeadlineElapsed,
+        ) {
+            val received = receivedPreferences ?: return@LaunchedEffect
+            val item = currentItem ?: return@LaunchedEffect
+            if (!handoffReady ||
+                item.serverId != received.serverId ||
+                item.id != received.itemId ||
+                item.versionId != received.mediaSourceId ||
+                item.watchKey != received.mediaKey
+            ) {
+                return@LaunchedEffect
+            }
+            if (personalLibrary?.activeProfileId != received.profileId) return@LaunchedEffect
+            val preference = received.preference
+            val resolution =
+                handoffPreferenceWait.resolve(
+                    media = received,
+                    audioTracks = state.audioTracks,
+                    subtitleTracks = state.subtitleTracks,
+                    supportsSecondary = backendExtensions.supportsSecondarySubtitleTrack,
+                    nowElapsedMs = SystemClock.elapsedRealtime(),
+                )
+            if (!resolution.apply) return@LaunchedEffect
+            val missing = resolution.missing.toMutableList()
+            handoverItemId = item.id
+            resolution.audio?.let { track ->
+                audioRestore = state.audioTracks.restorePreferenceFor(track)
+                player.selectTrack(YTrackType.Audio, track.id)
+            }
+            restoreSubtitlesOff = preference?.subtitlesEnabled == false
+            if (restoreSubtitlesOff) {
+                subtitleRestore = null
+                player.selectTrack(YTrackType.Subtitle, EngineTrack.OFF)
+            } else {
+                resolution.subtitle?.let { track ->
+                    subtitleRestore = state.subtitleTracks.restorePreferenceFor(track)
+                    player.selectTrack(YTrackType.Subtitle, track.id)
+                }
+            }
+            if (backendExtensions.supportsSecondarySubtitleTrack) {
+                val secondary = resolution.secondarySubtitle
+                if (backendExtensions.selectSecondarySubtitleTrack(secondary?.id ?: EngineTrack.OFF)) {
+                    secondarySubtitleRestore = secondary?.let(state.subtitleTracks::restorePreferenceFor)
+                    secondarySubtitleTrackId = secondary?.id
+                } else if (received.secondarySubtitlesEnabled == true) {
+                    missing += "副字幕"
+                }
+            }
+            requestedPlaybackSpeed = preference?.playbackSpeed ?: 1f
+            subtitleControls =
+                subtitleControls.copy(
+                    offsetMs = received.subtitleOffsetMs ?: 0L,
+                    secondaryOffsetMs = received.secondarySubtitleOffsetMs ?: 0L,
+                )
+            audioControls = audioControls.copy(delayMs = received.audioOffsetMs ?: 0L)
+            handoffBridge?.clearPreferences(received)
+            if (missing.isNotEmpty()) {
+                Toast
+                    .makeText(
+                        context,
+                        "接力设置未完整恢复：${missing.distinct().joinToString("、")}，可在播放器中重新选择。",
+                        Toast.LENGTH_LONG,
+                    ).show()
+            }
+        }
+
         PlayerWatchSyncEffects(
             items = items,
             player = player,
@@ -1577,6 +1606,46 @@ internal fun PlayerRoot(
             resume.secondarySubtitle?.let { secondarySubtitleRestore = it }
             backendExtensions.prepareForHandover()
         }
+        val (remoteSubtitles, remoteSubtitleActions) =
+            rememberPlayerSubtitleLibrary(
+                item = currentItem,
+                server = currentItem?.serverId?.let(remoteSubtitleRegistry::serverById),
+                casting = castState.hasActiveSession,
+                repository = remoteSubtitleRepository,
+                onImported = { owner, subtitle ->
+                    if (currentItem?.subtitleItemKey() == owner) {
+                        val existing = importedSubtitles[owner].orEmpty()
+                        if (existing.none { it.uri == subtitle.uri }) {
+                            if (existing.size < 8) {
+                                capturePlaybackHandover()
+                                player.pause()
+                                importedSubtitles = importedSubtitles + (owner to (existing + subtitle))
+                                engineGeneration++
+                                true
+                            } else {
+                                Toast.makeText(context, "本片已导入 8 条字幕，请重新打开影片后再导入。", Toast.LENGTH_LONG).show()
+                                false
+                            }
+                        } else {
+                            true
+                        }
+                    } else {
+                        false
+                    }
+                },
+            )
+        PlayerAccountBindings(
+            item = currentItem,
+            player = player,
+            playback = presentationState,
+            casting = castState.hasActiveSession,
+            handoffAllowed = !watchState.connected,
+            personal = personalLibrary,
+            ownerToken = personalPlaybackOwner,
+            subtitleOffsetMs = subtitleControls.offsetMs,
+            secondarySubtitleOffsetMs = subtitleControls.secondaryOffsetMs,
+            audioOffsetMs = audioControls.delayMs,
+        )
         // A refreshed queue is one deliberate handover. It must not turn a user pause into autoplay.
         LaunchedEffect(queueRevision) {
             if (queueRevision <= 0L) return@LaunchedEffect

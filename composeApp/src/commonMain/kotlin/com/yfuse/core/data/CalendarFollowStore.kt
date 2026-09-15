@@ -35,9 +35,16 @@ internal data class CalendarAutoFollowReconcileResult(
 )
 
 class CalendarFollowStore(
-    private val settings: Settings,
+    settings: Settings,
+    private val personal: com.yfuse.core.personal.PersonalLibraryRepository? = null,
 ) {
-    private val stateLock = Any()
+    private val rawSettings = settings
+    private val settings =
+        personal?.let { owner ->
+            com.yfuse.core.personal
+                .PersonalScopedSettings(settings) { owner.storageNamespace }
+        } ?: settings
+    private val stateLock = personal?.coordinationLock ?: Any()
     private val json =
         Json {
             ignoreUnknownKeys = true
@@ -46,6 +53,47 @@ class CalendarFollowStore(
     private val serializer = ListSerializer(FollowedSeries.serializer())
     private val _followed = MutableStateFlow(read())
     val followed: StateFlow<List<FollowedSeries>> = _followed.asStateFlow()
+    val scopeToken: String get() = personal?.scopeToken ?: "legacy"
+
+    /** Shares the profile-switch lock so late work cannot notify or mutate another profile. */
+    fun runInScope(
+        expectedScopeToken: String,
+        action: () -> Unit,
+    ): Boolean =
+        synchronized(stateLock) {
+            if (expectedScopeToken != scopeToken) return@synchronized false
+            action()
+            true
+        }
+
+    init {
+        if (personal != null) {
+            if (personal.snapshot().follows.isEmpty() &&
+                personal.activeProfileId == com.yfuse.core.personal.DEFAULT_PERSONAL_PROFILE
+            ) {
+                rawSettings.getStringOrNull(KEY)?.let { raw ->
+                    runCatching {
+                        json.decodeFromString(
+                            serializer,
+                            raw,
+                        )
+                    }.getOrNull()?.let {
+                        if (personal.replaceFollowedSeries(it)) rawSettings.remove(KEY)
+                    }
+                }
+            }
+            personal.observeChanges {
+                synchronized(stateLock) { _followed.value = personal.followedSeries() }
+            }
+        }
+    }
+
+    /** A worker retains this fixed namespace even if the visible profile changes mid-request. */
+    fun reminderSettings(): Settings {
+        val namespace = personal?.storageNamespace ?: return settings
+        return com.yfuse.core.personal
+            .PersonalScopedSettings(rawSettings) { namespace }
+    }
 
     fun savedPlatformFilter(): String? = settings.getStringOrNull(KEY_PLATFORM_FILTER)?.takeIf(String::isNotBlank)
 
@@ -306,6 +354,7 @@ class CalendarFollowStore(
     }
 
     private fun updateLocked(value: List<FollowedSeries>) {
+        if (personal != null && !personal.replaceFollowedSeries(value)) return
         _followed.value = value
         if (value.isEmpty()) settings.remove(KEY) else settings.putString(KEY, json.encodeToString(serializer, value))
     }

@@ -600,6 +600,7 @@ internal fun SourceSection(
     onSelect: (serverId: String, itemId: String) -> Unit,
     onSeeAll: () -> Unit,
     modifier: Modifier = Modifier,
+    presentation: SourceSelectionPresentation? = null,
 ) {
     val palette = LocalPalette.current
     // Order is the caller's: it ranks on what each server holds, before the selected entry is
@@ -638,13 +639,20 @@ internal fun SourceSection(
         // given the same title on two servers, which one is the better one. It is the first
         // entry by construction — the caller ranked them — and saying so beats making the
         // reader infer it from the order.
+        presentation?.let {
+            SourceSelectionSummary(
+                it,
+                Modifier.padding(horizontal = Dimens.pageHorizontal, vertical = 10.dp),
+            )
+        }
         val bestServerId =
-            remember(availableSources) {
-                availableSources
-                    .firstOrNull()
-                    ?.takeIf { availableSources.size > 1 && it.source?.hasQualityEvidence() == true }
-                    ?.serverId
-            }
+            presentation?.recommendedServerId
+                ?: remember(availableSources) {
+                    availableSources
+                        .firstOrNull()
+                        ?.takeIf { availableSources.size > 1 && it.source?.hasQualityEvidence() == true }
+                        ?.serverId
+                }
         BoxWithConstraints {
             val cardWidth = (maxWidth - Dimens.pageHorizontal * 2 - 10.dp) / 2
             LazyRow(
@@ -662,7 +670,15 @@ internal fun SourceSection(
                             entry.serverId == selectedServerId &&
                                 entry.itemId == selectedItemId,
                         accent = accent,
-                        best = entry.serverId == bestServerId,
+                        best =
+                            if (presentation !=
+                                null
+                            ) {
+                                entry.serverId == presentation.recommendedServerId &&
+                                    entry.itemId == presentation.recommendedItemId
+                            } else {
+                                entry.serverId == bestServerId
+                            },
                         width = cardWidth,
                         onSelect = { entry.itemId?.let { onSelect(entry.serverId, it) } },
                     )
@@ -740,7 +756,7 @@ private fun SourceCard(
             )
             if (best) {
                 Text(
-                    "Best",
+                    "推荐",
                     style = AppTypography.caption.strong,
                     color = Color(0xFF9A6B12),
                     modifier =

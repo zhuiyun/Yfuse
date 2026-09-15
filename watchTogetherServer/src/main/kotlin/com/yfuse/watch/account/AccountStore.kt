@@ -38,7 +38,11 @@ internal interface AccountStore : AutoCloseable {
 
     fun findCredentialsByUserId(userId: String): StoredCredentials?
 
-    fun createSession(session: NewSession)
+    /** Returns the current profile only if the verified credentials still match at insertion. */
+    fun createSessionIfCredentialsMatch(
+        session: NewSession,
+        expectedCurrent: PasswordDigest,
+    ): StoredUser?
 
     fun findActiveSessionByAccessHash(
         tokenHash: ByteArray,
@@ -89,8 +93,8 @@ internal interface AccountStore : AutoCloseable {
 
     fun updateProfile(
         userId: String,
-        nickname: String,
-        avatarId: Int,
+        nickname: String?,
+        avatarId: Int?,
         updatedAtEpochMs: Long,
     ): StoredUser?
 
@@ -574,18 +578,41 @@ internal class SqliteAccountStore private constructor(
             findCredentialsByUserIdLocked(userId)
         }
 
-    override fun createSession(session: NewSession) {
+    override fun createSessionIfCredentialsMatch(
+        session: NewSession,
+        expectedCurrent: PasswordDigest,
+    ): StoredUser? =
         synchronized(lock) {
             transaction {
+                // Password verification stays outside the lock; this short comparison and the
+                // insert share the password-change transaction boundary so old logins cannot
+                // create a surviving session after all old sessions have been revoked.
+                val user =
+                    connection
+                        .prepareStatement(
+                            """
+                            SELECT $USER_COLUMNS FROM users u
+                            WHERE u.id = ? AND u.password_salt = ? AND u.password_hash = ?
+                              AND u.password_iterations = ?
+                            """.trimIndent(),
+                        ).use { statement ->
+                            statement.setString(1, session.userId)
+                            statement.setBytes(2, expectedCurrent.salt)
+                            statement.setBytes(3, expectedCurrent.hash)
+                            statement.setInt(4, expectedCurrent.iterations)
+                            statement.executeQuery().use { result ->
+                                if (result.next()) result.readUser() else null
+                            }
+                        } ?: return@transaction null
                 pruneSessionsLocked(session.createdAtEpochMs)
                 insertSessionLocked(session)
                 trimActiveSessionsForUserLocked(
                     session.userId,
                     session.createdAtEpochMs,
                 )
+                user
             }
         }
-    }
 
     override fun findActiveSessionByAccessHash(
         tokenHash: ByteArray,
@@ -908,8 +935,8 @@ internal class SqliteAccountStore private constructor(
 
     override fun updateProfile(
         userId: String,
-        nickname: String,
-        avatarId: Int,
+        nickname: String?,
+        avatarId: Int?,
         updatedAtEpochMs: Long,
     ): StoredUser? =
         synchronized(lock) {
@@ -917,11 +944,14 @@ internal class SqliteAccountStore private constructor(
                 connection
                     .prepareStatement(
                         """
-                        UPDATE users SET nickname = ?, avatar_id = ?, updated_at_ms = ? WHERE id = ?
+                        UPDATE users
+                        SET nickname = COALESCE(?, nickname), avatar_id = COALESCE(?, avatar_id),
+                            updated_at_ms = ?
+                        WHERE id = ?
                         """.trimIndent(),
                     ).use { statement ->
                         statement.setString(1, nickname)
-                        statement.setInt(2, avatarId)
+                        statement.setNullableInt(2, avatarId)
                         statement.setLong(3, updatedAtEpochMs)
                         statement.setString(4, userId)
                         statement.executeUpdate()

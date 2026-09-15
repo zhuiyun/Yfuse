@@ -12,6 +12,7 @@ object PlaybackConflictResolver {
     ): PlaybackSyncDocument {
         val localState = local.state
         val remoteState = remote.state
+        require(localState.profileId == remoteState.profileId) { "Playback profiles must not be merged" }
         val winner = chooseState(localState, remoteState)
         val aliases =
             (localState.aliases + remoteState.aliases + localState.mediaKey + remoteState.mediaKey)

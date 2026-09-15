@@ -34,16 +34,21 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.arkivanov.mvikotlin.extensions.coroutines.states
+import com.yfuse.core.data.rankServerSources
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.model.Episode
 import com.yfuse.core.model.MediaDetail
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.network.EmbyImages
+import com.yfuse.core.network.currentPlaybackNetworkClass
 import com.yfuse.core.offline.DownloadStatus
-import com.yfuse.core.offline.OfflineDownloadRequest
 import com.yfuse.core.offline.OfflineMediaManager
 import com.yfuse.feature.detail.DetailComponent
 import com.yfuse.feature.detail.DetailIntent
+import com.yfuse.feature.detail.bestSourcesFirst
+import com.yfuse.feature.detail.describing
+import com.yfuse.feature.detail.sourceSelectionPresentation
+import com.yfuse.feature.personal.PersonalMediaActions
 import com.yfuse.tv.focus.FocusCandidate
 import com.yfuse.tv.focus.FocusContext
 import org.koin.core.context.GlobalContext
@@ -83,6 +88,42 @@ internal fun TvDetailScreen(
                 focusRequester = playRequester,
             )
         detail != null && server != null -> {
+            val sourceHealth by component.dependencies.serverHealthMonitor.health
+                .collectAsState()
+            val smartRanking by component.dependencies.playbackPreferences.smartCrossServerSource
+                .collectAsState()
+            val sourceNetwork = currentPlaybackNetworkClass()
+            val selectedVersion =
+                state.playTarget?.versions?.firstOrNull { it.id == state.selectedVersionId }
+                    ?: state.playTarget?.versions?.firstOrNull()
+            val describedSources =
+                state.sources.describing(
+                    selectedVersion,
+                    state.selectedSourceServerId,
+                    state.selectedSourceItemId,
+                )
+            val comparableSources =
+                if (smartRanking) {
+                    rankServerSources(
+                        describedSources,
+                        sourceHealth,
+                        sourceNetwork,
+                    ).map {
+                        it.source
+                    }
+                } else {
+                    describedSources.bestSourcesFirst()
+                }
+            val sourcePresentation =
+                sourceSelectionPresentation(
+                    comparableSources,
+                    state.selectedSourceServerId,
+                    state.selectedSourceItemId,
+                    selectedVersion?.name,
+                    sourceHealth,
+                    sourceNetwork,
+                    smartRanking,
+                )
             val heroUrl =
                 EmbyImages.backdrop(server.baseUrl, detail, accessToken = server.accessToken)
                     ?: EmbyImages.poster(server.baseUrl, detail, accessToken = server.accessToken)
@@ -108,6 +149,27 @@ internal fun TvDetailScreen(
                 contentPadding = PaddingValues(bottom = TvSafeVertical + 38.dp),
                 verticalArrangement = Arrangement.spacedBy(26.dp),
             ) {
+                item(key = "detail-source-selection:${detail.id}") {
+                    Column(
+                        Modifier.padding(horizontal = TvSafeHorizontal),
+                        verticalArrangement = Arrangement.spacedBy(5.dp),
+                    ) {
+                        Text(sourcePresentation.selectedLabel, color = TvOnSurface, fontSize = 18.sp)
+                        Text(
+                            listOf(
+                                sourcePresentation.recommendationLabel,
+                                sourcePresentation.reason,
+                            ).filter(String::isNotBlank).joinToString(" · "),
+                            color = TvOnSurface.copy(alpha = 0.7f),
+                            fontSize = 15.sp,
+                        )
+                        Text(
+                            "推荐供手动比较；当前来源可用时保留选择。响应时间不代表下载带宽或设备解码能力。",
+                            color = TvOnSurface.copy(alpha = 0.6f),
+                            fontSize = 14.sp,
+                        )
+                    }
+                }
                 item(key = "detail-hero:${detail.id}") {
                     TvDetailHero(
                         detail = detail,
@@ -125,25 +187,18 @@ internal fun TvDetailScreen(
                         onToggleWatchLater = { store.accept(DetailIntent.ToggleWatchLater) },
                         onOpenMore = { sheet = TvDetailSheet.More },
                         downloadLabel = downloadLabel,
-                        downloadEnabled = existingDownload == null,
-                        onDownload = {
-                            val target = state.playTarget ?: detail
-                            offlineMedia.enqueue(
-                                OfflineDownloadRequest(
-                                    serverId = (state.playServer ?: server).id,
-                                    itemId = target.id,
-                                    title = target.title,
-                                    mediaSourceId = state.selectedVersionId,
-                                    seriesId = detail.seriesId,
-                                    seasonId = state.selectedSeasonId,
-                                ),
-                            )
-                        },
+                        downloadEnabled =
+                            state.playTarget != null && state.playServer != null && !state.selectionLoading,
+                        onDownload = { sheet = TvDetailSheet.Download },
                         focusMemory = focusMemory,
                         playRequester = playRequester,
                         serverId = server.id,
                         profileId = server.userId,
                     )
+                }
+
+                item(key = "detail-personal:${detail.id}") {
+                    PersonalMediaActions(detail, server.id, Modifier.padding(horizontal = TvSafeHorizontal))
                 }
 
                 if (state.seasons.isNotEmpty()) {
@@ -203,7 +258,7 @@ internal fun TvDetailScreen(
                 }
 
                 val versions = state.playTarget?.versions.orEmpty()
-                if (versions.size > 1) {
+                if (versions.isNotEmpty()) {
                     item(key = "detail-versions:${state.playTarget?.id}") {
                         Column(
                             Modifier.padding(horizontal = TvSafeHorizontal),
@@ -234,7 +289,7 @@ internal fun TvDetailScreen(
                     }
                 }
 
-                if (state.sources.size > 1) {
+                if (comparableSources.isNotEmpty()) {
                     item(key = "detail-sources:${detail.id}") {
                         Column(
                             Modifier.padding(horizontal = TvSafeHorizontal),
@@ -243,7 +298,7 @@ internal fun TvDetailScreen(
                             Text("服务器片源", color = TvOnSurface, fontSize = 24.sp, fontWeight = FontWeight.Bold)
                             LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 itemsIndexed(
-                                    state.sources.filter { it.reachable && it.itemId != null },
+                                    comparableSources.filter { it.reachable && it.itemId != null },
                                     key = { _, source -> "source:${source.serverId}:${source.itemId}" },
                                 ) { _, source ->
                                     TvActionButton(
@@ -322,6 +377,20 @@ internal fun TvDetailScreen(
 
             when (sheet) {
                 null -> Unit
+                TvDetailSheet.Download ->
+                    state.playTarget?.let { target ->
+                        TvOfflineDownloadDialog(
+                            detail = target,
+                            episodes = state.episodes,
+                            selectedVersionId = state.selectedVersionId,
+                            focusMemory = focusMemory,
+                            onConfirm = { selection ->
+                                component.download(selection)
+                                sheet = null
+                            },
+                            onDismiss = { sheet = null },
+                        )
+                    }
                 TvDetailSheet.More ->
                     TvDetailMoreDialog(
                         component = component,
@@ -494,7 +563,7 @@ private fun TvDetailHero(
             // column, and a clipped control on a television is an unreachable one.
             Row(horizontalArrangement = Arrangement.spacedBy(11.dp)) {
                 TvActionButton(
-                    label = if (detail.isFavorite) "已收藏" else "收藏",
+                    label = if (detail.isFavorite) "服务器已收藏" else "服务器收藏",
                     stableId = "detail:${detail.id}:favorite",
                     focusScope = "detail:${detail.id}:hero",
                     focusMemory = focusMemory,
@@ -518,7 +587,7 @@ private fun TvDetailHero(
                     profileId = profileId,
                 )
                 TvActionButton(
-                    label = if (watchLater) "已在稍后看" else "稍后观看",
+                    label = if (watchLater) "服务器已稍后看" else "服务器稍后看",
                     stableId = "detail:${detail.id}:watch-later",
                     focusScope = "detail:${detail.id}:hero",
                     focusMemory = focusMemory,

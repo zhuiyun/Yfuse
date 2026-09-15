@@ -6,6 +6,7 @@ import argparse
 import json
 import pathlib
 import re
+import subprocess
 import sys
 import urllib.error
 import urllib.parse
@@ -64,10 +65,29 @@ def read_security_overrides(root: pathlib.Path) -> dict[str, str]:
     return overrides
 
 
+def tracked_lockfiles(root: pathlib.Path) -> list[pathlib.Path]:
+    root = root.resolve()
+    result = subprocess.run(
+        ["git", "-c", f"safe.directory={root.as_posix()}", "ls-files", "-z", "--",
+         "gradle.lockfile", "*/gradle.lockfile"],
+        cwd=root, capture_output=True, check=True,
+    )
+    paths = []
+    for raw in result.stdout.decode("utf-8").split("\0"):
+        if not raw:
+            continue
+        path = root / raw
+        if not path.resolve().is_relative_to(root) or not path.is_file():
+            raise ValueError(f"Tracked dependency lock is missing or outside root: {raw}")
+        paths.append(path)
+    return sorted(paths)
+
+
 def read_dependencies(root: pathlib.Path) -> list[Dependency]:
+    root = root.resolve()
     found: dict[str, Dependency] = {}
     overrides = read_security_overrides(root)
-    for path in root.rglob("gradle.lockfile"):
+    for path in tracked_lockfiles(root):
         for raw in path.read_text(encoding="utf-8").splitlines():
             line = raw.strip()
             if not line or line.startswith("#"):
@@ -82,6 +102,9 @@ def read_dependencies(root: pathlib.Path) -> list[Dependency]:
             if override is not None and override != locked_version:
                 source += f"; effective security override from {SECURITY_OVERRIDES}"
             dep = Dependency(group, name, version, source)
+            previous = found.get(dep.coordinate)
+            if previous is not None:
+                dep = Dependency(group, name, version, previous.source + "; " + source)
             found[dep.coordinate] = dep
     # Gradle deliberately excludes security overrides from its lockfiles. Scan those pins
     # as well, including a runtime such as bcprov that has no remaining lock entry at all.
@@ -121,19 +144,18 @@ def query_osv(dependencies: list[Dependency]) -> list[tuple[Dependency, str]]:
             result = json.load(response)
         results = result.get("results") if isinstance(result, dict) else None
         if not isinstance(results, list) or len(results) != len(batch):
-            raise ValueError("OSV batch did not return exactly one result per dependency")
+            raise ValueError("OSV batch response does not match the number of requested dependencies")
         for dep, result_item in zip(batch, results):
-            if not isinstance(result_item, dict) or result_item.get("next_page_token"):
-                raise ValueError("OSV returned an invalid or incomplete dependency result")
+            if (not isinstance(result_item, dict) or "error" in result_item
+                    or result_item.get("next_page_token")):
+                raise ValueError(f"OSV returned an invalid result for {dep.coordinate}")
             vulnerabilities = result_item.get("vulns", [])
             if not isinstance(vulnerabilities, list):
-                raise ValueError("OSV returned invalid vulnerability records")
+                raise ValueError(f"OSV returned invalid vulnerability data for {dep.coordinate}")
             for vulnerability in vulnerabilities:
-                if not isinstance(vulnerability, dict):
-                    raise ValueError("OSV returned an invalid vulnerability record")
-                identifier = vulnerability.get("id")
+                identifier = vulnerability.get("id") if isinstance(vulnerability, dict) else None
                 if not isinstance(identifier, str) or not identifier.strip():
-                    raise ValueError("OSV vulnerability record has no identifier")
+                    raise ValueError(f"OSV returned a vulnerability without an id for {dep.coordinate}")
                 findings.append((dep, identifier))
     return findings
 
@@ -148,7 +170,10 @@ def fetch_details(identifiers: set[str]) -> dict[str, dict]:
             method="GET",
         )
         with urllib.request.urlopen(request, timeout=60) as response:
-            details[identifier] = json.load(response)
+            record = json.load(response)
+        if not isinstance(record, dict) or record.get("id") != identifier:
+            raise ValueError(f"OSV returned an invalid advisory for {identifier}")
+        details[identifier] = record
     return details
 
 
@@ -307,8 +332,8 @@ def main() -> int:
     root = pathlib.Path(args.root).resolve()
     try:
         dependencies = read_dependencies(root)
-    except ValueError as exc:
-        print(f"::error::Security override manifest is invalid: {exc}")
+    except (ValueError, OSError, subprocess.SubprocessError) as exc:
+        print(f"::error::Dependency scan inputs could not be verified: {exc}")
         return 2
     if not dependencies:
         print("::error::No Maven dependencies found in committed Gradle lockfiles")

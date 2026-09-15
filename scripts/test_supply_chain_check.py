@@ -11,8 +11,11 @@ import unittest
 import io
 import json
 import pathlib
+import subprocess
 import tempfile
 from unittest.mock import patch
+
+import supply_chain_check
 
 from supply_chain_check import (
     UNRESOLVED,
@@ -22,6 +25,7 @@ from supply_chain_check import (
     rating_for_score,
     read_dependencies,
     severity,
+    fetch_details,
 )
 
 
@@ -34,6 +38,8 @@ class ScanCoverageTest(unittest.TestCase):
                 "org.bouncycastle\\:bcprov-jdk18on=1.84\n"
             )
             (root / "gradle.lockfile").write_text("example:locked:1.0=runtime\n")
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            subprocess.run(["git", "-C", str(root), "add", "gradle.lockfile"], check=True)
             self.assertEqual(
                 {item.coordinate for item in read_dependencies(root)},
                 {"example:locked:1.0", "org.bouncycastle:bcprov-jdk18on:1.84"},
@@ -137,6 +143,59 @@ class CvssScoreTest(unittest.TestCase):
         self.assertEqual(rating_for_score(7.0), "HIGH")
         self.assertEqual(rating_for_score(8.9), "HIGH")
         self.assertEqual(rating_for_score(9.0), "CRITICAL")
+
+
+class ScanInputTest(unittest.TestCase):
+    def test_only_tracked_locks_are_read_and_all_sources_are_preserved(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            for relative in ("app/gradle.lockfile", "server/gradle.lockfile", "build/gradle.lockfile",
+                             ".worktrees/old/app/gradle.lockfile"):
+                path = root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("example:used:1=runtime\n" if relative.startswith(("app/", "server/"))
+                                else "example:stale:0=runtime\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(root), "add", "app/gradle.lockfile", "server/gradle.lockfile"], check=True)
+            dependencies = read_dependencies(root)
+            self.assertEqual([d.coordinate for d in dependencies], ["example:used:1"])
+            self.assertIn("app", dependencies[0].source)
+            self.assertIn("server", dependencies[0].source)
+
+    def test_missing_tracked_lock_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            lock = root / "gradle.lockfile"
+            lock.write_text("example:used:1=runtime\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(root), "add", "gradle.lockfile"], check=True)
+            lock.unlink()
+            with self.assertRaises(ValueError):
+                read_dependencies(root)
+
+
+class OsvResponseTest(unittest.TestCase):
+    dependency = Dependency("example", "library", "1", "fixture")
+
+    def test_incomplete_or_invalid_batch_is_not_a_clean_scan(self) -> None:
+        invalid = [{}, {"results": []}, {"results": [None]}, {"results": [{"error": "unavailable"}]},
+                   {"results": [{"vulns": None}]}, {"results": [{"vulns": [{}]}]},
+                   {"results": [{}, {}]}]
+        for response in invalid:
+            with self.subTest(response=response), patch.object(
+                supply_chain_check.urllib.request, "urlopen", return_value=io.BytesIO(json.dumps(response).encode()),
+            ):
+                with self.assertRaises(ValueError):
+                    query_osv([self.dependency])
+
+    def test_complete_empty_result_is_valid(self) -> None:
+        with patch.object(supply_chain_check.urllib.request, "urlopen", return_value=io.BytesIO(b'{"results":[{}]}')):
+            self.assertEqual(query_osv([self.dependency]), [])
+
+    def test_advisory_identity_must_match(self) -> None:
+        with patch.object(supply_chain_check.urllib.request, "urlopen", return_value=io.BytesIO(b'{"id":"wrong"}')):
+            with self.assertRaises(ValueError):
+                fetch_details({"GHSA-test"})
 
 
 if __name__ == "__main__":

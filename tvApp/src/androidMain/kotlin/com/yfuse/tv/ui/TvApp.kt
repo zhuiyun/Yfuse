@@ -2,6 +2,7 @@ package com.yfuse.tv.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,6 +25,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
@@ -44,6 +47,8 @@ import com.yfuse.core.designsystem.YfuseTheme
 import com.yfuse.core.designsystem.resolveDark
 import com.yfuse.feature.home.HomeTabComponent
 import com.yfuse.feature.library.LibraryComponent
+import com.yfuse.feature.library.UnifiedLibraryScreen
+import com.yfuse.feature.personal.PersonalDiscoveryGuard
 import com.yfuse.feature.player.PlaybackReportingWarning
 import com.yfuse.feature.player.PlayerScreen
 import com.yfuse.feature.profile.ProfileTabComponent
@@ -62,7 +67,7 @@ private val tvDestinations =
         TvDestination(RootComponent.Tab.Browse, "媒体库", AppIcons.TabLibrary),
         TvDestination(RootComponent.Tab.Search, "搜索", AppIcons.SearchTab),
         TvDestination(RootComponent.Tab.Servers, "服务器", AppIcons.TabServers),
-        TvDestination(RootComponent.Tab.Profile, "设置", AppIcons.TabProfile),
+        TvDestination(RootComponent.Tab.Profile, "我的与设置", AppIcons.TabProfile),
     )
 
 /** Public Android-TV entry point used by TvMainActivity. */
@@ -89,6 +94,7 @@ fun TvApp(component: RootComponent) {
         glassStyle = if (reduceTransparency) GlassStyle.Frosted else glassStyle,
         dialogAnimation = dialogAnimation,
     ) {
+        com.yfuse.app.BindProductServices(component)
         TvRoot(component)
         PlaybackReportingWarning(component.dependencies.playbackReportingCoordinator)
     }
@@ -288,12 +294,23 @@ private fun TvRootTabContent(
             val stack by component.home.stack.subscribeAsState()
             val child = stack.active.instance as? HomeTabComponent.Child.Home
             child?.let {
-                TvHomeScreen(
-                    component = it.component,
-                    focusMemory = focusMemory,
-                    navigationRequester = navigationRequester,
-                    contentRequester = contentRequester,
-                )
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .focusRequester(contentRequester)
+                        .focusProperties {
+                            left = navigationRequester
+                        }.focusGroup(),
+                ) {
+                    PersonalDiscoveryGuard(onOpenLibrary = { component.selectTab(RootComponent.Tab.Browse) }) {
+                        TvHomeScreen(
+                            component = it.component,
+                            focusMemory = focusMemory,
+                            navigationRequester = navigationRequester,
+                            contentRequester = contentRequester,
+                        )
+                    }
+                }
             }
         }
         RootComponent.Tab.Browse -> {
@@ -366,6 +383,7 @@ private fun TvSecondaryContent(
             when (libraryChild) {
                 is LibraryComponent.Child.Grid ->
                     TvLibraryGridScreen(libraryChild.component, focusMemory)
+                LibraryComponent.Child.Unified -> TvUnifiedLibraryScreen(component.browse, focusMemory)
                 is LibraryComponent.Child.Detail -> TvDetailScreen(libraryChild.component, focusMemory)
                 is LibraryComponent.Child.Player -> PlayerScreen(libraryChild.component)
                 is LibraryComponent.Child.Home -> Unit
@@ -379,5 +397,34 @@ private fun TvSecondaryContent(
         RootComponent.Tab.Profile,
         RootComponent.Tab.Servers,
         -> Unit
+    }
+}
+
+@Composable
+private fun TvUnifiedLibraryScreen(
+    component: LibraryComponent,
+    focusMemory: TvUiFocusMemory,
+) {
+    val firstRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) { firstRequester.requestFocusWhenAttached() }
+    Column(Modifier.fillMaxSize().padding(horizontal = TvSafeHorizontal, vertical = TvSafeVertical)) {
+        TvSettingRow(
+            title = "返回媒体库",
+            value = "全部服务器",
+            stableId = "library:unified:back",
+            focusMemory = focusMemory,
+            onClick = component::navigateBack,
+            icon = AppIcons.ChevronLeft,
+            focusScope = "library:unified",
+            focusRequester = firstRequester,
+        )
+        Box(Modifier.weight(1f).focusGroup()) {
+            UnifiedLibraryScreen(
+                repository = component.repo,
+                registry = component.registry,
+                onBack = component::navigateBack,
+                onOpenItem = { serverId, itemId -> component.openDetail(serverId, itemId) },
+            )
+        }
     }
 }

@@ -31,6 +31,8 @@ internal fun Route.accountRoutes(
     rateLimiter: AccountRateLimiter,
 ) {
     registerAccountHealthDependency(backend)
+    handoffRoutes(backend, rateLimiter)
+    traktOAuthRoutes(backend, rateLimiter)
     route("/api/v1") {
         route("/auth") {
             post("/register") {
@@ -203,7 +205,7 @@ internal fun Route.accountRoutes(
     }
 }
 
-private suspend fun ApplicationCall.handleAccountEndpoint(
+internal suspend fun ApplicationCall.handleAccountEndpoint(
     rateLimiter: AccountRateLimiter? = null,
     rateLimitBucket: AccountRateLimitBucket? = null,
     block: suspend () -> Unit,
@@ -307,7 +309,7 @@ private suspend fun ApplicationCall.handleAccountEndpoint(
     }
 }
 
-private suspend inline fun <reified T> ApplicationCall.receiveLimitedJson(
+internal suspend inline fun <reified T> ApplicationCall.receiveLimitedJson(
     maxBytes: Int = AccountLimits.MAX_REQUEST_BYTES,
 ): T {
     if (!request.contentType().match(ContentType.Application.Json)) {
@@ -358,7 +360,7 @@ private suspend inline fun <reified T> ApplicationCall.receiveLimitedJson(
     return apiJson.decodeFromString(text)
 }
 
-private suspend inline fun <reified T> ApplicationCall.respondLimitedJson(
+internal suspend inline fun <reified T> ApplicationCall.respondLimitedJson(
     value: T,
     status: HttpStatusCode = HttpStatusCode.OK,
 ) {
@@ -381,7 +383,7 @@ private suspend fun ApplicationCall.respondError(
     )
 }
 
-private fun ApplicationCall.requireBearerToken(): String {
+internal fun ApplicationCall.requireBearerToken(): String {
     val authorization =
         request.headers[HttpHeaders.Authorization]
             ?: throw unauthorizedException()
@@ -422,9 +424,9 @@ private fun unauthorizedException(): AccountServiceException =
         safeMessage = "登录状态无效或已过期",
     )
 
-private class RequestTooLargeException : RuntimeException()
+internal class RequestTooLargeException : RuntimeException()
 
-private class UnsupportedMediaTypeException : RuntimeException()
+internal class UnsupportedMediaTypeException : RuntimeException()
 
 private class HttpsRequiredException : RuntimeException()
 
@@ -434,7 +436,7 @@ private class RateLimitedException(
     val retryAfterSeconds: Long,
 ) : RuntimeException()
 
-private class ResponseTooLargeException : RuntimeException()
+internal class ResponseTooLargeException : RuntimeException()
 
 private const val MAX_AUTHORIZATION_HEADER_BYTES = 256
 
@@ -442,7 +444,7 @@ private const val MAX_AUTHORIZATION_HEADER_BYTES = 256
 // independently, and rejecting a newer client's optional field as `invalid_json` locked every
 // updated device out of its account until the service caught up. Required fields, types and
 // malformed JSON are still rejected.
-private val apiJson =
+internal val apiJson =
     Json {
         ignoreUnknownKeys = true
         encodeDefaults = false

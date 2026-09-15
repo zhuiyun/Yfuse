@@ -63,7 +63,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -235,6 +234,7 @@ fun App(root: RootComponent) {
         particleLight = particleLight,
         particleStyle = particleStyle,
     ) {
+        BindProductServices(root)
         val active by root.activeTab.subscribeAsState()
         val homeStack by root.home.stack.subscribeAsState()
         val browseStack by root.browse.stack.subscribeAsState()
@@ -386,12 +386,6 @@ fun App(root: RootComponent) {
                             navCollapsed = false
                             navCollapseGuard.reset()
                         }
-                        val navScroll =
-                            rememberNavCollapseConnection(
-                                collapsed = navCollapsed,
-                                onCollapsedChange = { navCollapsed = it },
-                                guard = navCollapseGuard,
-                            )
                         Box(
                             Modifier
                                 .fillMaxSize()
@@ -399,11 +393,7 @@ fun App(root: RootComponent) {
                                 // Secondary pages own the whole screen and have no root navigation
                                 // to collapse or expand.
                                 .then(
-                                    if (!showBottomBar) {
-                                        Modifier
-                                    } else {
-                                        Modifier.nestedScroll(navScroll)
-                                    },
+                                    Modifier,
                                 ).backdropSource(backdrop),
                         ) {
                             val previousRootTab = remember { arrayOf(active) }
@@ -422,7 +412,10 @@ fun App(root: RootComponent) {
                                 CompositionLocalProvider(LocalTabIdentity provides tab.name) {
                                     tabStates.SaveableStateProvider(tab.name) {
                                         when (tab) {
-                                            Tab.Home -> HomeTabScreen(root.home)
+                                            Tab.Home ->
+                                                com.yfuse.feature.personal.PersonalDiscoveryGuard(
+                                                    onOpenLibrary = { root.selectTab(Tab.Browse) },
+                                                ) { HomeTabScreen(root.home) }
                                             Tab.Browse -> LibraryScreen(root.browse)
                                             Tab.Servers -> ServersTabScreen(root.servers)
                                             Tab.Search -> SearchScreen(root.search)
@@ -1163,7 +1156,7 @@ internal fun GlassTabBar(
     }
 }
 
-/** Pure-icon tab. Each button takes a full fifth of the bar, not just the glyph. */
+/** Each labeled tab owns its complete touch target and one accessibility node. */
 @Composable
 private fun RowScope.TabButton(
     item: TabItem,
@@ -1198,14 +1191,13 @@ private fun RowScope.TabButton(
                     role = Role.Tab,
                     onClick = onClick,
                 )
-                // The icon already carries [item.label] as its description; merging the cell
-                // means the tab is read once, as one control, with its state attached rather
-                // than as an icon and a caption that happen to sit together.
+                // The visible caption labels the merged tab; its selected state is announced once.
                 .semantics(mergeDescendants = true) { this.selected = selected },
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        LiquidGlassTabIcon(item = item, tint = tint, selected = selected)
+        LiquidGlassTabIcon(item = item, tint = tint, compact = true, selected = selected, describeIcon = false)
+        Text(item.label, style = AppTypography.caption.regular, color = tint, maxLines = 1)
     }
 }
 
@@ -1222,6 +1214,7 @@ private fun LiquidGlassTabIcon(
     tint: Color,
     compact: Boolean = false,
     selected: Boolean = false,
+    describeIcon: Boolean = true,
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val emphasis by animateFloatAsState(
@@ -1241,7 +1234,7 @@ private fun LiquidGlassTabIcon(
     ) {
         Icon(
             item.icon,
-            contentDescription = item.label,
+            contentDescription = item.label.takeIf { describeIcon },
             tint = tint,
             modifier = Modifier.size(iconSize),
         )

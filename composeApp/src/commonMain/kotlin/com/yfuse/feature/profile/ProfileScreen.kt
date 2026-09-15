@@ -133,6 +133,13 @@ private val ThemeModeDisplayOrder = listOf(ThemeMode.Light, ThemeMode.System, Th
 
 private enum class ProfilePage {
     Root,
+    Settings,
+    Personal,
+    Family,
+    History,
+    Sync,
+    Handoff,
+    Trakt,
     Account,
     AccountSessions,
     Playback,
@@ -488,6 +495,49 @@ fun ProfileScreen(component: ProfileComponent) {
                     )
 
                 ProfilePage.Root ->
+                    PersonalHomeScreen(
+                        personal = component.personal,
+                        downloadCount = offlineItems.count { component.personal.canAccessServer(it.serverId) },
+                        onOpenCenter = { openPage(ProfilePage.Personal) },
+                        onOpenHistory = { openPage(ProfilePage.History) },
+                        onOpenSync = { openPage(ProfilePage.Sync) },
+                        onOpenFamily = { openPage(ProfilePage.Family) },
+                        onOpenDownloads = { openPage(ProfilePage.Downloads) },
+                        onOpenAccount = { openPage(ProfilePage.Account) },
+                        onOpenHandoff = { openPage(ProfilePage.Handoff) },
+                        onOpenTrakt = { openPage(ProfilePage.Trakt) },
+                        onOpenSettings = { openPage(ProfilePage.Settings) },
+                        onOpenMedia = component.onOpenPersonalMedia,
+                    )
+
+                ProfilePage.Personal, ProfilePage.Family, ProfilePage.History, ProfilePage.Sync ->
+                    com.yfuse.feature.personal.PersonalCenterScreen(
+                        personal = component.personal,
+                        account = component.account,
+                        playbackSync = component.playbackSync,
+                        serverSync = component.dependencies.serverSyncManager,
+                        servers = component.familyServers(),
+                        onBack = ::closePage,
+                        onOpenMedia = component.onOpenPersonalMedia,
+                        initialTab =
+                            when (activePage) {
+                                ProfilePage.Family -> com.yfuse.feature.personal.PersonalCenterTab.Profiles
+                                ProfilePage.History -> com.yfuse.feature.personal.PersonalCenterTab.History
+                                ProfilePage.Sync -> com.yfuse.feature.personal.PersonalCenterTab.Sync
+                                else -> com.yfuse.feature.personal.PersonalCenterTab.WatchLater
+                            },
+                        repo = component.repository,
+                    )
+
+                ProfilePage.Handoff ->
+                    com.yfuse.feature.handoff
+                        .DeviceHandoffScreen(component.handoff, ::closePage)
+
+                ProfilePage.Trakt ->
+                    com.yfuse.feature.trakt
+                        .TraktSettingsScreen(component.trakt, ::closePage)
+
+                ProfilePage.Settings ->
                     SkeletonHandoff(
                         loading = !state.initialized,
                         modifier = Modifier.fillMaxSize(),
@@ -499,6 +549,9 @@ fun ProfileScreen(component: ProfileComponent) {
                             contentPadding = PaddingValues(top = Dimens.contentTop, bottom = rootBottomContentInset),
                             verticalArrangement = Arrangement.spacedBy(18.dp),
                         ) {
+                            motionItem(key = "settings-back") {
+                                SettingsPageHeader(title = "设置", subtitle = null, onBack = ::closePage)
+                            }
                             motionItem(key = "settings-search") {
                                 YfFormField(
                                     value = settingsQuery,

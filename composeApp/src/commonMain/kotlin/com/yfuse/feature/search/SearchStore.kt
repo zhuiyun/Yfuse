@@ -132,9 +132,12 @@ data class SearchState(
     val visibleCount: Int get() = visibleGroups.sumOf { it.items.size }
     val visibleAggregated: List<CrossServerMediaGroup>
         get() =
-            aggregated.filter { group ->
-                type.embyType == null || group.recommended.item.type == type.embyType
-            }
+            aggregated
+                .filter { group ->
+                    type.embyType == null || group.recommended.item.type == type.embyType
+                }.let { groups ->
+                    if (sort == SearchSort.Relevance) rankAggregatedSearch(groups, searchedQuery) else groups
+                }
     val visibleResultCount: Int
         get() = if (aggregated.isNotEmpty()) visibleAggregated.size else visibleCount
     val availableTypes: List<SearchType>

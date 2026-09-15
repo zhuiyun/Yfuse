@@ -52,6 +52,7 @@ internal fun SourceListDialog(
     accent: Color,
     onSelect: (serverId: String, itemId: String) -> Unit,
     onDismiss: () -> Unit,
+    presentation: SourceSelectionPresentation? = null,
 ) {
     val palette = LocalPalette.current
     // Order is the caller's, which ranks on what each server holds before the selected entry
@@ -63,12 +64,13 @@ internal fun SourceListDialog(
     // The best copy, called out once. It is the first row by construction, but saying so
     // beats making the reader infer it from the ordering.
     val bestServerId =
-        remember(available) {
-            available
-                .firstOrNull()
-                ?.takeIf { available.size > 1 && it.source?.hasQualityEvidence() == true }
-                ?.serverId
-        }
+        presentation?.recommendedServerId
+            ?: remember(available) {
+                available
+                    .firstOrNull()
+                    ?.takeIf { available.size > 1 && it.source?.hasQualityEvidence() == true }
+                    ?.serverId
+            }
 
     GlassDialog(liquidButtons = false, onDismiss = onDismiss) {
         OverlayHeader(
@@ -76,6 +78,7 @@ internal fun SourceListDialog(
             subtitle = "${available.size} 个媒体库有这个片子 · 再点已选项即可播放",
             onClose = onDismiss,
         )
+        presentation?.let { SourceSelectionSummary(it, Modifier.padding(bottom = 12.dp)) }
         // No height cap of its own: [GlassDialog] scrolls whatever it cannot fit, and it is
         // the only one that knows how much screen there actually is.
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -90,7 +93,15 @@ internal fun SourceListDialog(
                     entry = entry,
                     selected = selected,
                     accent = accent,
-                    best = entry.serverId == bestServerId,
+                    best =
+                        if (presentation !=
+                            null
+                        ) {
+                            entry.serverId == presentation.recommendedServerId &&
+                                entry.itemId == presentation.recommendedItemId
+                        } else {
+                            entry.serverId == bestServerId
+                        },
                     onSelect = if (selected) animatedSelect else select,
                 )
             }
@@ -163,7 +174,7 @@ private fun SourceRow(
             )
             if (best) {
                 Text(
-                    "Best",
+                    "推荐",
                     style = AppTypography.caption.strong,
                     color = Color(0xFF9A6B12),
                     modifier =

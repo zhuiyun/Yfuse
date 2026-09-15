@@ -493,6 +493,7 @@ class ServerSyncManager(
         val includeProgress =
             syncProgress.value && markProgressPullAttempt(server.id, force)
         val includeFavorites = syncFavorites.value
+        val progressScopeToken = playbackStore?.scopeToken
         val snapshotResult =
             try {
                 // Keep JSON decoding and page merging off the UI caller.
@@ -511,6 +512,10 @@ class ServerSyncManager(
                 setStatus(server) { it.copy(syncing = false) }
                 throw cancelled
             }
+        if (progressScopeToken != playbackStore?.scopeToken) {
+            setStatus(server) { it.copy(syncing = false) }
+            return
+        }
         snapshotResult.fold(
             onSuccess = { remote ->
                 clearRetryState(server.id)

@@ -236,7 +236,7 @@ internal class DetailExecutor(
         val generation = ++detailLoadGeneration
         detailLoadJob?.cancel()
         peopleLoadJob?.cancel()
-        val server = serverId?.let(registry::serverById) ?: registry.defaultServer
+        val server = if (serverId == null) registry.defaultServer else registry.serverById(serverId)
         dispatch(DetailMsg.Loading)
         detailLoadJob =
             scope.launch {

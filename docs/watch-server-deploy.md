@@ -215,10 +215,15 @@ The legacy HTTP site may serve only old update metadata and APKs. Its `/api/*` a
 matchers must return `426` before the catch-all reverse proxy, so access tokens and watch-room
 WebSocket upgrades cannot cross a plaintext public hop.
 
-To verify the reaction feature specifically, use the app: two devices (or one device and a
-second account) in one room, tap a reaction in 一起看 → 聊天面板. The sender always sees
+To verify the reaction feature specifically, use the app: two devices in one room, using
+the same account or separate accounts, and tap a reaction in 一起看 → 聊天面板. The sender always sees
 its own bubble because the client echoes locally — **only the other device seeing it proves
 the server relayed it.**
+
+For same-account multi-device validation, create the room on a phone and join its code on
+a tablet. The phone stays host, the tablet starts as a viewer, and reconnecting either
+device must leave the other device connected with its existing role. This behavior needs
+the updated server; it does not require sharing device IDs or private room credentials.
 
 ### 6. Roll back
 

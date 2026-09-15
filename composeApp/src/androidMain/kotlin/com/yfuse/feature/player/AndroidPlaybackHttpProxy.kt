@@ -23,8 +23,6 @@ import java.net.Socket
 import java.net.URI
 import java.net.URL
 import java.nio.charset.StandardCharsets
-import java.util.UUID
-import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
@@ -43,13 +41,7 @@ internal class AndroidPlaybackHttpProxy(
     private val userAgent: String,
     videoCacheBytes: Long,
 ) : Closeable {
-    private data class Route(
-        val upstreamUrl: String,
-        val cacheable: Boolean,
-    )
-
-    private val routes = ConcurrentHashMap<String, Route>()
-    private val routeIds = ConcurrentHashMap<Route, String>()
+    private val routes = PlaybackProxyRoutes()
     private val cookieManager = CookieManager(null, CookiePolicy.ACCEPT_ALL)
     private val cacheHandle =
         if (videoCacheBytes >
@@ -60,7 +52,6 @@ internal class AndroidPlaybackHttpProxy(
             null
         }
     private val closed = AtomicBoolean(false)
-    private val routeLock = Any()
     private val requests =
         PlaybackProxyRequests {
             runCatching { cacheHandle?.close() }.onFailure { error ->
@@ -95,14 +86,11 @@ internal class AndroidPlaybackHttpProxy(
         cacheable: Boolean = false,
     ): String {
         if (!shouldProxyMpvNetworkUrl(upstreamUrl)) return upstreamUrl
-        return synchronized(routeLock) {
-            if (closed.get()) return@synchronized upstreamUrl
-            val route = Route(upstreamUrl = upstreamUrl, cacheable = cacheable)
-            val routeId = routeIds.computeIfAbsent(route) { UUID.randomUUID().toString().replace("-", "") }
-            routes[routeId] = route
-            "http://$LOOPBACK_HOST:$port/$ROUTE_PREFIX/$routeId"
-        }
+        val routeId = routes.registerRoot(PlaybackProxyRoute(upstreamUrl, cacheable)) ?: return upstreamUrl
+        return routeUrl(routeId)
     }
+
+    private fun routeUrl(routeId: String): String = "http://$LOOPBACK_HOST:$port/$ROUTE_PREFIX/$routeId"
 
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
@@ -111,10 +99,7 @@ internal class AndroidPlaybackHttpProxy(
         workers.shutdownNow()
         // A DefaultHttpDataSource open cannot always be interrupted. Its worker retains the
         // cache lease until its existing timeout/finally completes; release never waits for it.
-        synchronized(routeLock) {
-            routes.clear()
-            routeIds.clear()
-        }
+        routes.close()
     }
 
     private fun acceptLoop() {
@@ -154,8 +139,7 @@ internal class AndroidPlaybackHttpProxy(
         val parts = requestLine.split(' ', limit = 3)
         val method = parts.getOrNull(0)?.uppercase().orEmpty()
         val routeId = parts.getOrNull(1)?.substringBefore('?')?.substringAfter("/$ROUTE_PREFIX/")
-        val route = routeId?.let(routes::get)
-        if (method !in setOf("GET", "HEAD") || route == null) {
+        if (method !in setOf("GET", "HEAD")) {
             writeSimpleResponse(socket, 404, "Not Found")
             return
         }
@@ -173,16 +157,23 @@ internal class AndroidPlaybackHttpProxy(
         }
         request.ensureOpen()
 
-        if (method == "GET" && route.cacheable && cacheHandle != null) {
-            serveCached(request, route, requestHeaders)
-        } else {
-            servePlatform(request, route, method, requestHeaders)
+        val lease = routeId?.let(routes::acquire)
+        if (lease == null) {
+            writeSimpleResponse(socket, 404, "Not Found")
+            return
+        }
+        lease.use {
+            if (method == "GET" && lease.route.cacheable && cacheHandle != null) {
+                serveCached(request, lease.route, requestHeaders)
+            } else {
+                servePlatform(request, lease, method, requestHeaders)
+            }
         }
     }
 
     private fun serveCached(
         request: PlaybackProxyRequest,
-        route: Route,
+        route: PlaybackProxyRoute,
         requestHeaders: Map<String, String>,
     ) {
         val socket = request.socket
@@ -315,10 +306,11 @@ internal class AndroidPlaybackHttpProxy(
 
     private fun servePlatform(
         request: PlaybackProxyRequest,
-        route: Route,
+        lease: PlaybackProxyRoutes.Lease,
         method: String,
         requestHeaders: Map<String, String>,
     ) {
+        val route = lease.route
         val socket = request.socket
         val upstreamUri = URI(route.upstreamUrl)
         val connection = URL(route.upstreamUrl).openConnection() as HttpURLConnection
@@ -351,11 +343,13 @@ internal class AndroidPlaybackHttpProxy(
             if (manifest) {
                 val bytes = body?.readBounded(MAX_HLS_MANIFEST_BYTES) ?: ByteArray(0)
                 val rewritten =
-                    rewriteMpvHlsManifest(
-                        manifest = bytes.toString(StandardCharsets.UTF_8),
-                        upstreamUrl = connection.url.toString(),
-                        localize = { childUrl -> localUrl(childUrl, cacheable = false) },
-                    ).toByteArray(StandardCharsets.UTF_8)
+                    routes
+                        .rewriteManifest(
+                            parent = lease,
+                            manifest = bytes.toString(StandardCharsets.UTF_8),
+                            upstreamUrl = connection.url.toString(),
+                            localUrl = ::routeUrl,
+                        ).toByteArray(StandardCharsets.UTF_8)
                 writeResponse(socket, connection, status, rewritten.size.toLong())
                 socket.getOutputStream().write(rewritten)
             } else {

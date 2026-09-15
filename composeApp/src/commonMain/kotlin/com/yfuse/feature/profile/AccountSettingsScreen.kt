@@ -98,6 +98,7 @@ internal fun AccountSettingsScreen(
     account: AccountRepository,
     onBack: () -> Unit,
     onOpenSessions: () -> Unit,
+    onOpenSyncStatus: (() -> Unit)? = null,
 ) {
     val state by account.state.collectAsState()
     val palette = LocalPalette.current
@@ -119,6 +120,12 @@ internal fun AccountSettingsScreen(
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             motionItem { AccountHeader(onBack) }
+            onOpenSyncStatus?.let { open ->
+                motionItem {
+                    YfButton("个人数据与播放同步状态", open)
+                    Text("个人清单与历史合并同步；下面的服务器与设置备份仍需手动操作。", color = palette.sub)
+                }
+            }
             when (val current = state) {
                 AccountState.Restoring ->
                     motionItem {

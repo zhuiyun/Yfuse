@@ -8,6 +8,7 @@ import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.UserAgentPreferences
 import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.logging.AppLog
+import com.yfuse.core.personal.PersonalLibraryRepository
 import com.yfuse.core.security.AesGcmPayload
 import com.yfuse.core.security.RecoveryKeyEnvelope
 import com.yfuse.core.security.SecureStore
@@ -71,6 +72,7 @@ class AccountRepository(
     private val calendarFollows: CalendarFollowStore? = null,
     /** A stalled session request must always return the account page to a retryable state. */
     private val restoreRequestTimeoutMillis: Long = 15_000,
+    private val personal: PersonalLibraryRepository? = null,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val mutex = Mutex()
@@ -184,6 +186,7 @@ class AccountRepository(
             try {
                 runCatching {
                     mutex.withLock {
+                        personal?.requireServerManagement()
                         validateCredentials(username, password)
                         val auth =
                             api.register(
@@ -216,6 +219,7 @@ class AccountRepository(
             try {
                 runCatching {
                     mutex.withLock {
+                        personal?.requireServerManagement()
                         validateCredentials(username, password)
                         val auth =
                             api.login(
@@ -264,20 +268,91 @@ class AccountRepository(
             }
         }
 
+    /** Merges personal assets only, preserving cloud server/settings fields and CAS conflicts. */
+    suspend fun syncPersonalNow(): Result<Unit> =
+        detached {
+            val library = personal ?: return@detached Result.failure(IllegalStateException("个人资料未初始化"))
+            library.beginSync()
+            runCatching {
+                mutex.withLock {
+                    requireSignedIn()
+                    val vaultKey = requireVaultKey()
+                    try {
+                        var completed = false
+                        repeat(3) { attempt ->
+                            if (completed) return@repeat
+                            val remote = authorized { api.getSync(it) }
+                            val cloudSnapshot = remote.payload?.let { decryptSnapshotLocked(remote, vaultKey) }
+                            cloudSnapshot?.personal?.let(library::mergeRemote)
+                            val sent = library.snapshot()
+                            val base = cloudSnapshot ?: json.decodeFromString<CloudSyncSnapshotV1>(capturePlaintext())
+                            try {
+                                uploadLocked(
+                                    remote.version,
+                                    vaultKey,
+                                    remote.payload,
+                                    "个人清单、历史和追剧已合并同步",
+                                    json.encodeToString(base.copy(personal = sent)),
+                                )
+                                library.finishSync(sent, nowEpochMs())
+                                completed = true
+                            } catch (error: AccountApiException) {
+                                if (error.status != HttpStatusCode.Conflict || attempt == 2) throw error
+                            }
+                        }
+                    } finally {
+                        vaultKey.fill(0)
+                    }
+                }
+            }.onFailure {
+                library.failSync(it.message ?: "同步失败，请重试")
+                recordFailure(it)
+            }
+        }
+
+    private suspend fun decryptSnapshotLocked(
+        remote: SyncResponse,
+        vaultKey: ByteArray,
+    ): CloudSyncSnapshotV1 {
+        val payload = requireNotNull(remote.payload)
+        payload.requireSupportedMetadata()
+        val plaintext =
+            withContext(cryptoDispatcher) {
+                crypto.decrypt(
+                    vaultKey,
+                    AesGcmPayload(payload.nonce.base64UrlToBytes(), payload.ciphertext.base64UrlToBytes()),
+                    syncAad(requireSignedIn().session.user.id, remote.version, payload.keyVersion),
+                )
+            }
+        return try {
+            require(plaintext.size <= MAX_SYNC_PLAINTEXT_BYTES) { "云端同步数据过大" }
+            json.decodeFromString<CloudSyncSnapshotV1>(plaintext.decodeToString())
+        } finally {
+            plaintext.fill(0)
+        }
+    }
+
     suspend fun uploadNow(): Result<Unit> =
         detached {
             runCatching {
                 mutex.withLock {
+                    personal?.requireServerManagement()
                     requireSignedIn()
                     val remote = authorized { api.getSync(it) }
                     val vaultKey = requireVaultKey()
                     try {
+                        if (personal != null && remote.payload != null) {
+                            decryptSnapshotLocked(remote, vaultKey).personal?.let(personal::mergeRemote)
+                        }
+                        val sentPersonal = personal?.snapshot()
                         uploadLocked(
                             baseVersion = remote.version,
                             vaultKey = vaultKey,
                             remotePayload = remote.payload,
                             successMessage = "已用本机数据覆盖云端",
                         )
+                        sentPersonal?.let { personal?.finishSync(it, nowEpochMs()) }
+                        Unit
                     } finally {
                         vaultKey.fill(0)
                     }
@@ -289,6 +364,7 @@ class AccountRepository(
         detached {
             runCatching {
                 mutex.withLock {
+                    personal?.requireServerManagement()
                     val expectedLocal = capturePlaintext()
                     val remote = authorized { api.getSync(it) }
                     if (remote.payload == null) {
@@ -314,6 +390,7 @@ class AccountRepository(
         detached {
             runCatching {
                 mutex.withLock {
+                    personal?.requireServerManagement()
                     val cleared = authorized { api.clearSync(it) }
                     require(cleared.payload == null) { "服务器清空响应无效" }
                     _state.value =
@@ -336,6 +413,7 @@ class AccountRepository(
             try {
                 runCatching {
                     mutex.withLock {
+                        personal?.requireServerManagement()
                         require(currentPassword.size in 1..128) { "请输入当前密码" }
                         require(newPassword.size in MIN_PASSWORD_CHARS..128) {
                             "新密码需为 $MIN_PASSWORD_CHARS–128 个字符"
@@ -466,6 +544,7 @@ class AccountRepository(
         detached {
             runCatching {
                 mutex.withLock {
+                    personal?.requireServerManagement()
                     val access = (_state.value as? AccountState.SignedIn)?.session?.accessToken
                     if (access != null) runCatching { api.logout(access) }
                     secureStore.clear()
@@ -505,6 +584,7 @@ class AccountRepository(
             runCatching {
                 mutex.withLock {
                     val current = requireSignedIn()
+                    personal?.requireServerManagement()
                     val target =
                         authorized(api::sessions).firstOrNull { it.id == sessionId }
                             ?: error("设备会话不存在")
@@ -523,6 +603,7 @@ class AccountRepository(
         detached {
             runCatching {
                 mutex.withLock {
+                    personal?.requireServerManagement()
                     authorized(api::revokeOtherSessions)
                     _state.value = requireSignedIn().copy(message = "其他设备已全部退出")
                 }
@@ -533,6 +614,7 @@ class AccountRepository(
         detached {
             runCatching {
                 mutex.withLock {
+                    personal?.requireServerManagement()
                     authorized(api::revokeAllSessions)
                     secureStore.clear()
                     setSignedOut()
@@ -544,6 +626,7 @@ class AccountRepository(
         detached {
             runCatching {
                 mutex.withLock {
+                    personal?.requireServerManagement()
                     val value = authorized(api::exportAccount)
                     json.encodeToString(value)
                 }
@@ -555,6 +638,7 @@ class AccountRepository(
             try {
                 runCatching {
                     mutex.withLock {
+                        personal?.requireServerManagement()
                         require(password.isNotEmpty()) { "请输入当前密码" }
                         authorized { api.deleteAccount(it, password.concatToString()) }
                         secureStore.clear()
@@ -702,6 +786,7 @@ class AccountRepository(
         vaultKey: ByteArray,
         remotePayload: EncryptedSyncPayload?,
         successMessage: String = "已安全同步",
+        plaintextOverride: String? = null,
     ) {
         val signedIn = requireSignedIn()
         // The wrap only opens with the account password, so the copy the server already holds is
@@ -714,7 +799,7 @@ class AccountRepository(
         // Keep the previous message in place. Dropping it here and restoring it a moment later
         // collapses and re-expands the card, which reads as the whole screen flashing.
         _state.value = signedIn.copy(syncing = true)
-        val plaintext = capturePlaintext()
+        val plaintext = plaintextOverride ?: capturePlaintext()
         require(plaintext.encodeToByteArray().size <= MAX_SYNC_PLAINTEXT_BYTES) {
             "同步数据过大，请减少弹幕绑定或服务器数量"
         }
@@ -793,7 +878,9 @@ class AccountRepository(
                     skip,
                     serverSync,
                     calendarFollows,
+                    personal,
                 ).getOrThrow()
+                snapshot.personal?.let { personal?.finishSync(it, remote.updatedAtEpochMs ?: nowEpochMs()) }
             }
             _state.value =
                 signedIn.copy(
@@ -812,6 +899,7 @@ class AccountRepository(
         secureStore.put(KEY_REFRESH_TOKEN, auth.refreshToken.encodeToByteArray())
         secureStore.remove(KEY_PENDING_REFRESH)
         watch.setProfile(auth.user.nickname, auth.user.avatarId)
+        personal?.bindAccount(auth.user.id)
         val previous = _state.value as? AccountState.SignedIn
         _state.value =
             AccountState.SignedIn(
@@ -846,6 +934,7 @@ class AccountRepository(
     }
 
     private fun setSignedOut() {
+        personal?.bindAccount(null)
         _state.value = AccountState.SignedOut
         accessTokenSource.markUnavailable()
     }
@@ -1019,6 +1108,7 @@ class AccountRepository(
                     skip,
                     serverSync,
                     calendarFollows,
+                    personal,
                 )
             }
         return withContext(cryptoDispatcher) { json.encodeToString(snapshot) }
@@ -1035,6 +1125,7 @@ class AccountRepository(
                 skip,
                 serverSync,
                 calendarFollows,
+                personal,
             ),
         )
 

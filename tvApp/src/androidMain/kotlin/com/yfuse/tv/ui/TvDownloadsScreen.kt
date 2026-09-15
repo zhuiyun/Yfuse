@@ -43,7 +43,10 @@ internal fun TvDownloadsPage(
 ) {
     val focusScope = "settings:downloads"
     val manager = component.offlineMedia
-    val items by manager.items.collectAsState()
+    val access by component.personal.policy.collectAsState()
+    val allItems by manager.items.collectAsState()
+    val items = remember(allItems, access) { allItems.filter { access.allowsServer(it.serverId) } }
+    var showSettings by remember { mutableStateOf(false) }
     val policy by manager.policy.collectAsState()
     var filter by remember { mutableStateOf(DownloadFilter.All) }
     var expandedId by remember { mutableStateOf<String?>(null) }
@@ -61,8 +64,10 @@ internal fun TvDownloadsPage(
 
     val pickStorageDirectory =
         rememberOfflineStorageDirectoryPicker { treeUri, label ->
-            manager.setStorageDirectory(treeUri, label)
-            status = "下载位置已改为 $label"
+            if (component.personal.policy.value.canManageServers) {
+                manager.setStorageDirectory(treeUri, label)
+                status = "下载位置已改为 $label"
+            }
         }
 
     TvSettingsPageScaffold(page = TvSettingsPage.Downloads, status = status) {
@@ -188,7 +193,7 @@ internal fun TvDownloadsPage(
                     stableId = "downloads:pause-all",
                     focusMemory = focusMemory,
                     onClick = {
-                        manager.pauseAll()
+                        manager.pauseMany(items.map { it.id })
                         status = "已暂停全部下载"
                     },
                     icon = AppIcons.Pause,
@@ -205,7 +210,7 @@ internal fun TvDownloadsPage(
                     stableId = "downloads:resume-all",
                     focusMemory = focusMemory,
                     onClick = {
-                        manager.resumeAll()
+                        manager.resumeMany(items.map { it.id })
                         status = "已继续全部下载"
                     },
                     icon = AppIcons.Play,
@@ -215,170 +220,184 @@ internal fun TvDownloadsPage(
             }
         }
 
-        item(key = "downloads-section-settings") { TvSettingsSectionTitle("下载设置") }
-        item(key = "downloads-budget") {
+        item(key = "downloads-settings-toggle") {
             TvSettingRow(
-                title = "离线视频容量上限",
-                value =
-                    com.yfuse.core.offline
-                        .offlineVideoBudgetLabel(policy.storageBudgetBytes),
-                stableId = "downloads:budget",
+                title = if (showSettings) "收起下载设置" else "下载设置",
+                value = if (access.canManageServers) "Wi-Fi、容量与自动追更" else "请切换至家长资料管理",
+                stableId = "downloads:settings-toggle",
+                focusMemory = focusMemory,
+                onClick = { if (access.canManageServers) showSettings = !showSettings },
                 icon = AppIcons.Download,
-                focusMemory = focusMemory,
-                focusScope = focusScope,
-                navigationRequester = navigationRequester,
-                onClick = {
-                    val options = com.yfuse.core.offline.offlineVideoBudgetOptions
-                    val next = options[(options.indexOf(policy.storageBudgetBytes) + 1) % options.size]
-                    manager.setDownloadBudget(
-                        next,
-                        policy.autoDownloadChargingOnly,
-                        policy.windowStartMinute,
-                        policy.windowEndMinute,
-                    )
-                },
-            )
-        }
-        item(key = "downloads-charging") {
-            TvToggleRow(
-                title = "自动追更仅在充电时下载",
-                checked = policy.autoDownloadChargingOnly,
-                stableId = "downloads:charging",
-                icon = AppIcons.Download,
-                focusMemory = focusMemory,
-                focusScope = focusScope,
-                navigationRequester = navigationRequester,
-                onToggle = {
-                    manager.setDownloadBudget(
-                        policy.storageBudgetBytes,
-                        it,
-                        policy.windowStartMinute,
-                        policy.windowEndMinute,
-                    )
-                },
-            )
-        }
-        item(key = "downloads-window") {
-            TvSettingRow(
-                title = "允许下载时段",
-                value =
-                    com.yfuse.core.offline.offlineDownloadWindowLabel(
-                        policy.windowStartMinute,
-                        policy.windowEndMinute,
-                    ),
-                stableId = "downloads:window",
-                icon = AppIcons.Download,
-                focusMemory = focusMemory,
-                focusScope = focusScope,
-                navigationRequester = navigationRequester,
-                onClick = {
-                    val options = com.yfuse.core.offline.offlineDownloadWindowOptions
-                    val next =
-                        options[
-                            (options.indexOf(policy.windowStartMinute to policy.windowEndMinute) + 1) %
-                                options.size,
-                        ]
-                    manager.setDownloadBudget(
-                        policy.storageBudgetBytes,
-                        policy.autoDownloadChargingOnly,
-                        next.first,
-                        next.second,
-                    )
-                },
-            )
-        }
-        item(key = "downloads-wifi-only") {
-            TvToggleRow(
-                title = "仅在 Wi-Fi 下下载",
-                checked = policy.wifiOnly,
-                stableId = "downloads:wifi-only",
-                focusMemory = focusMemory,
-                onToggle = manager::setWifiOnly,
-                icon = AppIcons.Cloud,
-                focusScope = focusScope,
-                subtitle = "有线连接的电视始终视为非计费网络",
-                navigationRequester = navigationRequester,
-            )
-        }
-        item(key = "downloads-concurrent") {
-            TvChoiceRow(
-                title = "同时下载数",
-                options = (1..MAX_CONCURRENT_OFFLINE_DOWNLOADS).toList(),
-                selected = policy.maxConcurrentDownloads.coerceIn(1, MAX_CONCURRENT_OFFLINE_DOWNLOADS),
-                label = { "$it 个" },
-                stableId = "downloads:concurrent",
-                focusMemory = focusMemory,
-                onSelect = manager::setMaxConcurrentDownloads,
-                icon = AppIcons.Collapse,
                 focusScope = focusScope,
                 navigationRequester = navigationRequester,
             )
         }
-        item(key = "downloads-auto-delete") {
-            TvToggleRow(
-                title = "看完后自动删除",
-                checked = policy.autoDeleteWatched,
-                stableId = "downloads:auto-delete",
-                focusMemory = focusMemory,
-                onToggle = manager::setAutoDeleteWatched,
-                icon = AppIcons.Close,
-                focusScope = focusScope,
-                subtitle = "播放到结尾后释放这一集占用的空间",
-                navigationRequester = navigationRequester,
-            )
-        }
-        item(key = "downloads-auto-download") {
-            TvToggleRow(
-                title = "自动下载新剧集",
-                checked = policy.autoDownloadEnabled,
-                stableId = "downloads:auto-download",
-                focusMemory = focusMemory,
-                onToggle = manager::setAutoDownloadEnabled,
-                icon = AppIcons.Series,
-                focusScope = focusScope,
-                subtitle = "已订阅的剧集更新后自动排入队列",
-                navigationRequester = navigationRequester,
-            )
-        }
-        item(key = "downloads-storage") {
-            TvSettingRow(
-                title = "下载位置",
-                value = policy.storageLabel ?: "应用私有空间",
-                stableId = "downloads:storage",
-                focusMemory = focusMemory,
-                onClick = {
-                    // A television often has no document provider at all, so the picker can be
-                    // absent rather than merely cancelled. Say so instead of failing silently.
-                    runCatching { pickStorageDirectory() }
-                        .onFailure { status = "这台设备没有可用的文件选择器，将继续使用应用私有空间。" }
-                },
-                icon = AppIcons.Server,
-                focusScope = focusScope,
-                subtitle = "选择 U 盘或外置硬盘上的目录，容量比机身空间大得多",
-                navigationRequester = navigationRequester,
-            )
-        }
-        if (policy.storageTreeUri != null) {
-            item(key = "downloads-storage-reset") {
+        if (showSettings && access.canManageServers) {
+            item(key = "downloads-section-settings") { TvSettingsSectionTitle("下载设置") }
+            item(key = "downloads-budget") {
                 TvSettingRow(
-                    title = "恢复到应用私有空间",
-                    value = "",
-                    stableId = "downloads:storage-reset",
+                    title = "离线视频容量上限",
+                    value =
+                        com.yfuse.core.offline
+                            .offlineVideoBudgetLabel(policy.storageBudgetBytes),
+                    stableId = "downloads:budget",
+                    icon = AppIcons.Download,
                     focusMemory = focusMemory,
-                    onClick = {
-                        manager.setStorageDirectory(null, null)
-                        status = "新的下载会写入应用私有空间"
-                    },
-                    icon = AppIcons.Refresh,
                     focusScope = focusScope,
-                    subtitle = "已经下载到外置目录的文件不会移动",
+                    navigationRequester = navigationRequester,
+                    onClick = {
+                        val options = com.yfuse.core.offline.offlineVideoBudgetOptions
+                        val next = options[(options.indexOf(policy.storageBudgetBytes) + 1) % options.size]
+                        manager.setDownloadBudget(
+                            next,
+                            policy.autoDownloadChargingOnly,
+                            policy.windowStartMinute,
+                            policy.windowEndMinute,
+                        )
+                    },
+                )
+            }
+            item(key = "downloads-charging") {
+                TvToggleRow(
+                    title = "自动追更仅在充电时下载",
+                    checked = policy.autoDownloadChargingOnly,
+                    stableId = "downloads:charging",
+                    icon = AppIcons.Download,
+                    focusMemory = focusMemory,
+                    focusScope = focusScope,
+                    navigationRequester = navigationRequester,
+                    onToggle = {
+                        manager.setDownloadBudget(
+                            policy.storageBudgetBytes,
+                            it,
+                            policy.windowStartMinute,
+                            policy.windowEndMinute,
+                        )
+                    },
+                )
+            }
+            item(key = "downloads-window") {
+                TvSettingRow(
+                    title = "允许下载时段",
+                    value =
+                        com.yfuse.core.offline.offlineDownloadWindowLabel(
+                            policy.windowStartMinute,
+                            policy.windowEndMinute,
+                        ),
+                    stableId = "downloads:window",
+                    icon = AppIcons.Download,
+                    focusMemory = focusMemory,
+                    focusScope = focusScope,
+                    navigationRequester = navigationRequester,
+                    onClick = {
+                        val options = com.yfuse.core.offline.offlineDownloadWindowOptions
+                        val next =
+                            options[
+                                (options.indexOf(policy.windowStartMinute to policy.windowEndMinute) + 1) %
+                                    options.size,
+                            ]
+                        manager.setDownloadBudget(
+                            policy.storageBudgetBytes,
+                            policy.autoDownloadChargingOnly,
+                            next.first,
+                            next.second,
+                        )
+                    },
+                )
+            }
+            item(key = "downloads-wifi-only") {
+                TvToggleRow(
+                    title = "仅在 Wi-Fi 下下载",
+                    checked = policy.wifiOnly,
+                    stableId = "downloads:wifi-only",
+                    focusMemory = focusMemory,
+                    onToggle = manager::setWifiOnly,
+                    icon = AppIcons.Cloud,
+                    focusScope = focusScope,
+                    subtitle = "有线连接的电视始终视为非计费网络",
                     navigationRequester = navigationRequester,
                 )
+            }
+            item(key = "downloads-concurrent") {
+                TvChoiceRow(
+                    title = "同时下载数",
+                    options = (1..MAX_CONCURRENT_OFFLINE_DOWNLOADS).toList(),
+                    selected = policy.maxConcurrentDownloads.coerceIn(1, MAX_CONCURRENT_OFFLINE_DOWNLOADS),
+                    label = { "$it 个" },
+                    stableId = "downloads:concurrent",
+                    focusMemory = focusMemory,
+                    onSelect = manager::setMaxConcurrentDownloads,
+                    icon = AppIcons.Collapse,
+                    focusScope = focusScope,
+                    navigationRequester = navigationRequester,
+                )
+            }
+            item(key = "downloads-auto-delete") {
+                TvToggleRow(
+                    title = "看完后自动删除",
+                    checked = policy.autoDeleteWatched,
+                    stableId = "downloads:auto-delete",
+                    focusMemory = focusMemory,
+                    onToggle = manager::setAutoDeleteWatched,
+                    icon = AppIcons.Close,
+                    focusScope = focusScope,
+                    subtitle = "播放到结尾后释放这一集占用的空间",
+                    navigationRequester = navigationRequester,
+                )
+            }
+            item(key = "downloads-auto-download") {
+                TvToggleRow(
+                    title = "自动下载新剧集",
+                    checked = policy.autoDownloadEnabled,
+                    stableId = "downloads:auto-download",
+                    focusMemory = focusMemory,
+                    onToggle = manager::setAutoDownloadEnabled,
+                    icon = AppIcons.Series,
+                    focusScope = focusScope,
+                    subtitle = "已订阅的剧集更新后自动排入队列",
+                    navigationRequester = navigationRequester,
+                )
+            }
+            item(key = "downloads-storage") {
+                TvSettingRow(
+                    title = "下载位置",
+                    value = policy.storageLabel ?: "应用私有空间",
+                    stableId = "downloads:storage",
+                    focusMemory = focusMemory,
+                    onClick = {
+                        // A television often has no document provider at all, so the picker can be
+                        // absent rather than merely cancelled. Say so instead of failing silently.
+                        runCatching { pickStorageDirectory() }
+                            .onFailure { status = "这台设备没有可用的文件选择器，将继续使用应用私有空间。" }
+                    },
+                    icon = AppIcons.Server,
+                    focusScope = focusScope,
+                    subtitle = "选择 U 盘或外置硬盘上的目录，容量比机身空间大得多",
+                    navigationRequester = navigationRequester,
+                )
+            }
+            if (policy.storageTreeUri != null) {
+                item(key = "downloads-storage-reset") {
+                    TvSettingRow(
+                        title = "恢复到应用私有空间",
+                        value = "",
+                        stableId = "downloads:storage-reset",
+                        focusMemory = focusMemory,
+                        onClick = {
+                            manager.setStorageDirectory(null, null)
+                            status = "新的下载会写入应用私有空间"
+                        },
+                        icon = AppIcons.Refresh,
+                        focusScope = focusScope,
+                        subtitle = "已经下载到外置目录的文件不会移动",
+                        navigationRequester = navigationRequester,
+                    )
+                }
             }
         }
     }
 
-    offlineToPlay?.takeIf { it.playable }?.let { offline ->
+    offlineToPlay?.takeIf { it.playable && component.personal.canAccessServer(it.serverId) }?.let { offline ->
         val path = offline.localPath
         if (path != null) {
             PlayerLauncher(

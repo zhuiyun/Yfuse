@@ -28,6 +28,7 @@ class ProfileTabComponent(
     /** Switches to the 服务器 tab, which owns the list this page used to embed. */
     private val onOpenServers: () -> Unit,
     private val dependencies: AppDependencies,
+    private val onOpenPersonalMedia: (com.yfuse.core.personal.PersonalMediaRef) -> Unit = {},
 ) : ComponentContext by componentContext {
     private val navigation = StackNavigation<Config>()
 
@@ -81,6 +82,7 @@ class ProfileTabComponent(
                         onEnterWatchRoom = onEnterWatchRoom,
                         onOpenServers = onOpenServers,
                         dependencies = dependencies,
+                        onOpenPersonalMedia = onOpenPersonalMedia,
                     ),
                 )
         }

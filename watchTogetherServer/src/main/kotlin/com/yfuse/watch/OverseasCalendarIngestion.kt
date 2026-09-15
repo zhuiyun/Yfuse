@@ -4,6 +4,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
@@ -34,36 +35,54 @@ internal object OverseasScheduleParser {
         today: LocalDate,
         config: OverseasCalendarConfig,
     ): List<CalendarIngestionShow> {
-        val root = runCatching { overseasJson.parseToJsonElement(body).jsonArray }.getOrNull() ?: return emptyList()
+        val root = overseasJson.parseToJsonElement(body).jsonArray
         val earliest = today.minusDays(config.pastDays.toLong())
         val latest = today.plusDays(config.futureDays.toLong())
-        return root.asSequence()
+        return root
+            .asSequence()
             .mapNotNull { episodeNode ->
-                val episode = episodeNode.asObject() ?: return@mapNotNull null
-                val show = episode.embeddedShow() ?: episode["show"]?.asObject() ?: return@mapNotNull null
-                val airDate = episode.string("airdate")?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
-                    ?: return@mapNotNull null
+                // Bad provider structure is a failed full snapshot, not a show filtered out by
+                // the calendar's date/type/region policy. Failing here preserves the old revision.
+                val episode =
+                    requireNotNull(episodeNode.asObject()) { "Overseas discovery episode must be an object" }
+                val show =
+                    requireNotNull(episode.embeddedShow() ?: episode["show"]?.asObject()) {
+                        "Overseas discovery episode must contain a show"
+                    }
+                val showId =
+                    requireNotNull(
+                        (show["id"] as? JsonPrimitive)
+                            ?.takeUnless { it.isString }
+                            ?.intOrNull
+                            ?.takeIf { it > 0 },
+                    ) { "Overseas discovery show id must be a positive integer" }
+                val showTitle = show.requiredDiscoveryText("name")
+                val showType = show.requiredDiscoveryText("type")
+                val airDate =
+                    episode.string("airdate")?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+                        ?: return@mapNotNull null
                 if (airDate !in earliest..latest) return@mapNotNull null
-                val number = episode.int("number")?.takeIf { it > 0 } ?: return@mapNotNull null
+                if ((episode.int("number") ?: 0) <= 0) return@mapNotNull null
                 val season = episode.int("season")?.takeIf { it > 0 } ?: return@mapNotNull null
-                val showId = show.int("id")?.takeIf { it > 0 } ?: return@mapNotNull null
-                val showType = show.string("type") ?: return@mapNotNull null
                 if (config.allowedShowTypes.none { it.equals(showType, ignoreCase = true) }) return@mapNotNull null
                 val webChannel = show["webChannel"]?.asObject()
                 val network = show["network"]?.asObject()
                 if (webChannel != null && !config.includeGlobalStreaming) return@mapNotNull null
                 val country = (network ?: webChannel)?.get("country")?.asObject()
-                val countryCode = country?.string("code")?.uppercase()
-                    ?: if (webChannel != null) "GLOBAL" else null
+                val countryCode =
+                    country?.string("code")?.uppercase()
+                        ?: if (webChannel != null) "GLOBAL" else null
                 if (
                     config.countryCodes.isNotEmpty() &&
                     countryCode != "GLOBAL" &&
                     countryCode !in config.countryCodes.map(String::uppercase)
-                ) return@mapNotNull null
+                ) {
+                    return@mapNotNull null
+                }
                 TvmazeDiscoveryEpisode(
                     showId = showId,
                     imdbId = show["externals"]?.asObject()?.string("imdb"),
-                    title = show.string("name") ?: return@mapNotNull null,
+                    title = showTitle,
                     year = show.string("premiered")?.take(4)?.toIntOrNull() ?: airDate.year,
                     seasonNumber = season,
                     airDate = airDate,
@@ -73,8 +92,7 @@ internal object OverseasScheduleParser {
                     countryCode = countryCode,
                     weight = show.int("weight")?.coerceIn(0, 1_000) ?: 0,
                 )
-            }
-            .groupBy { it.showId to it.seasonNumber }
+            }.groupBy { it.showId to it.seasonNumber }
             .values
             .asSequence()
             .map { rows ->
@@ -95,19 +113,24 @@ internal object OverseasScheduleParser {
                     accessTier = "Unknown",
                     origin = "Foreign",
                     availabilityRegion = first.countryCode,
-                    releaseMode = if (perDay.any { it > 1 }) "Batch" else if (airTime == null) "DateOnly" else "Weekly",
+                    releaseMode =
+                        if (perDay.any { it > 1 }) {
+                            "Batch"
+                        } else if (airTime == null) {
+                            "DateOnly"
+                        } else {
+                            "Weekly"
+                        },
                     discoveryWeight = rows.maxOf(TvmazeDiscoveryEpisode::weight),
                     sources = emptyList(),
                 )
-            }
-            .groupBy(CalendarIngestionShow::tvmazeId)
+            }.groupBy(CalendarIngestionShow::tvmazeId)
             .values
             .map { seasons -> seasons.maxBy(CalendarIngestionShow::seasonNumber) }
             .sortedWith(
                 compareByDescending<CalendarIngestionShow>(CalendarIngestionShow::discoveryWeight)
                     .thenBy(CalendarIngestionShow::title),
-            )
-            .take(config.maxShows)
+            ).take(config.maxShows)
     }
 
     fun parseTmdbSeason(
@@ -116,13 +139,18 @@ internal object OverseasScheduleParser {
         capturedAt: String,
     ): StructuredCalendarSource? {
         val root = runCatching { overseasJson.parseToJsonElement(body).jsonObject }.getOrNull() ?: return null
-        val episodes = root["episodes"]?.asArray().orEmpty().mapNotNull { node ->
-            val episode = node.asObject() ?: return@mapNotNull null
-            val number = episode.int("episode_number")?.takeIf { it > 0 } ?: return@mapNotNull null
-            val date = episode.string("air_date")?.takeIf { runCatching { LocalDate.parse(it) }.isSuccess }
-                ?: return@mapNotNull null
-            number to CalendarEpisode(number, date)
-        }.toMap()
+        val episodes =
+            root["episodes"]
+                ?.asArray()
+                .orEmpty()
+                .mapNotNull { node ->
+                    val episode = node.asObject() ?: return@mapNotNull null
+                    val number = episode.int("episode_number")?.takeIf { it > 0 } ?: return@mapNotNull null
+                    val date =
+                        episode.string("air_date")?.takeIf { runCatching { LocalDate.parse(it) }.isSuccess }
+                            ?: return@mapNotNull null
+                    number to CalendarEpisode(number, date)
+                }.toMap()
         if (episodes.isEmpty()) return null
         return StructuredCalendarSource(
             type = "TmdbSchedule",
@@ -136,7 +164,11 @@ internal object OverseasScheduleParser {
 
     fun parseTvmazeShowId(body: String): Int? =
         runCatching {
-            overseasJson.parseToJsonElement(body).jsonObject.int("id")?.takeIf { it > 0 }
+            overseasJson
+                .parseToJsonElement(body)
+                .jsonObject
+                .int("id")
+                ?.takeIf { it > 0 }
         }.getOrNull()
 
     fun parseTvmazeEpisodes(
@@ -148,26 +180,57 @@ internal object OverseasScheduleParser {
     ): StructuredCalendarSource? {
         val root = runCatching { overseasJson.parseToJsonElement(body).jsonArray }.getOrNull() ?: return null
         val zone = timeZoneId?.let { runCatching { ZoneId.of(it) }.getOrNull() }
-        val parsed = root.mapNotNull { node ->
-            val episode = node.asObject() ?: return@mapNotNull null
-            if (episode.int("season") != seasonNumber) return@mapNotNull null
-            val number = episode.int("number")?.takeIf { it > 0 } ?: return@mapNotNull null
-            val airstamp = episode.string("airstamp")?.let { runCatching { OffsetDateTime.parse(it) }.getOrNull() }
-            val declaredDate = episode.string("airdate")?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
-            val localDate = airstamp?.toInstant()?.let { instant -> zone?.let { instant.atZone(it).toLocalDate() } }
-                ?: declaredDate ?: return@mapNotNull null
-            val releaseUtc = airstamp?.toInstant()?.toString()
-            val releaseBeijing = airstamp?.toInstant()?.atZone(BEIJING_ZONE)?.toOffsetDateTime()?.toString()
-            number to CalendarEpisode(number, localDate.toString(), releaseUtc, releaseBeijing)
-        }.toMap()
+        val parsed =
+            root
+                .mapNotNull { node ->
+                    val episode = node.asObject() ?: return@mapNotNull null
+                    if (episode.int("season") != seasonNumber) return@mapNotNull null
+                    val number = episode.int("number")?.takeIf { it > 0 } ?: return@mapNotNull null
+                    val airstamp =
+                        episode
+                            .string(
+                                "airstamp",
+                            )?.let { runCatching { OffsetDateTime.parse(it) }.getOrNull() }
+                    val declaredDate =
+                        episode
+                            .string(
+                                "airdate",
+                            )?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+                    val localDate =
+                        airstamp?.toInstant()?.let { instant -> zone?.let { instant.atZone(it).toLocalDate() } }
+                            ?: declaredDate ?: return@mapNotNull null
+                    val releaseUtc = airstamp?.toInstant()?.toString()
+                    val releaseBeijing =
+                        airstamp
+                            ?.toInstant()
+                            ?.atZone(BEIJING_ZONE)
+                            ?.toOffsetDateTime()
+                            ?.toString()
+                    number to CalendarEpisode(number, localDate.toString(), releaseUtc, releaseBeijing)
+                }.toMap()
         if (parsed.isEmpty()) return null
-        val localTimes = root.mapNotNull { node ->
-            val episode = node.asObject() ?: return@mapNotNull null
-            if (episode.int("season") != seasonNumber) return@mapNotNull null
-            val airstamp = episode.string("airstamp")?.let { runCatching { OffsetDateTime.parse(it) }.getOrNull() }
-            airstamp?.toInstant()?.let { instant -> zone?.let { instant.atZone(it).toLocalTime().withSecond(0).withNano(0).toString() } }
-                ?: episode.string("airtime")
-        }.distinct()
+        val localTimes =
+            root
+                .mapNotNull { node ->
+                    val episode = node.asObject() ?: return@mapNotNull null
+                    if (episode.int("season") != seasonNumber) return@mapNotNull null
+                    val airstamp =
+                        episode
+                            .string(
+                                "airstamp",
+                            )?.let { runCatching { OffsetDateTime.parse(it) }.getOrNull() }
+                    airstamp?.toInstant()?.let { instant ->
+                        zone?.let {
+                            instant
+                                .atZone(it)
+                                .toLocalTime()
+                                .withSecond(0)
+                                .withNano(0)
+                                .toString()
+                        }
+                    }
+                        ?: episode.string("airtime")
+                }.distinct()
         return StructuredCalendarSource(
             type = "TvmazeSchedule",
             publisher = "TVmaze",
@@ -206,43 +269,50 @@ internal object OverseasEvidenceGate {
         if (sources.isEmpty()) return null
         val tmdb = sources.firstOrNull { it.type == "TmdbSchedule" }
         val tvmaze = sources.firstOrNull { it.type == "TvmazeSchedule" }
-        val shared = tmdb?.episodes?.keys.orEmpty().intersect(tvmaze?.episodes?.keys.orEmpty())
+        val shared =
+            tmdb
+                ?.episodes
+                ?.keys
+                .orEmpty()
+                .intersect(tvmaze?.episodes?.keys.orEmpty())
         if (shared.any { tmdb?.episodes?.get(it)?.airDate != tvmaze?.episodes?.get(it)?.airDate }) return null
 
         val episodes = linkedMapOf<Int, CalendarEpisode>()
         tmdb?.episodes?.toSortedMap()?.forEach { (number, episode) -> episodes[number] = episode }
         tvmaze?.episodes?.toSortedMap()?.forEach { (number, episode) -> episodes[number] = episode }
         if (episodes.isEmpty()) return null
-        val (authority, confidence) = when {
-            tmdb != null && tvmaze != null && shared.isNotEmpty() -> "Verified" to 85
-            tvmaze != null -> "Estimated" to 70
-            tmdb != null -> "Estimated" to 65
-            else -> return null
-        }
-        val evidence = buildList {
-            sources.forEach { source ->
+        val (authority, confidence) =
+            when {
+                tmdb != null && tvmaze != null && shared.isNotEmpty() -> "Verified" to 85
+                tvmaze != null -> "Estimated" to 70
+                tmdb != null -> "Estimated" to 65
+                else -> return null
+            }
+        val evidence =
+            buildList {
+                sources.forEach { source ->
+                    add(
+                        CalendarEvidence(
+                            type = source.type,
+                            publisher = source.publisher,
+                            sourceUrl = source.sourceUrl,
+                            capturedAt = source.capturedAt,
+                            contentHash = source.contentHash,
+                            extractionMethod = "structured-provider-json",
+                        ),
+                    )
+                }
                 add(
                     CalendarEvidence(
-                        type = source.type,
-                        publisher = source.publisher,
-                        sourceUrl = source.sourceUrl,
-                        capturedAt = source.capturedAt,
-                        contentHash = source.contentHash,
-                        extractionMethod = "structured-provider-json",
+                        type = "TmdbIdentity",
+                        publisher = "TMDB",
+                        sourceUrl = identity.evidenceUrl,
+                        capturedAt = generatedAt,
+                        contentHash = identity.evidenceHash,
+                        extractionMethod = "strict-id-match",
                     ),
                 )
-            }
-            add(
-                CalendarEvidence(
-                    type = "TmdbIdentity",
-                    publisher = "TMDB",
-                    sourceUrl = identity.evidenceUrl,
-                    capturedAt = generatedAt,
-                    contentHash = identity.evidenceHash,
-                    extractionMethod = "strict-id-match",
-                ),
-            )
-        }.distinctBy { it.type to it.sourceUrl }
+            }.distinctBy { it.type to it.sourceUrl }
         val timed = tvmaze?.takeIf { it.airTime != null && it.timeZoneId != null }
         return CalendarSeries(
             tmdbId = identity.tmdbId,
@@ -268,10 +338,21 @@ internal object OverseasEvidenceGate {
 }
 
 private fun JsonElement.asObject(): JsonObject? = this as? JsonObject
+
 private fun JsonElement.asArray(): JsonArray? = this as? JsonArray
-private fun JsonObject.string(key: String): String? = this[key]?.jsonPrimitive?.contentOrNull?.takeIf(String::isNotBlank)
+
+private fun JsonObject.string(key: String): String? =
+    this[key]?.jsonPrimitive?.contentOrNull?.takeIf(String::isNotBlank)
+
 private fun JsonObject.int(key: String): Int? = this[key]?.jsonPrimitive?.intOrNull
+
 private fun JsonObject.embeddedShow(): JsonObject? = this["_embedded"]?.asObject()?.get("show")?.asObject()
+
+private fun JsonObject.requiredDiscoveryText(key: String): String =
+    requireNotNull(
+        (this[key] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull?.takeIf(String::isNotBlank),
+    ) { "Overseas discovery show $key must be nonblank text" }
+
 private fun String.overseasSha256(): String =
     MessageDigest.getInstance("SHA-256").digest(toByteArray()).joinToString("") { "%02x".format(it) }
 

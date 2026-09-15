@@ -109,37 +109,18 @@ private class ExoSecondaryTextRenderersFactory(
  */
 @UnstableApi
 internal class ExoSecondarySubtitleController(
-    context: Context,
-    customUserAgent: String,
+    private val player: Player,
     private val cueMerger: ExoDualSubtitleCueMerger,
 ) {
+    constructor(context: Context, customUserAgent: String, cueMerger: ExoDualSubtitleCueMerger) :
+        this(createSecondarySubtitlePlayer(context, customUserAgent, cueMerger), cueMerger)
+
     private var desiredTrack: ExoSubtitleTrackIdentity? = null
     private var prepared = false
     private var enabled = false
 
     val needsReconciliation: Boolean
         get() = enabled && prepared
-
-    private val httpFactory =
-        DefaultHttpDataSource
-            .Factory()
-            .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(20_000)
-            .setReadTimeoutMs(20_000)
-            .apply {
-                customUserAgent.trim().takeIf(String::isNotEmpty)?.let { value ->
-                    setDefaultRequestProperties(mapOf("User-Agent" to value))
-                }
-            }
-    private val mediaSourceFactory =
-        DefaultMediaSourceFactory(DefaultDataSource.Factory(context, httpFactory))
-    private val player =
-        ExoPlayer
-            .Builder(
-                context,
-                ExoSecondaryTextRenderersFactory(cueMerger.secondaryOutput()),
-            ).setMediaSourceFactory(mediaSourceFactory)
-            .build()
 
     private val listener =
         object : Player.Listener {
@@ -148,6 +129,9 @@ internal class ExoSecondarySubtitleController(
             }
 
             override fun onPlayerError(error: PlaybackException) {
+                // Media3 returns to STATE_IDLE on error. Re-selecting must prepare again,
+                // even if neither the queue size nor the selected item changed.
+                prepared = false
                 cueMerger.clearSecondary()
                 AppLog.warning(
                     category = "player.exo.secondary_subtitle",
@@ -184,7 +168,7 @@ internal class ExoSecondarySubtitleController(
         if (player.mediaItemCount == 0 || player.mediaItemCount != mediaItems.size) {
             player.setMediaItems(mediaItems, safeIndex, safePositionMs)
             prepared = false
-        } else if (player.currentMediaItemIndex != safeIndex) {
+        } else if (!prepared || player.currentMediaItemIndex != safeIndex) {
             player.seekTo(safeIndex, safePositionMs)
         }
         if (!prepared) {
@@ -301,6 +285,29 @@ internal class ExoSecondarySubtitleController(
         }
         cueMerger.clearSecondary()
     }
+}
+
+@UnstableApi
+private fun createSecondarySubtitlePlayer(
+    context: Context,
+    customUserAgent: String,
+    cueMerger: ExoDualSubtitleCueMerger,
+): ExoPlayer {
+    val httpFactory =
+        DefaultHttpDataSource
+            .Factory()
+            .setAllowCrossProtocolRedirects(true)
+            .setConnectTimeoutMs(20_000)
+            .setReadTimeoutMs(20_000)
+            .apply {
+                customUserAgent.trim().takeIf(String::isNotEmpty)?.let { value ->
+                    setDefaultRequestProperties(mapOf("User-Agent" to value))
+                }
+            }
+    return ExoPlayer
+        .Builder(context, ExoSecondaryTextRenderersFactory(cueMerger.secondaryOutput()))
+        .setMediaSourceFactory(DefaultMediaSourceFactory(DefaultDataSource.Factory(context, httpFactory)))
+        .build()
 }
 
 private const val SECONDARY_DRIFT_TOLERANCE_MS = 350L

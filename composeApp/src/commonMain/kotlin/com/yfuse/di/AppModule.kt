@@ -70,8 +70,10 @@ import com.yfuse.feature.servers.EmbyQuickConnectGateway
 import com.yfuse.feature.servers.QuickConnectGateway
 import com.yfuse.feature.watch.WatchInviteResolver
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.stateIn
 import org.koin.core.qualifier.named
 import org.koin.dsl.module
+import org.koin.dsl.onClose
 
 /**
  * Root DI graph. [settings] and [appVersion] are supplied by the platform so common network
@@ -86,9 +88,17 @@ fun appModule(
 ) = module {
     single { settings }
     single(named("account-http")) { createAccountClient() }
+    single(named("trakt-http")) {
+        com.yfuse.core.trakt
+            .createTraktHttpClient()
+    } onClose { it?.close() }
     single { diagnosticPreferences }
     single<CalendarLocalStore> { calendarLocalStore }
     single { VaultCrypto() }
+    single {
+        com.yfuse.core.personal
+            .PersonalLibraryRepository(get(), get())
+    }
     single {
         val persistedSettings = get<Settings>()
         ServerRegistry(
@@ -99,13 +109,14 @@ fun appModule(
                     namespace = "emby.server-sessions",
                 ),
             crypto = get(),
+            personal = get(),
         )
     }
     single { ThemePreferences(get()) }
     single { PlaybackPreferences(get()) }
     single { PlaybackFailoverRequest() }
     single { PlaybackEventOutbox(get()) }
-    single { PlaybackSyncStore(get()) }
+    single { PlaybackSyncStore(get(), personal = get()) }
     single { ProgressSyncPreferences(get()) }
     single {
         val progressPreferences = get<ProgressSyncPreferences>()
@@ -170,7 +181,7 @@ fun appModule(
         )
     }
     single { ServerHealthMonitor(get(), get()) }
-    single { CalendarFollowStore(get()) }
+    single { CalendarFollowStore(get(), personal = get()) }
     single { OfficialAiringScheduleCatalog(get(named("account-http")), get()) }
     single {
         AiringCalendarRepository(
@@ -204,6 +215,7 @@ fun appModule(
             calendarFollows = get(),
             accessTokenSource = get(),
             mutationDispatcher = Dispatchers.Main.immediate,
+            personal = get(),
         )
     }
     single { PlaybackCloudApi(get(named("account-http"))) }
@@ -217,6 +229,65 @@ fun appModule(
             repo = get(),
             registry = get(),
             progressSyncEnabled = get<ServerSyncManager>().syncProgress,
+            personal = get(),
+        )
+    }
+    single { com.yfuse.app.ProductSession(get(), get()) }
+    single {
+        val session = get<com.yfuse.app.ProductSession>()
+        com.yfuse.core.trakt
+            .TraktRepository(
+                api =
+                    com.yfuse.core.trakt
+                        .HttpTraktApi(get(named("trakt-http"))),
+                auth =
+                    com.yfuse.core.trakt
+                        .AccountTraktAuthApi(get(named("account-http")), get()),
+                secureStore = get(),
+                owner = session.owner,
+                importSink =
+                    com.yfuse.core.trakt
+                        .PersonalTraktImportSink(get()),
+                scope = session.scope,
+            ).also { it.start() }
+    } onClose { it?.close() }
+    single {
+        com.yfuse.core.handoff
+            .HandoffPlaybackRegistry()
+    }
+    single {
+        com.yfuse.core.handoff
+            .AccountHandoffApi(get(named("account-http")), get())
+    }
+    single {
+        com.yfuse.core.handoff
+            .HandoffVaultCipher(get(), get(), get())
+    }
+    single {
+        val session = get<com.yfuse.app.ProductSession>()
+        val bridge = get<com.yfuse.core.handoff.HandoffPlaybackRegistry>()
+        val activeOwner =
+            kotlinx.coroutines.flow
+                .combine(
+                    session.owner,
+                    session.foreground,
+                    com.yfuse.feature.player.ActivePlayback.state,
+                ) { owner, foreground, playback ->
+                    owner.takeIf { foreground || playback.active }
+                }.stateIn(session.scope, kotlinx.coroutines.flow.SharingStarted.Eagerly, null)
+        com.yfuse.core.handoff.HandoffController(
+            api = get<com.yfuse.core.handoff.AccountHandoffApi>(),
+            cipher = get<com.yfuse.core.handoff.HandoffVaultCipher>(),
+            playback = bridge,
+            owner = activeOwner,
+            scope = session.scope,
+            deviceName = com.yfuse.deviceModel().take(64),
+            platform = "Android",
+            canReceive = {
+                session.foreground.value &&
+                    bridge.receiver != null &&
+                    !com.yfuse.feature.player.ActivePlayback.state.value.active
+            },
         )
     }
     // Own client (different host + bearer auth), built inline so Koin keeps a

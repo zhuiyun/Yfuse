@@ -111,6 +111,7 @@ class ServerRegistry(
     private val crypto: VaultCrypto = VaultCrypto(),
     /** Unit fixtures may opt into direct local-HTTP construction; production never does. */
     private val allowUnconfirmedLocalForTests: Boolean = false,
+    private val personal: com.yfuse.core.personal.PersonalLibraryRepository? = null,
 ) {
     private companion object {
         const val KEY = "servers.data"
@@ -134,16 +135,31 @@ class ServerRegistry(
     private val loaded = load()
     private var secretRefs: Map<String, String> = loaded.secretRefs
     private val _data = MutableStateFlow(loaded.data)
-    val data: StateFlow<ServersData> = _data.asStateFlow()
+    private val visibleData = MutableStateFlow(projectVisible(loaded.data))
+    val data: StateFlow<ServersData> = visibleData.asStateFlow()
 
-    val defaultServer: SavedServer? get() = _data.value.defaultServer
+    init {
+        personal?.observeChanges { visibleData.value = projectVisible(_data.value) }
+    }
+
+    /** Only the encrypted account snapshot may bypass the browsing projection. */
+    fun allDataForSync(): ServersData = _data.value
+
+    private fun projectVisible(value: ServersData): ServersData {
+        val policy = personal?.policy?.value ?: return value
+        val servers = value.servers.filter { policy.allowsServer(it.id) }
+        return ServersData(servers, value.defaultServerId?.takeIf { id -> servers.any { it.id == id } })
+    }
+
+    val defaultServer: SavedServer? get() = visibleData.value.defaultServer
 
     fun serverById(id: String): SavedServer? =
-        _data.value.servers.firstOrNull { it.id == id }
-            ?: _data.value.servers.firstOrNull { id in it.previousIds }
+        visibleData.value.servers.firstOrNull { it.id == id }
+            ?: visibleData.value.servers.firstOrNull { id in it.previousIds }
 
     /** Adds a server (or updates it if the same id already exists). First one becomes default. */
     fun addOrUpdate(server: SavedServer) {
+        personal?.requireServerManagement()
         val current = _data.value
         val existing = current.servers.firstOrNull { it.id == server.id }
         val replacing = existing != null
@@ -177,6 +193,7 @@ class ServerRegistry(
     }
 
     fun setDefault(id: String) {
+        require(personal == null || personal.canAccessServer(id)) { "当前资料不能访问这个服务器用户" }
         if (_data.value.servers.any { it.id == id }) {
             // Re-selecting the server that is already default is not a change. Committing it
             // republished the registry - which restarts every collector downstream, health
@@ -204,6 +221,7 @@ class ServerRegistry(
         id: String,
         name: String,
     ): Boolean {
+        personal?.requireServerManagement()
         val normalized =
             name
                 .replace('\r', ' ')
@@ -243,6 +261,7 @@ class ServerRegistry(
         routes: List<ServerRoute>,
         localCleartextConfirmed: Boolean = false,
     ): Boolean {
+        personal?.requireServerManagement()
         val current = _data.value
         val existing = current.servers.firstOrNull { it.id == id } ?: return false
         val cleartextConfirmed = existing.localCleartextConfirmed || localCleartextConfirmed
@@ -303,6 +322,7 @@ class ServerRegistry(
         id: String,
         routeId: String,
     ): Boolean {
+        if (personal != null && !personal.canAccessServer(id)) return false
         val current = _data.value
         val existing = current.servers.firstOrNull { it.id == id } ?: return false
         val route = existing.effectiveRoutes.firstOrNull { it.id == routeId } ?: return false
@@ -337,6 +357,7 @@ class ServerRegistry(
         emoji: String?,
         tint: Long?,
     ): Boolean {
+        personal?.requireServerManagement()
         val current = _data.value
         val existing = current.servers.firstOrNull { it.id == id } ?: return false
         val normalizedEmoji = sanitizeIconEmoji(emoji)
@@ -363,6 +384,7 @@ class ServerRegistry(
         id: String,
         server: SavedServer,
     ): Boolean {
+        personal?.requireServerManagement()
         val current = _data.value
         val oldIndex = current.servers.indexOfFirst { it.id == id }
         if (oldIndex < 0) return false
@@ -409,6 +431,7 @@ class ServerRegistry(
     }
 
     fun remove(id: String) {
+        personal?.requireServerManagement()
         val current = _data.value
         val servers =
             current.servers
@@ -431,6 +454,7 @@ class ServerRegistry(
     /** Replaces the local registry with an already authenticated account-sync snapshot. */
     fun replaceFromSync(snapshot: ServersData): Result<Int> =
         runCatching {
+            personal?.requireServerManagement()
             require(snapshot.servers.size <= MAX_SERVERS) { "同步的服务器数量过多" }
             val localServers = _data.value.servers
             val normalized =
@@ -481,6 +505,7 @@ class ServerRegistry(
         ttlSeconds: Long = ServerMigrationCrypto.DEFAULT_TTL_SECONDS,
     ): Result<String> =
         runCatching {
+            personal?.requireServerManagement()
             val current = _data.value
             require(current.servers.isNotEmpty()) { "暂无可迁移的服务器" }
             require(ttlSeconds in 60..ServerMigrationCrypto.MAX_TTL_SECONDS) { "迁移包有效期无效" }
@@ -549,6 +574,7 @@ class ServerRegistry(
         ttlSeconds: Long = ServerMigrationCrypto.DEFAULT_TTL_SECONDS,
     ): Result<RelayMigrationPackage> =
         runCatching {
+            personal?.requireServerManagement()
             val current = _data.value
             require(current.servers.isNotEmpty()) { "暂无可迁移的服务器" }
             require(ttlSeconds in 60..ServerMigrationCrypto.MAX_TTL_SECONDS) { "迁移包有效期无效" }
@@ -576,6 +602,7 @@ class ServerRegistry(
         nowEpochSeconds: Long,
     ): Result<Int> =
         runCatching {
+            personal?.requireServerManagement()
             val plaintext = migrationRelayCrypto.unprotect(payload, transferSecret, nowEpochSeconds)
             try {
                 importPortableBackup(plaintext)
@@ -605,6 +632,7 @@ class ServerRegistry(
         nowEpochSeconds: Long,
     ): Result<Int> =
         runCatching {
+            personal?.requireServerManagement()
             val plaintext = migrationCrypto.unprotect(payload, passphrase, nowEpochSeconds)
             try {
                 importPortableBackup(plaintext)
@@ -771,6 +799,7 @@ class ServerRegistry(
 
         secretRefs = newRefs
         _data.value = normalized
+        visibleData.value = projectVisible(normalized)
         val orphanedRefs = oldRefs.values.toSet() - newRefs.values.toSet()
         orphanedRefs.forEach(::removeSecretBestEffort)
         clearOrphanedLibraryCaches(normalized)

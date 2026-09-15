@@ -54,6 +54,8 @@ import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.motionAwareAnimateContentSize
 import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.rememberAccentColorsForSurface
+import com.yfuse.core.handoff.HandoffController
+import org.koin.core.context.GlobalContext
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
 
@@ -86,6 +88,7 @@ private enum class AdvancedPage {
     Engine,
     Media,
     Bookmarks,
+    Handoff,
 }
 
 /** Compact function popup; long choices scroll inside without turning into a screen drawer. */
@@ -410,11 +413,43 @@ internal fun SettingsPanel(
                         }
                         if (trackPanelMode == TrackPanelMode.Subtitle) {
                             GroupLabel("第三方字幕")
-                            OptionRow(
-                                if (remoteSubtitles.loading) "正在搜索中文字幕…" else "搜索中文字幕",
-                                false,
-                                onClick = remoteSubtitleActions.onSearch,
-                            )
+                            if (remoteSubtitles.searchUnavailableReason == null) {
+                                OptionRow(
+                                    "搜索语言 · ${remoteSubtitles.language.label}",
+                                    false,
+                                    onClick = {
+                                        val languages = SubtitleSearchLanguage.entries
+                                        remoteSubtitleActions.onLanguage(
+                                            languages[
+                                                (remoteSubtitles.language.ordinal + 1) %
+                                                    languages.size,
+                                            ],
+                                        )
+                                    },
+                                    detailLabel = "点击切换语言",
+                                )
+                                OptionRow(
+                                    if (remoteSubtitles.loading) {
+                                        "正在搜索${remoteSubtitles.language.label}字幕…"
+                                    } else {
+                                        "搜索${remoteSubtitles.language.label}字幕"
+                                    },
+                                    false,
+                                    onClick = remoteSubtitleActions.onSearch,
+                                )
+                            } else {
+                                UnsupportedSubtitleControl(remoteSubtitles.searchUnavailableReason)
+                            }
+                            if (remoteSubtitles.importUnavailableReason == null) {
+                                OptionRow(
+                                    "导入本地字幕",
+                                    false,
+                                    onClick = remoteSubtitleActions.onImport,
+                                    detailLabel = "SRT / ASS / SSA / VTT · 仅本次播放，不上传",
+                                )
+                            } else {
+                                UnsupportedSubtitleControl(remoteSubtitles.importUnavailableReason)
+                            }
                             remoteSubtitles.results.forEach { result ->
                                 OptionRow(
                                     label =
@@ -713,7 +748,18 @@ internal fun SettingsPanel(
                                     PopupBackLabel("时间书签") { advancedPage = AdvancedPage.Root }
                                     PlaybackBookmarkPanel(bookmarks, bookmarkActions)
                                 }
+                                AdvancedPage.Handoff -> {
+                                    PopupBackLabel("设备接力") { advancedPage = AdvancedPage.Root }
+                                    PlayerDeviceHandoffPanel(watch.connected)
+                                }
                                 AdvancedPage.Root -> {
+                                    PopupMenuRow(
+                                        icon = AppIcons.Cast,
+                                        title = "设备接力",
+                                        subtitle = "在同账号的另一台设备继续观看",
+                                        onClick = { advancedPage = AdvancedPage.Handoff },
+                                    )
+                                    PopupDivider()
                                     PopupMenuRow(
                                         icon = AppIcons.Bookmark,
                                         title = "时间书签",
@@ -1047,6 +1093,40 @@ internal fun SettingsPanel(
             }
         }
     }
+}
+
+/** Keeps the source Activity mounted while the user chooses a receiver. */
+@Composable
+private fun PlayerDeviceHandoffPanel(inWatchRoom: Boolean) {
+    if (inWatchRoom) {
+        DiagnosticRow("设备接力", "请先离开一起看房间，再接力个人播放")
+        return
+    }
+    val controller = remember { runCatching { GlobalContext.get().getOrNull<HandoffController>() }.getOrNull() }
+    if (controller == null) {
+        DiagnosticRow("设备接力", "此播放环境暂未启用账号接力服务")
+        return
+    }
+    val state by controller.state.collectAsState()
+    DiagnosticRow("接力规则", "接收设备确认就绪后，本机才会暂停")
+    if (!state.online) DiagnosticRow("连接", "请先登录鱼服账号，并保持两台设备在线")
+    if (state.busy) {
+        state.message?.let { DiagnosticRow("进度", it) }
+        OptionRow("取消接力", selected = false, onClick = controller::cancelTransfer)
+    } else {
+        if (state.online && state.devices.isEmpty()) DiagnosticRow("在线设备", "暂未发现可接收的设备")
+        state.devices.forEach { device ->
+            PopupMenuRow(
+                icon = AppIcons.Cast,
+                title = "接力到 ${device.name}",
+                subtitle = device.platform,
+                onClick = { controller.send(device.sessionId) },
+            )
+        }
+        state.message?.let { DiagnosticRow("结果", it) }
+    }
+    state.connectionError?.let { DiagnosticRow("连接提示", it) }
+    state.error?.let { DiagnosticRow("接力提示", it) }
 }
 
 /**

@@ -73,6 +73,7 @@ data class PlaybackStateRecord(
     val serverItemId: String? = null,
     val revision: Long = 0L,
     val mutationKind: PlaybackMutationKind = PlaybackMutationKind.AutoProgress,
+    val profileId: String = com.yfuse.core.personal.DEFAULT_PERSONAL_PROFILE,
 )
 
 @Serializable

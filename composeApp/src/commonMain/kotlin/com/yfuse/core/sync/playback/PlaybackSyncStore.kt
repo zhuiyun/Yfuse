@@ -9,7 +9,14 @@ import kotlin.random.Random
 class PlaybackSyncStore(
     private val settings: Settings,
     private val nowEpochMs: () -> Long = { System.currentTimeMillis() },
+    private val personal: com.yfuse.core.personal.PersonalLibraryRepository? = null,
 ) {
+    constructor(settings: Settings, nowEpochMs: () -> Long) : this(settings, nowEpochMs, null)
+
+    private val activeProfileId: String get() =
+        personal?.activeProfileId
+            ?: com.yfuse.core.personal.DEFAULT_PERSONAL_PROFILE
+    val scopeToken: String get() = personal?.scopeToken ?: "legacy"
     private val json =
         Json {
             ignoreUnknownKeys = true
@@ -17,7 +24,7 @@ class PlaybackSyncStore(
         }
     private val serializer = ListSerializer(StoredPlaybackDocument.serializer())
     private val serverApplySerializer = ListSerializer(PendingPlaybackServerApply.serializer())
-    private val lock = Any()
+    private val lock = personal?.coordinationLock ?: Any()
     private var documents = loadDocuments().toMutableList()
     private var serverApplies = loadServerApplies().toMutableList()
 
@@ -86,7 +93,8 @@ class PlaybackSyncStore(
                     (queued.document.state.aliases + queued.document.state.mediaKey)
                         .filter(String::isNotBlank)
                         .toSet()
-                queuedKeys.any(keys::contains) &&
+                queued.document.state.profileId == document.state.profileId &&
+                    queuedKeys.any(keys::contains) &&
                     (portableIdentity || queued.document.state.serverId == document.state.serverId)
             }
         serverApplies =
@@ -108,8 +116,11 @@ class PlaybackSyncStore(
     ): List<PendingPlaybackServerApply> =
         synchronized(lock) {
             serverApplies
-                .filter { it.nextAttemptAtEpochMs <= nowEpochMs && it.readyServerIds(nowEpochMs).isNotEmpty() }
-                .take(limit.coerceIn(1, MAX_SERVER_APPLY_BATCH))
+                .filter {
+                    it.document.state.profileId == activeProfileId &&
+                        it.nextAttemptAtEpochMs <= nowEpochMs &&
+                        it.readyServerIds(nowEpochMs).isNotEmpty()
+                }.take(limit.coerceIn(1, MAX_SERVER_APPLY_BATCH))
         }
 
     fun serverApplyCount(): Int = synchronized(lock) { serverApplies.size }
@@ -117,6 +128,7 @@ class PlaybackSyncStore(
     fun nextServerApplyAtEpochMs(): Long? =
         synchronized(lock) {
             serverApplies
+                .filter { it.document.state.profileId == activeProfileId }
                 .mapNotNull { task ->
                     task.remainingServerIds
                         .minOfOrNull { task.deferredUntilByServerId[it] ?: 0L }
@@ -217,7 +229,8 @@ class PlaybackSyncStore(
             documents
                 .asReversed()
                 .firstOrNull {
-                    it.document.state.serverId == serverId &&
+                    it.document.state.profileId == activeProfileId &&
+                        it.document.state.serverId == serverId &&
                         it.document.state.serverItemId == itemId
                 }?.document
                 ?.state
@@ -229,8 +242,9 @@ class PlaybackSyncStore(
             documents
                 .asSequence()
                 .map { it.document.state }
-                .filter { it.serverId == serverId && !it.serverItemId.isNullOrBlank() }
-                .sortedByDescending(PlaybackStateRecord::lastPlayedAtEpochMs)
+                .filter {
+                    it.profileId == activeProfileId && it.serverId == serverId && !it.serverItemId.isNullOrBlank()
+                }.sortedByDescending(PlaybackStateRecord::lastPlayedAtEpochMs)
                 .toList()
         }
 
@@ -246,18 +260,21 @@ class PlaybackSyncStore(
         played: Boolean,
     ): Boolean =
         synchronized(lock) {
+            if (activeProfileId != com.yfuse.core.personal.DEFAULT_PERSONAL_PROFILE) return@synchronized false
             if (serverId.isBlank() || itemId.isBlank()) return@synchronized false
             val normalizedPosition = positionMs.coerceAtLeast(0L)
             if (!played && normalizedPosition == 0L) return@synchronized false
             val alreadyLocal =
                 documents.any {
-                    it.document.state.serverId == serverId &&
+                    it.document.state.profileId == activeProfileId &&
+                        it.document.state.serverId == serverId &&
                         it.document.state.serverItemId == itemId
                 }
             if (alreadyLocal) return@synchronized false
             val now = nowEpochMs()
             val state =
                 PlaybackStateRecord(
+                    profileId = activeProfileId,
                     mediaKey = "emby:$itemId",
                     positionMs = normalizedPosition,
                     durationMs = 0L,
@@ -303,10 +320,12 @@ class PlaybackSyncStore(
         played: Boolean,
     ): Boolean =
         synchronized(lock) {
+            if (activeProfileId != com.yfuse.core.personal.DEFAULT_PERSONAL_PROFILE) return@synchronized false
             if (serverId.isBlank() || itemId.isBlank()) return@synchronized false
             val index =
                 documents.indexOfLast {
-                    it.document.state.serverId == serverId &&
+                    it.document.state.profileId == activeProfileId &&
+                        it.document.state.serverId == serverId &&
                         it.document.state.serverItemId == itemId
                 }
             if (index < 0) return@synchronized seedServerProgressIfAbsent(serverId, itemId, positionMs, played)
@@ -382,6 +401,7 @@ class PlaybackSyncStore(
                     )
             val state =
                 PlaybackStateRecord(
+                    profileId = activeProfileId,
                     mediaKey = canonicalMediaKey,
                     aliases = normalizedAliases,
                     positionMs = positionMs.coerceAtLeast(0L),
@@ -452,6 +472,7 @@ class PlaybackSyncStore(
             val now = nowEpochMs()
             val state =
                 PlaybackStateRecord(
+                    profileId = activeProfileId,
                     mediaKey = canonicalMediaKey,
                     aliases =
                         (previous?.aliases.orEmpty() + aliases + mediaKey + previous?.mediaKey.orEmpty())
@@ -504,6 +525,7 @@ class PlaybackSyncStore(
             val now = nowEpochMs()
             val state =
                 PlaybackStateRecord(
+                    profileId = activeProfileId,
                     mediaKey = canonicalMediaKey,
                     aliases =
                         (previous?.aliases.orEmpty() + aliases + mediaKey + previous?.mediaKey.orEmpty())
@@ -557,6 +579,7 @@ class PlaybackSyncStore(
                     remote.state.mediaKey,
                     remote.state.aliases,
                     remote.state.serverId,
+                    remote.state.profileId,
                 )
             val existing = documents.getOrNull(index)
             if (existing == null) {
@@ -612,8 +635,9 @@ class PlaybackSyncStore(
         entityKey: String,
         mutationId: String,
         cursor: Long,
+        profileId: String = activeProfileId,
     ) = synchronized(lock) {
-        val index = findIndexLocked(mediaKey, aliases, serverId)
+        val index = findIndexLocked(mediaKey, aliases, serverId, profileId)
         val existing = documents.getOrNull(index) ?: return@synchronized
         if (existing.mutationId != mutationId) return@synchronized
         replaceLocked(
@@ -661,6 +685,7 @@ class PlaybackSyncStore(
         mediaKey: String,
         aliases: List<String>,
         serverId: String?,
+        profileId: String = activeProfileId,
     ): Int {
         val candidates = (aliases + mediaKey).filter(String::isNotBlank).toSet()
         if (candidates.isEmpty()) return -1
@@ -670,7 +695,7 @@ class PlaybackSyncStore(
             val state = stored.document.state
             val identityMatches =
                 state.mediaKey in candidates || state.aliases.any(candidates::contains)
-            identityMatches && (portableIdentity || state.serverId == serverId)
+            state.profileId == profileId && identityMatches && (portableIdentity || state.serverId == serverId)
         }
     }
 

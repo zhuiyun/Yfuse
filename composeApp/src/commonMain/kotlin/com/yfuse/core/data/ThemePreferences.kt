@@ -98,6 +98,14 @@ class ThemePreferences(
         settings.putBoolean(KEY_PULSE_SWEEP, enabled)
     }
 
+    private val _compactLibrary = MutableStateFlow(settings.getBoolean("appearance.compactLibrary", true))
+    val compactLibrary: StateFlow<Boolean> = _compactLibrary.asStateFlow()
+
+    fun setCompactLibrary(enabled: Boolean) {
+        settings.putBoolean("appearance.compactLibrary", enabled)
+        _compactLibrary.value = enabled
+    }
+
     private val _splashAnimation = MutableStateFlow(settings.getBoolean(KEY_SPLASH_ANIMATION, true))
     val splashAnimation: StateFlow<Boolean> = _splashAnimation.asStateFlow()
 

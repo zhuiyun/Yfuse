@@ -26,8 +26,8 @@ import kotlinx.serialization.Serializable
 class LibraryComponent(
     componentContext: ComponentContext,
     private val storeFactory: StoreFactory,
-    private val repo: EmbyRepository,
-    private val registry: ServerRegistry,
+    val repo: EmbyRepository,
+    val registry: ServerRegistry,
     private val dependencies: AppDependencies,
 ) : ComponentContext by componentContext {
     private val navigation = StackNavigation<Config>()
@@ -50,6 +50,8 @@ class LibraryComponent(
     @Serializable
     sealed interface Config {
         @Serializable data object Home : Config
+
+        @Serializable data object Unified : Config
 
         @Serializable data class Grid(
             val libraryId: String,
@@ -75,6 +77,8 @@ class LibraryComponent(
     }
 
     sealed interface Child {
+        data object Unified : Child
+
         class Home(
             val component: LibraryHomeComponent,
         ) : Child
@@ -143,6 +147,7 @@ class LibraryComponent(
         context: ComponentContext,
     ): Child =
         when (config) {
+            Config.Unified -> Child.Unified
             Config.Home ->
                 Child.Home(
                     LibraryHomeComponent(
@@ -150,6 +155,7 @@ class LibraryComponent(
                         storeFactory = storeFactory,
                         repo = repo,
                         registry = registry,
+                        onOpenUnified = { navigation.pushToFront(Config.Unified) },
                         onSeeAll = { libraryId, title ->
                             navigation.pushToFront(Config.Grid(libraryId, title))
                         },
