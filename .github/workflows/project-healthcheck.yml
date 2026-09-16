@@ -51,7 +51,7 @@ jobs:
               archive.writestr('_healthcheck_inventory.json', json.dumps(metadata, indent=2))
           print(f'Tracked files: {len(inventory)}; included text files: {sum(x["included"] for x in inventory)}')
           PY
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: healthcheck-source
           path: healthcheck-source.zip
