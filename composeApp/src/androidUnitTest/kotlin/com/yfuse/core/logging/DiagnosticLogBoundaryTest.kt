@@ -31,10 +31,10 @@ class DiagnosticLogBoundaryTest {
         val rawAttributes =
             linkedMapOf(
                 "token" to "attribute-secret",
-                "large" to "a".repeat(DiagnosticMaxAttributeChars + 100),
+                "large" to "a".repeat(DIAGNOSTIC_MAX_ATTRIBUTE_CHARS + 100),
                 "thread" to "spoofed-thread",
             ).apply {
-                repeat(DiagnosticMaxAttributes + 10) { index ->
+                repeat(DIAGNOSTIC_MAX_ATTRIBUTES + 10) { index ->
                     put("attribute-$index", "value-$index")
                 }
             }
@@ -45,14 +45,14 @@ class DiagnosticLogBoundaryTest {
                 event = "Request Failed",
                 message =
                     "Authorization: message-secret\n" +
-                        "m".repeat(DiagnosticMaxMessageChars + 100),
+                        "m".repeat(DIAGNOSTIC_MAX_MESSAGE_CHARS + 100),
                 throwable =
                     IllegalStateException(
                         "token=throwable-secret " +
-                            "t".repeat(DiagnosticMaxStackTraceChars + 100),
+                            "t".repeat(DIAGNOSTIC_MAX_STACK_TRACE_CHARS + 100),
                     ),
                 attributes = rawAttributes,
-                threadName = "producer-" + "z".repeat(DiagnosticMaxThreadNameChars + 100),
+                threadName = "producer-" + "z".repeat(DIAGNOSTIC_MAX_THREAD_NAME_CHARS + 100),
             )
 
         rawAttributes["added-later"] = "must-not-appear"
@@ -60,22 +60,22 @@ class DiagnosticLogBoundaryTest {
 
         assertEquals("playback_controls", prepared.category)
         assertEquals("request_failed", prepared.event)
-        assertTrue(prepared.message.length <= DiagnosticMaxMessageChars)
+        assertTrue(prepared.message.length <= DIAGNOSTIC_MAX_MESSAGE_CHARS)
         assertFalse("message-secret" in prepared.message)
-        assertTrue(prepared.attributes.size <= DiagnosticMaxAttributes)
+        assertTrue(prepared.attributes.size <= DIAGNOSTIC_MAX_ATTRIBUTES)
         assertEquals("<redacted>", prepared.attributes["token"])
-        assertTrue(prepared.attributes.getValue("large").length <= DiagnosticMaxAttributeChars)
+        assertTrue(prepared.attributes.getValue("large").length <= DIAGNOSTIC_MAX_ATTRIBUTE_CHARS)
         assertFalse("added-later" in prepared.attributes)
         assertFalse("spoofed-thread" in prepared.attributes.values)
         assertTrue(
-            prepared.attributes.getValue("thread").length <= DiagnosticMaxThreadNameChars,
+            prepared.attributes.getValue("thread").length <= DIAGNOSTIC_MAX_THREAD_NAME_CHARS,
         )
         val preparedException = requireNotNull(prepared.exception)
         val preparedExceptionMessage = requireNotNull(preparedException.message)
-        assertTrue(preparedException.type.length <= DiagnosticMaxThrowableTypeChars)
-        assertTrue(preparedExceptionMessage.length <= DiagnosticMaxMessageChars)
+        assertTrue(preparedException.type.length <= DIAGNOSTIC_MAX_THROWABLE_TYPE_CHARS)
+        assertTrue(preparedExceptionMessage.length <= DIAGNOSTIC_MAX_MESSAGE_CHARS)
         assertFalse("throwable-secret" in preparedExceptionMessage)
-        assertTrue(preparedException.stackTrace.length <= DiagnosticMaxStackTraceChars)
+        assertTrue(preparedException.stackTrace.length <= DIAGNOSTIC_MAX_STACK_TRACE_CHARS)
         assertFalse("throwable-secret" in preparedException.stackTrace)
 
         @Suppress("UNCHECKED_CAST")

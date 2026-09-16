@@ -183,8 +183,8 @@ fun createEmbyClient(
         }
     }.also { client ->
         // Tokens issued before 0.2.60 may still be associated with the former Yfuse client
-        // identity. Keep the released identity as the default and learn the legacy identity
-        // only after the library discovery endpoint rejects the current one with 403.
+        // identity. Learn compatibility on metadata reads as well as library discovery:
+        // cross-server search/playback does not visit that server's Views endpoint first.
         val preferredClientBySession =
             MutableStateFlow<Map<EmbyIdentityPreferenceKey, String>>(emptyMap())
         val accessCooldowns =
@@ -262,8 +262,7 @@ fun createEmbyClient(
                     request.url
                         .build()
                         .encodedPath
-                        .trimEnd('/')
-                        .endsWith("/Views")
+                        .isEmbyIdentityDiscoveryPath()
             if (!canProbeLegacyIdentity) return@intercept executeWithAccessTracking()
 
             val firstCall = executeWithAccessTracking()
@@ -287,6 +286,11 @@ fun createEmbyClient(
             fallbackCall
         }
     }
+
+/** Only read-only Emby metadata routes may learn an old session's client identity. */
+private fun String.isEmbyIdentityDiscoveryPath(): Boolean =
+    Regex("(?:^|/)(?:Items(?:/[^/]+)?|Users/[^/]+/(?:Views|Items(?:/[^/]+)?)|Shows/[^/]+/(?:Episodes|Seasons))$")
+        .containsMatchIn(trimEnd('/'))
 
 /**
  * Sends both forms used by Emby clients. Emby Server accepts the combined authorization

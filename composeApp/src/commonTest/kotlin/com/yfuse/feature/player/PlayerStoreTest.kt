@@ -338,7 +338,7 @@ class PlayerStoreTest {
                 state.items.all {
                     it.posterUrl ==
                         "http://host:8096/Items/s1/Images/Primary?tag=series-poster&" +
-                        "maxHeight=360&quality=85&format=webp&api_key=tok"
+                        "maxHeight=360&quality=85&format=webp&api_key=tok&ApiKey=tok"
                 },
             )
             assertEquals(1, state.startIndex)

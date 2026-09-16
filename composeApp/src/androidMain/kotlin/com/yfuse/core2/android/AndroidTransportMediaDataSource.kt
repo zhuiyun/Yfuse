@@ -291,7 +291,8 @@ internal class AndroidTransportMediaDataSource(
                         blockIndex,
                         startupOffset =
                             offsetInBlock.takeIf {
-                                (!startupReadServed || !playbackWindow.playing) &&
+                                !persistReadBlocks &&
+                                    (!startupReadServed || !playbackWindow.playing) &&
                                     blockSize > STARTUP_RANGE_BYTES &&
                                     size <= STARTUP_RANGE_BYTES
                             },
