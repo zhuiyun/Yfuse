@@ -518,17 +518,34 @@ class ServerSyncManager(
         }
         snapshotResult.fold(
             onSuccess = { remote ->
-                clearRetryState(server.id)
                 if (includeProgress) {
-                    remote.forEach { item ->
-                        playbackStore?.absorbServerProgress(
-                            serverId = server.id,
-                            itemId = item.id,
-                            positionMs = item.positionTicks / TICKS_PER_MILLISECOND,
-                            played = item.played,
-                        )
+                    try {
+                        withContext(Dispatchers.Default) {
+                            if (progressScopeToken != null) {
+                                playbackStore?.absorbServerProgressBatch(
+                                    serverId = server.id,
+                                    progress =
+                                        remote.map { item ->
+                                            PlaybackSyncStore.ServerProgressInput(
+                                                itemId = item.id,
+                                                positionMs = item.positionTicks / TICKS_PER_MILLISECOND,
+                                                played = item.played,
+                                            )
+                                        },
+                                    expectedScopeToken = progressScopeToken,
+                                )
+                            }
+                        }
+                    } catch (cancelled: CancellationException) {
+                        setStatus(server) { it.copy(syncing = false) }
+                        throw cancelled
                     }
                 }
+                if (progressScopeToken != playbackStore?.scopeToken) {
+                    setStatus(server) { it.copy(syncing = false) }
+                    return@fold
+                }
+                clearRetryState(server.id)
                 val conflicts =
                     detectConflicts(
                         serverId = server.id,

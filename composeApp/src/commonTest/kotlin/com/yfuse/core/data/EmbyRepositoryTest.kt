@@ -85,7 +85,7 @@ class EmbyRepositoryTest {
             assertEquals(
                 "http://host:8096/Items/movie-1/Images/Thumbnail" +
                     "?PositionTicks=100000000&MediaSourceId=source-a&maxWidth=320&quality=90" +
-                    "&tag=tag%2Fsecond&api_key=tok",
+                    "&tag=tag%2Fsecond&api_key=tok&ApiKey=tok",
                 info.frames.last().url,
             )
         }
@@ -1580,12 +1580,9 @@ class EmbyRepositoryTest {
             )
         }
 
-    /**
-     * A library that needs dozens of pages will lose one on a flaky link. Failing the whole
-     * snapshot meant such a server never finished a sync at all, however many pages had arrived.
-     */
+    /** A truncated snapshot must never reconcile absent favorites/progress as removed. */
     @Test
-    fun user_library_snapshot_keeps_the_pages_read_before_a_later_page_fails() =
+    fun user_library_snapshot_rejects_partial_data_when_a_later_page_fails() =
         runTest {
             val total = 4_500
             val repo =
@@ -1604,8 +1601,8 @@ class EmbyRepositoryTest {
 
             val res = repo.userLibrarySnapshot(server)
 
-            assertTrue(res.isSuccess, res.toString())
-            assertEquals(SNAPSHOT_PAGE_SIZE, res.getOrThrow().size)
+            assertTrue(res.isFailure)
+            assertEquals(EmbyError.Network, (res.exceptionOrNull() as EmbyErrorException).error)
         }
 
     @Test

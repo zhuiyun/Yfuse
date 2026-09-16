@@ -46,6 +46,7 @@ internal class AndroidAdaptiveHttpMediaTransport(
     private var transportGeneration = 0L
     private var opening: YMediaTransport? = null
     private var openingJob: Job? = null
+    private var openingRequest: YMediaTransportRequest? = null
     private var active: YMediaTransport? = null
     private var preferred: YMediaTransport? = null
     private var activeRequest: YMediaTransportRequest? = null
@@ -151,6 +152,20 @@ internal class AndroidAdaptiveHttpMediaTransport(
         closeActive(propagateCancellation = true)
     }
 
+    /** A watchdog timeout is route evidence; ordinary seek/release cancellation is not. */
+    fun onRangeTimeout() {
+        synchronized(transportLock) {
+            val request =
+                when {
+                    activeIsCronet -> activeRequest
+                    opening != null && opening === preferred -> openingRequest
+                    else -> null
+                } ?: return
+            routeState.disableCronet(request.uri)
+            preferred = null
+        }
+    }
+
     private suspend fun resumeWithOkHttp(
         destination: ByteArray,
         offset: Int,
@@ -249,6 +264,7 @@ internal class AndroidAdaptiveHttpMediaTransport(
                 requireCurrentGeneration(generation)
                 opening = transport
                 openingJob = job
+                openingRequest = request
             }
             transport.open(request)
         }
@@ -258,6 +274,7 @@ internal class AndroidAdaptiveHttpMediaTransport(
             if (opening === transport) {
                 opening = null
                 openingJob = null
+                openingRequest = null
             }
         }
         closeTransport(transport, propagateCancellation = false)
@@ -274,6 +291,7 @@ internal class AndroidAdaptiveHttpMediaTransport(
             requireCurrentGeneration(generation)
             opening = null
             openingJob = null
+            openingRequest = null
             active = transport
             activeRequest = request
             activeExpectedBytes = response.expectedBodyBytes(request)
@@ -298,6 +316,7 @@ internal class AndroidAdaptiveHttpMediaTransport(
                 val pendingJob = openingJob
                 opening = null
                 openingJob = null
+                openingRequest = null
                 clearActive()
                 Triple(generation, transports, pendingJob)
             }

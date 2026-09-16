@@ -51,7 +51,7 @@ private data class DiagnosticEntry(
 )
 
 internal const val DiagnosticMaxMessageChars = 4_000
-internal const val DiagnosticMaxAttributes = 32
+internal const val DiagnosticMaxAttributes = 40
 internal const val DiagnosticMaxAttributeChars = 1_000
 internal const val DiagnosticMaxStackTraceChars = 16_000
 internal const val DiagnosticMaxThrowableTypeChars = 256
@@ -91,10 +91,10 @@ internal fun prepareDiagnosticLog(
     threadName: String,
 ): PreparedDiagnosticLog {
     val safeAttributes = LinkedHashMap<String, String>(DiagnosticMaxAttributes)
-    // Reserve one slot for the actual producer thread. Limiting before transformation also avoids
+    // Reserve slots for the actual producer thread and the anonymous server reference. Limiting before transformation also avoids
     // copying an attacker-sized map merely to discard all but its first entries afterwards.
     attributes.entries
-        .take(DiagnosticMaxAttributes - 1)
+        .take(DiagnosticMaxAttributes - 2)
         .forEach { (key, value) ->
             val safeKey = normalizeDiagnosticName(key, "attribute")
             if (safeKey == "thread") return@forEach
@@ -104,6 +104,9 @@ internal fun prepareDiagnosticLog(
                     .first()
                     .take(DiagnosticMaxAttributeChars)
             safeAttributes[safeKey] = safeValue
+            if (safeKey in setOf("serverid", "server_id", "server-id") && value.isNotBlank() && value != "<redacted>") {
+                safeAttributes["serverref"] = playbackDiagnosticTrace("server:$value")
+            }
         }
     safeAttributes["thread"] =
         redactDiagnosticText(threadName)

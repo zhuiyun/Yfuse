@@ -54,6 +54,8 @@ class YPlaybackBufferGate(
 ) {
     private var resumePlaybackUs = resumePlaybackUs
     private var startupPlaybackUs = startupPlaybackUs
+    private var rebufferCount = 0
+    private var maximumResumePlaybackUs = resumePlaybackUs
 
     init {
         require(resumePlaybackUs >= 0L)
@@ -65,20 +67,26 @@ class YPlaybackBufferGate(
 
     fun reset() {
         phase = initialPhase()
+        rebufferCount = 0
     }
 
     fun markStarved() {
-        if (remote) phase = YPlaybackBufferPhase.Rebuffering
+        if (remote) {
+            if (phase != YPlaybackBufferPhase.Rebuffering) rebufferCount = (rebufferCount + 1).coerceAtMost(3)
+            phase = YPlaybackBufferPhase.Rebuffering
+        }
     }
 
     fun updateResumePlaybackUs(value: Long) {
         require(value >= 0L)
         resumePlaybackUs = value
+        maximumResumePlaybackUs = maxOf(maximumResumePlaybackUs, value)
     }
 
     fun updateThresholds(plan: YBufferPlan) {
         resumePlaybackUs = plan.resumePlaybackUs
         startupPlaybackUs = plan.startupPlaybackUs
+        maximumResumePlaybackUs = maxOf(plan.resumePlaybackUs, plan.targetAheadUs / 4L * 3L)
     }
 
     fun evaluate(
@@ -87,7 +95,15 @@ class YPlaybackBufferGate(
         bufferFull: Boolean = false,
     ): YPlaybackBufferDecision {
         if (!remote) phase = YPlaybackBufferPhase.Ready
-        val thresholdUs = if (phase == YPlaybackBufferPhase.Startup) startupPlaybackUs else resumePlaybackUs
+        val thresholdUs =
+            if (phase == YPlaybackBufferPhase.Startup) {
+                startupPlaybackUs
+            } else {
+                minOf(
+                    resumePlaybackUs.saturatedMultiply(rebufferCount.coerceAtLeast(1).toLong()),
+                    maximumResumePlaybackUs,
+                )
+            }
         if (
             phase != YPlaybackBufferPhase.Ready &&
             (bufferedDurationUs.coerceAtLeast(0L) >= thresholdUs || endOfInput || bufferFull)

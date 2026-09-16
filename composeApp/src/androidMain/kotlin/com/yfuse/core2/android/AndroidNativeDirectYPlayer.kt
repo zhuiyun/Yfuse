@@ -549,6 +549,9 @@ internal class AndroidNativeDirectYPlayer(
         @Volatile
         private var lastAvSyncOffsetUs: Long? = null
 
+        @Volatile
+        private var avSyncMeasurementStatus = "等待音视频时钟样本"
+
         private var isolateVideoTimestamps = true
         private var inputEnded = false
         private var videoInputEnded = false
@@ -918,11 +921,12 @@ internal class AndroidNativeDirectYPlayer(
             demux.setMediaBitRateBitsPerSecond(sourceBitRateBitsPerSecond)
             applyBufferPlan(measuredThroughputBitsPerSecond = null, force = true)
             bufferGate =
-                com.yfuse.core2.network.YPlaybackBufferGate(
-                    remote = sourceRemote,
-                    resumePlaybackUs = bufferPlan.resumePlaybackUs,
-                    startupPlaybackUs = bufferPlan.startupPlaybackUs,
-                )
+                com.yfuse.core2.network
+                    .YPlaybackBufferGate(
+                        remote = sourceRemote,
+                        resumePlaybackUs = bufferPlan.resumePlaybackUs,
+                        startupPlaybackUs = bufferPlan.startupPlaybackUs,
+                    ).also { it.updateThresholds(bufferPlan) }
             item.drmConfiguration?.let { configuration ->
                 val initializationData =
                     checkNotNull(demux.drmInitializationData(configuration.scheme.yCorePlatformUuid())) {
@@ -2004,6 +2008,9 @@ internal class AndroidNativeDirectYPlayer(
                     buffering = buffering,
                     diagnostics =
                         current.diagnostics.copy(
+                            renderer =
+                                videoDecoder.anime4KDescription?.let { "$it + AudioTrack" }
+                                    ?: if (videoTrackIndex == null) "AudioTrack" else "Surface + AudioTrack",
                             bufferEvents = rebuffers.events,
                             rebufferDurationMs = rebuffers.durationMs,
                             longestRebufferMs = rebuffers.longestMs,
@@ -2025,7 +2032,7 @@ internal class AndroidNativeDirectYPlayer(
                                 if (lastAvSyncOffsetUs != null) {
                                     "MediaCodec 帧渲染 / AudioTrack 时钟"
                                 } else {
-                                    "等待音视频时钟样本"
+                                    avSyncMeasurementStatus
                                 },
                         ),
                 )
@@ -2102,6 +2109,7 @@ internal class AndroidNativeDirectYPlayer(
                         "sourceFailedCacheWrites" to (transportQoe?.failedCacheWriteCount?.toString() ?: ""),
                         "sourceDroppedCacheWrites" to (transportQoe?.droppedCacheWriteCount?.toString() ?: ""),
                         "avOffsetMs" to (lastAvSyncOffsetUs?.div(MICROS_PER_MILLISECOND)?.toString() ?: ""),
+                        "avMeasurement" to avSyncMeasurementStatus,
                     ),
             )
             maximumPumpDurationNs = 0L
@@ -2186,6 +2194,7 @@ internal class AndroidNativeDirectYPlayer(
             pendingAudioOutput = null
             seekPrerollVideoOutput = null
             lastAvSyncOffsetUs = null
+            avSyncMeasurementStatus = "等待音视频时钟样本"
             lastRenderedRealtimeNs = 0L
         }
 
@@ -2499,7 +2508,11 @@ internal class AndroidNativeDirectYPlayer(
                     safeDetail = "NativeDirect MediaCodec configure",
                 ) {
                     val reused =
-                        if (isolateVideoTimestamps && drmBinding == null && !isAudioPassthrough()) {
+                        if (isolateVideoTimestamps &&
+                            drmBinding == null &&
+                            !isAudioPassthrough() &&
+                            requestedAnime4KMode() == com.yfuse.core.data.Anime4KMode.Off
+                        ) {
                             videoHandoff?.take(videoDecoderReuseKey(format, decoderName), surface)
                         } else {
                             null
@@ -2514,6 +2527,10 @@ internal class AndroidNativeDirectYPlayer(
                             decoderName = decoderName,
                             mediaCrypto = drmBinding?.mediaCrypto,
                             isolateFrameTimestamps = isolateVideoTimestamps,
+                            anime4KContext =
+                                appContext.takeIf {
+                                    plannedDolbyVisionConfig == null && anime4KRequestedFor(request.items[currentIndex])
+                                },
                         )
                     }
                 }
@@ -2608,6 +2625,13 @@ internal class AndroidNativeDirectYPlayer(
                     runtimeCapabilityKey?.let(runtimeCapabilities::recordRendered)
                 }
                 val audioClock = if (renderTimeTrusted) audioClockSnapshot() else null
+                avSyncMeasurementStatus =
+                    when {
+                        !renderTimeTrusted -> "视频渲染时间戳不可用，无法测量音画偏差"
+                        audioTrackIndex == null -> "无音频轨，不计算音画偏差"
+                        audioClock == null -> "等待有效的 AudioTrack 时钟"
+                        else -> "MediaCodec 帧渲染 / AudioTrack 时钟"
+                    }
                 lastAvSyncOffsetUs =
                     audioClock?.let { clock ->
                         YAvSync.offsetUs(
@@ -2643,7 +2667,7 @@ internal class AndroidNativeDirectYPlayer(
                         buffering = requestedPlay && transportBufferingVisible,
                         diagnostics =
                             current.diagnostics.copy(
-                                videoOutput = "Surface 直出",
+                                videoOutput = videoDecoder.anime4KDescription ?: "Surface 直出",
                                 videoOutputVerified = true,
                                 dolbyVisionOutput = nativeDolbyVisionOutputVerified(),
                             ),
@@ -2837,6 +2861,7 @@ internal class AndroidNativeDirectYPlayer(
                     val surface = surfaceOutput?.surface
                     val key = videoFormat?.let { videoDecoderReuseKey(it, decoderName) }
                     if (videoHandoffRequested &&
+                        !videoDecoder.anime4KActive &&
                         isolateVideoTimestamps &&
                         videoConfigured &&
                         drmBinding == null &&

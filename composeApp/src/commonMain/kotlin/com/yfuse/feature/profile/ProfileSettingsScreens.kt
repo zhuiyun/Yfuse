@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import com.yfuse.core.data.Anime4KMode
 import com.yfuse.core.data.MediaVersionPreference
 import com.yfuse.core.data.PlaybackAudioPassthrough
 import com.yfuse.core.data.PlaybackFrameRateMatch
@@ -289,6 +290,7 @@ internal fun AdvancedPlaybackSettingsScreen(
     onYCoreBufferDuration: () -> Unit,
 ) {
     val outputPreferences = remember { GlobalContext.get().get<PlaybackPreferences>() }
+    val anime4KMode by outputPreferences.anime4KMode.collectAsState()
     val frameRateMatch by outputPreferences.frameRateMatch.collectAsState()
     val audioPassthrough by outputPreferences.audioPassthrough.collectAsState()
     val core2TrialEnabled by outputPreferences.core2TrialEnabled.collectAsState()
@@ -349,6 +351,15 @@ internal fun AdvancedPlaybackSettingsScreen(
         motionItem(key = "advanced-output") {
             Section(title = "显示与音频输出") {
                 SettingsCard {
+                    SettingSegmentRow(
+                        title = "Anime4K · YCore SDR 动漫（下次播放生效）",
+                        options = Anime4KMode.entries.map { it.label },
+                        selectedIndex = Anime4KMode.entries.indexOf(anime4KMode),
+                        onSelect = { outputPreferences.setAnime4KMode(Anime4KMode.entries[it]) },
+                        icon = AppIcons.Refresh,
+                        iconTint = SettingTint.advanced,
+                    )
+                    SettingsDivider()
                     SettingSegmentRow(
                         title = "刷新率匹配",
                         options = listOf("关闭", "仅无缝", "始终"),

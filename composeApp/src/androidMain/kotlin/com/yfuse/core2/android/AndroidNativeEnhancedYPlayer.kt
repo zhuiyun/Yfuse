@@ -650,7 +650,7 @@ internal class AndroidNativeEnhancedYPlayer(
                                             gpuFrameDurationNs = snapshot.gpuFrameDurationNs,
                                         )
                                     snapshot.nativeGpuFeatureMask != 0L -> "等待 Vulkan 实测门槛"
-                                    snapshot.firstVideoFrameRendered -> "Surface 直出"
+                                    snapshot.firstVideoFrameRendered -> snapshot.anime4KDescription ?: "Surface 直出"
                                     else -> "等待首帧"
                                 },
                             audioOutput =

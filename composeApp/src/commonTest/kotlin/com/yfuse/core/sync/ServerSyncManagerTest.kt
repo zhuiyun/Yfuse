@@ -1,12 +1,15 @@
 package com.yfuse.core.sync
 
 import com.russhwolf.settings.MapSettings
+import com.russhwolf.settings.Settings
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.security.TestSecureStore
 import com.yfuse.core.sync.playback.PlaybackSyncStore
 import com.yfuse.feature.json
 import com.yfuse.feature.testRepo
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import kotlinx.io.IOException
 import kotlin.test.Test
@@ -15,6 +18,48 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class ServerSyncManagerTest {
+    @Test
+    fun cancellingAtBatchPersistenceClearsTheSyncingIndicator() =
+        runTest {
+            val saved = server("https://emby.test")
+            val settings = MapSettings()
+            val registry = ServerRegistry(settings, TestSecureStore()).apply { addOrUpdate(saved) }
+            val backing = MapSettings()
+            lateinit var syncJob: Job
+            val progressSettings =
+                object : Settings by backing {
+                    override fun putString(
+                        key: String,
+                        value: String,
+                    ) {
+                        backing.putString(key, value)
+                        if (key == "playback.cross_platform.documents.v1") syncJob.cancel()
+                    }
+                }
+            val store = PlaybackSyncStore(progressSettings)
+            val manager =
+                ServerSyncManager(
+                    repo =
+                        testRepo {
+                            json(
+                                """{"Items":[{"Id":"movie-1","Name":"Movie","UserData":{"PlaybackPositionTicks":250000000}}],"TotalRecordCount":1}""",
+                            )
+                        },
+                    registry = registry,
+                    settings = settings,
+                    playbackStore = store,
+                )
+            syncJob = launch { manager.syncAll(force = true) }
+            syncJob.join()
+            assertTrue(syncJob.isCancelled)
+            assertFalse(
+                manager.state.value.statuses
+                    .single()
+                    .syncing,
+            )
+            assertTrue(store.pending().isEmpty())
+        }
+
     @Test
     fun eachNewManagerMakesOneFreshStartupProgressAttemptDespiteOldBackoff() =
         runTest {

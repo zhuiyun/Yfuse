@@ -24,6 +24,40 @@ import kotlin.test.assertTrue
 
 class AndroidAdaptiveHttpMediaTransportTest {
     @Test
+    fun watchdog_timeout_remembers_cronet_failure_before_retrying_the_range() =
+        runBlocking {
+            for (blockOpen in listOf(true, false)) {
+                val stalled = ClosingTransport(blockOpen = blockOpen)
+                val fallback = FakeTransport()
+                val route = AndroidAdaptiveHttpRouteState()
+                val transport = AndroidAdaptiveHttpMediaTransport(route, { stalled }, { fallback })
+                val worker = Executors.newSingleThreadExecutor()
+                try {
+                    val task =
+                        worker.submit {
+                            runBlocking {
+                                runCatching {
+                                    transport.open(CLOSE_TEST_REQUEST)
+                                    transport.read(ByteArray(4), 0, 4)
+                                }
+                            }
+                        }
+                    assertTrue(stalled.entered.await(2, TimeUnit.SECONDS))
+                    AndroidRangeReadWatchdog(transport, YRangeReadBudget(2_000), { 1L }, pollMs = 5L).use {
+                        task.get(2, TimeUnit.SECONDS)
+                        assertFailsWith<java.net.SocketTimeoutException> { it.checkFailure() }
+                    }
+                    assertTrue(!route.cronetAvailable)
+                    transport.open(CLOSE_TEST_REQUEST)
+                    assertEquals(1, fallback.openCalls)
+                } finally {
+                    transport.close()
+                    worker.shutdownNow()
+                }
+            }
+        }
+
+    @Test
     fun partial_cronet_fallback_without_validator_defers_to_the_block_retry() =
         runBlocking {
             val cronet =

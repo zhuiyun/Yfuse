@@ -180,6 +180,7 @@ internal class EmbyBrowseService(
                             .get("${server.baseUrl}/Users/${server.userId}/Items") {
                                 header("X-Emby-Token", server.accessToken)
                                 parameter("ParentId", containerId)
+                                parameter("Recursive", false)
                                 parameter("IncludeItemTypes", "Movie,Series,Episode,Video,MusicVideo")
                                 parameter("SortBy", sort.sortBy)
                                 parameter("SortOrder", if (sort.descending) "Descending" else "Ascending")
@@ -393,6 +394,7 @@ internal class EmbyBrowseService(
                 .get("${server.baseUrl}/Users/${server.userId}/Items") {
                     header("X-Emby-Token", server.accessToken)
                     parameter("Ids", pageIds.joinToString(","))
+                    parameter("Recursive", true)
                     parameter("IncludeItemTypes", "Movie,Series")
                     parameter(
                         "Fields",

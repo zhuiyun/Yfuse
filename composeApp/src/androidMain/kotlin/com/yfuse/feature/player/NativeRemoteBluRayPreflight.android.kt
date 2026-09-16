@@ -43,7 +43,14 @@ internal suspend fun probeNativeRemoteBluRayRangeSupport(
                     serverRegistry.serverById(request.serverId)
                         ?: return@RemoteDiscHeaderProvider emptyMap()
                 buildMap {
-                    current.accessToken.takeIf(String::isNotBlank)?.let { put("X-Emby-Token", it) }
+                    current.accessToken.takeIf(String::isNotBlank)?.let {
+                        put("X-Emby-Token", it)
+                        put(
+                            "Authorization",
+                            com.yfuse.core.network
+                                .mediaBrowserAuthorization(it),
+                        )
+                    }
                 }
             }
         HttpRangeDiscBlockSource(

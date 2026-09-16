@@ -5,6 +5,7 @@ It is not a substitute for a release-time legal review or the generated SBOM.
 
 | Component | Pinned artifact | Upstream license/source reference | Notes |
 | --- | --- | --- | --- |
+| Anime4K Original | Vendored `Anime4K_Upscale_Original_x2.glsl` | [Upstream](https://github.com/bloc97/Anime4K), MIT | Shader notices and full LICENSE ship in `assets/anime4k/`; native GLES port preserves the six Original passes. |
 | libmpv Android | `libmpv-android` v1.0.0 | <https://github.com/jarnedemeulemeester/libmpv-android> | Bundles mpv and FFmpeg-family native libraries. Preserve upstream notices and comply with the licenses of the exact build configuration. |
 | libbluray | `7d94f2660af5bfc16015291a03539329135c18f1` (1.4.1) | <https://code.videolan.org/videolan/libbluray/-/tree/7d94f2660af5bfc16015291a03539329135c18f1> | LGPL-2.1-or-later; see [LGPL-2.1.txt](LGPL-2.1.txt). The Yfuse build disables BD-J. |
 | libudfread | `139a2194525f2745b98a98e4d8fa627d07440176` | <https://code.videolan.org/videolan/libudfread/-/tree/139a2194525f2745b98a98e4d8fa627d07440176> | LGPL-2.1-or-later; see [LGPL-2.1.txt](LGPL-2.1.txt). Pulled as libbluray's pinned submodule. |

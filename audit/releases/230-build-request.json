@@ -1,0 +1,27 @@
+{
+  "status": "prepared-awaiting-production-signing",
+  "versionName": "1.0.68",
+  "versionCode": 230,
+  "packageName": "com.yfuse",
+  "highestObservedInstalledVersion": {
+    "versionName": "1.0.67",
+    "versionCode": 229,
+    "source": "Yfuse-diagnostics-20260916-213553.zip/device-info.txt",
+    "buildRevision": "086921cf245b2f7028746859bd50ac068e593d51",
+    "apkIndependentlyVerified": false
+  },
+  "previousAvailableVerifiedApk": {
+    "versionName": "1.0.60",
+    "versionCode": 222,
+    "sha256": "000cafebae598f93f02a634141ac00864d2caf9df333a11d1c2b48ad75150925",
+    "certificateSha256": "373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84",
+    "signatureSchemeV2Verified": true
+  },
+  "includedCommits": ["e6285e3e", "afc5e573", "aab8f7e2"],
+  "workflow": ".github/workflows/sign-android-branch.yml",
+  "proposedSigningBranch": "codex/ycore-sign-20260830",
+  "productionPublishing": false,
+  "newApkProduced": false,
+  "localSigningConfigured": false,
+  "deviceValidation": "pending"
+}

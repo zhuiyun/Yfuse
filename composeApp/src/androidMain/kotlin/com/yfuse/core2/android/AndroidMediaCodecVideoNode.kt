@@ -1,5 +1,6 @@
 package com.yfuse.core2.android
 
+import android.content.Context
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaCodecList
@@ -101,6 +102,12 @@ internal class AndroidMediaCodecVideoNode(
 
     private var codec: MediaCodec? = null
     private var started = false
+
+    @Volatile private var animeOutput: AndroidAnime4KOutput? = null
+    private var displaySurface: Surface? = null
+    val anime4KActive: Boolean get() = animeOutput != null
+    val anime4KDescription: String? get() = animeOutput?.description
+
     private var frameTimestampMapper: CodecFrameTimestampMapper? = null
     private val frameListenerVersion = AtomicLong()
     private val frameCallbackGate = Any()
@@ -116,6 +123,7 @@ internal class AndroidMediaCodecVideoNode(
         decoderName: String? = null,
         mediaCrypto: MediaCrypto? = null,
         isolateFrameTimestamps: Boolean = false,
+        anime4KContext: Context? = null,
     ) {
         release()
         frameTimestampMapper = if (isolateFrameTimestamps) CodecFrameTimestampMapper() else null
@@ -144,6 +152,22 @@ internal class AndroidMediaCodecVideoNode(
             )
             return
         }
+        displaySurface = surface
+        val animeMode =
+            if (anime4KContext != null && mediaCrypto == null && secureDecoderName == null) {
+                requestedAnime4KMode()
+            } else {
+                com.yfuse.core.data.Anime4KMode.Off
+            }
+        val transfer = working.integerOrNull(MediaFormat.KEY_COLOR_TRANSFER)
+        val sdr =
+            transfer != MediaFormat.COLOR_TRANSFER_ST2084 &&
+                transfer != MediaFormat.COLOR_TRANSFER_HLG &&
+                !working.containsKey(MediaFormat.KEY_HDR_STATIC_INFO) &&
+                mime != MIME_DOLBY_VISION
+        if (sdr && animeMode != com.yfuse.core.data.Anime4KMode.Off && anime4KContext != null) {
+            animeOutput = AndroidAnime4KOutput.create(anime4KContext, surface, working, animeMode)
+        }
         var decoder: MediaCodec? = null
         val requestedDecoderName = secureDecoderName ?: decoderName
         try {
@@ -155,18 +179,30 @@ internal class AndroidMediaCodecVideoNode(
                     createByName = createDecoderByName,
                 )
             decoder = candidate
-            candidate.configure(working, surface, mediaCrypto, 0)
+            candidate.configure(working, animeOutput?.decoderSurface ?: surface, mediaCrypto, 0)
             candidate.start()
             codec = candidate
             started = true
         } catch (throwable: Throwable) {
-            if (throwable is CancellationException) throw throwable
+            if (throwable is CancellationException) {
+                runCatching { decoder?.release() }
+                animeOutput?.close()
+                animeOutput = null
+                throw throwable
+            }
             val attemptedDecoderName =
                 decoder
                     ?.let { candidate -> runCatching { candidate.name }.getOrNull() }
                     .orEmpty()
                     .ifBlank { requestedDecoderName.orEmpty().ifBlank { mime } }
             runCatching { decoder?.release() }
+            if (animeOutput != null) {
+                animeOutput?.close()
+                animeOutput = null
+                // Some codecs reject texture output although direct Surface output works.
+                configure(format, surface, decoderName, mediaCrypto, isolateFrameTimestamps, anime4KContext = null)
+                return
+            }
             throw throwable.toVideoDecoderConfigurationException(
                 mime = mime,
                 profile = working.integerOrNull(MediaFormat.KEY_PROFILE),
@@ -289,7 +325,8 @@ internal class AndroidMediaCodecVideoNode(
 
     /** Changes the target without decoding through a texture or CPU buffer. */
     fun setOutputSurface(surface: Surface) {
-        requireStartedCodec().setOutputSurface(surface)
+        if (animeOutput != null) animeOutput?.setOutput(surface) else requireStartedCodec().setOutputSurface(surface)
+        displaySurface = surface
     }
 
     /** Informational render evidence used by tunnel mode; never drives presentation timing. */
@@ -304,15 +341,30 @@ internal class AndroidMediaCodecVideoNode(
                 mapper?.listenerChanged()
                 frameListenerVersion.incrementAndGet()
             }
-        decoder.setOnFrameRenderedListener(
+        val present: ((Long, Long) -> Unit)? =
             listener?.let { callback ->
-                MediaCodec.OnFrameRenderedListener { source, presentationTimeUs, nanoTime ->
+                { presentationTimeUs, nanoTime ->
                     synchronized(frameCallbackGate) {
-                        if (source !== decoder || frameListenerVersion.get() != version) return@OnFrameRenderedListener
-                        val mediaTimeUs =
-                            if (mapper == null) presentationTimeUs else mapper.rendered(presentationTimeUs)
-                        if (mediaTimeUs != null) callback(mediaTimeUs, nanoTime)
+                        if (codec === decoder && frameListenerVersion.get() == version) {
+                            val mediaTimeUs =
+                                if (mapper ==
+                                    null
+                                ) {
+                                    presentationTimeUs
+                                } else {
+                                    mapper.rendered(presentationTimeUs)
+                                }
+                            if (mediaTimeUs != null) callback(mediaTimeUs, nanoTime)
+                        }
                     }
+                }
+            }
+        animeOutput?.onPresented = present
+        decoder.setOnFrameRenderedListener(
+            present?.let { callback ->
+                MediaCodec.OnFrameRenderedListener { _, presentationTimeUs, nanoTime ->
+                    // Texture receipt is not evidence that a frame reached the display.
+                    if (animeOutput == null) callback(presentationTimeUs, nanoTime)
                 }
             },
             handler,
@@ -416,6 +468,20 @@ internal class AndroidMediaCodecVideoNode(
     /** Non-blocking output dequeue. The caller owns the returned buffer until releaseOutput(). */
     fun dequeueOutput(): YCodecOutputResult {
         val decoder = requireStartedCodec()
+        animeOutput?.failure?.let { failure ->
+            val target = displaySurface?.takeIf { it.isValid }
+            if (target != null) {
+                decoder.setOutputSurface(target)
+                animeOutput?.close()
+                animeOutput = null
+                AppLog.warning(
+                    category = "player.anime4k",
+                    event = "direct_fallback",
+                    message = "Anime4K output failed; restored direct output",
+                    throwable = failure,
+                )
+            }
+        }
         val info = MediaCodec.BufferInfo()
         return when (val outputIndex = decoder.dequeueOutputBuffer(info, 0L)) {
             MediaCodec.INFO_TRY_AGAIN_LATER -> YCodecOutputResult.TryAgain
@@ -473,8 +539,14 @@ internal class AndroidMediaCodecVideoNode(
             if (!render) {
                 decoder.releaseOutputBuffer(output.index, false)
             } else if (renderTimeNs != null) {
-                decoder.releaseOutputBuffer(output.index, AndroidVideoVsyncSampler.align(renderTimeNs))
+                val aligned = AndroidVideoVsyncSampler.align(renderTimeNs)
+                animeOutput?.recordFrame(aligned, token ?: output.presentationTimeUs)
+                decoder.releaseOutputBuffer(output.index, aligned)
             } else {
+                animeOutput?.recordFrame(
+                    (token ?: output.presentationTimeUs) * 1_000L,
+                    token ?: output.presentationTimeUs,
+                )
                 decoder.releaseOutputBuffer(output.index, true)
             }
         } catch (failure: Throwable) {
@@ -484,6 +556,7 @@ internal class AndroidMediaCodecVideoNode(
     }
 
     override fun flush() {
+        animeOutput?.flush()
         synchronized(frameCallbackGate) { frameTimestampMapper?.flush() }
         endOfStreamPositionUs = null
         if (started) codec?.flush()
@@ -504,6 +577,9 @@ internal class AndroidMediaCodecVideoNode(
             if (wasStarted) runCatching { decoder.stop() }
             runCatching { decoder.release() }
         }
+        animeOutput?.close()
+        animeOutput = null
+        displaySurface = null
     }
 
     private fun requireStartedCodec(): MediaCodec =

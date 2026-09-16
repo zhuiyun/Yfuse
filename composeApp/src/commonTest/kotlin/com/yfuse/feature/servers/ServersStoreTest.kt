@@ -232,7 +232,7 @@ class ServersStoreTest {
             store.accept(ServersIntent.Submit)
 
             val s = store.states.first { it.form.error != null }
-            assertEquals("用户名或密码错误", s.form.error)
+            assertEquals("认证失败，请检查登录信息或重新登录该服务器", s.form.error)
             store.dispose()
         }
 

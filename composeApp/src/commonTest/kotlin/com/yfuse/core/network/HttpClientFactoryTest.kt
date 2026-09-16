@@ -18,7 +18,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class HttpClientFactoryTest {
@@ -173,7 +172,13 @@ class HttpClientFactoryTest {
                         MockEngine { request ->
                             authorizationValues = request.headers.getAll("X-Emby-Authorization")
                             token = request.headers["X-Emby-Token"]
-                            assertNull(request.headers[HttpHeaders.Authorization])
+                            assertEquals(
+                                mediaBrowserAuthorization(
+                                    assertNotNull(request.headers["X-Emby-Token"]),
+                                    assertNotNull(request.headers["X-Emby-Authorization"]),
+                                ),
+                                request.headers[HttpHeaders.Authorization],
+                            )
                             respond("{}", HttpStatusCode.OK)
                         },
                     appVersion = "9.8.7",
@@ -326,7 +331,13 @@ class HttpClientFactoryTest {
                     engine =
                         MockEngine { request ->
                             assertEquals("old-token", request.headers["X-Emby-Token"])
-                            assertNull(request.headers[HttpHeaders.Authorization])
+                            assertEquals(
+                                mediaBrowserAuthorization(
+                                    assertNotNull(request.headers["X-Emby-Token"]),
+                                    assertNotNull(request.headers["X-Emby-Authorization"]),
+                                ),
+                                request.headers[HttpHeaders.Authorization],
+                            )
                             identities +=
                                 assertNotNull(request.headers.getAll("X-Emby-Authorization")).single()
                             explicitClientNames += assertNotNull(request.headers["X-Emby-Client"])

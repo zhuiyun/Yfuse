@@ -572,7 +572,8 @@ internal class AndroidAdaptiveCore2YPlayer(
             val nowMs = System.nanoTime() / 1_000_000L
             val forcePowerSaver = currentThermalStatus() >= SEVERE_THERMAL_STATUS
             val preferTunnel =
-                item.allExternalSubtitles.isEmpty() &&
+                !anime4KRequestedFor(item) &&
+                    item.allExternalSubtitles.isEmpty() &&
                     audioDelayMs == 0L &&
                     kotlin.math.abs(speed - 1f) <= TUNNEL_SPEED_EPSILON
             if (nextItemPreloadJob?.isActive == true ||
@@ -858,6 +859,7 @@ internal class AndroidAdaptiveCore2YPlayer(
             val forcePowerSaver = currentThermalStatus() >= SEVERE_THERMAL_STATUS
             val tunnelAllowed =
                 allowTunnel &&
+                    !anime4KRequestedFor(item) &&
                     audioDelayMs == 0L &&
                     item.drmConfiguration == null &&
                     item.allExternalSubtitles.isEmpty() &&

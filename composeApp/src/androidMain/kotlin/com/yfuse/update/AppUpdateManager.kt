@@ -876,13 +876,6 @@ class AppUpdateManager(
                 }.onSuccess { manifest ->
                     if (!isUpdateCheckSnapshotCurrent(checkSnapshot)) return@onSuccess
                     if (!isPublishedUpdateAvailable(manifest.versionCode, BuildConfig.VERSION_CODE)) {
-                        if (activeDownload == null) {
-                            if (!publishCurrentIfCheckCurrent(checkSnapshot)) return@onSuccess
-                        } else {
-                            if (!invalidateActiveDownloadAndPublishCurrent(activeDownload)) {
-                                return@onSuccess
-                            }
-                        }
                         val attributes =
                             mapOf(
                                 "publishedVersionName" to manifest.versionName,
@@ -899,6 +892,7 @@ class AppUpdateManager(
                                 message = "Update manifest advertises an older build than the installed one",
                                 attributes = attributes,
                             )
+                            publishStaleFeedIfCheckCurrent(checkSnapshot, previous, automatic)
                         } else {
                             AppLog.info(
                                 category = "update",
@@ -906,6 +900,15 @@ class AppUpdateManager(
                                 message = "Application is already current",
                                 attributes = attributes,
                             )
+                        }
+                        if (manifest.versionCode == BuildConfig.VERSION_CODE) {
+                            if (activeDownload == null) {
+                                if (!publishCurrentIfCheckCurrent(checkSnapshot)) return@onSuccess
+                            } else {
+                                if (!invalidateActiveDownloadAndPublishCurrent(activeDownload)) {
+                                    return@onSuccess
+                                }
+                            }
                         }
                         return@onSuccess
                     }
@@ -1043,6 +1046,18 @@ class AppUpdateManager(
             startedWithOwnedState = snapshot.startedWithOwnedState,
             currentState = _state.value,
         )
+
+    @Synchronized
+    private fun publishStaleFeedIfCheckCurrent(
+        snapshot: UpdateCheckSnapshot,
+        previous: UpdateState,
+        automatic: Boolean,
+    ) {
+        if (!isUpdateCheckSnapshotCurrent(snapshot)) return
+        // Preserve download progress recorded after this check started.
+        _state.value =
+            staleUpdateFeedState(if (_state.value == UpdateState.Checking) previous else _state.value, automatic)
+    }
 
     @Synchronized
     private fun publishCurrentIfCheckCurrent(snapshot: UpdateCheckSnapshot): Boolean {
@@ -2130,3 +2145,13 @@ private fun PackageManager.signerDigests(info: PackageInfo): Set<String> {
             digest.digest(signature.toByteArray()).joinToString("") { "%02x".format(it) }
         }.toSet()
 }
+
+/** An outdated feed cannot invalidate a newer package the user already owns. */
+internal fun staleUpdateFeedState(
+    previous: UpdateState,
+    automatic: Boolean,
+): UpdateState =
+    when (previous) {
+        is UpdateState.Downloading, is UpdateState.Paused, is UpdateState.Ready, is UpdateState.Available -> previous
+        else -> if (automatic) UpdateState.Idle else UpdateState.Error("更新源版本落后于当前安装版本，请稍后重试")
+    }

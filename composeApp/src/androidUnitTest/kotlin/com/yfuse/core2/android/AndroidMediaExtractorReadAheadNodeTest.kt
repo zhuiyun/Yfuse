@@ -23,6 +23,41 @@ import kotlin.test.assertTrue
  */
 class AndroidMediaExtractorReadAheadNodeTest {
     @Test
+    fun `buffer bounds retain duplicate and reordered timestamps across poll return and seek`() {
+        val delegate = FakeExtractorSource(4, 100_000L)
+        val times = longArrayOf(300_000, 100_000, 100_000, 200_000)
+        var index = 0
+        val source =
+            object : YPlatformExtractorSource by delegate {
+                override fun readSample(target: ByteBuffer): YExtractorSample? =
+                    delegate.readSample(target)?.copy(presentationTimeUs = times[index++])
+
+                override fun seekTo(positionUs: Long) {
+                    index = 0
+                    delegate.seekTo(positionUs)
+                }
+            }
+        val node = AndroidMediaExtractorReadAheadNode(source)
+        try {
+            node.open(SOURCE)
+            node.selectTracks(setOf(VIDEO_TRACK))
+            node.awaitQueued(4)
+            assertEquals(200_000L, node.snapshot().bufferedDurationUs)
+            val first = (node.pollSample() as YQueuedExtractorResult.Sample).value
+            assertEquals(100_000L, node.snapshot().bufferedDurationUs)
+            node.pollSample()
+            assertEquals(100_000L, node.snapshot().bufferedDurationUs)
+            node.returnSample(first)
+            assertEquals(200_000L, node.snapshot().bufferedDurationUs)
+            node.seekTo(0)
+            node.awaitQueued(4)
+            assertEquals(200_000L, node.snapshot().bufferedDurationUs)
+        } finally {
+            node.close()
+        }
+    }
+
+    @Test
     fun `sample held by caller before seek cannot reenter new queue`() {
         val node = AndroidMediaExtractorReadAheadNode(FakeExtractorSource(1024, 100_000L))
         try {

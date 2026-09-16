@@ -8,6 +8,25 @@ import kotlin.test.assertTrue
 
 class DiagnosticLogBoundaryTest {
     @Test
+    fun server_references_correlate_failures_without_exporting_server_identifiers() {
+        fun attributes(server: String) =
+            prepareDiagnosticLog(
+                DiagnosticLevel.Warning,
+                "sync",
+                "failed",
+                "",
+                null,
+                mapOf("serverId" to server),
+                "worker",
+            ).attributes
+        val first = attributes("https://private.example/user-secret")
+        assertEquals("<redacted>", first["serverid"])
+        assertEquals(first["serverref"], attributes("https://private.example/user-secret")["serverref"])
+        assertTrue(first["serverref"] != attributes("https://another.example/user-secret")["serverref"])
+        assertFalse(first.values.any { "private.example" in it || "user-secret" in it })
+    }
+
+    @Test
     fun prepared_payload_is_redacted_bounded_immutable_and_detached() {
         val rawAttributes =
             linkedMapOf(

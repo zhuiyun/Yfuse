@@ -4,8 +4,8 @@ import com.yfuse.core.data.AuthedServer
 import com.yfuse.core.data.dto.AuthResultDto
 import com.yfuse.core.data.dto.PublicInfoDto
 import com.yfuse.core.data.mediaServerKind
+import com.yfuse.core.data.resolveMediaServerBaseUrl
 import com.yfuse.core.logging.AppLog
-import com.yfuse.core.network.normalizeBaseUrl
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.plugins.ResponseException
@@ -49,7 +49,7 @@ internal class EmbyQuickConnectGateway(
 
     override suspend fun start(baseUrl: String): Result<QuickConnectStartResult> =
         gatewayCall {
-            val url = normalizeBaseUrl(baseUrl)
+            val url = client.resolveMediaServerBaseUrl(baseUrl)
             val initiated =
                 try {
                     client.post("$url/QuickConnect/Initiate").body<InitiateDto>()
@@ -76,7 +76,7 @@ internal class EmbyQuickConnectGateway(
         sessionId: String,
     ): Result<QuickConnectPollResult> =
         gatewayCall {
-            val url = normalizeBaseUrl(baseUrl)
+            val url = client.resolveMediaServerBaseUrl(baseUrl)
             val approved =
                 try {
                     client

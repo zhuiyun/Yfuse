@@ -14,6 +14,17 @@ import kotlin.test.assertTrue
 
 class PlaybackPreferencesTest {
     @Test
+    fun anime4k_is_opt_in_and_survives_restart() {
+        val settings = MapSettings()
+        val preferences = PlaybackPreferences(settings)
+        assertEquals(Anime4KMode.Off, preferences.anime4KMode.value)
+        preferences.setAnime4KMode(Anime4KMode.Balanced)
+        assertEquals(Anime4KMode.Balanced, PlaybackPreferences(settings).anime4KMode.value)
+        settings.putString("playback.anime4k", "unknown_future_value")
+        assertEquals(Anime4KMode.Off, PlaybackPreferences(settings).anime4KMode.value)
+    }
+
+    @Test
     fun ambient_light_defaults_on_and_persists_off() {
         val settings = MapSettings()
         val first = PlaybackPreferences(settings)

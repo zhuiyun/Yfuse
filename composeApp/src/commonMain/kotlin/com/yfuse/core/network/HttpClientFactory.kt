@@ -210,6 +210,21 @@ fun createEmbyClient(
             }
 
             val accessToken = request.headers["X-Emby-Token"]?.takeIf { it.isNotBlank() }
+            val explicitAuthorization = request.headers[HttpHeaders.Authorization]
+            if (request.attributes.getOrNull(suppressEmbyIdentityKey) == null) {
+                if (explicitAuthorization == null) {
+                    val identity = request.headers["X-Emby-Authorization"] ?: buildAuthHeader(appVersion)
+                    request.headers.append(
+                        HttpHeaders.Authorization,
+                        if (accessToken == null) identity else mediaBrowserAuthorization(accessToken, identity),
+                    )
+                } else if (accessToken != null && !explicitAuthorization.startsWith("MediaBrowser ")) {
+                    // An edge proxy may own Authorization. Use Jellyfin's supported URL form
+                    // without replacing its Basic/Bearer credential.
+                    request.url.parameters.remove("ApiKey")
+                    request.url.parameters.append("ApiKey", accessToken)
+                }
+            }
             if (accessToken == null) return@intercept execute(request)
 
             val preferenceKey = EmbyIdentityPreferenceKey(currentOrigin, accessToken)
@@ -282,6 +297,13 @@ private fun HttpRequestBuilder.applyEmbyIdentity(
     appVersion: String,
     clientName: String,
 ) {
+    if (headers[HttpHeaders.Authorization]?.startsWith("MediaBrowser ") == true) {
+        headers.remove(HttpHeaders.Authorization)
+        header(
+            HttpHeaders.Authorization,
+            mediaBrowserAuthorization(headers["X-Emby-Token"].orEmpty(), buildAuthHeader(appVersion, clientName)),
+        )
+    }
     headers.remove("X-Emby-Authorization")
     headers.remove(EMBY_CLIENT_HEADER)
     headers.remove(EMBY_CLIENT_VERSION_HEADER)

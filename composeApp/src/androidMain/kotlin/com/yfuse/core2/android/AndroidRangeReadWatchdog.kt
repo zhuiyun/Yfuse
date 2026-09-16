@@ -54,6 +54,7 @@ internal class AndroidRangeReadWatchdog(
             val idleMs = (System.nanoTime() - lastProgressNs) / 1_000_000L
             if (budget.remainingMs() > 0L && idleMs < idleBudgetMs()) return
             timedOut = true
+            (transport as? AndroidAdaptiveHttpMediaTransport)?.onRangeTimeout()
             runCatching { runBlocking { transport.close() } }
         }
     }

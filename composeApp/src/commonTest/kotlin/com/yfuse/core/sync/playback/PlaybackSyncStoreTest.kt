@@ -1,12 +1,47 @@
 package com.yfuse.core.sync.playback
 
 import com.russhwolf.settings.MapSettings
+import com.russhwolf.settings.Settings
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class PlaybackSyncStoreTest {
+    @Test
+    fun serverBatchPersistsOncePreservesLocalMutationsAndRejectsChangedScope() {
+        val backing = MapSettings()
+        var writes = 0
+        val settings =
+            object : Settings by backing {
+                override fun putString(
+                    key: String,
+                    value: String,
+                ) {
+                    writes++
+                    backing.putString(key, value)
+                }
+            }
+        val store = PlaybackSyncStore(settings) { 1_000L }
+        val inputs = (1..156).map { PlaybackSyncStore.ServerProgressInput("movie-$it", it * 1_000L, false) }
+        writes = 0
+        store.absorbServerProgressBatch("server-a", inputs, store.scopeToken)
+        assertEquals(1, writes)
+        assertTrue(store.pending().isEmpty())
+        assertEquals(156_000L, PlaybackSyncStore(backing).stateForServerItem("server-a", "movie-156")?.positionMs)
+        store.absorbServerProgressBatch("server-a", inputs, store.scopeToken)
+        assertEquals(1, writes)
+        store.absorbServerProgressBatch("server-b", inputs, "obsolete-scope")
+        assertEquals(null, store.stateForServerItem("server-b", "movie-1"))
+        assertEquals(1, writes)
+        store.markManual("emby:movie-1", watched = true, serverId = "server-a", serverItemId = "movie-1")
+        val afterLocalWrite = writes
+        store.absorbServerProgressBatch("server-a", inputs, store.scopeToken)
+        assertEquals(afterLocalWrite, writes)
+        assertTrue(store.stateForServerItem("server-a", "movie-1")?.played == true)
+        assertEquals(1, store.pending().size)
+    }
+
     @Test
     fun serverCooldownCoversEveryQueuedTitleAndSurvivesRestart() {
         val settings = MapSettings()

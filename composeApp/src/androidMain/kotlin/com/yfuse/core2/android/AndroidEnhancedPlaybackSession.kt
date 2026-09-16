@@ -100,6 +100,7 @@ internal data class YEnhancedPlaybackSnapshot(
     val subtitleDiagnostics: Map<String, String> = emptyMap(),
     val nativeGpuFeatureMask: Long = 0L,
     val gpuFrameDurationNs: Long = 0L,
+    val anime4KDescription: String? = null,
     val dolbyVisionRpuApplied: Boolean = false,
     val dolbyVisionEnhancementLayerDelivered: Boolean = false,
     val dolbyVisionFelComposed: Boolean = false,
@@ -129,6 +130,7 @@ internal class AndroidEnhancedPlaybackSession(
     frameRateSwitchMode: YFrameRateSwitchMode = YFrameRateSwitchMode.SeamlessOnly,
     private val preferredRemoteBufferTargetUs: Long? = null,
 ) {
+    private val anime4KContext = context.applicationContext
     private var demuxReadAhead = AndroidDemuxReadAheadNode(demuxer)
     private val wallClock = YMediaClock()
     private val frameRateManager = AndroidFrameRateManager(context, frameRateSwitchMode)
@@ -427,6 +429,11 @@ internal class AndroidEnhancedPlaybackSession(
                         decoderSurface,
                         plan.decoderName,
                         isolateFrameTimestamps = isolateVideoTimestamps && plan.renderPath == YRenderPath.SurfaceDirect,
+                        anime4KContext =
+                            anime4KContext.takeIf {
+                                plan.renderPath == YRenderPath.SurfaceDirect &&
+                                    effectiveVideo.hdrType == com.yfuse.core2.capability.YHdrType.Sdr
+                            },
                     )
                 }
                 videoConfiguredForProbe = true
@@ -822,6 +829,11 @@ internal class AndroidEnhancedPlaybackSession(
                         requireNotNull(plan).decoderName,
                         isolateFrameTimestamps =
                             isolateVideoTimestamps && requireNotNull(plan).renderPath == YRenderPath.SurfaceDirect,
+                        anime4KContext =
+                            anime4KContext.takeIf {
+                                plan?.renderPath == YRenderPath.SurfaceDirect &&
+                                    effectiveVideoTrack?.hdrType == com.yfuse.core2.capability.YHdrType.Sdr
+                            },
                     )
                 }
                 runtimeCapabilityKey?.let { runtimeCapabilities?.recordConfigured(it) }
@@ -1053,6 +1065,7 @@ internal class AndroidEnhancedPlaybackSession(
                 ),
             nativeGpuFeatureMask = gpu?.currentFeatureMask ?: 0L,
             gpuFrameDurationNs = gpu?.lastGpuFrameDurationNs ?: 0L,
+            anime4KDescription = videoDecoder.anime4KDescription,
             dolbyVisionRpuApplied =
                 videoVerified &&
                     plan?.renderPath == YRenderPath.SurfaceDirect &&
