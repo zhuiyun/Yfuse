@@ -210,6 +210,7 @@ private fun SearchHomeScreen(
             }
             motionItem {
                 Column {
+                    SmartPlaylistShelf(state = state, onApply = { store.accept(SearchIntent.ApplyPlaylist(it)) })
                     SearchFilterBar(
                         state = state,
                         onOpen = { filterSheet = it },

@@ -59,6 +59,16 @@ class ProfileComponent(
 
     fun familyServers() =
         if (personal.policy.value.canManageServers) registry.allDataForSync().servers else registry.data.value.servers
+    private val requestedPage = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+    val pageRequest: kotlinx.coroutines.flow.StateFlow<String?> = requestedPage
+
+    fun requestPage(page: String) {
+        requestedPage.value = page
+    }
+
+    fun consumePageRequest(page: String) {
+        if (requestedPage.value == page) requestedPage.value = null
+    }
 
     val store = ProfileStoreFactory(storeFactory, registry).create()
 

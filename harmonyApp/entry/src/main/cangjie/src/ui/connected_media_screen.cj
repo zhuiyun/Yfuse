@@ -22,7 +22,6 @@ class ConnectedMediaScreen {
     @State var password: String = ""
     @State var query: String = ""
     @State var jellyfin: Bool = false
-    @State var cleartext: Bool = false
     var session: ConnectedMediaSession = createConnectedMediaSession()
 
     func aboutToAppear(): Unit {
@@ -98,12 +97,10 @@ class ConnectedMediaScreen {
             TextInput(text: endpoint, placeholder: "https://媒体服务器").onChange({ value => endpoint = value })
             TextInput(text: userName, placeholder: "用户名").onChange({ value => userName = value })
             TextInput(text: password, placeholder: "密码").type(InputType.Password).onChange({ value => password = value })
-            Button(if (cleartext) { "已确认：仅在可信局域网使用 HTTP" } else { "允许可信局域网 HTTP（明文传输）" })
-                .onClick({ => cleartext = !cleartext })
             Button("登录并保存").enabled(session.ready && !session.loading).onClick({ =>
                 let submitted = password; password = ""
                 session.login(if (jellyfin) { ProviderKind.Jellyfin } else { ProviderKind.Emby },
-                    endpoint, userName, submitted, cleartext)
+                    endpoint, userName, submitted, false)
             })
         }.width(100.percent)
     }

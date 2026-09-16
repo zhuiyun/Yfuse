@@ -640,14 +640,19 @@ internal class PlexMediaServerAdapter(
                     server,
                     filter.parentId?.let { "/library/sections/$it/all" } ?: "/library/all",
                 ) {
-                    parameter("title", query.trim())
+                    query.trim().takeIf(String::isNotEmpty)?.let { parameter("title", it) }
+                    when (filter.includeItemTypes) {
+                        "Movie" -> parameter("type", 1)
+                        "Series" -> parameter("type", 2)
+                        "Episode" -> parameter("type", 4)
+                    }
                     parameter("includeGuids", 1)
                     parameter("includeUserState", 1)
                     parameter("X-Plex-Container-Start", startIndex.coerceAtLeast(0))
                     parameter("X-Plex-Container-Size", limit.coerceAtLeast(1))
                     filter.productionYear?.let { parameter("year", it) }
                     filter.genre?.takeIf(String::isNotBlank)?.let { parameter("genre", it) }
-                    if (filter.played == false) parameter("unwatched", 1)
+                    filter.played?.let { parameter("unwatched", if (it) 0 else 1) }
                     if (filter.resumable) parameter("inProgress", 1)
                     filter.sortBy?.let {
                         parameter("sort", it.toPlexSearchSort(filter.descending))
@@ -664,7 +669,7 @@ internal class PlexMediaServerAdapter(
                     .filter { it.type?.lowercase() in setOf("movie", "show", "episode") }
                     .map { progress.project(server, it.toBaseItem(server)).toMediaItem() }
                     .filter { it.type in acceptedTypes }
-                    .let { rankSearchResults(it, query) }
+                    .let { if (filter.sortBy == null) rankSearchResults(it, query) else it }
             MediaSearchPage(
                 items = items,
                 totalCount = response.effectiveTotal(),

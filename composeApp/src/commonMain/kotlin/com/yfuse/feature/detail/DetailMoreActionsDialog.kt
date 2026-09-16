@@ -88,6 +88,7 @@ internal fun DetailMoreActionsDialog(
     onOrganization: () -> Unit,
     onRefresh: () -> Unit,
     onAnalyze: () -> Unit,
+    onEditMetadata: () -> Unit,
     onWatchTogether: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -180,6 +181,7 @@ internal fun DetailMoreActionsDialog(
                     onOrganization = onOrganization,
                     onRefresh = onRefresh,
                     onAnalyze = onAnalyze,
+                    onEditMetadata = onEditMetadata,
                 )
                 Spacer(Modifier.height(4.dp))
             }
@@ -439,6 +441,7 @@ private fun DetailManagementActions(
     onOrganization: () -> Unit,
     onRefresh: () -> Unit,
     onAnalyze: () -> Unit,
+    onEditMetadata: () -> Unit,
 ) {
     val palette = LocalPalette.current
     Column(
@@ -467,6 +470,14 @@ private fun DetailManagementActions(
             description = "选择服务器上已有的容器",
             color = DetailMoreAmber,
             onClick = onOrganization,
+        )
+        DetailManagementDivider()
+        DetailManagementRow(
+            icon = AppIcons.Edit,
+            label = "编辑元数据与图片",
+            description = "修改标题、简介或选择海报",
+            color = DetailMorePlum,
+            onClick = onEditMetadata,
         )
         DetailManagementDivider()
         DetailManagementRow(

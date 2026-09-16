@@ -89,6 +89,7 @@ data class PersonHit(
 
 data class SearchState(
     val query: String = "",
+    val playlistName: String? = null,
     val searchedQuery: String = "",
     val loading: Boolean = false,
     val items: List<MediaItem> = emptyList(),
@@ -109,7 +110,7 @@ data class SearchState(
     val recent: List<String> = emptyList(),
     val error: String? = null,
 ) {
-    val hasSearched: Boolean get() = searchedQuery.isNotEmpty()
+    val hasSearched: Boolean get() = searchedQuery.isNotEmpty() || playlistName != null
     val visibleGroups: List<ServerSearchGroup>
         get() =
             if (type == SearchType.All) {
@@ -172,6 +173,10 @@ private const val DEBOUNCE_MS = 300L
 private const val RECENT_LIMIT = 8
 
 sealed interface SearchIntent {
+    data class ApplyPlaylist(
+        val rule: com.yfuse.core.data.SmartPlaylist,
+    ) : SearchIntent
+
     data class QueryChanged(
         val value: String,
     ) : SearchIntent
@@ -228,6 +233,10 @@ sealed interface SearchIntent {
 }
 
 private sealed interface SearchMsg {
+    data class Playlist(
+        val rule: com.yfuse.core.data.SmartPlaylist,
+    ) : SearchMsg
+
     data class QueryChanged(
         val value: String,
     ) : SearchMsg
@@ -375,6 +384,13 @@ class SearchStoreFactory(
 
         override fun executeIntent(intent: SearchIntent) {
             when (intent) {
+                is SearchIntent.ApplyPlaylist -> {
+                    debounceJob?.cancel()
+                    cancelInFlight()
+                    dispatch(SearchMsg.Playlist(intent.rule))
+                    loadFacets(intent.rule.serverId, intent.rule.libraryId)
+                    search(intent.rule.query)
+                }
                 is SearchIntent.QueryChanged -> {
                     dispatch(SearchMsg.QueryChanged(intent.value))
                     debouncedSearch(intent.value)
@@ -455,7 +471,7 @@ class SearchStoreFactory(
             }
             val server = registry.serverById(serverId) ?: return
             val query = snapshot.searchedQuery
-            if (query.isBlank()) return
+            if (query.isBlank() && snapshot.playlistName == null) return
             dispatch(SearchMsg.LoadingMore(serverId))
             loadMoreJobs[serverId] =
                 scope.launch {
@@ -483,7 +499,7 @@ class SearchStoreFactory(
 
         private fun refreshCurrent() {
             val value = state().searchedQuery.ifBlank { state().query }.trim()
-            if (value.isNotEmpty()) search(value)
+            if (value.isNotEmpty() || state().playlistName != null) search(value)
         }
 
         private fun loadFacets(
@@ -560,7 +576,7 @@ class SearchStoreFactory(
 
         private fun search(rawQuery: String) {
             val query = rawQuery.trim()
-            if (query.isEmpty()) {
+            if (query.isEmpty() && state().playlistName == null) {
                 cancelInFlight()
                 dispatch(SearchMsg.Cleared)
                 return
@@ -716,9 +732,26 @@ class SearchStoreFactory(
     private object ReducerImpl : Reducer<SearchState, SearchMsg> {
         override fun SearchState.reduce(msg: SearchMsg): SearchState =
             when (msg) {
+                is SearchMsg.Playlist ->
+                    SearchState(
+                        query = msg.rule.query,
+                        playlistName = msg.rule.name,
+                        serverOptions = serverOptions,
+                        recent = recent,
+                        serverId = msg.rule.serverId,
+                        libraryId = msg.rule.libraryId,
+                        type = SearchType.entries.firstOrNull { it.name == msg.rule.type } ?: SearchType.All,
+                        year = msg.rule.year,
+                        genre = msg.rule.genre,
+                        watchStatus =
+                            SearchWatchStatus.entries.firstOrNull { it.name == msg.rule.watchStatus }
+                                ?: SearchWatchStatus.All,
+                        sort = SearchSort.entries.firstOrNull { it.name == msg.rule.sort } ?: SearchSort.RecentlyAdded,
+                    )
                 is SearchMsg.QueryChanged ->
                     copy(
                         query = msg.value,
+                        playlistName = if (msg.value == query) playlistName else null,
                         error = null,
                         aggregated = if (msg.value.trim() == query.trim()) aggregated else emptyList(),
                         type = if (msg.value.trim() == query.trim()) type else SearchType.All,

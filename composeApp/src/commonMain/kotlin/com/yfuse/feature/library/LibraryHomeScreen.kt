@@ -266,6 +266,9 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
     val retainedPageColor =
         rememberRetainedArtworkPageColor("library:${state.currentServer?.id.orEmpty()}")
     val sampledPageColor = rememberCarouselPageColor(retainedPageColor.value)
+    val showSmartPlaylists =
+        com.yfuse.feature.search
+            .hasPinnedSmartPlaylists()
     val palette = rememberArtworkPagePalette(retainedPageColor.value)
     val accent =
         rememberArtworkAccentTarget(
@@ -594,6 +597,10 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                     motionItem(key = "library-loading") { SkeletonRow() }
                                 }
                                 if (state.content.rows.isNotEmpty() || state.currentServer != null) {
+                                    motionItem(key = "smart-playlists") {
+                                        com.yfuse.feature.search
+                                            .SmartPlaylistShelf()
+                                    }
                                     motionItem(key = "library-categories") {
                                         CategoryCards(
                                             baseUrl = baseUrl,

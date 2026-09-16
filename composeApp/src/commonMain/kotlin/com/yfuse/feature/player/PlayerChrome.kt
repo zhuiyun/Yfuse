@@ -92,6 +92,7 @@ internal fun PlaybackErrorOverlay(
     onExternalPlayer: (() -> Unit)?,
     onBack: () -> Unit,
     alternatives: List<Pair<String, () -> Unit>> = emptyList(),
+    onExplain: (() -> Unit)? = null,
 ) {
     Box(
         Modifier
@@ -111,6 +112,14 @@ internal fun PlaybackErrorOverlay(
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis,
             )
+            onExplain?.let { explain ->
+                Text(
+                    "查看原因与导出日志",
+                    style = AppTypography.body.strong,
+                    color = Color.White,
+                    modifier = Modifier.noRippleClickable(explain).padding(12.dp),
+                )
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
                     "返回",

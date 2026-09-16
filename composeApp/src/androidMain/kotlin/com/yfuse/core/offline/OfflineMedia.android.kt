@@ -744,6 +744,17 @@ internal class AndroidOfflineMediaManager(
         )
     }
 
+    internal suspend fun applyNotificationAction(action: String?) {
+        commands.execute {
+            check(_indexStatus.value == OfflineIndexStatus.Ready)
+            when (action) {
+                DownloadNotificationActions.ACTION_PAUSE -> pauseAllNow()
+                DownloadNotificationActions.ACTION_RESUME -> resumeAllNow()
+                else -> error("Unknown download notification action")
+            }
+        }
+    }
+
     private suspend fun awaitCommands() {
         commands.awaitPending()
         check(_indexStatus.value == OfflineIndexStatus.Ready) { "下载索引未能读取，请检查存储后重新打开应用" }

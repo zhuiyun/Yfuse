@@ -15,7 +15,6 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -69,7 +68,6 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.Velocity
@@ -82,12 +80,9 @@ import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.designsystem.AccessibilityOptions
 import com.yfuse.core.designsystem.AppBackdrop
 import com.yfuse.core.designsystem.AppIcons
-import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.BackdropState
-import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.ConfirmDialog
 import com.yfuse.core.designsystem.Dimens
-import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.GlassStyle
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LocalAccentColors
@@ -98,32 +93,26 @@ import com.yfuse.core.designsystem.LocalPulseSweepEnabled
 import com.yfuse.core.designsystem.LocalTabIdentity
 import com.yfuse.core.designsystem.LocalTabReselected
 import com.yfuse.core.designsystem.MinTouchTarget
-import com.yfuse.core.designsystem.MiniPlayerTokens
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.OfficialNavDisplay
 import com.yfuse.core.designsystem.OfficialNavMotion
 import com.yfuse.core.designsystem.OverlayVisibility
 import com.yfuse.core.designsystem.SearchDockOrigin
-import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.SkeletonPulseProvider
 import com.yfuse.core.designsystem.YfuseTheme
 import com.yfuse.core.designsystem.attentionSweep
-import com.yfuse.core.designsystem.backdropBlur
 import com.yfuse.core.designsystem.backdropSource
 import com.yfuse.core.designsystem.drawLensIsland
 import com.yfuse.core.designsystem.drawMotionSweep
 import com.yfuse.core.designsystem.drawPhaseLight
 import com.yfuse.core.designsystem.liquidNavigationGlass
 import com.yfuse.core.designsystem.navigationGlass
-import com.yfuse.core.designsystem.overlayGlass
 import com.yfuse.core.designsystem.platformAnimationsDisabled
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberBackdropState
 import com.yfuse.core.designsystem.rememberPhaseLightCount
 import com.yfuse.core.designsystem.resolveDark
 import com.yfuse.core.designsystem.searchDockSource
-import com.yfuse.core.designsystem.shadow
-import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.feature.home.HomeTabComponent
 import com.yfuse.feature.home.HomeTabScreen
 import com.yfuse.feature.library.LibraryComponent
@@ -139,7 +128,6 @@ import com.yfuse.feature.watch.InviteResolution
 import com.yfuse.feature.watch.WatchInviteSheet
 import com.yfuse.feature.watch.WatchRoomInfoDialog
 import com.yfuse.core.designsystem.ThemeIcon as Icon
-import com.yfuse.core.designsystem.ThemeText as Text
 
 private data class TabItem(
     val tab: Tab,
@@ -301,23 +289,6 @@ fun App(root: RootComponent) {
             if (root.followWatchRoom()) followed = roomCode to mediaKey
         }
 
-        // What the bottom stack says about the room — the mini player's second line while a
-        // player is up, and the whole of [WatchRoomBar] when one isn't.
-        //
-        // A warning outranks the participant count: entering can fail (a room that has not
-        // started playing, one playing something no attached server holds) and without this
-        // the tap that fails has nothing to show for it. It is a long string in a one-line
-        // bar and will ellipsize; the first few characters are the part that matters, and
-        // 「我的」→ 一起看 has it in full.
-        val watchRoomNote =
-            when {
-                !watchState.connected -> null
-                watchState.syncWarning != null -> watchState.syncWarning
-                watchState.reconnecting -> "一起看 · 重连中"
-                watchState.isHost -> "一起看 · 房主 · ${watchState.participantCount} 人"
-                else -> "一起看 · ${watchState.participantCount} 人"
-            }
-
         // The bar belongs to the four roots; any pushed page (detail, grid, add
         // server, player) owns the whole screen.
         val atRoot =
@@ -339,10 +310,6 @@ fun App(root: RootComponent) {
         val overlays = remember { OverlayVisibility() }
 
         var roomInfoOpen by remember { mutableStateOf(false) }
-        // Dismissing the bar is per-room, not permanent: a different room — or the same code
-        // rejoined — is news again, and hiding one notice must not silence the next.
-        var hiddenRoomCode by remember { mutableStateOf<String?>(null) }
-        val roomBarHidden = hiddenRoomCode != null && hiddenRoomCode == watchState.roomCode
 
         // Each tab keeps its own saved state — above all, where it was scrolled to.
         //
@@ -501,30 +468,14 @@ fun App(root: RootComponent) {
                         // The bar rides the dock's own enter and exit. It sits on top of the dock
                         // and used to be dropped straight out of composition while the dock below
                         // it slid away, so the pair came apart every time a route was pushed.
-                        val roomBarShown =
-                            dockShown && !miniPlayback.active && watchRoomNote != null && !roomBarHidden
-                        // An exit outlives the room that started it, so the bar keeps the last note
-                        // it carried rather than blanking its own text on the way out.
-                        var lastRoomNote by remember { mutableStateOf("") }
-                        if (watchRoomNote != null) lastRoomNote = watchRoomNote
-                        AnimatedVisibility(
-                            visible = roomBarShown,
+                        ActivityStatusCapsule(
+                            root = root,
+                            onRoomInfo = { roomInfoOpen = true },
                             modifier = bottomStackSlot,
+                            visible = dockShown && !miniPlayback.active,
                             enter = dockEnterTransition,
                             exit = dockExitTransition,
-                            label = "watchRoomBar",
-                        ) {
-                            WatchRoomBar(
-                                note = lastRoomNote,
-                                attention =
-                                    watchState.reconnecting ||
-                                        watchState.syncWarning != null,
-                                onEnter = root::enterWatchRoom,
-                                onView = { roomInfoOpen = true },
-                                onClose = { hiddenRoomCode = watchState.roomCode },
-                                backdrop = backdrop,
-                            )
-                        }
+                        )
 
                         // A room survives the process: the client keeps the capabilities the
                         // server granted, so a restart can offer to go back instead of making
@@ -615,101 +566,6 @@ fun App(root: RootComponent) {
 
 internal fun topLevelBackStack(active: Tab): List<Tab> =
     if (active == Tab.Home) listOf(Tab.Home) else listOf(Tab.Home, active)
-
-/**
- * 一起看 — a live room with no player in front of it.
- *
- * A room outlives playback, and until this bar the only thing that said so was a line on
- * the mini player, which `PlayerActivity.onDestroy` takes away with it: backing out of a
- * film left the user in a room with nothing on screen to show for it. This is the room's
- * own place in the bottom stack, in the mini player's slot and its material — tap the body
- * to go back into whatever the room is watching.
- *
- * [onClose] hides the bar; it does not leave the room, because a bar is not the room and a
- * stray tap must not end everyone else's evening. Leaving is still 「我的」→ 一起看 →
- * 退出房间, which is the only thing that releases this device's hold on it.
- */
-@Composable
-private fun WatchRoomBar(
-    note: String,
-    /**
-     * In the room, but not following it this instant — reconnecting, or holding a warning.
-     * The dot is the only part of the bar that can say so at a glance, since [note] is
-     * carrying the reason.
-     */
-    attention: Boolean,
-    onEnter: () -> Unit,
-    onView: () -> Unit,
-    onClose: () -> Unit,
-    backdrop: BackdropState,
-    modifier: Modifier = Modifier,
-) {
-    val accent = LocalAccentColors.current
-    Row(
-        modifier
-            .fillMaxWidth()
-            .height(44.dp)
-            .shadow(Shadows.tabBar, GlassShapes.card)
-            // Shares the tab bar's material, so it shares the blur under it — §3.
-            .backdropBlur(backdrop, GlassShapes.card)
-            .overlayGlass(
-                GlassShapes.card,
-                MiniPlayerTokens.fill,
-                MiniPlayerTokens.border,
-            ).padding(start = 14.dp, end = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        // The body carries 进入; only the two trailing buttons are cut out of it, so the
-        // large easy target is still the one that does the common thing.
-        Row(
-            Modifier.weight(1f).fillMaxHeight().pressable(onClick = onEnter),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(9.dp),
-        ) {
-            Box(
-                Modifier
-                    .size(7.dp)
-                    .clip(CircleShape)
-                    .background(if (attention) Brand.Offline else Brand.Online),
-            )
-            Text(
-                note,
-                style = AppTypography.caption.strong,
-                color = Color.White,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-        }
-        Text(
-            "查看",
-            style = AppTypography.caption.strong,
-            color = accent.accent,
-            maxLines = 1,
-            modifier =
-                Modifier
-                    .pressable(onClick = onView)
-                    .touchTarget()
-                    .clip(GlassShapes.chip)
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
-        )
-        Icon(
-            AppIcons.Close,
-            contentDescription = "隐藏一起看提示",
-            tint = Color.White.copy(alpha = 0.72f),
-            modifier =
-                Modifier
-                    .pressable(onClick = onClose)
-                    // 12dp glyph in 6dp of padding came to a 24dp target sitting right beside
-                    // 查看 — the two smallest controls in the app, adjacent, in a 44dp bar.
-                    .touchTarget()
-                    .clip(CircleShape)
-                    .padding(6.dp)
-                    .size(12.dp),
-        )
-    }
-}
 
 /** How far a drag has to travel in one direction before the bar answers it. */
 private val NavCollapseThreshold = 42.dp

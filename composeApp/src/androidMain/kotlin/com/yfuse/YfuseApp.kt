@@ -79,7 +79,9 @@ class YfuseApp :
 
                 override fun onActivityPaused(activity: Activity) = Unit
 
-                override fun onActivityStopped(activity: Activity) = Unit
+                override fun onActivityStopped(activity: Activity) {
+                    com.yfuse.widget.scheduleWidgetUpdate(this@YfuseApp)
+                }
 
                 override fun onActivitySaveInstanceState(
                     activity: Activity,

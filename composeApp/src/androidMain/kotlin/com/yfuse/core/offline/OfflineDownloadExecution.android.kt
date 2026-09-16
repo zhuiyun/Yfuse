@@ -31,6 +31,7 @@ import org.koin.core.context.GlobalContext
 private const val OFFLINE_NOTIFICATION_CHANNEL_ID = "yfuse_downloads"
 private const val OFFLINE_SERVICE_NOTIFICATION_ID = 2410
 private const val OFFLINE_WORK_NOTIFICATION_ID = 2411
+private const val OFFLINE_ATTENTION_NOTIFICATION_ID = 2415
 
 private fun ensureOfflineNotificationChannel(context: Context) {
     context.getSystemService(NotificationManager::class.java).createNotificationChannel(
@@ -48,29 +49,78 @@ private fun offlineDownloadNotification(
     downloaded: Long,
     total: Long,
 ): Notification {
+    val manager = runCatching { GlobalContext.get().get<OfflineMediaManager>() }.getOrNull()
+    val summary = manager?.items?.value?.let(::summarizeDownloads)
     val contentIntent =
         PendingIntent.getActivity(
             context,
-            0,
-            Intent(context, MainActivity::class.java),
+            2412,
+            Intent(context, MainActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                .putExtra(DownloadNotificationActions.EXTRA_OPEN_DOWNLOADS, true),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
     val progress =
-        if (total > 0L) {
-            ((downloaded.toDouble() / total.toDouble()) * 100.0).toInt().coerceIn(0, 100)
+        if (summary != null) {
+            summary.percent
+        } else if (total > 0L) {
+            (downloaded.toDouble() / total * 100).toInt().coerceIn(0, 100)
         } else {
-            0
+            null
         }
-    return Notification
-        .Builder(context, OFFLINE_NOTIFICATION_CHANNEL_ID)
-        .setSmallIcon(android.R.drawable.stat_sys_download)
-        .setContentTitle(title)
-        .setContentText(if (total > 0L) "$progress%" else "正在连接服务器")
-        .setContentIntent(contentIntent)
-        .setOnlyAlertOnce(true)
-        .setOngoing(true)
-        .setProgress(100, progress, total <= 0L)
-        .build()
+    val builder =
+        Notification
+            .Builder(context, OFFLINE_NOTIFICATION_CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.stat_sys_download)
+            .setContentTitle(summary?.title ?: title)
+            .setContentText(summary?.detail ?: "正在连接服务器")
+            .setContentIntent(contentIntent)
+            .setOnlyAlertOnce(true)
+            .setOngoing(summary == null || summary.active > 0)
+            .setProgress(100, progress ?: 0, progress == null && (summary == null || summary.active > 0))
+
+    fun addAction(
+        action: String,
+        label: String,
+        requestCode: Int,
+    ) {
+        val pending =
+            PendingIntent.getBroadcast(
+                context,
+                requestCode,
+                Intent(context, DownloadNotificationActions::class.java).setAction(action),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+        builder.addAction(Notification.Action.Builder(null, label, pending).build())
+    }
+    if (summary != null) {
+        if (summary.active > 0) addAction(DownloadNotificationActions.ACTION_PAUSE, "全部暂停", 2413)
+        if (summary.paused + summary.failed > 0) addAction(DownloadNotificationActions.ACTION_RESUME, "继续 / 重试", 2414)
+    }
+    return builder.build()
+}
+
+/** A separate non-foreground notification survives a paused or failed worker. */
+internal fun updateOfflineAttentionNotification(context: Context) {
+    val summary =
+        GlobalContext
+            .get()
+            .get<OfflineMediaManager>()
+            .items.value
+            .let(::summarizeDownloads)
+    val notifications = context.getSystemService(NotificationManager::class.java)
+    if (summary.active > 0 || !summary.visible) {
+        notifications.cancel(OFFLINE_ATTENTION_NOTIFICATION_ID)
+    } else {
+        ensureOfflineNotificationChannel(context)
+        // Notifications may be disabled; the in-app queue always remains available.
+        if (notifications.areNotificationsEnabled()) {
+            notifications.notify(
+                OFFLINE_ATTENTION_NOTIFICATION_ID,
+                offlineDownloadNotification(context, summary.title, 0, 0),
+            )
+        }
+    }
 }
 
 private fun offlineForegroundInfo(context: Context): ForegroundInfo {
@@ -115,7 +165,8 @@ class OfflineDownloadWorker(
                 val updates =
                     launch {
                         manager.items.collectLatest { items ->
-                            val active = items.firstOrNull { it.status == DownloadStatus.Downloading }
+                            updateOfflineAttentionNotification(applicationContext)
+                            val active = items.firstOrNull { it.status != DownloadStatus.Completed }
                             if (active != null) {
                                 applicationContext
                                     .getSystemService(NotificationManager::class.java)
@@ -135,6 +186,7 @@ class OfflineDownloadWorker(
                     manager.runPendingDownloads()
                 } finally {
                     updates.cancel()
+                    updateOfflineAttentionNotification(applicationContext)
                 }
             }
             manager.rebuildWakeSchedule(
@@ -189,7 +241,8 @@ class OfflineDownloadService : Service() {
                 val updates =
                     launch {
                         manager.items.collectLatest { items ->
-                            val active = items.firstOrNull { it.status == DownloadStatus.Downloading }
+                            updateOfflineAttentionNotification(applicationContext)
+                            val active = items.firstOrNull { it.status != DownloadStatus.Completed }
                             if (active != null) {
                                 getSystemService(NotificationManager::class.java).notify(
                                     OFFLINE_SERVICE_NOTIFICATION_ID,
@@ -207,6 +260,7 @@ class OfflineDownloadService : Service() {
                     manager.runPendingDownloads()
                 } finally {
                     updates.cancel()
+                    updateOfflineAttentionNotification(applicationContext)
                     manager.rebuildWakeSchedule(ExistingWorkPolicy.REPLACE)
                     stopForeground(STOP_FOREGROUND_REMOVE)
                     stopSelf(startId)

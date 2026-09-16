@@ -81,12 +81,6 @@ public class ServerRegistry {
         if (!endpoint.allowed) {
             return ApiResult<SavedServer>.Failure(ApiFailure(FailureKind.InvalidInput, endpoint.message))
         }
-        if (endpoint.decision == TransportDecision.Cleartext && !localCleartextConfirmed) {
-            return ApiResult<SavedServer>.Failure(ApiFailure(
-                FailureKind.InvalidInput,
-                "HTTP 会以明文发送服务器令牌，必须由用户确认仅用于可信局域网"
-            ))
-        }
         if (session.accessToken.isEmpty() || session.accessToken.size > 1024) {
             return ApiResult<SavedServer>.Failure(ApiFailure(FailureKind.InvalidInput, "服务器令牌无效"))
         }

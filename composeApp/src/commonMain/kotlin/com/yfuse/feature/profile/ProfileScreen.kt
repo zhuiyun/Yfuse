@@ -331,6 +331,13 @@ fun ProfileScreen(component: ProfileComponent) {
         pageStack = pageStack + target.name
     }
 
+    val requestedPage by component.pageRequest.collectAsState()
+    LaunchedEffect(requestedPage) {
+        val target = requestedPage ?: return@LaunchedEffect
+        if (target == "Downloads") pageStack = listOf(ProfilePage.Downloads.name)
+        component.consumePageRequest(target)
+    }
+
     fun closePage() {
         pageStack = pageStack.dropLast(1)
     }
