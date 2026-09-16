@@ -17,7 +17,14 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  artifact-only-push:
+    if: github.event_name == 'push'
+    name: Keep signing-branch pushes artifact-only
+    runs-on: ubuntu-24.04
+    steps:
+      - run: echo 'Legacy repackage publication requires an explicit workflow_dispatch; use sign-android-branch.yml for branch APK artifacts.'
   repackage:
+    if: github.event_name == 'workflow_dispatch'
     name: Build, sign, and verify current master APK
     runs-on: ubuntu-24.04
     timeout-minutes: 300
