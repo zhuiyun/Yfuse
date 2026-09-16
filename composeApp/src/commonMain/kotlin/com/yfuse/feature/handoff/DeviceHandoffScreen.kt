@@ -1,11 +1,6 @@
 package com.yfuse.feature.handoff
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
@@ -14,17 +9,21 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
+import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.ConfirmDialog
+import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.ThemeText
-import com.yfuse.core.designsystem.YfButton
-import com.yfuse.core.designsystem.YfButtonTone
 import com.yfuse.core.handoff.ActiveHandoffPlayback
 import com.yfuse.core.handoff.HandoffController
 import com.yfuse.core.handoff.HandoffMedia
 import com.yfuse.core.handoff.HandoffPlaybackRegistry
+import com.yfuse.feature.profile.Section
+import com.yfuse.feature.profile.SettingRow
+import com.yfuse.feature.profile.SettingsCard
+import com.yfuse.feature.profile.SettingsDivider
+import com.yfuse.feature.profile.SettingsPage
 
 /** Reusable on phone, tablet and TV; every action has an explicit focusable button. */
 @Composable
@@ -34,26 +33,54 @@ fun DeviceHandoffScreen(
 ) {
     val state by controller.state.collectAsState()
     val palette = LocalPalette.current
-    Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        ThemeText("接力到另一台设备", style = AppTypography.section.strong, color = palette.text)
-        ThemeText("两台设备需登录同一鱼服账号并保持在线。接收设备确认就绪后，本机才会暂停。", style = AppTypography.body.regular, color = palette.body)
-        if (!state.online) ThemeText("请先登录账号并连接接力服务", color = palette.body)
-        if (state.online && state.devices.isEmpty()) ThemeText("暂未发现可接收的在线设备", color = palette.body)
-        state.devices.forEach { device ->
-            YfButton(
-                "${device.name} · ${device.platform}",
-                { controller.send(device.sessionId) },
-                enabled = !state.busy,
-            )
+    SettingsPage(title = "设备接力", onBack = onBack) {
+        item {
+            Section(title = "在线设备") {
+                SettingsCard {
+                    SettingRow(
+                        "连接状态",
+                        if (state.online) "已连接" else "请先登录账号并连接接力服务",
+                        embedded = true,
+                    )
+                    if (state.online && state.devices.isEmpty()) {
+                        SettingsDivider()
+                        SettingRow("可用设备", "暂未发现可接收的在线设备", embedded = true)
+                    }
+                    state.devices.forEach { device ->
+                        SettingsDivider()
+                        SettingRow(
+                            device.name,
+                            device.platform + if (state.busy) " · 接力中" else " · 接力播放 ›",
+                            embedded = true,
+                            icon = AppIcons.Play,
+                            onClick = if (state.busy) null else ({ controller.send(device.sessionId) }),
+                        )
+                    }
+                    if (state.busy) {
+                        SettingsDivider()
+                        SettingRow("取消接力", "停止本次传输", embedded = true, onClick = controller::cancelTransfer)
+                    }
+                }
+            }
         }
-        state.message?.let { ThemeText(it, color = palette.body) }
-        state.connectionError?.let { ThemeText(it, color = palette.body) }
-        state.error?.let { ThemeText(it, color = palette.body) }
-        if (state.busy) YfButton("取消接力", controller::cancelTransfer, tone = YfButtonTone.Secondary)
-        YfButton("返回", onBack, tone = YfButtonTone.Secondary)
+        item {
+            Section(title = "使用说明") {
+                ThemeText(
+                    "两台设备需登录同一鱼服账号并保持在线。接收设备确认就绪后，本机才会暂停。",
+                    style = AppTypography.caption.regular,
+                    color = palette.sub2,
+                )
+            }
+        }
+        listOfNotNull(state.message, state.connectionError, state.error).forEach { notice ->
+            item {
+                ThemeText(
+                    notice,
+                    color = palette.sub,
+                    modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),
+                )
+            }
+        }
     }
 }
 

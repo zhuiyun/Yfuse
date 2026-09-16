@@ -96,6 +96,12 @@ internal sealed interface DetailMsg {
         val episodes: List<Episode>,
     ) : DetailMsg
 
+    data object SourcesLoading : DetailMsg
+
+    data class SourcesFailed(
+        val message: String,
+    ) : DetailMsg
+
     data class SourcesLoaded(
         val sources: List<ServerSource>,
     ) : DetailMsg

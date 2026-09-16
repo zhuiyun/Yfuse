@@ -1,17 +1,10 @@
 package com.yfuse.feature.personal
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
@@ -20,6 +13,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -27,10 +21,13 @@ import androidx.compose.ui.unit.dp
 import com.yfuse.core.account.AccountRepository
 import com.yfuse.core.account.AccountState
 import com.yfuse.core.data.EmbyRepository
+import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.YfButton
+import com.yfuse.core.designsystem.YfButtonTone
 import com.yfuse.core.designsystem.YfFormField
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.personal.DEFAULT_PERSONAL_PROFILE
@@ -42,6 +39,13 @@ import com.yfuse.core.personal.PersonalProfile
 import com.yfuse.core.personal.importServerCollections
 import com.yfuse.core.sync.ServerSyncManager
 import com.yfuse.core.sync.playback.PlaybackSyncManager
+import com.yfuse.feature.profile.Section
+import com.yfuse.feature.profile.SettingRow
+import com.yfuse.feature.profile.SettingSegmentRow
+import com.yfuse.feature.profile.SettingsCard
+import com.yfuse.feature.profile.SettingsDivider
+import com.yfuse.feature.profile.SettingsPage
+import com.yfuse.feature.profile.SwitchRow
 import kotlinx.coroutines.launch
 import com.yfuse.core.designsystem.ThemeText as Text
 
@@ -73,8 +77,8 @@ fun PersonalCenterScreen(
     val serverState by serverSync.state.collectAsState()
     val scope = rememberCoroutineScope()
     val palette = LocalPalette.current
-    var tab by remember(initialTab) { mutableStateOf(initialTab) }
-    var query by remember { mutableStateOf("") }
+    var tab by rememberSaveable(initialTab) { mutableStateOf(initialTab) }
+    var query by rememberSaveable { mutableStateOf("") }
     var message by remember { mutableStateOf<String?>(null) }
     var editing by remember { mutableStateOf<PersonalProfile?>(null) }
     var showEditor by remember { mutableStateOf(false) }
@@ -82,102 +86,139 @@ fun PersonalCenterScreen(
     var showPin by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
 
-    LazyColumn(
-        Modifier.fillMaxSize().statusBarsPadding(),
-        contentPadding = PaddingValues(20.dp, 14.dp, 20.dp, 110.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+    val contentTabs = listOf(PersonalCenterTab.WatchLater, PersonalCenterTab.Favorites, PersonalCenterTab.History)
+    val contentPage = initialTab in contentTabs
+    SettingsPage(
+        title = if (contentPage) "我的内容" else initialTab.label,
+        subtitle = state.activeProfile.name,
+        onBack = onBack,
     ) {
-        item {
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                PersonalButton("返回", onBack)
-                Column {
-                    Text("个人中心", style = AppTypography.section.strong, color = palette.text)
-                    Text(
-                        "${state.activeProfile.name}${if (state.activeProfile.child) " · 儿童资料" else ""}",
-                        color = palette.sub,
-                    )
-                }
-            }
-        }
-        item {
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                PersonalCenterTab.entries.forEach { target ->
-                    PersonalButton(
-                        if (target ==
-                            tab
-                        ) {
-                            "● ${target.label}"
-                        } else {
-                            target.label
-                        },
-                        { tab = target },
-                    )
-                }
-            }
-        }
-        message?.let { notice -> item { Text(notice, color = palette.sub) } }
-        state.error?.let { notice -> item { Text(notice, color = palette.error) } }
-        when (tab) {
-            PersonalCenterTab.Profiles -> {
-                item { Text("每份资料拥有独立的想看、收藏、历史和追剧。关联的服务器用户仍受服务器原有权限约束。", color = palette.sub) }
-                item { Text("两份资料若关联同一个媒体服务器用户，服务器上的已看状态仍由该用户共享；需要服务端也独立时，请关联不同的服务器用户。", color = palette.sub) }
-                item {
-                    Row(
-                        Modifier.horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        PersonalButton("新建", {
-                            editing = null
-                            showEditor = true
-                        }, enabled = !state.activeProfile.child)
-                        PersonalButton(
-                            if (state.hasGuardianPin) "修改家长 PIN" else "设置家长 PIN",
-                            { showPin = true },
-                            enabled = !busy,
+        if (contentPage) {
+            item {
+                Column(Modifier.padding(horizontal = Dimens.pageHorizontal)) {
+                    SettingsCard {
+                        SettingSegmentRow(
+                            title = "内容分类",
+                            options = listOf("想看", "收藏", "观看历史"),
+                            selectedIndex = contentTabs.indexOf(tab).coerceAtLeast(0),
+                            onSelect = { tab = contentTabs[it] },
                         )
                     }
                 }
+            }
+        }
+        message?.let { notice -> item { PersonalNotice(notice) } }
+        state.error?.let { notice -> item { PersonalNotice(notice, error = true) } }
+        when (tab) {
+            PersonalCenterTab.Profiles -> {
+                item { PersonalNotice("每份资料分别保存想看、收藏、观看历史和追剧。") }
+                item { PersonalNotice("需要服务器观看记录也独立时，请为家庭成员关联不同的服务器用户。") }
+                item {
+                    Section(title = "管理资料") {
+                        SettingsCard {
+                            SettingRow(
+                                "新建家庭资料",
+                                if (state.activeProfile.child) "请切换至成人资料" else "添加家庭成员 ›",
+                                embedded = true,
+                                icon = AppIcons.User,
+                                onClick =
+                                    if (state.activeProfile.child ||
+                                        busy
+                                    ) {
+                                        null
+                                    } else {
+                                        (
+                                            {
+                                                editing = null
+                                                showEditor = true
+                                            }
+                                        )
+                                    },
+                            )
+                            SettingsDivider()
+                            SettingRow(
+                                if (state.hasGuardianPin) "修改家长 PIN" else "设置家长 PIN",
+                                "儿童资料与切换保护 ›",
+                                embedded = true,
+                                onClick =
+                                    if (busy) {
+                                        null
+                                    } else {
+                                        (
+                                            {
+                                                showPin =
+                                                    true
+                                            }
+                                        )
+                                    },
+                            )
+                        }
+                    }
+                }
                 items(state.profiles, key = { it.id }) { profile ->
-                    PersonalCard {
-                        Text(
-                            "${profile.name}${if (profile.child) " · 儿童" else " · 成人"}",
-                            style = AppTypography.body.strong,
-                            color = palette.text,
-                        )
-                        Text(
-                            if (profile.serverIds.isEmpty()) {
-                                if (profile.child) "尚未关联服务器用户，当前不可浏览或播放" else "所有已登录的服务器用户"
-                            } else {
-                                "已关联 ${profile.serverIds.size} 个服务器用户"
-                            },
-                            color = palette.sub,
-                        )
-                        Row(
-                            Modifier.horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            PersonalButton(if (profile.id == state.activeProfile.id) "正在使用" else "切换", {
-                                if (state.activeProfile.child) {
-                                    switching = profile
+                    Section(title = profile.name + if (profile.child) " · 儿童" else " · 成人") {
+                        SettingsCard {
+                            SettingRow(
+                                "关联服务器",
+                                if (profile.serverIds.isEmpty()) {
+                                    if (profile.child) "尚未关联，当前不可浏览或播放" else "所有已登录的服务器用户"
                                 } else {
-                                    scope.launch {
-                                        personal.switchProfile(profile.id).onFailure { message = it.message }
-                                    }
-                                }
-                            }, enabled = profile.id != state.activeProfile.id && !busy)
-                            PersonalButton("编辑", {
-                                editing = profile
-                                showEditor = true
-                            }, enabled = !state.activeProfile.child)
-                            if (profile.id != DEFAULT_PERSONAL_PROFILE && profile.id != state.activeProfile.id) {
-                                PersonalButton("移除资料", {
-                                    scope.launch {
-                                        personal.deleteProfile(profile.id).onFailure {
-                                            message =
-                                                it.message
+                                    "已关联 " + profile.serverIds.size + " 个服务器用户"
+                                },
+                                embedded = true,
+                            )
+                            SettingsDivider()
+                            SettingRow(
+                                "当前资料",
+                                if (profile.id ==
+                                    state.activeProfile.id
+                                ) {
+                                    "正在使用"
+                                } else {
+                                    "切换到此资料 ›"
+                                },
+                                embedded = true,
+                                onClick =
+                                    if (profile.id ==
+                                        state.activeProfile.id ||
+                                        busy
+                                    ) {
+                                        null
+                                    } else {
+                                        (
+                                            {
+                                                if (state.activeProfile.child) {
+                                                    switching = profile
+                                                } else {
+                                                    scope.launch {
+                                                        personal.switchProfile(profile.id).onFailure {
+                                                            message =
+                                                                it.message
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        )
+                                    },
+                            )
+                            if (!state.activeProfile.child) {
+                                SettingsDivider()
+                                SettingRow("编辑资料", "名称、类型与服务器权限 ›", embedded = true, onClick = {
+                                    editing = profile
+                                    showEditor =
+                                        true
+                                })
+                                if (profile.id != DEFAULT_PERSONAL_PROFILE && profile.id != state.activeProfile.id) {
+                                    SettingsDivider()
+                                    SettingRow("移除资料", "移除此家庭成员", embedded = true, onClick = {
+                                        scope.launch {
+                                            personal.deleteProfile(profile.id).onFailure {
+                                                message =
+                                                    it.message
+                                            }
                                         }
-                                    }
-                                }, enabled = !state.activeProfile.child)
+                                    })
+                                }
                             }
                         }
                     }
@@ -185,87 +226,132 @@ fun PersonalCenterScreen(
             }
             PersonalCenterTab.Sync -> {
                 item {
-                    PersonalCard {
-                        Text("个人清单、历史与追剧", style = AppTypography.body.strong, color = palette.text)
-                        Text(if (state.pendingSync) "有本机更改待同步" else "本机更改已同步", color = palette.sub)
-                        state.lastSyncedAtEpochMs?.let {
-                            Text("最近成功：${java.time.Instant.ofEpochMilli(it)}", color = palette.sub)
-                        }
-                        Text("加密后合并两台设备的记录；已删除的项目不会被旧备份恢复。服务器配置不会被此操作替换。", color = palette.sub)
-                        state.error?.let { Text(it, color = palette.error) }
-                        PersonalButton(if (state.syncing) "正在合并…" else "合并同步 / 重试", {
-                            scope.launch {
-                                account.syncPersonalNow().onSuccess { message = "个人数据已同步" }.onFailure {
-                                    message =
-                                        it.message
-                                }
-                            }
-                        }, enabled = accountState is AccountState.SignedIn && !state.syncing)
-                        if (accountState !is AccountState.SignedIn) {
-                            Text(
-                                "请先登录 Yfuse 账号；本机个人数据仍可使用。",
-                                color = palette.sub,
+                    Section(title = "个人内容") {
+                        SettingsCard {
+                            SettingRow(
+                                "清单、历史与追剧",
+                                when {
+                                    state.syncing -> "正在同步…"
+                                    state.pendingSync -> "有本机更改待同步"
+                                    else -> "本机更改已同步"
+                                },
+                                embedded = true,
                             )
-                        }
-                    }
-                }
-                item {
-                    PersonalCard {
-                        Text("播放进度", style = AppTypography.body.strong, color = palette.text)
-                        Text(
-                            "待上传 ${playbackState.pendingCount} 项 · ${if (playbackState.syncing) "正在同步" else "空闲"}",
-                            color = palette.sub,
-                        )
-                        Text(
-                            playbackState.lastSyncedAtEpochMs?.let { "最近成功：${java.time.Instant.ofEpochMilli(it)}" }
-                                ?: "尚无成功同步记录",
-                            color = palette.sub,
-                        )
-                        playbackState.error?.let { Text(it, color = palette.error) }
-                        PersonalButton(
-                            "拉取最新进度并重试",
-                            playbackSync::refreshNow,
-                            enabled =
-                                !playbackState.syncing && accountState is AccountState.SignedIn,
-                        )
-                    }
-                }
-                item {
-                    PersonalCard {
-                        Text("媒体服务器状态", style = AppTypography.body.strong, color = palette.text)
-                        Text(
-                            "待处理 ${serverState.pendingCount} 项 · 冲突 ${serverState.conflicts.size} 项",
-                            color = palette.sub,
-                        )
-                        PersonalButton("重试服务器同步", { scope.launch { serverSync.syncAll(force = true) } })
-                        serverState.statuses.filter { personal.canAccessServer(it.serverId) }.forEach { status ->
-                            Text(
-                                "${status.serverName}：${status.error ?: if (status.syncing) "同步中" else "就绪"}",
-                                color =
-                                    if (status.error ==
-                                        null
+                            SettingsDivider()
+                            SettingRow(
+                                "最近成功",
+                                state.lastSyncedAtEpochMs?.let {
+                                    java.time.Instant
+                                        .ofEpochMilli(it)
+                                        .toString()
+                                }
+                                    ?: "暂无同步记录",
+                                embedded = true,
+                            )
+                            SettingsDivider()
+                            SettingRow(
+                                "立即同步",
+                                if (accountState !is AccountState.SignedIn) "请先登录鱼服账号" else "合并个人数据并重试 ›",
+                                embedded = true,
+                                icon = AppIcons.Refresh,
+                                onClick =
+                                    if (accountState !is AccountState.SignedIn ||
+                                        state.syncing
                                     ) {
-                                        palette.sub
+                                        null
                                     } else {
-                                        palette.error
+                                        (
+                                            {
+                                                scope.launch {
+                                                    account
+                                                        .syncPersonalNow()
+                                                        .onSuccess { message = "个人数据已同步" }
+                                                        .onFailure {
+                                                            message =
+                                                                it.message
+                                                        }
+                                                }
+                                            }
+                                        )
                                     },
                             )
                         }
                     }
                 }
+                item { PersonalNotice("个人数据加密合并，保留删除记录；服务器配置与设置备份仍需手动操作。") }
+                item {
+                    Section(title = "播放进度") {
+                        SettingsCard {
+                            SettingRow(
+                                "同步状态",
+                                "待上传 " + playbackState.pendingCount + " 项 · " +
+                                    if (playbackState.syncing) "同步中" else "空闲",
+                                embedded = true,
+                            )
+                            SettingsDivider()
+                            SettingRow(
+                                "最近成功",
+                                playbackState.lastSyncedAtEpochMs?.let {
+                                    java.time.Instant
+                                        .ofEpochMilli(it)
+                                        .toString()
+                                }
+                                    ?: "暂无同步记录",
+                                embedded = true,
+                            )
+                            SettingsDivider()
+                            SettingRow(
+                                "刷新与重试",
+                                "拉取最新播放进度 ›",
+                                embedded = true,
+                                icon = AppIcons.Refresh,
+                                onClick =
+                                    if (playbackState.syncing ||
+                                        accountState !is AccountState.SignedIn
+                                    ) {
+                                        null
+                                    } else {
+                                        playbackSync::refreshNow
+                                    },
+                            )
+                        }
+                    }
+                }
+                playbackState.error?.let { error -> item { PersonalNotice(error, error = true) } }
+                item {
+                    Section(title = "媒体服务器") {
+                        SettingsCard {
+                            SettingRow(
+                                "同步状态",
+                                "待处理 " + serverState.pendingCount + " 项 · 冲突 " + serverState.conflicts.size + " 项",
+                                embedded = true,
+                            )
+                            serverState.statuses.filter { personal.canAccessServer(it.serverId) }.forEach { status ->
+                                SettingsDivider()
+                                SettingRow(
+                                    status.serverName,
+                                    status.error ?: if (status.syncing) "同步中" else "就绪",
+                                    embedded = true,
+                                )
+                            }
+                            SettingsDivider()
+                            SettingRow("重试服务器同步", "重新提交待处理更改 ›", embedded = true, icon = AppIcons.Refresh, onClick = {
+                                scope.launch { serverSync.syncAll(force = true) }
+                            })
+                        }
+                    }
+                }
                 items(serverState.conflicts.filter { personal.canAccessServer(it.mutation.serverId) }) { conflict ->
-                    PersonalCard {
-                        val kindLabel = if (conflict.mutation.kind.name == "Favorite") "收藏" else "已看"
-                        Text(
-                            "${conflict.mutation.title} · ${kindLabel}冲突",
-                            color = palette.text,
-                        )
-                        Text("本机：${conflict.mutation.desired}；服务器：${conflict.serverValue}", color = palette.sub)
-                        Row(
-                            Modifier.horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            PersonalButton("保留本机", {
+                    Section(title = conflict.mutation.title) {
+                        SettingsCard {
+                            val kind = if (conflict.mutation.kind.name == "Favorite") "收藏" else "已看"
+                            SettingRow(
+                                kind + "冲突",
+                                "本机：" + conflict.mutation.desired + " · 服务器：" + conflict.serverValue,
+                                embedded = true,
+                            )
+                            SettingsDivider()
+                            SettingRow("保留本机", "使用当前资料的选择", embedded = true, onClick = {
                                 scope.launch {
                                     serverSync.resolveConflict(conflict, true).onFailure {
                                         message =
@@ -273,7 +359,8 @@ fun PersonalCenterScreen(
                                     }
                                 }
                             })
-                            PersonalButton("采用服务器", {
+                            SettingsDivider()
+                            SettingRow("采用服务器", "使用服务器的选择", embedded = true, onClick = {
                                 scope.launch {
                                     serverSync.resolveConflict(conflict, false).onFailure {
                                         message =
@@ -286,24 +373,45 @@ fun PersonalCenterScreen(
                 }
             }
             else -> {
-                item { YfFormField(value = query, onValueChange = { query = it }, label = "搜索当前资料") }
+                item {
+                    YfFormField(value = query, onValueChange = {
+                        query = it
+                    }, label = "搜索当前资料", modifier = Modifier.padding(horizontal = Dimens.pageHorizontal))
+                }
                 if (tab != PersonalCenterTab.History && repo != null) {
                     item {
-                        PersonalButton(if (busy) "正在导入…" else "导入 Emby / Jellyfin 清单", {
-                            scope.launch {
-                                busy = true
-                                try {
-                                    personal
-                                        .importServerCollections(repo, servers)
-                                        .onSuccess {
-                                            message =
-                                                "已导入 $it 项，现有个人选择已保留"
-                                        }.onFailure { message = it.message }
-                                } finally {
-                                    busy = false
-                                }
+                        Section(title = "导入清单") {
+                            SettingsCard {
+                                SettingRow(
+                                    "从媒体服务器导入",
+                                    if (busy) "正在导入…" else "合并 Emby / Jellyfin 清单 ›",
+                                    embedded = true,
+                                    icon = AppIcons.Server,
+                                    onClick =
+                                        if (busy) {
+                                            null
+                                        } else {
+                                            (
+                                                {
+                                                    scope.launch {
+                                                        busy = true
+                                                        try {
+                                                            personal
+                                                                .importServerCollections(repo, servers)
+                                                                .onSuccess {
+                                                                    message =
+                                                                        "已导入 " + it + " 项，现有个人选择已保留"
+                                                                }.onFailure { message = it.message }
+                                                        } finally {
+                                                            busy = false
+                                                        }
+                                                    }
+                                                }
+                                            )
+                                        },
+                                )
                             }
-                        }, enabled = !busy)
+                        }
                     }
                 }
                 val entries =
@@ -315,7 +423,17 @@ fun PersonalCenterScreen(
                 val visible = entries.filter { it.media.title.contains(query.trim(), ignoreCase = true) }
                 if (visible.isEmpty()) {
                     item {
-                        Text(if (query.isBlank()) "这里还没有记录。可从作品详情加入个人想看或收藏。" else "没有匹配的记录", color = palette.sub)
+                        PersonalNotice(
+                            if (query.isNotBlank()) {
+                                "没有匹配的记录"
+                            } else if (tab ==
+                                PersonalCenterTab.History
+                            ) {
+                                "还没有观看记录，播放后会显示在这里。"
+                            } else {
+                                "还没有记录，可从作品详情加入想看或收藏。"
+                            },
+                        )
                     }
                 }
                 items(visible, key = { it.identity }) { entry ->
@@ -373,13 +491,16 @@ fun PersonalCenterScreen(
 }
 
 @Composable
-private fun PersonalCard(content: @Composable () -> Unit) {
-    Column(
-        Modifier.fillMaxWidth().background(LocalPalette.current.card2).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        content()
-    }
+private fun PersonalNotice(
+    text: String,
+    error: Boolean = false,
+) {
+    Text(
+        text,
+        style = AppTypography.caption.regular,
+        color = if (error) LocalPalette.current.error else LocalPalette.current.sub2,
+        modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),
+    )
 }
 
 @Composable
@@ -388,22 +509,25 @@ private fun PersonalEntryCard(
     onOpen: () -> Unit,
     onRemove: () -> Unit,
 ) {
-    PersonalCard {
-        Text(entry.media.title, style = AppTypography.body.strong, color = LocalPalette.current.text)
-        Text(
-            listOfNotNull(
-                entry.media.year?.toString(),
-                if (entry.collection == PersonalCollection.History) {
-                    if (entry.completed) "已看完" else "看到 ${entry.positionMs / 60_000} 分钟"
-                } else {
-                    null
-                },
-            ).joinToString(" · "),
-            color = LocalPalette.current.sub,
-        )
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            PersonalButton("查看作品", onOpen)
-            PersonalButton("移除", onRemove)
+    Column(Modifier.padding(horizontal = Dimens.pageHorizontal)) {
+        SettingsCard {
+            SettingRow(
+                title = entry.media.title,
+                value =
+                    listOfNotNull(
+                        entry.media.year?.toString(),
+                        if (entry.collection == PersonalCollection.History) {
+                            if (entry.completed) "已看完" else "看到 " + entry.positionMs / 60_000 + " 分钟"
+                        } else {
+                            null
+                        },
+                    ).joinToString(" · ").ifBlank { "查看作品" } + " ›",
+                embedded = true,
+                icon = if (entry.collection == PersonalCollection.History) AppIcons.Play else AppIcons.Bookmark,
+                onClick = onOpen,
+            )
+            SettingsDivider()
+            SettingRow("移除记录", "从当前资料中移除", embedded = true, onClick = onRemove)
         }
     }
 }
@@ -432,18 +556,23 @@ private fun PersonalProfileEditor(
                 color = LocalPalette.current.text,
             )
             YfFormField(name, { name = it }, label = "资料名称")
-            PersonalButton(
-                if (child) "● 儿童资料" else "成人资料",
-                { child = !child },
-                enabled =
-                    profile?.id != DEFAULT_PERSONAL_PROFILE,
+            if (profile?.id != DEFAULT_PERSONAL_PROFILE) {
+                SwitchRow("儿童资料", child, onChange = { child = it })
+            }
+            Text(
+                "儿童资料需要家长 PIN，只能使用下方勾选的服务器用户。",
+                style = AppTypography.caption.regular,
+                color = LocalPalette.current.sub2,
             )
-            Text("选择关联的服务器用户。儿童资料需要家长 PIN，并且只能使用勾选的用户权限。", color = LocalPalette.current.sub)
-            Column(Modifier.horizontalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                servers.forEach { server ->
-                    PersonalButton("${if (server.id in ids) "✓ " else ""}${server.serverName} · ${server.userName}", {
-                        ids = if (server.id in ids) ids - server.id else ids + server.id
-                    })
+            SettingsCard {
+                servers.forEachIndexed { index, server ->
+                    if (index > 0) SettingsDivider()
+                    SwitchRow(
+                        title = server.serverName + " · " + server.userName,
+                        checked = server.id in ids,
+                        embedded = true,
+                        onChange = { checked -> ids = if (checked) ids + server.id else ids - server.id },
+                    )
                 }
             }
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -491,5 +620,5 @@ private fun PersonalButton(
     onClick: () -> Unit,
     enabled: Boolean = true,
 ) {
-    YfButton(label, onClick, modifier = Modifier.width(156.dp), enabled = enabled)
+    YfButton(label, onClick, enabled = enabled, tone = YfButtonTone.Secondary)
 }

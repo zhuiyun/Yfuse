@@ -64,10 +64,14 @@ internal object DetailReducer : Reducer<DetailState, DetailMsg> {
             DetailMsg.EpisodesLoading -> copy(episodesLoading = true)
             DetailMsg.EpisodesLoadingFinished -> copy(episodesLoading = false)
             is DetailMsg.EpisodesLoaded -> copy(episodesLoading = false, episodes = msg.episodes)
+            DetailMsg.SourcesLoading -> copy(sourcesLoading = true, sourcesError = null)
+            is DetailMsg.SourcesFailed -> copy(sourcesLoading = false, sourcesError = msg.message)
             is DetailMsg.SourcesLoaded -> {
                 val selected = msg.sources.firstOrNull { it.isCurrent && it.itemId != null }
                 copy(
                     sources = msg.sources,
+                    sourcesLoading = false,
+                    sourcesError = null,
                     selectedSourceServerId = selectedSourceServerId ?: selected?.serverId,
                     selectedSourceItemId = selectedSourceItemId ?: selected?.itemId,
                 )

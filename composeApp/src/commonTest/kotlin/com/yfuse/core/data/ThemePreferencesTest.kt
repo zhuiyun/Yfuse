@@ -15,6 +15,21 @@ import kotlin.test.assertTrue
 
 class ThemePreferencesTest {
     @Test
+    fun library_carousel_defaults_to_original_layout_and_remembers_explicit_choice() {
+        val settings = MapSettings()
+        // The former compact-mode default must not silently hide the restored carousel.
+        settings.putBoolean("appearance.compactLibrary", true)
+        val original = ThemePreferences(settings)
+        assertTrue(original.libraryCarousel.value)
+        original.setLibraryCarousel(false)
+        val restored = ThemePreferences(settings)
+        assertFalse(restored.libraryCarousel.value)
+        assertTrue(restored.splashAnimation.value)
+        restored.setLibraryCarousel(true)
+        assertTrue(ThemePreferences(settings).libraryCarousel.value)
+    }
+
+    @Test
     fun pulse_sweep_can_be_disabled_and_restored_independently_of_reduced_motion() {
         val settings = MapSettings()
         val original = ThemePreferences(settings)

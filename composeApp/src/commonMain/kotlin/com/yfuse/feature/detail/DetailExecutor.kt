@@ -93,6 +93,19 @@ internal class DetailExecutor(
     override fun executeIntent(intent: DetailIntent) {
         when (intent) {
             DetailIntent.Retry -> load()
+            DetailIntent.RetrySources -> {
+                val current = state()
+                val sourceServer = current.playServer ?: current.server
+                val sourceDetail = current.playSourceDetail ?: current.detail
+                if (sourceServer != null && sourceDetail != null) {
+                    loadSources(
+                        sourceServer,
+                        sourceDetail,
+                        current.playTarget?.seasonNumber,
+                        current.playTarget?.episodeNumber,
+                    )
+                }
+            }
             DetailIntent.DismissMessage -> dispatch(DetailMsg.ActionMessage(null))
             DetailIntent.Play -> play(fromStart = false)
             DetailIntent.PlayFromStart -> play(fromStart = true)
@@ -466,30 +479,36 @@ internal class DetailExecutor(
     ) {
         val servers = registry.data.value.servers
         val generation = ++sourceLoadGeneration
+        dispatch(DetailMsg.SourcesLoading)
         scope.launch {
-            val tmdbId =
-                detail.providerIds.entries
-                    .firstOrNull { it.key.equals("Tmdb", ignoreCase = true) }
-                    ?.value
-                    ?.toIntOrNull()
-            val sources =
-                repo.compareSources(
-                    servers = servers,
-                    currentServerId = server.id,
-                    title = detail.title,
-                    tmdbId = tmdbId,
-                    mediaType =
-                        when (detail.type) {
-                            "Series" -> "tv"
-                            "Movie" -> "movie"
-                            else -> null
-                        },
-                    year = detail.year,
-                    seasonNumber = seasonNumber,
-                    episodeNumber = episodeNumber,
-                )
-            if (generation == sourceLoadGeneration) {
-                dispatch(DetailMsg.SourcesLoaded(sources))
+            try {
+                val tmdbId =
+                    detail.providerIds.entries
+                        .firstOrNull { it.key.equals("Tmdb", ignoreCase = true) }
+                        ?.value
+                        ?.toIntOrNull()
+                val sources =
+                    repo.compareSources(
+                        servers = servers,
+                        currentServerId = server.id,
+                        title = detail.title,
+                        tmdbId = tmdbId,
+                        mediaType =
+                            when (detail.type) {
+                                "Series" -> "tv"
+                                "Movie" -> "movie"
+                                else -> null
+                            },
+                        year = detail.year,
+                        seasonNumber = seasonNumber,
+                        episodeNumber = episodeNumber,
+                    )
+                if (generation == sourceLoadGeneration) {
+                    dispatch(DetailMsg.SourcesLoaded(sources))
+                }
+            } catch (failure: Throwable) {
+                if (failure is CancellationException) throw failure
+                if (generation == sourceLoadGeneration) dispatch(DetailMsg.SourcesFailed("资源比较暂时不可用，请重试"))
             }
         }
     }

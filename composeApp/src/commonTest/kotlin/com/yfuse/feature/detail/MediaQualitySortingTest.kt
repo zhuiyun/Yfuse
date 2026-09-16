@@ -15,6 +15,29 @@ import kotlin.test.assertTrue
 
 class MediaQualitySortingTest {
     @Test
+    fun resolved_copy_remains_comparable_when_discovery_omits_current_server() {
+        val remote = source(id = "remote", info = sourceInfo(width = 1920, height = 1080))
+        val selected = version(id = "local", width = 3840, height = 2160)
+        val result = listOf(remote).withResolvedCurrentSource(selected, "local", "本地媒体库", "movie")
+        assertEquals(2, result.size)
+        assertEquals(remote, result.first())
+        assertEquals("movie", result.last().itemId)
+        assertTrue(result.last().reachable)
+        assertEquals(2160, result.last().source?.videoHeight)
+    }
+
+    @Test
+    fun resolved_copy_replaces_failed_search_without_duplicating_server() {
+        val failed = ServerSource("local", "媒体库", true, null, false)
+        val selected = version(id = "local", width = 1280, height = 720)
+        val result = listOf(failed).withResolvedCurrentSource(selected, "local", "媒体库", "movie")
+        assertEquals(1, result.size)
+        assertTrue(result.single().reachable)
+        assertEquals(720, result.single().source?.videoHeight)
+        assertEquals(listOf(failed), listOf(failed).withResolvedCurrentSource(null, "local", "媒体库", "movie"))
+    }
+
+    @Test
     fun version_resolution_beats_file_size() {
         val oversized1080p =
             version(

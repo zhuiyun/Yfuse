@@ -153,6 +153,30 @@ internal fun List<ServerSource>.describing(
     }
 }
 
+/** Keep the resolved, playable copy visible even if the server's search omits it. */
+internal fun List<ServerSource>.withResolvedCurrentSource(
+    version: MediaVersion?,
+    serverId: String?,
+    serverName: String?,
+    itemId: String?,
+): List<ServerSource> {
+    if (version == null || serverId == null || serverName == null || itemId == null) return this
+    val current =
+        ServerSource(
+            serverId = serverId,
+            serverName = serverName,
+            isCurrent = true,
+            source = version.restating(SourceInfo(version.qualityLabel, version.sizeLabel, version.bitrateLabel)),
+            reachable = true,
+            itemId = itemId,
+        )
+    return if (any { it.serverId == serverId }) {
+        map { if (it.serverId == serverId) current else it }
+    } else {
+        this + current
+    }
+}
+
 private fun MediaVersion.restating(base: SourceInfo): SourceInfo =
     base.copy(
         quality = qualityLabel,
@@ -601,6 +625,9 @@ internal fun SourceSection(
     onSeeAll: () -> Unit,
     modifier: Modifier = Modifier,
     presentation: SourceSelectionPresentation? = null,
+    loading: Boolean = false,
+    error: String? = null,
+    onRetry: () -> Unit = {},
 ) {
     val palette = LocalPalette.current
     // Order is the caller's: it ranks on what each server holds, before the selected entry is
@@ -611,7 +638,7 @@ internal fun SourceSection(
         }
     Column(modifier) {
         SectionHeader(
-            title = "资源",
+            title = "资源比较",
             modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),
         ) {
             Row(
@@ -623,7 +650,7 @@ internal fun SourceSection(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    "${availableSources.size} 个媒体库",
+                    "查看全部 · ${availableSources.size}",
                     style = AppTypography.caption.strong,
                     color = palette.body,
                 )
@@ -634,6 +661,23 @@ internal fun SourceSection(
                     modifier = Modifier.size(12.dp),
                 )
             }
+        }
+        if (loading || error != null || availableSources.isEmpty()) {
+            Text(
+                when {
+                    loading -> "正在查找各服务器的可用版本…"
+                    error != null -> error
+                    else -> "暂未找到可比较的版本，点击重试"
+                },
+                style = AppTypography.caption.regular,
+                color = palette.sub2,
+                modifier =
+                    Modifier
+                        .padding(
+                            horizontal = Dimens.pageHorizontal,
+                        ).pressable(enabled = !loading, onClick = onRetry)
+                        .padding(vertical = 10.dp),
+            )
         }
         // The best copy is called out, because that is the question the row exists to answer:
         // given the same title on two servers, which one is the better one. It is the first

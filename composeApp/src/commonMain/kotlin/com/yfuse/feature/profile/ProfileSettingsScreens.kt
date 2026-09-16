@@ -449,6 +449,8 @@ internal fun WatchTogetherSettingsScreen(
 
 @Composable
 internal fun AppearanceSettingsScreen(
+    libraryCarousel: Boolean,
+    onLibraryCarousel: (Boolean) -> Unit,
     onBack: () -> Unit,
     brandSummary: String,
     backgroundSummary: String,
@@ -477,6 +479,15 @@ internal fun AppearanceSettingsScreen(
         motionItem(key = "appearance-look") {
             Section(title = "外观") {
                 SettingsCard {
+                    SwitchRow(
+                        "库页轮播图",
+                        libraryCarousel,
+                        true,
+                        icon = AppIcons.Grid,
+                        iconTint = SettingTint.library,
+                        onChange = onLibraryCarousel,
+                    )
+                    SettingsDivider()
                     SwitchRow(
                         "搜索与导航动效",
                         pulseSweep,

@@ -74,7 +74,7 @@ internal fun SourceListDialog(
 
     GlassDialog(liquidButtons = false, onDismiss = onDismiss) {
         OverlayHeader(
-            title = "资源",
+            title = "资源比较",
             subtitle = "${available.size} 个媒体库有这个片子 · 再点已选项即可播放",
             onClose = onDismiss,
         )
@@ -107,10 +107,23 @@ internal fun SourceListDialog(
             }
             if (available.isEmpty()) {
                 Text(
-                    "只有当前服务器有这个片子。",
+                    "暂未找到可比较的版本，请返回后重试。",
                     style = AppTypography.caption.regular,
                     color = palette.sub2,
                     modifier = Modifier.padding(vertical = 12.dp),
+                )
+            }
+            sources.filter { it !in available }.forEach { entry ->
+                Text(
+                    entry.serverName + " · " +
+                        when {
+                            !entry.reachable -> "暂时无法连接"
+                            entry.itemId == null -> "未找到对应作品或集数"
+                            else -> "服务器未提供版本信息"
+                        },
+                    style = AppTypography.caption.regular,
+                    color = palette.sub2,
+                    modifier = Modifier.padding(vertical = 8.dp),
                 )
             }
         }

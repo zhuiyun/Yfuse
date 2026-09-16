@@ -216,6 +216,8 @@ fun DetailScreen(component: DetailComponent) {
     val comparableSources =
         remember(
             state.sources,
+            state.playServer,
+            state.playSourceDetail?.id,
             sourceHealth,
             smartSourceRanking,
             sourceNetwork,
@@ -227,7 +229,12 @@ fun DetailScreen(component: DetailComponent) {
             // default and rewriting it afterwards could leave a selected 720p copy wearing Best
             // while a visible 1080p copy sat behind it.
             state.sources
-                .describing(
+                .withResolvedCurrentSource(
+                    version = selectedVersion,
+                    serverId = state.playServer?.id,
+                    serverName = state.playServer?.serverName,
+                    itemId = state.playSourceDetail?.id,
+                ).describing(
                     version = selectedVersion,
                     selectedServerId = state.selectedSourceServerId,
                     selectedItemId = state.selectedSourceItemId,
@@ -570,13 +577,41 @@ fun DetailScreen(component: DetailComponent) {
 
                                 state.server?.let { server ->
                                     motionItem(key = "personal-lists") {
-                                        com.yfuse.feature.personal.PersonalMediaActions(
-                                            detail,
-                                            server.id,
-                                            Modifier.sectionPadding(),
-                                        )
+                                        AnimatedColorContent(detailAccentState) { detailAccent ->
+                                            com.yfuse.feature.personal.PersonalMediaActions(
+                                                detail,
+                                                server.id,
+                                                Modifier
+                                                    .padding(
+                                                        horizontal = Dimens.pageHorizontal,
+                                                    ).padding(top = 10.dp),
+                                                accent = detailAccent,
+                                            )
+                                        }
                                     }
                                 }
+                                if (state.server != null) {
+                                    motionItem(key = "sources") {
+                                        AnimatedColorContent(detailAccentState) { detailAccent ->
+                                            SourceSection(
+                                                sources = comparableSources,
+                                                presentation = sourcePresentation,
+                                                loading = state.sourcesLoading,
+                                                error = state.sourcesError,
+                                                onRetry = { component.store.accept(DetailIntent.RetrySources) },
+                                                selectedServerId = state.selectedSourceServerId,
+                                                selectedItemId = state.selectedSourceItemId,
+                                                accent = detailAccent,
+                                                onSelect = { serverId, itemId ->
+                                                    component.store.accept(DetailIntent.SelectSource(serverId, itemId))
+                                                },
+                                                onSeeAll = { sourceListOpen = true },
+                                                modifier = Modifier.padding(top = Dimens.sectionGap),
+                                            )
+                                        }
+                                    }
+                                }
+
                                 val overview = detail.overview
                                 if (!overview.isNullOrBlank()) {
                                     motionItem(key = "overview") {
@@ -674,25 +709,6 @@ fun DetailScreen(component: DetailComponent) {
                                                 onSelectSubtitle = {
                                                     component.store.accept(DetailIntent.SelectSubtitleLanguage(it))
                                                 },
-                                                modifier = Modifier.padding(top = Dimens.sectionGap),
-                                            )
-                                        }
-                                    }
-                                }
-
-                                if (comparableSources.any { it.reachable && it.source != null && it.itemId != null }) {
-                                    motionItem(key = "sources") {
-                                        AnimatedColorContent(detailAccentState) { detailAccent ->
-                                            SourceSection(
-                                                sources = comparableSources,
-                                                presentation = sourcePresentation,
-                                                selectedServerId = state.selectedSourceServerId,
-                                                selectedItemId = state.selectedSourceItemId,
-                                                accent = detailAccent,
-                                                onSelect = { serverId, itemId ->
-                                                    component.store.accept(DetailIntent.SelectSource(serverId, itemId))
-                                                },
-                                                onSeeAll = { sourceListOpen = true },
                                                 modifier = Modifier.padding(top = Dimens.sectionGap),
                                             )
                                         }

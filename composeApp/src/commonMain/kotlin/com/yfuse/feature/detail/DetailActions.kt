@@ -239,7 +239,7 @@ internal fun DetailActionDock(
 
 /** A layered secondary key: glass body, inset icon well and a visible selected state. */
 @Composable
-private fun GlassActionButton(
+internal fun GlassActionButton(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
     active: Boolean,

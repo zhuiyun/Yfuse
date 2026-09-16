@@ -222,7 +222,7 @@ private fun utcDate(epochMs: Long): String {
 @Composable
 fun LibraryHomeScreen(component: LibraryHomeComponent) {
     val state by component.store.states.collectAsState(component.store.state)
-    val compactLibrary by component.themePreferences.compactLibrary.collectAsState()
+    val libraryCarousel by component.themePreferences.libraryCarousel.collectAsState()
     val store = component.store
     val baseUrl = state.currentServer?.baseUrl.orEmpty()
     // Image endpoints answer 401 without it on a server that requires authentication, so
@@ -300,7 +300,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
     }
     LaunchedEffect(
         slides.size,
-        compactLibrary,
+        libraryCarousel,
         carouselDragging,
         reduceMotion,
         routeVisible,
@@ -312,7 +312,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
         // Same reasoning as 首页's reel: the largest moving thing on the page, and the one
         // 减弱动态效果 was not reaching.
         if (
-            compactLibrary ||
+            !libraryCarousel ||
             !routeVisible ||
             !carouselVisible ||
             serverMenuOpen ||
@@ -358,7 +358,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                 if (showSidePreview) LivingPosterDefaults.LEADING_INSET else 0.dp
             val indicatorEnd =
                 if (showSidePreview) LivingPosterDefaults.TRAILING_PEEK else 0.dp
-            StatusBarIconStyle(darkIcons = (compactLibrary || slide == null || lightPageReached) && !palette.isDark)
+            StatusBarIconStyle(darkIcons = (!libraryCarousel || slide == null || lightPageReached) && !palette.isDark)
             when {
                 state.currentServer == null ->
                     PageHint(
@@ -396,33 +396,24 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                 verticalArrangement = Arrangement.spacedBy(Dimens.sectionGap),
                                 contentPadding = PaddingValues(bottom = bottomContentInset),
                             ) {
-                                motionItem(key = "library-mode") {
-                                    Column(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 16.dp)) {
-                                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                            LibraryAction("全部服务器", onClick = component.onOpenUnified)
-                                            LibraryAction(if (compactLibrary) "显示大海报" else "紧凑模式") {
-                                                component.themePreferences.setCompactLibrary(!compactLibrary)
-                                            }
+                                if (!libraryCarousel || slide == null) {
+                                    motionItem(key = "library-header") {
+                                        Column(
+                                            Modifier.fillMaxWidth().statusBarsPadding().padding(
+                                                horizontal = Dimens.pageHorizontal,
+                                                vertical = 12.dp,
+                                            ),
+                                        ) {
+                                            com.yfuse.feature.profile.SettingRow(
+                                                title = "媒体库",
+                                                value = state.currentServer?.serverName.orEmpty() + " ›",
+                                                icon = AppIcons.Server,
+                                                onClick = { serverMenuOpen = true },
+                                            )
                                         }
-                                        Text(
-                                            state.currentServer?.serverName.orEmpty(),
-                                            style = AppTypography.caption.regular,
-                                            color = palette.sub2,
-                                        )
                                     }
                                 }
-                                if (compactLibrary && state.content.resume.isNotEmpty()) {
-                                    motionItem(key = "library-resume-first") {
-                                        PlaybackHistory(
-                                            baseUrl = baseUrl,
-                                            accessToken = accessToken,
-                                            serverId = state.currentServer?.id,
-                                            items = state.content.resume,
-                                            onItemClick = { component.onOpenItem(it.id) },
-                                        )
-                                    }
-                                }
-                                if (slide != null && !compactLibrary) {
+                                if (libraryCarousel && slide != null) {
                                     motionItem {
                                         Box(
                                             Modifier
@@ -624,7 +615,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                         )
                                     }
                                 }
-                                if (!compactLibrary && state.content.resume.isNotEmpty()) {
+                                if (state.content.resume.isNotEmpty()) {
                                     motionItem(key = "library-resume") {
                                         PlaybackHistory(
                                             baseUrl = baseUrl,
@@ -660,7 +651,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
             // Once the hero has scrolled away, content must stop at the safe edge instead of
             // continuing underneath the clock and status icons. A page-coloured guard keeps
             // the full-bleed artwork at launch, then becomes the clipped top edge for shelves.
-            if (lightPageReached) {
+            if (!libraryCarousel || lightPageReached) {
                 Box(
                     Modifier
                         .fillMaxWidth()
@@ -678,6 +669,10 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                         serverMenuOpen = false
                     },
                     onDismiss = { serverMenuOpen = false },
+                    onOpenUnified = {
+                        serverMenuOpen = false
+                        component.onOpenUnified()
+                    },
                 )
             }
         }
@@ -969,6 +964,7 @@ private fun HeroCarousel(
  */
 @Composable
 private fun ServerSheet(
+    onOpenUnified: () -> Unit,
     servers: List<SavedServer>,
     currentId: String?,
     onSelect: (String) -> Unit,
@@ -982,6 +978,8 @@ private fun ServerSheet(
             subtitle = "已登录 ${servers.size} 个 · 切换后重新载入媒体库",
             onClose = onDismiss,
         )
+        com.yfuse.core.designsystem
+            .YfButton("浏览全部服务器", overlayAction(onOpenUnified))
         // A centred panel has no edge to grow against, so a long server list scrolls inside
         // the dialog instead of running off both ends of the screen. [GlassDialog] does that
         // itself now, against the screen it is actually on rather than a fixed maximum.

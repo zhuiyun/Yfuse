@@ -60,6 +60,8 @@ data class DetailState(
     val progressTotal: Int = 0,
     /** 跨服务器片源对比. */
     val sources: List<ServerSource> = emptyList(),
+    val sourcesLoading: Boolean = false,
+    val sourcesError: String? = null,
     val related: List<MediaItem> = emptyList(),
     val error: String? = null,
     val actionMessage: String? = null,
@@ -83,6 +85,8 @@ data class DetailState(
 
 sealed interface DetailIntent {
     data object Retry : DetailIntent
+
+    data object RetrySources : DetailIntent
 
     /** The one-shot 提示 has been on screen long enough — see [ActionToast]. */
     data object DismissMessage : DetailIntent

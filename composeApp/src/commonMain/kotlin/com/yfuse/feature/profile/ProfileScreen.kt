@@ -133,10 +133,8 @@ private val ThemeModeDisplayOrder = listOf(ThemeMode.Light, ThemeMode.System, Th
 
 private enum class ProfilePage {
     Root,
-    Settings,
     Personal,
     Family,
-    History,
     Sync,
     Handoff,
     Trakt,
@@ -173,6 +171,46 @@ private val SettingsSearchDestinations =
             tint = SettingTint.account,
         ),
         SettingsSearchDestination(
+            "我的内容",
+            "收藏、想看与观看历史",
+            "个人清单 最近观看 历史 收藏 想看",
+            ProfilePage.Personal,
+            icon = AppIcons.Bookmark,
+            tint = SettingTint.account,
+        ),
+        SettingsSearchDestination(
+            "家庭资料",
+            "新建、切换与家长控制",
+            "个人资料 家庭 儿童 PIN",
+            ProfilePage.Family,
+            icon = AppIcons.User,
+            tint = SettingTint.account,
+        ),
+        SettingsSearchDestination(
+            "同步状态与恢复",
+            "个人内容与播放进度同步",
+            "同步 状态 恢复",
+            ProfilePage.Sync,
+            icon = AppIcons.Refresh,
+            tint = SettingTint.account,
+        ),
+        SettingsSearchDestination(
+            "设备接力",
+            "在另一台设备继续观看",
+            "设备 接力",
+            ProfilePage.Handoff,
+            icon = AppIcons.Play,
+            tint = SettingTint.playback,
+        ),
+        SettingsSearchDestination(
+            "Trakt",
+            "授权、导入与播放上报",
+            "trakt 导入 上报",
+            ProfilePage.Trakt,
+            icon = AppIcons.Refresh,
+            tint = SettingTint.account,
+        ),
+        SettingsSearchDestination(
             "服务器",
             "连接与切换媒体服务器",
             "服务器 emby jellyfin plex",
@@ -183,7 +221,7 @@ private val SettingsSearchDestinations =
         SettingsSearchDestination(
             "外观与主题",
             "主题、背景、动效与辅助功能",
-            "外观 主题 背景 玻璃 字体 粒子 光效 动效 弹窗 动画 浮起 展开 回弹 透视 全息 扫描 空间 折叠 能量 边框 分层 悬浮 光圈 数字 重构 科幻",
+            "外观 主题 背景 库页 轮播图 海报 玻璃 字体 粒子 光效 动效 弹窗 动画 浮起 展开 回弹 透视 全息 扫描 空间 折叠 能量 边框 分层 悬浮 光圈 数字 重构 科幻",
             ProfilePage.Appearance,
             icon = AppIcons.Grid,
             tint = SettingTint.appearance,
@@ -231,6 +269,7 @@ fun ProfileScreen(component: ProfileComponent) {
     val largeText by prefs.largeText.collectAsState()
     val reduceMotion by prefs.reduceMotion.collectAsState()
     val pulseSweep by prefs.pulseSweep.collectAsState()
+    val libraryCarousel by prefs.libraryCarousel.collectAsState()
     val particleLight by prefs.particleLight.collectAsState()
     val particleStyle by prefs.particleStyle.collectAsState()
     val decoder by prefs.decoder.collectAsState()
@@ -426,6 +465,8 @@ fun ProfileScreen(component: ProfileComponent) {
 
                 ProfilePage.Appearance ->
                     AppearanceSettingsScreen(
+                        libraryCarousel = libraryCarousel,
+                        onLibraryCarousel = prefs::setLibraryCarousel,
                         onBack = ::closePage,
                         brandSummary =
                             if (splashAnimation) {
@@ -494,23 +535,7 @@ fun ProfileScreen(component: ProfileComponent) {
                         },
                     )
 
-                ProfilePage.Root ->
-                    PersonalHomeScreen(
-                        personal = component.personal,
-                        downloadCount = offlineItems.count { component.personal.canAccessServer(it.serverId) },
-                        onOpenCenter = { openPage(ProfilePage.Personal) },
-                        onOpenHistory = { openPage(ProfilePage.History) },
-                        onOpenSync = { openPage(ProfilePage.Sync) },
-                        onOpenFamily = { openPage(ProfilePage.Family) },
-                        onOpenDownloads = { openPage(ProfilePage.Downloads) },
-                        onOpenAccount = { openPage(ProfilePage.Account) },
-                        onOpenHandoff = { openPage(ProfilePage.Handoff) },
-                        onOpenTrakt = { openPage(ProfilePage.Trakt) },
-                        onOpenSettings = { openPage(ProfilePage.Settings) },
-                        onOpenMedia = component.onOpenPersonalMedia,
-                    )
-
-                ProfilePage.Personal, ProfilePage.Family, ProfilePage.History, ProfilePage.Sync ->
+                ProfilePage.Personal, ProfilePage.Family, ProfilePage.Sync ->
                     com.yfuse.feature.personal.PersonalCenterScreen(
                         personal = component.personal,
                         account = component.account,
@@ -522,7 +547,6 @@ fun ProfileScreen(component: ProfileComponent) {
                         initialTab =
                             when (activePage) {
                                 ProfilePage.Family -> com.yfuse.feature.personal.PersonalCenterTab.Profiles
-                                ProfilePage.History -> com.yfuse.feature.personal.PersonalCenterTab.History
                                 ProfilePage.Sync -> com.yfuse.feature.personal.PersonalCenterTab.Sync
                                 else -> com.yfuse.feature.personal.PersonalCenterTab.WatchLater
                             },
@@ -537,7 +561,7 @@ fun ProfileScreen(component: ProfileComponent) {
                     com.yfuse.feature.trakt
                         .TraktSettingsScreen(component.trakt, ::closePage)
 
-                ProfilePage.Settings ->
+                ProfilePage.Root ->
                     SkeletonHandoff(
                         loading = !state.initialized,
                         modifier = Modifier.fillMaxSize(),
@@ -549,9 +573,6 @@ fun ProfileScreen(component: ProfileComponent) {
                             contentPadding = PaddingValues(top = Dimens.contentTop, bottom = rootBottomContentInset),
                             verticalArrangement = Arrangement.spacedBy(18.dp),
                         ) {
-                            motionItem(key = "settings-back") {
-                                SettingsPageHeader(title = "设置", subtitle = null, onBack = ::closePage)
-                            }
                             motionItem(key = "settings-search") {
                                 YfFormField(
                                     value = settingsQuery,
@@ -603,6 +624,16 @@ fun ProfileScreen(component: ProfileComponent) {
                                         )
                                     }
                                 }
+                            }
+
+                            motionItem(key = "personal-settings") {
+                                PersonalSettingsSection(
+                                    personal = component.personal,
+                                    onOpenContent = { openPage(ProfilePage.Personal) },
+                                    onOpenFamily = { openPage(ProfilePage.Family) },
+                                    onOpenHandoff = { openPage(ProfilePage.Handoff) },
+                                    onOpenTrakt = { openPage(ProfilePage.Trakt) },
+                                )
                             }
 
                             motionItem {
@@ -714,6 +745,10 @@ fun ProfileScreen(component: ProfileComponent) {
                             motionItem {
                                 Section(title = "同步与数据") {
                                     SettingsCard {
+                                        SettingRow("同步状态与恢复", "个人内容 · 播放进度 · 服务器状态 ›", embedded = true, onClick = {
+                                            openPage(ProfilePage.Sync)
+                                        }, icon = AppIcons.Refresh, iconTint = SettingTint.account)
+                                        SettingsDivider()
                                         SettingRow(
                                             "高级设置",
                                             "网络兼容 · 备份 · 缓存 · 诊断 ›",
