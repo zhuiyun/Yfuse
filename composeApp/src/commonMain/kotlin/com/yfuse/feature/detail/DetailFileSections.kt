@@ -683,12 +683,6 @@ internal fun SourceSection(
         // given the same title on two servers, which one is the better one. It is the first
         // entry by construction — the caller ranked them — and saying so beats making the
         // reader infer it from the order.
-        presentation?.let {
-            SourceSelectionSummary(
-                it,
-                Modifier.padding(horizontal = Dimens.pageHorizontal, vertical = 10.dp),
-            )
-        }
         val bestServerId =
             presentation?.recommendedServerId
                 ?: remember(availableSources) {

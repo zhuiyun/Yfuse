@@ -47,7 +47,6 @@ import com.yfuse.feature.detail.DetailComponent
 import com.yfuse.feature.detail.DetailIntent
 import com.yfuse.feature.detail.bestSourcesFirst
 import com.yfuse.feature.detail.describing
-import com.yfuse.feature.detail.sourceSelectionPresentation
 import com.yfuse.feature.personal.PersonalMediaActions
 import com.yfuse.tv.focus.FocusCandidate
 import com.yfuse.tv.focus.FocusContext
@@ -114,16 +113,6 @@ internal fun TvDetailScreen(
                 } else {
                     describedSources.bestSourcesFirst()
                 }
-            val sourcePresentation =
-                sourceSelectionPresentation(
-                    comparableSources,
-                    state.selectedSourceServerId,
-                    state.selectedSourceItemId,
-                    selectedVersion?.name,
-                    sourceHealth,
-                    sourceNetwork,
-                    smartRanking,
-                )
             val heroUrl =
                 EmbyImages.backdrop(server.baseUrl, detail, accessToken = server.accessToken)
                     ?: EmbyImages.poster(server.baseUrl, detail, accessToken = server.accessToken)
@@ -149,27 +138,6 @@ internal fun TvDetailScreen(
                 contentPadding = PaddingValues(bottom = TvSafeVertical + 38.dp),
                 verticalArrangement = Arrangement.spacedBy(26.dp),
             ) {
-                item(key = "detail-source-selection:${detail.id}") {
-                    Column(
-                        Modifier.padding(horizontal = TvSafeHorizontal),
-                        verticalArrangement = Arrangement.spacedBy(5.dp),
-                    ) {
-                        Text(sourcePresentation.selectedLabel, color = TvOnSurface, fontSize = 18.sp)
-                        Text(
-                            listOf(
-                                sourcePresentation.recommendationLabel,
-                                sourcePresentation.reason,
-                            ).filter(String::isNotBlank).joinToString(" · "),
-                            color = TvOnSurface.copy(alpha = 0.7f),
-                            fontSize = 15.sp,
-                        )
-                        Text(
-                            "推荐供手动比较；当前来源可用时保留选择。响应时间不代表下载带宽或设备解码能力。",
-                            color = TvOnSurface.copy(alpha = 0.6f),
-                            fontSize = 14.sp,
-                        )
-                    }
-                }
                 item(key = "detail-hero:${detail.id}") {
                     TvDetailHero(
                         detail = detail,

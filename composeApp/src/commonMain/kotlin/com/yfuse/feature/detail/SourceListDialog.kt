@@ -78,7 +78,6 @@ internal fun SourceListDialog(
             subtitle = "${available.size} 个媒体库有这个片子 · 再点已选项即可播放",
             onClose = onDismiss,
         )
-        presentation?.let { SourceSelectionSummary(it, Modifier.padding(bottom = 12.dp)) }
         // No height cap of its own: [GlassDialog] scrolls whatever it cannot fit, and it is
         // the only one that knows how much screen there actually is.
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
