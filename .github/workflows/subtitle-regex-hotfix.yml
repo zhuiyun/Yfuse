@@ -40,7 +40,7 @@ jobs:
           upstream="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$NATIVE_RUN_ID" --jq '[.head_sha,.conclusion] | @tsv')"
           test "$upstream" = "$(printf '%s\tsuccess' "$NATIVE_SOURCE_SHA")"
       - name: Set up Java and dependency cache
-        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6
         with:
           distribution: temurin
           java-version: '17'
