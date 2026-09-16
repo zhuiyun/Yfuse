@@ -37,7 +37,7 @@ concurrency:
 
 jobs:
   measure:
-    # Provision SDK 36, build tools 36, NDK 29, CMake 3.22.1, JDK 17/21, Python 3,
+    # Provision SDK 37.0, build tools 36, NDK 29, CMake 3.22.1, JDK 17/21, Python 3,
     # Gradle dependency access and one unlocked, authorized arm64 physical phone.
     runs-on: [self-hosted, Linux, X64, android-physical, yfuse-performance]
     timeout-minutes: 360

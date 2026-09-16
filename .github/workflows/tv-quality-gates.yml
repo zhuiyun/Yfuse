@@ -13,6 +13,7 @@ on:
       - composeApp/src/androidMain/**
       - composeApp/src/androidUnitTest/**
       - tvApp/**
+      - tvShared/**
       - gradle/**
       - settings.gradle.kts
       - gradle.properties
@@ -27,6 +28,7 @@ on:
       - composeApp/src/androidMain/**
       - composeApp/src/androidUnitTest/**
       - tvApp/**
+      - tvShared/**
       - gradle/**
       - settings.gradle.kts
       - gradle.properties
@@ -74,7 +76,7 @@ jobs:
             --pattern 'test_verify_tv_artifact.py'
           git diff --check
 
-      - name: Install Android 36 build tools
+      - name: Install Android 37.0 build tools
         shell: bash
         run: |
           set -euo pipefail
@@ -85,7 +87,7 @@ jobs:
           fi
           test -x "$sdkmanager"
           yes | "$sdkmanager" --licenses >/dev/null 2>&1 || true
-          "$sdkmanager" "platforms;android-36" "build-tools;36.0.0"
+          "$sdkmanager" "platforms;android-37.0" "build-tools;36.0.0"
 
       - name: Fetch compile-only player APIs
         shell: bash
@@ -103,7 +105,7 @@ jobs:
       # checks compile and test; artifact assembly remains available on other branches.
       - name: Run TV unit tests during signing review
         if: github.ref == 'refs/heads/codex/ycore-sign-20260830'
-        run: ./gradlew :tvApp:ktlintCheck :tvApp:testDebugUnitTest --no-daemon
+        run: ./gradlew :tvApp:ktlintCheck :tvShared:ktlintCheck :tvShared:testAndroidHostTest --no-daemon
 
       - name: Run TV unit tests and build debug APK
         if: github.ref != 'refs/heads/codex/ycore-sign-20260830'
@@ -111,8 +113,8 @@ jobs:
         run: |
           set -euo pipefail
           ./gradlew \
-            :tvApp:ktlintCheck \
-            :tvApp:testDebugUnitTest \
+            :tvApp:ktlintCheck :tvShared:ktlintCheck \
+            :tvShared:testAndroidHostTest \
             :tvApp:assembleDebug \
             :tvApp:assembleRelease -PallowDebugSigning=true \
             --stacktrace \

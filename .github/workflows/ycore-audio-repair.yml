@@ -99,7 +99,7 @@ jobs:
           sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
           manager="$sdk/cmdline-tools/latest/bin/sdkmanager"
           yes | "$manager" --licenses >/dev/null 2>&1 || true
-          "$manager" 'platforms;android-36' 'build-tools;36.0.0' 'ndk;29.0.14206865' 'cmake;3.22.1'
+          "$manager" 'platforms;android-37.0' 'build-tools;36.0.0' 'ndk;29.0.14206865' 'cmake;3.22.1'
           if ! command -v 7z >/dev/null; then sudo apt-get update && sudo apt-get install -y p7zip-full; fi
       - name: Download verified compatibility SDKs
         env:
@@ -147,9 +147,9 @@ jobs:
           (root / 'native-build-info.json').write_text(json.dumps(report, indent=2) + '\n')
           PY
       - name: Verify formatting and design contracts
-        run: ./gradlew :composeApp:ktlintCheck :composeApp:verifyDesignSystemUsage --no-daemon
+        run: ./gradlew :composeApp:ktlintCheck :phoneShared:ktlintCheck :composeApp:verifyDesignSystemUsage --no-daemon
       - name: Compile and run regression tests
-        run: ./gradlew :composeApp:testDebugUnitTest :watchTogetherProtocol:jvmTest :watchTogetherServer:test --no-daemon
+        run: ./gradlew :phoneShared:testAndroidHostTest :watchTogetherProtocol:jvmTest :watchTogetherServer:test --no-daemon
       - name: Configure original production signing
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -255,8 +255,8 @@ jobs:
         with:
           name: ycore-audio-tests-${{ github.run_id }}
           path: |
-            composeApp/build/test-results/
-            composeApp/build/reports/ktlint/
+            phoneShared/build/test-results/
+            phoneShared/build/reports/ktlint/
             watchTogetherProtocol/build/test-results/
             watchTogetherServer/build/test-results/
           retention-days: 7

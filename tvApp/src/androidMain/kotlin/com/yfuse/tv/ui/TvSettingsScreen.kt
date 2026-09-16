@@ -21,13 +21,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
-import com.yfuse.BuildConfig
 import com.yfuse.core.account.AccountState
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.ThemeMode
 import com.yfuse.feature.profile.ProfileComponent
 import com.yfuse.feature.profile.ProfileIntent
 import com.yfuse.tv.focus.requestFocusWhenAttached
+import com.yfuse.core.platform.AppBuildConfig as BuildConfig
 
 /**
  * Settings root plus its sub-pages.

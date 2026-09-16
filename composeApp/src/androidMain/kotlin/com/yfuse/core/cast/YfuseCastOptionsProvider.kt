@@ -6,7 +6,7 @@ import com.google.android.gms.cast.LaunchOptions
 import com.google.android.gms.cast.framework.CastOptions
 import com.google.android.gms.cast.framework.OptionsProvider
 import com.google.android.gms.cast.framework.SessionProvider
-import com.yfuse.BuildConfig
+import com.yfuse.core.platform.AppBuildConfig as BuildConfig
 
 internal fun configuredCastReceiverApplicationId(): String =
     BuildConfig.YFUSE_CAST_RECEIVER_APPLICATION_ID

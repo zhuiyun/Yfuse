@@ -214,7 +214,7 @@ internal class AndroidYCapabilityProvider(
 
     /** Android 13 and older expose HDR support only through the now-deprecated display API. */
     @Suppress("DEPRECATION")
-    private fun Display.legacySupportedHdrTypes(): IntArray = hdrCapabilities.supportedHdrTypes
+    private fun Display.legacySupportedHdrTypes(): IntArray = hdrCapabilities?.supportedHdrTypes ?: intArrayOf()
 
     private fun queryFrameRateSwitching(): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return false

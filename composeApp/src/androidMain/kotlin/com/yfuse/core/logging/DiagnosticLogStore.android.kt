@@ -5,7 +5,6 @@ import android.os.Build
 import android.os.Process
 import android.os.SystemClock
 import android.util.Log
-import com.yfuse.BuildConfig
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -30,6 +29,7 @@ import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
+import com.yfuse.core.platform.AppBuildConfig as BuildConfig
 
 @Serializable
 private data class DiagnosticException(

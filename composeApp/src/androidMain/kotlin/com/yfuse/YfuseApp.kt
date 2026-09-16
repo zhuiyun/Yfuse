@@ -58,8 +58,9 @@ import okio.Path.Companion.toOkioPath
 import org.koin.core.context.GlobalContext
 import org.koin.core.context.startKoin
 import org.koin.dsl.module
+import com.yfuse.core.platform.AppBuildConfig as BuildConfig
 
-class YfuseApp :
+open class YfuseApp :
     Application(),
     SingletonImageLoader.Factory {
     override fun onCreate() {

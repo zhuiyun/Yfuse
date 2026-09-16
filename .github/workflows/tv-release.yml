@@ -191,7 +191,7 @@ jobs:
           java-version: "17"
           cache: gradle
 
-      - name: Install Android 36 build tools
+      - name: Install Android 37.0 build tools
         shell: bash
         run: |
           set -euo pipefail
@@ -202,7 +202,7 @@ jobs:
           fi
           test -x "$sdkmanager"
           yes | "$sdkmanager" --licenses >/dev/null 2>&1 || true
-          "$sdkmanager" "platforms;android-36" "build-tools;36.0.0"
+          "$sdkmanager" "platforms;android-37.0" "build-tools;36.0.0"
 
       - name: Fetch compile-only player APIs
         shell: bash
@@ -302,7 +302,7 @@ jobs:
         run: |
           set -euo pipefail
           ./gradlew \
-            :tvApp:testDebugUnitTest \
+            :tvShared:testAndroidHostTest \
             :tvApp:assembleRelease \
             :tvApp:bundleRelease \
             -PyfuseVersionCode="$VERSION_CODE" \

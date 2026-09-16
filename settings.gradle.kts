@@ -30,11 +30,9 @@ dependencyResolutionManagement {
 }
 
 include(":composeApp")
-// Android TV is an independent application module on purpose. The existing Kotlin
-// Multiplatform application is not a consumable Android library, and converting it in place
-// would also make its local native AAR dependencies invalid inside an AAR. Keeping the TV
-// shell separate preserves every existing mobile variant while the reusable domain/player
-// surface is extracted behind stable APIs in later, reviewable changes.
+// App shells own packaging; KMP libraries own the existing shared source trees.
+include(":phoneShared")
+include(":tvShared")
 include(":tvApp")
 include(":macrobenchmark")
 include(":mdkAndroid")

@@ -34,7 +34,7 @@ jobs:
         run: |
           set -euo pipefail
           sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
-          "$sdk/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-36'
+          "$sdk/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-37.0'
           if ! command -v 7z >/dev/null; then sudo apt-get update && sudo apt-get install -y p7zip-full; fi
           bash scripts/fetch-engines.sh
       - name: Kotlin type checking only; no APK or native validation claimed
@@ -45,7 +45,7 @@ jobs:
           # JNI output is not needed for Kotlin type checking. Full native verification
           # remains mandatory and unchanged in sign-android-branch.yml before delivery.
           # Do not add assemble, package, or release tasks to this diagnostic invocation.
-          ./gradlew :composeApp:compileDebugKotlinAndroid -x :composeApp:verifyStandaloneYCoreArtifact --no-daemon --console=plain --max-workers=2 2>&1 | tee /tmp/particle-kotlin-only.log
+          ./gradlew :composeApp:compileDebugKotlin -x :composeApp:verifyStandaloneYCoreArtifact --no-daemon --console=plain --max-workers=2 2>&1 | tee /tmp/particle-kotlin-only.log
       - name: Export diagnostic log (not a signed build or test result)
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a

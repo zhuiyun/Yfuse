@@ -38,7 +38,7 @@
     </queries>
 
     <application
-        android:name="com.yfuse.tv.TvApplication"
+        android:name="com.yfuse.shell.TvApplicationShell"
         android:allowBackup="false"
         android:banner="@drawable/tv_banner"
         android:dataExtractionRules="@xml/data_extraction_rules"

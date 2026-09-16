@@ -3,8 +3,9 @@ plugins {
 }
 
 android {
+    enableKotlin = false
     namespace = "com.mediadevkit.sdk"
-    compileSdk = 36
+    compileSdk { version = release(37) { minorApiLevel = 0 } }
     ndkVersion = "29.0.14206865"
 
     defaultConfig {

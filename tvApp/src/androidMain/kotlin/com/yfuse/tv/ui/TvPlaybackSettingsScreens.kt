@@ -160,7 +160,7 @@ internal fun TvAdvancedPlaybackSettingsPage(
                 navigationRequester = navigationRequester,
             )
         }
-        if (com.yfuse.BuildConfig.YFUSE_NATIVE_ONLY_RUNTIME) {
+        if (com.yfuse.core.platform.AppBuildConfig.YFUSE_NATIVE_ONLY_RUNTIME) {
             item(key = "advanced-engine-native") {
                 TvSettingsNote("此电视版本使用 YCore 本地播放。系统、MPV 和 MDK 兼容内核不可切换；下方解码、缓冲和输出设置会作用于当前内核。")
             }

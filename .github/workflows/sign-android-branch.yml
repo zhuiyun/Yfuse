@@ -209,7 +209,7 @@ jobs:
           distribution: temurin
           java-version: "17"
           cache: gradle
-      - name: Install Android 36 and native build tools
+      - name: Install Android 37.0 and native build tools
         shell: bash
         run: |
           set -euo pipefail
@@ -220,7 +220,7 @@ jobs:
           fi
           test -x "$sdkmanager"
           yes | "$sdkmanager" --licenses >/dev/null 2>&1 || true
-          "$sdkmanager" 'platforms;android-36' 'ndk;29.0.14206865' 'cmake;3.22.1'
+          "$sdkmanager" 'platforms;android-37.0' 'ndk;29.0.14206865' 'cmake;3.22.1'
       - name: Download verified compatibility SDKs
         shell: bash
         env:
@@ -285,9 +285,9 @@ jobs:
       - name: Check source hygiene
         run: git diff --check HEAD^
       - name: Verify source formatting and design contracts
-        run: ./gradlew :composeApp:ktlintCheck :composeApp:verifyDesignSystemUsage --no-daemon
+        run: ./gradlew :composeApp:ktlintCheck :phoneShared:ktlintCheck :composeApp:verifyDesignSystemUsage --no-daemon
       - name: Run tests
-        run: ./gradlew :composeApp:testDebugUnitTest :watchTogetherProtocol:jvmTest :watchTogetherServer:test --no-daemon
+        run: ./gradlew :phoneShared:testAndroidHostTest :watchTogetherProtocol:jvmTest :watchTogetherServer:test --no-daemon
       - name: Resolve signed build version
         id: version
         shell: bash
@@ -403,8 +403,8 @@ jobs:
         with:
           name: yfuse-sign-tests-${{ github.sha }}
           path: |
-            composeApp/build/test-results/
-            composeApp/build/reports/ktlint/
+            phoneShared/build/test-results/
+            phoneShared/build/reports/ktlint/
             watchTogetherProtocol/build/test-results/
             watchTogetherServer/build/test-results/
           retention-days: 7
@@ -438,12 +438,12 @@ jobs:
         distribution: temurin
         java-version: '17'
         cache: gradle
-    - name: Install Android 36 and native build tools
+    - name: Install Android 37.0 and native build tools
       shell: bash
       run: "set -euo pipefail\nandroid_sdk=\"${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}\"\nsdkmanager=\"\
         $android_sdk/cmdline-tools/latest/bin/sdkmanager\"\nif [[ ! -x \"$sdkmanager\" ]]; then\n  sdkmanager=\"$(find \"$android_sdk/cmdline-tools\"\
         \ -type f -name sdkmanager -print -quit)\"\nfi\ntest -x \"$sdkmanager\"\nyes | \"$sdkmanager\" --licenses >/dev/null\
-        \ 2>&1 || true\n\"$sdkmanager\" 'platforms;android-36' 'ndk;29.0.14206865' 'cmake;3.22.1'\n"
+        \ 2>&1 || true\n\"$sdkmanager\" 'platforms;android-37.0' 'ndk;29.0.14206865' 'cmake;3.22.1'\n"
     - name: Download verified compatibility SDKs
       shell: bash
       env:
@@ -463,20 +463,20 @@ jobs:
     - name: Run Android lint
       run: ./gradlew :composeApp:lintDebug --max-workers=2 --no-daemon
     - name: Compile application and run project tests
-      run: ./gradlew :composeApp:compileDebugKotlinAndroid :composeApp:testDebugUnitTest :tvApp:testDebugUnitTest :watchTogetherProtocol:jvmTest
+      run: ./gradlew :composeApp:compileDebugKotlin :phoneShared:testAndroidHostTest :tvShared:testAndroidHostTest :watchTogetherProtocol:jvmTest
         :watchTogetherServer:test --max-workers=2 --no-daemon
     - name: Verify formatting and design contracts
-      run: ./gradlew :composeApp:ktlintCheck :tvApp:ktlintCheck :composeApp:verifyDesignSystemUsage --max-workers=2 --no-daemon
+      run: ./gradlew :composeApp:ktlintCheck :phoneShared:ktlintCheck :tvApp:ktlintCheck :tvShared:ktlintCheck :composeApp:verifyDesignSystemUsage --max-workers=2 --no-daemon
     - name: Upload validation reports
       if: always()
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
       with:
         name: yfuse-project-review-${{ github.sha }}
-        path: 'composeApp/build/test-results/
+        path: 'phoneShared/build/test-results/
 
           composeApp/build/reports/
 
-          tvApp/build/test-results/
+          tvShared/build/test-results/
 
           watchTogetherProtocol/build/test-results/
 

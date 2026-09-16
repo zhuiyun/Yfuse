@@ -9,7 +9,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.yfuse.BuildConfig
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.LocalPalette
@@ -19,6 +18,7 @@ import com.yfuse.core.designsystem.sc
 import com.yfuse.update.LocalAppUpdateManager
 import com.yfuse.update.UpdateState
 import com.yfuse.core.designsystem.ThemeText as Text
+import com.yfuse.core.platform.AppBuildConfig as BuildConfig
 
 @Composable
 actual fun AppUpdateTools() {

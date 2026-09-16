@@ -55,7 +55,7 @@ jobs:
           java-version: "17"
           cache: gradle
 
-      - name: Install Android 36 and native build tools
+      - name: Install Android 37.0 and native build tools
         shell: bash
         run: |
           set -euo pipefail
@@ -67,7 +67,7 @@ jobs:
           test -x "$sdkmanager"
           yes | "$sdkmanager" --licenses >/dev/null 2>&1 || true
           "$sdkmanager" \
-            "platforms;android-36" \
+            "platforms;android-37.0" \
             "ndk;29.0.14206865" \
             "cmake;3.22.1"
 

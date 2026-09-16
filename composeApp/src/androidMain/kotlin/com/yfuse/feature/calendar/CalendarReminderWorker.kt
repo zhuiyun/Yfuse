@@ -20,7 +20,6 @@ import androidx.work.PeriodicWorkRequest
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.russhwolf.settings.Settings
-import com.yfuse.R
 import com.yfuse.core.data.AiringCalendarRepository
 import com.yfuse.core.data.CalendarFollowStore
 import com.yfuse.core.data.CalendarReminderMode
@@ -28,6 +27,7 @@ import com.yfuse.core.data.FollowedSeries
 import com.yfuse.core.model.LibraryStatus
 import com.yfuse.core.util.currentEpochMillis
 import com.yfuse.core.util.scheduledEpochMillis
+import com.yfuse.shared.R
 import kotlinx.coroutines.withTimeoutOrNull
 import org.koin.core.context.GlobalContext
 import java.util.concurrent.TimeUnit

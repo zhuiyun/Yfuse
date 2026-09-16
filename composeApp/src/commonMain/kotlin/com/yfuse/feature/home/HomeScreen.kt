@@ -369,9 +369,11 @@ internal fun HomeContentBody(
                         }
                     }
 
-                    motionItem(key = "smart-playlists") {
-                        com.yfuse.feature.search
-                            .SmartPlaylistShelf()
+                    if (showSmartPlaylists) {
+                        motionItem(key = "smart-playlists") {
+                            com.yfuse.feature.search
+                                .SmartPlaylistShelf()
+                        }
                     }
                     if (state.loading && state.content.isEmpty) {
                         // Two shelves' worth of placeholders rather than one spinner: the page

@@ -1,13 +1,12 @@
 plugins {
     alias(libs.plugins.android.test)
-    alias(libs.plugins.kotlin.android)
 }
 
 kotlin { jvmToolchain(17) }
 
 android {
     namespace = "com.yfuse.macrobenchmark"
-    compileSdk = 36
+    compileSdk { version = release(37) { minorApiLevel = 0 } }
 
     defaultConfig {
         minSdk = 28

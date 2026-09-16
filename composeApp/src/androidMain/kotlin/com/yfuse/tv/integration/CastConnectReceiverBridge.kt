@@ -13,10 +13,10 @@ import com.google.android.gms.cast.tv.media.MediaException
 import com.google.android.gms.cast.tv.media.MediaLoadCommandCallback
 import com.google.android.gms.tasks.Task
 import com.google.android.gms.tasks.Tasks
-import com.yfuse.BuildConfig
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.SavedServer
 import java.net.URI
+import com.yfuse.core.platform.AppBuildConfig as BuildConfig
 
 const val YFUSE_CAST_RECEIVER_APPLICATION_ID = "E9107559"
 const val CAST_CONNECT_LAUNCH_ACTION = "com.google.android.gms.cast.tv.action.LAUNCH"

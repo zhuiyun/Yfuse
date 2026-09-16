@@ -1,7 +1,6 @@
 import groovy.json.JsonSlurper
 import org.gradle.api.GradleException
 import org.gradle.api.tasks.options.Option
-import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
@@ -15,9 +14,7 @@ import java.util.zip.ZipFile
 import java.util.zip.ZipOutputStream
 
 plugins {
-    alias(libs.plugins.multiplatform)
     alias(libs.plugins.android.application)
-    alias(libs.plugins.compose.multiplatform)
     alias(libs.plugins.compose.compiler)
     alias(libs.plugins.serialization)
 }
@@ -164,15 +161,17 @@ val verifyCustomMpvArtifact by tasks.registering {
                 .filter { line ->
                     line.endsWith("  libmpv-release.aar") ||
                         line.endsWith("  libmpv-dolby-release.aar") ||
+                        line.endsWith("  libmpv-dolby-installed.aar") ||
                         line.endsWith("  libmpv-stable-release.aar")
                 }.map { it.substringBefore(' ').lowercase() }
                 .toSet()
         require(accepted.isNotEmpty()) { "Pinned Yfuse libmpv checksums are missing" }
-        val dolbyChecksum =
+        val dolbyChecksums =
             pinnedLines
-                .firstOrNull { it.endsWith("  libmpv-dolby-release.aar") }
-                ?.substringBefore(' ')
-                ?.lowercase()
+                .filter {
+                    it.endsWith("  libmpv-dolby-release.aar") || it.endsWith("  libmpv-dolby-installed.aar")
+                }.map { it.substringBefore(' ').lowercase() }
+                .toSet()
         val sidecar =
             checksumFile
                 .readText()
@@ -207,7 +206,7 @@ val verifyCustomMpvArtifact by tasks.registering {
             "ycore-demux=true",
             "ycore-demux-source=scripts/native/ycore_demux_jni.cpp",
         ).forEach { marker -> require(marker in provenance) { "libmpv provenance is missing $marker" } }
-        if (actual == dolbyChecksum) {
+        if (actual in dolbyChecksums) {
             listOf(
                 "ycore-demux-ffmpeg=b79d4c4c0a160fc46988e98505af6039a53ad53e",
                 "dolby-vision-rpu=true",
@@ -650,131 +649,6 @@ tasks.matching { it.name.startsWith("test", ignoreCase = true) }.configureEach {
     dependsOn(verifyBehavioralTestBoundaries)
 }
 
-kotlin {
-    androidTarget {
-        compilerOptions {
-            jvmTarget.set(JvmTarget.JVM_17)
-        }
-    }
-
-    sourceSets {
-        matching { it.name == "androidBenchmark" || it.name == "androidProfile" }.configureEach {
-            kotlin.srcDir("src/performance/kotlin")
-        }
-        all {
-            languageSettings.optIn("kotlinx.coroutines.ExperimentalCoroutinesApi")
-        }
-        commonMain.dependencies {
-            implementation(project(":watchTogetherProtocol"))
-            implementation(compose.runtime)
-            implementation(compose.foundation)
-            implementation(compose.material3)
-
-            implementation(libs.decompose)
-            implementation(libs.decompose.compose)
-            implementation(libs.androidx.navigation3.runtime)
-            implementation(libs.androidx.navigation3.ui)
-            implementation(libs.mvikotlin)
-            implementation(libs.mvikotlin.main)
-            implementation(libs.mvikotlin.coroutines)
-
-            implementation(libs.ktor.core)
-            implementation(libs.ktor.content.negotiation)
-            implementation(libs.ktor.json)
-            implementation(libs.ktor.encoding)
-            implementation(libs.ktor.client.websockets)
-
-            implementation(libs.serialization.json)
-            implementation(libs.coroutines.core)
-            implementation(libs.koin.core)
-            implementation(libs.settings)
-
-            implementation(libs.coil.compose)
-            implementation(libs.coil.network.ktor)
-        }
-
-        androidMain.dependencies {
-            if (includeMdk) {
-                implementation(project(":mdkAndroid"))
-            } else {
-                // Keep the legacy adapter source-compatible during migration without defining or
-                // packaging the MDK facade/runtime in a pure-YCore APK.
-                compileOnly(project(":mdkAndroid"))
-            }
-            implementation(libs.ktor.okhttp)
-            implementation(libs.okhttp)
-            implementation(libs.jcifs.ng)
-            implementation(libs.play.services.cronet)
-            implementation(libs.androidx.activity.compose)
-            implementation(libs.androidx.camera.core)
-            implementation(libs.androidx.camera.camera2)
-            implementation(libs.androidx.camera.lifecycle)
-            implementation(libs.androidx.camera.view)
-            // Cache/data-source utilities remain temporarily while their YCore replacements are
-            // completed. None of these modules contains the ExoPlayer playback runtime.
-            implementation(libs.media3.common)
-            implementation(libs.media3.database)
-            implementation(libs.media3.datasource)
-            if (nativeOnlyRuntime) {
-                // Compatibility adapters remain source-compatible until the final deletion stage,
-                // but their third-party playback runtime must not enter a pure YCore APK.
-                compileOnly(libs.media3.exoplayer)
-                compileOnly(libs.media3.ui)
-                compileOnly(libs.media3.hls)
-                compileOnly(libs.media3.dash)
-            } else {
-                implementation(libs.media3.exoplayer)
-                implementation(libs.media3.ui)
-                implementation(libs.media3.hls)
-                implementation(libs.media3.dash)
-            }
-            if (nativeOnlyRuntime) {
-                implementation(files("libs/ycore-native.aar"))
-                compileOnly(files("libs/libmpv-release.aar"))
-            } else {
-                implementation(files(fullMpvCarrier).builtBy(prepareFullMpvCarrier))
-                implementation(files("libs/ycore-native.aar"))
-            }
-            implementation(libs.androidx.palette)
-            implementation(libs.androidx.work.runtime)
-            implementation(libs.zxing.core)
-            implementation(libs.google.cast.framework)
-            // Cast Connect receiver APIs are compiled with the shared TV integration sources but
-            // are packaged only by :tvApp. The mobile application remains a Cast sender.
-            compileOnly(libs.google.cast.tv)
-            implementation(libs.androidx.media)
-            implementation(libs.androidx.metrics.performance)
-            implementation(libs.androidx.profileinstaller)
-            // Android's platform Ed25519 provider starts at API 33. The app supports API 26,
-            // so signed calendar revisions need a bundled verifier on older devices.
-            implementation(libs.bouncycastle.provider)
-        }
-        androidUnitTest.dependencies {
-            implementation(libs.okhttp.mockwebserver)
-            implementation(libs.okhttp.tls)
-            if (nativeOnlyRuntime) {
-                // Legacy adapter tests still compile during the migration, but this dependency is
-                // confined to the host-side test process and never reaches an application APK.
-                implementation(libs.media3.exoplayer)
-            }
-        }
-
-        androidInstrumentedTest.dependencies {
-            compileOnly(libs.google.cast.tv)
-            implementation(libs.androidx.test.junit)
-            implementation(libs.androidx.test.runner)
-        }
-
-        commonTest.dependencies {
-            implementation(kotlin("test"))
-            implementation(libs.coroutines.test)
-            implementation(libs.turbine)
-            implementation(libs.ktor.mock)
-            implementation(libs.settings.test)
-        }
-    }
-}
-
 /**
  * Optional Ed25519 public key (base64 SubjectPublicKeyInfo) for update-manifest signatures.
  * An empty key keeps the standard update path available. APK signing and downloaded-package
@@ -927,11 +801,11 @@ val yfuseCastReceiverApplicationId =
 
 android {
     namespace = "com.yfuse"
-    // API 36 is the release baseline. Predictive back remains explicitly opted out in the
-    // manifest by product decision while the rest of the Android 16 behavior is supported.
-    compileSdk = 36
+    // Compile against API 37 for current dependencies; targetSdk 36 remains the runtime baseline.
+    compileSdk { version = release(37) { minorApiLevel = 0 } }
 
     buildFeatures {
+        compose = true
         buildConfig = true
     }
 
@@ -1030,10 +904,18 @@ android {
     }
 
     sourceSets {
+
+        getByName("main") {
+            manifest.srcFile("src/androidMain/AndroidManifest.xml")
+        }
+        getByName("androidTest") {
+            kotlin.directories += "src/androidInstrumentedTest/kotlin"
+        }
         listOf("benchmark", "profile").forEach { variant ->
             getByName(variant) {
                 manifest.srcFile("src/performance/AndroidManifest.xml")
-                res.srcDir("src/performance/res")
+                kotlin.directories += "src/performance/kotlin"
+                res.directories += "src/performance/res"
             }
         }
     }
@@ -1275,4 +1157,86 @@ listOf(
             }
         }
     }
+}
+
+kotlin { jvmToolchain(17) }
+
+// Device and performance fixtures remain in the app so they exercise the real manifest,
+// signing, and startup path. Preserve their former access to shared implementation internals.
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+    if (name.contains("AndroidTest") || name == "compileBenchmarkKotlin" || name == "compileProfileKotlin") {
+        val sharedCompileJar =
+            providers.provider {
+                project(":phoneShared")
+                    .tasks
+                    .named("bundleAndroidMainClassesToCompileJar")
+                    .get()
+                    .outputs.files
+            }
+        dependsOn(":phoneShared:bundleAndroidMainClassesToCompileJar")
+        friendPaths.from(sharedCompileJar)
+    }
+}
+
+dependencies {
+    implementation(platform(libs.okhttp.bom))
+    implementation(project(":phoneShared"))
+    androidTestCompileOnly(libs.google.cast.tv)
+    androidTestImplementation(libs.androidx.test.junit)
+    androidTestImplementation(libs.androidx.test.runner)
+
+    if (includeMdk) {
+        implementation(project(":mdkAndroid"))
+    } else {
+        // Keep the legacy adapter source-compatible during migration without defining or
+        // packaging the MDK facade/runtime in a pure-YCore APK.
+        compileOnly(project(":mdkAndroid"))
+    }
+    implementation(libs.ktor.okhttp)
+    implementation(libs.okhttp)
+    implementation(libs.jcifs.ng)
+    implementation(libs.play.services.cronet)
+    implementation(libs.androidx.activity.compose)
+    implementation(libs.androidx.camera.core)
+    implementation(libs.androidx.camera.camera2)
+    implementation(libs.androidx.camera.lifecycle)
+    implementation(libs.androidx.camera.view)
+    // Cache/data-source utilities remain temporarily while their YCore replacements are
+    // completed. None of these modules contains the ExoPlayer playback runtime.
+    implementation(libs.media3.common)
+    implementation(libs.media3.database)
+    implementation(libs.media3.datasource)
+    if (nativeOnlyRuntime) {
+        // Compatibility adapters remain source-compatible until the final deletion stage,
+        // but their third-party playback runtime must not enter a pure YCore APK.
+        compileOnly(libs.media3.exoplayer)
+        compileOnly(libs.media3.ui)
+        compileOnly(libs.media3.hls)
+        compileOnly(libs.media3.dash)
+    } else {
+        implementation(libs.media3.exoplayer)
+        implementation(libs.media3.ui)
+        implementation(libs.media3.hls)
+        implementation(libs.media3.dash)
+    }
+    if (nativeOnlyRuntime) {
+        implementation(files("libs/ycore-native.aar"))
+        compileOnly(files("libs/libmpv-release.aar"))
+    } else {
+        implementation(files(fullMpvCarrier).builtBy(prepareFullMpvCarrier))
+        implementation(files("libs/ycore-native.aar"))
+    }
+    implementation(libs.androidx.palette)
+    implementation(libs.androidx.work.runtime)
+    implementation(libs.zxing.core)
+    implementation(libs.google.cast.framework)
+    // Cast Connect receiver APIs are compiled with the shared TV integration sources but
+    // are packaged only by :tvApp. The mobile application remains a Cast sender.
+    compileOnly(libs.google.cast.tv)
+    implementation(libs.androidx.media)
+    implementation(libs.androidx.metrics.performance)
+    implementation(libs.androidx.profileinstaller)
+    // Android's platform Ed25519 provider starts at API 33. The app supports API 26,
+    // so signed calendar revisions need a bundled verifier on older devices.
+    implementation(libs.bouncycastle.provider)
 }

@@ -1,0 +1,6 @@
+<?xml version='1.0' encoding='utf-8'?>
+<baseline version="1.0">
+    <file name="../tvApp/src/androidMain/kotlin/com/yfuse/tv/TvMainActivity.kt">
+        <error line="55" column="25" source="standard:multiline-expression-wrapping" />
+    </file>
+</baseline>

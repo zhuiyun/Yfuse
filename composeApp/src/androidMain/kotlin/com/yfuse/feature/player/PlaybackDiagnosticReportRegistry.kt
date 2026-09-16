@@ -1,7 +1,6 @@
 package com.yfuse.feature.player
 
 import android.content.Context
-import com.yfuse.BuildConfig
 import com.yfuse.core.logging.DiagnosticLogStore
 import com.yfuse.core.logging.redactDiagnosticText
 import com.yfuse.core.model.PlayerEngine
@@ -13,6 +12,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 import java.util.zip.ZipFile
+import com.yfuse.core.platform.AppBuildConfig as BuildConfig
 
 /** Latest credential-free playback facts included by the existing one-tap diagnostics export. */
 internal object PlaybackDiagnosticReportRegistry {

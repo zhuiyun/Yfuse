@@ -14,7 +14,6 @@ import coil3.intercept.Interceptor
 import coil3.memory.MemoryCache
 import coil3.network.ktor3.KtorNetworkFetcherFactory
 import com.russhwolf.settings.SharedPreferencesSettings
-import com.yfuse.BuildConfig
 import com.yfuse.core.account.AccountRepository
 import com.yfuse.core.cast.initializeCastApplicationContext
 import com.yfuse.core.data.AndroidCalendarLocalStore
@@ -60,6 +59,7 @@ import okio.Path.Companion.toOkioPath
 import org.koin.core.context.GlobalContext
 import org.koin.core.context.startKoin
 import org.koin.dsl.module
+import com.yfuse.core.platform.AppBuildConfig as BuildConfig
 
 /**
  * TV-safe application composition root.
@@ -67,7 +67,7 @@ import org.koin.dsl.module
  * It starts the same server, account, playback and progress graph consumed by the phone, but does
  * not register AppUpdateManager, QR camera flows, exact-alarm reminders, or phone icon switching.
  */
-class TvApplication :
+open class TvApplication :
     Application(),
     SingletonImageLoader.Factory {
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)

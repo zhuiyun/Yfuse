@@ -10,7 +10,7 @@ import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
-import com.yfuse.R
+import com.yfuse.shared.R
 
 /**
  * The weights [mr] actually asks for, spelled out.

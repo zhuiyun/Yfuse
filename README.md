@@ -6,10 +6,15 @@ Yfuse is a Kotlin Multiplatform Android client with a Ktor watch-together relay.
 
 The distributed APK targets Android API 36, requires Android 8.0/API 26 or newer,
 and currently contains only the `arm64-v8a` ABI. It does not support 32-bit-only
-devices, x86/x86_64 Android emulators, or x86 Chromebooks. Predictive-back animation
-is intentionally opted out by product decision.
+devices, x86/x86_64 Android emulators, or x86 Chromebooks.
 
 ## Build
+
+The build uses AGP 9.1.1, Kotlin 2.4.20, and Android SDK Platform 37.0. Install
+`platforms;android-37.0` before building; the application's target SDK remains 36.
+`:composeApp` and `:tvApp` own Android packaging, manifests, signing, and runtime
+dependencies. `:phoneShared` and `:tvShared` compile their existing KMP source trees
+using the Android KMP library plugin. See [the migration notes](docs/AGP9_MIGRATION_20260916.md).
 
 Compatibility player artifacts are downloaded from pinned HTTPS release URLs and
 verified against `scripts/engine-checksums.sha256` before installation:
@@ -36,6 +41,10 @@ dependencies, regenerate them with:
 ```bash
 ./gradlew \
   :composeApp:dependencies \
+  :phoneShared:dependencies \
+  :tvApp:dependencies \
+  :tvShared:dependencies \
+  :macrobenchmark:dependencies \
   :mdkAndroid:dependencies \
   :watchTogetherProtocol:dependencies \
   :watchTogetherServer:dependencies \
@@ -45,6 +54,13 @@ dependencies, regenerate them with:
 `ktlintCheck` uses committed per-module baselines. Existing debt is tolerated, while
 new violations fail CI. Baselines must only be regenerated in an explicit formatting
 debt cleanup review.
+
+Run the client and relay unit tests with:
+
+```bash
+./gradlew :phoneShared:testAndroidHostTest :tvShared:testAndroidHostTest \
+  :watchTogetherProtocol:jvmTest :watchTogetherServer:test
+```
 
 ## Release
 

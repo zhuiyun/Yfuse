@@ -14,11 +14,11 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.yfuse.MainActivity
-import com.yfuse.R
 import com.yfuse.core.data.CalendarFollowStore
 import com.yfuse.core.data.LibraryCache
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.sync.playback.PlaybackSyncStore
+import com.yfuse.shared.R
 import org.koin.core.context.GlobalContext
 
 class ContinueWatchingWidget : AppWidgetProvider() {

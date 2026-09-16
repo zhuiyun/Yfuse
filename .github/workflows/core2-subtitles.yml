@@ -34,7 +34,7 @@ jobs:
           fi
           test -x "$sdkmanager"
           yes | "$sdkmanager" --licenses >/dev/null 2>&1 || true
-          "$sdkmanager" 'platforms;android-36' 'ndk;29.0.14206865' 'cmake;3.22.1'
+          "$sdkmanager" 'platforms;android-37.0' 'ndk;29.0.14206865' 'cmake;3.22.1'
       - name: Download player dependencies
         run: |
           sudo apt-get update
@@ -44,7 +44,7 @@ jobs:
         uses: ./.github/actions/build-current-ycore
       - name: Compile and test subtitle paths
         run: |
-          ./gradlew :composeApp:compileDebugKotlinAndroid :composeApp:testDebugUnitTest --no-daemon \
+          ./gradlew :composeApp:compileDebugKotlin :phoneShared:testAndroidHostTest --no-daemon \
             --tests 'com.yfuse.core2.android.NativeDirectCommandPolicyTest' \
             --tests 'com.yfuse.core2.android.NativeEnhancedCommandPolicyTest' \
             --tests 'com.yfuse.core2.subtitle.*' \
@@ -56,5 +56,5 @@ jobs:
         with:
           name: core2-subtitle-reports
           path: |
-            composeApp/build/test-results/testDebugUnitTest
-            composeApp/build/reports/tests/testDebugUnitTest
+            phoneShared/build/test-results/testAndroidHostTest
+            phoneShared/build/reports/tests/testAndroidHostTest

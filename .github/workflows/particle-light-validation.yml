@@ -88,7 +88,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ./gradlew :composeApp:ktlintCheck :composeApp:verifyDesignSystemUsage --no-daemon --console=plain --max-workers=2 2>&1 | tee /tmp/particle-check.log
+          ./gradlew :composeApp:ktlintCheck :phoneShared:ktlintCheck :composeApp:verifyDesignSystemUsage --no-daemon --console=plain --max-workers=2 2>&1 | tee /tmp/particle-check.log
       - name: Start official signing workflow, artifact only
         env:
           GH_TOKEN: ${{ github.token }}
@@ -107,6 +107,6 @@ jobs:
           path: |
             /tmp/particle-format.log
             /tmp/particle-check.log
-            composeApp/build/reports/ktlint/
+            phoneShared/build/reports/ktlint/
           if-no-files-found: warn
           retention-days: 7

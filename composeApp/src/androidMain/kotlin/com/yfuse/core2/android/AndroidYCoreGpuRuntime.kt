@@ -4,12 +4,12 @@ import android.content.Context
 import android.hardware.HardwareBuffer
 import android.os.Build
 import android.view.Surface
-import com.yfuse.BuildConfig
 import com.yfuse.core2.render.MIN_ANDROID_HARDWARE_BUFFER_API
 import com.yfuse.core2.render.NATIVE_GPU_API_VERSION
 import com.yfuse.core2.render.YGpuColorPipelineConfig
 import com.yfuse.core2.render.YGpuColorTransfer
 import com.yfuse.core2.render.YNativeGpuRuntimeProbe
+import com.yfuse.core.platform.AppBuildConfig as BuildConfig
 
 /**
  * Fail-closed bridge for the native Vulkan/AHardwareBuffer probe.

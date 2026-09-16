@@ -73,7 +73,7 @@ jobs:
           cache: gradle
       - name: Verify shared signing and release metadata
         run: python3 scripts/release_metadata.py
-      - name: Install Android 36 and native build tools
+      - name: Install Android 37.0 and native build tools
         shell: bash
         run: |
           set -euo pipefail
@@ -82,7 +82,7 @@ jobs:
           if [[ ! -x "$sdkmanager" ]]; then sdkmanager="$(find "$android_sdk/cmdline-tools" -type f -name sdkmanager -print -quit)"; fi
           test -x "$sdkmanager"
           yes | "$sdkmanager" --licenses >/dev/null 2>&1 || true
-          "$sdkmanager" "platforms;android-36" "ndk;29.0.14206865" "cmake;3.22.1"
+          "$sdkmanager" "platforms;android-37.0" "ndk;29.0.14206865" "cmake;3.22.1"
       - name: Download player engines
         shell: bash
         run: |
@@ -112,7 +112,7 @@ jobs:
           fi
           echo "KTLINT_STATUS=$ktlint_status" >> "$GITHUB_ENV"
       - name: Compile and run unit tests
-        run: ./gradlew :composeApp:compileDebugKotlinAndroid :composeApp:testDebugUnitTest :tvApp:testDebugUnitTest --no-daemon
+        run: ./gradlew :composeApp:compileDebugKotlin :tvApp:compileDebugKotlin :phoneShared:testAndroidHostTest :tvShared:testAndroidHostTest --no-daemon
       - name: Compile startup and frame-time Macrobenchmark APK
         run: ./gradlew :macrobenchmark:assembleBenchmark --no-daemon
       - name: Verify design-system usage
@@ -168,7 +168,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ./gradlew :composeApp:dependencies :macrobenchmark:dependencies :mdkAndroid:dependencies :watchTogetherProtocol:dependencies :watchTogetherServer:dependencies --no-daemon >/dev/null
+          ./gradlew :composeApp:dependencies :phoneShared:dependencies :tvApp:dependencies :tvShared:dependencies :macrobenchmark:dependencies :mdkAndroid:dependencies :watchTogetherProtocol:dependencies :watchTogetherServer:dependencies --no-daemon >/dev/null
           git diff --exit-code -- '**/gradle.lockfile' settings-gradle.lockfile
       - name: Fail on recorded ktlint violations
         shell: bash

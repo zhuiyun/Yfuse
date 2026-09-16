@@ -5,10 +5,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
-import com.yfuse.R
 import com.yfuse.feature.profile.AppIconPreview
 import com.yfuse.feature.profile.AppIconVariant
 import com.yfuse.feature.profile.currentAppIconVariant
+import com.yfuse.shared.R
 
 @Composable
 actual fun CloudPlayerLogo(modifier: Modifier) {

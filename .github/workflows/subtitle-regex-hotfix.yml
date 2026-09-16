@@ -51,7 +51,7 @@ jobs:
           sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
           manager="$sdk/cmdline-tools/latest/bin/sdkmanager"
           yes | "$manager" --licenses >/dev/null 2>&1 || true
-          "$manager" 'platforms;android-36' 'build-tools;36.0.0' 'ndk;29.0.14206865' 'cmake;3.22.1'
+          "$manager" 'platforms;android-37.0' 'build-tools;36.0.0' 'ndk;29.0.14206865' 'cmake;3.22.1'
           sudo apt-get update
           sudo apt-get install -y libicu-dev p7zip-full
       - name: Verify both production regexes with ICU
@@ -116,7 +116,7 @@ jobs:
           actual="$(keytool -list -v -keystore signing/yfuse-release.jks -storepass "$ANDROID_KEYSTORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" | sed -n 's/^[[:space:]]*SHA256: //p' | head -n 1 | tr -d ':[:space:]' | tr '[:upper:]' '[:lower:]')"
           test "$actual" = "$EXPECTED_ANDROID_CERT_SHA256"
       - name: Run formatting gates and regression suites
-        run: ./gradlew :composeApp:ktlintCheck :composeApp:verifyDesignSystemUsage :composeApp:testDebugUnitTest :watchTogetherProtocol:jvmTest :watchTogetherServer:test --no-daemon
+        run: ./gradlew :composeApp:ktlintCheck :phoneShared:ktlintCheck :composeApp:verifyDesignSystemUsage :phoneShared:testAndroidHostTest :watchTogetherProtocol:jvmTest :watchTogetherServer:test --no-daemon
       - name: Configure verified update-manifest public key
         shell: bash
         env:
@@ -202,8 +202,8 @@ jobs:
         with:
           name: subtitle-hotfix-tests-${{ github.run_id }}
           path: |
-            composeApp/build/test-results/
-            composeApp/build/reports/ktlint/
+            phoneShared/build/test-results/
+            phoneShared/build/reports/ktlint/
             watchTogetherProtocol/build/test-results/
             watchTogetherServer/build/test-results/
             build/signed-artifact/icu-regex-verification.txt

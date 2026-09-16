@@ -3,8 +3,8 @@ package com.yfuse.feature.player
 import android.app.Activity
 import android.os.Build
 import android.provider.Settings
-import com.yfuse.R
 import com.yfuse.core.data.ThemePreferences
+import com.yfuse.shared.R
 import org.koin.core.context.GlobalContext
 
 private fun Activity.playerWindowMotionEnabled(): Boolean {

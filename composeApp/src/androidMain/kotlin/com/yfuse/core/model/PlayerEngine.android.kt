@@ -1,6 +1,6 @@
 package com.yfuse.core.model
 
-import com.yfuse.BuildConfig
+import com.yfuse.core.platform.AppBuildConfig as BuildConfig
 
 actual fun bundledPlayerEngines(): Set<PlayerEngine> =
     buildSet {

@@ -42,7 +42,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.media3.common.util.UnstableApi
-import com.yfuse.BuildConfig
 import com.yfuse.core.account.AccountAccessTokenSource
 import com.yfuse.core.cast.CastManager
 import com.yfuse.core.cast.CastPlaybackStatus
@@ -108,6 +107,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import org.koin.core.context.GlobalContext
 import kotlin.math.roundToInt
+import com.yfuse.core.platform.AppBuildConfig as BuildConfig
 
 /** Seek requests inside this window collapse into one, always at the latest target. */
 private const val SEEK_MERGE_DEBOUNCE_MS = 120L

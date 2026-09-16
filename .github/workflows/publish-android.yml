@@ -273,7 +273,7 @@ jobs:
 
           yes | "$sdkmanager" --licenses >/dev/null 2>&1 || true
           "$sdkmanager" \
-            "platforms;android-36" \
+            "platforms;android-37.0" \
             "ndk;29.0.14206865" \
             "cmake;3.22.1"
 
@@ -344,7 +344,7 @@ jobs:
         run: |
           set -euo pipefail
           ./gradlew \
-            :composeApp:testDebugUnitTest \
+            :phoneShared:testAndroidHostTest \
             :composeApp:verifyDesignSystemUsage \
             :watchTogetherProtocol:jvmTest \
             :watchTogetherServer:test \
@@ -367,7 +367,7 @@ jobs:
         run: |
           set -euo pipefail
           ./gradlew \
-            :composeApp:dependencies \
+            :composeApp:dependencies :phoneShared:dependencies :tvApp:dependencies :tvShared:dependencies \
             :mdkAndroid:dependencies \
             :watchTogetherProtocol:dependencies \
             :watchTogetherServer:dependencies \

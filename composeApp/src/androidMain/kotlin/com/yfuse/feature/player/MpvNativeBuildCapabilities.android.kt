@@ -1,8 +1,8 @@
 package com.yfuse.feature.player
 
-import com.yfuse.BuildConfig
 import com.yfuse.core.logging.AppLog
 import java.lang.reflect.Method
+import com.yfuse.core.platform.AppBuildConfig as BuildConfig
 
 /** Capabilities proven by the concrete AAR installed in composeApp/libs. */
 internal data class MpvNativeBuildCapabilities(

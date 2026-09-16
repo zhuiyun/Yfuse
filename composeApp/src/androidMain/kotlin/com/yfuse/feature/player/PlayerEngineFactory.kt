@@ -3,7 +3,6 @@ package com.yfuse.feature.player
 import android.content.Context
 import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
-import com.yfuse.BuildConfig
 import com.yfuse.core.data.PlaybackFrameRateMatch
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlayerEngine
@@ -19,6 +18,7 @@ import com.yfuse.core.playback.detectPlaybackDiscKind
 import com.yfuse.core2.android.AndroidCore2TrialFactory
 import com.yfuse.core2.android.core2NativeBaselineBlockReason
 import kotlinx.coroutines.CoroutineScope
+import com.yfuse.core.platform.AppBuildConfig as BuildConfig
 
 internal fun shouldUseCore2Trial(
     enabled: Boolean,

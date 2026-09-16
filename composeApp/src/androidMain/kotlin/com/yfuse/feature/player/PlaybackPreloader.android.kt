@@ -9,7 +9,6 @@ import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.CacheWriter
-import com.yfuse.BuildConfig
 import com.yfuse.core.data.PlaybackNetworkClass
 import com.yfuse.core.data.PlaybackPreferences
 import com.yfuse.core.data.UserAgentPreferences
@@ -27,6 +26,7 @@ import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
+import com.yfuse.core.platform.AppBuildConfig as BuildConfig
 
 /**
  * Warms the beginning of a direct-play file into the SimpleCache shared by every engine.

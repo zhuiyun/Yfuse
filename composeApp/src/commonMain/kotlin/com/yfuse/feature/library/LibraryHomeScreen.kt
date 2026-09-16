@@ -597,9 +597,11 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                     motionItem(key = "library-loading") { SkeletonRow() }
                                 }
                                 if (state.content.rows.isNotEmpty() || state.currentServer != null) {
-                                    motionItem(key = "smart-playlists") {
-                                        com.yfuse.feature.search
-                                            .SmartPlaylistShelf()
+                                    if (showSmartPlaylists) {
+                                        motionItem(key = "smart-playlists") {
+                                            com.yfuse.feature.search
+                                                .SmartPlaylistShelf()
+                                        }
                                     }
                                     motionItem(key = "library-categories") {
                                         CategoryCards(

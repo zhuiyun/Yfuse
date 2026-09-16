@@ -57,7 +57,7 @@ jobs:
           if [[ ! -x "$sdkmanager" ]]; then sdkmanager="$(find "$android_sdk/cmdline-tools" -type f -name sdkmanager -print -quit)"; fi
           test -x "$sdkmanager"
           yes | "$sdkmanager" --licenses >/dev/null 2>&1 || true
-          "$sdkmanager" "platforms;android-36" "ndk;29.0.14206865" "cmake;3.22.1"
+          "$sdkmanager" "platforms;android-37.0" "ndk;29.0.14206865" "cmake;3.22.1"
       - name: Download player engines
         shell: bash
         run: |
@@ -76,8 +76,8 @@ jobs:
         run: |
           set +e
           ./gradlew \
-            :composeApp:compileDebugKotlinAndroid \
-            :composeApp:testDebugUnitTest \
+            :composeApp:compileDebugKotlin \
+            :phoneShared:testAndroidHostTest \
             :watchTogetherProtocol:jvmTest \
             :watchTogetherServer:test \
             :composeApp:verifyDesignSystemUsage \

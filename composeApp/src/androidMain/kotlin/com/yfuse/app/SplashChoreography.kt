@@ -2,8 +2,8 @@ package com.yfuse.app
 
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
-import com.yfuse.R
 import com.yfuse.core.designsystem.SplashAnimation
+import com.yfuse.shared.R
 import kotlin.math.PI
 import kotlin.math.exp
 import kotlin.math.max

@@ -15,7 +15,6 @@ import android.os.storage.StorageManager
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.core.content.FileProvider
 import com.russhwolf.settings.Settings
-import com.yfuse.BuildConfig
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.security.verifyEd25519Signature
 import com.yfuse.feature.player.PlaybackRemotePolicyRegistry
@@ -45,6 +44,7 @@ import java.security.MessageDigest
 import java.util.TimeZone
 import java.util.concurrent.TimeUnit
 import android.provider.Settings as AndroidSettings
+import com.yfuse.core.platform.AppBuildConfig as BuildConfig
 
 /** The production update origin is TLS-only; [validateForUpdateSource] also rejects downgrades. */
 private const val UPDATE_MANIFEST = "https://47.112.219.60/yfuse/update-v2.json"

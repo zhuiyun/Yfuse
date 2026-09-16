@@ -14,8 +14,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
-import com.yfuse.R
 import com.yfuse.core.designsystem.GlassShapes
+import com.yfuse.shared.R
 
 @Composable
 internal actual fun AppIconPreview(

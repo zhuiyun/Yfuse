@@ -4,7 +4,7 @@ plugins {
     alias(libs.plugins.android.application) apply false
     alias(libs.plugins.android.library) apply false
     alias(libs.plugins.android.test) apply false
-    alias(libs.plugins.kotlin.android) apply false
+    alias(libs.plugins.android.kmp.library) apply false
     alias(libs.plugins.compose.multiplatform) apply false
     alias(libs.plugins.compose.compiler) apply false
     alias(libs.plugins.serialization) apply false
@@ -99,10 +99,9 @@ subprojects {
         filter {
             // Generated sources are nobody's to format.
             exclude { it.file.path.contains("/build/") }
-            // tvApp compiles the established composeApp KMP trees directly. Those files are
-            // already owned by composeApp's ktlint tasks and baseline; linting them again as
-            // tvApp would incorrectly treat all existing composeApp debt as new TV violations.
-            if (project.name == "tvApp") {
+            // tvShared also compiles the phone KMP trees. phoneShared owns their ktlint
+            // tasks and relocated baseline; only TV-specific sources are checked here.
+            if (project.name == "tvShared") {
                 exclude { element ->
                     element.file
                         .toPath()

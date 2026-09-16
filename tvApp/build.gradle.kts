@@ -1,6 +1,5 @@
 import org.gradle.api.GradleException
 import org.gradle.api.provider.ProviderFactory
-import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import java.security.KeyFactory
 import java.security.MessageDigest
 import java.security.spec.X509EncodedKeySpec
@@ -9,24 +8,12 @@ import java.util.Properties
 import java.util.zip.ZipFile
 
 plugins {
-    alias(libs.plugins.multiplatform)
     alias(libs.plugins.android.application)
-    alias(libs.plugins.compose.multiplatform)
     alias(libs.plugins.compose.compiler)
     alias(libs.plugins.serialization)
 }
 
-/*
- * P0 sharing boundary
- * -------------------
- * composeApp is an application module and cannot be an implementation dependency of a second
- * application. Turning it into an AAR here would also break its direct local AAR dependencies and
- * every existing mobile release task. tvApp therefore reuses the established KMP source trees in
- * separate commonMain and androidMain compilations. This preserves expect/actual boundaries while
- * namespace=com.yfuse preserves their R and BuildConfig ABI. The TV manifest remains wholly
- * independent, so camera/updater permissions and components cannot leak from source. Stable domain
- * and player packages can move to ordinary library modules incrementally later.
- */
+// The TV shell owns signing, manifest, and runtime dependencies; :tvShared owns Kotlin sources.
 
 fun ProviderFactory.strictBooleanProperty(name: String): Boolean =
     gradleProperty(name).orNull?.let { raw ->
@@ -150,9 +137,9 @@ val ycoreChecksum = rootProject.layout.projectDirectory.file("composeApp/libs/yc
 val ycoreSources = rootProject.layout.projectDirectory.file("composeApp/libs/ycore-native.sources.txt")
 
 android {
-    // Shared source imports com.yfuse.BuildConfig/R directly; this namespace is an ABI contract.
+    // The application shell owns variant-specific BuildConfig values.
     namespace = "com.yfuse"
-    compileSdk = 36
+    compileSdk { version = release(37) { minorApiLevel = 0 } }
 
     defaultConfig {
         applicationId = "com.yfuse"
@@ -195,10 +182,8 @@ android {
     // the TV resources first lets a later TV-specific resource override remain explicit.
     sourceSets {
         getByName("main") {
-            res.srcDirs(
-                "src/main/res",
-                rootProject.file("composeApp/src/androidMain/res"),
-            )
+            manifest.srcFile("src/androidMain/AndroidManifest.xml")
+            res.directories += "src/main/res"
         }
     }
 
@@ -258,110 +243,6 @@ android {
                     "DebugProbesKt.bin",
                     "kotlin-tooling-metadata.json",
                 )
-        }
-    }
-}
-
-kotlin {
-    androidTarget {
-        compilerOptions {
-            jvmTarget.set(JvmTarget.JVM_17)
-        }
-    }
-
-    sourceSets {
-        all {
-            languageSettings.optIn("kotlinx.coroutines.ExperimentalCoroutinesApi")
-        }
-
-        commonMain {
-            kotlin.srcDir(rootProject.file("composeApp/src/commonMain/kotlin"))
-            dependencies {
-                implementation(project(":watchTogetherProtocol"))
-
-                implementation(compose.runtime)
-                implementation(compose.foundation)
-                implementation(compose.material3)
-
-                implementation(libs.decompose)
-                implementation(libs.decompose.compose)
-                implementation(libs.androidx.navigation3.runtime)
-                implementation(libs.androidx.navigation3.ui)
-                implementation(libs.mvikotlin)
-                implementation(libs.mvikotlin.main)
-                implementation(libs.mvikotlin.coroutines)
-
-                implementation(libs.ktor.core)
-                implementation(libs.ktor.content.negotiation)
-                implementation(libs.ktor.json)
-                implementation(libs.ktor.encoding)
-                implementation(libs.ktor.client.websockets)
-
-                implementation(libs.serialization.json)
-                implementation(libs.coroutines.core)
-                implementation(libs.koin.core)
-                implementation(libs.settings)
-
-                implementation(libs.coil.compose)
-                implementation(libs.coil.network.ktor)
-            }
-        }
-
-        androidMain {
-            // tvApp/src/androidMain/kotlin is the KMP default. Only the shared phone source tree
-            // needs an explicit additional directory.
-            kotlin.srcDir(rootProject.file("composeApp/src/androidMain/kotlin"))
-            dependencies {
-                implementation(libs.ktor.okhttp)
-                implementation(libs.okhttp)
-                implementation(libs.jcifs.ng)
-                implementation(libs.play.services.cronet)
-                implementation(libs.androidx.activity.compose)
-                implementation(libs.androidx.lifecycle.process)
-                implementation(libs.media3.exoplayer)
-                implementation(libs.media3.ui)
-                implementation(libs.media3.hls)
-                implementation(libs.media3.dash)
-                implementation(libs.androidx.palette)
-                implementation(libs.androidx.work.runtime)
-                implementation(libs.google.cast.framework)
-                implementation(libs.google.cast.base)
-                implementation(libs.google.cast.tv)
-                implementation(libs.androidx.media)
-                implementation(libs.androidx.metrics.performance)
-                implementation(libs.androidx.profileinstaller)
-                implementation(libs.bouncycastle.provider)
-
-                // TV system rows; the TV surfaces are hand-built on foundation, so tv-material
-                // is not pulled in.
-                implementation(libs.androidx.tvprovider)
-
-                // Phone-only implementation source is compiled for a single source of truth but
-                // never exposed by the TV manifest. compileOnly prevents camera/QR/MDK runtimes
-                // entering the TV artifact.
-                compileOnly(project(":mdkAndroid"))
-                compileOnly(libs.androidx.camera.core)
-                compileOnly(libs.androidx.camera.camera2)
-                compileOnly(libs.androidx.camera.lifecycle)
-                compileOnly(libs.androidx.camera.view)
-                compileOnly(libs.zxing.core)
-                compileOnly(files(mpvCompileApi))
-
-                if (fullNativeRuntime) {
-                    implementation(files(ycoreAar))
-                }
-            }
-        }
-
-        androidUnitTest {
-            kotlin.srcDirs(
-                rootProject.file("composeApp/src/androidUnitTest/kotlin/com/yfuse/tv"),
-                layout.projectDirectory.dir("src/test/kotlin"),
-            )
-            dependencies {
-                implementation(kotlin("test"))
-                implementation(libs.coroutines.test)
-            }
         }
     }
 }
@@ -468,5 +349,51 @@ tasks.configureEach {
         dependsOn(verifyTvCompileApi)
         dependsOn(verifyTvFullNativeRuntime)
         dependsOn(verifyTvReleaseProfile)
+    }
+}
+
+kotlin { jvmToolchain(17) }
+
+dependencies {
+    implementation(platform(libs.okhttp.bom))
+    implementation(project(":tvShared"))
+
+    implementation(libs.ktor.okhttp)
+    implementation(libs.okhttp)
+    implementation(libs.jcifs.ng)
+    implementation(libs.play.services.cronet)
+    implementation(libs.androidx.activity.compose)
+    implementation(libs.androidx.lifecycle.process)
+    implementation(libs.media3.exoplayer)
+    implementation(libs.media3.ui)
+    implementation(libs.media3.hls)
+    implementation(libs.media3.dash)
+    implementation(libs.androidx.palette)
+    implementation(libs.androidx.work.runtime)
+    implementation(libs.google.cast.framework)
+    implementation(libs.google.cast.base)
+    implementation(libs.google.cast.tv)
+    implementation(libs.androidx.media)
+    implementation(libs.androidx.metrics.performance)
+    implementation(libs.androidx.profileinstaller)
+    implementation(libs.bouncycastle.provider)
+
+    // TV system rows; the TV surfaces are hand-built on foundation, so tv-material
+    // is not pulled in.
+    implementation(libs.androidx.tvprovider)
+
+    // Phone-only implementation source is compiled for a single source of truth but
+    // never exposed by the TV manifest. compileOnly prevents camera/QR/MDK runtimes
+    // entering the TV artifact.
+    compileOnly(project(":mdkAndroid"))
+    compileOnly(libs.androidx.camera.core)
+    compileOnly(libs.androidx.camera.camera2)
+    compileOnly(libs.androidx.camera.lifecycle)
+    compileOnly(libs.androidx.camera.view)
+    compileOnly(libs.zxing.core)
+    compileOnly(files(mpvCompileApi))
+
+    if (fullNativeRuntime) {
+        implementation(files(ycoreAar))
     }
 }

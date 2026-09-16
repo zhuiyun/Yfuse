@@ -80,6 +80,7 @@ import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.designsystem.AccessibilityOptions
 import com.yfuse.core.designsystem.AppBackdrop
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.BackdropState
 import com.yfuse.core.designsystem.ConfirmDialog
 import com.yfuse.core.designsystem.Dimens
@@ -128,6 +129,7 @@ import com.yfuse.feature.watch.InviteResolution
 import com.yfuse.feature.watch.WatchInviteSheet
 import com.yfuse.feature.watch.WatchRoomInfoDialog
 import com.yfuse.core.designsystem.ThemeIcon as Icon
+import com.yfuse.core.designsystem.ThemeText as Text
 
 private data class TabItem(
     val tab: Tab,

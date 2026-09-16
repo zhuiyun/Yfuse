@@ -18,6 +18,7 @@ import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.tls.HandshakeCertificates
 import okhttp3.tls.HeldCertificate
+import java.net.InetAddress
 import javax.net.ssl.SSLHandshakeException
 import javax.net.ssl.SSLPeerUnverifiedException
 import kotlin.test.Test
@@ -54,7 +55,7 @@ class AndroidHttpEnginePolicyTest {
             val heldCertificate =
                 HeldCertificate
                     .Builder()
-                    .addSubjectAlternativeName("localhost")
+                    .addSubjectAlternativeName("127.0.0.1")
                     .build()
             val serverCertificates =
                 HandshakeCertificates
@@ -65,14 +66,22 @@ class AndroidHttpEnginePolicyTest {
                 MockWebServer().apply {
                     useHttps(serverCertificates.sslSocketFactory(), false)
                     enqueue(MockResponse().setBody("must not be trusted"))
-                    start()
+                    start(InetAddress.getByName("127.0.0.1"), 0)
                 }
             val client = HttpClient(embyHttpEngine())
 
             try {
                 val failure =
                     assertFails {
-                        client.get(server.url("/private").toString()).bodyAsText()
+                        client
+                            .get(
+                                server
+                                    .url("/private")
+                                    .newBuilder()
+                                    .host("127.0.0.1")
+                                    .build()
+                                    .toString(),
+                            ).bodyAsText()
                     }
                 assertTrue(
                     generateSequence(failure as Throwable?) { it.cause }
@@ -107,7 +116,7 @@ class AndroidHttpEnginePolicyTest {
                 MockWebServer().apply {
                     useHttps(serverCertificates.sslSocketFactory(), false)
                     enqueue(MockResponse().setBody("wrong host must be rejected"))
-                    start()
+                    start(InetAddress.getByName("127.0.0.1"), 0)
                 }
             val client =
                 HttpClient(
@@ -121,7 +130,15 @@ class AndroidHttpEnginePolicyTest {
             try {
                 val failure =
                     assertFails {
-                        client.get(server.url("/wrong-host").toString()).bodyAsText()
+                        client
+                            .get(
+                                server
+                                    .url("/wrong-host")
+                                    .newBuilder()
+                                    .host("127.0.0.1")
+                                    .build()
+                                    .toString(),
+                            ).bodyAsText()
                     }
                 assertTrue(
                     generateSequence(failure as Throwable?) { it.cause }

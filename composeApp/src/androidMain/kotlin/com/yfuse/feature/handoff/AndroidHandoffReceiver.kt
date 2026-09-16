@@ -4,7 +4,6 @@ import android.content.Context
 import android.content.Intent
 import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.arkivanov.mvikotlin.extensions.coroutines.states
-import com.yfuse.BuildConfig
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.PlaybackPreferences
 import com.yfuse.core.data.ServerRegistry
@@ -21,6 +20,7 @@ import com.yfuse.feature.player.PlayerStoreFactory
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeout
+import com.yfuse.core.platform.AppBuildConfig as BuildConfig
 
 /** Resolves metadata without starting an engine, then acknowledges actual playback after commit. */
 class AndroidHandoffReceiver(
