@@ -15,6 +15,7 @@ import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.header
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsChannel
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
@@ -270,6 +271,26 @@ fun createEmbyClient(
             // A WAF challenge is not an Emby identity mismatch. Do not probe alternate
             // identities or keep other background modules hammering the same endpoint.
             if (firstCall.response.isCloudflareChallenge()) return@intercept firstCall
+            // Metadata 403s usually mean a settled permission failure. Only use the broader
+            // discovery path when the server explicitly identifies a client/session mismatch.
+            // Keep the established Views-only migration behavior for older installations.
+            val isLibraryDiscovery =
+                request.url
+                    .build()
+                    .encodedPath
+                    .trimEnd('/')
+                    .endsWith("/Views")
+            if (!isLibraryDiscovery) {
+                val response = firstCall.response
+                if (response.headers[HttpHeaders.ContentType].orEmpty().contains("html", ignoreCase = true)) {
+                    return@intercept firstCall
+                }
+                val detail = response.bodyAsText().lowercase()
+                val identityRejected =
+                    ("client" in detail || "session identity" in detail) &&
+                        listOf("mismatch", "invalid", "not match", "identity required").any { it in detail }
+                if (!identityRejected) return@intercept firstCall
+            }
 
             val fallbackClient =
                 if (preferredClient == LEGACY_EMBY_CLIENT_NAME) {
