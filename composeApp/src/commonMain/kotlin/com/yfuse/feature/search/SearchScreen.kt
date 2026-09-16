@@ -162,7 +162,6 @@ private fun SearchHomeScreen(
             loading = state.loading,
             presentationKey = state.presentationKey(),
         )
-    var filterSheet by remember { mutableStateOf<SearchFilterSheet?>(null) }
     var coverageExpanded by remember(state.searchedQuery) { mutableStateOf(false) }
     StatusBarIconStyle(darkIcons = !palette.isDark)
     ScrollToTopOnReselect(component.listState)
@@ -208,26 +207,6 @@ private fun SearchHomeScreen(
                     Spacer(Modifier.height(8.dp))
                 }
             }
-            motionItem {
-                Column {
-                    SmartPlaylistShelf(state = state, onApply = { store.accept(SearchIntent.ApplyPlaylist(it)) })
-                    SearchFilterBar(
-                        state = state,
-                        onOpen = { filterSheet = it },
-                        onClear = { store.accept(SearchIntent.ClearFilters) },
-                    )
-                    Spacer(Modifier.height(8.dp))
-                }
-                filterSheet?.let { sheet ->
-                    SearchFilterDialog(
-                        state = state,
-                        sheet = sheet,
-                        onIntent = store::accept,
-                        onDismiss = { filterSheet = null },
-                    )
-                }
-            }
-
             state.person?.let { person ->
                 motionItem {
                     PersonBanner(
