@@ -64,7 +64,7 @@ A3 首次尝试等待关闭超时，A4 首次尝试触摸 UP 注入失败，两�
 
 - 原生内核配置的 debug 应用及 Android 测试 APK 编译通过；完整内核配置的 debug 应用也编译通过。
 - 改动 Kotlin 文件的 `ktlintCheck` 通过。
-- 完整内核配置 `:composeApp:testDebugUnitTest`：436 个 suite，2236 个测试，失败、错误和跳过均为 0。原始 XML 和汇总保存在 `final/unit-results/`、`final/unit-summary.json`；构建日志为 `build-experience-full.log`。
+- 完整内核配置 `:composeApp:testDebugUnitTest`（当时的任务名；AGP 9 迁移后对应 `:phoneShared:testAndroidHostTest`）：436 个 suite，2236 个测试，失败、错误和跳过均为 0。原始 XML 和汇总保存在 `final/unit-results/`、`final/unit-summary.json`；构建日志为 `build-experience-full.log`。
 - 并发刷新测试首次使用 401 触发了既有凭据冷却，第二次请求没有发出；改为可重试的 503，并新增首次故障和请求次数断言，保留本轮失败不能被另一轮成功覆盖的验证。
 - 手机上的 38 款弹窗均验证了正常关闭、入场中断和减少动画，共 114 组开关流程；重复关闭仅回调一次。
 - 轮播、指示器、收藏 Burst、焦点环、导航内容测量、图片加载、搜索交接与说明展开的真机回归通过，包含实际帧绘制、快速反向和静止后无持续重绘检查。

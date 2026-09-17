@@ -79,7 +79,7 @@ internal class EmbyBrowseService(
             when (kind) {
                 MediaContainerKind.BoxSet ->
                     client.delete(
-                        "${server.baseUrl}/Collections/${containerId.encodeURLPathPart()}/Items",
+                        "${server.baseUrl}/Collections/${embyPath(containerId)}/Items",
                     ) {
                         header("X-Emby-Token", server.accessToken)
                         parameter("Ids", itemId)
@@ -91,7 +91,7 @@ internal class EmbyBrowseService(
                             "PlaylistItemId is required to remove a playlist entry"
                         }
                     client.delete(
-                        "${server.baseUrl}/Playlists/${containerId.encodeURLPathPart()}/Items",
+                        "${server.baseUrl}/Playlists/${embyPath(containerId)}/Items",
                     ) {
                         header("X-Emby-Token", server.accessToken)
                         parameter("EntryIds", entryId)
@@ -111,7 +111,7 @@ internal class EmbyBrowseService(
         embyApiCall("add_to_watch_later") {
             val playlistId = findWatchLaterPlaylistId(server)
             if (playlistId != null) {
-                client.post("${server.baseUrl}/Playlists/$playlistId/Items") {
+                client.post("${server.baseUrl}/Playlists/${embyPath(playlistId)}/Items") {
                     header("X-Emby-Token", server.accessToken)
                     parameter("Ids", itemId)
                     parameter("UserId", server.userId)
@@ -148,7 +148,7 @@ internal class EmbyBrowseService(
                 "PlaylistItemId is required to remove a watch-later entry"
             }
             client.delete(
-                "${server.baseUrl}/Playlists/${membership.playlistId.encodeURLPathPart()}/Items",
+                "${server.baseUrl}/Playlists/${embyPath(membership.playlistId)}/Items",
             ) {
                 header("X-Emby-Token", server.accessToken)
                 parameter("EntryIds", membership.entryIds.joinToString(","))
@@ -191,7 +191,7 @@ internal class EmbyBrowseService(
 
                     MediaContainerKind.Playlist ->
                         client
-                            .get("${server.baseUrl}/Playlists/$containerId/Items") {
+                            .get("${server.baseUrl}/Playlists/${embyPath(containerId)}/Items") {
                                 header("X-Emby-Token", server.accessToken)
                                 parameter("UserId", server.userId)
                                 // No SortBy/SortOrder here: this endpoint's original order is meaningful.
@@ -487,7 +487,7 @@ internal class EmbyBrowseService(
         repeat(MAX_WATCH_LATER_MEMBERSHIP_PAGES) {
             val dto: ItemsResponseDto =
                 client
-                    .get("${server.baseUrl}/Playlists/${playlistId.encodeURLPathPart()}/Items") {
+                    .get("${server.baseUrl}/Playlists/${embyPath(playlistId)}/Items") {
                         header("X-Emby-Token", server.accessToken)
                         parameter("UserId", server.userId)
                         parameter("Fields", "PlaylistItemId")
@@ -662,7 +662,7 @@ internal class EmbyBrowseService(
                 ?: return PersonalCollection(emptyList(), 0)
         val dto: ItemsResponseDto =
             client
-                .get("${server.baseUrl}/Playlists/$playlistId/Items") {
+                .get("${server.baseUrl}/Playlists/${embyPath(playlistId)}/Items") {
                     header("X-Emby-Token", server.accessToken)
                     parameter("UserId", server.userId)
                     personalCollectionParameters(limit, startIndex)

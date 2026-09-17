@@ -42,6 +42,8 @@ import com.yfuse.core.network.normalizeBaseUrl
 import com.yfuse.core.security.VaultCrypto
 import com.yfuse.core.security.toBase64Url
 import com.yfuse.core.sync.SyncedUserItem
+import com.yfuse.core.util.currentEpochMillis
+import com.yfuse.core.util.platformName
 import com.yfuse.deviceId
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
@@ -55,11 +57,12 @@ import io.ktor.client.request.put
 import io.ktor.http.ContentType
 import io.ktor.http.encodeURLParameter
 import io.ktor.http.encodeURLPathPart
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.JsonPrimitive
 import kotlin.time.TimeSource
 
 private const val PLEX_PRODUCT = "Yfuse"
-private const val PLEX_PLATFORM = "Android"
 private const val PLEX_SNAPSHOT_PAGE_SIZE = 2_000
 private const val PLEX_CONTAINER_LIMIT = 2_000
 private const val PLEX_TRICKPLAY_SAMPLE_INTERVAL_MS = 10_000L
@@ -77,19 +80,63 @@ private val PLEX_BROWSABLE_TYPES = setOf("movie", "show", "episode")
 internal class PlexMediaServerAdapter(
     private val client: HttpClient,
     private val progress: PlaybackProgressProjection = PlaybackProgressProjection(),
+    private val nowEpochMs: () -> Long = { currentEpochMillis() },
+    /** How long one server's top-level catalogue answers provider-id lookups before it is re-read. */
+    private val catalogTtlMs: Long = PLEX_CATALOG_TTL_MS,
 ) {
     // Plex rating keys are per-server integers, so the key carries the server; bounded
-    // because the adapter is a singleton and lives as long as the process.
+    // because the adapter is a singleton and lives as long as the process. Detail and
+    // playback lookups write it from the UI while the timeline reporter reads it from
+    // another dispatcher, and an access-ordered map relinks on `get`, so every access
+    // holds [cacheLock].
+    private val cacheLock = Any()
     private val durationByItemMs =
         object : LinkedHashMap<String, Long>(64, 0.75f, true) {
             override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Long>): Boolean =
                 size > MAX_CACHED_DURATIONS
         }
 
+    private data class TopLevelCatalogSnapshot(
+        val fetchedAtEpochMs: Long,
+        val items: List<PlexMetadataDto>,
+    )
+
+    // Provider-id lookups (calendar, watch-together, source comparison, cloud sync) each used
+    // to page through every section of every library. One read per server and library type
+    // now serves them all for [catalogTtlMs]; the mutex also collapses concurrent misses into
+    // a single fetch instead of a fan-out stampede.
+    private val topLevelCatalogMutex = Mutex()
+    private val topLevelCatalogCache = mutableMapOf<String, TopLevelCatalogSnapshot>()
+
     private fun durationKey(
         server: SavedServer,
         itemId: String,
     ): String = "${server.id}\u0000$itemId"
+
+    private fun rememberDuration(
+        server: SavedServer,
+        itemId: String,
+        durationMs: Long?,
+    ) {
+        if (durationMs == null || durationMs <= 0L) return
+        synchronized(cacheLock) { durationByItemMs[durationKey(server, itemId)] = durationMs }
+    }
+
+    private fun cachedDurationMs(
+        server: SavedServer,
+        itemId: String,
+    ): Long? = synchronized(cacheLock) { durationByItemMs[durationKey(server, itemId)] }
+
+    /** Forgets the catalogue read for [server] so the next lookup sees fresh user state. */
+    fun invalidateCatalog(server: SavedServer) {
+        synchronized(cacheLock) {
+            topLevelCatalogCache.keys
+                .filter { it.startsWith(catalogKeyPrefix(server)) }
+                .forEach(topLevelCatalogCache::remove)
+        }
+    }
+
+    private fun catalogKeyPrefix(server: SavedServer): String = "${server.id}\u0000"
 
     suspend fun authenticate(
         baseUrl: String,
@@ -101,7 +148,7 @@ internal class PlexMediaServerAdapter(
             val url = normalizeBaseUrl(baseUrl)
             val identity = container(url, "/identity", token)
             require(!identity.machineIdentifier.isNullOrBlank()) { "这不是可用的 Plex Media Server" }
-            val root = runCatching { container(url, "/", token) }.getOrNull()
+            val root = runCatchingCancellable { container(url, "/", token) }.getOrNull()
             val user = account ?: manualTokenIdentity(token)
             AuthedServer(
                 baseUrl = url,
@@ -234,8 +281,8 @@ internal class PlexMediaServerAdapter(
         embyApiCall("plex_media_container_items") {
             val path =
                 when (kind) {
-                    MediaContainerKind.BoxSet -> "/library/collections/$containerId/children"
-                    MediaContainerKind.Playlist -> "/playlists/$containerId/items"
+                    MediaContainerKind.BoxSet -> "/library/collections/${plexPath(containerId)}/children"
+                    MediaContainerKind.Playlist -> "/playlists/${plexPath(containerId)}/items"
                 }
             val response =
                 container(server, path) {
@@ -272,7 +319,7 @@ internal class PlexMediaServerAdapter(
             Result.success(emptyList())
         } else {
             embyApiCall("plex_media_container_genres") {
-                container(server, "/library/collections/$containerId/children") {
+                container(server, "/library/collections/${plexPath(containerId)}/children") {
                     parameter("X-Plex-Container-Start", 0)
                     parameter("X-Plex-Container-Size", PLEX_CONTAINER_LIMIT)
                 }.allMetadata()
@@ -386,8 +433,8 @@ internal class PlexMediaServerAdapter(
                     )
                 }
             val resumeContainer =
-                runCatching { container(server, "/hubs/home/continueWatching") }
-                    .recoverCatching { container(server, "/library/onDeck") }
+                runCatchingCancellable { container(server, "/hubs/home/continueWatching") }
+                    .recoverCatchingCancellable { container(server, "/library/onDeck") }
                     .getOrNull()
             val resume =
                 resumeContainer
@@ -405,13 +452,14 @@ internal class PlexMediaServerAdapter(
                     .distinctBy(MediaItem::id)
                     .take(12)
                     .toList()
-            val containers = runCatching { mediaContainers(server).getOrThrow() }.getOrDefault(emptyList())
+            val containers =
+                runCatchingCancellable { mediaContainers(server).getOrThrow() }.getOrDefault(emptyList())
             HomeContent(
                 featured = featured,
                 resume = resume,
                 rows = rows,
                 counts =
-                    runCatching { itemCounts(server).getOrThrow() }
+                    runCatchingCancellable { itemCounts(server).getOrThrow() }
                         .getOrNull(),
                 collections = containers.filter { it.kind == MediaContainerKind.BoxSet }.take(12),
                 playlists = containers.filter { it.kind == MediaContainerKind.Playlist }.take(12),
@@ -429,7 +477,7 @@ internal class PlexMediaServerAdapter(
     ): Result<LibraryPage> =
         embyApiCall("plex_library_items") {
             val container =
-                container(server, "/library/sections/$libraryId/all") {
+                container(server, "/library/sections/${plexPath(libraryId)}/all") {
                     parameter("X-Plex-Container-Start", startIndex.coerceAtLeast(0))
                     parameter("X-Plex-Container-Size", limit.coerceAtLeast(1))
                     parameter("includeGuids", 1)
@@ -457,7 +505,7 @@ internal class PlexMediaServerAdapter(
         libraryId: String,
     ): Result<List<String>> =
         embyApiCall("plex_library_genres") {
-            container(server, "/library/sections/$libraryId/genre")
+            container(server, "/library/sections/${plexPath(libraryId)}/genre")
                 .Directory
                 .mapNotNull { it.title?.takeIf(String::isNotBlank) }
                 .distinct()
@@ -470,7 +518,7 @@ internal class PlexMediaServerAdapter(
     ): Result<MediaDetail> =
         embyApiCall("plex_item_detail") {
             val item = metadata(server, itemId, includeChildren = false)
-            item.duration?.takeIf { it > 0L }?.let { durationByItemMs[durationKey(server, itemId)] = it }
+            rememberDuration(server, itemId, item.duration)
             progress.project(server, item.toBaseItem(server)).toMediaDetail()
         }
 
@@ -479,7 +527,7 @@ internal class PlexMediaServerAdapter(
         seriesId: String,
     ): Result<List<Season>> =
         embyApiCall("plex_seasons") {
-            container(server, "/library/metadata/$seriesId/children") {
+            container(server, "/library/metadata/${plexPath(seriesId)}/children") {
                 parameter("includeGuids", 1)
             }.allMetadata().map { it.toBaseItem(server).toSeason() }
         }
@@ -494,9 +542,9 @@ internal class PlexMediaServerAdapter(
         embyApiCall("plex_episodes") {
             val path =
                 if (seasonId.isNullOrBlank()) {
-                    "/library/metadata/$seriesId/allLeaves"
+                    "/library/metadata/${plexPath(seriesId)}/allLeaves"
                 } else {
-                    "/library/metadata/$seasonId/children"
+                    "/library/metadata/${plexPath(seasonId)}/children"
                 }
             container(server, path) {
                 parameter("includeGuids", 1)
@@ -536,7 +584,7 @@ internal class PlexMediaServerAdapter(
     ): Result<PlaybackInfoResponseDto> =
         embyApiCall("plex_playback_info") {
             val item = metadata(server, itemId, includeChildren = false)
-            item.duration?.takeIf { it > 0L }?.let { durationByItemMs[durationKey(server, itemId)] = it }
+            rememberDuration(server, itemId, item.duration)
             val sources =
                 item
                     .toBaseItem(server, playSessionId)
@@ -578,7 +626,7 @@ internal class PlexMediaServerAdapter(
                 parameter("key", "/library/metadata/$itemId")
                 parameter("state", state)
                 parameter("time", timeMs)
-                durationByItemMs[durationKey(server, itemId)]?.let { parameter("duration", it) }
+                cachedDurationMs(server, itemId)?.let { parameter("duration", it) }
             }
             Unit
         }
@@ -595,6 +643,7 @@ internal class PlexMediaServerAdapter(
                 parameter("key", itemId)
                 parameter("identifier", "com.plexapp.plugins.library")
             }
+            invalidateCatalog(server)
             Unit
         }
 
@@ -619,7 +668,7 @@ internal class PlexMediaServerAdapter(
         limit: Int,
     ): Result<List<MediaItem>> =
         embyApiCall("plex_similar") {
-            container(server, "/library/metadata/$itemId/related") {
+            container(server, "/library/metadata/${plexPath(itemId)}/related") {
                 parameter("includeGuids", 1)
             }.allMetadata()
                 .map { progress.project(server, it.toBaseItem(server)).toMediaItem() }
@@ -638,7 +687,7 @@ internal class PlexMediaServerAdapter(
             val response =
                 container(
                     server,
-                    filter.parentId?.let { "/library/sections/$it/all" } ?: "/library/all",
+                    filter.parentId?.let { "/library/sections/${plexPath(it)}/all" } ?: "/library/all",
                 ) {
                     query.trim().takeIf(String::isNotEmpty)?.let { parameter("title", it) }
                     when (filter.includeItemTypes) {
@@ -683,9 +732,9 @@ internal class PlexMediaServerAdapter(
         query: String,
         limit: Int,
     ): List<Person> =
-        runCatching {
+        runCatchingCancellable {
             val normalizedQuery = query.trim()
-            if (normalizedQuery.isEmpty() || limit <= 0) return@runCatching emptyList()
+            if (normalizedQuery.isEmpty() || limit <= 0) return@runCatchingCancellable emptyList()
             val hubPeople =
                 container(server, "/hubs/search") {
                     parameter("query", normalizedQuery)
@@ -801,8 +850,11 @@ internal class PlexMediaServerAdapter(
             val provider = mediaKey.substringBefore(':').lowercase()
             val value = mediaKey.substringAfter(':', missingDelimiterValue = "")
             if (provider == "plex" && value.isNotBlank()) {
-                return@embyApiCall runCatching { itemDetail(server, value).getOrThrow() }
-                    .getOrNull()
+                // The key arrives from another participant's room; only a numeric rating key is
+                // ever a Plex item, and it is encoded again before it becomes a path segment.
+                val ratingKey = runCatchingCancellable { plexNumericId(value, "mediaKey") }.getOrNull()
+                return@embyApiCall ratingKey
+                    ?.let { runCatchingCancellable { itemDetail(server, it).getOrThrow() }.getOrNull() }
                     ?.let { detail ->
                         MediaItem(
                             id = detail.id,
@@ -1025,7 +1077,7 @@ internal class PlexMediaServerAdapter(
         itemId: String,
         includeChildren: Boolean,
     ): PlexMetadataDto =
-        container(server, "/library/metadata/$itemId") {
+        container(server, "/library/metadata/${plexPath(itemId)}") {
             parameter("includeGuids", 1)
             parameter("includeMarkers", 1)
             parameter("includeUserState", 1)
@@ -1033,19 +1085,58 @@ internal class PlexMediaServerAdapter(
             if (includeChildren) parameter("includeChildren", 1)
         }.allMetadata().firstOrNull() ?: error("Plex 中找不到该媒体")
 
+    /**
+     * Every movie or show on [server], from a per-server, per-type cache.
+     *
+     * A miss reads all matching sections page by page, which on a large library is several
+     * megabytes; the result then answers every provider-id lookup for [catalogTtlMs] so the
+     * detail page, the calendar and the cloud-sync fan-out share one read instead of each
+     * paying for their own. `null` asks for both types.
+     */
     private suspend fun allTopLevelMetadata(
         server: SavedServer,
         expectedType: String? = null,
     ): List<PlexMetadataDto> {
+        val types = if (expectedType == null) listOf("movie", "show") else listOf(expectedType)
+        return types.flatMap { type -> topLevelCatalog(server, type) }
+    }
+
+    private suspend fun topLevelCatalog(
+        server: SavedServer,
+        libraryType: String,
+    ): List<PlexMetadataDto> {
+        val key = catalogKeyPrefix(server) + libraryType
+        cachedCatalog(key)?.let { return it }
+        return topLevelCatalogMutex.withLock {
+            cachedCatalog(key)?.let { return@withLock it }
+            val items = readTopLevelMetadata(server, libraryType)
+            synchronized(cacheLock) {
+                topLevelCatalogCache[key] = TopLevelCatalogSnapshot(nowEpochMs(), items)
+            }
+            items
+        }
+    }
+
+    private fun cachedCatalog(key: String): List<PlexMetadataDto>? =
+        synchronized(cacheLock) {
+            val cached = topLevelCatalogCache[key] ?: return null
+            val age = nowEpochMs() - cached.fetchedAtEpochMs
+            if (age in 0 until catalogTtlMs) cached.items else null
+        }
+
+    private suspend fun readTopLevelMetadata(
+        server: SavedServer,
+        expectedType: String,
+    ): List<PlexMetadataDto> {
         val values = mutableListOf<PlexMetadataDto>()
         libraries(server).getOrThrow().forEach { library ->
             val libraryType = if (library.collectionType == "tvshows") "show" else "movie"
-            if (expectedType != null && libraryType != expectedType) return@forEach
+            if (libraryType != expectedType) return@forEach
             var start = 0
             var total = Int.MAX_VALUE
             while (start < total) {
                 val page =
-                    container(server, "/library/sections/${library.id}/all") {
+                    container(server, "/library/sections/${plexPath(library.id)}/all") {
                         parameter("includeGuids", 1)
                         parameter("includeUserState", 1)
                         parameter("X-Plex-Container-Start", start)
@@ -1063,7 +1154,7 @@ internal class PlexMediaServerAdapter(
 
     private suspend fun allMediaContainers(server: SavedServer): List<MediaContainer> {
         val collections =
-            runCatching {
+            runCatchingCancellable {
                 libraries(server).getOrThrow().flatMap { library ->
                     container(
                         server,
@@ -1078,7 +1169,7 @@ internal class PlexMediaServerAdapter(
                 }
             }.getOrDefault(emptyList())
         val playlists =
-            runCatching {
+            runCatchingCancellable {
                 container(server, "/playlists") {
                     parameter("playlistType", "video")
                     parameter("includeCollections", 1)
@@ -1148,7 +1239,7 @@ internal class PlexMediaServerAdapter(
         header("X-Plex-Token", token)
         header("X-Plex-Client-Identifier", deviceId())
         header("X-Plex-Product", PLEX_PRODUCT)
-        header("X-Plex-Platform", PLEX_PLATFORM)
+        header("X-Plex-Platform", platformName())
         header("X-Plex-Device-Name", PLEX_PRODUCT)
         sessionId?.takeIf(String::isNotBlank)?.let {
             header("X-Plex-Session-Identifier", it)
@@ -1549,9 +1640,13 @@ private fun plexNumericId(
     return normalized.encodeURLPathPart()
 }
 
+/** One path segment of a Plex route; an id can never escape into another path or a query. */
+private fun plexPath(id: String): String = id.encodeURLPathPart()
+
 private fun Boolean.toPresenceFlag(): Int = if (this) 1 else 0
 
 private fun Long.timesSafely(multiplier: Long): Long =
     if (this > Long.MAX_VALUE / multiplier) Long.MAX_VALUE else this * multiplier
 
 private const val MAX_CACHED_DURATIONS = 256
+private const val PLEX_CATALOG_TTL_MS = 5 * 60_000L

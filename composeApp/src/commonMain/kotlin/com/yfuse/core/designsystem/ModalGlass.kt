@@ -18,20 +18,33 @@ import androidx.compose.ui.unit.dp
 internal val LocalDialogBackdrop = staticCompositionLocalOf<BackdropState?> { null }
 internal val LocalMutedGlass = staticCompositionLocalOf { false }
 
-/** Dialogs occupy another window, so only the page (never the dialog itself) is captured. */
+/**
+ * Dialogs occupy another window, so only the page (never the dialog itself) is captured.
+ *
+ * The capture is the whole page, every frame — so it only runs while a dialog is actually
+ * up. [OverlayVisibility] is the theme's; with nothing open the page draws straight to the
+ * window and the layer keeps whatever it last held, which the next dialog overwrites on its
+ * first frame.
+ */
 @Composable
 internal fun DialogBackdropHost(content: @Composable () -> Unit) {
     val backdrop = rememberBackdropState()
     val motionHost = remember { DialogMotionHost() }
+    val overlays = LocalOverlayVisibility.current
     CompositionLocalProvider(LocalDialogBackdrop provides backdrop, LocalDialogMotionHost provides motionHost) {
-        Box(Modifier.fillMaxSize().trackDialogOrigin(motionHost).backdropSource(backdrop)) { content() }
+        Box(
+            Modifier
+                .fillMaxSize()
+                .trackDialogOrigin(motionHost)
+                .backdropSource(backdrop, record = { overlays == null || overlays.any }),
+        ) { content() }
     }
 }
 
 /** Low-reflection liquid glass; refraction and diffusion affect the page, never the text. */
 @Composable
 fun Modifier.mutedGlassPanel(
-    shape: Shape = GlassShapes.sheet,
+    shape: Shape = AppShapes.sheet,
     samplePage: Boolean = true,
     dark: Boolean = LocalPalette.current.isDark,
 ): Modifier {
@@ -42,21 +55,11 @@ fun Modifier.mutedGlassPanel(
     // light surface. Making the translucent grey tint opaque leaves captions hard to read.
     val tint =
         when {
-            dark -> Color(0xFF191E27)
+            dark -> DarkPalette.dialogTint
             opaque -> LightPalette.background
-            else -> Color(0xFF878F9B)
+            else -> LightPalette.dialogTint
         }
-    val body =
-        tint.copy(
-            alpha =
-                if (opaque) {
-                    1f
-                } else if (dark) {
-                    0.72f
-                } else {
-                    0.52f
-                },
-        )
+    val body = if (opaque) tint.copy(alpha = 1f) else tint
     val rim =
         Brush.linearGradient(
             0f to Color.White.copy(alpha = if (dark) 0.22f else 0.30f),
@@ -100,9 +103,8 @@ internal fun Modifier.mutedGlassControl(
 ): Modifier {
     val palette = LocalPalette.current
     val reduceTransparency = LocalAccessibilityOptions.current.reduceTransparency
-    val neutral = if (palette.isDark) Color(0xFF353B45) else Color(0xFFBEC3CB)
     val body =
-        if (reduceTransparency) neutral else fill.copy(alpha = fill.alpha.coerceAtMost(0.10f))
+        if (reduceTransparency) palette.mutedControl else fill.copy(alpha = fill.alpha.coerceAtMost(0.10f))
     return clip(shape)
         .background(body)
         .then(

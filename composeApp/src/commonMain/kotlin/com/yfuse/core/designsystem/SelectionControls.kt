@@ -148,7 +148,7 @@ internal fun SettingSegmentControl(
         Modifier
             .then(if (expanded) Modifier.fillMaxWidth() else Modifier)
             .selectableGroup()
-            .flatGlass(GlassShapes.chip, palette.card3, palette.border)
+            .flatGlass(AppShapes.chip, palette.card3, palette.border)
             .padding(2.dp)
             .then(indicator.container),
         horizontalArrangement = Arrangement.spacedBy(2.dp),
@@ -164,7 +164,7 @@ internal fun SettingSegmentControl(
                         pressedScale = 0.97f,
                         haptic = HapticSignal.Select,
                         role = Role.RadioButton,
-                        focusShape = GlassShapes.chip,
+                        focusShape = AppShapes.chip,
                         onClickLabel = label,
                         onClick = { onSelect(index) },
                     ).semantics { selected = isSelected }

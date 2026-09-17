@@ -35,6 +35,8 @@ import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
@@ -116,6 +118,9 @@ fun Modifier.touchTarget(minSize: Dp = MinTouchTarget): Modifier =
  * @param onLongClick when set, the whole gesture goes through `combinedClickable`.
  * @param focusShape shape of the keyboard/D-pad focus ring. The default fits ordinary
  *   controls; artwork should pass the same shape it clips to.
+ * @param label what the control *is*, for a screen reader, when nothing inside it says so —
+ *   an icon-only button. Written as the node's `contentDescription`; leave it null where a
+ *   visible text child already names the control, or the name would be read twice.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -134,15 +139,17 @@ fun Modifier.pressable(
     onLongClick: (() -> Unit)? = null,
     /** Announced by the accessibility service for the long press, when it has its own name. */
     onLongClickLabel: String? = null,
+    label: String? = null,
+    interactionSource: MutableInteractionSource? = null,
     onClick: () -> Unit,
 ): Modifier {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val haptics = LocalHaptics.current
     val light = rememberLightFeedback(enabled && lightFeedback && role == Role.Button)
-    val interactionSource = remember { MutableInteractionSource() }
-    val pressed by interactionSource.collectIsPressedAsState()
-    val focused by interactionSource.collectIsFocusedAsState()
-    val hovered by interactionSource.collectIsHoveredAsState()
+    val source = interactionSource ?: remember { MutableInteractionSource() }
+    val pressed by source.collectIsPressedAsState()
+    val focused by source.collectIsFocusedAsState()
+    val hovered by source.collectIsHoveredAsState()
     val down = pressed && enabled
     val highlighted = enabled && (focused || hovered)
     val targetScale =
@@ -177,9 +184,9 @@ fun Modifier.pressable(
     // its end state and back is exactly the kind of movement the setting exists to remove.
     val tilting = tilt && !reduceMotion
     var pressPoint by remember { mutableStateOf(Offset.Unspecified) }
-    LaunchedEffect(interactionSource, tilting, light) {
+    LaunchedEffect(source, tilting, light) {
         if (!tilting && !light.enabled) return@LaunchedEffect
-        interactionSource.interactions.collect { interaction ->
+        source.interactions.collect { interaction ->
             // Only the press carries a position; the release and the cancel are the same
             // event as far as the lean is concerned, and [pressed] already covers them.
             when (interaction) {
@@ -213,6 +220,7 @@ fun Modifier.pressable(
         }
 
     return this
+        .then(if (label != null) Modifier.semantics { contentDescription = label } else Modifier)
         .lightFeedback(light)
         .graphicsLayer {
             scaleX = scale
@@ -266,7 +274,7 @@ fun Modifier.pressable(
         ).let { modifier ->
             if (onLongClickWithHaptic != null) {
                 modifier.combinedClickable(
-                    interactionSource = interactionSource,
+                    interactionSource = source,
                     indication = null,
                     enabled = enabled,
                     onClickLabel = onClickLabel,
@@ -277,7 +285,7 @@ fun Modifier.pressable(
                 )
             } else {
                 modifier.clickable(
-                    interactionSource = interactionSource,
+                    interactionSource = source,
                     indication = null,
                     enabled = enabled,
                     onClickLabel = onClickLabel,

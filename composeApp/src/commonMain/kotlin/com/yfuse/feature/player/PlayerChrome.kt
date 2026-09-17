@@ -14,6 +14,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -67,10 +68,13 @@ import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.PlayerTokens
+import com.yfuse.core.designsystem.PressFeedback
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.lightFeedback
+import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberAccentColorsForSurface
 import com.yfuse.core.designsystem.rememberLightFeedback
+import com.yfuse.core.designsystem.softSelectionSurface
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.util.currentClockTime
 import kotlinx.coroutines.delay
@@ -635,6 +639,7 @@ internal fun CircleControl(
     /** Applied to the visible ring rather than the touch target, for callers that need its bounds. */
     ringModifier: Modifier = Modifier,
 ) {
+    val interactions = remember { MutableInteractionSource() }
     // The ring is what you see; the touch target is bigger than the ring. Sizing them
     // together is what made these controls big enough to cover a face — a 48dp disc over
     // the middle of the picture is 48dp of picture you cannot see.
@@ -642,7 +647,19 @@ internal fun CircleControl(
         modifier
             .graphicsLayer { alpha = if (enabled) 1f else 0.35f }
             .let {
-                if (enabled && interactive) it.noRippleClickable(onClick) else it.touchTarget()
+                if (interactive) {
+                    it
+                        .pressable(
+                            enabled = enabled,
+                            pressedScale = PressFeedback.QUIET,
+                            lightFeedback = false,
+                            interactionSource = interactions,
+                            focusShape = CircleShape,
+                            onClick = onClick,
+                        ).touchTarget()
+                } else {
+                    it.touchTarget()
+                }
             }.size(size + ControlTouchPadding * 2),
         contentAlignment = Alignment.Center,
     ) {
@@ -658,12 +675,16 @@ internal fun CircleControl(
                         it.background(PlayerTokens.playFill, CircleShape)
                     } else {
                         it
-                            .background(
-                                if (active) Color.White.copy(alpha = 0.12f) else Color.Transparent,
-                                CircleShape,
-                            ).border(1.dp, Color.White.copy(alpha = 0.62f), CircleShape)
+                            .border(1.dp, Color.White.copy(alpha = 0.62f), CircleShape)
                     }
-                },
+                }.softSelectionSurface(
+                    interactionSource = interactions,
+                    shape = CircleShape,
+                    selected = active && !filled,
+                    selectedColor = Color.White.copy(alpha = 0.12f),
+                    pressedColor = (if (filled) PlayerTokens.onPlay else Color.White).copy(alpha = 0.10f),
+                    enabled = enabled && interactive,
+                ),
             contentAlignment = Alignment.Center,
         ) {
             Icon(

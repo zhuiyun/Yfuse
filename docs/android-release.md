@@ -329,8 +329,13 @@ rights for the intended release:
 ```
 
 This property is an auditable acknowledgement, not a license key and not a substitute for the
-underlying agreement. Debug-signed `-PallowDebugSigning` release builds remain non-distributable
-verification artifacts and do not satisfy the production gate.
+underlying agreement. It is deliberately absent from `gradle.properties`: it must be passed per
+release from the entry point (`-PconfirmMdkDistributionRights=true` in the signed CI workflows,
+`-ConfirmMdkDistributionRights` for `scripts/build-release-packages.ps1`, which refuses a
+production-signed full build without it). Debug-signed `-PallowDebugSigning` release builds remain
+non-distributable verification artifacts and do not satisfy the production gate. The same entry
+points pass `-Pkotlin.incremental=false` so signed packages are recompiled from the checked-out
+source; ordinary development builds keep incremental compilation.
 
 Two production profiles are available. The default/full profile contains Exo, MPV, and MDK; the
 compact profile contains Exo and MPV only. Build both signed APKs with:

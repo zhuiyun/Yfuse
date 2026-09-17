@@ -1,10 +1,11 @@
 # Yfuse Logo Design QA
 
-- Source visual truth: `C:\Users\app-inkbird\.codex\generated_images\019f9308-ea2b-7f21-aa74-17eb6d660b10\call_I8HEKBGMyjqP7ziiNEhJMnGt.png`
-- Production asset: `audit/v26-logo/yfuse_logo_mark.png` (design reference only — it lived in
-  `res/drawable-nodpi/` and nothing ever loaded it, so every build carried 386 KB of source art)
-- Implementation comparison: `D:\Demo\Yfuse\audit\v26-logo\source-vs-production.png`
-- Adaptive-mask preview: `D:\Demo\Yfuse\audit\v26-logo\adaptive-mask-preview-v2.png`
+- Source visual truth: the selected generated logo concept (kept outside the repository; the
+  raster was never a build input)
+- Production asset: the launcher/splash mark generated from that concept. The former
+  `res/drawable-nodpi/` copy was removed because nothing loaded it and every build carried
+  386 KB of source art; the comparison renders that used to live under `audit/v26-logo/` were
+  historical evidence and are no longer checked in (audit media is excluded by `.gitignore`).
 - Source pixels: 1254 × 1254 RGB
 - Production pixels: 1024 × 1024 RGBA
 - Comparison pixels: 2048 × 1024, normalized to two 1024 × 1024 panels
@@ -41,9 +42,9 @@ The adaptive-mask preview shows the production asset under circular, rounded-squ
 2. Fixes:
    - Reprocessed transparency with a 1px edge contraction.
    - Removed the extra foreground inset and retained the source asset's own safe padding.
-3. Post-fix evidence:
-   - `source-vs-production.png` shows clean white-background edges.
-   - `adaptive-mask-preview-v2.png` shows a fuller mark with no clipping under three representative masks.
+3. Post-fix evidence (historical renders, no longer checked in):
+   - The source-vs-production comparison showed clean white-background edges.
+   - The adaptive-mask preview showed a fuller mark with no clipping under three representative masks.
 
 ## Implementation checklist
 

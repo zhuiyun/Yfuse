@@ -1,6 +1,7 @@
 package com.yfuse.feature.player
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,10 +12,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -23,9 +29,11 @@ import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.DarkPalette
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.PillSwitch
+import com.yfuse.core.designsystem.PressFeedback
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberAccentColorsForSurface
+import com.yfuse.core.designsystem.softSelectionSurface
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
@@ -98,11 +106,7 @@ internal fun OptionRow(
     Row(
         Modifier
             .fillMaxWidth()
-            .glass(
-                shape = GlassShapes.thumb,
-                fill = if (selected) accent.container else Color.White.copy(alpha = 0.045f),
-                border = if (selected) accent.border else Color.White.copy(alpha = 0.07f),
-            ).noRippleClickable(onClick)
+            .playerChoiceFeedback(selected = selected, onClick = onClick)
             .padding(horizontal = 11.dp, vertical = 9.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
@@ -199,7 +203,7 @@ internal fun PopupMenuRow(
     Row(
         Modifier
             .fillMaxWidth()
-            .noRippleClickable(onClick)
+            .playerChoiceFeedback(selected = selected, plated = false, onClick = onClick)
             .padding(horizontal = 4.dp, vertical = 9.dp),
         horizontalArrangement = Arrangement.spacedBy(11.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -260,3 +264,37 @@ internal fun PopupMenuRow(
 /** Player overlays use a press response without drawing a ripple over the video. */
 @Composable
 internal fun Modifier.noRippleClickable(onClick: () -> Unit): Modifier = pressable(onClick = onClick).touchTarget()
+
+/** One neutral material for player choices; only the background responds, never the text opacity. */
+@Composable
+internal fun Modifier.playerChoiceFeedback(
+    selected: Boolean,
+    shape: Shape = GlassShapes.thumb,
+    plated: Boolean = true,
+    role: Role = Role.Button,
+    onClick: () -> Unit,
+): Modifier {
+    val interactions = remember { MutableInteractionSource() }
+    val accent = rememberAccentColorsForSurface(dark = true)
+    return pressable(
+        pressedScale = PressFeedback.QUIET,
+        lightFeedback = false,
+        interactionSource = interactions,
+        focusShape = shape,
+        role = role,
+        onClick = onClick,
+    ).touchTarget()
+        .then(
+            if (plated) {
+                Modifier.glass(shape, Color.White.copy(alpha = 0.045f), Color.White.copy(alpha = 0.07f))
+            } else {
+                Modifier
+            },
+        ).softSelectionSurface(
+            interactionSource = interactions,
+            shape = shape,
+            selected = selected,
+            selectedColor = accent.container,
+            pressedColor = Color.White.copy(alpha = 0.10f),
+        ).semantics { this.selected = selected }
+}

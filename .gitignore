@@ -74,3 +74,11 @@ watchTogetherServer/calendarRenderer/renderer-state/storage-state.json
 /.worktrees/
 /.codex-calendar-optimization/
 /audit/**/before/
+
+# Agent scratch directories and local QA fixtures
+.workbuddy-ai/
+.codex-tools/
+.tmp-carousel-qa/
+
+# Zipped audit evidence belongs in CI/release artifacts
+audit/**/*.zip

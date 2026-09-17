@@ -208,7 +208,7 @@
 4. 补 1.0.27/1.0.28 的 `version.properties` 与 `release-notes.txt`，或撤回预发布资产。
 5. 在分支保护上要求 `Android quality gates` 通过才能合入 master。
 
-验收：master 连续 3 次推送绿色；`testDebugUnitTest` 与 `:watchTogetherServer:test` 的报告出现在 Actions 里。
+验收：master 连续 3 次推送绿色；`testDebugUnitTest`（当时的任务名；AGP 9 迁移后对应 `:phoneShared:testAndroidHostTest`） 与 `:watchTogetherServer:test` 的报告出现在 Actions 里。
 
 ### 阶段 1 · 安全与正确性（1 周）
 

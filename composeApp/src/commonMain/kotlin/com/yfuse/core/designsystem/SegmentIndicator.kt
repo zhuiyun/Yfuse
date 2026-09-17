@@ -86,7 +86,7 @@ internal fun rememberSegmentIndicator(
                     )
                 } else if (width > 0f) {
                     translate(left = left.value) {
-                        val outline = GlassShapes.chip.createOutline(Size(width, size.height), layoutDirection, this)
+                        val outline = AppShapes.chip.createOutline(Size(width, size.height), layoutDirection, this)
                         drawOutline(outline, fill)
                         drawOutline(outline, border, style = Stroke(1.dp.toPx()))
                     }

@@ -85,7 +85,11 @@ fun Modifier.waitingPulse(
                 outline,
                 brush =
                     Brush.linearGradient(
-                        listOf(color.copy(alpha = 0.12f), color.copy(alpha = 0.72f), color.copy(alpha = 0.12f)),
+                        listOf(
+                            Color.White.copy(alpha = 0.08f),
+                            Color.White.copy(alpha = 0.32f),
+                            Color.White.copy(alpha = 0.08f),
+                        ),
                         start = Offset(size.width * (value - 0.5f), 0f),
                         end = Offset(size.width * (value + 0.5f), size.height),
                     ),

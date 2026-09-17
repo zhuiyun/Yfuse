@@ -48,6 +48,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
@@ -61,7 +62,10 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
@@ -99,9 +103,17 @@ internal class AndroidAdaptiveCore2YPlayer(
     private val adaptiveFeedbackSink: AndroidYCoreHttpProxy? = null,
     private val verifiedRouteMemory: AndroidYCoreVerifiedRouteMemory = AndroidYCoreVerifiedRouteMemory(context),
     private val onRelease: () -> Unit = {},
-) : YPlayer {
+) : YPlayer,
+    AndroidSerializedPlayerRelease {
     private val nativeOnly = fallbackRouteFactory == null
     private val queueLock = Any()
+
+    /**
+     * Owned here rather than inside [runLoop] so a caller can wait for the last child decoder
+     * after the worker itself has finished: [releaseAndJoin] must not return while a MediaCodec
+     * the router handed to its child is still tearing down.
+     */
+    private val releaseBarrier = AndroidPlayerReleaseBarrier()
 
     @Volatile
     private var queueItems = request.items
@@ -133,7 +145,7 @@ internal class AndroidAdaptiveCore2YPlayer(
     private val thermalMonitor =
         scope.launch {
             var severe = currentThermalStatus() >= SEVERE_THERMAL_STATUS
-            while (true) {
+            while (isActive) {
                 delay(THERMAL_POLL_INTERVAL_MS)
                 val nextSevere = currentThermalStatus() >= SEVERE_THERMAL_STATUS
                 if (nextSevere && !severe) commands.trySend(Command.ThermalPressure)
@@ -384,6 +396,29 @@ internal class AndroidAdaptiveCore2YPlayer(
         }
     }
 
+    override val releaseCompleted: Boolean
+        get() = released && worker.isCompleted && releaseBarrier.idle
+
+    /**
+     * [release] only asks the worker to stop; the child decoder it owned is released from the
+     * worker's `finally` without being awaited. Joining both here is what lets a replacement
+     * engine allocate its own MediaCodec without overlapping the outgoing one.
+     */
+    override suspend fun releaseAndJoin() {
+        release()
+        val completed =
+            withContext(NonCancellable) {
+                withTimeoutOrNull(RELEASE_JOIN_TIMEOUT_MS) {
+                    worker.join()
+                    releaseBarrier.await()
+                    true
+                }
+            }
+        check(completed == true) {
+            "YCore 2.0 router did not finish releasing its decoder; replacement was not started"
+        }
+    }
+
     private fun send(command: Command) {
         if (!released) commands.trySend(command)
     }
@@ -455,7 +490,6 @@ internal class AndroidAdaptiveCore2YPlayer(
     private suspend fun runLoop() {
         var currentIndex by AndroidQueueCursor(request.items[request.startIndex].id) { queueItems }
         var child: YPlayer? = null
-        val releaseBarrier = AndroidPlayerReleaseBarrier()
         var secondarySubtitleOffsetMs = 0L
         var childCollector: Job? = null
         var output: YVideoOutput? = null
@@ -2158,6 +2192,7 @@ private const val TUNNEL_SPEED_EPSILON = 0.001f
 private const val NO_PENDING_SEEK_MS = -1L
 private const val THERMAL_POLL_INTERVAL_MS = 30_000L
 private const val SEVERE_THERMAL_STATUS = 3
+private const val RELEASE_JOIN_TIMEOUT_MS = 5_000L
 
 internal fun core2RouterFailureReason(failure: Throwable): String =
     "Core2 router failed at ${failure::class.simpleName ?: "unknown failure"}"

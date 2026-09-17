@@ -1,9 +1,8 @@
 package com.yfuse.core.data
 
 import com.russhwolf.settings.MapSettings
+import com.yfuse.core.designsystem.DialogAnimation
 import com.yfuse.core.designsystem.ParticleLight
-import com.yfuse.core.designsystem.ParticleStyle
-import com.yfuse.core.designsystem.SplashAnimation
 import com.yfuse.core.designsystem.ThemeMode
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlayerEngine
@@ -11,6 +10,7 @@ import com.yfuse.core.model.ServerLayout
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class ThemePreferencesTest {
@@ -46,18 +46,29 @@ class ThemePreferencesTest {
     }
 
     @Test
-    fun particle_style_persists_independently_of_particle_level() {
+    fun theme_defaults_to_dark_and_particle_light_keeps_its_level() {
         val settings = MapSettings()
         val original = ThemePreferences(settings)
+        assertEquals(ThemeMode.Dark, original.mode.value)
         assertEquals(ParticleLight.Gentle, original.particleLight.value)
-        assertEquals(ParticleStyle.Stardust, original.particleStyle.value)
-        original.setParticleStyle(ParticleStyle.Flow)
         original.setParticleLight(ParticleLight.Off)
-        val restored = ThemePreferences(settings)
-        assertEquals(ParticleStyle.Flow, restored.particleStyle.value)
-        assertEquals(ParticleLight.Off, restored.particleLight.value)
-        restored.setParticleLight(ParticleLight.Enhanced)
-        assertEquals(ParticleStyle.Flow, ThemePreferences(settings).particleStyle.value)
+        assertEquals(ParticleLight.Off, ThemePreferences(settings).particleLight.value)
+    }
+
+    @Test
+    fun retired_variant_keys_are_scrubbed_and_retired_dialog_names_fall_back() {
+        val settings = MapSettings()
+        settings.putString("appearance.particleStyle", "Flow")
+        settings.putString("appearance.splashVariant.v2", "CloudWell")
+        settings.putBoolean("appearance.dialogAnimationLab", true)
+        settings.putString("appearance.dialogAnimation", "Hologram")
+        val prefs = ThemePreferences(settings)
+        assertNull(settings.getStringOrNull("appearance.particleStyle"))
+        assertNull(settings.getStringOrNull("appearance.splashVariant.v2"))
+        assertFalse(settings.hasKey("appearance.dialogAnimationLab"))
+        assertEquals(DialogAnimation.Lift, prefs.dialogAnimation.value)
+        prefs.setDialogAnimation(DialogAnimation.Cascade)
+        assertEquals(DialogAnimation.Cascade, ThemePreferences(settings).dialogAnimation.value)
     }
 
     @Test
@@ -72,7 +83,6 @@ class ThemePreferencesTest {
             setLargeText(true)
             setReduceMotion(true)
             setSplashAnimation(false)
-            setSplashVariant(SplashAnimation.Two)
             setServerLayout(ServerLayout.List)
         }
 
@@ -86,7 +96,6 @@ class ThemePreferencesTest {
         assertTrue(restored.largeText.value)
         assertTrue(restored.reduceMotion.value)
         assertFalse(restored.splashAnimation.value)
-        assertEquals(SplashAnimation.Two, restored.splashVariant.value)
         assertEquals(ServerLayout.List, restored.serverLayout.value)
     }
 }

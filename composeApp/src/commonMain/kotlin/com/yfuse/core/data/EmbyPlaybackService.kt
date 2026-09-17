@@ -225,7 +225,7 @@ internal class EmbyPlaybackService(
     ): Result<Unit> =
         embyApiCall("stop_transcoding") {
             try {
-                client.delete("${server.baseUrl}/Videos/ActiveEncodings") {
+                client.delete("${normalizeBaseUrl(server.baseUrl)}/Videos/ActiveEncodings") {
                     header("X-Emby-Token", server.accessToken)
                     parameter("DeviceId", deviceId())
                     parameter("PlaySessionId", playSessionId)

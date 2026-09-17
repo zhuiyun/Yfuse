@@ -60,6 +60,9 @@ data class BackdropRefraction(
  * The refraction and blur for one surface, as a single render effect, or null where the
  * platform cannot bend pixels — in which case the caller falls back to blur alone. On
  * Android this needs a `RuntimeShader`, which arrived in API 33.
+ *
+ * [saturation] rides the same chain as a colour-filter stage, so the vibrancy costs no
+ * second offscreen pass; 1 leaves the colour alone.
  */
 expect fun refractiveBlurEffect(
     blurRadiusPx: Float,
@@ -67,6 +70,17 @@ expect fun refractiveBlurEffect(
     heightPx: Float,
     refraction: BackdropRefraction,
     strengthPx: Float,
+    saturation: Float,
+): RenderEffect?
+
+/**
+ * Blur and vibrancy for one surface as a single render effect, or null where the platform
+ * cannot chain a colour filter behind a blur — the caller then blurs alone and applies the
+ * saturation as it composites. On Android both stages exist from API 31.
+ */
+expect fun saturatedBlurEffect(
+    blurRadiusPx: Float,
+    saturation: Float,
 ): RenderEffect?
 
 /** 设计说明文档 §8.1 — `blur(20-22px)`. */
@@ -175,12 +189,24 @@ fun rememberBackdropState(): BackdropState {
  * Apply to the page content only. Anything inside this is part of the backdrop, so the
  * floating chrome must be a sibling drawn after it, not a child — otherwise the bar would
  * be blurring a picture of itself.
+ *
+ * [record] is read inside the draw, so it may read snapshot state: while it is false the
+ * content draws straight to the window and the layer is left as it was. A source with no
+ * consumer on screen — the page under a closed dialog, a detail page whose collapsed bar is
+ * still transparent — should say so here rather than re-record a full-screen layer a frame.
  */
-fun Modifier.backdropSource(state: BackdropState): Modifier {
+fun Modifier.backdropSource(
+    state: BackdropState,
+    record: () -> Boolean = { true },
+): Modifier {
     if (!state.enabled) return this
     return this
         .onGloballyPositioned { state.origin = it.positionInRoot() }
         .drawWithContent {
+            if (!record()) {
+                drawContent()
+                return@drawWithContent
+            }
             state.layer.record { this@drawWithContent.drawContent() }
             state.recorded()
             drawLayer(state.layer)
@@ -190,10 +216,18 @@ fun Modifier.backdropSource(state: BackdropState): Modifier {
 /**
  * Blurs whatever [state] captured behind this surface, clipped to [shape].
  *
- * Chain it *before* the fill — `shadow(…).backdropBlur(…).overlayGlass(…)` — so the
- * translucent fill sits on top of the blur rather than under it. The blur goes into a
- * layer of its own rather than onto this node, because a `renderEffect` here would take
- * the surface's own label and icons with it.
+ * Chain it *before* the fill — `shadow(…).backdropBlur(…).glass(…)` — so the translucent
+ * fill sits on top of the blur rather than under it. The blur goes into a layer of its own
+ * rather than onto this node, because a `renderEffect` here would take the surface's own
+ * label and icons with it.
+ *
+ * Blur, refraction and vibrancy are one render effect on that layer: the saturation used to
+ * be a second `saveLayer` as the blurred copy was composited down, which made every glass
+ * surface two offscreen passes. Where a platform cannot chain the colour stage the old path
+ * is kept as the fallback.
+ *
+ * [alpha] is read inside the draw. At 0 the surface is invisible, so nothing is recorded or
+ * blurred — the collapsed detail top bar spends most of its life there.
  */
 @Composable
 fun Modifier.backdropBlur(
@@ -202,6 +236,7 @@ fun Modifier.backdropBlur(
     radius: Dp? = null,
     saturation: Float? = null,
     refraction: BackdropRefraction? = null,
+    alpha: () -> Float = { 1f },
 ): Modifier {
     val frosted = frostedGlass()
     val resolvedRadius = radius ?: if (frosted) FrostedBackdropBlurRadius else BackdropBlurRadius
@@ -216,25 +251,29 @@ fun Modifier.backdropBlur(
     val density = LocalDensity.current
     val radiusPx = with(density) { resolvedRadius.toPx() }
     val refractionPx = refraction?.let { with(density) { it.strength.toPx() } } ?: 0f
-    // Radius changes only with density or the caller's material token. Reuse the effect
-    // instead of allocating an identical RenderEffect from every draw pass.
-    val blurEffect = remember(radiusPx) { BlurEffect(radiusPx, radiusPx) }
+    // Radius and saturation change only with density or the caller's material token. Reuse
+    // the effect instead of allocating an identical RenderEffect from every draw pass.
+    val chained = remember(radiusPx, resolvedSaturation) { saturatedBlurEffect(radiusPx, resolvedSaturation) }
+    val blurEffect = remember(chained, radiusPx) { chained ?: BlurEffect(radiusPx, radiusPx) }
+    // Only needed where the platform could not fold the saturation into [blurEffect].
+    val vibrancyFallback =
+        remember(chained, resolvedSaturation) {
+            if (chained != null) {
+                null
+            } else {
+                Paint().apply {
+                    colorFilter =
+                        ColorFilter.colorMatrix(
+                            ColorMatrix().apply { setToSaturation(resolvedSaturation) },
+                        )
+                }
+            }
+        }
     // Refraction is keyed to the surface's size — the shader needs it to know where the
     // edges are — so it is rebuilt when the size changes, not per frame. Plain fields, not
     // snapshot state: this is written from inside the draw, and a state written by the draw
     // that reads it is an invalidation loop.
-    val refractive = remember { RefractionCache() }
-    // The saturation is a property of the material, not of this surface, so it is built once
-    // rather than per frame.
-    val vibrancy =
-        remember(resolvedSaturation) {
-            Paint().apply {
-                colorFilter =
-                    ColorFilter.colorMatrix(
-                        ColorMatrix().apply { setToSaturation(resolvedSaturation) },
-                    )
-            }
-        }
+    val refractive = remember(resolvedSaturation) { RefractionCache() }
     var origin by remember { mutableStateOf(Offset.Zero) }
     if (!state.enabled) return this
     return this
@@ -242,6 +281,8 @@ fun Modifier.backdropBlur(
         .clip(shape)
         .drawBehind {
             if (!state.hasContent) return@drawBehind
+            val visibility = alpha().coerceIn(0f, 1f)
+            if (visibility <= 0f) return@drawBehind
             val source = state.sample()
             if (refraction != null && size != refractive.size) {
                 refractive.size = size
@@ -252,9 +293,11 @@ fun Modifier.backdropBlur(
                         heightPx = size.height,
                         refraction = refraction,
                         strengthPx = refractionPx,
+                        saturation = resolvedSaturation,
                     )
             }
             blurLayer.renderEffect = refractive.effect ?: blurEffect
+            blurLayer.alpha = visibility
             blurLayer.record {
                 translate(
                     left = state.origin.x - origin.x,
@@ -263,12 +306,14 @@ fun Modifier.backdropBlur(
                     drawLayer(source)
                 }
             }
-            // Saturation is applied as the blurred copy is composited down, so it lifts the
-            // backdrop and leaves the fill, hairline and content above it alone.
-            drawIntoCanvas { canvas ->
-                canvas.saveLayer(Rect(Offset.Zero, size), vibrancy)
+            if (vibrancyFallback == null) {
                 drawLayer(blurLayer)
-                canvas.restore()
+            } else {
+                drawIntoCanvas { canvas ->
+                    canvas.saveLayer(Rect(Offset.Zero, size), vibrancyFallback)
+                    drawLayer(blurLayer)
+                    canvas.restore()
+                }
             }
         }
 }

@@ -76,6 +76,8 @@ class AiringCalendarRepository(
         val authoritative: Boolean,
     )
 
+    // Written by the calendar screen and by the reminder worker on its own thread.
+    private val identityCatalogMutex = Mutex()
     private val identityCatalogCache = mutableMapOf<String, IdentityCatalogSnapshot>()
     private val libraryEpisodeRequests = Semaphore(LIBRARY_EPISODE_REQUEST_CONCURRENCY)
     private val libraryServerRequests = Semaphore(LIBRARY_SERVER_REQUEST_CONCURRENCY)
@@ -92,13 +94,15 @@ class AiringCalendarRepository(
         server: SavedServer,
         forceRefresh: Boolean,
     ): Result<List<LibrarySeriesIdentity>> {
-        val cached = identityCatalogCache[server.id]
+        val cached = identityCatalogMutex.withLock { identityCatalogCache[server.id] }
         val now = currentEpochMillis()
         if (!forceRefresh && cached != null && now - cached.fetchedAtEpochMs in 0 until IDENTITY_CATALOG_TTL_MS) {
             return Result.success(cached.items)
         }
         return emby.seriesIdentityCatalog(server).onSuccess { loaded ->
-            identityCatalogCache[server.id] = IdentityCatalogSnapshot(now, loaded)
+            identityCatalogMutex.withLock {
+                identityCatalogCache[server.id] = IdentityCatalogSnapshot(now, loaded)
+            }
         }
     }
 

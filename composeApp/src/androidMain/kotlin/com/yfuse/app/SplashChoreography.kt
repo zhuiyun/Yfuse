@@ -46,12 +46,7 @@ internal interface SplashChoreography {
 internal val SplashAnimation.choreography: SplashChoreography
     get() =
         when (this) {
-            SplashAnimation.One -> SplashOne
-            SplashAnimation.Two -> SplashTwo
-            SplashAnimation.CloudDrop -> SplashCloudDrop
-            SplashAnimation.CloudWell -> SplashCloudWell
-            SplashAnimation.AuroraDark, SplashAnimation.AuroraLight -> SplashAurora
-            SplashAnimation.Stardust -> SplashStardust
+            SplashAnimation.One, SplashAnimation.Still -> SplashOne
         }
 
 /**
@@ -63,12 +58,7 @@ internal val SplashAnimation.choreography: SplashChoreography
  */
 internal fun SplashAnimation.markResource(): Int? =
     when (this) {
-        SplashAnimation.One -> R.drawable.yfuse_mark_ribbon
-        SplashAnimation.Two -> R.drawable.yfuse_mark
-        SplashAnimation.CloudDrop, SplashAnimation.CloudWell -> null
-        SplashAnimation.AuroraDark -> R.drawable.yfuse_aurora_dark
-        SplashAnimation.AuroraLight -> R.drawable.yfuse_aurora_light
-        SplashAnimation.Stardust -> R.drawable.yfuse_mark
+        SplashAnimation.One, SplashAnimation.Still -> R.drawable.yfuse_mark_ribbon
     }
 
 /** How long every choreography leaves for the hand-off to the app. */

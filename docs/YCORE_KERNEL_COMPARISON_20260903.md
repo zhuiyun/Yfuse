@@ -377,7 +377,7 @@ Gradle 解析不到 Kotlin/AGP 插件，本地也没有 Android SDK 和发布密
 | 2.7 | 纯音频无法播放 | `YPlaybackRequest.audioOnly` + `DefaultYPlaybackStrategy.planAudioOnly` 短路整棵视频决策树；两个 probe 补纯音频结果；NativeDirect 允许无视频轨。**只走 NativeDirect**：Enhanced/软解 session 以视频轨和有效 Surface 为前提，不可执行时按 plan 如实降级 |
 | 2.8/2.9 | Surface 销毁停音频；重建必 seek | `canPump` 拆成 `videoRenderable ‖ audioPumpAllowed`；Surface 消失时只释放视频解码器、丢弃视频样本，时钟与音频不动；重建时就地重配解码器并等下一个 sync sample，**不 seek**（容器长期不给 sync 时兜底回退到 seek） |
 
-**验证状态**：`:composeApp:compileDebugKotlinAndroid` 通过；`testDebugUnitTest --tests 'com.yfuse.core2.*'` 全绿（新增 24 条）；全量 `testDebugUnitTest` 1856 条 16 条失败，与改动前基线（stash 后复跑）**完全同一组**，全在 Emby/Store/UI motion 层，与本次改动无关；改到的文件 ktlint 无新增违规（仓库 `ktlintCheck` 在 `ktlintKotlinScriptCheck` 和若干既有测试文件上本来就失败）。
+**验证状态**：`:composeApp:compileDebugKotlinAndroid` 通过；`testDebugUnitTest --tests 'com.yfuse.core2.*'` 全绿（新增 24 条）；全量 `testDebugUnitTest`（当时的任务名；AGP 9 迁移后对应 `:phoneShared:testAndroidHostTest`） 1856 条 16 条失败，与改动前基线（stash 后复跑）**完全同一组**，全在 Emby/Store/UI motion 层，与本次改动无关；改到的文件 ktlint 无新增违规（仓库 `ktlintCheck` 在 `ktlintKotlinScriptCheck` 和若干既有测试文件上本来就失败）。
 
 **仍需真机验证**（本会话无设备）：纯音频端到端（音乐/有声书）、后台与锁屏音频连续性、Surface 销毁→重建的画面恢复时延、`MEMORY_CACHE_BLOCKS = 8` 在高码率原盘上的 rebuffer 影响、聚合带宽估计对 ABR 选档的实际影响。
 

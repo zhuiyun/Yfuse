@@ -12,7 +12,9 @@ import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 import java.util.zip.CRC32
 
@@ -369,6 +371,12 @@ internal class AndroidCacheWriteQueue(
     private var bytes = 0L
     private var memoryLease: PlaybackMemoryLease? = null
 
+    /**
+     * Opened (count 1) when the first write is admitted and released when the last one drains, so
+     * a waiter blocks on it instead of polling the queue once a millisecond.
+     */
+    private var idle = CountDownLatch(0)
+
     private fun budgetBytes(): Long {
         AndroidPlaybackMemoryBudget.refreshPressure()
         val lease = memoryLease ?: AndroidPlaybackMemoryBudget.acquire(PlaybackBufferKind.CacheWrite, maximumBytes)
@@ -392,12 +400,18 @@ internal class AndroidCacheWriteQueue(
         }
 
     fun awaitIdle(timeoutMs: Long): Boolean {
-        val deadline = System.nanoTime() + timeoutMs * 1_000_000L
-        while (System.nanoTime() < deadline) {
-            if (synchronized(this) { pending.isEmpty() }) return true
-            Thread.sleep(1L)
+        val latch = synchronized(this) { if (pending.isEmpty()) return true else idle }
+        return latch.await(timeoutMs.coerceAtLeast(0L), TimeUnit.MILLISECONDS) ||
+            synchronized(this) { pending.isEmpty() }
+    }
+
+    /** Caller holds this queue's monitor. */
+    private fun releaseIdleLocked() {
+        if (pending.isEmpty()) {
+            memoryLease?.close()
+            memoryLease = null
+            idle.countDown()
         }
-        return synchronized(this) { pending.isEmpty() }
     }
 
     @Synchronized
@@ -412,6 +426,7 @@ internal class AndroidCacheWriteQueue(
             releaseIdleLease()
             return false
         }
+        if (pending.isEmpty()) idle = CountDownLatch(1)
         pending.add(key)
         bytes += size
         try {
@@ -422,20 +437,14 @@ internal class AndroidCacheWriteQueue(
                     synchronized(this) {
                         pending.remove(key)
                         bytes -= size
-                        if (pending.isEmpty()) {
-                            memoryLease?.close()
-                            memoryLease = null
-                        }
+                        releaseIdleLocked()
                     }
                 }
             }
         } catch (_: java.util.concurrent.RejectedExecutionException) {
             pending.remove(key)
             bytes -= size
-            if (pending.isEmpty()) {
-                memoryLease?.close()
-                memoryLease = null
-            }
+            releaseIdleLocked()
             return false
         }
         return true

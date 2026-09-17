@@ -47,11 +47,6 @@ private data class TmdbFeedDto(
 )
 
 @Serializable
-internal data class TmdbFindDto(
-    @SerialName("tv_results") val tvResults: List<TmdbItemDto> = emptyList(),
-)
-
-@Serializable
 internal data class TmdbItemDto(
     val id: Int,
     val title: String? = null,
@@ -193,273 +188,67 @@ class TmdbRepository(
                 val recentStart = isoDateDaysBefore(today, RECENT_RELEASE_DAYS)
                 val currentYear = today.take(4).toIntOrNull() ?: 2026
                 val nextYearEnd = "${currentYear + 1}-12-31"
-                val popularMovies = async { fetchResult("/movie/popular", language, "movie") }
-                val popularShows = async { fetchResult("/tv/popular", language, "tv") }
-                val nowMovies = async { fetchResult("/movie/now_playing", language, "movie") }
-                val nowShows = async { fetchResult("/tv/airing_today", language, "tv") }
-                // `/movie/upcoming` is region-relative and can return dates that have already
-                // passed locally. Discover gives this shelf an explicit future window instead.
-                val upcomingMovies =
-                    async {
-                        fetchResult(
-                            "/discover/movie",
-                            language,
-                            "movie",
-                            mapOf(
-                                "primary_release_date.gte" to today,
-                                "primary_release_date.lte" to nextYearEnd,
-                                "sort_by" to "popularity.desc",
-                                "without_genres" to BLOCKED_GENRES_PARAMETER,
-                                "include_adult" to "false",
-                                "include_video" to "false",
-                            ),
-                        )
-                    }
-                val upcomingShows =
-                    async {
-                        fetchResult(
-                            "/discover/tv",
-                            language,
-                            "tv",
-                            mapOf(
-                                "first_air_date.gte" to today,
-                                "first_air_date.lte" to nextYearEnd,
-                                "sort_by" to "popularity.desc",
-                                "without_genres" to BLOCKED_GENRES_PARAMETER,
-                                "include_adult" to "false",
-                            ),
-                        )
-                    }
-                val cnPopularMovies =
-                    async {
-                        fetchResult(
-                            "/discover/movie",
-                            language,
-                            "movie",
-                            mapOf(
-                                "with_origin_country" to "CN",
-                                "with_original_language" to "zh",
-                                "sort_by" to "popularity.desc",
-                                "vote_count.gte" to DOMESTIC_MIN_VOTES.toString(),
-                                "without_genres" to BLOCKED_GENRES_PARAMETER,
-                            ),
-                        )
-                    }
-                val cnPopularShows =
-                    async {
-                        fetchResult(
-                            "/discover/tv",
-                            language,
-                            "tv",
-                            mapOf(
-                                "with_origin_country" to "CN",
-                                "with_original_language" to "zh",
-                                "sort_by" to "popularity.desc",
-                                "vote_count.gte" to DOMESTIC_MIN_VOTES.toString(),
-                                "without_genres" to BLOCKED_GENRES_PARAMETER,
-                            ),
-                        )
-                    }
-                val cnNowMovies =
-                    async {
-                        fetchResult(
-                            "/discover/movie",
-                            language,
-                            "movie",
-                            mapOf(
-                                "with_origin_country" to "CN",
-                                "with_original_language" to "zh",
-                                "primary_release_year" to currentYear.toString(),
-                                "primary_release_date.lte" to today,
-                                "region" to "CN",
-                                "sort_by" to "popularity.desc",
-                                "vote_count.gte" to DOMESTIC_MIN_VOTES.toString(),
-                                "without_genres" to BLOCKED_GENRES_PARAMETER,
-                            ),
-                        )
-                    }
-                val cnNowShows =
-                    async {
-                        fetchResult(
-                            "/discover/tv",
-                            language,
-                            "tv",
-                            mapOf(
-                                "with_origin_country" to "CN",
-                                "with_original_language" to "zh",
-                                "first_air_date_year" to currentYear.toString(),
-                                "first_air_date.lte" to today,
-                                "sort_by" to "popularity.desc",
-                                "vote_count.gte" to DOMESTIC_MIN_VOTES.toString(),
-                                "without_genres" to BLOCKED_GENRES_PARAMETER,
-                            ),
-                        )
-                    }
-                val cnUpcomingMovies =
-                    async {
-                        fetchResult(
-                            "/discover/movie",
-                            language,
-                            "movie",
-                            mapOf(
-                                "with_origin_country" to CHINESE_ORIGIN_COUNTRIES_PARAMETER,
-                                "with_original_language" to "zh",
-                                "primary_release_date.gte" to today,
-                                "primary_release_date.lte" to nextYearEnd,
-                                "sort_by" to "popularity.desc",
-                                "without_genres" to BLOCKED_GENRES_PARAMETER,
-                                "include_adult" to "false",
-                                "include_video" to "false",
-                            ),
-                        )
-                    }
-                val cnUpcomingShows =
-                    async {
-                        fetchResult(
-                            "/discover/tv",
-                            language,
-                            "tv",
-                            mapOf(
-                                "with_origin_country" to CHINESE_ORIGIN_COUNTRIES_PARAMETER,
-                                "with_original_language" to "zh",
-                                "first_air_date.gte" to today,
-                                "first_air_date.lte" to nextYearEnd,
-                                "sort_by" to "popularity.desc",
-                                "without_genres" to BLOCKED_GENRES_PARAMETER,
-                                "include_adult" to "false",
-                            ),
-                        )
-                    }
-                val latestMovies =
-                    async {
-                        fetchResult(
-                            "/discover/movie",
-                            language,
-                            "movie",
-                            mapOf(
-                                "primary_release_date.gte" to recentStart,
-                                "primary_release_date.lte" to today,
-                                "sort_by" to "primary_release_date.desc",
-                                "without_genres" to BLOCKED_GENRES_PARAMETER,
-                                "include_adult" to "false",
-                                "include_video" to "false",
-                            ),
-                        )
-                    }
-                val latestShows =
-                    async {
-                        fetchResult(
-                            "/discover/tv",
-                            language,
-                            "tv",
-                            mapOf(
-                                "first_air_date.gte" to recentStart,
-                                "first_air_date.lte" to today,
-                                "sort_by" to "first_air_date.desc",
-                                "without_genres" to BLOCKED_GENRES_PARAMETER,
-                                "include_adult" to "false",
-                            ),
-                        )
-                    }
-                val cnLatestMovies =
-                    async {
-                        fetchResult(
-                            "/discover/movie",
-                            language,
-                            "movie",
-                            mapOf(
-                                "with_origin_country" to CHINESE_ORIGIN_COUNTRIES_PARAMETER,
-                                "with_original_language" to "zh",
-                                "primary_release_date.gte" to recentStart,
-                                "primary_release_date.lte" to today,
-                                "sort_by" to "primary_release_date.desc",
-                                "without_genres" to BLOCKED_GENRES_PARAMETER,
-                                "include_adult" to "false",
-                                "include_video" to "false",
-                            ),
-                        )
-                    }
-                val cnLatestShows =
-                    async {
-                        fetchResult(
-                            "/discover/tv",
-                            language,
-                            "tv",
-                            mapOf(
-                                "with_origin_country" to CHINESE_ORIGIN_COUNTRIES_PARAMETER,
-                                "with_original_language" to "zh",
-                                "first_air_date.gte" to recentStart,
-                                "first_air_date.lte" to today,
-                                "sort_by" to "first_air_date.desc",
-                                "without_genres" to BLOCKED_GENRES_PARAMETER,
-                                "include_adult" to "false",
-                            ),
-                        )
-                    }
+                val requests = homeFeedRequests(today, recentStart, currentYear, nextYearEnd)
                 val responses =
-                    awaitAll(
-                        popularMovies,
-                        popularShows,
-                        nowMovies,
-                        nowShows,
-                        upcomingMovies,
-                        upcomingShows,
-                        cnPopularMovies,
-                        cnPopularShows,
-                        cnNowMovies,
-                        cnNowShows,
-                        cnUpcomingMovies,
-                        cnUpcomingShows,
-                        latestMovies,
-                        latestShows,
-                        cnLatestMovies,
-                        cnLatestShows,
-                    )
-                val result = responses.map { it.getOrDefault(emptyList()) }
+                    requests
+                        .map { request ->
+                            async {
+                                request.feed to
+                                    fetchResult(request.path, language, request.mediaType, request.parameters)
+                            }
+                        }.awaitAll()
+                        .toMap()
+
+                fun items(feed: HomeFeed): List<TmdbItem> = responses.getValue(feed).getOrDefault(emptyList())
+
+                fun pair(
+                    movies: HomeFeed,
+                    shows: HomeFeed,
+                ): List<TmdbItem> = interleave(items(movies), items(shows))
                 val rowFeeds =
                     linkedMapOf(
-                        "热门" to listOf(0, 1, 6, 7),
-                        "最新上线" to listOf(12, 13, 14, 15),
-                        "正在上映" to listOf(2, 3, 8, 9),
-                        "即将上映" to listOf(4, 5, 10, 11),
+                        "热门" to HomeFeed.popularFeeds,
+                        "最新上线" to HomeFeed.latestFeeds,
+                        "正在上映" to HomeFeed.nowPlayingFeeds,
+                        "即将上映" to HomeFeed.upcomingFeeds,
                     )
                 val incompleteRows =
-                    rowFeeds.filterValues { indexes -> indexes.any { responses[it].isFailure } }.keys
+                    rowFeeds.filterValues { feeds -> feeds.any { responses.getValue(it).isFailure } }.keys
                 val failure =
-                    responses
+                    responses.values
                         .mapNotNull { response ->
                             (response.exceptionOrNull() as? TmdbRecommendationException)?.failure
                         }.minByOrNull { it.ordinal }
                 val popular =
                     integrateDomestic(
-                        global = interleave(result[0], result[1]).eligibleCatalogItems(),
-                        domestic = interleave(result[6], result[7]).trustedDomesticItems(),
+                        global = pair(HomeFeed.PopularMovies, HomeFeed.PopularShows).eligibleCatalogItems(),
+                        domestic = pair(HomeFeed.CnPopularMovies, HomeFeed.CnPopularShows).trustedDomesticItems(),
                     )
                 val nowPlaying =
                     integrateDomestic(
                         global =
-                            interleave(result[2], result[3])
+                            pair(HomeFeed.NowMovies, HomeFeed.NowShows)
                                 .eligibleCatalogItems()
                                 .filter { item -> item.releaseDate?.let { it <= today } == true },
                         domestic =
-                            interleave(result[8], result[9])
+                            pair(HomeFeed.CnNowMovies, HomeFeed.CnNowShows)
                                 .trustedDomesticItems()
                                 .filter { item -> item.releaseDate?.let { it <= today } == true },
                     )
                 val upcoming =
                     integrateDomestic(
-                        global = interleave(result[4], result[5]).eligibleCatalogItems(),
+                        global = pair(HomeFeed.UpcomingMovies, HomeFeed.UpcomingShows).eligibleCatalogItems(),
                         // Unreleased titles routinely have no votes and very low popularity. Those
                         // are not signs of bad metadata here, so keep the dated Chinese catalogue.
-                        domestic = interleave(result[10], result[11]).eligibleCatalogItems(),
+                        domestic = pair(HomeFeed.CnUpcomingMovies, HomeFeed.CnUpcomingShows).eligibleCatalogItems(),
                     ).eligibleCatalogItems()
                         .filter { item ->
                             item.releaseDate?.let { it >= today && it <= nextYearEnd } == true
                         }
                 val latest =
                     integrateDomestic(
-                        global = interleave(result[12], result[13]).eligibleCatalogItems(),
-                        domestic = interleave(result[14], result[15]).eligibleCatalogItems(),
+                        global = pair(HomeFeed.LatestMovies, HomeFeed.LatestShows).eligibleCatalogItems(),
+                        domestic = pair(HomeFeed.CnLatestMovies, HomeFeed.CnLatestShows).eligibleCatalogItems(),
                     ).filter { item ->
                         item.releaseDate?.let { it >= recentStart && it <= today } == true
                     }.sortedWith(
@@ -485,7 +274,8 @@ class TmdbRepository(
 
                 // Even empty successful feeds carry freshness information: the store must
                 // clear those old shelves while retaining only the groups that failed.
-                val hasMixedResponses = responses.any { it.isSuccess } && responses.any { it.isFailure }
+                val hasMixedResponses =
+                    responses.values.any { it.isSuccess } && responses.values.any { it.isFailure }
                 if (rows.isEmpty() && featured.isEmpty() && !hasMixedResponses) {
                     val category = failure ?: TmdbRecommendationFailure.EMPTY
                     AppLog.warning(
@@ -516,63 +306,6 @@ class TmdbRepository(
                 attributes = e.recommendationFailureAttributes(failure),
             )
             Result.failure(TmdbRecommendationException(failure))
-        }
-
-    /** Candidate identities for a library series whose provider ids are missing or stale. */
-    suspend fun searchSeriesIdentityCandidates(
-        title: String,
-        year: Int? = null,
-        language: String = "zh-CN",
-    ): Result<List<TmdbSeriesIdentityCandidate>> =
-        runCatching {
-            client
-                .get("$TMDB_BASE/search/tv") {
-                    parameter("language", language)
-                    parameter("query", title.trim())
-                    year?.let { parameter("first_air_date_year", it) }
-                }.body<TmdbListDto>()
-                .results
-                .map { item ->
-                    TmdbSeriesIdentityCandidate(
-                        tmdbId = item.id,
-                        title = item.name ?: item.title.orEmpty(),
-                        year = item.firstAirDate?.take(4)?.toIntOrNull(),
-                        posterPath = item.posterPath,
-                        popularity = item.popularity,
-                    )
-                }.filter { it.title.isNotBlank() }
-                .sortedWith(
-                    compareByDescending<TmdbSeriesIdentityCandidate> {
-                        normalizeIdentityTitle(it.title) == normalizeIdentityTitle(title)
-                    }.thenBy { candidate ->
-                        if (year == null || candidate.year == null) 0 else kotlin.math.abs(candidate.year - year)
-                    }.thenByDescending(TmdbSeriesIdentityCandidate::popularity),
-                ).take(8)
-        }
-
-    /** Resolves IMDb/TVDB ids through TMDB's `/find` endpoint before title matching. */
-    suspend fun findSeriesByExternalId(
-        externalId: String,
-        externalSource: String,
-        language: String = "zh-CN",
-    ): Result<TmdbSeriesIdentityCandidate?> =
-        runCatching {
-            client
-                .get("$TMDB_BASE/find/$externalId") {
-                    parameter("language", language)
-                    parameter("external_source", externalSource)
-                }.body<TmdbFindDto>()
-                .tvResults
-                .firstOrNull()
-                ?.let { item ->
-                    TmdbSeriesIdentityCandidate(
-                        tmdbId = item.id,
-                        title = item.name ?: item.title.orEmpty(),
-                        year = item.firstAirDate?.take(4)?.toIntOrNull(),
-                        posterPath = item.posterPath,
-                        popularity = item.popularity,
-                    )
-                }
         }
 
     suspend fun detail(
@@ -1118,6 +851,154 @@ class TmdbRepository(
         parameters: Map<String, String> = emptyMap(),
         requireArtwork: Boolean = true,
     ): List<TmdbItem> = fetchResult(path, language, fallbackType, parameters, requireArtwork).getOrDefault(emptyList())
+
+    /** One of the sixteen feeds the home page is assembled from; rows name them, never indexes. */
+    private enum class HomeFeed {
+        PopularMovies,
+        PopularShows,
+        NowMovies,
+        NowShows,
+        UpcomingMovies,
+        UpcomingShows,
+        CnPopularMovies,
+        CnPopularShows,
+        CnNowMovies,
+        CnNowShows,
+        CnUpcomingMovies,
+        CnUpcomingShows,
+        LatestMovies,
+        LatestShows,
+        CnLatestMovies,
+        CnLatestShows,
+        ;
+
+        companion object {
+            val popularFeeds = listOf(PopularMovies, PopularShows, CnPopularMovies, CnPopularShows)
+            val latestFeeds = listOf(LatestMovies, LatestShows, CnLatestMovies, CnLatestShows)
+            val nowPlayingFeeds = listOf(NowMovies, NowShows, CnNowMovies, CnNowShows)
+            val upcomingFeeds = listOf(UpcomingMovies, UpcomingShows, CnUpcomingMovies, CnUpcomingShows)
+        }
+    }
+
+    private data class HomeFeedRequest(
+        val feed: HomeFeed,
+        val path: String,
+        val mediaType: String,
+        val parameters: Map<String, String> = emptyMap(),
+    )
+
+    private fun homeFeedRequests(
+        today: String,
+        recentStart: String,
+        currentYear: Int,
+        nextYearEnd: String,
+    ): List<HomeFeedRequest> {
+        val domestic =
+            mapOf(
+                "with_origin_country" to "CN",
+                "with_original_language" to "zh",
+                "sort_by" to "popularity.desc",
+                "vote_count.gte" to DOMESTIC_MIN_VOTES.toString(),
+                "without_genres" to BLOCKED_GENRES_PARAMETER,
+            )
+        val chineseOrigin =
+            mapOf(
+                "with_origin_country" to CHINESE_ORIGIN_COUNTRIES_PARAMETER,
+                "with_original_language" to "zh",
+            )
+        val movieWindow =
+            mapOf(
+                "without_genres" to BLOCKED_GENRES_PARAMETER,
+                "include_adult" to "false",
+                "include_video" to "false",
+            )
+        val showWindow = mapOf("without_genres" to BLOCKED_GENRES_PARAMETER, "include_adult" to "false")
+        val upcomingMovie = mapOf("primary_release_date.gte" to today, "primary_release_date.lte" to nextYearEnd)
+        val upcomingShow = mapOf("first_air_date.gte" to today, "first_air_date.lte" to nextYearEnd)
+        val recentMovie = mapOf("primary_release_date.gte" to recentStart, "primary_release_date.lte" to today)
+        val recentShow = mapOf("first_air_date.gte" to recentStart, "first_air_date.lte" to today)
+        return listOf(
+            HomeFeedRequest(HomeFeed.PopularMovies, "/movie/popular", "movie"),
+            HomeFeedRequest(HomeFeed.PopularShows, "/tv/popular", "tv"),
+            HomeFeedRequest(HomeFeed.NowMovies, "/movie/now_playing", "movie"),
+            HomeFeedRequest(HomeFeed.NowShows, "/tv/airing_today", "tv"),
+            // `/movie/upcoming` is region-relative and can return dates that have already
+            // passed locally. Discover gives this shelf an explicit future window instead.
+            HomeFeedRequest(
+                HomeFeed.UpcomingMovies,
+                "/discover/movie",
+                "movie",
+                upcomingMovie + mapOf("sort_by" to "popularity.desc") + movieWindow,
+            ),
+            HomeFeedRequest(
+                HomeFeed.UpcomingShows,
+                "/discover/tv",
+                "tv",
+                upcomingShow + mapOf("sort_by" to "popularity.desc") + showWindow,
+            ),
+            HomeFeedRequest(HomeFeed.CnPopularMovies, "/discover/movie", "movie", domestic),
+            HomeFeedRequest(HomeFeed.CnPopularShows, "/discover/tv", "tv", domestic),
+            HomeFeedRequest(
+                HomeFeed.CnNowMovies,
+                "/discover/movie",
+                "movie",
+                mapOf(
+                    "with_origin_country" to "CN",
+                    "with_original_language" to "zh",
+                    "primary_release_year" to currentYear.toString(),
+                    "primary_release_date.lte" to today,
+                    "region" to "CN",
+                ) + domestic,
+            ),
+            HomeFeedRequest(
+                HomeFeed.CnNowShows,
+                "/discover/tv",
+                "tv",
+                mapOf(
+                    "with_origin_country" to "CN",
+                    "with_original_language" to "zh",
+                    "first_air_date_year" to currentYear.toString(),
+                    "first_air_date.lte" to today,
+                ) + domestic,
+            ),
+            HomeFeedRequest(
+                HomeFeed.CnUpcomingMovies,
+                "/discover/movie",
+                "movie",
+                chineseOrigin + upcomingMovie + mapOf("sort_by" to "popularity.desc") + movieWindow,
+            ),
+            HomeFeedRequest(
+                HomeFeed.CnUpcomingShows,
+                "/discover/tv",
+                "tv",
+                chineseOrigin + upcomingShow + mapOf("sort_by" to "popularity.desc") + showWindow,
+            ),
+            HomeFeedRequest(
+                HomeFeed.LatestMovies,
+                "/discover/movie",
+                "movie",
+                recentMovie + mapOf("sort_by" to "primary_release_date.desc") + movieWindow,
+            ),
+            HomeFeedRequest(
+                HomeFeed.LatestShows,
+                "/discover/tv",
+                "tv",
+                recentShow + mapOf("sort_by" to "first_air_date.desc") + showWindow,
+            ),
+            HomeFeedRequest(
+                HomeFeed.CnLatestMovies,
+                "/discover/movie",
+                "movie",
+                chineseOrigin + recentMovie + mapOf("sort_by" to "primary_release_date.desc") + movieWindow,
+            ),
+            HomeFeedRequest(
+                HomeFeed.CnLatestShows,
+                "/discover/tv",
+                "tv",
+                chineseOrigin + recentShow + mapOf("sort_by" to "first_air_date.desc") + showWindow,
+            ),
+        )
+    }
 
     private suspend fun fetchResult(
         path: String,

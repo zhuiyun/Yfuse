@@ -224,7 +224,7 @@ class EmbyAuthTest {
 
 - [ ] **Step 2: 运行验证失败**
 
-Run: `./gradlew :composeApp:testDebugUnitTest --tests "com.yfuse.core.network.EmbyAuthTest"`
+Run: `./gradlew :phoneShared:testAndroidHostTest --tests "com.yfuse.core.network.EmbyAuthTest"`
 Expected: FAIL —— `buildAuthHeader` 未定义。
 
 - [ ] **Step 3: 实现**
@@ -250,7 +250,7 @@ fun buildAuthHeader(appVersion: String = "0.1.0"): String =
 
 - [ ] **Step 4: 运行验证通过**
 
-Run: `./gradlew :composeApp:testDebugUnitTest --tests "com.yfuse.core.network.EmbyAuthTest"`
+Run: `./gradlew :phoneShared:testAndroidHostTest --tests "com.yfuse.core.network.EmbyAuthTest"`
 Expected: PASS。
 
 - [ ] **Step 5: 提交**
@@ -363,7 +363,7 @@ class SessionManagerTest {
 
 - [ ] **Step 2: 运行验证失败**
 
-Run: `./gradlew :composeApp:testDebugUnitTest --tests "com.yfuse.core.data.SessionManagerTest"`
+Run: `./gradlew :phoneShared:testAndroidHostTest --tests "com.yfuse.core.data.SessionManagerTest"`
 Expected: FAIL —— `SessionManager` 未定义。
 
 - [ ] **Step 3: 实现**
@@ -388,7 +388,7 @@ class SessionManager(private val settings: Settings) {
 
 - [ ] **Step 4: 运行验证通过**
 
-Run: `./gradlew :composeApp:testDebugUnitTest --tests "com.yfuse.core.data.SessionManagerTest"`
+Run: `./gradlew :phoneShared:testAndroidHostTest --tests "com.yfuse.core.data.SessionManagerTest"`
 Expected: PASS。
 
 - [ ] **Step 5: 提交**
@@ -494,7 +494,7 @@ class EmbyRepositoryTest {
 
 - [ ] **Step 3: 运行验证失败**
 
-Run: `./gradlew :composeApp:testDebugUnitTest --tests "com.yfuse.core.data.EmbyRepositoryTest"`
+Run: `./gradlew :phoneShared:testAndroidHostTest --tests "com.yfuse.core.data.EmbyRepositoryTest"`
 Expected: FAIL —— `EmbyRepository` / `EmbyErrorException` 未定义。
 
 - [ ] **Step 4: 实现**
@@ -556,7 +556,7 @@ class EmbyRepository(
 
 - [ ] **Step 5: 运行验证通过**
 
-Run: `./gradlew :composeApp:testDebugUnitTest --tests "com.yfuse.core.data.EmbyRepositoryTest"`
+Run: `./gradlew :phoneShared:testAndroidHostTest --tests "com.yfuse.core.data.EmbyRepositoryTest"`
 Expected: PASS(3 个测试)。
 
 - [ ] **Step 6: 提交**
@@ -632,7 +632,7 @@ class LoginStoreTest {
 
 - [ ] **Step 2: 运行验证失败**
 
-Run: `./gradlew :composeApp:testDebugUnitTest --tests "com.yfuse.feature.login.LoginStoreTest"`
+Run: `./gradlew :phoneShared:testAndroidHostTest --tests "com.yfuse.feature.login.LoginStoreTest"`
 Expected: FAIL —— 类未定义。
 
 - [ ] **Step 3: 实现**
@@ -718,7 +718,7 @@ private fun <T> kotlinx.coroutines.CoroutineScope.launchResult(
 
 - [ ] **Step 4: 运行验证通过**
 
-Run: `./gradlew :composeApp:testDebugUnitTest --tests "com.yfuse.feature.login.LoginStoreTest"`
+Run: `./gradlew :phoneShared:testAndroidHostTest --tests "com.yfuse.feature.login.LoginStoreTest"`
 Expected: PASS(2 个测试)。
 
 - [ ] **Step 5: 提交**
@@ -780,7 +780,7 @@ class ServerStoreTest {
 
 - [ ] **Step 2: 运行验证失败**
 
-Run: `./gradlew :composeApp:testDebugUnitTest --tests "com.yfuse.feature.server.ServerStoreTest"`
+Run: `./gradlew :phoneShared:testAndroidHostTest --tests "com.yfuse.feature.server.ServerStoreTest"`
 Expected: FAIL。
 
 - [ ] **Step 3: 实现**(结构与 LoginStore 同构)
@@ -842,7 +842,7 @@ class ServerStoreFactory(private val storeFactory: StoreFactory, private val rep
 
 - [ ] **Step 4: 运行验证通过**
 
-Run: `./gradlew :composeApp:testDebugUnitTest --tests "com.yfuse.feature.server.ServerStoreTest"`
+Run: `./gradlew :phoneShared:testAndroidHostTest --tests "com.yfuse.feature.server.ServerStoreTest"`
 Expected: PASS。
 
 - [ ] **Step 5: 提交**
@@ -900,7 +900,7 @@ class HomeStoreTest {
 
 - [ ] **Step 2: 运行验证失败**
 
-Run: `./gradlew :composeApp:testDebugUnitTest --tests "com.yfuse.feature.home.HomeStoreTest"`
+Run: `./gradlew :phoneShared:testAndroidHostTest --tests "com.yfuse.feature.home.HomeStoreTest"`
 Expected: FAIL。
 
 - [ ] **Step 3: 实现**
@@ -956,7 +956,7 @@ class HomeStoreFactory(private val storeFactory: StoreFactory, private val repo:
 
 - [ ] **Step 4: 运行验证通过**
 
-Run: `./gradlew :composeApp:testDebugUnitTest --tests "com.yfuse.feature.home.HomeStoreTest"`
+Run: `./gradlew :phoneShared:testAndroidHostTest --tests "com.yfuse.feature.home.HomeStoreTest"`
 Expected: PASS。
 
 - [ ] **Step 5: 提交**
@@ -1225,7 +1225,7 @@ git commit -m "feat: add Compose screens and wire up app navigation"
 
 ## 完成标准
 
-- 全部单元测试通过:`./gradlew :composeApp:testDebugUnitTest`。
+- 全部单元测试通过:`./gradlew :phoneShared:testAndroidHostTest`。
 - 冒烟测试通过:真机跑通「连接→登录→看到库列表」。
 - 无凭据进入版本库。
 

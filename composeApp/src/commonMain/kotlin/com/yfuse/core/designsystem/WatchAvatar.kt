@@ -16,17 +16,6 @@ import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.ThemeText as Text
 
 private val watchAvatarEmoji = listOf("🍿", "🎬", "🌙", "🚀", "🐱", "🐼", "🦊", "✨")
-private val watchAvatarColors =
-    listOf(
-        Color(0xFF7C4DFF) to Color(0xFFB388FF),
-        Color(0xFFFF5252) to Color(0xFFFF8A80),
-        Color(0xFF536DFE) to Color(0xFF82B1FF),
-        Color(0xFF00BFA5) to Color(0xFF64FFDA),
-        Color(0xFFFF6D00) to Color(0xFFFFAB40),
-        Color(0xFF455A64) to Color(0xFF90A4AE),
-        Color(0xFFD81B60) to Color(0xFFFF80AB),
-        Color(0xFF6A1B9A) to Color(0xFFE040FB),
-    )
 
 @Composable
 fun WatchAvatar(
@@ -36,7 +25,7 @@ fun WatchAvatar(
     modifier: Modifier = Modifier,
 ) {
     val index = avatarId.coerceIn(0, watchAvatarEmoji.lastIndex)
-    val colors = watchAvatarColors[index]
+    val colors = WatchAvatarTints[index]
     Box(
         modifier
             .size(size)

@@ -853,7 +853,7 @@ private fun ambientScrim(
  * the buffer is a low-saturation tint, keeping time and control readability stable across artwork.
  */
 @Composable
-private fun StandardSeekBar(
+internal fun StandardSeekBar(
     /** The played fraction as a state, so a new sample of it reaches the rail and nothing else. */
     fraction: State<Float>,
     bufferedFraction: State<Float>,
@@ -879,6 +879,9 @@ private fun StandardSeekBar(
     var focused by remember { mutableStateOf(false) }
     var widthPx by remember { mutableIntStateOf(1) }
     var snappedMarkerIndex by remember { mutableStateOf<Int?>(null) }
+    var dragDirection by remember { mutableFloatStateOf(0f) }
+    var previousDragFraction by remember { mutableFloatStateOf(0f) }
+    val directionDistancePx = with(LocalDensity.current) { 24.dp.toPx() }
     val markerFractions =
         remember(progressMarkers, durationMs) {
             progressMarkers.map { marker ->
@@ -924,6 +927,9 @@ private fun StandardSeekBar(
         )
 
     fun updateDrag(rawFraction: Float) {
+        val direction = ((rawFraction - previousDragFraction) * widthPx / directionDistancePx).coerceIn(-1f, 1f)
+        dragDirection = dragDirection * 0.65f + direction * 0.35f
+        previousDragFraction = rawFraction
         val target = magneticTarget(rawFraction)
         if (target.markerIndex != null && target.markerIndex != snappedMarkerIndex) {
             haptics.play(HapticSignal.Select)
@@ -973,6 +979,8 @@ private fun StandardSeekBar(
                         detectHorizontalDragGestures(
                             onDragStart = { offset ->
                                 val width = size.width.toFloat().coerceAtLeast(1f)
+                                dragDirection = 0f
+                                previousDragFraction = (offset.x / width).coerceIn(0f, 1f)
                                 dragging = true
                                 snappedMarkerIndex = null
                                 haptics.play(HapticSignal.Select)
@@ -1053,6 +1061,22 @@ private fun StandardSeekBar(
                     }
                 },
         )
+
+        if (!reduceMotion && moving && enabled) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(SeekHaloPressedDiameter)
+                    .softSeekBulge(
+                        fraction = { shownFraction.value },
+                        pressure = { interaction.value },
+                        direction = { dragDirection },
+                        accent = accent,
+                        trackRestingHeight = SeekTrackRestingHeight,
+                        trackGrowth = SeekTrackGrowth,
+                    ),
+            )
+        }
 
         // The same list the magnet snaps to, rather than a second copy of the same arithmetic.
         progressMarkers.forEachIndexed { index, marker ->

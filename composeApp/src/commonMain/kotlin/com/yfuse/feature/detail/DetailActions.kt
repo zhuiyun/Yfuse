@@ -3,7 +3,7 @@
 package com.yfuse.feature.detail
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -31,9 +32,12 @@ import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.InlineLoadingContent
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.PressFeedback
 import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.shadow
+import com.yfuse.core.designsystem.softActionSurface
+import com.yfuse.core.designsystem.softSelectionSurface
 import com.yfuse.core.designsystem.waitingPulse
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
@@ -76,6 +80,7 @@ internal fun DetailActionDock(
     onWatchLater: () -> Unit,
 ) {
     val actionInk = primaryActionContentColor(accent)
+    val playInteractions = remember { MutableInteractionSource() }
     Column(
         Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -86,14 +91,16 @@ internal fun DetailActionDock(
             Modifier
                 .fillMaxWidth()
                 .height(DetailPlayButtonHeight)
+                .softActionSurface(playInteractions, enabled = !resolving)
                 .shadow(GlassLift.key, GlassShapes.card)
                 .clip(GlassShapes.card)
                 .background(actionKeyBrush(accent))
                 .waitingPulse(active = resolving, shape = GlassShapes.card, color = actionInk)
-                .border(
-                    Dimens.hairline,
-                    actionInk.copy(alpha = 0.26f),
-                    GlassShapes.card,
+                .softSelectionSurface(
+                    interactionSource = playInteractions,
+                    shape = GlassShapes.card,
+                    pressedColor = actionInk.copy(alpha = 0.08f),
+                    enabled = !resolving,
                 ),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -101,20 +108,20 @@ internal fun DetailActionDock(
                 Modifier
                     .weight(1f)
                     .height(DetailPlayButtonHeight)
-                    .pressable(enabled = !resolving, onClick = onPlay)
-                    .padding(horizontal = 13.dp),
+                    .pressable(
+                        enabled = !resolving,
+                        pressedScale = 1f,
+                        lightFeedback = false,
+                        interactionSource = playInteractions,
+                        onClick = onPlay,
+                    ).padding(horizontal = 13.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box(
                     Modifier
                         .size(32.dp)
                         .clip(CircleShape)
-                        .background(actionInk.copy(alpha = 0.16f))
-                        .border(
-                            Dimens.hairline,
-                            actionInk.copy(alpha = 0.22f),
-                            CircleShape,
-                        ),
+                        .background(actionInk.copy(alpha = 0.16f)),
                     contentAlignment = Alignment.Center,
                 ) {
                     InlineLoadingContent(loading = resolving, slotSize = 15.dp, color = actionInk) {
@@ -155,11 +162,7 @@ internal fun DetailActionDock(
                                 .padding(start = 8.dp, end = 5.dp)
                                 .clip(GlassShapes.thumb)
                                 .background(actionInk.copy(alpha = 0.16f))
-                                .border(
-                                    Dimens.hairline,
-                                    actionInk.copy(alpha = 0.14f),
-                                    GlassShapes.thumb,
-                                ).padding(horizontal = 7.dp, vertical = 3.dp),
+                                .padding(horizontal = 7.dp, vertical = 3.dp),
                     )
                 }
                 Icon(
@@ -182,6 +185,9 @@ internal fun DetailActionDock(
                         .height(DetailPlayButtonHeight)
                         .pressable(
                             enabled = !resolving,
+                            pressedScale = 1f,
+                            lightFeedback = false,
+                            interactionSource = playInteractions,
                             onClickLabel = "从头播放",
                             onClick = onPlayFromStart,
                         ),
@@ -268,8 +274,13 @@ internal fun GlassActionButton(
             .height(46.dp)
             // 收藏 / 稍后观看 change state in place and navigate nowhere, so the tap needs
             // to be felt as well as seen.
-            .pressable(enabled = enabled, haptic = HapticSignal.Confirm, onClick = onClick)
-            .shadow(GlassLift.control, GlassShapes.card)
+            .pressable(
+                enabled = enabled,
+                pressedScale = PressFeedback.QUIET,
+                lightFeedback = false,
+                haptic = HapticSignal.Confirm,
+                onClick = onClick,
+            ).shadow(GlassLift.control, GlassShapes.card)
             .liquidGlass(
                 shape = GlassShapes.card,
                 fill = fill,
@@ -293,10 +304,6 @@ internal fun GlassActionButton(
                     } else {
                         palette.text.copy(alpha = if (palette.isDark) 0.08f else 0.045f)
                     },
-                ).border(
-                    Dimens.hairline,
-                    if (active) stateColors.border else palette.border.copy(alpha = 0.72f),
-                    CircleShape,
                 ),
             contentAlignment = Alignment.Center,
         ) {

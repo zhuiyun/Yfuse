@@ -150,7 +150,16 @@ object WatchProtocol {
     const val MAX_FUTURE_CLOCK_SKEW_MS = 5L * 60L * 1_000L
 
     private val graphemeRegex = Regex("\\X")
-    private val providerPrefixRegex = Regex("[A-Za-z][A-Za-z0-9_-]{0,31}")
+    /**
+     * `<provider>:<value>` or `<provider>:<value>/s<season>e<episode>`.
+     *
+     * Clients resolve a key by pasting its value into a request path on their own media
+     * server, so the value is a closed alphabet: provider ids (`603`, `tt0133093`, a hex
+     * Emby id) never need `/`, `?`, `#`, `\` or `..`, and admitting them would let a room
+     * steer a member's client at an arbitrary path with that member's token.
+     */
+    private val mediaKeyRegex =
+        Regex("[A-Za-z][A-Za-z0-9_-]{0,31}:[A-Za-z0-9][A-Za-z0-9._-]*(?:/s[0-9]{1,4}e[0-9]{1,5})?")
     private val capabilityRegex = Regex("[A-Za-z0-9_-]{$CAPABILITY_LENGTH}")
     private val playlistEntryIdRegex = Regex("[A-Za-z0-9][A-Za-z0-9._:-]{0,63}")
 
@@ -209,9 +218,8 @@ object WatchProtocol {
         if (value.isNullOrEmpty() || value != value.trim()) return false
         if (value.encodeToByteArray().size > MAX_MEDIA_KEY_BYTES) return false
         if (value.any { it.isWhitespace() } || value.hasControlCharacters()) return false
-        val separator = value.indexOf(':')
-        if (separator <= 0 || separator == value.lastIndex) return false
-        return providerPrefixRegex.matches(value.substring(0, separator))
+        if (".." in value) return false
+        return mediaKeyRegex.matches(value)
     }
 
     fun isValidPlaylistEntryId(value: String?): Boolean =

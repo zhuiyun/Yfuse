@@ -202,8 +202,8 @@ private fun ActionToastEntry(
                         }
                     }.pressable(enabled = entry.visible, onClickLabel = "关闭提示", onClick = onClose)
                     .touchTarget()
-                    .shadow(Shadows.tabBar, GlassShapes.chip)
-                    .solidGlass(GlassShapes.chip, colors.container, colors.border)
+                    .shadow(Shadows.tabBar, AppShapes.chip)
+                    .solidGlass(AppShapes.chip, colors.container, colors.border)
                     .padding(horizontal = 16.dp, vertical = 11.dp),
         )
     }

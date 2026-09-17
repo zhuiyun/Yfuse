@@ -151,6 +151,7 @@ internal fun PlayerRoot(
     onPlayerAttached: (YPlayer, (List<PlayerMediaItem>) -> Boolean, (List<PlayerMediaItem>, Int) -> Boolean) -> Unit,
     onPlayerDetached: (YPlayer) -> Unit,
     onPlaybackState: (PlaybackState, PlayerMediaItem?) -> Unit,
+    onPlaybackProgress: (PlaybackState, PlayerMediaItem?) -> Unit,
     onVideoBounds: (Rect) -> Unit,
     artworkMorph: PlayerArtworkMorphState? = null,
     onBack: () -> Unit,
@@ -1669,6 +1670,7 @@ internal fun PlayerRoot(
             livePlayback,
             playbackGate,
             onPlaybackState,
+            onPlaybackProgress,
         )
 
         // Last resort of the fallback chain: exhaust decoder stacks for this file, then move to

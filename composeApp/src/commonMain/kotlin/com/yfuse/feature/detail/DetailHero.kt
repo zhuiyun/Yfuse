@@ -66,6 +66,7 @@ import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.MediaSharedElementKey
 import com.yfuse.core.designsystem.Motion
+import com.yfuse.core.designsystem.PressFeedback
 import com.yfuse.core.designsystem.backdropBlur
 import com.yfuse.core.designsystem.cssLinearGradient
 import com.yfuse.core.designsystem.fadeIntoPage
@@ -367,12 +368,16 @@ internal fun DetailTopBar(
                 Row(
                     Modifier
                         .graphicsLayer { alpha = progress.value }
-                        .pressable(enabled = solid, onClick = onPlay)
-                        .touchTarget()
+                        .pressable(
+                            enabled = solid,
+                            pressedScale = PressFeedback.PRIMARY,
+                            lightFeedback = false,
+                            onClick = onPlay,
+                        ).touchTarget()
                         .liquidGlass(
                             shape = GlassShapes.chip,
                             fill = playBody,
-                            border = playInk.copy(alpha = 0.38f),
+                            border = null,
                             // It only ever appears once the bar's own plate is opaque.
                             over = surfaceColor,
                             sheen = 0.7f,

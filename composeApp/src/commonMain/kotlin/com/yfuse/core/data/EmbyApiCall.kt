@@ -6,8 +6,34 @@ import com.yfuse.core.network.EmbyErrorException
 import io.ktor.client.plugins.ResponseException
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpHeaders
+import io.ktor.http.encodeURLPathPart
 import kotlinx.coroutines.CancellationException
 import kotlinx.io.IOException
+
+/**
+ * One path segment of an Emby-compatible route.
+ *
+ * Ids arrive from the server, from saved state, and — for watch-together — from another
+ * participant's room; encoding every one the same way means none of them can carry a `/`,
+ * `?` or `#` into the request and address a different endpoint with this session's token.
+ */
+internal fun embyPath(id: String): String = id.encodeURLPathPart()
+
+/**
+ * [runCatching] for suspending work: cancellation propagates instead of becoming a failed
+ * [Result] that callers would record as a business error.
+ */
+internal inline fun <T> runCatchingCancellable(block: () -> T): Result<T> =
+    try {
+        Result.success(block())
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (error: Throwable) {
+        Result.failure(error)
+    }
+
+internal inline fun <T> Result<T>.recoverCatchingCancellable(transform: (Throwable) -> T): Result<T> =
+    exceptionOrNull()?.let { runCatchingCancellable { transform(it) } } ?: this
 
 /**
  * Shared boundary for Emby-compatible API calls.

@@ -128,7 +128,7 @@ private fun AccentChipButton(
                 .pressable(onClick = onClick)
                 .touchTarget()
                 .liquidGlass(
-                    shape = GlassShapes.chip,
+                    shape = AppShapes.chip,
                     fill = accent.container.copy(alpha = 0.68f),
                     border = null,
                     over = palette.background,
@@ -138,7 +138,7 @@ private fun AccentChipButton(
 }
 
 @Composable
-fun skeletonFill(): Color = if (LocalPalette.current.isDark) Color.White.copy(alpha = 0.08f) else Color(0x2996A0B4)
+fun skeletonFill(): Color = LocalPalette.current.skeleton
 
 private const val SKELETON_PULSE_FLOOR = 0.45f
 

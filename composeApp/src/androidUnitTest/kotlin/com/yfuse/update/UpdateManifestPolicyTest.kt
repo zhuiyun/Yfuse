@@ -157,4 +157,25 @@ class UpdateManifestPolicyTest {
             assertNull(verdict.rejectionMessage())
         }
     }
+
+    @Test
+    fun a_release_build_without_a_key_rejects_every_manifest() {
+        val unsigned = manifest("https://updates.example.com/yfuse/Yfuse-latest.apk")
+        val mustNotVerify: (String, ByteArray, String) -> Boolean = { _, _, _ ->
+            error("Signature verification requires a configured key")
+        }
+
+        for (signature in listOf(null, "", "previously-published-signature")) {
+            val verdict = unsigned.copy(signature = signature).trustVerdict("", mustNotVerify, requireKey = true)
+            assertEquals(UpdateManifestTrust.RejectedNoKey, verdict)
+            assertNotNull(verdict.rejectionMessage())
+        }
+        // A pinned key behaves the same whether or not the build demands one.
+        val accept: (String, ByteArray, String) -> Boolean = { _, _, _ -> true }
+        assertEquals(
+            UpdateManifestTrust.Signed,
+            unsigned.copy(signature = "c2ln").trustVerdict("key", accept, requireKey = true),
+        )
+        assertEquals(UpdateManifestTrust.RejectedUnsigned, unsigned.trustVerdict("key", accept, requireKey = true))
+    }
 }

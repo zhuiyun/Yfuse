@@ -30,7 +30,6 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.unit.dp
 import androidx.navigation3.runtime.NavEntry
 import androidx.navigation3.ui.LocalNavAnimatedContentScope
 import androidx.navigation3.ui.NavDisplay
@@ -74,9 +73,13 @@ fun <T : Any> OfficialNavDisplay(
     }
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val density = LocalDensity.current
-    val searchTravelPx = with(density) { 14.dp.roundToPx() }
+    val searchTravelPx = with(density) { Motion.searchTravel.roundToPx() }
     val pushTravelPx = with(density) { Motion.pushOffset.roundToPx() }
     val popTravelPx = with(density) { Motion.popOffset.roundToPx() }
+    // Only a stacked route rounds its corners on the way out. The root tabs and 搜索 never
+    // did — the amount was pinned at 0 — yet every entry still paid for the transition
+    // animation and a clipping layer.
+    val roundsCorners = motion == OfficialNavMotion.Stack && !reduceMotion
     SharedTransitionLayout(modifier.windowSizeHandoff()) {
         CompositionLocalProvider(
             LocalSharedTransitionScope provides this,
@@ -91,19 +94,23 @@ fun <T : Any> OfficialNavDisplay(
                         LocalRouteVisible provides
                             (parentRouteVisible && entryKey == currentTop),
                     ) {
-                        val visibility = LocalNavAnimatedContentScope.current
-                        val edge =
-                            visibility.transition.animateFloat(
-                                transitionSpec = { tween(Motion.POP, easing = Motion.Curve) },
-                                label = "routeReturnCorners",
-                            ) { if (it == EnterExitState.Visible) 0f else 1f }
-                        Box(
-                            Modifier.fillMaxSize().graphicsLayer {
-                                val amount = if (reduceMotion || motion != OfficialNavMotion.Stack) 0f else edge.value
-                                shape = RoundedCornerShape((24f * amount).dp)
-                                clip = amount > 0f
-                            },
-                        ) { currentContent(entryKey) }
+                        if (roundsCorners) {
+                            val visibility = LocalNavAnimatedContentScope.current
+                            val edge =
+                                visibility.transition.animateFloat(
+                                    transitionSpec = { tween(Motion.POP, easing = Motion.Curve) },
+                                    label = "routeReturnCorners",
+                                ) { if (it == EnterExitState.Visible) 0f else 1f }
+                            Box(
+                                Modifier.fillMaxSize().graphicsLayer {
+                                    val amount = edge.value
+                                    shape = RoundedCornerShape(Motion.routeReturnCorner * amount)
+                                    clip = amount > 0f
+                                },
+                            ) { currentContent(entryKey) }
+                        } else {
+                            Box(Modifier.fillMaxSize()) { currentContent(entryKey) }
+                        }
                     }
                 }
             }

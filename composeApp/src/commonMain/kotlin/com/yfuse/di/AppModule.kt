@@ -64,6 +64,7 @@ import com.yfuse.core.sync.WatchRoomResumeStore
 import com.yfuse.core.sync.WatchTogetherClient
 import com.yfuse.core.sync.playback.PlaybackSyncManager
 import com.yfuse.core.sync.playback.PlaybackSyncStore
+import com.yfuse.core.util.platformName
 import com.yfuse.feature.player.PlaybackReportingCoordinator
 import com.yfuse.feature.search.SearchRequests
 import com.yfuse.feature.servers.EmbyQuickConnectGateway
@@ -87,7 +88,7 @@ fun appModule(
     feedCacheSettings: () -> Settings = { settings },
 ) = module {
     single { settings }
-    single(named("account-http")) { createAccountClient() }
+    single(named("account-http")) { createAccountClient() } onClose { it?.close() }
     single(named("trakt-http")) {
         com.yfuse.core.trakt
             .createTraktHttpClient()
@@ -165,7 +166,7 @@ fun appModule(
             customUserAgent = { userAgent.userAgent.value },
             appVersion = appVersion,
         )
-    }
+    } onClose { it?.close() }
     single {
         val playbackPreferences = get<PlaybackPreferences>()
         EmbyRepository(
@@ -201,7 +202,8 @@ fun appModule(
             localStore = get(),
         )
     }
-    single { DanmakuRepository(createDanmakuClient()) }
+    single(named("danmaku-http")) { createDanmakuClient() } onClose { it?.close() }
+    single { DanmakuRepository(get(named("danmaku-http"))) }
     single { ServerSyncManager(get(), get(), get(), get(), get()) }
     single { AccountAccessTokenSource() }
     single { WatchTogetherClient(get(), get(), WatchRoomResumeStore(get())) }
@@ -290,7 +292,7 @@ fun appModule(
             owner = activeOwner,
             scope = session.scope,
             deviceName = com.yfuse.deviceModel().take(64),
-            platform = "Android",
+            platform = platformName(),
             canReceive = {
                 session.foreground.value &&
                     bridge.receiver != null &&
@@ -298,9 +300,10 @@ fun appModule(
             },
         )
     }
-    // Own client (different host + bearer auth), built inline so Koin keeps a
-    // single HttpClient binding.
-    single { TmdbRepository(createTmdbClient()) }
+    // Own client (different host + bearer auth); qualified so the unqualified HttpClient
+    // binding stays the Emby one.
+    single(named("tmdb-http")) { createTmdbClient() } onClose { it?.close() }
+    single { TmdbRepository(get(named("tmdb-http"))) }
     single { CalendarIdentityResolver(get(), get()) }
     single<StoreFactory> { DefaultStoreFactory() }
 }

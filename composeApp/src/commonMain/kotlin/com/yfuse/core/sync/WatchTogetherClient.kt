@@ -50,6 +50,9 @@ class WatchTogetherClient internal constructor(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val sessionOwnership = WatchConnectionOwnership<DefaultClientWebSocketSession>()
 
+    // Bumped by the UI (own reactions) and the connection coroutine (echoes); a plain `++`
+    // handed the same id to two bursts, and the overlay keys its animations on it.
+    private val reactionLock = Any()
     private var reactionSequence = 0L
     private val clock = ClockSync()
 
@@ -297,7 +300,7 @@ class WatchTogetherClient internal constructor(
     ) {
         val burst =
             WatchReactionBurst(
-                id = ++reactionSequence,
+                id = synchronized(reactionLock) { ++reactionSequence },
                 reaction = reaction,
                 name = name,
                 isMine = isMine,

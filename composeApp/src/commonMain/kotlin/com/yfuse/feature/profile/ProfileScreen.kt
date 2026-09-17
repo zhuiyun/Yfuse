@@ -67,6 +67,7 @@ import com.yfuse.core.designsystem.GlassSlider
 import com.yfuse.core.designsystem.GlassStyle
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LocalAccentColors
+import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.MinTouchTarget
 import com.yfuse.core.designsystem.OfficialNavDisplay
@@ -85,11 +86,9 @@ import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.ThemeMode
 import com.yfuse.core.designsystem.WindowWidthTier
 import com.yfuse.core.designsystem.YfFormField
-import com.yfuse.core.designsystem.defaultAnimation
 import com.yfuse.core.designsystem.flatGlass
 import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.motionItem
-import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.designsystem.windowWidthTier
@@ -804,9 +803,7 @@ fun ProfileScreen(component: ProfileComponent) {
             Sheet.ParticleLight ->
                 ParticleLightSheet(
                     selected = particleLight,
-                    style = particleStyle,
                     onSelect = prefs::setParticleLight,
-                    onSelectStyle = prefs::setParticleStyle,
                     onDismiss = { sheet = null },
                 )
 
@@ -1320,29 +1317,12 @@ private fun BrandAndSplashScreen(
     onAppIcon: (AppIconVariant) -> Unit,
 ) {
     val palette = LocalPalette.current
-    val accent = LocalAccentColors.current
     val enabled by prefs.splashAnimation.collectAsState()
-    val selected by prefs.splashVariant.collectAsState()
-
-    LaunchedEffect(Unit) {
-        val stored = prefs.splashVariant.value
-        if (stored.mark != appIcon.splashMark) prefs.setSplashVariant(appIcon.splashMark.defaultAnimation)
-    }
-
-    fun selectIcon(variant: AppIconVariant) {
-        onAppIcon(variant)
-        if (selected.mark != variant.splashMark) prefs.setSplashVariant(variant.splashMark.defaultAnimation)
-    }
-
-    fun selectAnimation(variant: SplashAnimation) {
-        prefs.setSplashVariant(variant)
-        val icon = variant.mark.appIconFor(appIcon)
-        if (icon != appIcon) onAppIcon(icon)
-    }
+    val variant = SplashAnimation.forMotion(LocalAccessibilityOptions.current.reduceMotion)
 
     SettingsPage(
         title = "Logo 与开屏动画",
-        subtitle = "更换 Logo 会同步开屏；返回桌面后更新图标，可能需要几秒刷新",
+        subtitle = "返回桌面后更新图标，可能需要几秒刷新；开屏遵循减少动态效果设置",
         onBack = onBack,
     ) {
         motionItem {
@@ -1350,7 +1330,7 @@ private fun BrandAndSplashScreen(
                 SettingsCard {
                     AppIconVariant.entries.forEachIndexed { index, variant ->
                         if (index > 0) SettingsDivider()
-                        AppIconRow(variant = variant, selected = variant == appIcon, onClick = { selectIcon(variant) })
+                        AppIconRow(variant = variant, selected = variant == appIcon, onClick = { onAppIcon(variant) })
                     }
                 }
             }
@@ -1361,26 +1341,17 @@ private fun BrandAndSplashScreen(
             }
         }
         if (enabled) {
-            motionItems(SplashAnimation.entries) { variant ->
-                val active = variant == selected
+            motionItem {
                 Column(
                     Modifier
                         .padding(horizontal = Dimens.pageHorizontal)
                         .fillMaxWidth()
-                        .pressable(role = Role.RadioButton) { selectAnimation(variant) }
-                        .semantics { this.selected = active }
                         .liquidGlass(
                             shape = AppShapes.card,
                             fill = palette.card2,
                             border = palette.border,
                             over = palette.background,
                             sheen = 0.54f,
-                        ).then(
-                            if (active) {
-                                Modifier.border(2.dp, accent.border, AppShapes.card)
-                            } else {
-                                Modifier
-                            },
                         ).padding(horizontal = 14.dp, vertical = 14.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
@@ -1393,17 +1364,9 @@ private fun BrandAndSplashScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             variant.label,
-                            style = if (active) AppTypography.body.strong else AppTypography.body.medium,
-                            color = if (active) accent.accent else palette.text,
+                            style = AppTypography.body.strong,
+                            color = palette.text,
                         )
-                        if (active) {
-                            Icon(
-                                AppIcons.Check,
-                                null,
-                                tint = accent.accent,
-                                modifier = Modifier.padding(start = 6.dp).size(15.dp),
-                            )
-                        }
                     }
                     Spacer(Modifier.height(4.dp))
                     Text(

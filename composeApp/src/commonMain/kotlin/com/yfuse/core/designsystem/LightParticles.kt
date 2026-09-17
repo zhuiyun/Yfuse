@@ -3,10 +3,13 @@ package com.yfuse.core.designsystem
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
@@ -19,6 +22,7 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.platform.WindowInfo
 import kotlinx.coroutines.channels.Channel
 import kotlin.math.PI
 import kotlin.math.cos
@@ -339,22 +343,38 @@ private val ParticleStyle.spreadScale: Float
             ParticleStyle.Flow -> 1.35f
         }
 
-internal class LightBounds {
-    var width = 0f
-    var height = 0f
-}
-
+/**
+ * One control's light.
+ *
+ * Cheap until it is asked for something: no pool, no channel and no frame loop exist until
+ * the first [emit], and a control that is never pressed never pays for any of them. Whether
+ * the light may show right now — route visible, window focused — is read at emit time and
+ * is not part of this object's identity, so a route change or a dialog opening no longer
+ * disposes and rebuilds the state under every button on the page.
+ */
 internal class LightFeedbackState(
-    private val bounds: LightBounds,
     private val budget: LightParticleBudget,
     private val limit: Int,
     private val density: Float,
     private val enhanced: Boolean,
-    val enabled: Boolean,
     private val style: ParticleStyle = ParticleStyle.Stardust,
+    /** False only for [DisabledLightFeedback], the shared stand-in when particles are off. */
+    val enabled: Boolean = true,
 ) {
+    /** Route visibility and the particle master switch, written by the composition. */
+    var active: Boolean = true
+
+    /** The window, asked for focus at emit time rather than observed by the composition. */
+    var windowInfo: WindowInfo? = null
+
+    /** Flips on the first emission; the frame loop is launched only once this is true. */
+    var started: Boolean by mutableStateOf(false)
+        private set
+
+    private var width = 0f
+    private var height = 0f
     private var pool: LightParticlePool? = null
-    private val wake = Channel<Unit>(Channel.CONFLATED)
+    private var wake: Channel<Unit>? = null
     private val revision = mutableIntStateOf(0)
     private var disposed = false
 
@@ -362,9 +382,9 @@ internal class LightFeedbackState(
         width: Int,
         height: Int,
     ) {
-        if (bounds.width != width.toFloat() || bounds.height != height.toFloat()) clear()
-        bounds.width = width.toFloat()
-        bounds.height = height.toFloat()
+        if (this.width != width.toFloat() || this.height != height.toFloat()) clear()
+        this.width = width.toFloat()
+        this.height = height.toFloat()
     }
 
     fun emit(
@@ -375,21 +395,25 @@ internal class LightFeedbackState(
         directionX: Float = 0f,
         directionY: Float = 0f,
     ) {
-        val width = bounds.width
-        val height = bounds.height
-        if (!enabled || disposed || width <= 0f || height <= 0f) return
+        val width = width
+        val height = height
+        if (!enabled || !active || disposed || width <= 0f || height <= 0f) return
+        if (windowInfo?.isWindowFocused == false) return
         val particles = pool ?: LightParticlePool(budget, limit).also { pool = it }
+        val channel = wake ?: Channel<Unit>(Channel.CONFLATED).also { wake = it }
         val px = if (at.isSpecified) at.x else width * fractionX.coerceIn(0f, 1f)
         val py = if (at.isSpecified) at.y else height * fractionY.coerceIn(0f, 1f)
         if (particles.emit(effect, px, py, width, height, density, enhanced, directionX, directionY, style)) {
             revision.intValue++
-            wake.trySend(Unit)
+            started = true
+            channel.trySend(Unit)
         }
     }
 
     suspend fun run() {
+        val channel = wake ?: return
         try {
-            for (ignored in wake) {
+            for (ignored in channel) {
                 val particles = pool ?: continue
                 var previous = withFrameNanos { it }
                 while (particles.active > 0) {
@@ -399,7 +423,7 @@ internal class LightFeedbackState(
                         revision.intValue++
                     }
                     // Requests only wake an idle loop; they never create parallel animation jobs.
-                    while (wake.tryReceive().isSuccess) Unit
+                    while (channel.tryReceive().isSuccess) Unit
                 }
             }
         } finally {
@@ -434,16 +458,19 @@ internal class LightFeedbackState(
 
     fun clear() {
         pool?.clear()
-        while (wake.tryReceive().isSuccess) Unit
-        revision.intValue++
+        wake?.let { channel -> while (channel.tryReceive().isSuccess) Unit }
+        if (pool != null) revision.intValue++
     }
 
     fun dispose() {
         disposed = true
         clear()
-        wake.close()
+        wake?.close()
     }
 }
+
+/** The one state every control shares while particles are off: it allocates nothing and emits nothing. */
+internal val DisabledLightFeedback = LightFeedbackState(LightParticleBudget(), 0, 1f, false, enabled = false)
 
 @Composable
 internal fun rememberLightFeedback(
@@ -451,24 +478,33 @@ internal fun rememberLightFeedback(
     enhancedOnly: Boolean = false,
 ): LightFeedbackState {
     val level = LocalParticleLight.current
+    val available =
+        enabled &&
+            !LocalAccessibilityOptions.current.reduceMotion &&
+            level != ParticleLight.Off &&
+            (!enhancedOnly || level == ParticleLight.Enhanced)
+    // Off is off: no object, no effects, nothing to dispose.
+    if (!available) return DisabledLightFeedback
     val style = LocalParticleStyle.current
     val budget = LocalParticleBudget.current
     val limit = LocalParticleLimit.current
     val density = LocalDensity.current.density
-    val active =
-        enabled &&
-            LocalParticleActive.current &&
-            LocalRouteVisible.current &&
-            LocalWindowInfo.current.isWindowFocused &&
-            !LocalAccessibilityOptions.current.reduceMotion &&
-            level != ParticleLight.Off &&
-            (!enhancedOnly || level == ParticleLight.Enhanced)
-    val bounds = remember { LightBounds() }
+    val windowInfo = LocalWindowInfo.current
     val state =
-        remember(active, level, style, budget, limit, density) {
-            LightFeedbackState(bounds, budget, limit, density, level == ParticleLight.Enhanced, active, style)
+        remember(level, style, budget, limit, density) {
+            LightFeedbackState(budget, limit, density, level == ParticleLight.Enhanced, style)
         }
-    LaunchedEffect(state) { if (active) state.run() }
+    // Whether the light may show is a gate on emission, not a key: rebuilding the state under
+    // every control on a route change was the frame the transition dropped.
+    val active = LocalParticleActive.current && LocalRouteVisible.current
+    SideEffect {
+        state.windowInfo = windowInfo
+        if (state.active && !active) state.clear()
+        state.active = active
+    }
+    if (state.started) {
+        LaunchedEffect(state) { state.run() }
+    }
     DisposableEffect(state) { onDispose { state.dispose() } }
     return state
 }

@@ -86,7 +86,11 @@ fun HeroActionDock(
     onFavorite: () -> Unit,
     modifier: Modifier = Modifier,
     favorite: Boolean? = null,
-    playActionLabel: String = "播放影片",
+    /**
+     * The visible verb and the accessibility label, one string: 「播放」 for a title that has
+     * never been started, 「继续播放」 only when the caller knows there is progress to resume.
+     */
+    playActionLabel: String = "播放",
     favoriteActionLabel: String = if (favorite == true) "取消收藏" else "加入收藏",
 ) {
     Row(
@@ -119,7 +123,7 @@ fun HeroActionDock(
                 tint = HeroPlayInk,
                 modifier = Modifier.size(17.dp),
             )
-            Text("继续播放", style = AppTypography.body.strong, color = HeroPlayInk, maxLines = 1)
+            Text(playActionLabel, style = AppTypography.body.strong, color = HeroPlayInk, maxLines = 1)
         }
         HeroFavoriteButton(
             icon = if (favorite == true) AppIcons.HeartFilled else AppIcons.Heart,

@@ -31,7 +31,7 @@ physical-device regression rerun on 2026-08-21.
 ## Automated gates
 
 - `:composeApp:compileKotlinMetadata :composeApp:compileDebugKotlinAndroid` — passed.
-- `:composeApp:testDebugUnitTest` — passed, including all common Core2 tests.
+- `:composeApp:testDebugUnitTest`（当时的任务名；AGP 9 迁移后对应 `:phoneShared:testAndroidHostTest`） — passed, including all common Core2 tests.
 - `:composeApp:ktlintCheck` — passed.
 - `:composeApp:compileDebugAndroidTestKotlinAndroid` — passed.
 - `:composeApp:assembleDebug :composeApp:assembleDebugAndroidTest` — passed.

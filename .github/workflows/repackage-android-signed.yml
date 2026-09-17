@@ -199,6 +199,7 @@ jobs:
             -PyfuseVersionName="$VERSION_NAME" \
             -PyfuseNativeOnlyRuntime=true \
             -PconfirmNativeOnlyRelease=true \
+            -Pkotlin.incremental=false \
             --no-daemon
 
       - name: Verify and stage signed APK

@@ -15,9 +15,10 @@ import androidx.compose.ui.unit.dp
 /**
  * The running entrance a dialog's own content reads, whatever plate it arrived on.
  *
- * The plate's geometry belongs to the style — see the sci-fi apertures — but the header,
- * the options and the actions inside it are the same parts in every dialog, so their
- * stagger lives here rather than beside any one style's drawing code.
+ * The plate's geometry belongs to the style, but the header, the options and the actions
+ * inside it are the same parts in every dialog, so their stagger lives here rather than
+ * beside any one style's drawing code. Only 内容接力 staggers; the other styles bring the
+ * content in with the plate.
  */
 @Stable
 internal class DialogContentMotion(
@@ -33,6 +34,10 @@ private class DialogElementPosition {
     var top = 0f
     var parentHeight = 1f
 }
+
+/** The header sits nearer the glass, so under 内容接力 it is the first part to land. */
+@Composable
+internal fun Modifier.dialogHeaderMotion(): Modifier = dialogElementMotion(DialogElementRole.Header)
 
 /** Delays are bounded, so the bottom of a long list never holds the whole dialog open. */
 @Composable

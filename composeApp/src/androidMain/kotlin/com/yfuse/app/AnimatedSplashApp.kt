@@ -55,12 +55,9 @@ import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.SplashAnimation
 import com.yfuse.core.designsystem.StatusBarIconStyle
-import com.yfuse.core.designsystem.defaultAnimation
 import com.yfuse.core.designsystem.drawPhaseLight
 import com.yfuse.core.designsystem.rememberPhaseLightCount
 import com.yfuse.core.designsystem.resolveDark
-import com.yfuse.feature.profile.currentAppIconVariant
-import com.yfuse.feature.profile.splashMark
 import kotlinx.coroutines.delay
 import androidx.compose.ui.graphics.lerp as lerpColor
 
@@ -75,19 +72,13 @@ fun AnimatedSplashApp(
 ) {
     val themeMode by root.themePreferences.mode.collectAsState()
     val reduceMotion by root.themePreferences.reduceMotion.collectAsState()
-    val storedVariant by root.themePreferences.splashVariant.collectAsState()
-    // Logo and launch are one decision, and the launcher icon is the half of it the user can
-    // see from the home screen — so it is the authority. Settings writes both together; this
-    // only catches a pair that drifted apart, which upgrades from a build that mapped them
-    // differently can leave behind, and it resolves it without a startup write.
-    val iconMark = remember { currentAppIconVariant().splashMark }
-    val variant = if (storedVariant.mark == iconMark) storedVariant else iconMark.defaultAnimation
     val systemDark = isSystemInDarkTheme()
     val dark = themeMode.resolveDark(systemDark)
 
     val context = LocalContext.current
     val systemAnimationsOff = remember(context) { context.systemAnimationsOff() }
     val stillFrame = reduceMotion || systemAnimationsOff
+    val variant = SplashAnimation.forMotion(stillFrame)
     val splashHistory =
         remember(context) {
             context.getSharedPreferences(SPLASH_HISTORY_PREFERENCES, Context.MODE_PRIVATE)

@@ -9,7 +9,11 @@ internal interface AndroidSerializedPlayerRelease {
 
 /** A timeout reports a failure but does not grant permission to allocate the next decoder. */
 internal class AndroidPlayerReleaseBarrier {
+    @Volatile
     private var pending: AndroidSerializedPlayerRelease? = null
+
+    /** True when no retired decoder is still tearing down. */
+    val idle: Boolean get() = pending?.releaseCompleted != false
 
     fun retire(player: AndroidSerializedPlayerRelease) {
         check(pending == null || pending === player || pending?.releaseCompleted == true) {

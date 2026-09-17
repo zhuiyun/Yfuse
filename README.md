@@ -2,6 +2,10 @@
 
 Yfuse is a Kotlin Multiplatform Android client with a Ktor watch-together relay.
 
+The phone app navigates through a bottom bar of four tabs — 首页 (Home), 库 (Library),
+服务器 (Servers) and 我的 (Profile) — plus a separate search key that opens the full-screen
+search surface from any tab.
+
 ## Supported Android devices
 
 The distributed APK targets Android API 36, requires Android 8.0/API 26 or newer,

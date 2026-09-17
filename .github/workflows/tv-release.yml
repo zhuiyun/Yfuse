@@ -307,6 +307,7 @@ jobs:
             :tvApp:bundleRelease \
             -PyfuseVersionCode="$VERSION_CODE" \
             -PyfuseVersionName="$VERSION_NAME" \
+            -Pkotlin.incremental=false \
             --stacktrace \
             --no-daemon
 

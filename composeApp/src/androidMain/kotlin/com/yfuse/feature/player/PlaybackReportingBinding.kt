@@ -15,6 +15,15 @@ import com.yfuse.core.cast.CastTermination
 import com.yfuse.core.model.PlaybackMethod
 import kotlinx.coroutines.flow.collect
 
+/**
+ * Feeds one collected timeline to every consumer that used to collect it separately.
+ *
+ * The reporter and the watch gate see every tick: the reporter throttles its own network traffic
+ * to ten seconds and needs immediate pause/seek samples, and the gate polls a playlist request
+ * that can arrive at any time. [onPlaybackState] only sees presentation changes — see
+ * [PlaybackPresentationKey] — and [onPlaybackProgress] sees every tick for the cheap
+ * position-only consumers.
+ */
 @Composable
 internal fun BindPlaybackReporting(
     engine: VideoEngine,
@@ -27,9 +36,11 @@ internal fun BindPlaybackReporting(
     latestState: State<PlaybackState>,
     playbackGate: WatchGatedPlayback,
     onPlaybackState: (PlaybackState, PlayerMediaItem?) -> Unit,
+    onPlaybackProgress: (PlaybackState, PlayerMediaItem?) -> Unit,
 ) {
     val latestItems = rememberUpdatedState(activeItems)
     val latestCallback by rememberUpdatedState(onPlaybackState)
+    val latestProgressCallback by rememberUpdatedState(onPlaybackProgress)
     // One actor owns the entire reporting lifetime. Rebinding it serializes a version switch as
     // stop-old → start-new, while a tail append only extends its queue and leaves the current
     // encoding alone. Recreating two independent reporters cannot guarantee either property.
@@ -40,6 +51,11 @@ internal fun BindPlaybackReporting(
     // Keep one reporting collector alive instead of cancelling and recreating a LaunchedEffect
     // for every 500 ms position tick. The snapshot still follows local/cast authority changes.
     LaunchedEffect(engine, castManager, activeItems, reporter) {
+        val fanout =
+            PlaybackStateFanout(
+                onPresentationChange = { state, item -> latestCallback(state, item) },
+                onProgress = { state, item -> latestProgressCallback(state, item) },
+            )
         snapshotFlow {
             val currentLocal = localState.value
             val currentCast = castState.value
@@ -61,7 +77,7 @@ internal fun BindPlaybackReporting(
             val items = latestItems.value
             reporter?.rebind(items, observedState)
             reporter?.update(observedState)
-            latestCallback(observedState, items.getOrNull(observedState.currentIndex))
+            fanout.dispatch(observedState, items.getOrNull(observedState.currentIndex))
             playbackGate.onPlaybackIndexChanged(observedState.currentIndex)
         }
     }

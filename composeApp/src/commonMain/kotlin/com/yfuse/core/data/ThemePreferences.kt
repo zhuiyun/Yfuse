@@ -18,7 +18,14 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-/** Persisted appearance, accessibility, and playback preferences. */
+/**
+ * Persisted appearance, accessibility, and playback preferences.
+ *
+ * Appearance keeps the switches that change what the product does — theme, glass, wallpaper,
+ * server layout, where a launch lands — and the on/off for the few decorative systems. The
+ * pickers that only chose *which* of many variants to show (particle style, splash variant,
+ * the dialog "lab") went with the variants; their stored values are scrubbed on load.
+ */
 class ThemePreferences(
     private val settings: Settings,
 ) {
@@ -31,29 +38,39 @@ class ThemePreferences(
         const val KEY_LARGE_TEXT = "accessibility.largeText"
         const val KEY_REDUCE_MOTION = "accessibility.reduceMotion"
         const val KEY_PARTICLE_LIGHT = "appearance.particleLight"
-        const val KEY_PARTICLE_STYLE = "appearance.particleStyle"
         const val KEY_PULSE_SWEEP = "appearance.pulseSweep"
         const val KEY_SPLASH_ANIMATION = "appearance.splashAnimation"
-        const val KEY_SPLASH_VARIANT = "appearance.splashVariant.v2"
         const val KEY_STARTUP_TAB = "appearance.startupTab"
         const val KEY_DIALOG_ANIMATION = "appearance.dialogAnimation"
-        const val KEY_DIALOG_ANIMATION_LAB = "appearance.dialogAnimationLab"
         const val KEY_GLASS_STYLE = "appearance.glassStyle"
         const val KEY_SERVER_LAYOUT = "appearance.serverLayout"
         const val KEY_BACKGROUND_IMAGE = "appearance.backgroundImage"
         const val KEY_BACKGROUND_DIM = "appearance.backgroundDim"
         const val MAX_BACKGROUND_URI_CHARS = 2_048
+
+        /** Written by earlier builds for pickers that no longer exist. */
+        val RETIRED_KEYS =
+            listOf(
+                "appearance.particleStyle",
+                "appearance.splashVariant.v2",
+                "appearance.dialogAnimationLab",
+            )
     }
 
-    private val _mode = MutableStateFlow(load(KEY_MODE, ThemeMode.entries, ThemeMode.Light))
+    init {
+        RETIRED_KEYS.forEach(settings::remove)
+    }
+
+    // 深色为主: the product's material is dark glass, and a first launch should look like it.
+    private val _mode = MutableStateFlow(load(KEY_MODE, ThemeMode.entries, ThemeMode.Dark))
     val mode: StateFlow<ThemeMode> = _mode.asStateFlow()
 
     /**
-     * Transitional source compatibility only. This is fixed product identity, not a user
-     * preference: it is never persisted and has no setter.
+     * Transitional source compatibility for the Android player only. This is fixed product
+     * identity, not a user preference: it is never persisted and has no setter.
      */
-    private val fixedBrandEmphasis = MutableStateFlow<Color>(Brand.Primary)
-    internal val accent: StateFlow<Color> = fixedBrandEmphasis.asStateFlow()
+    @Deprecated("Emphasis is Brand.Primary; YfuseTheme no longer takes an accent.")
+    internal val accent: StateFlow<Color> = MutableStateFlow<Color>(Brand.Primary).asStateFlow()
 
     private val _engine = MutableStateFlow(load(KEY_ENGINE, PlayerEngine.selectable, PlayerEngine.Exo))
     val engine: StateFlow<PlayerEngine> = _engine.asStateFlow()
@@ -81,14 +98,13 @@ class ThemePreferences(
         settings.putString(KEY_PARTICLE_LIGHT, mode.name)
     }
 
-    private val _particleStyle =
-        MutableStateFlow(load(KEY_PARTICLE_STYLE, ParticleStyle.entries, ParticleStyle.Stardust))
-    val particleStyle: StateFlow<ParticleStyle> = _particleStyle.asStateFlow()
-
-    fun setParticleStyle(style: ParticleStyle) {
-        _particleStyle.value = style
-        settings.putString(KEY_PARTICLE_STYLE, style.name)
-    }
+    /**
+     * The one particle style. Not a preference any more — the picker offered three shapes for
+     * the same feedback — and never persisted. Kept as a flow for the Android player, which is
+     * migrated in the next wave.
+     */
+    @Deprecated("There is one particle style; read LocalParticleStyle or pass nothing.")
+    val particleStyle: StateFlow<ParticleStyle> = MutableStateFlow(ParticleStyle.Stardust).asStateFlow()
 
     private val _pulseSweep = MutableStateFlow(settings.getBoolean(KEY_PULSE_SWEEP, true))
     val pulseSweep: StateFlow<Boolean> = _pulseSweep.asStateFlow()
@@ -112,6 +128,7 @@ class ThemePreferences(
     private val _startupTab = MutableStateFlow(load(KEY_STARTUP_TAB, StartupTab.entries, StartupTab.Automatic))
     val startupTab: StateFlow<StartupTab> = _startupTab.asStateFlow()
 
+    // A name from a retired style falls back to Lift inside [load]; nothing here can throw.
     private val _dialogAnimation =
         MutableStateFlow(load(KEY_DIALOG_ANIMATION, DialogAnimation.entries, DialogAnimation.Lift))
     val dialogAnimation: StateFlow<DialogAnimation> = _dialogAnimation.asStateFlow()
@@ -119,19 +136,6 @@ class ThemePreferences(
     fun setDialogAnimation(animation: DialogAnimation) {
         _dialogAnimation.value = animation
         settings.putString(KEY_DIALOG_ANIMATION, animation.name)
-    }
-
-    /**
-     * Debug switch for 弹窗动画: off, the sheet offers the three shipped styles; on, it lists every
-     * implemented one. The enum keeps all of them either way — this decides what is *offered*,
-     * not what can be stored, so a selection made in the lab survives the switch going back off.
-     */
-    private val _dialogAnimationLab = MutableStateFlow(settings.getBoolean(KEY_DIALOG_ANIMATION_LAB, false))
-    val dialogAnimationLab: StateFlow<Boolean> = _dialogAnimationLab.asStateFlow()
-
-    fun setDialogAnimationLab(enabled: Boolean) {
-        _dialogAnimationLab.value = enabled
-        settings.putBoolean(KEY_DIALOG_ANIMATION_LAB, enabled)
     }
 
     private val _glassStyle = MutableStateFlow(load(KEY_GLASS_STYLE, GlassStyle.entries, GlassStyle.Liquid))
@@ -150,9 +154,18 @@ class ThemePreferences(
         )
     val backgroundDim: StateFlow<Float> = _backgroundDim.asStateFlow()
 
-    private val _splashVariant =
-        MutableStateFlow(load(KEY_SPLASH_VARIANT, SplashAnimation.entries, SplashAnimation.One))
-    val splashVariant: StateFlow<SplashAnimation> = _splashVariant.asStateFlow()
+    /**
+     * The launch choreography. There is one now, and the shell picks its still-frame variant
+     * from the accessibility state, so this is fixed and never persisted. Kept as a flow for
+     * the cloud snapshot until that schema drops the field.
+     */
+    @Deprecated("There is one launch animation; see SplashAnimation.forMotion.")
+    val splashVariant: StateFlow<SplashAnimation> = MutableStateFlow(SplashAnimation.One).asStateFlow()
+
+    /** No-op: see [splashVariant]. */
+    @Deprecated("There is one launch animation; nothing to set.")
+    @Suppress("UNUSED_PARAMETER")
+    fun setSplashVariant(variant: SplashAnimation) = Unit
 
     fun setEngine(engine: PlayerEngine) {
         if (!engine.available) return
@@ -188,9 +201,7 @@ class ThemePreferences(
     fun setBackgroundImage(uri: String?) {
         val normalized = uri?.trim()?.takeIf { it.isNotEmpty() && it.length <= MAX_BACKGROUND_URI_CHARS }
         _backgroundImage.value = normalized
-        if (normalized ==
-            null
-        ) {
+        if (normalized == null) {
             settings.remove(KEY_BACKGROUND_IMAGE)
         } else {
             settings.putString(KEY_BACKGROUND_IMAGE, normalized)
@@ -226,11 +237,6 @@ class ThemePreferences(
     fun setStartupTab(tab: StartupTab) {
         _startupTab.value = tab
         settings.putString(KEY_STARTUP_TAB, tab.name)
-    }
-
-    fun setSplashVariant(variant: SplashAnimation) {
-        _splashVariant.value = variant
-        settings.putString(KEY_SPLASH_VARIANT, variant.name)
     }
 
     private fun <T : Enum<T>> load(

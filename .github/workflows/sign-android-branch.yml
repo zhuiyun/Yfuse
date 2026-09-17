@@ -287,7 +287,7 @@ jobs:
       - name: Verify source formatting and design contracts
         run: ./gradlew :composeApp:ktlintCheck :phoneShared:ktlintCheck :composeApp:verifyDesignSystemUsage --no-daemon
       - name: Run tests
-        run: ./gradlew :phoneShared:testAndroidHostTest :watchTogetherProtocol:jvmTest :watchTogetherServer:test --no-daemon
+        run: ./gradlew :phoneShared:testAndroidHostTest :watchTogetherProtocol:jvmTest :watchTogetherServer:test -Pkotlin.incremental=false --no-daemon
       - name: Resolve signed build version
         id: version
         shell: bash
@@ -333,7 +333,7 @@ jobs:
             -Dorg.gradle.jvmargs="-Xmx6g -Dfile.encoding=UTF-8" --max-workers=2 \
             -PyfuseVersionCode=${{ steps.version.outputs.version_code }} \
             -PyfuseVersionName=${{ steps.version.outputs.version_name }} \
-            -PconfirmMdkDistributionRights=true --no-daemon
+            -PconfirmMdkDistributionRights=true -Pkotlin.incremental=false --no-daemon
       - name: Verify APK signature, alignment, version, and native provenance
         shell: bash
         run: |
@@ -464,7 +464,7 @@ jobs:
       run: ./gradlew :composeApp:lintDebug --max-workers=2 --no-daemon
     - name: Compile application and run project tests
       run: ./gradlew :composeApp:compileDebugKotlin :phoneShared:testAndroidHostTest :tvShared:testAndroidHostTest :watchTogetherProtocol:jvmTest
-        :watchTogetherServer:test --max-workers=2 --no-daemon
+        :watchTogetherServer:test -Pkotlin.incremental=false --max-workers=2 --no-daemon
     - name: Verify formatting and design contracts
       run: ./gradlew :composeApp:ktlintCheck :phoneShared:ktlintCheck :tvApp:ktlintCheck :tvShared:ktlintCheck :composeApp:verifyDesignSystemUsage --max-workers=2 --no-daemon
     - name: Upload validation reports

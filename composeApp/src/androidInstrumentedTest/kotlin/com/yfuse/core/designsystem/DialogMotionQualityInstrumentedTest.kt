@@ -63,7 +63,7 @@ class DialogMotionQualityInstrumentedTest {
         val arguments = InstrumentationRegistry.getArguments()
         val names =
             arguments.getString("motionStyles")
-                ?: "Lift,Slide,Touch,PosterMorph,Reconstruct,Mosaic"
+                ?: "Lift,Slide,Touch,MagneticDrag,Cascade"
         val styles = names.split(',').map { DialogAnimation.valueOf(it.trim()) }
         val repetitions = (arguments.getString("motionRepeats")?.toIntOrNull() ?: 3).coerceIn(1, 10)
         val measured = AtomicBoolean(false)
@@ -92,7 +92,6 @@ class DialogMotionQualityInstrumentedTest {
                                     Box(
                                         Modifier
                                             .size(96.dp, 132.dp)
-                                            .dialogPosterSource()
                                             .onGloballyPositioned { openBounds.set(it.boundsInWindow()) }
                                             .pressable(onClick = { shown.value = true })
                                             .background(
@@ -110,11 +109,6 @@ class DialogMotionQualityInstrumentedTest {
                                         val motionHost = LocalDialogMotionHost.current
                                         val dismiss = overlayDismiss { error("Missing overlay dismiss") }
                                         SideEffect {
-                                            if (style.value == DialogAnimation.PosterMorph) {
-                                                check(motionHost.poster?.let { it.active && it.recorded } == true) {
-                                                    "The benchmark must exercise a live poster source"
-                                                }
-                                            }
                                             if (style.value == DialogAnimation.Touch) check(motionHost.touch != null)
                                             close.set(dismiss)
                                         }
@@ -174,7 +168,7 @@ class DialogMotionQualityInstrumentedTest {
         val requestedStyles = InstrumentationRegistry.getArguments().getString("motionStyles")
         val expanded = requestedStyles != null
         val styles =
-            (requestedStyles?.split(',') ?: listOf("PaperPlane", "WindChime", "InstantPhoto", "Zipper", "Ticket"))
+            (requestedStyles?.split(',') ?: DialogAnimation.entries.map { it.name })
                 .map { DialogAnimation.valueOf(it.trim()) }
         val style = mutableStateOf(styles.first())
         val progress = mutableFloatStateOf(1f)

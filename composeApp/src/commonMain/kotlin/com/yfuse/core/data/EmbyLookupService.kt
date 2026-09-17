@@ -156,7 +156,7 @@ internal class EmbyLookupService(
                 val dto: ItemsResponseDto =
                     client
                         .get(
-                            "${server.baseUrl}/Shows/${series.id}/Episodes",
+                            "${server.baseUrl}/Shows/${embyPath(series.id)}/Episodes",
                         ) {
                             header("X-Emby-Token", server.accessToken)
                             parameter("UserId", server.userId)
@@ -173,10 +173,11 @@ internal class EmbyLookupService(
                 return@embyApiCall null
             }
             if (provider.equals("emby", ignoreCase = true)) {
+                // `value` came from the room, not from this server: it is a path segment only.
                 val dto: BaseItemDto =
                     client
                         .get(
-                            "${server.baseUrl}/Users/${server.userId}/Items/$value",
+                            "${server.baseUrl}/Users/${server.userId}/Items/${embyPath(value)}",
                         ) {
                             header("X-Emby-Token", server.accessToken)
                             parameter("Fields", "ProductionYear,Overview,ProviderIds")

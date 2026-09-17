@@ -348,6 +348,7 @@ jobs:
             :composeApp:verifyDesignSystemUsage \
             :watchTogetherProtocol:jvmTest \
             :watchTogetherServer:test \
+            -Pkotlin.incremental=false \
             --no-daemon
 
       - name: Run Android lint
@@ -419,6 +420,7 @@ jobs:
             -PyfuseVersionCode="$VERSION_CODE" \
             -PyfuseVersionName="$VERSION_NAME" \
             -PconfirmMdkDistributionRights=true \
+            -Pkotlin.incremental=false \
             --no-daemon
 
       - name: Verify release build did not mutate version metadata

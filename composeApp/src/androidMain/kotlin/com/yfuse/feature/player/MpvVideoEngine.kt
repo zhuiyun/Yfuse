@@ -23,9 +23,12 @@ import com.yfuse.core.playback.detectPlaybackDiscKind
 import com.yfuse.core.playback.mpvBufferProfile
 import com.yfuse.core.playback.mpvRenderProfile
 import com.yfuse.core.playback.playbackDolbyVisionRoute
+import com.yfuse.core2.android.AndroidSerializedPlayerRelease
 import dev.jdtech.mpv.MPVLib
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -33,11 +36,14 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import org.koin.core.context.GlobalContext
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import kotlin.concurrent.thread
 
 private const val TAG = "YfusePlayer"
 
@@ -154,7 +160,8 @@ class MpvVideoEngine(
     private val dolbyVisionRuntime: PlaybackDolbyVisionRuntimeCapabilities =
         PlaybackDolbyVisionRuntimeCapabilities.conservative(),
     private val videoCacheBytes: Long = 0L,
-) : VideoEngine {
+) : VideoEngine,
+    AndroidSerializedPlayerRelease {
     @Volatile
     private var items = items.toList()
     private val outputPreferences = GlobalContext.get().get<PlaybackPreferences>()
@@ -250,6 +257,9 @@ class MpvVideoEngine(
 
     @Volatile
     private var released = false
+
+    /** Completed once `stop` + `mpv_terminate_destroy` have finished on the release thread. */
+    private val nativeTeardown = CompletableDeferred<Unit>()
 
     @Volatile
     private var playRequested = startPlaybackRequested
@@ -1301,9 +1311,32 @@ class MpvVideoEngine(
         loadFileOrFail(currentUrl())
     }
 
+    override val releaseCompleted: Boolean
+        get() = released && nativeTeardown.isCompleted
+
+    override suspend fun releaseAndJoin() {
+        release()
+        val completed =
+            withContext(NonCancellable) {
+                withTimeoutOrNull(NATIVE_TEARDOWN_JOIN_TIMEOUT_MS) {
+                    nativeTeardown.await()
+                    true
+                }
+            }
+        check(completed == true) { "mpv did not finish its native teardown; replacement was not started" }
+    }
+
+    /**
+     * The calling thread unhooks the video output from its Surface; the SurfaceView that owns
+     * that Surface is torn down on the same thread right after, so the GPU context must have let
+     * go of it before this returns. `stop` and `mpv_terminate_destroy` block for hundreds of
+     * milliseconds on a network source and run on their own thread instead — [releaseAndJoin]
+     * waits for them, and [releaseCompleted] reports when they are done.
+     */
     override fun release() {
         if (released) return
         released = true
+        var retiring: MPVLib? = null
         tracePlaybackRelease("Mpv") {
             stage("cancelJobs") {
                 fallbackJob?.cancel()
@@ -1313,25 +1346,48 @@ class MpvVideoEngine(
                 cancelFileLoadWatchdog()
             }
             stage("networkProxy") { networkProxy?.close() }
-            val instance = mpv ?: return@tracePlaybackRelease
+            val current = mpv ?: return@tracePlaybackRelease
+            retiring = current
             mpv = null
             runCatching {
                 stage("observers") {
-                    instance.removeObserver(observer)
-                    instance.removeLogObserver(logObserver)
+                    current.removeObserver(observer)
+                    current.removeLogObserver(logObserver)
                 }
-                stage("stop") { instance.command(arrayOf("stop")) }
-                stage("nativeDestroy") { instance.destroy() }
-            }.onFailure {
-                safeLogcat(Log.WARN, TAG, "mpv teardown failed", it)
-                AppLog.warning(
-                    category = "player.mpv",
-                    event = "teardown_failed",
-                    message = "mpv teardown failed",
-                    throwable = it,
-                )
+                stage("detachSurface") {
+                    current.setPropertyString("vo", "null")
+                    current.setPropertyString("force-window", "no")
+                    current.detachSurface()
+                }
+            }.onFailure { logTeardownFailure(it) }
+        }
+        val instance = retiring
+        if (instance == null) {
+            nativeTeardown.complete(Unit)
+            return
+        }
+        thread(name = "mpv-release", isDaemon = true) {
+            try {
+                tracePlaybackRelease("Mpv.native") {
+                    runCatching {
+                        stage("stop") { instance.command(arrayOf("stop")) }
+                        stage("nativeDestroy") { instance.destroy() }
+                    }.onFailure { logTeardownFailure(it) }
+                }
+            } finally {
+                nativeTeardown.complete(Unit)
             }
         }
+    }
+
+    private fun logTeardownFailure(failure: Throwable) {
+        safeLogcat(Log.WARN, TAG, "mpv teardown failed", failure)
+        AppLog.warning(
+            category = "player.mpv",
+            event = "teardown_failed",
+            message = "mpv teardown failed",
+            throwable = failure,
+        )
     }
 
     private fun currentUrl(): String =
@@ -2049,7 +2105,7 @@ class MpvVideoEngine(
         fileLoadWatchdogJob?.cancel()
         fileLoadWatchdogJob =
             scope.launch {
-                while (true) {
+                while (isActive) {
                     delay(policy.pollMs)
                     val snapshot = _state.value
                     val now = SystemClock.elapsedRealtime()
@@ -2172,6 +2228,7 @@ private const val HUGE_REMOTE_MEDIA_BYTES = 64L * 1024L * 1024L * 1024L
 
 private const val MAX_MPV_REPORTED_AV_SYNC_OFFSET_MS = 5_000L
 private const val MAX_MPV_SURFACE_RECOVERY_ATTEMPTS = 2L
+private const val NATIVE_TEARDOWN_JOIN_TIMEOUT_MS = 5_000L
 
 private fun PlayerMediaItem?.initialDiscNavigation(transcoding: Boolean): PlaybackDiscNavigationState {
     if (this == null || transcoding) return PlaybackDiscNavigationState()

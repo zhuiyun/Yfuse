@@ -25,6 +25,11 @@ import io.ktor.client.call.body
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.parameter
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlin.math.roundToInt
 
 internal data class PlayTargetResolution(
@@ -195,7 +200,28 @@ internal class EmbyDetailService(
                     parameter("Limit", ids.size)
                 }.body()
         val cardsById = cards.Items.associateBy(BaseItemDto::Id)
-        val episodeCache = mutableMapOf<String, List<BaseItemDto>>()
+        // Every finished episode needs its series directory to name the one after it. Those
+        // used to be fetched one at a time as the loop reached them — up to 36 serial round
+        // trips before the shelf could show. Read the distinct series up front, a few at a
+        // time, so the shelf costs one network wait instead of one per series.
+        val finishedSeriesIds =
+            recentStates
+                .asSequence()
+                .filter { it.played }
+                .mapNotNull { state -> state.serverItemId?.let(cardsById::get) }
+                .filter { it.Type == "Episode" }
+                .mapNotNull(BaseItemDto::SeriesId)
+                .distinct()
+                .toList()
+        val episodesBySeries =
+            coroutineScope {
+                val permits = Semaphore(NEXT_UP_SERIES_CONCURRENCY)
+                finishedSeriesIds
+                    .map { seriesId ->
+                        async { permits.withPermit { seriesId to fetchSeriesEpisodes(server, seriesId) } }
+                    }.awaitAll()
+                    .toMap()
+            }
         val result = mutableListOf<BaseItemDto>()
         recentStates.forEach { state ->
             if (result.size >= limit) return@forEach
@@ -206,11 +232,7 @@ internal class EmbyDetailService(
                     item
                 } else if (state.played) {
                     val seriesId = item.SeriesId ?: return@forEach
-                    val episodes =
-                        episodeCache[seriesId]
-                            ?: fetchSeriesEpisodes(server, seriesId).also {
-                                episodeCache[seriesId] = it
-                            }
+                    val episodes = episodesBySeries[seriesId].orEmpty()
                     val currentIndex = episodes.indexOfFirst { it.Id == item.Id }
                     episodes
                         .asSequence()
@@ -246,6 +268,7 @@ internal class EmbyDetailService(
 
     private companion object {
         const val MAX_LOCAL_NEXT_UP_HISTORY = 36
+        const val NEXT_UP_SERIES_CONCURRENCY = 4
         const val EMBY_THUMBNAIL_WIDTH = 320
         const val TICKS_PER_MILLISECOND = 10_000L
         const val DEFAULT_EMBY_THUMBNAIL_INTERVAL_MS = 10_000L

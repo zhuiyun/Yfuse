@@ -63,39 +63,31 @@ enum class SplashMark(
 }
 
 /**
- * Which launch choreography plays. Each one is a self-contained implementation; adding a
- * variant here is enough to make it selectable.
+ * The launch. One choreography, and the still frame it collapses to under 减弱动态效果.
  *
- * Entries only ever append — the choice persists by name, and reordering or renaming would
- * hand somebody an animation they never chose.
+ * There used to be seven of these behind a picker; the product keeps one and does it well.
+ * [One] is the water-fire ribbon unfolding — 「Yfuse 水火闪屏动画」 B — and [Still] is the
+ * same mark already resolved, held briefly and faded, for anyone who has asked the app or the
+ * system to stop moving things. Neither is a preference: the shell picks between them from
+ * the accessibility state, and nothing persists.
  */
 enum class SplashAnimation(
     val label: String,
     val description: String,
     val mark: SplashMark,
 ) {
+    /** The default: 速度线冲入 → 折带绕轴展开 → 渐变线拉出. */
     One("折带展开", "速度线冲入 → 折带绕轴展开 → 渐变线拉出", SplashMark.WaterFire),
-    Two("水火交接", "标志弹入 → 光缝扫过 → 字标浮起", SplashMark.WaterFire),
 
-    // The two the cloud mark shipped with, kept with it rather than retired: the drop, the
-    // cloud taking the hit, and the splash gathering into the play head are that logo's own
-    // story, and they read as nothing at all next to the water-fire ribbon.
-    CloudDrop("水滴入云", "水滴坠落 → 云朵回弹 → 水花聚成播放键", SplashMark.CloudPlayer),
-    CloudWell("水漾成键", "水滴落进凹槽 → 沸腾冒泡 → 水花四溅成播放键", SplashMark.CloudPlayer),
-    AuroraDark("极光浮现 · 深色", "深色极光折带渐显 → 字标浮起", SplashMark.AuroraDark),
-    AuroraLight("极光浮现 · 浅色", "浅色极光折带渐显 → 字标浮起", SplashMark.AuroraLight),
+    /** The 减弱动态效果 variant: the resolved mark, a short hold, a short fade. */
+    Still("静帧", "标志直接显示，短暂停留后淡出", SplashMark.WaterFire),
+    ;
 
-    // Appended, per the rule above: the 粒子光效 launch, built around the current mark.
-    Stardust("光粒汇聚", "光粒从四周汇聚成标志 → 标志亮起 → 字标浮起", SplashMark.WaterFire),
+    companion object {
+        /** Which of the two plays, given the effective reduce-motion state. */
+        fun forMotion(reduceMotion: Boolean): SplashAnimation = if (reduceMotion) Still else One
+    }
 }
-
-/** The choreographies drawn around this mark, in the order they are offered. */
-val SplashMark.animations: List<SplashAnimation>
-    get() = SplashAnimation.entries.filter { it.mark == this }
-
-/** What a switch to this mark selects when the current animation belongs to the other one. */
-val SplashMark.defaultAnimation: SplashAnimation
-    get() = animations.first()
 
 /**
  * The single definition of "is the UI dark right now". The splash, the window background and
@@ -176,12 +168,18 @@ val LocalAccentColors =
 /**
  * Transitional source compatibility for old call sites that only read `.color`.
  * This value is fixed product identity, not a setting and not persisted anywhere.
+ *
+ * Kept only for the Android player (`PlayerActivity`), which is migrated in the next wave;
+ * everything else reads [LocalAccentColors] — through [ArtworkAccent] on media pages.
  */
+@Deprecated("Read LocalAccentColors.current.accent; removed once PlayerActivity migrates.")
 @Immutable
 internal data class FixedBrandEmphasis(
     val color: Color,
 )
 
+@Suppress("DEPRECATION")
+@Deprecated("Read LocalAccentColors.current.accent; removed once PlayerActivity migrates.")
 internal val LocalAccent =
     staticCompositionLocalOf {
         FixedBrandEmphasis(Brand.Primary) // design-system: brand-identity
@@ -191,6 +189,7 @@ internal val LocalAccent =
  * Transitional source compatibility for the Android player. This is a fixed brand value,
  * not the removed selectable theme-colour enum.
  */
+@Deprecated("Read LocalAccentColors inside a theme.")
 internal object AccentColor {
     val Blue: Color = Brand.Primary // design-system: brand-identity
 }
@@ -304,14 +303,20 @@ private fun lightScheme(accent: AccentColors) =
         onErrorContainer = LightPalette.onErrorContainer,
     )
 
+/**
+ * The app's theme. Emphasis is the fixed brand blue — there is no accent parameter any more;
+ * artwork pages derive theirs through [ArtworkAccent].
+ *
+ * The theme also owns the window's [OverlayVisibility]: the dialog backdrop capture inside
+ * it records only while something is actually open, and the shell's furniture reads the
+ * same object to get out of a sheet's way.
+ */
 @Composable
 fun YfuseTheme(
     dark: Boolean,
-    accent: Color = Brand.Primary, // design-system: brand-identity
     accessibility: AccessibilityOptions = AccessibilityOptions(),
     glassStyle: GlassStyle = GlassStyle.Liquid,
     dialogAnimation: DialogAnimation = DialogAnimation.Lift,
-    dialogAnimationLab: Boolean = true,
     particleLight: ParticleLight = ParticleLight.Gentle,
     particleStyle: ParticleStyle = ParticleStyle.Stardust,
     particleLimit: Int = 64,
@@ -319,7 +324,7 @@ fun YfuseTheme(
     content: @Composable () -> Unit,
 ) {
     val targetPalette = if (dark) DarkPalette else LightPalette
-    val targetAccent = remember(dark, accent) { resolveAccentColors(accent, dark) }
+    val targetAccent = remember(dark) { resolveAccentColors(Brand.Primary, dark) } // design-system: brand-identity
     val colors = remember(targetPalette, targetAccent) { ThemeColors(targetPalette, targetAccent) }
     val density = LocalDensity.current
     val adjustedDensity =
@@ -332,17 +337,55 @@ fun YfuseTheme(
         LocalAccessibilityOptions provides accessibility,
         LocalGlassStyle provides glassStyle,
         LocalDialogAnimation provides dialogAnimation,
-        LocalDialogAnimationLab provides dialogAnimationLab,
         LocalParticleLight provides particleLight,
         LocalParticleStyle provides particleStyle,
         LocalParticleLimit provides particleLimit.coerceIn(0, 64),
         LocalParticleActive provides particleActive,
         LocalParticleBudget provides remember { LightParticleBudget() },
+        LocalOverlayVisibility provides remember { OverlayVisibility() },
         LocalDensity provides adjustedDensity,
         LocalHaptics provides rememberHaptics(),
     ) {
         TargetThemeColors(dark, colors) { DialogBackdropHost(content) }
     }
+}
+
+/**
+ * Source compatibility for the Android player, which still passes the fixed brand colour it
+ * read from `ThemePreferences.accent`. The value is ignored: emphasis is [Brand.Primary]
+ * whatever is passed, exactly as it already was. Removed once `PlayerActivity` migrates.
+ */
+@Deprecated(
+    "Emphasis is fixed product identity; call YfuseTheme without accent.",
+    ReplaceWith(
+        "YfuseTheme(dark, accessibility, glassStyle, dialogAnimation, particleLight, particleStyle, " +
+            "particleLimit, particleActive, content)",
+    ),
+)
+@Composable
+fun YfuseTheme(
+    dark: Boolean,
+    @Suppress("UNUSED_PARAMETER") accent: Color,
+    accessibility: AccessibilityOptions = AccessibilityOptions(),
+    glassStyle: GlassStyle = GlassStyle.Liquid,
+    dialogAnimation: DialogAnimation = DialogAnimation.Lift,
+    particleLight: ParticleLight = ParticleLight.Gentle,
+    particleStyle: ParticleStyle = ParticleStyle.Stardust,
+    particleLimit: Int = 64,
+    particleActive: Boolean = true,
+    content: @Composable () -> Unit,
+) {
+    YfuseTheme(
+        dark = dark,
+        accessibility = accessibility,
+        glassStyle = glassStyle,
+        dialogAnimation = dialogAnimation,
+        particleLight = particleLight,
+        particleStyle = particleStyle,
+        particleLimit = particleLimit,
+        particleActive = particleActive,
+        content = content,
+    )
 }
 
 /** Publish targets once. Finite colour motion is owned by the consuming text/material node. */

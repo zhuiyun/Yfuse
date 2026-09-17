@@ -197,6 +197,7 @@ class PlayerActivity : ComponentActivity() {
     private lateinit var audioFocusController: PlayerAudioFocusController
     private var remoteCastManager: CastManager? = null
     private var sessionTitles: List<String> = emptyList()
+    private val mediaSessionPositionSync = MediaSessionPositionSync()
     private val pictureInPicture = MutableStateFlow(false)
     private lateinit var mediaSessionAdapter: TvMediaSessionAdapter
     private lateinit var notificationController: PlayerNotificationController
@@ -813,17 +814,12 @@ class PlayerActivity : ComponentActivity() {
                             activeQueueUpdater = null
                         }
                     },
+                    // Presentation changes only (transport, index, error, geometry): everything
+                    // here talks to the system — notification, media session, PiP params, the
+                    // foreground service — and must not run on the 500 ms position tick.
                     onPlaybackState = { state, item ->
                         activeState = state
-                        applyPendingEnrichment()
                         applyScreenOnPolicy()
-                        if (
-                            state.playing &&
-                            state.hasNext &&
-                            state.remainingMs in 1L..EPISODE_REFRESH_NEAR_END_MS
-                        ) {
-                            refreshEpisodes()
-                        }
                         if (state.ended && item?.serverId != null) {
                             val completedKey = "${item.serverId}#${item.id}"
                             if (completedOfflineKey != completedKey) {
@@ -833,16 +829,6 @@ class PlayerActivity : ComponentActivity() {
                         } else if (!state.ended) {
                             completedOfflineKey = null
                         }
-                        if (
-                            playerLaunchGeneration == launchGeneration &&
-                            state.currentIndex in playbackItems.value.indices
-                        ) {
-                            launchViewModel.resume = state.currentIndex to state.positionMs.coerceAtLeast(0L)
-                        }
-                        ActivePlayback.update(
-                            item?.title.orEmpty(),
-                            state,
-                        )
                         if (item != null && state.currentIndex in sessionTitles.indices) {
                             sessionTitles = playbackItems.value.map { it.title }
                         }
@@ -860,6 +846,33 @@ class PlayerActivity : ComponentActivity() {
                             pausePlaybackForLifecycle("state_resumed_while_hidden")
                         } else if (state.playing) {
                             startPlaybackKeepAliveService()
+                        }
+                    },
+                    // Every tick: in-process position consumers, plus a ten-second (or post-seek)
+                    // media-session position refresh that does not rebuild the notification.
+                    onPlaybackProgress = { state, item ->
+                        activeState = state
+                        applyPendingEnrichment()
+                        if (
+                            state.playing &&
+                            state.hasNext &&
+                            state.remainingMs in 1L..EPISODE_REFRESH_NEAR_END_MS
+                        ) {
+                            refreshEpisodes()
+                        }
+                        if (
+                            playerLaunchGeneration == launchGeneration &&
+                            state.currentIndex in playbackItems.value.indices
+                        ) {
+                            launchViewModel.resume = state.currentIndex to state.positionMs.coerceAtLeast(0L)
+                        }
+                        ActivePlayback.update(
+                            item?.title.orEmpty(),
+                            state,
+                        )
+                        val now = SystemClock.elapsedRealtime()
+                        if (mediaSessionPositionSync.shouldPublish(state, now)) {
+                            publishMediaSessionState(state, now)
                         }
                     },
                     onVideoBounds = { bounds ->
@@ -1614,6 +1627,7 @@ class PlayerActivity : ComponentActivity() {
         )
     }
 
+    /** Presentation change: audio focus, media session and the notification. */
     private fun updateMediaSession(state: PlaybackState) {
         val remoteActive = remoteCastManager?.state?.value?.hasActiveSession == true
         if (remoteActive) {
@@ -1623,6 +1637,16 @@ class PlayerActivity : ComponentActivity() {
         } else if (state.ended || state.error != null) {
             abandonAudioFocus()
         }
+        publishMediaSessionState(state, SystemClock.elapsedRealtime())
+        notificationController.update(state, sessionTitles)
+    }
+
+    /** Media session only; the notification is left alone so a position refresh costs two calls. */
+    private fun publishMediaSessionState(
+        state: PlaybackState,
+        nowElapsedMs: Long,
+    ) {
+        if (!::mediaSessionAdapter.isInitialized) return
         mediaSessionAdapter.update(
             TvMediaSessionState(
                 playing = state.playing,
@@ -1637,7 +1661,7 @@ class PlayerActivity : ComponentActivity() {
                 error = state.error,
             ),
         )
-        notificationController.update(state, sessionTitles)
+        mediaSessionPositionSync.published(state, nowElapsedMs)
     }
 
     private fun requestPlaybackStart() {

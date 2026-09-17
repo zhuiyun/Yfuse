@@ -58,22 +58,40 @@ object AppShapes {
 }
 
 /**
- * Compatibility aliases for existing liquid-glass call sites. New code should use
- * [AppShapes] so a component names its semantic role rather than its visual implementation.
+ * Compatibility aliases for existing liquid-glass call sites. Every member except [appIcon]
+ * is a plain alias of an [AppShapes] role and is deprecated: a component should name its
+ * semantic role rather than its visual implementation. The feature call sites are replaced
+ * mechanically in the next wave.
  */
 object GlassShapes {
+    @Deprecated("Use AppShapes.thumb", ReplaceWith("AppShapes.thumb"))
     val thumb: Shape = AppShapes.thumb
+
+    @Deprecated("Use AppShapes.card", ReplaceWith("AppShapes.card"))
     val poster: Shape = AppShapes.card
+
+    @Deprecated("Use AppShapes.chip", ReplaceWith("AppShapes.chip"))
     val chip: Shape = AppShapes.chip
+
+    @Deprecated("Use AppShapes.card", ReplaceWith("AppShapes.card"))
     val card: Shape = AppShapes.card
+
+    @Deprecated("Use AppShapes.control", ReplaceWith("AppShapes.control"))
     val menu: Shape = AppShapes.control
+
+    @Deprecated("Use AppShapes.sheet", ReplaceWith("AppShapes.sheet"))
     val sheet: Shape = AppShapes.sheet
+
+    @Deprecated("Use AppShapes.sheet", ReplaceWith("AppShapes.sheet"))
     val hero: Shape = AppShapes.sheet
+
+    @Deprecated("Use AppShapes.sheet", ReplaceWith("AppShapes.sheet"))
     val tabBar: Shape = AppShapes.sheet
 
     /** The app mark and other square art that has to read as an icon. */
     val appIcon: Shape = ContinuousIconShape()
 
+    @Deprecated("Use AppShapes.pill", ReplaceWith("AppShapes.pill"))
     val circle: Shape = AppShapes.pill
 }
 
@@ -90,12 +108,12 @@ private fun reducedTransparencyFill(
     over: Color = palette.background,
 ): Color =
     when (fill) {
-        palette.card -> if (palette.isDark) Color(0xFF1A2437) else Color(0xFFF6F8FC)
-        palette.card2 -> if (palette.isDark) Color(0xFF151F31) else Color(0xFFEEF2F7)
-        palette.card3 -> if (palette.isDark) Color(0xFF202D43) else Color(0xFFF3F6FA)
-        palette.sheet -> if (palette.isDark) Color(0xFF131D2D) else Color(0xFFF4F7FB)
-        palette.glass -> if (palette.isDark) Color(0xFF172235) else Color(0xFFEDF2F8)
-        palette.glassStrong -> if (palette.isDark) Color(0xFF1B273B) else Color(0xFFE8EEF7)
+        palette.card -> palette.reducedFill.card
+        palette.card2 -> palette.reducedFill.card2
+        palette.card3 -> palette.reducedFill.card3
+        palette.sheet -> palette.reducedFill.sheet
+        palette.glass -> palette.reducedFill.glass
+        palette.glassStrong -> palette.reducedFill.glassStrong
         else -> {
             // White translucent controls carry white glyphs over artwork. A solid white plate
             // would erase them, so use a dark opaque control surface in both themes.
@@ -105,12 +123,18 @@ private fun reducedTransparencyFill(
                     fill.green > 0.90f &&
                     fill.blue > 0.90f
             if (translucentWhite) {
-                if (palette.isDark) Color(0xFF273246) else Color(0xFF303A4D)
+                palette.reducedFill.control
             } else {
                 opaqueComposite(fill, opaqueComposite(over, palette.background))
             }
         }
     }
+
+/**
+ * The tone set a fill shades with. Keyed by what the fill composites to, not by the theme:
+ * a white pill over dark artwork on the light theme is pale glass and shades like it.
+ */
+private fun tonesFor(pale: Boolean): Palette = if (pale) LightPalette else DarkPalette
 
 private fun reducedTransparencyBorder(
     border: Color?,
@@ -173,8 +197,8 @@ internal fun resolveFrostedMaterialTones(
     val composited = fill.compositeOver(palette.background)
     val pale = composited.luminance() >= 0.48f
     val source = fill.copy(alpha = 1f)
-    val mist = if (pale) Color(0xFFDCE7F4) else Color(0xFF213149)
-    val depth = if (pale) Color(0xFFC8D6E6) else Color(0xFF09111F)
+    val mist = tonesFor(pale).mist
+    val depth = tonesFor(pale).depth
     val mistAmount = (if (pale) 0.55f else 0.46f) * resolvedDensity
     val bodyAlpha =
         (fill.alpha * (0.68f + 0.32f * resolvedDensity))
@@ -214,22 +238,32 @@ private fun frostedSurfaceBrush(
     )
 }
 
-private enum class GlassSurfaceWeight(
-    val liquidSheen: Float,
-    val frostDensity: Float,
+/**
+ * How much a glass plate asserts itself: the strength of the liquid sheen and, under
+ * 毛玻璃, how dense the pane is. Three plates that used to be three functions are one
+ * [Modifier.glass] with this as its knob.
+ */
+enum class GlassWeight(
+    internal val liquidSheen: Float,
+    internal val frostDensity: Float,
 ) {
+    /** Dense forms and settings: a restrained sheen, a lighter pane. */
     Quiet(liquidSheen = 0.62f, frostDensity = 0.88f),
+
+    /** The ordinary content card. */
     Standard(liquidSheen = 0.82f, frostDensity = 1f),
+
+    /** Interactive controls and dense detail cards: full sheen, the densest pane. */
     Strong(liquidSheen = 1f, frostDensity = 1.10f),
 }
 
 private fun liquidSurfaceBrush(
     fill: Color,
     palette: Palette,
-    weight: GlassSurfaceWeight,
+    weight: GlassWeight,
 ): Brush {
     val pale = fill.compositeOver(palette.background).luminance() >= 0.48f
-    val depth = if (pale) Color(0xFFDCE5F1) else Color(0xFF070C16)
+    val depth = tonesFor(pale).liquidDepth
     val top =
         lerp(fill, Color.White, (if (pale) 0.18f else 0.11f) * weight.liquidSheen).copy(
             alpha = (fill.alpha + 0.055f * weight.liquidSheen).coerceAtMost(0.94f),
@@ -247,12 +281,18 @@ private fun liquidSurfaceBrush(
     )
 }
 
+/**
+ * The liquid-glass plate — one translucent fill plus a diagonal sheen, which is all a card,
+ * a form row or a chip needs. [weight] decides how much the plate asserts itself; the three
+ * older names below are this with the weight fixed. A translucent diagonal sheen,
+ * single-colour edge and ambient tint preserve depth without a platform-specific blur.
+ */
 @Composable
-private fun Modifier.glassMaterial(
-    shape: Shape,
-    fill: Color,
-    border: Color?,
-    weight: GlassSurfaceWeight,
+fun Modifier.glass(
+    shape: Shape = AppShapes.card,
+    fill: Color = LocalPalette.current.card,
+    border: Color? = null,
+    weight: GlassWeight = GlassWeight.Standard,
 ): Modifier {
     val palette = LocalPalette.current
     val accessibility = LocalAccessibilityOptions.current
@@ -290,43 +330,21 @@ private fun Modifier.glassMaterial(
     }
 }
 
-/**
- * Primary liquid-glass surface. A translucent diagonal sheen, single-colour edge and
- * ambient tint preserve depth without a platform-specific blur dependency.
- */
-@Composable
-fun Modifier.glass(
-    shape: Shape = GlassShapes.card,
-    fill: Color = LocalPalette.current.card,
-    border: Color? = null,
-): Modifier = glassMaterial(shape, fill, border, GlassSurfaceWeight.Standard)
-
-/**
- * Quiet glass surface used by dense forms and settings.
- *
- * Liquid keeps a restrained directional sheen; Frosted removes that sheen and keeps a
- * single translucent pane. Settings use this variant heavily, so it must honor GlassStyle.
- */
+/** [glass] at [GlassWeight.Quiet] — dense forms and settings. */
 @Composable
 fun Modifier.flatGlass(
-    shape: Shape = GlassShapes.card,
+    shape: Shape = AppShapes.card,
     fill: Color = LocalPalette.current.card,
     border: Color? = null,
-): Modifier = glassMaterial(shape, fill, border, GlassSurfaceWeight.Quiet)
+): Modifier = glass(shape, fill, border, GlassWeight.Quiet)
 
-/**
- * Liquid-glass surface with a single-colour edge.
- *
- * Use this for interactive controls and dense detail-page cards: the surface keeps
- * the directional sheen that communicates glass, while the outline remains a calm
- * solid colour instead of becoming a second gradient.
- */
+/** [glass] at [GlassWeight.Strong] — interactive controls and dense detail-page cards. */
 @Composable
 fun Modifier.solidGlass(
-    shape: Shape = GlassShapes.card,
+    shape: Shape = AppShapes.card,
     fill: Color = LocalPalette.current.card,
     border: Color? = null,
-): Modifier = glassMaterial(shape, fill, border, GlassSurfaceWeight.Strong)
+): Modifier = glass(shape, fill, border, GlassWeight.Strong)
 
 /**
  * 液态玻璃 — the material for interactive controls.
@@ -356,7 +374,7 @@ fun Modifier.solidGlass(
  */
 @Composable
 fun Modifier.liquidGlass(
-    shape: Shape = GlassShapes.chip,
+    shape: Shape = AppShapes.chip,
     fill: Color = LocalPalette.current.glassStrong,
     border: Color? = null,
     over: Color = if (LocalPalette.current.isDark) LocalPalette.current.background else Color.White,
@@ -385,9 +403,8 @@ val LocalGlassStyle = staticCompositionLocalOf { GlassStyle.Liquid }
  *
  * Every glass variant consults this, not just [Modifier.liquidGlass]. The preference first
  * shipped reaching only that one, which is 18 of the app's 187 glass surfaces — the other 169
- * go through [Modifier.glass], [Modifier.solidGlass], [Modifier.flatGlass] or
- * [Modifier.overlayGlass], so switching materials changed almost nothing on screen and read
- * as a setting that did not work.
+ * go through [Modifier.glass] at one weight or another, so switching materials changed
+ * almost nothing on screen and read as a setting that did not work.
  *
  * What it removes is the specular: the diagonal white sheen and, on liquid glass, the body
  * ramp. What stays is the translucency, the fill and the luminous edge — so 毛玻璃 is a
@@ -407,53 +424,50 @@ object GlassLift {
 }
 
 /**
- * Stronger liquid glass used above artwork and dense content.
+ * [glass], for surfaces whose fill is a gradient (hero cards, artwork tiles).
+ *
+ * The two accessibility materials reach this one too: 减弱透明度 replaces the gradient with
+ * the opaque card plate outright, and 毛玻璃 lays its mist over the gradient so a hero tile
+ * frosts along with every plain card around it.
  */
-@Composable
-fun Modifier.overlayGlass(
-    shape: Shape = GlassShapes.sheet,
-    fill: Color = LocalPalette.current.glass,
-    border: Color? = null,
-): Modifier =
-    glass(
-        shape = shape,
-        fill = fill,
-        border = border,
-    )
-
-/** Same, for surfaces whose fill is a gradient (hero cards, artwork tiles). */
 @Composable
 fun Modifier.glass(
     shape: Shape,
     fill: Brush,
     border: Color? = null,
 ): Modifier {
-    if (LocalMutedGlass.current) return mutedGlassControl(shape, LocalPalette.current.card2, border)
-    val materialBorder = resolveGlassMaterialBorder(border, LocalPalette.current)
+    val palette = LocalPalette.current
+    if (LocalMutedGlass.current) return mutedGlassControl(shape, palette.card2, border)
+    val accessibility = LocalAccessibilityOptions.current
+    val frosted = frostedGlass()
+    val materialBorder = resolveGlassMaterialBorder(border, palette)
+    val resolvedBorder =
+        when {
+            accessibility.reduceTransparency -> reducedTransparencyBorder(materialBorder, palette)
+            frosted -> frostedMaterialBorder(materialBorder, palette)
+            else -> materialBorder
+        }
     return this
         .clip(shape)
-        .background(fill)
-        .let {
-            if (materialBorder != null) {
-                it.border(Dimens.hairline, materialBorder, shape)
+        .then(
+            if (accessibility.reduceTransparency) {
+                Modifier.background(palette.reducedFill.card)
+            } else {
+                Modifier.background(fill)
+            },
+        ).then(
+            if (frosted && !accessibility.reduceTransparency) {
+                Modifier.background(resolveFrostedMaterialTones(palette.card, palette).body)
+            } else {
+                Modifier
+            },
+        ).let {
+            if (resolvedBorder != null) {
+                it.border(Dimens.hairline, resolvedBorder, shape)
             } else {
                 it
             }
         }
-}
-
-/**
- * Content-layer liquid glass card.
- */
-@Composable
-fun GlassCard(
-    modifier: Modifier = Modifier,
-    shape: Shape = GlassShapes.card,
-    fill: Color = LocalPalette.current.card,
-    border: Color? = null,
-    content: @Composable BoxScope.() -> Unit,
-) {
-    Box(modifier.glass(shape, fill, border), content = content)
 }
 
 /**
@@ -626,7 +640,7 @@ private fun liquidGlassBrushes(
     // is dense glass over artwork on the light one. What the fill composites to is the right
     // one, so that is what the ramps are keyed off.
     val pale = fill.compositeOver(over).luminance() > 0.42f
-    val depth = if (pale) Color(0xFF8CA1C1) else Color(0xFF04070E)
+    val depth = tonesFor(pale).controlDepth
     val body =
         Brush.verticalGradient(
             0f to
@@ -671,10 +685,13 @@ fun Modifier.liquidGlass(
             val edge = resolveGlassMaterialBorder(requestedBorder, palette)
             when {
                 muted -> {
-                    val neutral = if (palette.isDark) Color(0xFF353B45) else Color(0xFFBEC3CB)
                     drawOutline(
                         outline,
-                        if (reduceTransparency) neutral else body.copy(alpha = body.alpha.coerceAtMost(0.10f)),
+                        if (reduceTransparency) {
+                            palette.mutedControl
+                        } else {
+                            body.copy(alpha = body.alpha.coerceAtMost(0.10f))
+                        },
                     )
                     if (requestedBorder !=
                         null
@@ -688,7 +705,7 @@ fun Modifier.liquidGlass(
                 }
                 frosted -> {
                     if (body.alpha > 0.001f || edge != null) {
-                        drawOutline(outline, frostedSurfaceBrush(body, palette, GlassSurfaceWeight.Strong.frostDensity))
+                        drawOutline(outline, frostedSurfaceBrush(body, palette, GlassWeight.Strong.frostDensity))
                         frostedMaterialBorder(edge, palette)?.let { drawOutline(outline, it, style = stroke) }
                     }
                 }

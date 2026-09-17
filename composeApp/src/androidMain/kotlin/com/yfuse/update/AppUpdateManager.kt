@@ -5,6 +5,7 @@ import android.app.Application
 import android.content.ClipData
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -192,8 +193,11 @@ internal enum class UpdateManifestTrust {
     /** Signature present and valid for the pinned key. */
     Signed,
 
-    /** No optional manifest key is configured; download and APK checks still apply. */
+    /** No optional manifest key is configured in a debuggable build; download and APK checks still apply. */
     UnverifiedNoKey,
+
+    /** A release build shipped without a manifest key; nothing unsigned may be installed from it. */
+    RejectedNoKey,
 
     /** A key is pinned but the manifest carries no signature. */
     RejectedUnsigned,
@@ -203,16 +207,19 @@ internal enum class UpdateManifestTrust {
 }
 
 /**
- * Applies manifest signature verification when this build pins a key. Builds without a key
- * accept the configured update source and still verify the downloaded APK before installation.
+ * Applies manifest signature verification when this build pins a key. A debuggable build without
+ * a key accepts the configured update source and still verifies the downloaded APK before
+ * installation; a release build ([requireKey]) refuses every manifest instead, because a missing
+ * key there is a packaging mistake and not a developer convenience.
  */
 internal fun UpdateManifest.trustVerdict(
     pinnedPublicKeyBase64: String,
     verify: (publicKeyBase64: String, payload: ByteArray, signatureBase64: String) -> Boolean,
+    requireKey: Boolean = false,
 ): UpdateManifestTrust {
     val key = pinnedPublicKeyBase64.trim()
     if (key.isEmpty()) {
-        return UpdateManifestTrust.UnverifiedNoKey
+        return if (requireKey) UpdateManifestTrust.RejectedNoKey else UpdateManifestTrust.UnverifiedNoKey
     }
     val signature = signature?.trim()?.takeIf { it.isNotEmpty() } ?: return UpdateManifestTrust.RejectedUnsigned
     return if (verify(key, signedPayload(), signature)) {
@@ -225,6 +232,7 @@ internal fun UpdateManifest.trustVerdict(
 internal fun UpdateManifestTrust.rejectionMessage(): String? =
     when (this) {
         UpdateManifestTrust.Signed, UpdateManifestTrust.UnverifiedNoKey -> null
+        UpdateManifestTrust.RejectedNoKey -> "此正式版未内置升级校验密钥，已拒绝安装升级"
         UpdateManifestTrust.RejectedUnsigned -> "升级信息未签名，已拒绝"
         UpdateManifestTrust.RejectedInvalidSignature -> "升级信息签名无效，已拒绝"
     }
@@ -232,6 +240,10 @@ internal fun UpdateManifestTrust.rejectionMessage(): String? =
 internal class UpdateManifestRejectedException(
     val verdict: UpdateManifestTrust,
 ) : IllegalStateException(verdict.rejectionMessage())
+
+/** `android:debuggable`, read from the installed package rather than a compile-time constant. */
+internal fun ApplicationInfo?.isDebuggableBuild(): Boolean =
+    this != null && (flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
 
 internal fun updateCheckFailureMessage(error: Throwable): String =
     if (error is UpdateManifestRejectedException) {
@@ -675,6 +687,12 @@ internal fun updateCheckSnapshotStillCurrent(
 class AppUpdateManager(
     context: Context,
     private val settings: Settings,
+    /**
+     * Whether a manifest may only be trusted with a pinned key. Defaults to "yes" for every
+     * non-debuggable package so a release built without `UPDATE_MANIFEST_PUBLIC_KEY` cannot
+     * silently install unsigned manifests; debuggable builds keep the optional-key behaviour.
+     */
+    private val manifestKeyRequired: Boolean = !context.applicationInfo.isDebuggableBuild(),
 ) {
     private val appContext: Context = context.applicationContext
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -1715,13 +1733,15 @@ class AppUpdateManager(
 
     /**
      * Verifies the optional manifest signature consistently for debug and release builds.
-     * Missing keys do not block checks, downloads, or restoration of interrupted downloads.
+     * In a debuggable build a missing key does not block checks, downloads, or restoration of
+     * interrupted downloads; a release build without a key rejects every manifest.
      */
     private fun UpdateManifest.requireTrusted(): UpdateManifest {
         val verdict =
             trustVerdict(
                 pinnedPublicKeyBase64 = BuildConfig.UPDATE_MANIFEST_PUBLIC_KEY,
                 verify = ::verifyEd25519Signature,
+                requireKey = manifestKeyRequired,
             )
         if (verdict == UpdateManifestTrust.UnverifiedNoKey) {
             AppLog.info(

@@ -15,6 +15,12 @@ pluginManagement {
     }
 }
 
+plugins {
+    // Every module declares `jvmToolchain(17)`. Without a toolchain resolver a machine (or CI
+    // image) that lacks a local JDK 17 fails at configuration time instead of provisioning one.
+    id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"
+}
+
 dependencyResolutionManagement {
     repositories {
         google {

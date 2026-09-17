@@ -75,8 +75,14 @@ fun FallbackImage(
      * cast avatar has nothing to resolve into.
      */
     progressive: Boolean = true,
-    /** Fade the drawable without adding progressive blur or scale. */
-    alphaOnly: Boolean = false,
+    /**
+     * Fade the drawable without adding progressive blur or scale.
+     *
+     * On by default: a grid scrolling quickly had several tiles each holding a `BlurEffect`
+     * layer in the same frame. Only the few large, single pictures — a page hero, the
+     * detail poster — pass `false` and take the cinematic resolve.
+     */
+    alphaOnly: Boolean = true,
     /** Large artwork uses the default 400ms reveal; dense posters pass 180ms. */
     revealDurationMillis: Int = Motion.ARTWORK_REVEAL,
     revealBlur: Dp = ArtworkRevealBlur,
@@ -222,7 +228,7 @@ fun Poster(
     modifier: Modifier = Modifier,
     title: String? = null,
     year: String? = null,
-    shape: Shape = GlassShapes.poster,
+    shape: Shape = AppShapes.card,
     /** Community score rendered as a compact badge at the artwork's top-left. */
     rating: Double? = null,
     /** 0f..1f — draws the 3px `#5B7FD1` resume bar along the bottom edge. */
@@ -251,7 +257,6 @@ fun Poster(
         }
     Box(
         modifier
-            .dialogPosterSource()
             .clip(shape)
             // 占位主色渐变 §3.1. The artwork's own colour cannot be known before the
             // artwork arrives, so this is the palette's placeholder tone with a slight
@@ -304,7 +309,7 @@ fun Poster(
                 Modifier
                     .align(Alignment.TopStart)
                     .padding(7.dp)
-                    .clip(GlassShapes.chip)
+                    .clip(AppShapes.chip)
                     .background(Color.Black.copy(alpha = 0.64f))
                     .semantics { this.contentDescription = "评分 $label" }
                     .padding(horizontal = 7.dp, vertical = 4.dp),

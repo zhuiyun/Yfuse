@@ -873,6 +873,7 @@ private fun HeroSlide(
                 FallbackImage(
                     urls = artworkUrls,
                     contentDescription = item.title,
+                    alphaOnly = false,
                     onResolvedUrl = { resolvedArtworkUrl = it },
                     modifier =
                         Modifier

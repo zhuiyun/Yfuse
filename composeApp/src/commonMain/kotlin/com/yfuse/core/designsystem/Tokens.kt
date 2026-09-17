@@ -131,6 +131,22 @@ object SettingTint {
     val cache = Color(0xFFB07A3F)
 }
 
+/**
+ * 一起看 avatar gradients, one pair per avatar id. Identity colours like [ServerIconTints]: the
+ * same avatar keeps the same tint on every device, in both themes.
+ */
+val WatchAvatarTints: List<Pair<Color, Color>> =
+    listOf(
+        Color(0xFF7C4DFF) to Color(0xFFB388FF),
+        Color(0xFFFF5252) to Color(0xFFFF8A80),
+        Color(0xFF536DFE) to Color(0xFF82B1FF),
+        Color(0xFF00BFA5) to Color(0xFF64FFDA),
+        Color(0xFFFF6D00) to Color(0xFFFFAB40),
+        Color(0xFF455A64) to Color(0xFF90A4AE),
+        Color(0xFFD81B60) to Color(0xFFFF80AB),
+        Color(0xFF6A1B9A) to Color(0xFFE040FB),
+    )
+
 /** 主色渐变 135deg — used for avatars, server badges, category cards. */
 val PrimaryGradient: Brush =
     cssLinearGradient(
@@ -199,6 +215,48 @@ data class Palette(
     /** `--pg-tabbar-border` */
     val tabbarBorder: Color,
     val isDark: Boolean,
+    // ------------------------------------------------------------ material
+    /** Modal scrim, alpha included: what the page is dimmed by while a dialog is up. */
+    val scrim: Color,
+    /** The dialog panel's own tint, alpha included — see [Modifier.mutedGlassPanel]. */
+    val dialogTint: Color,
+    /** [body] recalibrated for text that sits on [dialogTint] rather than on [background]. */
+    val dialogBody: Color,
+    /** [sub2] recalibrated for [dialogTint]. */
+    val dialogSub2: Color,
+    /** The neutral plate controls inside a dialog fall back to under 减弱透明度. */
+    val mutedControl: Color,
+    /** 毛玻璃's cool haze, mixed into every frosted fill. */
+    val mist: Color,
+    /** 毛玻璃's shade at the foot of the pane. */
+    val depth: Color,
+    /** 液态玻璃 plate shade — the foot of a card or sheet's body ramp. */
+    val liquidDepth: Color,
+    /** 液态玻璃 control shade — the foot of a button's body ramp, denser than a plate's. */
+    val controlDepth: Color,
+    /** Opaque stand-ins for every translucent fill under 减弱透明度. */
+    val reducedFill: OpaqueFills,
+    /** Loading placeholder blocks. */
+    val skeleton: Color,
+    /** The navigation lens's two pearl ends, blended through the accent. */
+    val pearlRose: Color,
+    val pearlBlue: Color,
+)
+
+/**
+ * What each translucent fill becomes when the user asks for 减弱透明度. Opaque, so nothing
+ * shows through, and still tinted towards the surface it replaces so the hierarchy survives.
+ */
+@Immutable
+data class OpaqueFills(
+    val card: Color,
+    val card2: Color,
+    val card3: Color,
+    val sheet: Color,
+    val glass: Color,
+    val glassStrong: Color,
+    /** For translucent-white controls that carry white glyphs over artwork: a dark plate in both themes. */
+    val control: Color,
 )
 
 /**
@@ -242,6 +300,33 @@ val LightPalette =
         border = Color.White.copy(alpha = 0.70f),
         tabbarBorder = Color.White.copy(alpha = 0.82f),
         isDark = false,
+        scrim = Color(0xFF0A0E16).copy(alpha = 0.30f),
+        // The grey glass used to be #878F9B at 0.52, which composited to roughly 3.3:1 under
+        // `body` — the dialog copy was the one place in the app still under 4.5:1. A paler,
+        // denser pane (5.0:1 over the page, 4.6:1 over a mid-grey backdrop) keeps the
+        // quiet-material read and gives the ink something to stand on.
+        dialogTint = Color(0xFFE4E9F0).copy(alpha = 0.82f),
+        // 5.3:1 / 5.0:1 on the composited light pane; see DesignSystemContractTest.
+        dialogBody = Color(0xFF58606E),
+        dialogSub2 = Color(0xFF5B6371),
+        mutedControl = Color(0xFFBEC3CB),
+        mist = Color(0xFFDCE7F4),
+        depth = Color(0xFFC8D6E6),
+        liquidDepth = Color(0xFFDCE5F1),
+        controlDepth = Color(0xFF8CA1C1),
+        reducedFill =
+            OpaqueFills(
+                card = Color(0xFFF6F8FC),
+                card2 = Color(0xFFEEF2F7),
+                card3 = Color(0xFFF3F6FA),
+                sheet = Color(0xFFF4F7FB),
+                glass = Color(0xFFEDF2F8),
+                glassStrong = Color(0xFFE8EEF7),
+                control = Color(0xFF303A4D),
+            ),
+        skeleton = Color(0x2996A0B4),
+        pearlRose = Color(0xFFE5A4EE),
+        pearlBlue = Color(0xFFB4DAFA),
     )
 
 val DarkPalette =
@@ -268,6 +353,28 @@ val DarkPalette =
         border = Color.White.copy(alpha = 0.18f),
         tabbarBorder = Color.White.copy(alpha = 0.24f),
         isDark = true,
+        scrim = Color(0xFF0A0E16).copy(alpha = 0.28f),
+        dialogTint = Color(0xFF191E27).copy(alpha = 0.72f),
+        dialogBody = Color(0xFFB7BFCB),
+        dialogSub2 = Color(0xFF9199A8),
+        mutedControl = Color(0xFF353B45),
+        mist = Color(0xFF213149),
+        depth = Color(0xFF09111F),
+        liquidDepth = Color(0xFF070C16),
+        controlDepth = Color(0xFF04070E),
+        reducedFill =
+            OpaqueFills(
+                card = Color(0xFF1A2437),
+                card2 = Color(0xFF151F31),
+                card3 = Color(0xFF202D43),
+                sheet = Color(0xFF131D2D),
+                glass = Color(0xFF172235),
+                glassStrong = Color(0xFF1B273B),
+                control = Color(0xFF273246),
+            ),
+        skeleton = Color.White.copy(alpha = 0.08f),
+        pearlRose = Color(0xFFE5A4EE),
+        pearlBlue = Color(0xFFB4DAFA),
     )
 
 // ---------------------------------------------------------------- player colours
@@ -374,7 +481,12 @@ object Dimens {
      */
     val contentTop = 20.dp
 
-    /** 滚动容器底部预留供浮层组避让（迷你播放器 + tab bar）. */
+    /**
+     * 滚动容器底部预留供浮层组避让（tab bar + its inset, plus breathing room).
+     *
+     * The spec's 134px was written for a 68px bar; the bar is [tabBarHeight] now, so this is
+     * `tabBarHeight + 2 × tabBarInset + 32` rather than the literal.
+     */
     val contentBottom = 122.dp
 
     /** 卡片间距 8–14px */
@@ -382,6 +494,15 @@ object Dimens {
 
     /** 大区块间距 18–22px */
     val sectionGap = 22.dp
+
+    // ------------------------------------------------------------ 间距阶梯
+
+    /**
+     * The 4dp spacing ladder — `Dimens.space.md` and so on. Every gap, inset and padding in
+     * the app should be one of these; a value between two steps is a sign that a component
+     * is compensating for its neighbour.
+     */
+    val space: SpaceScale = SpaceScale
 
     // ------------------------------------------------------------ 圆角三档
 
@@ -394,14 +515,16 @@ object Dimens {
     /** 大 26px — sheet、迷你播放器、tab bar. */
     val large = 26.dp
 
+    /** The same three steps, named for what they are — `Dimens.radius.medium`. */
+    val radius: RadiusScale = RadiusScale
+
     /**
      * 悬浮 Tab Bar — 参考大胶囊导航，保留 14dp 左右悬浮边距.
      *
      * 68dp was a full quarter of the smallest phone's usable height once the inset and the
-     * navigation bar were counted, on a bar carrying a 22dp glyph and one line of 9.5px
-     * caption. 56dp still clears the 44dp touch floor with room to spare and gives the page
-     * back the difference — which [contentBottom] passes on as less dead space under every
-     * scrolling list in the app.
+     * navigation bar were counted. 62dp is the floor: a 34dp glyph box, one caption line and
+     * the padding around them — see `dockHeight` in the app shell, which grows this with the
+     * font scale so the caption is never clipped under 大号文字.
      */
     val tabBarHeight = 62.dp
     val tabBarInset = 14.dp
@@ -410,9 +533,26 @@ object Dimens {
     val hairline = 1.dp
 }
 
+/** The 4dp ladder behind [Dimens.space]. */
+object SpaceScale {
+    val xs = 4.dp
+    val sm = 8.dp
+    val md = 12.dp
+    val lg = 16.dp
+    val xl = 20.dp
+    val xxl = 24.dp
+}
+
+/** The three radii behind [Dimens.radius]; the values are [Dimens.small] / [medium] / [large]. */
+object RadiusScale {
+    val small = 10.dp
+    val medium = 16.dp
+    val large = 26.dp
+}
+
 /**
- * Space the scrollable content must leave for the floating overlay stack —
- * 滚动容器底部预留 134px, §8.4.
+ * Space the scrollable content must leave for the floating overlay stack — the one
+ * definition; the app shell used to carry a duplicate.
  */
 val TabBarInset = Dimens.contentBottom
 
@@ -579,6 +719,12 @@ object Motion {
     const val POP = 260
     val popOffset = 22.dp
 
+    /** How far a route's corners round while it is leaving under a predictive back — 0 at rest. */
+    val routeReturnCorner = 24.dp
+
+    /** 搜索 arrives from just below its resting place; a full slide would read as a sheet. */
+    val searchTravel = 14.dp
+
     /**
      * 平级切 tab — 0.97 缩放淡入.
      *
@@ -657,7 +803,7 @@ private const val MIN_BODY_SP = 12.5f
  * clear [MIN_BODY_SP] rather than [MIN_TYPE_SP] — a 9.5sp 宋体-weight glyph is not small,
  * it is unreadable.
  */
-fun sc(
+internal fun sc(
     size: Float,
     weight: Int,
     lineHeight: Float? = null,
@@ -679,7 +825,7 @@ fun sc(
  * Numerals and short Latin labels — years, counts, durations, badges. Manrope's figures are
  * open enough to hold together at [MIN_TYPE_SP], which Chinese is not.
  */
-fun mr(
+internal fun mr(
     size: Float,
     weight: Int,
     lineHeight: Float? = null,
@@ -697,10 +843,10 @@ fun mr(
  * 设计说明文档 §8.3 字体四级体系 — 四级层次，不新增字号. Sizes are the spec's canvas px
  * carried over as sp; see [Dimens] on why the ×1.31 factor is not applied.
  *
- * Reach for these rather than a fresh [sc] / [mr] call: the spec caps the scale at four
- * steps, and every ad-hoc size widens it.
+ * Feature code reaches for [AppTypography], which is the same four levels with their three
+ * weights; this is the raw ladder behind it and stays inside the design system.
  */
-object Type {
+internal object Type {
     /** Display · 800 · 22–26px — 页面主标题、hero 片名. */
     fun display(size: Float = 26f) = sc(size, 800)
 

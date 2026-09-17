@@ -48,7 +48,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -68,8 +67,7 @@ import kotlin.math.roundToInt
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
 
-private val ScrimColor = Color(0xFF0A0E16)
-private val OverlayShape = GlassShapes.sheet
+private val OverlayShape = AppShapes.sheet
 private val OverlayMaxWidth = 560.dp
 
 @Stable
@@ -107,9 +105,9 @@ fun GlassDialog(
     modifier: Modifier = Modifier,
     scrollable: Boolean = true,
     liquidButtons: Boolean = true,
-    contentPadding: Dp = 18.dp,
+    contentPadding: Dp = Dimens.space.xl,
     alignment: Alignment = Alignment.Center,
-    windowPadding: PaddingValues = PaddingValues(horizontal = 26.dp, vertical = 20.dp),
+    windowPadding: PaddingValues = PaddingValues(horizontal = Dimens.space.xxl, vertical = Dimens.space.xl),
     shape: Shape = OverlayShape,
     dismissEnabled: Boolean = true,
     maxWidth: Dp = OverlayMaxWidth,
@@ -137,14 +135,16 @@ fun GlassDialog(
     ) {
         ReportOverlayVisible()
         val palette = LocalPalette.current
+        // The grey pane is not the page: `body` and `sub2` were measured against `background`
+        // and landed at about 3:1 on the light dialog. Every dialog reads the recalibrated pair
+        // from here, so the 48 call sites keep writing `palette.body` and get the right ink.
+        val dialogPalette =
+            remember(palette) { palette.copy(body = palette.dialogBody, sub2 = palette.dialogSub2) }
         val selectedAnimation = LocalDialogAnimation.current
         val animation = remember { selectedAnimation }
         val modalMotionHost =
             remember {
-                DialogMotionHost().apply {
-                    touch = parentMotionHost.touch
-                    poster = parentMotionHost.poster
-                }
+                DialogMotionHost().apply { touch = parentMotionHost.touch }
             }
         val progress =
             rememberOverlayTransition(leaving = leaving, animation = animation) { (afterExit ?: onDismiss)() }
@@ -179,18 +179,15 @@ fun GlassDialog(
         }
         val contentMotion = remember(animation, progress) { DialogContentMotion(animation, progress) }
         val lightMoving by remember(progress) { derivedStateOf { progress() > 0f && progress() < 1f } }
+        // The edge light rides a plate that moves as one piece; 磁吸归位 and 内容接力 move
+        // their parts separately and would tear it.
         val simpleLightStyle =
-            animation in
-                listOf(
-                    DialogAnimation.Lift,
-                    DialogAnimation.Axis,
-                    DialogAnimation.Slide,
-                    DialogAnimation.Touch,
-                    DialogAnimation.Spring,
-                    DialogAnimation.Sheen,
-                )
+            animation == DialogAnimation.Lift ||
+                animation == DialogAnimation.Slide ||
+                animation == DialogAnimation.Touch
         val phaseLights = rememberPhaseLightCount(lightMoving && simpleLightStyle)
         CompositionLocalProvider(
+            LocalPalette provides dialogPalette,
             LocalOverlayDismiss provides requestDismiss,
             LocalOverlayLiquidButtons provides liquidButtons,
             LocalMutedGlass provides true,
@@ -209,11 +206,9 @@ fun GlassDialog(
                     Modifier
                         .fillMaxSize()
                         .drawBehind {
-                            drawRect(
-                                ScrimColor,
-                                alpha =
-                                    (if (palette.isDark) 0.28f else 0.16f) * progress().coerceIn(0f, 1f),
-                            )
+                            // The light scrim was 0.16, which left the page competing with the
+                            // panel; the token carries the calibrated alpha for each theme.
+                            drawRect(palette.scrim, alpha = progress().coerceIn(0f, 1f))
                         },
                 )
                 val panelScrollState = rememberScrollState()
@@ -357,7 +352,7 @@ fun OverlayHeader(
 ) {
     val palette = LocalPalette.current
     Row(
-        Modifier.fillMaxWidth().dialogHeaderMotion().padding(bottom = 14.dp),
+        Modifier.fillMaxWidth().dialogHeaderMotion().padding(bottom = Dimens.cardGap),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
@@ -447,7 +442,7 @@ fun OverlayButton(
                 active = loading,
                 shape = AppShapes.control,
                 color = if (emphasis == GlassButtonEmphasis.Neutral) accent.accent else visuals.content,
-            ).padding(horizontal = 16.dp, vertical = 11.dp)
+            ).padding(horizontal = Dimens.space.lg, vertical = Dimens.space.md)
             .semantics {
                 if (loading) stateDescription = "处理中"
             },
@@ -478,8 +473,8 @@ fun OverlayButtonRow(
     confirming: Boolean = false,
 ) {
     Row(
-        Modifier.fillMaxWidth().padding(top = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        Modifier.fillMaxWidth().padding(top = Dimens.space.lg),
+        horizontalArrangement = Arrangement.spacedBy(Dimens.space.md),
     ) {
         OverlayButton(dismissLabel, overlayDismiss(onDismiss), Modifier.weight(1f))
         OverlayButton(
@@ -557,30 +552,30 @@ fun OverlayOptionRow(
             .pressable(
                 haptic = if (destructive) HapticSignal.Confirm else HapticSignal.Select,
                 role = Role.RadioButton,
-                focusShape = GlassShapes.chip,
+                focusShape = AppShapes.chip,
                 onClick = onClick,
             ).semantics { this.selected = selected }
             .heightIn(min = MinTouchTarget)
             .then(
                 if (LocalOverlayLiquidButtons.current) {
                     Modifier.liquidGlass(
-                        shape = GlassShapes.chip,
+                        shape = AppShapes.chip,
                         fill = fill,
                         border = materialBorder,
                         over = palette.background,
                         sheen = if (selected || destructive) 0.72f else 0.62f,
                     )
                 } else {
-                    Modifier.flatGlass(GlassShapes.chip, fill, materialBorder)
+                    Modifier.flatGlass(AppShapes.chip, fill, materialBorder)
                 },
             ).then(
                 if (selected) {
-                    Modifier.border(2.dp, accent.border, GlassShapes.chip)
+                    Modifier.border(2.dp, accent.border, AppShapes.chip)
                 } else {
                     Modifier
                 },
-            ).padding(horizontal = 14.dp, vertical = 11.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ).padding(horizontal = Dimens.cardGap, vertical = Dimens.space.md),
+        horizontalArrangement = Arrangement.spacedBy(Dimens.space.md),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {

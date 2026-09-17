@@ -40,7 +40,7 @@ fun Modifier.navigationGlass(
         return this
             .shadow(Shadows.tabBar, shape)
             .backdropBlur(backdrop, shape)
-            .overlayGlass(shape, palette.glassStrong, palette.tabbarBorder)
+            .glass(shape, palette.glassStrong, palette.tabbarBorder)
     }
     val ink = if (palette.isDark) NavigationGlassInk.Dark else NavigationGlassInk.Light
     val accent = LocalAccentColors.current.accent
@@ -60,9 +60,9 @@ fun Modifier.navigationGlass(
             // most of their colour still comes from the actual page beneath the glass.
             val pearl =
                 Brush.linearGradient(
-                    0f to lerp(PearlRose, accent, 0.18f).copy(alpha = 0.035f),
+                    0f to lerp(palette.pearlRose, accent, 0.18f).copy(alpha = 0.035f),
                     0.5f to Color.Transparent,
-                    1f to lerp(PearlBlue, accent, 0.18f).copy(alpha = 0.045f),
+                    1f to lerp(palette.pearlBlue, accent, 0.18f).copy(alpha = 0.045f),
                     start = Offset.Zero,
                     end = Offset(size.width, size.height),
                 )
@@ -127,7 +127,7 @@ fun DrawScope.drawLensIsland(
     if (a <= 0f) return
     val edgePx = minOf(NavigationGlassRim.toPx(), rect.width * 0.25f, rect.height * 0.25f)
     val rimRect = navigationLensRimRect(rect, edgePx) ?: return
-    val ink = navigationSelectionInk(dark, accent)
+    val ink = navigationSelectionInk(dark, accent, if (dark) DarkPalette else LightPalette)
     val body =
         Brush.linearGradient(
             0f to ink.top.copy(alpha = ink.top.alpha * a),
@@ -186,11 +186,12 @@ internal data class NavigationSelectionInk(
 internal fun navigationSelectionInk(
     dark: Boolean,
     accent: Color,
+    palette: Palette = if (dark) DarkPalette else LightPalette,
 ): NavigationSelectionInk =
     NavigationSelectionInk(
-        top = lerp(PearlRose, accent, 0.20f).copy(alpha = if (dark) 0.22f else 0.24f),
+        top = lerp(palette.pearlRose, accent, 0.20f).copy(alpha = if (dark) 0.22f else 0.24f),
         middle = accent.copy(alpha = if (dark) 0.12f else 0.14f),
-        bottom = lerp(PearlBlue, accent, 0.20f).copy(alpha = if (dark) 0.20f else 0.22f),
+        bottom = lerp(palette.pearlBlue, accent, 0.20f).copy(alpha = if (dark) 0.20f else 0.22f),
         rimNear = if (dark) 0.28f else 0.38f,
         rimSide = if (dark) 0.06f else 0.10f,
         rimFar = if (dark) 0.14f else 0.20f,
@@ -202,8 +203,6 @@ val NavigationGlassBlurRadius: Dp = 18.dp
 internal val NavigationGlassRim: Dp = 0.75.dp
 internal val NavigationGlassRefraction = BackdropRefraction(edgeX = 0.12f, edgeY = 0.18f, strength = 4.dp)
 private const val NAVIGATION_GLASS_SATURATION = 1.30f
-private val PearlRose = Color(0xFFE5A4EE)
-private val PearlBlue = Color(0xFFB4DAFA)
 
 internal class NavigationGlassInk(
     val tintTop: Color,

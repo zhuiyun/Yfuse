@@ -1,5 +1,7 @@
 package com.yfuse.core.designsystem
 
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
 import android.graphics.RuntimeShader
 import android.graphics.Shader
 import android.os.Build
@@ -57,10 +59,28 @@ actual fun refractiveBlurEffect(
     heightPx: Float,
     refraction: BackdropRefraction,
     strengthPx: Float,
+    saturation: Float,
 ): RenderEffect? {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return null
     if (widthPx <= 0f || heightPx <= 0f) return null
-    return buildRefractiveBlurEffect(blurRadiusPx, widthPx, heightPx, refraction, strengthPx)
+    return buildRefractiveBlurEffect(blurRadiusPx, widthPx, heightPx, refraction, strengthPx, saturation)
+}
+
+actual fun saturatedBlurEffect(
+    blurRadiusPx: Float,
+    saturation: Float,
+): RenderEffect? {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return null
+    return buildSaturatedBlurEffect(blurRadiusPx, saturation)
+}
+
+@RequiresApi(Build.VERSION_CODES.S)
+private fun buildSaturatedBlurEffect(
+    blurRadiusPx: Float,
+    saturation: Float,
+): RenderEffect {
+    val blur = AndroidRenderEffect.createBlurEffect(blurRadiusPx, blurRadiusPx, Shader.TileMode.CLAMP)
+    return blur.saturated(saturation).asComposeRenderEffect()
 }
 
 @RequiresApi(Build.VERSION_CODES.TIRAMISU)
@@ -70,6 +90,7 @@ private fun buildRefractiveBlurEffect(
     heightPx: Float,
     refraction: BackdropRefraction,
     strengthPx: Float,
+    saturation: Float,
 ): RenderEffect {
     val shader =
         RuntimeShader(REFRACTION_SHADER).apply {
@@ -78,9 +99,17 @@ private fun buildRefractiveBlurEffect(
             setFloatUniform("strength", strengthPx)
         }
     val refract = AndroidRenderEffect.createRuntimeShaderEffect(shader, "content")
-    if (blurRadiusPx <= 0f) return refract.asComposeRenderEffect()
+    if (blurRadiusPx <= 0f) return refract.saturated(saturation).asComposeRenderEffect()
     // Bend first, then blur: blurring first would soften the very edge the bend is there
-    // to make visible.
+    // to make visible. Vibrancy goes last, on the finished blur.
     val blur = AndroidRenderEffect.createBlurEffect(blurRadiusPx, blurRadiusPx, Shader.TileMode.CLAMP)
-    return AndroidRenderEffect.createChainEffect(blur, refract).asComposeRenderEffect()
+    return AndroidRenderEffect.createChainEffect(blur, refract).saturated(saturation).asComposeRenderEffect()
+}
+
+/** The vibrancy stage, chained behind [this]; identity saturation adds nothing to the chain. */
+@RequiresApi(Build.VERSION_CODES.S)
+private fun AndroidRenderEffect.saturated(saturation: Float): AndroidRenderEffect {
+    if (saturation == 1f) return this
+    val matrix = ColorMatrix().apply { setSaturation(saturation) }
+    return AndroidRenderEffect.createColorFilterEffect(ColorMatrixColorFilter(matrix), this)
 }

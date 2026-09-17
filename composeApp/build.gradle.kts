@@ -972,6 +972,17 @@ val verifyReleaseSigning by tasks.registering {
                 }.isSuccess
             check(validUpdateKey) { "Configured update-manifest public key must be valid Ed25519." }
         }
+        // A production-signed package without an update-manifest pin ships the standard update
+        // path (APK hash, size, package and certificate checks). That is a supported release
+        // configuration (docs/android-release.md), and the local keystore has never carried a
+        // pin, so this is a warning rather than a gate; CI derives the pin from its secret.
+        if (releaseSigningReady && !allowDebugSigning && updateManifestPublicKey.isBlank()) {
+            logger.warn(
+                "WARNING: production signing without an update-manifest public key " +
+                    "(yfuse.updateManifestPublicKey / YFUSE_UPDATE_MANIFEST_PUBLIC_KEY is empty); " +
+                    "the package will accept unsigned update manifests.",
+            )
+        }
         if (!releaseSigningReady && !allowDebugSigning) {
             throw GradleException(
                 "Release signing is not fully configured. Provide keystore.properties or " +

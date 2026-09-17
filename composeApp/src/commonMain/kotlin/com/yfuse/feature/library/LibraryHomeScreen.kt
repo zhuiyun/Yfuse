@@ -810,6 +810,7 @@ private fun HeroCarousel(
             FallbackImage(
                 urls = urls,
                 contentDescription = item.title,
+                alphaOnly = false,
                 onResolvedUrl = { resolvedArtworkUrl = it },
                 modifier =
                     Modifier
@@ -938,7 +939,7 @@ private fun HeroCarousel(
             HeroActionDock(
                 modifier = Modifier.carouselCaptionEntry(captionProgress, stage = 2),
                 favorite = item.isFavorite,
-                playActionLabel = libraryHeroPresentation.playActionLabel,
+                playActionLabel = if ((item.playedPercentage ?: 0.0) > 0.0) "继续播放" else "播放",
                 onPlay = playerArtworkOnClick(sharedKey, onPlay),
                 onFavorite = onToggleFavorite,
             )

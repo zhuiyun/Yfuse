@@ -26,7 +26,7 @@
 
 ## 已完成验证
 
-- `:composeApp:testDebugUnitTest`：455 个测试类、2321 项测试，0 失败、0 错误、0 跳过；本次新增 22 项。
+- `:composeApp:testDebugUnitTest`（当时的任务名；AGP 9 迁移后对应 `:phoneShared:testAndroidHostTest`）：455 个测试类、2321 项测试，0 失败、0 错误、0 跳过；本次新增 22 项。
 - 发布元数据脚本回归：13 项通过；8 个 Kotlin 改动文件的 ktlint 检查通过。
 - `:composeApp:assembleRelease`：1.0.45（207）Full arm64 正式签名构建成功；单测与打包总耗时 4 分 4 秒，Release Lint 检查通过。
 - APK 签名、原正式证书、版本、包名、不可调试属性、ZIP CRC/对齐及 20 个 AArch64 原生库检查通过。

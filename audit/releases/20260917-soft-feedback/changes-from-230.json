@@ -1,0 +1,567 @@
+[
+  {
+    "path": "build.gradle.kts",
+    "previousSha256": "5b599b58ae6308b5c406178ebf4fd2ea5b6ed586063a7c4494901f4721a5db45",
+    "currentSha256": "4852aa24b9cf2043d860211a96dca298312c4b82f7445e00d840e1ad301bc927"
+  },
+  {
+    "path": "composeApp/build.gradle.kts",
+    "previousSha256": "1fe7eb93b5e29f059f7cf5997671a44f1e63616982c67ac71735913af48a0131",
+    "currentSha256": "a14336b40dda8d7dbc438a12a361dd472bd1cc80f6b7be0fe318fd8de982885d"
+  },
+  {
+    "path": "composeApp/gradle.lockfile",
+    "previousSha256": "d8710da07c469a40c7da0c1208ea9aa6a9d87d5a4778616f1cf22b8ed26e33a9",
+    "currentSha256": "312168d9c7cf6ac00aa3d334631ed0fbf0d83afa632eb81a34abfc6460020d8e"
+  },
+  {
+    "path": "composeApp/src/androidInstrumentedTest/kotlin/com/yfuse/core/designsystem/CuriousDialogMaskInstrumentedTest.kt",
+    "previousSha256": "de2d1e0234d7a825c0bde3d18305dc53e59b0161e1203b18b0af078cbe041d7c",
+    "currentSha256": null
+  },
+  {
+    "path": "composeApp/src/androidInstrumentedTest/kotlin/com/yfuse/core/designsystem/DialogMotionQualityInstrumentedTest.kt",
+    "previousSha256": "fcaeec04bc9f2729713e01d36ca0e285cd42c822ece17a68f96a1f425735fd51",
+    "currentSha256": "fab07bf93732240425473209c4a0fae30697dff903b0f17f8a9c7620dbdde182"
+  },
+  {
+    "path": "composeApp/src/androidInstrumentedTest/kotlin/com/yfuse/feature/player/SoftFeedbackInstrumentedTest.kt",
+    "previousSha256": null,
+    "currentSha256": "eccffa47b74333625f0c841e77427d3ceec3290d4fd624804f33cdac57b7837d"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/app/AnimatedSplashApp.kt",
+    "previousSha256": "a90fba96c5d870f375d6f76cf0b4ae682aaaff05bd3efe4ef97fc255e4db5189",
+    "currentSha256": "0615a361d801c609e9426888cadc08ac1f99bce41e49fbebd89d54937a7bbfde"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/app/SplashChoreography.kt",
+    "previousSha256": "4c1a063eea7fdc3459d40ccff077f1e08671186ad52af86cea844ce214520df4",
+    "currentSha256": "6fc6bd8ce5ad1769ed37ea9e5c2397d74ba79ef4f1114b54cd4877c33b05315c"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/core/designsystem/Backdrop.android.kt",
+    "previousSha256": "a69e078e89a262a34b61a7755862a3016c01b8fea391063ef7ed4c6bf4ea6c14",
+    "currentSha256": "3b9e6f03b89492ebdca7585f66cbdb0e95491315a64a88d007aa2a4f8f9aff6e"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/core/util/PlatformName.android.kt",
+    "previousSha256": null,
+    "currentSha256": "884af6a933119a168570b58c66305a16839ff535762a623958dc3148f945aab1"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidAdaptiveCore2YPlayer.kt",
+    "previousSha256": "bf825d423847d1124691135b75f6d5a05b8e8d43eb904d53aa3d209f67d1bf64",
+    "currentSha256": "0665a2a6c64a2037137699ec55f681f60b02c18a71d705788182b28f2d4f75d0"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidSerializedPlayerRelease.kt",
+    "previousSha256": "1593025042499c79b565a42d86801a70db0cc272e4d489139cc6f39f2f165686",
+    "currentSha256": "ab5995bc0e711487fc381a89348fa6b249e14ba559f5b8570bfc20c69efc0d18"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidYCoreBlockCache.kt",
+    "previousSha256": "b346c27c9fc74c9445fbb4bfc93eacadfde20791594671fbb6b15acbb051ba53",
+    "currentSha256": "89e0223dab4a29377d8e2619e5553a051c13aac79bd219cfb77f6504c528fd67"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/MpvVideoEngine.kt",
+    "previousSha256": "39a875e33c78f60643fc247325bf554e75fd65b9c938b2d156bd60cf786ce34a",
+    "currentSha256": "dcd2b0d280aa8a8c4dbb6b8215b0b197469ffe16a19800e96a8e0699649c52ed"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlaybackReportingBinding.kt",
+    "previousSha256": "90681df8a8d814067a631454d54186276414cff640a1aa57c141d072fdaa642b",
+    "currentSha256": "6064a28c3d3b3b22de469eefbf0fc933bf345bb9fdf1af17ad9639e6ffb2b15c"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerActivity.kt",
+    "previousSha256": "c969144d4f6d0c6062860b0fbefea7e55e77fe6924c93d048fbebfbb8070f706",
+    "currentSha256": "67711bab0e0262339623e16b4e8ab1f8f5b5f2da6d85282d1946a40b6c523b13"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerRoot.kt",
+    "previousSha256": "9c6cd884b282b9035bda94bc9c623c08c37bcdc214db3ffb6ac074bfe37e760a",
+    "currentSha256": "16acd3b18c7e6976e6020aede9ba035b2ab348775ff9a618518117e0d160adf7"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/update/AppUpdateManager.kt",
+    "previousSha256": "ac91307c95fd039b882b4a9e74f2f808346245dfd7fce86995d7b2f31915cf8b",
+    "currentSha256": "d733e6128c6f0e4bcc12c67370e40f7f3ffeef0e35983264f5757bdc1628c074"
+  },
+  {
+    "path": "composeApp/src/androidMain/res/xml/network_security_config.xml",
+    "previousSha256": "83516f703eac4ca4ad63bb9cf5013eb8820b2ccfe727d09907c6188c25790350",
+    "currentSha256": "b57f1ff9484ebdd5a207addd3af969f01c04ebc11ecc60d0dd3df9d88d468ad1"
+  },
+  {
+    "path": "composeApp/src/androidUnitTest/kotlin/com/yfuse/feature/player/PlaybackStateFanoutTest.kt",
+    "previousSha256": null,
+    "currentSha256": "a66664f1628e2376ce07c2cbc827cb656b770562f6ff9c6cc1e6d3fd50df28b9"
+  },
+  {
+    "path": "composeApp/src/androidUnitTest/kotlin/com/yfuse/update/UpdateCheckPolicyTest.kt",
+    "previousSha256": "0810c630a7d59f9fe5da9de6d8c7fd5b6cf5ebbd54c9dd7cc2d52ab5fee24bff",
+    "currentSha256": "27216b509f2022644380ae6ab6dca9a5c3b77790d826fe644799c991a035da5c"
+  },
+  {
+    "path": "composeApp/src/androidUnitTest/kotlin/com/yfuse/update/UpdateManifestPolicyTest.kt",
+    "previousSha256": "173057b040dfe4af4eee997355bd20a1f137b625300af0d17863c391975bbcc7",
+    "currentSha256": "2799d3f6da9edb39572782f3b90e777f13411c033f83e7cb1ca93cc0f5a2f085"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/app/App.kt",
+    "previousSha256": "2b10df24f898d26ff914e3c915e9956ffa27f212af31afb2a80d377bdbe3f07d",
+    "currentSha256": "ca52177d169506c0c7caae6179b144a3774b127686ded04ca621f76dcb9add71"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/data/AiringCalendarRepository.kt",
+    "previousSha256": "e912bf8dda9c905a65bb1d6eefed128ec5bcabccedc5d66f2c09ca343c1757da",
+    "currentSha256": "98a12b9428e77e6c2d1c8bae602b99af341dc06631221e37d92b43d4973e9f77"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/data/EmbyApiCall.kt",
+    "previousSha256": "07fd395598bde33e1a243d31df348e441f51f0fe6942debf1cf9d6ae98aa4378",
+    "currentSha256": "b0325893a8eabb7caff90ada8e267253bd08bf1f9b87bb944b170e01c8dcdd19"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/data/EmbyBrowseService.kt",
+    "previousSha256": "0f98b1c2b3a912808490b17736ab7b04ee2cadd5f05aa36dadcc80aef3062db1",
+    "currentSha256": "7f2677230cb5912ddd117f96ae888fe892c814c672cadd4511e3605c11dffd7e"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/data/EmbyDetailService.kt",
+    "previousSha256": "c7705f825ab009ef80be6bee55df26136fe5ae41cdf726a0dfdc86390bb9b2d1",
+    "currentSha256": "eda75b39470b5f955c00325fb7745154be71f62252bc0a90d0a78636cdd2bedf"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/data/EmbyLookupService.kt",
+    "previousSha256": "af2e0308dba149defc375a10a9251027ca9a4fe5c7abf32e2662c370a933b9b3",
+    "currentSha256": "2b28f3ead5639730de19dc253c4978080ef7413f93e6ff29a720904ffea5dc70"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/data/EmbyPlaybackService.kt",
+    "previousSha256": "1c17252c4c468e10ab05b430aaecb61f6983b10ccc59f13cbe2f4e58f41814df",
+    "currentSha256": "0c9b60efbdefa598650e30215ee915ce245116dbe97b51a93efffb5e58d19794"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/data/EmbyRepository.kt",
+    "previousSha256": "46b5e2816fb3c27ff9bac5fd3489898bb436ee6c7413e6d82ad3662316b01262",
+    "currentSha256": "1d8175397e097881c03d3bac1567eb831a147afeaff2a2734bc32ce8fb2962c4"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/data/MediaServerAdapter.kt",
+    "previousSha256": null,
+    "currentSha256": "5d53f6f3eec3c1e1d1a682a857ac4921b77a07eb2d423456c8d6f3cd212dc082"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/data/PlexMediaServerAdapter.kt",
+    "previousSha256": "4704431ac3d4afa8c4f096bc94f233bd7263ea4591a3b6a1f25c7b997d6a6588",
+    "currentSha256": "8ca6d823b80f6a230895258f2004f15a7a2147ccb873b20538cbda20dafee8df"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/data/ThemePreferences.kt",
+    "previousSha256": "c2c4d5462be86714e25c23d9738c8b0eb9a8f251be6ccf638b5b5c547de5687e",
+    "currentSha256": "f1cae3b7d733f243b1bee701d13fed555914b2b199070cd63617cff221f732be"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/data/TmdbRepository.kt",
+    "previousSha256": "6f3458a727c9f072c5c02f9503a64dbf80e2284188eb67375079c6269af5f950",
+    "currentSha256": "513f9fcc0be3bff0972741834bd4c60528f9e06100f9a82ec575554f4b987d6c"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/Backdrop.kt",
+    "previousSha256": "571897569f23322998687adae96f1f2b2a4d3fc971136b429dd1024569e1327d",
+    "currentSha256": "6a9391e23752d511152889b3caa81a5c9635a74c20c0768a9fe324e3370b33cc"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/CuriousDialogMotion.kt",
+    "previousSha256": "750916d25f3d877397bb3f019810f04cdbb1bd2eb177d1e3a9329b5878ae4eed",
+    "currentSha256": null
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/DelightDialogMotion.kt",
+    "previousSha256": "5ab98310dbb0a2fc3a602642a19b6c499da2d936445be9a1262c7ba88d79ed9f",
+    "currentSha256": null
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/DialogAnimation.kt",
+    "previousSha256": "b85e7602e8a5365d79117cc392f0a124ed241615f7176d6f5045bbd209d23d8a",
+    "currentSha256": "6872cfaadc6d12fccd1634f91953b653016412ae01c8d4f025103d00788df0cc"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/DialogContentMotion.kt",
+    "previousSha256": "637ee80545d847b3262ed1cddfd96151a9d0c12cd1052117cf406d5e7b3a2fa1",
+    "currentSha256": "200c6f4e49b21cd4f6693be42c8e31cb05a747d19a52d4e5cf3e7751d005825c"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/DialogDrawCache.kt",
+    "previousSha256": "e4aa2b56f989f2da0c921ab20abcf080b3933e13b2844a204f435bb13930ec10",
+    "currentSha256": null
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/DialogPosterMotion.kt",
+    "previousSha256": "7ac66c1714a16b812d61808c61e8f1c47fc9c773c2558d6d50f28137ba2a0ad5",
+    "currentSha256": null
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/Dialogs.kt",
+    "previousSha256": "c44e69a5133367e7c639851838b5971e9fd0f1d5f232f1b13027034ebfb8039d",
+    "currentSha256": "471f53ab73ee270515e101e92ae51574b021b10c1b30178c8fc8c5acf819a62a"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/ExpressiveDialogMotion.kt",
+    "previousSha256": "2e0df94e9617ed0014b20632c33b771c38bb5e91cf2543d729656edd1df12884",
+    "currentSha256": null
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/Glass.kt",
+    "previousSha256": "08ff7ddc49d9c5c6809af65c020915dd03aeb5dc2cea44f561133719eb194913",
+    "currentSha256": "49cedb11c2367cb1f1c8cfbcb22a912c72e519c7d584551703634a263f09590f"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/Hero.kt",
+    "previousSha256": "c7c11a493331959995e39a7d4bc4fa8fb088afd7623869acd4a9da083749754a",
+    "currentSha256": "0557684208f60995212ae2e16f7d5484b06bae3c7e68baa28f4334de5eae19ba"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/Interaction.kt",
+    "previousSha256": "6d70ed02c732b91f9009f67c4071563cf7c8eaf3b03753537d0e2a2fcca7c488",
+    "currentSha256": "0431697733a39846076170959ad0063f02ef640714a2c1cde6b7e0fcc538306d"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/InteractiveDialogMotion.kt",
+    "previousSha256": "27a95fab1374185ab0ea1a61c35c697b0fc3f1efeb928b93b895763cb9f63a26",
+    "currentSha256": null
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/LightParticles.kt",
+    "previousSha256": "e8f16f9d183fc45e5064d3dfefbc3b6efb84dc2d3af419506d9a9842bdc09819",
+    "currentSha256": "73697d169f361a1fadd329d2b4c33f91150f0077c93fa54a9b2fe4058459d3dd"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/MaterialDialogMotion.kt",
+    "previousSha256": "5589a6bc5926023cd57f780539b6adf56ea29b4a17c68d8f8e5d0afd95025402",
+    "currentSha256": null
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/ModalGlass.kt",
+    "previousSha256": "c3f9f649901ce46c979302f6599d486ddc4007a28d128faa05ed31cf316b7814",
+    "currentSha256": "f2e27d50c16bd12273a8b4762e83a1c5d0360a39010585510f0c5f23c830fc9e"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/NavigationGlass.kt",
+    "previousSha256": "a612c39d8d20e5ab9418954d31e66cce58cd4cf0eb382e2af9199f9779ade628",
+    "currentSha256": "5ed6509a87276df16a1757e899218f4d92d2d44e9465591f9421ed4a10b8419d"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/OfficialNavDisplay.kt",
+    "previousSha256": "48b3117aa654c868eff2cea5d48a1adce8f9d83e22f7a1e8f5807b1786e8613b",
+    "currentSha256": "e82f9b6d79c2e555af3f6d8cac91a9eb2f6700db83d785ceedfcb4df198dfbae"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/PageStates.kt",
+    "previousSha256": "a53b230a251fb71f2d7da677f63e60304b0e9444c267ef6c8fdf62e22c06b38d",
+    "currentSha256": "da534174f6889c750151a76ea38aab46b62ec1fb4aaece43513154a4710e876d"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/PlayfulDialogMotion.kt",
+    "previousSha256": "59bb59711e76ebfc952bdb60b6c55eaca426a02b71f82e521b1e8b15894ccec3",
+    "currentSha256": null
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/Poster.kt",
+    "previousSha256": "5e9a556418ced55fcc56533ce570a2f45cb9290becaf5e9717838e682e3e937b",
+    "currentSha256": "34630665bd4ee1327655ee1a0d06ed10537278e82f3d3eaa1731d2d0bb3ebe4b"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/RefreshIndicator.kt",
+    "previousSha256": "35beb2027863768ad456a7576822e8bbbdbfb99bb6e1ab62141ae8a4aaf05cfa",
+    "currentSha256": "029adbc6cecfc877e506c2a9613c5448fba09f44a2a1856a25ecdb21c02d736d"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/SciFiDialogMotion.kt",
+    "previousSha256": "7df43caf2c43ef67d22d50a7e4ac190daf5f280cb7ce261a313c17e59bebd9a5",
+    "currentSha256": null
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/SegmentIndicator.kt",
+    "previousSha256": "6ff34c2799e05f75d78b35c0fe1415bb27d3e878dc0c637e2f9d8cfb9b857190",
+    "currentSha256": "b6f5acec07c244c2a11cdf6e83e07559e2432e7a230b1aa9501974db63a54680"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/SelectionControls.kt",
+    "previousSha256": "237a011718425bf292c214ab8174e4e29ccdbd74b5fe7d658cdbedec6e40123c",
+    "currentSha256": "05a3d3a565992b0f2424a51283eb36f3576300099d4eeca41dfebbfa3f57adc9"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/SoftFeedback.kt",
+    "previousSha256": null,
+    "currentSha256": "f3076127a5ef57a1f2190e33f451f02ec7c655f52f32348932f322db7121f52e"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/Theme.kt",
+    "previousSha256": "9c6f3ed3c3ad4bb1e6b563b3d03db52984b5f54fa29b7e6a7060e340890a015a",
+    "currentSha256": "3c2175828cc8f9b7901b98ebe92eda10d52d9787b4c94348f9ac0390a0f4e12a"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/Toast.kt",
+    "previousSha256": "092efd93c87ab032e2f6fad5a4306815aef650a1d9f12fa46e12268a69dac263",
+    "currentSha256": "66229c88bb9a3b878c9a77615d8ae00a00ad9328ccbb94c6acbdbb5f36412cf1"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/Tokens.kt",
+    "previousSha256": "0eb79d8dc580cbc1fb45a0a9ba0e2b8207ad95d5dd59b11f777644a1041cf15f",
+    "currentSha256": "4035d427014e23627f8e2d7730945daabbfffdd7a0e19a722cabfe57c3a89424"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/WaitingPulse.kt",
+    "previousSha256": "15297356487f79f83586f6679d550d8194bb7c92a4ff6936afbab444b5182e5b",
+    "currentSha256": "a68abdd51cd34557885ffc3060649be4a6ce581e560c60a94f91d783fcf08862"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/WatchAvatar.kt",
+    "previousSha256": "f1158c7a635e3443ccefe6ba30f8bf4e8b51d7568877acfe6e19295113ab8ea0",
+    "currentSha256": "68380e6efbcb53d6135d5015bc33fd3a03fad3bc8cf0f1491aa8b681b60ddef4"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/sync/WatchTogetherClient.kt",
+    "previousSha256": "4d35fca2815ccb852de4e263642492cfbff754a212f9a4f4c072ce45ff910e19",
+    "currentSha256": "86f955cc9ef5adb9f350ae9d5db8ee7877fea54b1e40959ea690891f63dce6a2"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/util/PlatformName.kt",
+    "previousSha256": null,
+    "currentSha256": "715c1ee976aed51646ccc95bb2da0173ffaaae00360e4540fed2c5241c26d477"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/di/AppModule.kt",
+    "previousSha256": "10818f63eed98abc78c06b6a87f17405757f39d18c2bd091727eb4f904fc9254",
+    "currentSha256": "7c148b15e76d940bc92d8b10a4e89973fa1c4b3b509f4bd457e12f7801c7ceca"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailActions.kt",
+    "previousSha256": "18381a6afee1a1d29f44d8f4797f46c054e3afb572384c2cc747dd45a4836203",
+    "currentSha256": "2fd6eef6b321752d25d13e26518544a3363cd886ca3b6027e2b182a334c7f6dc"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailHero.kt",
+    "previousSha256": "a186f1f54b0dab281b4bb725604625930a7f23cc82294442c6e20ce0ab4bb5b0",
+    "currentSha256": "cb0b06573deea7b9ff55a6a27f17d6db200a523bf3ee612adcae644523e9f0d0"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/home/HomeScreen.kt",
+    "previousSha256": "7e7c24831f7dece9f049b7b79e8a32fd496f588f4202c6bc787243b2523fc9b7",
+    "currentSha256": "919cd1f657cc7a3425694aba35d3093f3110cad5cee88414638271706a29d9e3"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/library/LibraryHomeScreen.kt",
+    "previousSha256": "021701e8d5be015d1444ea1c3c9974c750b55be2ec148cfbd17541be366be311",
+    "currentSha256": "d8f090437ebe93eb79e825ed998f9bc475150034ed0b69a22a5fea793791e7a9"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlaybackPresentationKey.kt",
+    "previousSha256": null,
+    "currentSha256": "bf3a459c7179aaca5c40e65bba4e4365944dede54de92d751f209d9e71a5e389"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerChrome.kt",
+    "previousSha256": "8ef258007244bb6b694377b0bbbaacd7a5cfc8b2eed2f04a66f02b545221b61d",
+    "currentSha256": "b90321e179faa0671d12c8335559f61ddee328ea2b13374ea8bd85b215a91613"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerChromeRefined.kt",
+    "previousSha256": "68e9a31902a6c7df4a56adb65291f707e6ab8590bd71766ce620998a66945847",
+    "currentSha256": "f8312916a71721cd1949f85e1f23c0fb5cd81f1733ea7d0a76deaf40f5b86380"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerControlComponents.kt",
+    "previousSha256": "4e74a7b93ff4263e5e0b5169b8ddb6b22cc06ba2554385ea0d5ace87fabd41b8",
+    "currentSha256": "f9ce0e8d82de70a9129fddb68de9ee910f2dcd0ae27d70f7acf2c5791ba3111b"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerSettingsPanel.kt",
+    "previousSha256": "81aa497542bfda3da1bf615294ea36598e180a0e0b5fbc5c5362e094aa819718",
+    "currentSha256": "24e6ad792d45395d63585a591718d6fc156fdeccaff6c2706961c56d0eda0f7a"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/SeekFeedback.kt",
+    "previousSha256": null,
+    "currentSha256": "fca2153c04306202ed4038ba04471b49f1056a2bbec14faed15661685db6af9a"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/DialogAnimationSheet.kt",
+    "previousSha256": "ff8cfcea7770e358c3093e838e016ffca7be2cd3f48cc431e3053ace443407f3",
+    "currentSha256": "2b4ece0480c48656332ea0d6d5c703ae10ecbe5dafb3f2c3007da997aedfb6a7"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ParticleLightSheet.kt",
+    "previousSha256": "7f889fc239baf53a6aacaef0e61407103f0bc79060e94697c70a019c055587b9",
+    "currentSha256": "b1bf6436c328700ab7b67e5cfa8aff8075b16dec26d1d5a7ad9ea8dfa89d3ca1"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileScreen.kt",
+    "previousSha256": "145bc4288764dfffe733d2b2d223d7984d5e2dce6bf25f7360eeed84c3de234b",
+    "currentSha256": "5561d4141a515cc59b3bc2235d6409f5a767e07b44812ba0304012e171c54795"
+  },
+  {
+    "path": "composeApp/src/commonTest/kotlin/com/yfuse/core/data/EmbyAuthServiceTest.kt",
+    "previousSha256": null,
+    "currentSha256": "8ee1026550d6cb4e900f3093544c9fd0d3ff14856bf1177382351bc6cf2878d5"
+  },
+  {
+    "path": "composeApp/src/commonTest/kotlin/com/yfuse/core/data/EmbyDetailServiceTest.kt",
+    "previousSha256": null,
+    "currentSha256": "982d97c182bb73d4fdb1a4db3910b4691d6be0affceb7d86f4c9dbeb09567a84"
+  },
+  {
+    "path": "composeApp/src/commonTest/kotlin/com/yfuse/core/data/EmbyLookupServiceTest.kt",
+    "previousSha256": null,
+    "currentSha256": "18d3842265bc9f4a8e0cc77c53793a67278b2728738baf8a07d3566381455af3"
+  },
+  {
+    "path": "composeApp/src/commonTest/kotlin/com/yfuse/core/data/EmbyPlaybackServiceTest.kt",
+    "previousSha256": null,
+    "currentSha256": "cb86970bfdb15dd4b6fb7f05dab3cb906984860e2fa26544d5e636ad0decbb77"
+  },
+  {
+    "path": "composeApp/src/commonTest/kotlin/com/yfuse/core/data/EmbySearchServiceTest.kt",
+    "previousSha256": null,
+    "currentSha256": "31c004a9325f8f46dce2c4484289ccd89075da78c06b0b568fd9bf3df52aa4bb"
+  },
+  {
+    "path": "composeApp/src/commonTest/kotlin/com/yfuse/core/data/EmbyServerServiceTest.kt",
+    "previousSha256": null,
+    "currentSha256": "c1b6313504c77fcac54cdff2da4af17ac760e774ba6ca553380fcfee64ea3847"
+  },
+  {
+    "path": "composeApp/src/commonTest/kotlin/com/yfuse/core/data/EmbySourceServiceTest.kt",
+    "previousSha256": null,
+    "currentSha256": "f29a42b12a066d7c27d5d482c4f0c48d2b32580cb9681c1539a88931e56fd9e9"
+  },
+  {
+    "path": "composeApp/src/commonTest/kotlin/com/yfuse/core/data/EmbySubtitleServiceTest.kt",
+    "previousSha256": null,
+    "currentSha256": "0aec334d7402778875edbc7ee106f31a958d78e9875989640a54d29c7f6ff481"
+  },
+  {
+    "path": "composeApp/src/commonTest/kotlin/com/yfuse/core/data/EmbyUserDataServiceTest.kt",
+    "previousSha256": null,
+    "currentSha256": "472a063e8a4a14053cd3cd0be595ae8e03c044a8c8b28d49e453b1736c7cd1f1"
+  },
+  {
+    "path": "composeApp/src/commonTest/kotlin/com/yfuse/core/data/ThemePreferencesTest.kt",
+    "previousSha256": "7785d3d48b4c3bf9f7d43a3ab48ecc08130f2c4e81909948200ade7dc34b8de1",
+    "currentSha256": "799457eef05433ca3930347a16f50471cfd1a61bd41ab9f8f3c76cc6c6c44fba"
+  },
+  {
+    "path": "composeApp/src/commonTest/kotlin/com/yfuse/core/designsystem/CuriousDialogMotionTest.kt",
+    "previousSha256": "24cf17718615862ca5932333daaec8cf9df545171e678fbb8bfc213254ed566b",
+    "currentSha256": null
+  },
+  {
+    "path": "composeApp/src/commonTest/kotlin/com/yfuse/core/designsystem/DelightDialogMotionTest.kt",
+    "previousSha256": "0728733899db8c851f61733a529a5b710728e26d537e9dc317b1943e234cac96",
+    "currentSha256": null
+  },
+  {
+    "path": "composeApp/src/commonTest/kotlin/com/yfuse/core/designsystem/DialogAnimationTest.kt",
+    "previousSha256": "e6f49f407b80db324260a2bdc33fad70772e58583801a6e8899ac858380ad146",
+    "currentSha256": "4c5c571458a689b4e39caa8c1b92b5b97d57264ce37cb54641c4545479166670"
+  },
+  {
+    "path": "composeApp/src/commonTest/kotlin/com/yfuse/core/designsystem/DialogMotionPolishTest.kt",
+    "previousSha256": "0411a129f4a77b957d748a0636540f4501c9d03f9c8d754bb6dc6f86bcc7a83e",
+    "currentSha256": "a57c2c293c28172f5e045c9524cfee19a1c3ebf4456ab9687d6eb2c53b65ed9e"
+  },
+  {
+    "path": "composeApp/src/commonTest/kotlin/com/yfuse/core/designsystem/MaterialDialogMotionTest.kt",
+    "previousSha256": "8fd88aedacaea8938164d44301b01e4cf2e68afe819ad46bee9f3582b64400aa",
+    "currentSha256": null
+  },
+  {
+    "path": "composeApp/src/commonTest/kotlin/com/yfuse/core/sync/UserStateWriterTest.kt",
+    "previousSha256": null,
+    "currentSha256": "dc22b2eb395e4886ee67b416710ecd00e5f4b9451c9c4292bba8f08e8c464272"
+  },
+  {
+    "path": "composeApp/src/commonTest/kotlin/com/yfuse/core/sync/WatchTogetherClientTest.kt",
+    "previousSha256": null,
+    "currentSha256": "b765c78a7327c2f7a46f74bde6cd9d141c5217e4531e3efd6665526c3fc37f75"
+  },
+  {
+    "path": "composeApp/src/commonTest/kotlin/com/yfuse/core/sync/WatchTogetherTransportTest.kt",
+    "previousSha256": null,
+    "currentSha256": "721b267c5a5de217ec27daa9f44cbc58234a6fe5e74b4a4170a6a18d8d0588e2"
+  },
+  {
+    "path": "composeApp/src/commonTest/kotlin/com/yfuse/feature/player/SeekFeedbackTest.kt",
+    "previousSha256": null,
+    "currentSha256": "e7d9a4400244820851596fce91211a19f276e84022f471fcced6f6ce0437aa33"
+  },
+  {
+    "path": "gradle.properties",
+    "previousSha256": "3481628e7c695d830c933f0bb1b7d793596f8e2dfe186db09000a40821a16361",
+    "currentSha256": "e1768f0f22fc5834d63ad90b81f0baacf62855f50b5fc856606357d61aec85fd"
+  },
+  {
+    "path": "gradle/libs.versions.toml",
+    "previousSha256": "a8c890a5ae1f7ccc2608df36d40b0b2ea7becac28e64e32453a9fe348ef86fb0",
+    "currentSha256": "deb20aff52f8355485ac406d12441b1ce8e7f88c6f043fedcc4844dc74606a1d"
+  },
+  {
+    "path": "mdkAndroid/gradle.lockfile",
+    "previousSha256": "15ac49dcf749a827686d1c6698be04b8fb83c0cd0ec447028e223e3c0102f8d9",
+    "currentSha256": "0db8eeb60a0bad93ca53e1541163fb0b3d48f10715d7f4067ef15734fed373d1"
+  },
+  {
+    "path": "phoneShared/gradle.lockfile",
+    "previousSha256": "e11a2bdb48917e2210abdae009d39ee4cb8337a43763e1235f538e56cd01f258",
+    "currentSha256": "2348f47e2936790d6a640b460773dd9ced5ef08c06d69efaf12f753cbda745b9"
+  },
+  {
+    "path": "release-notes.txt",
+    "previousSha256": "433519690dbee3ba904cf7713001e0593def9f5792be3fbaa908202461fb5f1d",
+    "currentSha256": "1fdeb4cd1c17943d728252e5b3a6cd06f7ce4d2a6da442da97d1a7bf2ec8504e"
+  },
+  {
+    "path": "scripts/build-release-packages.ps1",
+    "previousSha256": "d3726f84196bcd8b14a01b4690f74493cbbafa9281020caf0a9e9f73ad7cb2c7",
+    "currentSha256": "acc593ec8d8f1de159cc09266beccbaa075f5597001da14ffa0923b1d8263bf2"
+  },
+  {
+    "path": "scripts/security-overrides.properties",
+    "previousSha256": "bc5ad97f12e889899a2db08d5bff683c81aff7cc8256f0ffc5e6415c834ef4e2",
+    "currentSha256": "262dea34124147644b68e74bd2226948e552939fd91ee1e7438f46f4e86cfa19"
+  },
+  {
+    "path": "settings.gradle.kts",
+    "previousSha256": "f74319494d05400d03841047cbf506689645add8c9deee3443fc30972598c86d",
+    "currentSha256": "e3e391de35a085a5f4ebd6fef6e1e868e504d268263a02bed213886cbffaf94f"
+  },
+  {
+    "path": "tvShared/build.gradle.kts",
+    "previousSha256": "257ed1a5b4717a645709e3375cb4ef151850968d91468822fe7e4f9b7921ac22",
+    "currentSha256": "af6691d7ee40bacc4aaa956d4411d06fac643b6f739159cfd47dd550b5cd0dfe"
+  },
+  {
+    "path": "tvShared/gradle.lockfile",
+    "previousSha256": "9aaf28dab834ae905e46491347d1b397b3de49df33c882b96d6e802b477ebcd1",
+    "currentSha256": "27f16c069fd21faab1cc7e1fc740aa42081e98851dd133913818f619518cffd1"
+  },
+  {
+    "path": "version.properties",
+    "previousSha256": "eed754003c0b6e1933eb776ab8724449d1ed411f51dd18e4b682b4d70b81fe3e",
+    "currentSha256": "d3ae33ffb7f921de7f7d57655ccf96bccb66ab33d8a127f3c013190e994156b9"
+  },
+  {
+    "path": "watchTogetherProtocol/gradle.lockfile",
+    "previousSha256": "a621f91d7dc85486681cac531bb60d2b330aa29f7842c92c7fbd381d425a37d5",
+    "currentSha256": "eaaa001a468d5ccdfcded923c58fa8d19525f69116f848aa02aa0d96f1e86a4f"
+  },
+  {
+    "path": "watchTogetherProtocol/src/commonMain/kotlin/com/yfuse/watch/protocol/WatchProtocol.kt",
+    "previousSha256": "179684dbd527325ef304cd109b220751d8b627c6ad7f95a20f3d544931e0a781",
+    "currentSha256": "a0fedd7a24b57b875dd671c753abdf8cea2d66c5dcb938140f245fa682b4e376"
+  }
+]

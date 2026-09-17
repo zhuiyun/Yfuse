@@ -90,7 +90,6 @@ kotlin {
             kotlin.srcDirs(
                 "../composeApp/src/androidUnitTest/kotlin/com/yfuse/tv",
                 "../tvApp/src/androidUnitTest/kotlin",
-                "../tvApp/src/test/kotlin",
             )
             dependencies {
                 runtimeOnly(

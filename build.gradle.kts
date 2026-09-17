@@ -22,9 +22,12 @@ plugins {
  * debt-reset operation and must never run automatically in CI.
  */
 val ktlintVersion = libs.versions.ktlint.asProvider()
-val secureNettyVersion = "4.1.137.Final"
-val secureProtobufVersion = "3.25.5"
-val secureWireVersion = "6.3.0"
+
+/**
+ * Every forced dependency version lives in scripts/security-overrides.properties: the root
+ * resolution strategy and the supply-chain scanner read the same file, so the SBOM reports
+ * what the build resolves. Nothing is pinned inline here.
+ */
 val securityOverrides =
     java.util.Properties().apply {
         rootProject.file("scripts/security-overrides.properties").inputStream().use { load(it) }
@@ -48,34 +51,9 @@ subprojects {
     configurations.configureEach {
         resolutionStrategy.eachDependency {
             val securityOverride = securityOverrides.getProperty("${requested.group}:${requested.name}")
-            when {
-                securityOverride != null -> {
-                    useVersion(securityOverride)
-                    because("Pinned security override shared with the supply-chain scanner")
-                }
-                requested.group == "io.netty" && requested.version.orEmpty().startsWith("4.1.") -> {
-                    useVersion(secureNettyVersion)
-                    because("Netty 4.1.137.Final fixes the fragmented TLS ClientHello SNI routing bypass")
-                }
-                requested.group == "com.google.protobuf" &&
-                    requested.version.orEmpty().startsWith("3.") &&
-                    requested.name in
-                    setOf(
-                        "protobuf-java",
-                        "protobuf-javalite",
-                        "protobuf-kotlin",
-                        "protobuf-kotlin-lite",
-                    ) -> {
-                    useVersion(secureProtobufVersion)
-                    because("Protobuf versions before 3.25.5 allow unbounded recursion while parsing unknown fields")
-                }
-                requested.group == "com.squareup.wire" &&
-                    requested.name in setOf("wire-runtime", "wire-runtime-jvm") -> {
-                    useVersion(secureWireVersion)
-                    because(
-                        "Wire versions before 6.3.0 allow malformed groups to escape the documented decode failure path",
-                    )
-                }
+            if (securityOverride != null) {
+                useVersion(securityOverride)
+                because("Pinned security override shared with the supply-chain scanner")
             }
         }
     }

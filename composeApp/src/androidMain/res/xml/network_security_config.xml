@@ -1,4 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
+    <!--
+        Self-hosted Emby / Plex servers are routinely reached over plain HTTP on a LAN or through a
+        tunnel that terminates TLS elsewhere, so cleartext stays allowed for user-entered origins.
+    -->
     <base-config cleartextTrafficPermitted="true" />
+    <!--
+        Origins Yfuse itself fixes at build time are TLS-only: the update manifest host, metadata
+        providers and the Plex account service. A downgrade to http:// for any of these is a bug
+        or an interception attempt, never a configuration the user chose.
+    -->
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="false">47.112.219.60</domain>
+        <domain includeSubdomains="true">themoviedb.org</domain>
+        <domain includeSubdomains="true">tmdb.org</domain>
+        <domain includeSubdomains="true">trakt.tv</domain>
+        <domain includeSubdomains="true">plex.tv</domain>
+    </domain-config>
 </network-security-config>

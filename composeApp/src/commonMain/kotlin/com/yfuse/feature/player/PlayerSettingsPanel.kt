@@ -1600,12 +1600,12 @@ private fun CompactChoiceGrid(
                         modifier =
                             Modifier
                                 .weight(1f)
-                                .glass(
+                                .playerChoiceFeedback(
+                                    selected = selected,
                                     shape = AppShapes.pill,
-                                    fill = if (selected) accent.container else Color.White.copy(alpha = 0.045f),
-                                    border = if (selected) accent.border else Color.White.copy(alpha = 0.07f),
-                                ).noRippleClickable { onSelect(index) }
-                                .padding(vertical = 9.dp),
+                                    role = androidx.compose.ui.semantics.Role.RadioButton,
+                                    onClick = { onSelect(index) },
+                                ).padding(vertical = 9.dp),
                     )
                 }
                 repeat(columns - rowOptions.size) {
