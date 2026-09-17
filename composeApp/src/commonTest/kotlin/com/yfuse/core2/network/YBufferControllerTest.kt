@@ -7,6 +7,28 @@ import kotlin.test.assertTrue
 
 class YBufferControllerTest {
     @Test
+    fun `repeated starvation increases recovery reserve without delaying startup or deadlocking a full queue`() {
+        val plan = YBufferPlan(8_000_000, 2_500_000, 24 * 1024 * 1024)
+        val gate = YPlaybackBufferGate(true, plan.resumePlaybackUs).also { it.updateThresholds(plan) }
+        assertTrue(gate.evaluate(500_000, false).outputAllowed)
+        gate.markStarved()
+        assertTrue(gate.evaluate(2_500_000, false).outputAllowed)
+        gate.markStarved()
+        gate.markStarved() // Repeated observations of one stall are not new episodes.
+        assertFalse(gate.evaluate(2_500_000, false).outputAllowed)
+        assertTrue(gate.evaluate(5_000_000, false).outputAllowed)
+        gate.markStarved()
+        assertFalse(gate.evaluate(5_000_000, false).outputAllowed)
+        assertTrue(gate.evaluate(6_000_000, false).outputAllowed)
+        gate.markStarved()
+        assertTrue(gate.evaluate(100_000, false, bufferFull = true).outputAllowed)
+        gate.reset()
+        assertTrue(gate.evaluate(500_000, false).outputAllowed)
+        gate.markStarved()
+        assertTrue(gate.evaluate(2_500_000, false).outputAllowed)
+    }
+
+    @Test
     fun `five minutes stays on disk and does not delay the first frame`() {
         val plan =
             YBufferController.plan(

@@ -18,10 +18,63 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class HttpClientFactoryTest {
+    @Test
+    fun secondaryServerLearnsItsLegacySessionWithoutBecomingTheCurrentLibrary() =
+        runTest {
+            val attempts = mutableListOf<Triple<String, String, String>>()
+            val client =
+                createEmbyClient(
+                    appVersion = "1.0.68",
+                    timeouts = null,
+                    engine =
+                        MockEngine { request ->
+                            val token = assertNotNull(request.headers["X-Emby-Token"])
+                            val identity = assertNotNull(request.headers["X-Emby-Client"])
+                            attempts += Triple(request.url.host, token, identity)
+                            assertEquals(
+                                mediaBrowserAuthorization(
+                                    token,
+                                    assertNotNull(request.headers["X-Emby-Authorization"]),
+                                ),
+                                request.headers[HttpHeaders.Authorization],
+                            )
+                            if (token == "secondary-token" && identity != "Yfuse") {
+                                respond("legacy session identity required", HttpStatusCode.Forbidden)
+                            } else {
+                                respond("{}", HttpStatusCode.OK)
+                            }
+                        },
+                )
+            try {
+                // Only the current server loads Views. Search/source switching opens another
+                // server's item directly, then negotiates playback with that same session.
+                client.get("https://primary.example/Users/a/Views") { header("X-Emby-Token", "primary-token") }
+                client.get("https://secondary.example/Users/b/Items/42") { header("X-Emby-Token", "secondary-token") }
+                client.post(
+                    "https://secondary.example/Items/42/PlaybackInfo",
+                ) { header("X-Emby-Token", "secondary-token") }
+                // Neither another host nor another account on that host inherits the choice.
+                client.get("https://primary.example/Users/a/Items/42") { header("X-Emby-Token", "primary-token") }
+                client.get("https://secondary.example/Users/c/Items/42") { header("X-Emby-Token", "another-token") }
+            } finally {
+                client.close()
+            }
+            assertEquals(
+                listOf(
+                    Triple("primary.example", "primary-token", "Emby for Android Mobile"),
+                    Triple("secondary.example", "secondary-token", "Emby for Android Mobile"),
+                    Triple("secondary.example", "secondary-token", "Yfuse"),
+                    Triple("secondary.example", "secondary-token", "Yfuse"),
+                    Triple("primary.example", "primary-token", "Emby for Android Mobile"),
+                    Triple("secondary.example", "another-token", "Emby for Android Mobile"),
+                ),
+                attempts,
+            )
+        }
+
     @Test
     fun cloudflareRejectionCoolsOtherModulesButNotOtherSessions() =
         runTest {
@@ -173,7 +226,13 @@ class HttpClientFactoryTest {
                         MockEngine { request ->
                             authorizationValues = request.headers.getAll("X-Emby-Authorization")
                             token = request.headers["X-Emby-Token"]
-                            assertNull(request.headers[HttpHeaders.Authorization])
+                            assertEquals(
+                                mediaBrowserAuthorization(
+                                    assertNotNull(request.headers["X-Emby-Token"]),
+                                    assertNotNull(request.headers["X-Emby-Authorization"]),
+                                ),
+                                request.headers[HttpHeaders.Authorization],
+                            )
                             respond("{}", HttpStatusCode.OK)
                         },
                     appVersion = "9.8.7",
@@ -326,7 +385,13 @@ class HttpClientFactoryTest {
                     engine =
                         MockEngine { request ->
                             assertEquals("old-token", request.headers["X-Emby-Token"])
-                            assertNull(request.headers[HttpHeaders.Authorization])
+                            assertEquals(
+                                mediaBrowserAuthorization(
+                                    assertNotNull(request.headers["X-Emby-Token"]),
+                                    assertNotNull(request.headers["X-Emby-Authorization"]),
+                                ),
+                                request.headers[HttpHeaders.Authorization],
+                            )
                             identities +=
                                 assertNotNull(request.headers.getAll("X-Emby-Authorization")).single()
                             explicitClientNames += assertNotNull(request.headers["X-Emby-Client"])

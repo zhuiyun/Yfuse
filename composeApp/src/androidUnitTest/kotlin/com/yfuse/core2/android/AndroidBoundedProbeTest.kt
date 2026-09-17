@@ -13,6 +13,33 @@ import kotlin.test.assertTrue
 
 class AndroidBoundedProbeTest {
     @Test
+    fun source_failure_after_budget_cancellation_preserves_the_abort_reason() {
+        AndroidProbeBudget().use { budget ->
+            val probe = AndroidBoundedProbe(Executor { it.run() })
+            val failure =
+                assertFailsWith<AndroidProbeAbortedException> {
+                    probe.run(1_000L, { -1 }, budget) {
+                        budget.cancel("superseded")
+                        throw java.net.SocketException("Socket closed")
+                    }
+                }
+            assertEquals("superseded", failure.reason)
+        }
+    }
+
+    @Test
+    fun source_failure_without_cancellation_keeps_its_original_cause() {
+        AndroidProbeBudget().use { budget ->
+            val probe = AndroidBoundedProbe(Executor { it.run() })
+            val failure =
+                assertFailsWith<java.net.SocketException> {
+                    probe.run(1_000L, { -1 }, budget) { throw java.net.SocketException("Connection reset") }
+                }
+            assertEquals("Connection reset", failure.message)
+        }
+    }
+
+    @Test
     fun sequential_candidate_probes_never_skip_an_already_completed_owner() {
         val executor = Executors.newSingleThreadExecutor()
         try {

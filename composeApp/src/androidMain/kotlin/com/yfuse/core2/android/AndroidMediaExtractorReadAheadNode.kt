@@ -4,6 +4,7 @@ import android.content.Context
 import android.media.MediaFormat
 import java.nio.ByteBuffer
 import java.util.ArrayDeque
+import java.util.TreeMap
 import java.util.concurrent.Callable
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.ExecutorService
@@ -51,6 +52,7 @@ internal class AndroidMediaExtractorReadAheadNode(
     private fun queueBudgetBytes() = minOf(maximumQueueBytes, memoryLease?.limitBytes ?: maximumQueueBytes)
 
     private var queuedBytes = 0L
+    private val queuedTimestamps = mutableMapOf<Int, TreeMap<Long, Int>>()
     private var starvationCount = 0L
     private var starved = false
     private var hasDeliveredSample = false
@@ -253,6 +255,7 @@ internal class AndroidMediaExtractorReadAheadNode(
                     selected
                 }
             if (sample != null) {
+                removeTimestampLocked(sample)
                 queuedBytes = (queuedBytes - sample.data.remaining()).coerceAtLeast(0L)
                 starved = false
                 hasDeliveredSample = true
@@ -278,6 +281,7 @@ internal class AndroidMediaExtractorReadAheadNode(
         synchronized(monitor) {
             if (!opened || sample.queueGeneration != generation) return
             samples.addFirst(sample)
+            addTimestampLocked(sample)
             queuedBytes += sample.data.remaining()
             starved = false
         }
@@ -447,6 +451,7 @@ internal class AndroidMediaExtractorReadAheadNode(
                         return
                     }
                     samples.addLast(copied)
+                    addTimestampLocked(copied)
                     queuedBytes += copied.data.remaining()
                     starved = false
                 }
@@ -472,17 +477,28 @@ internal class AndroidMediaExtractorReadAheadNode(
 
     private fun bufferedDurationUsLocked(): Long = trackBufferedDurationsUsLocked().values.minOrNull() ?: 0L
 
-    private fun trackBufferedDurationsUsLocked(): Map<Int, Long> {
-        val bounds = bufferingTracks.associateWith { longArrayOf(Long.MAX_VALUE, Long.MIN_VALUE) }
-        samples.forEach { sample ->
-            bounds[sample.trackIndex]?.let { range ->
-                range[0] = minOf(range[0], sample.presentationTimeUs)
-                range[1] = maxOf(range[1], sample.presentationTimeUs)
-            }
+    private fun trackBufferedDurationsUsLocked(): Map<Int, Long> =
+        bufferingTracks.associateWith { track ->
+            val times = queuedTimestamps[track]
+            if (times.isNullOrEmpty()) 0L else (times.lastKey() - times.firstKey()).coerceAtLeast(0L)
         }
-        return bounds.mapValues { (_, range) ->
-            if (range[0] == Long.MAX_VALUE) 0L else (range[1] - range[0]).coerceAtLeast(0L)
+
+    // Maintain bounds incrementally: scanning every queued packet on every fill and codec pump
+    // made a deeper buffer increasingly expensive. Counts preserve duplicate and reordered PTS.
+    private fun addTimestampLocked(sample: YExtractorSample) {
+        val times = queuedTimestamps.getOrPut(sample.trackIndex) { TreeMap() }
+        times[sample.presentationTimeUs] = (times[sample.presentationTimeUs] ?: 0) + 1
+    }
+
+    private fun removeTimestampLocked(sample: YExtractorSample) {
+        val times = queuedTimestamps[sample.trackIndex] ?: return
+        val count = times[sample.presentationTimeUs] ?: return
+        if (count == 1) {
+            times.remove(sample.presentationTimeUs)
+        } else {
+            times[sample.presentationTimeUs] = count - 1
         }
+        if (times.isEmpty()) queuedTimestamps.remove(sample.trackIndex)
     }
 
     private fun resetQueueStateLocked() {
@@ -496,6 +512,7 @@ internal class AndroidMediaExtractorReadAheadNode(
     private fun clearQueueLocked() {
         generation++
         samples.clear()
+        queuedTimestamps.clear()
         queuedBytes = 0L
         starved = false
     }

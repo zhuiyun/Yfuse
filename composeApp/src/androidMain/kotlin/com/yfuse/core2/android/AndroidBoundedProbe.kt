@@ -82,6 +82,9 @@ internal class AndroidBoundedProbe(
             }
             throw error
         } catch (error: ExecutionException) {
+            // Closing the source can complete the worker before cancellation reaches its
+            // Future. Preserve the budget's cause instead of reporting that close as I/O failure.
+            budget?.ensureActive()
             throw error.cause ?: error
         } finally {
             cancellation?.close()

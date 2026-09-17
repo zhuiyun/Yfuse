@@ -50,12 +50,12 @@ private data class DiagnosticEntry(
     val exception: DiagnosticException? = null,
 )
 
-internal const val DiagnosticMaxMessageChars = 4_000
-internal const val DiagnosticMaxAttributes = 32
-internal const val DiagnosticMaxAttributeChars = 1_000
-internal const val DiagnosticMaxStackTraceChars = 16_000
-internal const val DiagnosticMaxThrowableTypeChars = 256
-internal const val DiagnosticMaxThreadNameChars = 80
+internal const val DIAGNOSTIC_MAX_MESSAGE_CHARS = 4_000
+internal const val DIAGNOSTIC_MAX_ATTRIBUTES = 40
+internal const val DIAGNOSTIC_MAX_ATTRIBUTE_CHARS = 1_000
+internal const val DIAGNOSTIC_MAX_STACK_TRACE_CHARS = 16_000
+internal const val DIAGNOSTIC_MAX_THROWABLE_TYPE_CHARS = 256
+internal const val DIAGNOSTIC_MAX_THREAD_NAME_CHARS = 80
 internal const val DIAGNOSTIC_MAX_FINGERPRINTS = 256
 
 internal data class PreparedDiagnosticException(
@@ -90,11 +90,11 @@ internal fun prepareDiagnosticLog(
     attributes: Map<String, String>,
     threadName: String,
 ): PreparedDiagnosticLog {
-    val safeAttributes = LinkedHashMap<String, String>(DiagnosticMaxAttributes)
-    // Reserve one slot for the actual producer thread. Limiting before transformation also avoids
+    val safeAttributes = LinkedHashMap<String, String>(DIAGNOSTIC_MAX_ATTRIBUTES)
+    // Reserve slots for the actual producer thread and the anonymous server reference. Limiting before transformation also avoids
     // copying an attacker-sized map merely to discard all but its first entries afterwards.
     attributes.entries
-        .take(DiagnosticMaxAttributes - 1)
+        .take(DIAGNOSTIC_MAX_ATTRIBUTES - 2)
         .forEach { (key, value) ->
             val safeKey = normalizeDiagnosticName(key, "attribute")
             if (safeKey == "thread") return@forEach
@@ -102,26 +102,29 @@ internal fun prepareDiagnosticLog(
                 redactDiagnosticAttributes(mapOf(key to value))
                     .values
                     .first()
-                    .take(DiagnosticMaxAttributeChars)
+                    .take(DIAGNOSTIC_MAX_ATTRIBUTE_CHARS)
             safeAttributes[safeKey] = safeValue
+            if (safeKey in setOf("serverid", "server_id", "server-id") && value.isNotBlank() && value != "<redacted>") {
+                safeAttributes["serverref"] = playbackDiagnosticTrace("server:$value")
+            }
         }
     safeAttributes["thread"] =
         redactDiagnosticText(threadName)
-            .take(DiagnosticMaxThreadNameChars)
+            .take(DIAGNOSTIC_MAX_THREAD_NAME_CHARS)
 
     val safeException =
         throwable?.let {
             PreparedDiagnosticException(
                 type =
                     redactDiagnosticText(it.javaClass.name)
-                        .take(DiagnosticMaxThrowableTypeChars),
+                        .take(DIAGNOSTIC_MAX_THROWABLE_TYPE_CHARS),
                 message =
                     it.message
                         ?.let(::redactDiagnosticText)
-                        ?.take(DiagnosticMaxMessageChars),
+                        ?.take(DIAGNOSTIC_MAX_MESSAGE_CHARS),
                 stackTrace =
                     redactDiagnosticText(it.stackTraceToString())
-                        .take(DiagnosticMaxStackTraceChars),
+                        .take(DIAGNOSTIC_MAX_STACK_TRACE_CHARS),
             )
         }
     return PreparedDiagnosticLog(
@@ -129,7 +132,7 @@ internal fun prepareDiagnosticLog(
         level = level,
         category = normalizeDiagnosticName(category, "general"),
         event = normalizeDiagnosticName(event, "unknown"),
-        message = redactDiagnosticText(message).take(DiagnosticMaxMessageChars),
+        message = redactDiagnosticText(message).take(DIAGNOSTIC_MAX_MESSAGE_CHARS),
         attributes = Collections.unmodifiableMap(safeAttributes),
         exception = safeException,
     )
@@ -202,10 +205,10 @@ internal data class DiagnosticLogStats(
 )
 
 internal object DiagnosticLogStore {
-    private const val LogTag = "YfuseDiagnostics"
-    private const val MaxFileBytes = 1024L * 1024L
-    private const val MaxTotalBytes = 5L * 1024L * 1024L
-    private const val MaxFiles = 8
+    private const val LOG_TAG = "YfuseDiagnostics"
+    private const val MAX_FILE_BYTES = 1024L * 1024L
+    private const val MAX_TOTAL_BYTES = 5L * 1024L * 1024L
+    private const val MAX_FILES = 8
     private const val DUPLICATE_WINDOW_MS = 5_000L
 
     /** Hard cap on already-bounded payloads awaiting disk persistence. */
@@ -479,7 +482,7 @@ internal object DiagnosticLogStore {
             logFilesLocked()
                 .filter { it.name.startsWith(prefix) }
                 .maxByOrNull(File::getName)
-        if (latest != null && latest.length() < MaxFileBytes) return latest
+        if (latest != null && latest.length() < MAX_FILE_BYTES) return latest
         val nextIndex =
             latest
                 ?.nameWithoutExtension
@@ -500,7 +503,7 @@ internal object DiagnosticLogStore {
             files.remove(it)
         }
         var total = files.sumOf(File::length)
-        while (files.size >= MaxFiles || total >= MaxTotalBytes) {
+        while (files.size >= MAX_FILES || total >= MAX_TOTAL_BYTES) {
             val oldest = files.removeFirstOrNull() ?: break
             total -= oldest.length()
             oldest.delete()
@@ -545,7 +548,7 @@ internal object DiagnosticLogStore {
             appendLine("logWriteFailures=${writeFailureCount.get()}")
             lastWriteFailure.get()?.let { appendLine("lastLogWriteFailure=$it") }
             appendLine("format=JSON Lines; one JSON object per line")
-            appendLine("retention=7 days, at most $MaxFiles files / ${MaxTotalBytes / 1024 / 1024} MiB")
+            appendLine("retention=7 days, at most $MAX_FILES files / ${MAX_TOTAL_BYTES / 1024 / 1024} MiB")
             appendLine("privacy=Tokens, credentials, server hosts and user identifiers are redacted.")
         }
     }
@@ -563,7 +566,7 @@ internal object DiagnosticLogStore {
         if (failures == 1 || failures % 25 == 0) {
             safeLogcat(
                 priority = Log.ERROR,
-                tag = LogTag,
+                tag = LOG_TAG,
                 message = "Failed to persist diagnostic log entry (count=$failures)",
                 throwable = error,
             )
@@ -575,7 +578,7 @@ internal object DiagnosticLogStore {
         if (dropped == 1L || dropped % 100L == 0L) {
             safeLogcat(
                 priority = Log.WARN,
-                tag = LogTag,
+                tag = LOG_TAG,
                 message = "Diagnostic log queue full; dropped entry (count=$dropped)",
             )
         }

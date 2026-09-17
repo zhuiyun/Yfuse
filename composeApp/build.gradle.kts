@@ -907,6 +907,7 @@ android {
 
         getByName("main") {
             manifest.srcFile("src/androidMain/AndroidManifest.xml")
+            assets.directories += "src/androidMain/assets"
         }
         getByName("androidTest") {
             kotlin.directories += "src/androidInstrumentedTest/kotlin"

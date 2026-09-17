@@ -57,7 +57,7 @@ object EmbyStream {
         format: String = "srt",
     ): String =
         "${normalizeBaseUrl(baseUrl)}/Videos/$itemId/$mediaSourceId/Subtitles/$streamIndex/Stream.$format" +
-            "?api_key=${token.queryValue()}"
+            "?${mediaBrowserTokenQuery(token)}"
 
     fun trickplayTilePattern(
         baseUrl: String,
@@ -67,7 +67,7 @@ object EmbyStream {
         token: String,
     ): String =
         "${normalizeBaseUrl(baseUrl)}/Videos/$itemId/Trickplay/$width/{index}.jpg" +
-            "?MediaSourceId=${mediaSourceId.queryValue()}&api_key=${token.queryValue()}"
+            "?MediaSourceId=${mediaSourceId.queryValue()}&${mediaBrowserTokenQuery(token)}"
 
     /** One exact frame from Emby's generated video-preview thumbnail set. */
     fun videoPreviewThumbnail(
@@ -86,7 +86,7 @@ object EmbyStream {
             append("&maxWidth=${maxWidth.coerceAtLeast(1)}")
             append("&quality=90")
             imageTag?.takeIf(String::isNotBlank)?.let { append("&tag=${it.queryValue()}") }
-            append("&api_key=${token.queryValue()}")
+            append("&${mediaBrowserTokenQuery(token)}")
         }
 
     /**
@@ -143,10 +143,22 @@ object EmbyStream {
         var authenticatedValue = value
         if (
             addApiKey &&
+            !authenticatedValue.hasQueryParameter("ApiKey") &&
             !authenticatedValue.hasQueryParameter("api_key") &&
             !authenticatedValue.hasQueryParameter("X-Emby-Token")
         ) {
             authenticatedValue = authenticatedValue.withQueryParameter("api_key", token.queryValue())
+        }
+        // Canonicalize only same-origin media URLs, never a signed CDN URL.
+        if (addApiKey && !authenticatedValue.hasQueryParameter("ApiKey")) {
+            val existingToken =
+                runCatching {
+                    Url(authenticatedValue).let {
+                        it.parameters["api_key"]
+                            ?: it.parameters["X-Emby-Token"]
+                    }
+                }.getOrNull()
+            authenticatedValue = authenticatedValue.withQueryParameter("ApiKey", (existingToken ?: token).queryValue())
         }
         if (!authenticatedValue.hasQueryParameter("DeviceId")) {
             authenticatedValue = authenticatedValue.withQueryParameter("DeviceId", deviceId().queryValue())
@@ -232,7 +244,7 @@ object EmbyStream {
         mediaSourceId: String? = null,
         playSessionId: String? = null,
     ): String =
-        "${normalizeBaseUrl(baseUrl)}/Videos/$itemId/stream?static=true&api_key=${token.queryValue()}" +
+        "${normalizeBaseUrl(baseUrl)}/Videos/$itemId/stream?static=true&${mediaBrowserTokenQuery(token)}" +
             mediaSourceParam(mediaSourceId, itemId) +
             sessionParams(playSessionId)
 
@@ -283,7 +295,7 @@ object EmbyStream {
         playSessionId: String? = null,
     ): String =
         "${normalizeBaseUrl(baseUrl)}/Videos/$itemId/master.m3u8" +
-            "?api_key=${token.queryValue()}" +
+            "?${mediaBrowserTokenQuery(token)}" +
             "&MediaSourceId=${(mediaSourceId ?: itemId).queryValue()}" +
             "&Context=Streaming" +
             // Keep both names for Emby/Jellyfin generations that key off different fields.
@@ -323,7 +335,7 @@ object EmbyStream {
     ): String =
         "${normalizeBaseUrl(baseUrl)}/Videos/$itemId/stream.mp4" +
             "?static=false" +
-            "&api_key=${token.queryValue()}" +
+            "&${mediaBrowserTokenQuery(token)}" +
             "&MediaSourceId=${(mediaSourceId ?: itemId).queryValue()}" +
             "&Context=Streaming" +
             "&Container=mp4" +

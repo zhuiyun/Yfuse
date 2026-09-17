@@ -70,6 +70,7 @@ private fun credentialScopedCacheKeyForUrl(
 private fun String.isServerCredentialParameter(): Boolean =
     substringBefore('=').let { name ->
         name.equals("api_key", ignoreCase = true) ||
+            name.equals("ApiKey", ignoreCase = true) ||
             name.equals("X-Emby-Token", ignoreCase = true) ||
             name.equals("X-Plex-Token", ignoreCase = true)
     }

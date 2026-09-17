@@ -678,10 +678,6 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                         serverMenuOpen = false
                     },
                     onDismiss = { serverMenuOpen = false },
-                    onOpenUnified = {
-                        serverMenuOpen = false
-                        component.onOpenUnified()
-                    },
                 )
             }
         }
@@ -973,7 +969,6 @@ private fun HeroCarousel(
  */
 @Composable
 private fun ServerSheet(
-    onOpenUnified: () -> Unit,
     servers: List<SavedServer>,
     currentId: String?,
     onSelect: (String) -> Unit,
@@ -987,8 +982,6 @@ private fun ServerSheet(
             subtitle = "已登录 ${servers.size} 个 · 切换后重新载入媒体库",
             onClose = onDismiss,
         )
-        com.yfuse.core.designsystem
-            .YfButton("浏览全部服务器", overlayAction(onOpenUnified))
         // A centred panel has no edge to grow against, so a long server list scrolls inside
         // the dialog instead of running off both ends of the screen. [GlassDialog] does that
         // itself now, against the screen it is actually on rather than a fixed maximum.

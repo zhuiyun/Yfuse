@@ -252,7 +252,7 @@ class DanmakuRepository(
     private suspend fun fetchComments(url: String): Result<List<DanmakuComment>> =
         fetch(url).mapCatching { body ->
             val comments = DanmakuParser.parse(body)
-            if (comments.isEmpty()) {
+            if (comments.isEmpty() && !DanmakuParser.isRecognizedEmptyResponse(body)) {
                 AppLog.warning(
                     category = "danmaku",
                     event = "response_unrecognized",
@@ -419,6 +419,15 @@ object DanmakuParser {
             """<d\b[^>]*\bp\s*=\s*["']([^"']*)["'][^>]*>(.*?)</d>""",
             setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL),
         )
+
+    /** Empty comment collections are a valid result, unlike an error envelope or HTML page. */
+    internal fun isRecognizedEmptyResponse(body: String): Boolean {
+        val root = runCatching { json.parseToJsonElement(body.trim()) }.getOrNull()
+        if (root is JsonArray) return root.isEmpty()
+        if (root !is JsonObject) return false
+        if (root["success"]?.toString() == "false" || root["error"] != null) return false
+        return (root["comments"] as? JsonArray)?.isEmpty() == true
+    }
 
     fun parse(body: String): List<DanmakuComment> {
         val value = body.trim()

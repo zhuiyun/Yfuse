@@ -801,6 +801,7 @@ class PlayerStoreFactory(
                             "stage" to stage,
                             "itemId" to currentItemId,
                             "serverId" to currentServerId,
+                            "usesDefaultServer" to (currentServerId == registry.defaultServer?.id).toString(),
                             "requestSessionId" to requestedSessionId,
                             "sessionId" to sessionId.orEmpty(),
                             "requestTrace" to playbackDiagnosticTrace(requestedSessionId),

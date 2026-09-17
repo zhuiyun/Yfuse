@@ -82,7 +82,7 @@ class EmbyImagesTest {
         val url = EmbyImages.backdropAt("HTTP://emby/", "item1", 3, "btag", accessToken = "t")
 
         assertEquals(
-            "http://emby/Items/item1/Images/Backdrop/3?tag=btag&maxWidth=1280&quality=85&format=webp&api_key=t",
+            "http://emby/Items/item1/Images/Backdrop/3?tag=btag&maxWidth=1280&quality=85&format=webp&api_key=t&ApiKey=t",
             url,
         )
     }
@@ -116,7 +116,10 @@ class EmbyImagesTest {
     fun a_missing_tag_still_produces_a_url() {
         val url = EmbyImages.primary("http://emby", "item1", tag = null, accessToken = "t")
 
-        assertEquals("http://emby/Items/item1/Images/Primary?maxHeight=450&quality=85&format=webp&api_key=t", url)
+        assertEquals(
+            "http://emby/Items/item1/Images/Primary?maxHeight=450&quality=85&format=webp&api_key=t&ApiKey=t",
+            url,
+        )
     }
 
     /**

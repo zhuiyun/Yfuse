@@ -176,5 +176,5 @@ object EmbyImages {
 
     /** Every builder already ends in a query string, so the token is always an `&` away. */
     private fun String.withToken(accessToken: String?): String =
-        accessToken?.takeIf { it.isNotBlank() }?.let { "$this&api_key=$it" } ?: this
+        accessToken?.takeIf { it.isNotBlank() }?.let { "$this&${mediaBrowserTokenQuery(it)}" } ?: this
 }

@@ -19,6 +19,32 @@ import kotlin.test.assertTrue
 
 class AndroidTransportStartupAndResumeTest {
     @Test
+    fun `metadata reads beyond the first slice do not wait for a full speculative block`() {
+        val media = ByteArray(4 * 1024 * 1024) { it.toByte() }
+        val requests = CopyOnWriteArrayList<YMediaTransportRequest>()
+        val release = CountDownLatch(1)
+        val source =
+            AndroidTransportMediaDataSource(
+                uri = "https://example.invalid/video.mkv",
+                protocol = YSourceProtocol.Https,
+                headers = emptyMap(),
+                createTransport = { TestRangeTransport(media, requests, fullBlockRelease = release) },
+            )
+        val worker = Executors.newSingleThreadExecutor()
+        try {
+            for (position in listOf(0L, 128 * 1024L, 256 * 1024L)) {
+                val output = ByteArray(16)
+                assertEquals(16, worker.submit<Int> { source.readAt(position, output, 0, 16) }.get(2, TimeUnit.SECONDS))
+                assertContentEquals(media.copyOfRange(position.toInt(), position.toInt() + 16), output)
+            }
+        } finally {
+            release.countDown()
+            source.close()
+            worker.shutdownNow()
+        }
+    }
+
+    @Test
     fun `cold seek after reading the header bypasses an unfinished full block prefetch`() {
         val blockBytes = 2 * 1024 * 1024
         val media = ByteArray(blockBytes * 8) { it.toByte() }

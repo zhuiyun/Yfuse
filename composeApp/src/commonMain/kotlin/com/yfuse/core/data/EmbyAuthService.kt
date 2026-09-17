@@ -6,7 +6,6 @@ import com.yfuse.core.data.dto.PublicInfoDto
 import com.yfuse.core.data.dto.PublicUserDto
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.MediaServerKind
-import com.yfuse.core.network.normalizeBaseUrl
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
@@ -21,7 +20,7 @@ internal class EmbyAuthService(
 ) {
     suspend fun publicUsers(baseUrl: String): Result<List<PublicUserDto>> =
         embyApiCall("public_users") {
-            client.get("${normalizeBaseUrl(baseUrl)}/Users/Public").body()
+            client.get("${client.resolveMediaServerBaseUrl(baseUrl)}/Users/Public").body()
         }
 
     suspend fun authenticate(
@@ -30,7 +29,7 @@ internal class EmbyAuthService(
         password: String,
     ): Result<AuthedServer> =
         embyApiCall("authenticate") {
-            val url = normalizeBaseUrl(baseUrl)
+            val url = client.resolveMediaServerBaseUrl(baseUrl)
             val auth: AuthResultDto =
                 client
                     .post("$url/Users/AuthenticateByName") {

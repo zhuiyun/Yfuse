@@ -168,6 +168,9 @@ class AndroidAdaptiveProxyTransitionTest {
                     .replace("${'$'}Number${'$'}", "1")
             proxy.updatePlaybackFeedback(YAdaptivePlaybackFeedback(0L, true, 1f, 2L))
             assertEquals("HIGH_SEGMENT", readUrl(segment).decodeToString())
+            // Content-Length lets the client return before the proxy records its bandwidth
+            // sample. Wait for upstream teardown before asking the next request to act on it.
+            assertTrue(upstream.firstSegmentClosed.await(2L, TimeUnit.SECONDS))
             assertEquals("HIGH_SEGMENT", readUrl(segment).decodeToString())
             val next = assertNotNull(proxy.pollPlaybackTransition(root, 1_000L))
             assertEquals(1_000L, next.localPositionMs)
@@ -262,6 +265,7 @@ class AndroidAdaptiveProxyTransitionTest {
         private val resources: Map<String, String>,
         private val blockedPath: String? = null,
     ) {
+        val firstSegmentClosed = CountDownLatch(1)
         val blockedOpen = CountDownLatch(1)
         val unblock = CountDownLatch(1)
         val alternateRead = CountDownLatch(1)
@@ -305,6 +309,7 @@ class AndroidAdaptiveProxyTransitionTest {
 
                 override suspend fun close() {
                     closedTransports.incrementAndGet()
+                    if (path.endsWith(".m4s")) firstSegmentClosed.countDown()
                     if (path == blockedPath) unblock.countDown()
                 }
             }

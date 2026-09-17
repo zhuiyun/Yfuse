@@ -9,6 +9,22 @@ import kotlin.test.assertTrue
 
 class UpdateCheckPolicyTest {
     @Test
+    fun stale_feed_is_not_reported_as_current() {
+        assertEquals(UpdateState.Idle, staleUpdateFeedState(UpdateState.Idle, automatic = true))
+        assertTrue(staleUpdateFeedState(UpdateState.Current, automatic = false) is UpdateState.Error)
+        val newer = manifest(versionCode = 230)
+        for (state in listOf(
+            UpdateState.Downloading(newer, 100L, newer.size),
+            UpdateState.Paused(newer, 100L, newer.size),
+            UpdateState.Ready(newer, File("newer.apk")),
+            UpdateState.Available(newer),
+        )) {
+            assertEquals(state, staleUpdateFeedState(state, automatic = true))
+            assertEquals(state, staleUpdateFeedState(state, automatic = false))
+        }
+    }
+
+    @Test
     fun trust_failures_are_not_misreported_as_connection_errors() {
         for (verdict in listOf(
             UpdateManifestTrust.RejectedUnsigned,

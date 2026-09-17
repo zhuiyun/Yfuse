@@ -15,6 +15,17 @@ import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
+/** SDR anime processing; Off keeps the original direct output. */
+enum class Anime4KMode(
+    val label: String,
+    val scale: Float,
+) {
+    Off("关闭", 1f),
+    Light("轻量", 1f),
+    Balanced("均衡", 1.5f),
+    Quality("高质量", 2f),
+}
+
 /** Amount of on-device storage available to the streaming video cache. */
 enum class VideoCacheSize(
     val label: String,
@@ -137,6 +148,14 @@ private data class StoredPlaybackPerformanceRecord(
 class PlaybackPreferences(
     private val settings: Settings,
 ) {
+    private val _anime4KMode = MutableStateFlow(enumSetting("playback.anime4k", Anime4KMode.Off))
+    val anime4KMode: StateFlow<Anime4KMode> = _anime4KMode.asStateFlow()
+
+    fun setAnime4KMode(mode: Anime4KMode) {
+        settings.putString("playback.anime4k", mode.name)
+        _anime4KMode.value = mode
+    }
+
     val bookmarks by lazy { PlaybackBookmarks(settings) }
     private val seriesLock = Any()
     private val json = Json { ignoreUnknownKeys = true }

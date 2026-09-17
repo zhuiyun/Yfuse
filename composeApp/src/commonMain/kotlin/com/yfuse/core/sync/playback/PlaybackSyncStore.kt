@@ -26,6 +26,8 @@ class PlaybackSyncStore(
     private val serverApplySerializer = ListSerializer(PendingPlaybackServerApply.serializer())
     private val lock = personal?.coordinationLock ?: Any()
     private var documents = loadDocuments().toMutableList()
+    private var batchingServerProgress = false
+    private var serverProgressBatchChanged = false
     private var serverApplies = loadServerApplies().toMutableList()
 
     val deviceId: String =
@@ -358,6 +360,32 @@ class PlaybackSyncStore(
             )
             true
         }
+
+    data class ServerProgressInput(
+        val itemId: String,
+        val positionMs: Long,
+        val played: Boolean,
+    )
+
+    /** One complete server pull sorts/serializes once, under the same account/profile lock. */
+    fun absorbServerProgressBatch(
+        serverId: String,
+        progress: List<ServerProgressInput>,
+        expectedScopeToken: String,
+    ) = synchronized(lock) {
+        if (scopeToken != expectedScopeToken) return@synchronized
+        batchingServerProgress = true
+        serverProgressBatchChanged = false
+        try {
+            progress.forEach { item ->
+                absorbServerProgress(serverId, item.itemId, item.positionMs, item.played)
+            }
+        } finally {
+            batchingServerProgress = false
+            if (serverProgressBatchChanged) trimAndPersistDocumentsLocked()
+            serverProgressBatchChanged = false
+        }
+    }
 
     fun pending(limit: Int = 64): List<StoredPlaybackDocument> =
         synchronized(lock) {
@@ -704,6 +732,14 @@ class PlaybackSyncStore(
         value: StoredPlaybackDocument,
     ) {
         if (index >= 0) documents[index] = value else documents += value
+        if (batchingServerProgress) {
+            serverProgressBatchChanged = true
+            return
+        }
+        trimAndPersistDocumentsLocked()
+    }
+
+    private fun trimAndPersistDocumentsLocked() {
         documents =
             documents
                 .sortedBy { it.document.state.lastPlayedAtEpochMs }

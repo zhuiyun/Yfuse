@@ -15,6 +15,7 @@ import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.header
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsChannel
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
@@ -183,8 +184,8 @@ fun createEmbyClient(
         }
     }.also { client ->
         // Tokens issued before 0.2.60 may still be associated with the former Yfuse client
-        // identity. Keep the released identity as the default and learn the legacy identity
-        // only after the library discovery endpoint rejects the current one with 403.
+        // identity. Learn compatibility on metadata reads as well as library discovery:
+        // cross-server search/playback does not visit that server's Views endpoint first.
         val preferredClientBySession =
             MutableStateFlow<Map<EmbyIdentityPreferenceKey, String>>(emptyMap())
         val accessCooldowns =
@@ -210,6 +211,21 @@ fun createEmbyClient(
             }
 
             val accessToken = request.headers["X-Emby-Token"]?.takeIf { it.isNotBlank() }
+            val explicitAuthorization = request.headers[HttpHeaders.Authorization]
+            if (request.attributes.getOrNull(suppressEmbyIdentityKey) == null) {
+                if (explicitAuthorization == null) {
+                    val identity = request.headers["X-Emby-Authorization"] ?: buildAuthHeader(appVersion)
+                    request.headers.append(
+                        HttpHeaders.Authorization,
+                        if (accessToken == null) identity else mediaBrowserAuthorization(accessToken, identity),
+                    )
+                } else if (accessToken != null && !explicitAuthorization.startsWith("MediaBrowser ")) {
+                    // An edge proxy may own Authorization. Use Jellyfin's supported URL form
+                    // without replacing its Basic/Bearer credential.
+                    request.url.parameters.remove("ApiKey")
+                    request.url.parameters.append("ApiKey", accessToken)
+                }
+            }
             if (accessToken == null) return@intercept execute(request)
 
             val preferenceKey = EmbyIdentityPreferenceKey(currentOrigin, accessToken)
@@ -247,8 +263,7 @@ fun createEmbyClient(
                     request.url
                         .build()
                         .encodedPath
-                        .trimEnd('/')
-                        .endsWith("/Views")
+                        .isEmbyIdentityDiscoveryPath()
             if (!canProbeLegacyIdentity) return@intercept executeWithAccessTracking()
 
             val firstCall = executeWithAccessTracking()
@@ -256,6 +271,26 @@ fun createEmbyClient(
             // A WAF challenge is not an Emby identity mismatch. Do not probe alternate
             // identities or keep other background modules hammering the same endpoint.
             if (firstCall.response.isCloudflareChallenge()) return@intercept firstCall
+            // Metadata 403s usually mean a settled permission failure. Only use the broader
+            // discovery path when the server explicitly identifies a client/session mismatch.
+            // Keep the established Views-only migration behavior for older installations.
+            val isLibraryDiscovery =
+                request.url
+                    .build()
+                    .encodedPath
+                    .trimEnd('/')
+                    .endsWith("/Views")
+            if (!isLibraryDiscovery) {
+                val response = firstCall.response
+                if (response.headers[HttpHeaders.ContentType].orEmpty().contains("html", ignoreCase = true)) {
+                    return@intercept firstCall
+                }
+                val detail = response.bodyAsText().lowercase()
+                val identityRejected =
+                    ("client" in detail || "session identity" in detail) &&
+                        listOf("mismatch", "invalid", "not match", "identity required").any { it in detail }
+                if (!identityRejected) return@intercept firstCall
+            }
 
             val fallbackClient =
                 if (preferredClient == LEGACY_EMBY_CLIENT_NAME) {
@@ -273,6 +308,11 @@ fun createEmbyClient(
         }
     }
 
+/** Only read-only Emby metadata routes may learn an old session's client identity. */
+private fun String.isEmbyIdentityDiscoveryPath(): Boolean =
+    Regex("(?:^|/)(?:Items(?:/[^/]+)?|Users/[^/]+/(?:Views|Items(?:/[^/]+)?)|Shows/[^/]+/(?:Episodes|Seasons))$")
+        .containsMatchIn(trimEnd('/'))
+
 /**
  * Sends both forms used by Emby clients. Emby Server accepts the combined authorization
  * value, while a number of reverse proxies and access-control plugins inspect the explicit
@@ -282,6 +322,13 @@ private fun HttpRequestBuilder.applyEmbyIdentity(
     appVersion: String,
     clientName: String,
 ) {
+    if (headers[HttpHeaders.Authorization]?.startsWith("MediaBrowser ") == true) {
+        headers.remove(HttpHeaders.Authorization)
+        header(
+            HttpHeaders.Authorization,
+            mediaBrowserAuthorization(headers["X-Emby-Token"].orEmpty(), buildAuthHeader(appVersion, clientName)),
+        )
+    }
     headers.remove("X-Emby-Authorization")
     headers.remove(EMBY_CLIENT_HEADER)
     headers.remove(EMBY_CLIENT_VERSION_HEADER)

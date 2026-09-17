@@ -43,6 +43,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.yfuse.core.data.Anime4KMode
+import com.yfuse.core.data.PlaybackPreferences
 import com.yfuse.core.data.SkipMode
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
@@ -899,6 +901,21 @@ internal fun SettingsPanel(
                                             )
                                         }
                                     }
+                                    GroupLabel("Anime4K · YCore SDR 动漫")
+                                    val animePreferences = remember { GlobalContext.get().get<PlaybackPreferences>() }
+                                    val animeMode by animePreferences.anime4KMode.collectAsState()
+                                    Anime4KMode.entries.forEach { mode ->
+                                        OptionRow(
+                                            mode.label,
+                                            animeMode == mode,
+                                            onClick = { animePreferences.setAnime4KMode(mode) },
+                                        )
+                                    }
+                                    Text(
+                                        "下次播放生效；HDR 与杜比视界保留原始输出",
+                                        style = AppTypography.caption.regular,
+                                        color = Color.White.copy(alpha = 0.6f),
+                                    )
                                     GroupLabel("画面")
                                     // Stays open: the light is judged against the picture behind the panel.
                                     PopupToggleHeader(

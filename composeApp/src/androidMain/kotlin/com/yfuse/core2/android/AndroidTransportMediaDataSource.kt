@@ -291,7 +291,10 @@ internal class AndroidTransportMediaDataSource(
                         blockIndex,
                         startupOffset =
                             offsetInBlock.takeIf {
-                                !startupReadServed && blockSize > STARTUP_RANGE_BYTES && size <= STARTUP_RANGE_BYTES
+                                !persistReadBlocks &&
+                                    (!startupReadServed || !playbackWindow.playing) &&
+                                    blockSize > STARTUP_RANGE_BYTES &&
+                                    size <= STARTUP_RANGE_BYTES
                             },
                     )
             val block = loaded.bytes
@@ -932,6 +935,15 @@ internal class AndroidTransportMediaDataSource(
                     !blocks.containsKey(tail)
             }?.let(desired::add)
         startupSlice?.first?.takeIf { !blocks.containsKey(it) }?.let(desired::add)
+        // Shrinking concurrency under pressure must not discard nearly downloaded forward
+        // blocks; that turns a temporary shortage into another download of the same bytes.
+        prefetchedBlocks.forEach { (index, pending) ->
+            if (index in blockIndex until blockIndex.saturatedAdd(prefetchDepthBlocks.toLong()) &&
+                (pending.future.isDone || pending.completedBytes.get() >= blockSize.toLong() * 3L / 4L)
+            ) {
+                desired.add(index)
+            }
+        }
         cancelPrefetchOutside(desired)
         desired.sorted().forEach(::schedulePrefetchBlock)
     }
@@ -1042,7 +1054,12 @@ internal class AndroidTransportMediaDataSource(
         cancelPrefetchOutside(
             prefetchedBlocks
                 .filter { (index, pending) ->
-                    pending.future.isDone || index in blockIndex..blockIndex.saturatedAdd(2L)
+                    pending.future.isDone ||
+                        index in blockIndex..blockIndex.saturatedAdd(2L) ||
+                        (
+                            index in blockIndex..blockIndex.saturatedAdd(prefetchDepthBlocks.toLong()) &&
+                                pending.completedBytes.get() >= blockSize.toLong() * 3L / 4L
+                        )
                 }.keys,
         )
     }

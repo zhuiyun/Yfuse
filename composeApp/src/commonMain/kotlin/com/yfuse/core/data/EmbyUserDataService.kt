@@ -99,14 +99,14 @@ internal class EmbyUserDataService(
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (failure: Throwable) {
-                    // A large library needs dozens of pages, so a single slow or dropped page is
-                    // likely on a flaky link. Discarding the pages that already succeeded means the
-                    // snapshot never completes at all on such a server; keep them and stop here.
+                    // A partial list is not authoritative: the sync manager reconciles missing
+                    // favorites and progress against it. Preserve the previous successful snapshot
+                    // by failing this refresh instead of reporting truncated data as complete.
                     if (pagesRead == 0) throw failure
                     AppLog.warning(
                         category = "emby",
                         event = "user_state_snapshot_page_failed",
-                        message = "User-state snapshot stopped early and kept the pages already read",
+                        message = "User-state snapshot is incomplete; previous synchronized state is retained",
                         throwable = failure,
                         attributes =
                             mapOf(
@@ -116,7 +116,7 @@ internal class EmbyUserDataService(
                                 "startIndex" to startIndex.toString(),
                             ),
                     )
-                    return
+                    throw failure
                 }
             if (dto.Items.isEmpty()) break
             val newResponseItems = dto.Items.filter { seenResponseIds.add(it.Id) }

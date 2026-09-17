@@ -21,6 +21,17 @@ import kotlin.test.assertTrue
 
 class DanmakuTest {
     @Test
+    fun valid_empty_comments_are_not_confused_with_error_responses() {
+        assertTrue(DanmakuParser.isRecognizedEmptyResponse("[]"))
+        assertTrue(DanmakuParser.isRecognizedEmptyResponse("""{"count":0,"comments":[]}"""))
+        assertFalse(DanmakuParser.isRecognizedEmptyResponse("""{"success":false,"comments":[]}"""))
+        assertFalse(DanmakuParser.isRecognizedEmptyResponse("""{"error":"unavailable","comments":[]}"""))
+        assertFalse(DanmakuParser.isRecognizedEmptyResponse("<html>error</html>"))
+        assertFalse(DanmakuParser.isRecognizedEmptyResponse("{}"))
+        assertFalse(DanmakuParser.isRecognizedEmptyResponse("""{"comments":[{}]}"""))
+    }
+
+    @Test
     fun thinning_keeps_the_whole_timeline_instead_of_only_the_opening() {
         // 12 comments spread over two hours, thinned to a budget of 4.
         val comments =

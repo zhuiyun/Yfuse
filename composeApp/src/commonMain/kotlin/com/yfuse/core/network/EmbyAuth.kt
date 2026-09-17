@@ -2,6 +2,7 @@ package com.yfuse.core.network
 
 import com.yfuse.deviceId
 import com.yfuse.deviceModel
+import io.ktor.http.encodeURLParameter
 
 const val DEFAULT_EMBY_CLIENT_NAME = "Emby for Android Mobile"
 
@@ -22,3 +23,22 @@ internal fun buildAuthHeader(
         "Device=\"${deviceModel()}\", " +
         "DeviceId=\"${deviceId()}\", " +
         "Version=\"$appVersion\""
+
+/** Jellyfin 12 accepts the standard Authorization scheme; legacy Emby headers stay compatible. */
+fun mediaBrowserAuthorization(
+    accessToken: String,
+    identity: String? = null,
+): String {
+    val prefix = identity?.takeIf { it.startsWith("MediaBrowser ") } ?: "MediaBrowser"
+    val escaped = accessToken.replace("\\", "\\\\").replace("\"", "\\\"")
+    require('\r' !in escaped && '\n' !in escaped) { "Invalid access token" }
+    return prefix + (if (prefix == "MediaBrowser") " " else ", ") + "Token=\"$escaped\""
+}
+
+/** URL-only consumers (Coil, Cast, native players) need the modern ApiKey spelling too.
+ * Keep Emby's spelling with the identical token for older Emby installations.
+ */
+fun mediaBrowserTokenQuery(token: String): String {
+    val encoded = token.encodeURLParameter()
+    return "api_key=$encoded&ApiKey=$encoded"
+}
