@@ -80,6 +80,8 @@ fun TvApp(component: RootComponent) {
     val reduceMotion by component.themePreferences.reduceMotion.collectAsState()
     val dialogAnimation by component.themePreferences.dialogAnimation.collectAsState()
     val glassStyle by component.themePreferences.glassStyle.collectAsState()
+    val loadingAnimation by component.themePreferences.loadingAnimation.collectAsState()
+    val glassMaterials by component.themePreferences.glassMaterials.collectAsState()
     val dark = mode.resolveDark(isSystemInDarkTheme())
 
     YfuseTheme(
@@ -93,6 +95,8 @@ fun TvApp(component: RootComponent) {
             ),
         glassStyle = if (reduceTransparency) GlassStyle.Frosted else glassStyle,
         dialogAnimation = dialogAnimation,
+        loadingAnimation = loadingAnimation,
+        glassMaterials = glassMaterials,
     ) {
         com.yfuse.app.BindProductServices(component)
         TvRoot(component)

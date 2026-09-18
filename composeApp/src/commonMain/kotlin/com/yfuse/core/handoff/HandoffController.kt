@@ -31,7 +31,17 @@ data class HandoffUiState(
     val message: String? = null,
     val error: String? = null,
     val connectionError: String? = null,
-)
+    val signedIn: Boolean = false,
+) {
+    val connectionLabel: String
+        get() =
+            when {
+                !signedIn -> "请先登录鱼服账号"
+                online -> "已连接"
+                connectionError != null -> "账号已登录，接力服务未连接"
+                else -> "账号已登录，正在连接接力服务"
+            }
+}
 
 /** One instance per application; [owner] must change on sign-out or account/profile switches. */
 class HandoffController(
@@ -59,7 +69,7 @@ class HandoffController(
         lifetime =
             scope.launch {
                 owner.collectLatest { identity ->
-                    _state.value = HandoffUiState()
+                    _state.value = HandoffUiState(signedIn = identity != null)
                     requests.value = emptyList()
                     sessionId = null
                     if (identity == null) return@collectLatest
@@ -89,13 +99,15 @@ class HandoffController(
                                     }
                                 } catch (cancelled: CancellationException) {
                                     throw cancelled
-                                } catch (_: Exception) {
+                                } catch (error: Exception) {
                                     _state.update {
                                         it.copy(
                                             online = false,
                                             devices = emptyList(),
                                             incoming = null,
-                                            connectionError = "无法连接设备接力服务，请稍后重试",
+                                            connectionError =
+                                                (error as? HandoffApiException)?.message
+                                                    ?: "无法连接设备接力服务，请检查网络后重试",
                                         )
                                     }
                                 }

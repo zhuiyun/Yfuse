@@ -7,6 +7,8 @@ import com.yfuse.watch.protocol.HandoffOffer
 import com.yfuse.watch.protocol.HandoffRequest
 import com.yfuse.watch.protocol.HandoffStatus
 import com.yfuse.watch.protocol.HandoffTransition
+import io.ktor.http.HttpStatusCode
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
@@ -20,6 +22,52 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class HandoffControllerTest {
+    @Test
+    fun missing_service_keeps_the_account_signed_in_and_recovery_clears_the_connection_error() =
+        runTest {
+            val api =
+                FakeApi { testScheduler.currentTime }.apply {
+                    heartbeatFailure = HandoffApiException(HttpStatusCode.NotFound)
+                }
+            val controller = controller(api, FakePlayback())
+            controller.start()
+            runCurrent()
+            assertTrue(controller.state.value.signedIn)
+            assertFalse(controller.state.value.online)
+            assertEquals("账号已登录，接力服务未连接", controller.state.value.connectionLabel)
+            assertTrue(assertNotNull(controller.state.value.connectionError).contains("服务端更新"))
+            api.heartbeatFailure = null
+            advanceTimeBy(10_000)
+            runCurrent()
+            assertTrue(controller.state.value.online)
+            assertNull(controller.state.value.connectionError)
+            assertEquals("已连接", controller.state.value.connectionLabel)
+            controller.close()
+        }
+
+    @Test
+    fun login_is_visible_while_heartbeat_waits_and_sign_out_cancels_the_pending_connection() =
+        runTest {
+            val gate = CompletableDeferred<Unit>()
+            val api = FakeApi { testScheduler.currentTime }.apply { heartbeatGate = gate }
+            val owner = MutableStateFlow<String?>("user:adult")
+            val controller = controller(api, FakePlayback(), owner = owner)
+            controller.start()
+            runCurrent()
+            assertTrue(controller.state.value.signedIn)
+            assertEquals("账号已登录，正在连接接力服务", controller.state.value.connectionLabel)
+            owner.value = null
+            runCurrent()
+            gate.complete(Unit)
+            advanceTimeBy(20_000)
+            runCurrent()
+            assertFalse(controller.state.value.signedIn)
+            assertFalse(controller.state.value.online)
+            assertNull(controller.state.value.connectionError)
+            assertEquals("请先登录鱼服账号", controller.state.value.connectionLabel)
+            controller.close()
+        }
+
     @Test
     fun sourcePausesOnlyAfterReadyAndCommitsLatestPosition() =
         runTest {
@@ -177,8 +225,12 @@ class HandoffControllerTest {
         var request: HandoffRequest? = null
         var completion = HandoffStatus.Completed
         var heartbeatFails = false
+        var heartbeatFailure: Exception? = null
+        var heartbeatGate: CompletableDeferred<Unit>? = null
 
         override suspend fun heartbeat(value: HandoffHeartbeat): HandoffInbox {
+            heartbeatGate?.await()
+            heartbeatFailure?.let { throw it }
             if (heartbeatFails) error("offline")
             return inbox()
         }

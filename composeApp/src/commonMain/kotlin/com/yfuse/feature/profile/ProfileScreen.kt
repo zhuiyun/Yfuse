@@ -110,6 +110,7 @@ import com.yfuse.core.designsystem.flatGlass as glass
 private enum class Sheet {
     StartupTab,
     DialogAnimation,
+    LoadingAnimation,
     ParticleLight,
     Background,
     PlaybackMode,
@@ -144,6 +145,7 @@ private enum class ProfilePage {
     Danmaku,
     WatchTogether,
     Appearance,
+    GlassMaterial,
     DataAndDiagnostics,
     Downloads,
     Splash,
@@ -226,6 +228,14 @@ private val SettingsSearchDestinations =
             tint = SettingTint.appearance,
         ),
         SettingsSearchDestination(
+            "玻璃材质",
+            "底色、透明度与背景遮罩",
+            "玻璃 材质 底色 透明度 遮罩 预览",
+            ProfilePage.GlassMaterial,
+            icon = AppIcons.Grid,
+            tint = SettingTint.appearance,
+        ),
+        SettingsSearchDestination(
             "播放",
             "版本偏好、画质、引擎、进度同步与跳过片头",
             "播放 版本 HDR 杜比 画质 解码 引擎 续播 进度 同步",
@@ -278,6 +288,8 @@ fun ProfileScreen(component: ProfileComponent) {
     val startupTab by prefs.startupTab.collectAsState()
     val glassStyle by prefs.glassStyle.collectAsState()
     val dialogAnimation by prefs.dialogAnimation.collectAsState()
+    val loadingAnimation by prefs.loadingAnimation.collectAsState()
+    val glassMaterials by prefs.glassMaterials.collectAsState()
     val backgroundImage by prefs.backgroundImage.collectAsState()
     val backgroundDim by prefs.backgroundDim.collectAsState()
     var appIcon by remember { mutableStateOf(currentAppIconVariant()) }
@@ -469,6 +481,13 @@ fun ProfileScreen(component: ProfileComponent) {
                         )
                     }
 
+                ProfilePage.GlassMaterial ->
+                    GlassMaterialSettingsScreen(
+                        materials = glassMaterials,
+                        onChange = prefs::setGlassMaterial,
+                        onBack = ::closePage,
+                    )
+
                 ProfilePage.Appearance ->
                     AppearanceSettingsScreen(
                         libraryCarousel = libraryCarousel,
@@ -488,9 +507,12 @@ fun ProfileScreen(component: ProfileComponent) {
                             },
                         startupSummary = "${startupTab.label} ›",
                         dialogAnimationSummary = "${dialogAnimation.label} · 全部 43 款 ›",
+                        loadingAnimationSummary = "${loadingAnimation.label} ›",
                         particleLightSummary = "${particleLight.label} · ${particleStyle.label} ›",
                         onParticleLight = { sheet = Sheet.ParticleLight },
                         onDialogAnimation = { sheet = Sheet.DialogAnimation },
+                        onLoadingAnimation = { sheet = Sheet.LoadingAnimation },
+                        onGlassMaterial = { openPage(ProfilePage.GlassMaterial) },
                         reduceTransparency = reduceTransparency,
                         largeText = largeText,
                         reduceMotion = reduceMotion,
@@ -800,6 +822,13 @@ fun ProfileScreen(component: ProfileComponent) {
         }
 
         when (sheet) {
+            Sheet.LoadingAnimation ->
+                LoadingAnimationSheet(
+                    selected = loadingAnimation,
+                    onSelect = prefs::setLoadingAnimation,
+                    onDismiss = { sheet = null },
+                )
+
             Sheet.ParticleLight ->
                 ParticleLightSheet(
                     selected = particleLight,

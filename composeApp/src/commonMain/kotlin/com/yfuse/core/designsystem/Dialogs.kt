@@ -135,6 +135,8 @@ fun GlassDialog(
     ) {
         ReportOverlayVisible()
         val palette = LocalPalette.current
+        val material = LocalGlassMaterials.current.forTheme(palette.isDark).normalized(palette.isDark)
+        val scrimColor = palette.scrim.copy(alpha = material.scrim)
         // The grey pane is not the page: `body` and `sub2` were measured against `background`
         // and landed at about 3:1 on the light dialog. Every dialog reads the recalibrated pair
         // from here, so the 48 call sites keep writing `palette.body` and get the right ink.
@@ -206,9 +208,8 @@ fun GlassDialog(
                     Modifier
                         .fillMaxSize()
                         .drawBehind {
-                            // The light scrim was 0.16, which left the page competing with the
-                            // panel; the token carries the calibrated alpha for each theme.
-                            drawRect(palette.scrim, alpha = progress().coerceIn(0f, 1f))
+                            // The theme carries the user's per-mode glass scrim.
+                            drawRect(scrimColor, alpha = progress().coerceIn(0f, 1f))
                         },
                 )
                 val panelScrollState = rememberScrollState()
@@ -534,6 +535,7 @@ fun OverlayOptionRow(
     modifier: Modifier = Modifier,
     description: String? = null,
     destructive: Boolean = false,
+    leadingContent: (@Composable () -> Unit)? = null,
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
@@ -578,6 +580,7 @@ fun OverlayOptionRow(
         horizontalArrangement = Arrangement.spacedBy(Dimens.space.md),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        leadingContent?.invoke()
         Column(Modifier.weight(1f)) {
             Text(
                 label,

@@ -2,6 +2,9 @@ package com.yfuse.core.data
 
 import com.russhwolf.settings.MapSettings
 import com.yfuse.core.designsystem.DialogAnimation
+import com.yfuse.core.designsystem.GlassMaterial
+import com.yfuse.core.designsystem.GlassMaterials
+import com.yfuse.core.designsystem.LoadingAnimation
 import com.yfuse.core.designsystem.ParticleLight
 import com.yfuse.core.designsystem.ThemeMode
 import com.yfuse.core.model.DecoderMode
@@ -14,6 +17,61 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class ThemePreferencesTest {
+    @Test
+    fun glass_parameters_survive_restart_and_reset_each_theme_independently() {
+        val settings = MapSettings()
+        val preferences = ThemePreferences(settings)
+        assertEquals(GlassMaterials(), preferences.glassMaterials.value)
+        val dark = GlassMaterial(0.4f, 0.6f, 0.2f)
+        preferences.setGlassMaterial(false, GlassMaterial.PreviousLight)
+        preferences.setGlassMaterial(true, dark)
+        val restored = ThemePreferences(settings)
+        assertEquals(GlassMaterial.PreviousLight, restored.glassMaterials.value.light)
+        assertEquals(dark, restored.glassMaterials.value.dark)
+        restored.setGlassMaterial(false, GlassMaterial.defaults(false))
+        val reset = ThemePreferences(settings)
+        assertEquals(GlassMaterial.defaults(false), reset.glassMaterials.value.light)
+        assertEquals(dark, reset.glassMaterials.value.dark)
+        assertFalse(reset.reduceTransparency.value)
+    }
+
+    @Test
+    fun corrupt_glass_parameters_are_normalized_before_rendering_or_saving() {
+        val settings = MapSettings()
+        settings.putString("appearance.glassMaterial.light", "NaN,2,-1")
+        settings.putString("appearance.glassMaterial.dark", "broken")
+        val preferences = ThemePreferences(settings)
+        assertEquals(GlassMaterial(1f, 1f, 0f), preferences.glassMaterials.value.light)
+        assertEquals(GlassMaterial.defaults(true), preferences.glassMaterials.value.dark)
+        preferences.setGlassMaterial(true, GlassMaterial(Float.POSITIVE_INFINITY, -10f, 10f))
+        assertEquals(GlassMaterial(0f, 0f, 1f), ThemePreferences(settings).glassMaterials.value.dark)
+    }
+
+    @Test
+    fun all_loading_choices_survive_restart_without_changing_accessibility() {
+        val settings = MapSettings()
+        val preferences = ThemePreferences(settings)
+        assertEquals(LoadingAnimation.Orbit, preferences.loadingAnimation.value)
+        preferences.setReduceMotion(true)
+        LoadingAnimation.entries.forEach { animation ->
+            preferences.setLoadingAnimation(animation)
+            assertEquals(animation, preferences.loadingAnimation.value)
+            val restored = ThemePreferences(settings)
+            assertEquals(animation, restored.loadingAnimation.value)
+            assertTrue(restored.reduceMotion.value)
+        }
+    }
+
+    @Test
+    fun unknown_loading_choice_falls_back_and_can_be_replaced() {
+        val settings = MapSettings()
+        settings.putString("appearance.loadingAnimation", "UnknownFutureStyle")
+        val preferences = ThemePreferences(settings)
+        assertEquals(LoadingAnimation.Orbit, preferences.loadingAnimation.value)
+        preferences.setLoadingAnimation(LoadingAnimation.BeadRelay)
+        assertEquals(LoadingAnimation.BeadRelay, ThemePreferences(settings).loadingAnimation.value)
+    }
+
     @Test
     fun library_carousel_defaults_to_original_layout_and_remembers_explicit_choice() {
         val settings = MapSettings()

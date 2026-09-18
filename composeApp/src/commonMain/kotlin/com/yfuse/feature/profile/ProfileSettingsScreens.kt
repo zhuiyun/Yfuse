@@ -467,6 +467,7 @@ internal fun AppearanceSettingsScreen(
     backgroundSummary: String,
     startupSummary: String,
     dialogAnimationSummary: String,
+    loadingAnimationSummary: String,
     particleLightSummary: String,
     onParticleLight: () -> Unit,
     reduceTransparency: Boolean,
@@ -477,6 +478,8 @@ internal fun AppearanceSettingsScreen(
     onBrand: () -> Unit,
     onStartupTab: () -> Unit,
     onDialogAnimation: () -> Unit,
+    onLoadingAnimation: () -> Unit,
+    onGlassMaterial: () -> Unit,
     onReduceTransparency: (Boolean) -> Unit,
     onLargeText: (Boolean) -> Unit,
     onReduceMotion: (Boolean) -> Unit,
@@ -523,6 +526,24 @@ internal fun AppearanceSettingsScreen(
                         true,
                         onDialogAnimation,
                         icon = AppIcons.Refresh,
+                        iconTint = SettingTint.components,
+                    )
+                    SettingsDivider()
+                    SettingRow(
+                        "加载动画",
+                        loadingAnimationSummary,
+                        true,
+                        onLoadingAnimation,
+                        icon = AppIcons.Refresh,
+                        iconTint = SettingTint.components,
+                    )
+                    SettingsDivider()
+                    SettingRow(
+                        "玻璃材质",
+                        "底色、透明度与背景遮罩 ›",
+                        true,
+                        onGlassMaterial,
+                        icon = AppIcons.Grid,
                         iconTint = SettingTint.components,
                     )
                     SettingsDivider()

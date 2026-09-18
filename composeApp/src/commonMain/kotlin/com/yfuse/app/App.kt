@@ -200,6 +200,8 @@ fun App(root: RootComponent) {
     val particleStyle by root.themePreferences.particleStyle.collectAsState()
     val dialogAnimation by root.themePreferences.dialogAnimation.collectAsState()
     val glassStyle by root.themePreferences.glassStyle.collectAsState()
+    val loadingAnimation by root.themePreferences.loadingAnimation.collectAsState()
+    val glassMaterials by root.themePreferences.glassMaterials.collectAsState()
     val backgroundImage by root.themePreferences.backgroundImage.collectAsState()
     val backgroundDim by root.themePreferences.backgroundDim.collectAsState()
     val dark = mode.resolveDark(isSystemInDarkTheme())
@@ -219,6 +221,8 @@ fun App(root: RootComponent) {
         // it turns off.
         glassStyle = if (reduceTransparency) GlassStyle.Frosted else glassStyle,
         dialogAnimation = dialogAnimation,
+        loadingAnimation = loadingAnimation,
+        glassMaterials = glassMaterials,
         particleLight = particleLight,
         particleStyle = particleStyle,
     ) {

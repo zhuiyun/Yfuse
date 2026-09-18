@@ -6,12 +6,13 @@
     -->
     <base-config cleartextTrafficPermitted="true" />
     <!--
-        Origins Yfuse itself fixes at build time are TLS-only: the update manifest host, metadata
-        providers and the Plex account service. A downgrade to http:// for any of these is a bug
-        or an interception attempt, never a configuration the user chose.
+        Network Security Configuration matches hosts, not ports. Do not put the shared
+        47.112.219.60 host here: its user-configured media service uses HTTP on port 19001.
+        AccountApi, AccountAccessTokenSource and the update source/download policy enforce
+        HTTPS for official services independently of this media-server compatibility setting.
+        Metadata providers and the Plex account service remain TLS-only at the platform layer.
     -->
     <domain-config cleartextTrafficPermitted="false">
-        <domain includeSubdomains="false">47.112.219.60</domain>
         <domain includeSubdomains="true">themoviedb.org</domain>
         <domain includeSubdomains="true">tmdb.org</domain>
         <domain includeSubdomains="true">trakt.tv</domain>

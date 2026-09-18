@@ -321,6 +321,8 @@ fun YfuseTheme(
     particleStyle: ParticleStyle = ParticleStyle.Stardust,
     particleLimit: Int = 64,
     particleActive: Boolean = true,
+    loadingAnimation: LoadingAnimation = LoadingAnimation.Orbit,
+    glassMaterials: GlassMaterials = GlassMaterials(),
     content: @Composable () -> Unit,
 ) {
     val targetPalette = if (dark) DarkPalette else LightPalette
@@ -336,7 +338,9 @@ fun YfuseTheme(
     CompositionLocalProvider(
         LocalAccessibilityOptions provides accessibility,
         LocalGlassStyle provides glassStyle,
+        LocalGlassMaterials provides glassMaterials,
         LocalDialogAnimation provides dialogAnimation,
+        LocalLoadingAnimation provides loadingAnimation,
         LocalParticleLight provides particleLight,
         LocalParticleStyle provides particleStyle,
         LocalParticleLimit provides particleLimit.coerceIn(0, 64),
@@ -359,7 +363,7 @@ fun YfuseTheme(
     "Emphasis is fixed product identity; call YfuseTheme without accent.",
     ReplaceWith(
         "YfuseTheme(dark, accessibility, glassStyle, dialogAnimation, particleLight, particleStyle, " +
-            "particleLimit, particleActive, content)",
+            "particleLimit, particleActive, loadingAnimation, glassMaterials, content)",
     ),
 )
 @Composable
@@ -373,6 +377,8 @@ fun YfuseTheme(
     particleStyle: ParticleStyle = ParticleStyle.Stardust,
     particleLimit: Int = 64,
     particleActive: Boolean = true,
+    loadingAnimation: LoadingAnimation = LoadingAnimation.Orbit,
+    glassMaterials: GlassMaterials = GlassMaterials(),
     content: @Composable () -> Unit,
 ) {
     YfuseTheme(
@@ -384,6 +390,8 @@ fun YfuseTheme(
         particleStyle = particleStyle,
         particleLimit = particleLimit,
         particleActive = particleActive,
+        loadingAnimation = loadingAnimation,
+        glassMaterials = glassMaterials,
         content = content,
     )
 }

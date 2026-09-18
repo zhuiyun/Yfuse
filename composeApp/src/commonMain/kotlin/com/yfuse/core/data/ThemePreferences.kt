@@ -5,7 +5,10 @@ import com.russhwolf.settings.Settings
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.DEFAULT_BACKGROUND_DIM
 import com.yfuse.core.designsystem.DialogAnimation
+import com.yfuse.core.designsystem.GlassMaterial
+import com.yfuse.core.designsystem.GlassMaterials
 import com.yfuse.core.designsystem.GlassStyle
+import com.yfuse.core.designsystem.LoadingAnimation
 import com.yfuse.core.designsystem.ParticleLight
 import com.yfuse.core.designsystem.ParticleStyle
 import com.yfuse.core.designsystem.SplashAnimation
@@ -43,6 +46,9 @@ class ThemePreferences(
         const val KEY_STARTUP_TAB = "appearance.startupTab"
         const val KEY_DIALOG_ANIMATION = "appearance.dialogAnimation"
         const val KEY_GLASS_STYLE = "appearance.glassStyle"
+        const val KEY_GLASS_LIGHT = "appearance.glassMaterial.light"
+        const val KEY_GLASS_DARK = "appearance.glassMaterial.dark"
+        const val KEY_LOADING_ANIMATION = "appearance.loadingAnimation"
         const val KEY_SERVER_LAYOUT = "appearance.serverLayout"
         const val KEY_BACKGROUND_IMAGE = "appearance.backgroundImage"
         const val KEY_BACKGROUND_DIM = "appearance.backgroundDim"
@@ -140,6 +146,34 @@ class ThemePreferences(
 
     private val _glassStyle = MutableStateFlow(load(KEY_GLASS_STYLE, GlassStyle.entries, GlassStyle.Liquid))
     val glassStyle: StateFlow<GlassStyle> = _glassStyle.asStateFlow()
+
+    private val _glassMaterials =
+        MutableStateFlow(
+            GlassMaterials(
+                light = GlassMaterial.decode(settings.getStringOrNull(KEY_GLASS_LIGHT), dark = false),
+                dark = GlassMaterial.decode(settings.getStringOrNull(KEY_GLASS_DARK), dark = true),
+            ),
+        )
+    val glassMaterials: StateFlow<GlassMaterials> = _glassMaterials.asStateFlow()
+
+    fun setGlassMaterial(
+        dark: Boolean,
+        material: GlassMaterial,
+    ) {
+        val value = material.normalized(dark)
+        settings.putString(if (dark) KEY_GLASS_DARK else KEY_GLASS_LIGHT, value.encode())
+        _glassMaterials.value =
+            if (dark) _glassMaterials.value.copy(dark = value) else _glassMaterials.value.copy(light = value)
+    }
+
+    private val _loadingAnimation =
+        MutableStateFlow(load(KEY_LOADING_ANIMATION, LoadingAnimation.entries, LoadingAnimation.Orbit))
+    val loadingAnimation: StateFlow<LoadingAnimation> = _loadingAnimation.asStateFlow()
+
+    fun setLoadingAnimation(animation: LoadingAnimation) {
+        settings.putString(KEY_LOADING_ANIMATION, animation.name)
+        _loadingAnimation.value = animation
+    }
 
     private val _serverLayout = MutableStateFlow(load(KEY_SERVER_LAYOUT, ServerLayout.entries, ServerLayout.Grid))
     val serverLayout: StateFlow<ServerLayout> = _serverLayout.asStateFlow()

@@ -10,6 +10,7 @@ import androidx.compose.ui.focus.FocusRequester
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.DialogAnimation
 import com.yfuse.core.designsystem.GlassStyle
+import com.yfuse.core.designsystem.LoadingAnimation
 import com.yfuse.core.designsystem.SplashAnimation
 import com.yfuse.core.designsystem.ThemeMode
 import com.yfuse.core.model.ServerLayout
@@ -24,12 +25,14 @@ internal fun TvAppearanceSettingsPage(
     focusMemory: TvUiFocusMemory,
     navigationRequester: FocusRequester,
     firstRowRequester: FocusRequester,
+    onGlassMaterial: () -> Unit,
 ) {
     val focusScope = "settings:appearance"
     val prefs = component.themePreferences
     val mode by prefs.mode.collectAsState()
     val dialogAnimation by prefs.dialogAnimation.collectAsState()
     val glassStyle by prefs.glassStyle.collectAsState()
+    val loadingAnimation by prefs.loadingAnimation.collectAsState()
     val reduceTransparency by prefs.reduceTransparency.collectAsState()
     val largeText by prefs.largeText.collectAsState()
     val reduceMotion by prefs.reduceMotion.collectAsState()
@@ -79,6 +82,19 @@ internal fun TvAppearanceSettingsPage(
                 navigationRequester = navigationRequester,
             )
         }
+        item(key = "appearance-glass-material") {
+            TvSettingRow(
+                title = "玻璃材质",
+                value = "调整",
+                stableId = "appearance:glass-material",
+                focusMemory = focusMemory,
+                onClick = onGlassMaterial,
+                icon = AppIcons.Expand,
+                focusScope = focusScope,
+                subtitle = "底色、透明度与背景遮罩，实时预览",
+                navigationRequester = navigationRequester,
+            )
+        }
         item(key = "appearance-dialog-animation") {
             TvChoiceRow(
                 title = "弹窗动画",
@@ -91,6 +107,21 @@ internal fun TvAppearanceSettingsPage(
                 icon = AppIcons.Refresh,
                 focusScope = focusScope,
                 subtitle = dialogAnimation.description,
+                navigationRequester = navigationRequester,
+            )
+        }
+        item(key = "appearance-loading-animation") {
+            TvChoiceRow(
+                title = "加载动画",
+                options = LoadingAnimation.entries,
+                selected = loadingAnimation,
+                label = { it.label },
+                stableId = "appearance:loading-animation",
+                focusMemory = focusMemory,
+                onSelect = prefs::setLoadingAnimation,
+                icon = AppIcons.Refresh,
+                focusScope = focusScope,
+                subtitle = loadingAnimation.description,
                 navigationRequester = navigationRequester,
             )
         }
