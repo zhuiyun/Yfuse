@@ -26,6 +26,11 @@ import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.Section
+import com.yfuse.core.designsystem.SettingRow
+import com.yfuse.core.designsystem.SettingsCard
+import com.yfuse.core.designsystem.SettingsDivider
+import com.yfuse.core.designsystem.SwitchRow
 import com.yfuse.core.designsystem.YfButton
 import com.yfuse.core.designsystem.YfButtonTone
 import com.yfuse.core.designsystem.YfFormField
@@ -38,14 +43,10 @@ import com.yfuse.core.personal.PersonalMediaRef
 import com.yfuse.core.personal.PersonalProfile
 import com.yfuse.core.personal.importServerCollections
 import com.yfuse.core.sync.ServerSyncManager
+import com.yfuse.core.sync.SyncMutationKind
 import com.yfuse.core.sync.playback.PlaybackSyncManager
-import com.yfuse.feature.profile.Section
-import com.yfuse.feature.profile.SettingRow
 import com.yfuse.feature.profile.SettingSegmentRow
-import com.yfuse.feature.profile.SettingsCard
-import com.yfuse.feature.profile.SettingsDivider
 import com.yfuse.feature.profile.SettingsPage
-import com.yfuse.feature.profile.SwitchRow
 import kotlinx.coroutines.launch
 import com.yfuse.core.designsystem.ThemeText as Text
 
@@ -118,7 +119,7 @@ fun PersonalCenterScreen(
                         SettingsCard {
                             SettingRow(
                                 "新建家庭资料",
-                                if (state.activeProfile.child) "请切换至成人资料" else "添加家庭成员 ›",
+                                if (state.activeProfile.child) "请切换至成人资料" else "添加家庭成员",
                                 embedded = true,
                                 icon = AppIcons.User,
                                 onClick =
@@ -138,7 +139,7 @@ fun PersonalCenterScreen(
                             SettingsDivider()
                             SettingRow(
                                 if (state.hasGuardianPin) "修改家长 PIN" else "设置家长 PIN",
-                                "儿童资料与切换保护 ›",
+                                "儿童资料与切换保护",
                                 embedded = true,
                                 onClick =
                                     if (busy) {
@@ -175,7 +176,7 @@ fun PersonalCenterScreen(
                                 ) {
                                     "正在使用"
                                 } else {
-                                    "切换到此资料 ›"
+                                    "切换到此资料"
                                 },
                                 embedded = true,
                                 onClick =
@@ -203,7 +204,7 @@ fun PersonalCenterScreen(
                             )
                             if (!state.activeProfile.child) {
                                 SettingsDivider()
-                                SettingRow("编辑资料", "名称、类型与服务器权限 ›", embedded = true, onClick = {
+                                SettingRow("编辑资料", "名称、类型与服务器权限", embedded = true, onClick = {
                                     editing = profile
                                     showEditor =
                                         true
@@ -251,7 +252,7 @@ fun PersonalCenterScreen(
                             SettingsDivider()
                             SettingRow(
                                 "立即同步",
-                                if (accountState !is AccountState.SignedIn) "请先登录鱼服账号" else "合并个人数据并重试 ›",
+                                if (accountState !is AccountState.SignedIn) "请先登录鱼服账号" else "合并个人数据并重试",
                                 embedded = true,
                                 icon = AppIcons.Refresh,
                                 onClick =
@@ -302,7 +303,7 @@ fun PersonalCenterScreen(
                             SettingsDivider()
                             SettingRow(
                                 "刷新与重试",
-                                "拉取最新播放进度 ›",
+                                "拉取最新播放进度",
                                 embedded = true,
                                 icon = AppIcons.Refresh,
                                 onClick =
@@ -335,16 +336,25 @@ fun PersonalCenterScreen(
                                 )
                             }
                             SettingsDivider()
-                            SettingRow("重试服务器同步", "重新提交待处理更改 ›", embedded = true, icon = AppIcons.Refresh, onClick = {
+                            SettingRow("重试服务器同步", "重新提交待处理更改", embedded = true, icon = AppIcons.Refresh, onClick = {
                                 scope.launch { serverSync.syncAll(force = true) }
                             })
                         }
                     }
                 }
-                items(serverState.conflicts.filter { personal.canAccessServer(it.mutation.serverId) }) { conflict ->
+                // `SettingsPage`'s content lambda is `LazyListScope.() -> Unit`, not @Composable,
+                // so this cannot be `remember`-cached — same constraint `visible` below lives with.
+                // Still computed once per list build rather than once per row.
+                val visibleConflicts =
+                    serverState.conflicts.filter { personal.canAccessServer(it.mutation.serverId) }
+                items(
+                    visibleConflicts,
+                    key = { "${it.mutation.serverId}|${it.mutation.itemId}|${it.mutation.kind}" },
+                    contentType = { "sync-conflict" },
+                ) { conflict ->
                     Section(title = conflict.mutation.title) {
                         SettingsCard {
-                            val kind = if (conflict.mutation.kind.name == "Favorite") "收藏" else "已看"
+                            val kind = if (conflict.mutation.kind == SyncMutationKind.Favorite) "收藏" else "已看"
                             SettingRow(
                                 kind + "冲突",
                                 "本机：" + conflict.mutation.desired + " · 服务器：" + conflict.serverValue,
@@ -384,7 +394,7 @@ fun PersonalCenterScreen(
                             SettingsCard {
                                 SettingRow(
                                     "从媒体服务器导入",
-                                    if (busy) "正在导入…" else "合并 Emby / Jellyfin 清单 ›",
+                                    if (busy) "正在导入…" else "合并 Emby / Jellyfin 清单",
                                     embedded = true,
                                     icon = AppIcons.Server,
                                     onClick =
@@ -521,7 +531,7 @@ private fun PersonalEntryCard(
                         } else {
                             null
                         },
-                    ).joinToString(" · ").ifBlank { "查看作品" } + " ›",
+                    ).joinToString(" · ").ifBlank { "查看作品" },
                 embedded = true,
                 icon = if (entry.collection == PersonalCollection.History) AppIcons.Play else AppIcons.Bookmark,
                 onClick = onOpen,

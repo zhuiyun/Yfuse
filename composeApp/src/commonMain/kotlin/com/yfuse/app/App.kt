@@ -545,7 +545,11 @@ private val DockVerticalPadding = 13.dp
  */
 @Composable
 internal fun dockHeight(): Dp {
-    val captionLine = with(LocalDensity.current) { AppTypography.caption.regular.lineHeight.toDp() }
+    val captionLine =
+        with(LocalDensity.current) {
+            AppTypography.caption.regular.lineHeight
+                .toDp()
+        }
     return dockHeight(captionLine)
 }
 

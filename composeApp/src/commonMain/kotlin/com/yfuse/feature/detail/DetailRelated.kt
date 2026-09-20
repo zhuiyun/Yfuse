@@ -23,6 +23,7 @@ import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.MediaSharedElementKey
 import com.yfuse.core.designsystem.Poster
+import com.yfuse.core.designsystem.SectionHeader
 import com.yfuse.core.designsystem.motionItemsIndexed
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.sharedMediaOnClick

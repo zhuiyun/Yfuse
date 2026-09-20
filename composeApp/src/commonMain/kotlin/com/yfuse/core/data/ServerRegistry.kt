@@ -864,7 +864,12 @@ class ServerRegistry(
                 event = "deferred_persist_failed",
                 message = "The saved server registry could not be written to storage",
                 throwable = error,
-                attributes = mapOf("serverCount" to to.data.servers.size.toString()),
+                attributes =
+                    mapOf(
+                        "serverCount" to
+                            to.data.servers.size
+                                .toString(),
+                    ),
             )
             return PersistFailure(to, error)
         }

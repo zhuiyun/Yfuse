@@ -25,6 +25,8 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.SettingRow
+import com.yfuse.core.designsystem.SettingsDivider
 import com.yfuse.core.designsystem.flatGlass
 
 @Composable

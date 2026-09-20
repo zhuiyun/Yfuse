@@ -60,7 +60,14 @@ class PlaybackSyncStoreTest {
 
         // Thirty ticks cost no serialization, yet every reader of this store sees the newest one.
         assertEquals(1, settings.documentWrites)
-        assertEquals(30_001L, store.find("tmdb:1")?.document?.state?.positionMs)
+        assertEquals(
+            30_001L,
+            store
+                .find("tmdb:1")
+                ?.document
+                ?.state
+                ?.positionMs,
+        )
         assertEquals(0L, persistedPosition(settings))
 
         store.play(42_000L, PlaybackSyncTrigger.Pause)
@@ -146,7 +153,14 @@ class PlaybackSyncStoreTest {
         assertTrue(store.pending().isEmpty())
         val restarted = PlaybackSyncStore(settings.backing)
         assertEquals(pending.mutationId, restarted.pending().single().mutationId)
-        assertEquals(40_000L, restarted.find("tmdb:1")?.document?.state?.positionMs)
+        assertEquals(
+            40_000L,
+            restarted
+                .find("tmdb:1")
+                ?.document
+                ?.state
+                ?.positionMs,
+        )
 
         store.flush()
         assertTrue(PlaybackSyncStore(settings.backing).pending().isEmpty())

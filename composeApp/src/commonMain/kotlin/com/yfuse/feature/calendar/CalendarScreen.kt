@@ -76,6 +76,7 @@ import com.yfuse.core.designsystem.PageHint
 import com.yfuse.core.designsystem.SkeletonBlock
 import com.yfuse.core.designsystem.SkeletonHandoff
 import com.yfuse.core.designsystem.StatusBarIconStyle
+import com.yfuse.core.designsystem.YfChip
 import com.yfuse.core.designsystem.animateRotationAsState
 import com.yfuse.core.designsystem.contentHandoff
 import com.yfuse.core.designsystem.contentPhase
@@ -285,26 +286,13 @@ fun CalendarScreen(component: CalendarComponent) {
                     ) {
                         motionItems(CalendarFilter.entries) { filter ->
                             val active = filter == state.filter
-                            Text(
-                                filter.label,
-                                style = AppTypography.caption.strong,
-                                color = selectionColor(if (active) accent.onAccent else palette.body),
-                                modifier =
-                                    Modifier
-                                        .pressable(role = Role.RadioButton) {
-                                            component.store.accept(CalendarIntent.SelectFilter(filter))
-                                            filtersExpanded = false
-                                        }.semantics { this.selected = active }
-                                        .touchTarget()
-                                        .clip(AppShapes.chip)
-                                        .background(selectionColor(if (active) accent.accent else Color.Transparent))
-                                        .then(
-                                            if (active) {
-                                                Modifier
-                                            } else {
-                                                Modifier.glass(AppShapes.chip, palette.card2, palette.border)
-                                            },
-                                        ).padding(horizontal = 13.dp, vertical = 6.dp),
+                            YfChip(
+                                label = filter.label,
+                                selected = active,
+                                onClick = {
+                                    component.store.accept(CalendarIntent.SelectFilter(filter))
+                                    filtersExpanded = false
+                                },
                             )
                         }
                     }
@@ -328,12 +316,18 @@ fun CalendarScreen(component: CalendarComponent) {
                             PageHint(
                                 "这段时间「${state.filter.label}」没有更新",
                                 Modifier.align(Alignment.Center),
+                                actionLabel = "查看全部",
+                                onAction = {
+                                    component.store.accept(CalendarIntent.SelectFilter(CalendarFilter.All))
+                                },
                             )
 
                         days.isEmpty() ->
                             PageHint(
                                 "这段时间没有查到在播剧集",
                                 Modifier.align(Alignment.Center),
+                                actionLabel = "刷新",
+                                onAction = { component.store.accept(CalendarIntent.Refresh) },
                             )
 
                         else ->
@@ -876,7 +870,9 @@ private fun EmptyCalendarDay(
         )
         Icon(
             AppIcons.ChevronDown,
-            contentDescription = if (expanded) "收起" else "展开",
+            // The row already carries the state via its own pressable onClickLabel, so the
+            // chevron stays decorative rather than announcing "收起"/"展开" a second time.
+            contentDescription = null,
             tint = palette.sub2,
             modifier = Modifier.size(16.dp),
         )
@@ -1061,6 +1057,7 @@ private fun TabletWeekCalendar(
     ) {
         week.forEach { day ->
             val isToday = day.date == today
+            val displayEntries = remember(day.entries) { coalesceCalendarEntries(day.entries) }
             Column(
                 Modifier
                     .weight(1f)
@@ -1096,7 +1093,7 @@ private fun TabletWeekCalendar(
                         verticalArrangement = Arrangement.spacedBy(7.dp),
                     ) {
                         motionItems(
-                            coalesceCalendarEntries(day.entries),
+                            displayEntries,
                             key = { it.entry.episode.mediaKey },
                         ) { display ->
                             TabletWeekEntryCard(display, onOpen)

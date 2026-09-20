@@ -57,6 +57,7 @@ import androidx.compose.ui.layout.LookaheadScope
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
@@ -656,6 +657,7 @@ private fun ServersHeader(
                 Modifier
                     .pressable(
                         haptic = HapticSignal.Select,
+                        label = "切换布局",
                         onClickLabel =
                             if (layout == ServerLayout.Grid) "改为列表展示" else "改为网格展示",
                         onClick = {
@@ -667,7 +669,9 @@ private fun ServersHeader(
                                 },
                             )
                         },
-                    ).touchTarget()
+                    ).semantics {
+                        stateDescription = if (layout == ServerLayout.Grid) "当前网格" else "当前列表"
+                    }.touchTarget()
                     .shadow(GlassLift.control, CircleShape)
                     .liquidGlass(CircleShape, palette.card2, palette.border, sheen = 0.75f)
                     .size(ServerHeaderCircleSize),
@@ -684,7 +688,7 @@ private fun ServersHeader(
                 Modifier
                     .pressable(
                         enabled = !refreshing,
-                        onClickLabel = "刷新全部服务器",
+                        label = "刷新全部服务器",
                         onClick = onRefreshAll,
                     ).touchTarget()
                     .shadow(GlassLift.control, CircleShape)
@@ -1143,7 +1147,7 @@ private fun ServerCard(
         Box(
             Modifier
                 .align(Alignment.TopEnd)
-                .pressable(onClickLabel = "打开${server.serverName}操作", onClick = onMore)
+                .pressable(label = "打开${server.serverName}操作", onClick = onMore)
                 .touchTarget(),
             contentAlignment = Alignment.Center,
         ) {
@@ -2176,6 +2180,7 @@ private fun ServerIconDialog(
                     row.forEach { swatch ->
                         val value = swatch.argbLong()
                         val selected = tint == value
+                        val swatchIndex = ServerIconTints.indexOf(swatch) + 1
                         Box(
                             Modifier
                                 .weight(1f)
@@ -2183,6 +2188,7 @@ private fun ServerIconDialog(
                                 .pressable(
                                     haptic = HapticSignal.Select,
                                     role = Role.RadioButton,
+                                    label = "预设颜色 $swatchIndex",
                                     onClickLabel = "选择颜色",
                                     onClick = { tint = value },
                                 ).semantics { this.selected = selected }

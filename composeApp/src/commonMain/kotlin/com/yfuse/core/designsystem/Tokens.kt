@@ -55,6 +55,35 @@ object Semantic {
 }
 
 /**
+ * Decorative hues for telling unrelated categories apart inside one sheet's own chrome —
+ * not status colours ([Semantic]) and not identity colours ([ServerIconTints]).
+ *
+ * [teal]/[coral]/[amber]/[plum]/[emerald]/[lavender] were three literal copies of the same
+ * six values (详情页更多操作、剧集播出日历各一份) before this became the one definition; [ramp]
+ * folds in a fourth, differently-valued six-colour list that 文件来源列表 rotated through by
+ * index for a per-server accent.
+ */
+object DecorativeTints {
+    val teal = Color(0xFF147E79)
+    val coral = Color(0xFFC96662)
+    val amber = Color(0xFFC4872E)
+    val plum = Color(0xFF76527E)
+    val emerald = Color(0xFF238963)
+    val lavender = Color(0xFF9582B3)
+
+    /** Index-addressable ramp for per-item colour rotation, e.g. `ramp[hash % ramp.size]`. */
+    val ramp: List<Color> =
+        listOf(
+            Color(0xFF4C7DF0),
+            Color(0xFF41A98A),
+            Color(0xFFD1705C),
+            Color(0xFF8B6FD1),
+            Color(0xFFD19A3F),
+            Color(0xFF3FA3C4),
+        )
+}
+
+/**
  * Stable per-server solid colour, deliberately free of gradients.
  *
  * A saved server has no artwork of its own, so its badge is the only thing that tells two
@@ -215,8 +244,7 @@ data class Palette(
     /** `--pg-tabbar-border` */
     val tabbarBorder: Color,
     val isDark: Boolean,
-    // ------------------------------------------------------------ material
-    /** Modal scrim, alpha included: what the page is dimmed by while a dialog is up. */
+    /** Material tokens start here. Modal scrim, alpha included: what the page is dimmed by while a dialog is up. */
     val scrim: Color,
     /** The dialog panel's own tint, alpha included — see [Modifier.mutedGlassPanel]. */
     val dialogTint: Color,

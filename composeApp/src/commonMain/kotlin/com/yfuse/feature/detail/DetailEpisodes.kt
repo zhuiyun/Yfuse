@@ -50,7 +50,6 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
@@ -582,7 +581,7 @@ private fun EpisodeCard(
                 Spacer(Modifier.height(3.dp))
                 Text(
                     episode.overview,
-                    style = AppTypography.caption.regular.copy(lineHeight = 16.5.sp),
+                    style = AppTypography.caption.reading,
                     color = palette.sub2,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,

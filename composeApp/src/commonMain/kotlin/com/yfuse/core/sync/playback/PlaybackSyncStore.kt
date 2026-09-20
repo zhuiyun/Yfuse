@@ -418,7 +418,11 @@ class PlaybackSyncStore(
                     positionMs.coerceAtLeast(0L) <= NEW_GENERATION_START_WINDOW_MS &&
                     (
                         existing?.document?.state?.played == true ||
-                            existing?.document?.state?.mutationKind?.isManual == true
+                            existing
+                                ?.document
+                                ?.state
+                                ?.mutationKind
+                                ?.isManual == true
                     )
             val state =
                 buildState(existing?.document?.state, mediaKey, aliases, now) { base ->

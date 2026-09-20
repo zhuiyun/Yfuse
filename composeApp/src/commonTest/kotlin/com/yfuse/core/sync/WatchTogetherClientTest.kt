@@ -53,8 +53,14 @@ class WatchTogetherClientTest {
         assertFalse(client.sendChat("hello"))
         assertFalse(client.sendReaction(WatchReaction.entries.first()))
 
-        assertTrue(client.state.value.chatMessages.isEmpty())
-        assertTrue(client.state.value.reactions.isEmpty())
+        assertTrue(
+            client.state.value.chatMessages
+                .isEmpty(),
+        )
+        assertTrue(
+            client.state.value.reactions
+                .isEmpty(),
+        )
         assertNull(client.state.value.chatError)
     }
 

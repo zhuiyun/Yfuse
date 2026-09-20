@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -36,14 +35,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.app.floatingNavigationContentInset
 import com.yfuse.app.systemNavigationContentInset
@@ -76,16 +73,20 @@ import com.yfuse.core.designsystem.OverlayOptionSpacing
 import com.yfuse.core.designsystem.PageLoadingSkeleton
 import com.yfuse.core.designsystem.ReportOverlayVisible
 import com.yfuse.core.designsystem.ScrollToTopOnReselect
+import com.yfuse.core.designsystem.Section
 import com.yfuse.core.designsystem.SettingIconTile
+import com.yfuse.core.designsystem.SettingRow
 import com.yfuse.core.designsystem.SettingTint
+import com.yfuse.core.designsystem.SettingsCard
+import com.yfuse.core.designsystem.SettingsDivider
 import com.yfuse.core.designsystem.SkeletonHandoff
 import com.yfuse.core.designsystem.SplashAnimation
 import com.yfuse.core.designsystem.SplashPreview
 import com.yfuse.core.designsystem.StatusBarIconStyle
+import com.yfuse.core.designsystem.SwitchRow
 import com.yfuse.core.designsystem.ThemeMode
 import com.yfuse.core.designsystem.WindowWidthTier
 import com.yfuse.core.designsystem.YfFormField
-import com.yfuse.core.designsystem.flatGlass
 import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.pressable
@@ -103,7 +104,6 @@ import com.yfuse.feature.player.PlayerMediaItem
 import kotlinx.coroutines.launch
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
-import com.yfuse.core.designsystem.flatGlass as glass
 
 /** Which option sheet is open. Theme and glass style are answered in place on the root page. */
 private enum class Sheet {
@@ -411,9 +411,9 @@ fun ProfileScreen(component: ProfileComponent) {
                         videoCacheSize = videoCacheSize,
                         skipSegments =
                             if (skipTimesBySeries.isEmpty()) {
-                                "${skipMode.label} · 跟随服务器 ›"
+                                "${skipMode.label} · 跟随服务器"
                             } else {
-                                "${skipMode.label} ›"
+                                skipMode.label
                             },
                         onPlaybackMode = { sheet = Sheet.PlaybackMode },
                         onMediaVersionPreference = { sheet = Sheet.MediaVersionPreference },
@@ -444,14 +444,14 @@ fun ProfileScreen(component: ProfileComponent) {
                         onBack = ::closePage,
                         sourceSummary =
                             when (danmakuSources.size) {
-                                0 -> "未配置 ›"
-                                1 -> "${danmakuSources.first().name} ›"
+                                0 -> "未配置"
+                                1 -> "${danmakuSources.first().name}"
                                 else -> {
                                     val active = danmakuSources.activeOr(danmakuActiveSourceId)
-                                    "${danmakuSources.size} 个 · ${active?.name.orEmpty()} ›"
+                                    "${danmakuSources.size} 个 · ${active?.name.orEmpty()}"
                                 }
                             },
-                        blockedSummary = if (danmakuBlocked.isEmpty()) "未设置 ›" else "${danmakuBlocked.size} 个 ›",
+                        blockedSummary = if (danmakuBlocked.isEmpty()) "未设置" else "${danmakuBlocked.size} 个",
                         onSources = { sheet = Sheet.DanmakuSource },
                         onBlockedWords = { sheet = Sheet.DanmakuBlocked },
                     )
@@ -492,20 +492,20 @@ fun ProfileScreen(component: ProfileComponent) {
                         onBack = ::closePage,
                         brandSummary =
                             if (splashAnimation) {
-                                "${appIcon.label} · 开屏已开启 ›"
+                                "${appIcon.label} · 开屏已开启"
                             } else {
-                                "${appIcon.label} · 开屏已关闭 ›"
+                                "${appIcon.label} · 开屏已关闭"
                             },
                         backgroundSummary =
                             if (backgroundImage == null) {
-                                "未设置 ›"
+                                "未设置"
                             } else {
-                                "已设置 · ${(backgroundDim * 100).toInt()}% 遮罩 ›"
+                                "已设置 · ${(backgroundDim * 100).toInt()}% 遮罩"
                             },
-                        startupSummary = "${startupTab.label} ›",
-                        dialogAnimationSummary = "${dialogAnimation.label} ›",
-                        loadingAnimationSummary = "${loadingAnimation.label} ›",
-                        particleLightSummary = "${particleLight.label} ›",
+                        startupSummary = startupTab.label,
+                        dialogAnimationSummary = dialogAnimation.label,
+                        loadingAnimationSummary = loadingAnimation.label,
+                        particleLightSummary = particleLight.label,
                         onParticleLight = { sheet = Sheet.ParticleLight },
                         onDialogAnimation = { sheet = Sheet.DialogAnimation },
                         onLoadingAnimation = { sheet = Sheet.LoadingAnimation },
@@ -624,10 +624,10 @@ fun ProfileScreen(component: ProfileComponent) {
                                             title = "账号与同步",
                                             value =
                                                 when (val account = accountState) {
-                                                    AccountState.Restoring -> "正在恢复 ›"
-                                                    is AccountState.RestoreFailed -> "连接失败 · 点此重试 ›"
-                                                    AccountState.SignedOut -> "未登录 ›"
-                                                    is AccountState.SignedIn -> "${account.session.user.nickname} · 加密同步 ›"
+                                                    AccountState.Restoring -> "正在恢复"
+                                                    is AccountState.RestoreFailed -> "连接失败 · 点此重试"
+                                                    AccountState.SignedOut -> "未登录"
+                                                    is AccountState.SignedIn -> "${account.session.user.nickname} · 加密同步"
                                                 },
                                             embedded = true,
                                             onClick = { openPage(ProfilePage.Account) },
@@ -639,10 +639,10 @@ fun ProfileScreen(component: ProfileComponent) {
                                             title = "服务器",
                                             value =
                                                 if (state.servers.isEmpty()) {
-                                                    "尚未连接 ›"
+                                                    "尚未连接"
                                                 } else {
                                                     val current = state.currentServer?.serverName
-                                                    "${state.servers.size} 台 · ${current ?: "未选择"} ›"
+                                                    "${state.servers.size} 台 · ${current ?: "未选择"}"
                                                 },
                                             embedded = true,
                                             onClick = component.onOpenServers,
@@ -684,7 +684,7 @@ fun ProfileScreen(component: ProfileComponent) {
                                         SettingsDivider()
                                         SettingRow(
                                             "更多外观与辅助",
-                                            "弹窗动画 · 背景 · 辅助功能 ›",
+                                            "弹窗动画 · 背景 · 辅助功能",
                                             embedded = true,
                                             onClick = { openPage(ProfilePage.Appearance) },
                                             icon = AppIcons.Info,
@@ -699,7 +699,7 @@ fun ProfileScreen(component: ProfileComponent) {
                                     SettingsCard {
                                         SettingRow(
                                             "播放设置",
-                                            "${playbackSettingsSummary(optimizationMode, decoder)} ›",
+                                            "${playbackSettingsSummary(optimizationMode, decoder)}",
                                             embedded = true,
                                             onClick = { openPage(ProfilePage.Playback) },
                                             icon = AppIcons.Play,
@@ -709,10 +709,10 @@ fun ProfileScreen(component: ProfileComponent) {
                                         SettingRow(
                                             "一起看",
                                             when {
-                                                !watchAvailable -> "登录后使用 ›"
+                                                !watchAvailable -> "登录后使用"
                                                 watchState.connected ->
-                                                    "房间 ${watchState.roomCode.orEmpty()} ›"
-                                                else -> "$watchNickname ›"
+                                                    "房间 ${watchState.roomCode.orEmpty()}"
+                                                else -> "$watchNickname"
                                             },
                                             embedded = true,
                                             onClick = {
@@ -737,9 +737,9 @@ fun ProfileScreen(component: ProfileComponent) {
                                         SettingRow(
                                             "弹幕设置",
                                             when (danmakuSources.size) {
-                                                0 -> "来源 · 关键词屏蔽 · 显示 ›"
-                                                1 -> "1 个来源 · 关键词屏蔽 ›"
-                                                else -> "${danmakuSources.size} 个来源 · 关键词屏蔽 ›"
+                                                0 -> "来源 · 关键词屏蔽 · 显示"
+                                                1 -> "1 个来源 · 关键词屏蔽"
+                                                else -> "${danmakuSources.size} 个来源 · 关键词屏蔽"
                                             },
                                             embedded = true,
                                             onClick = { openPage(ProfilePage.Danmaku) },
@@ -756,9 +756,9 @@ fun ProfileScreen(component: ProfileComponent) {
                                         DownloadRow(
                                             value =
                                                 when (offlineIndexStatus) {
-                                                    OfflineIndexStatus.Loading -> "正在读取… ›"
-                                                    OfflineIndexStatus.Failed -> "暂不可用 ›"
-                                                    OfflineIndexStatus.Ready -> "${offlineItems.size} 项 ›"
+                                                    OfflineIndexStatus.Loading -> "正在读取…"
+                                                    OfflineIndexStatus.Failed -> "暂不可用"
+                                                    OfflineIndexStatus.Ready -> "${offlineItems.size} 项"
                                                 },
                                             embedded = true,
                                             onClick = { openPage(ProfilePage.Downloads) },
@@ -770,13 +770,13 @@ fun ProfileScreen(component: ProfileComponent) {
                             motionItem {
                                 Section(title = "同步与数据") {
                                     SettingsCard {
-                                        SettingRow("同步状态与恢复", "个人内容 · 播放进度 · 服务器状态 ›", embedded = true, onClick = {
+                                        SettingRow("同步状态与恢复", "个人内容 · 播放进度 · 服务器状态", embedded = true, onClick = {
                                             openPage(ProfilePage.Sync)
                                         }, icon = AppIcons.Refresh, iconTint = SettingTint.account)
                                         SettingsDivider()
                                         SettingRow(
                                             "高级设置",
-                                            "网络兼容 · 备份 · 缓存 · 诊断 ›",
+                                            "网络兼容 · 备份 · 缓存 · 诊断",
                                             embedded = true,
                                             onClick = { openPage(ProfilePage.DataAndDiagnostics) },
                                             icon = AppIcons.Server,
@@ -1164,60 +1164,6 @@ internal val SettingsBackInset = 6.dp
 internal val SettingsHeaderTop = 8.dp
 
 @Composable
-internal fun SettingsCard(content: @Composable ColumnScope.() -> Unit) {
-    val palette = LocalPalette.current
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .flatGlass(AppShapes.card, palette.card2, palette.border),
-        content = content,
-    )
-}
-
-@Composable
-internal fun Section(
-    title: String,
-    action: String? = null,
-    onAction: () -> Unit = {},
-    content: @Composable () -> Unit,
-) {
-    val palette = LocalPalette.current
-    val accent = LocalAccentColors.current
-    Column(Modifier.padding(horizontal = Dimens.pageHorizontal)) {
-        Row(
-            Modifier.fillMaxWidth().padding(bottom = 8.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                title,
-                style = AppTypography.body.strong.copy(letterSpacing = 0.5.sp),
-                color = palette.sub2,
-            )
-            if (action != null) {
-                Text(
-                    action,
-                    style = AppTypography.caption.strong,
-                    color = accent.accent,
-                    modifier =
-                        Modifier
-                            .pressable(onClick = onAction)
-                            .touchTarget()
-                            .liquidGlass(
-                                shape = AppShapes.chip,
-                                fill = palette.card2,
-                                border = palette.border,
-                                over = palette.background,
-                                sheen = 0.52f,
-                            ).padding(horizontal = 10.dp, vertical = 5.dp),
-                )
-            }
-        }
-        content()
-    }
-}
-
-@Composable
 private fun SettingsSearchResults(
     query: String,
     onOpen: (ProfilePage) -> Unit,
@@ -1244,7 +1190,7 @@ private fun SettingsSearchResults(
                 results.forEachIndexed { index, destination ->
                     SettingRow(
                         title = destination.title,
-                        value = "${destination.summary} ›",
+                        value = destination.summary,
                         embedded = true,
                         onClick = {
                             if (destination.opensServers) {
@@ -1258,62 +1204,6 @@ private fun SettingsSearchResults(
                     )
                     if (index < results.lastIndex) SettingsDivider()
                 }
-            }
-        }
-    }
-}
-
-@Composable
-internal fun SettingRow(
-    title: String,
-    value: String,
-    embedded: Boolean = false,
-    onClick: (() -> Unit)? = null,
-    icon: ImageVector? = null,
-    iconTint: Color = Color.Unspecified,
-) {
-    val palette = LocalPalette.current
-    val largeText = LocalDensity.current.fontScale >= 1.3f
-    val rowModifier =
-        Modifier
-            .fillMaxWidth()
-            .let { if (embedded) it else it.glass(AppShapes.control, palette.card2, palette.border) }
-            .let {
-                if (onClick != null) {
-                    it.pressable(onClickLabel = title, onClick = onClick)
-                } else {
-                    it
-                }
-            }.heightIn(min = MinTouchTarget)
-            .padding(horizontal = 16.dp, vertical = 13.dp)
-    BoxWithConstraints(rowModifier) {
-        val stacked = largeText || windowWidthTier(maxWidth) == WindowWidthTier.Compact
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (icon != null) SettingIconTile(icon, iconTint)
-            if (stacked) {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(title, style = AppTypography.body.medium, color = palette.text)
-                    Text(value, style = AppTypography.body.regular, color = palette.sub2)
-                }
-            } else {
-                Text(
-                    title,
-                    style = AppTypography.body.medium,
-                    color = palette.text,
-                    maxLines = 2,
-                    modifier = Modifier.weight(1f),
-                )
-                Text(
-                    value,
-                    style = AppTypography.body.regular,
-                    color = palette.sub2,
-                    maxLines = 2,
-                    textAlign = TextAlign.End,
-                )
             }
         }
     }
@@ -1461,33 +1351,6 @@ private fun AppIconRow(
     }
 }
 
-/**
- * Hand-off to [com.yfuse.core.designsystem.SwitchRow], which now owns the implementation.
- *
- * Kept so the settings screens can keep calling the name they already import; they migrate
- * to the design-system import in a later pass.
- */
-@Composable
-internal fun SwitchRow(
-    title: String,
-    checked: Boolean,
-    embedded: Boolean = false,
-    icon: ImageVector? = null,
-    iconTint: Color = Color.Unspecified,
-    description: String? = null,
-    onChange: (Boolean) -> Unit,
-) {
-    com.yfuse.core.designsystem.SwitchRow(
-        title = title,
-        checked = checked,
-        embedded = embedded,
-        icon = icon,
-        iconTint = iconTint,
-        description = description,
-        onChange = onChange,
-    )
-}
-
 @Composable
 private fun BackgroundImageSheet(
     current: String?,
@@ -1624,16 +1487,6 @@ private fun SettingSegmentControl(
         selectedIndex = selectedIndex,
         expanded = expanded,
         onSelect = onSelect,
-    )
-}
-
-@Composable
-internal fun SettingsDivider() {
-    val palette = LocalPalette.current
-    Box(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp).height(1.dp).background(
-            palette.border.copy(alpha = if (palette.isDark) 0.24f else 0.48f),
-        ),
     )
 }
 

@@ -34,10 +34,13 @@ import com.yfuse.core.data.PlaybackTrackRequest
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.DecorativeTints
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.DolbyChip
 import com.yfuse.core.designsystem.GlassLift
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.RecommendBadge
+import com.yfuse.core.designsystem.SectionHeader
 import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.motionItems
@@ -395,7 +398,6 @@ internal fun VersionSection(
     onSelect: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val palette = LocalPalette.current
     // Nothing to choose between, nothing to show: 媒体信息 now spells the file out in full,
     // so a 规格 summary here would state the same facts twice, less completely.
     if (versions.size <= 1) return
@@ -404,9 +406,8 @@ internal fun VersionSection(
         SectionHeader(
             title = "版本",
             modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),
-        ) {
-            Text("${versions.size} 个版本", style = AppTypography.caption.medium, color = palette.sub2)
-        }
+            actionLabel = "${versions.size} 个版本",
+        )
         LazyRow(
             modifier = Modifier.selectableGroup(),
             contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
@@ -640,28 +641,9 @@ internal fun SourceSection(
         SectionHeader(
             title = "资源比较",
             modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),
-        ) {
-            Row(
-                Modifier
-                    .pressable(onClickLabel = "查看全部资源", onClick = onSeeAll)
-                    .touchTarget()
-                    .padding(start = 10.dp, top = 2.dp, bottom = 2.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    "查看全部 · ${availableSources.size}",
-                    style = AppTypography.caption.strong,
-                    color = palette.body,
-                )
-                Icon(
-                    AppIcons.ChevronRight,
-                    contentDescription = "查看全部资源",
-                    tint = palette.sub2,
-                    modifier = Modifier.size(12.dp),
-                )
-            }
-        }
+            actionLabel = "全部 · ${availableSources.size}",
+            onAction = onSeeAll,
+        )
         if (loading || error != null || availableSources.isEmpty()) {
             Text(
                 when {
@@ -793,16 +775,7 @@ private fun SourceCard(
                 modifier = Modifier.weight(1f, fill = false),
             )
             if (best) {
-                Text(
-                    "推荐",
-                    style = AppTypography.caption.strong,
-                    color = Color(0xFF9A6B12),
-                    modifier =
-                        Modifier
-                            .clip(AppShapes.chip)
-                            .background(Color(0xFFF5C86A).copy(alpha = 0.30f))
-                            .padding(horizontal = 6.dp, vertical = 2.dp),
-                )
+                RecommendBadge()
             }
         }
         Row(
@@ -880,15 +853,7 @@ private fun CountChip(
  * index would drift every time the list changed.
  */
 internal fun serverTint(serverId: String): Color {
-    val palette =
-        listOf(
-            Color(0xFF4C7DF0),
-            Color(0xFF41A98A),
-            Color(0xFFD1705C),
-            Color(0xFF8B6FD1),
-            Color(0xFFD19A3F),
-            Color(0xFF3FA3C4),
-        )
+    val palette = DecorativeTints.ramp
     val index = (serverId.hashCode().toLong() and 0xFFFFFFFFL) % palette.size
     return palette[index.toInt()]
 }

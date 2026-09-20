@@ -26,6 +26,7 @@ import com.yfuse.core.designsystem.DolbyChip
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OverlayHeader
+import com.yfuse.core.designsystem.RecommendBadge
 import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.solidGlass
@@ -185,16 +186,7 @@ private fun SourceRow(
                 modifier = Modifier.weight(1f, fill = false),
             )
             if (best) {
-                Text(
-                    "推荐",
-                    style = AppTypography.caption.strong,
-                    color = Color(0xFF9A6B12),
-                    modifier =
-                        Modifier
-                            .clip(AppShapes.chip)
-                            .background(Color(0xFFF5C86A).copy(alpha = 0.30f))
-                            .padding(horizontal = 6.dp, vertical = 2.dp),
-                )
+                RecommendBadge()
             }
             Spacer(Modifier.weight(1f))
             Text(

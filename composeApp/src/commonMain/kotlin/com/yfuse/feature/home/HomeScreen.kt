@@ -33,6 +33,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -316,6 +317,13 @@ internal fun HomeContentBody(
         val scrolledPastHero by rememberScrolledPastHero(listState, heroHeight)
         val heroVisible = !scrolledPastHero
         StatusBarIconStyle(darkIcons = !heroVisible && !palette.isDark)
+        // Reading `listState.isScrollInProgress` directly in the item's content recomposed the
+        // hero every time a scroll started or stopped (LibraryHomeScreen's carouselVisible
+        // already takes this shape); derivedStateOf collapses that to one flip per visibility
+        // change instead of one recomposition per scroll-state tick.
+        val heroCarouselVisible by remember(listState) {
+            derivedStateOf { !scrolledPastHero && !listState.isScrollInProgress }
+        }
         // 首页 and 媒体库 open on the same full-bleed reel, and they used to disagree about how
         // tall it is: this one sized itself from the window and from whether 继续观看 had
         // anything in it, so the same carousel was one height on the library tab and a
@@ -357,7 +365,7 @@ internal fun HomeContentBody(
                                 userName = state.server?.userName,
                                 height = heroHeight,
                                 showSidePreview = showSidePreview,
-                                visible = heroVisible && !listState.isScrollInProgress,
+                                visible = heroCarouselVisible,
                                 onOpenProfile = onOpenProfile,
                                 onOpenCalendar = onOpenCalendar,
                                 onPlay = { onIntent(HomeIntent.Play(it)) },
@@ -1192,34 +1200,8 @@ private fun ContinueWatching(
     onClick: (HomeResumeEntry) -> Unit,
     onQuickActions: (HomeResumeEntry) -> Unit,
 ) {
-    val palette = LocalPalette.current
     Column {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = Dimens.pageHorizontal)
-                .padding(bottom = 10.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(7.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text("继续观看", style = AppTypography.section.strong, color = palette.text)
-                HomeSourceBadge("Emby")
-            }
-            Text(
-                "全部 ›",
-                style = AppTypography.caption.medium,
-                color = palette.sub2,
-                modifier =
-                    Modifier
-                        .pressable(onClick = onSeeAll)
-                        .touchTarget()
-                        .padding(horizontal = 10.dp, vertical = 8.dp),
-            )
-        }
+        HomeShelfHeader(title = "继续观看", source = "Emby", onSeeAll = onSeeAll)
         LazyRow(
             contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
             horizontalArrangement = Arrangement.spacedBy(11.dp),
@@ -1360,11 +1342,17 @@ private fun LibraryMediaShelf(
     }
 }
 
+/**
+ * Shared by every home shelf that carries a source badge next to its title (继续观看, 追剧日历,
+ * 媒体库, 为你推荐) — they had drifted into four inline copies of the same row, one of which
+ * (this one) baked its chevron into the "全部 ›" string instead of drawing it.
+ */
 @Composable
 private fun HomeShelfHeader(
     title: String,
     source: String,
     onSeeAll: () -> Unit,
+    onSeeAllLabel: String? = null,
 ) {
     val palette = LocalPalette.current
     Row(
@@ -1376,16 +1364,22 @@ private fun HomeShelfHeader(
             Text(title, style = AppTypography.section.strong, color = palette.text)
             HomeSourceBadge(source)
         }
-        Text(
-            "全部 ›",
-            style = AppTypography.caption.medium,
-            color = palette.sub2,
-            modifier =
-                Modifier
-                    .pressable(onClick = onSeeAll)
-                    .touchTarget()
-                    .padding(horizontal = 10.dp, vertical = 8.dp),
-        )
+        Row(
+            Modifier
+                .pressable(onClickLabel = onSeeAllLabel, onClick = onSeeAll)
+                .touchTarget()
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("全部", style = AppTypography.caption.medium, color = palette.sub2)
+            Icon(
+                AppIcons.ChevronRight,
+                contentDescription = null,
+                tint = palette.hint,
+                modifier = Modifier.size(11.dp),
+            )
+        }
     }
 }
 
@@ -1505,31 +1499,8 @@ private fun HomeCalendarShelf(
     onClick: (HomeCalendarPreview) -> Unit,
     onQuickActions: (HomeCalendarPreview) -> Unit,
 ) {
-    val palette = LocalPalette.current
     Column {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = Dimens.pageHorizontal).padding(bottom = 12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(7.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text("追剧日历", style = AppTypography.section.strong, color = palette.text)
-                HomeSourceBadge("日历")
-            }
-            Text(
-                "全部 ›",
-                style = AppTypography.caption.medium,
-                color = palette.sub2,
-                modifier =
-                    Modifier
-                        .pressable(onClickLabel = "打开追剧中心", onClick = onSeeAll)
-                        .touchTarget()
-                        .padding(horizontal = 10.dp, vertical = 8.dp),
-            )
-        }
+        HomeShelfHeader(title = "追剧日历", source = "日历", onSeeAll = onSeeAll, onSeeAllLabel = "打开追剧中心")
         LazyRow(
             contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -1578,31 +1549,8 @@ private fun Recommended(
     onClick: (TmdbItem) -> Unit,
     onQuickActions: (TmdbItem) -> Unit,
 ) {
-    val palette = LocalPalette.current
     Column {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = Dimens.pageHorizontal).padding(bottom = 12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(7.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(title, style = AppTypography.section.strong, color = palette.text)
-                HomeSourceBadge("TMDB")
-            }
-            Text(
-                "全部 ›",
-                style = AppTypography.caption.medium,
-                color = palette.sub2,
-                modifier =
-                    Modifier
-                        .pressable(onClick = onSeeAll)
-                        .touchTarget()
-                        .padding(horizontal = 10.dp, vertical = 8.dp),
-            )
-        }
+        HomeShelfHeader(title = title, source = "TMDB", onSeeAll = onSeeAll)
         LazyRow(
             contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
             horizontalArrangement = Arrangement.spacedBy(12.dp),

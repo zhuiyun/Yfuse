@@ -87,6 +87,8 @@ import com.yfuse.core.designsystem.PageHint
 import com.yfuse.core.designsystem.RefreshIndicator
 import com.yfuse.core.designsystem.RefreshThresholdHaptics
 import com.yfuse.core.designsystem.ScrollToTopOnReselect
+import com.yfuse.core.designsystem.SectionHeader
+import com.yfuse.core.designsystem.SettingRow
 import com.yfuse.core.designsystem.SkeletonArrivalScope
 import com.yfuse.core.designsystem.SkeletonRail
 import com.yfuse.core.designsystem.StatusBarIconStyle
@@ -127,6 +129,7 @@ import com.yfuse.core.designsystem.rememberRetainedArtworkPageColor
 import com.yfuse.core.designsystem.rememberScrolledPastHero
 import com.yfuse.core.designsystem.scrim
 import com.yfuse.core.designsystem.selectionColor
+import com.yfuse.core.designsystem.serverBadgeColor
 import com.yfuse.core.designsystem.sharedMediaArtwork
 import com.yfuse.core.designsystem.sharedMediaOnClick
 import com.yfuse.core.designsystem.skeletonSweep
@@ -366,6 +369,12 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                     PageHint(
                         "当前资料没有可用服务器，请到「服务器」添加或由家长关联",
                         Modifier.align(Alignment.Center),
+                        // No "跳到添加服务器" entry point reaches this screen without threading a
+                        // new callback through LibraryComponent/root navigation (out of this
+                        // package's scope); refresh at least recovers a profile/server change
+                        // made elsewhere without a full app restart.
+                        actionLabel = "重试",
+                        onAction = { store.accept(LibraryIntent.Retry) },
                     )
 
                 state.error != null && state.content.isEmpty ->
@@ -406,9 +415,9 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                                 vertical = 12.dp,
                                             ),
                                         ) {
-                                            com.yfuse.feature.profile.SettingRow(
+                                            SettingRow(
                                                 title = "媒体库",
-                                                value = state.currentServer?.serverName.orEmpty() + " ›",
+                                                value = state.currentServer?.serverName.orEmpty(),
                                                 icon = AppIcons.Server,
                                                 onClick = { serverMenuOpen = true },
                                             )
@@ -609,6 +618,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                             rows = state.content.rows,
                                             playlists = state.content.playlists,
                                             onOpen = { component.onSeeAll(it.libraryId, it.title) },
+                                            onRetry = { store.accept(LibraryIntent.Retry) },
                                             onOpenPlaylists = {
                                                 state.currentServer?.id?.let { serverId ->
                                                     component.onSeeAll(
@@ -1015,7 +1025,7 @@ private fun ServerSheet(
                         Modifier
                             .size(34.dp)
                             .clip(AppShapes.thumb)
-                            .background(serverTileColor(server.id)),
+                            .background(serverBadgeColor(server.id)),
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
@@ -1071,28 +1081,10 @@ private fun ServerSheet(
 }
 
 /**
- * Stable identity colour per server, matching 「我的」's server list. Kept local to the
- * media library rather than shared, because the profile page owns the same four-colour
- * ramp; if a third surface ever needs it, that is the moment to lift it into the
- * design system.
- */
-private fun serverTileColor(id: String): Color {
-    val index = id.hashCode().let { if (it == Int.MIN_VALUE) 0 else kotlin.math.abs(it) }
-    return ServerTileColors[index % ServerTileColors.size]
-}
-
-private val ServerTileColors =
-    listOf(
-        Color(0xFF6689D3),
-        Color(0xFFC98F5B),
-        Color(0xFF8298C1),
-        Color(0xFF7198CB),
-    )
-
-/**
  * Category cards — 148×88, using the library's own artwork cropped to fill
  * under the `0deg rgba(0,0,0,.35) → transparent 60%` scrim. Tapping one opens that
- * library's grid.
+ * library's grid — or, when that category failed to load, retries instead of opening a
+ * grid that would just come up empty.
  */
 @Composable
 private fun CategoryCards(
@@ -1102,6 +1094,7 @@ private fun CategoryCards(
     playlists: List<MediaContainer>,
     onOpen: (HomeRow) -> Unit,
     onOpenPlaylists: () -> Unit,
+    onRetry: () -> Unit,
 ) {
     LazyRow(
         contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
@@ -1122,10 +1115,10 @@ private fun CategoryCards(
                 }
             LibraryCategoryCard(
                 title = row.title,
-                countLabel = if (row.loadFailed) "加载失败" else "${row.totalCount}部",
+                countLabel = if (row.loadFailed) "加载失败，点击重试" else "${row.totalCount}部",
                 coverUrl = coverUrl,
                 fallbackIcon = personalIcon,
-                onClick = { onOpen(row) },
+                onClick = { if (row.loadFailed) onRetry() else onOpen(row) },
             )
         }
 
@@ -1293,59 +1286,7 @@ private fun PlaybackHistory(
 }
 
 /**
- * One heading scale for the whole page. 播放记录 used to be 18sp while every category
- * below it was 15sp, so the first row read as a level above its siblings for no reason.
- * 15sp/700 is the section step used by the detail page and the design's `font:700 15px`.
- */
-@Composable
-private fun SectionHeader(
-    title: String,
-    onSeeAll: (() -> Unit)? = null,
-) {
-    val palette = LocalPalette.current
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = Dimens.pageHorizontal)
-            .padding(bottom = 10.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            title,
-            style = AppTypography.section.strong,
-            color = palette.text,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f, fill = false),
-        )
-        if (onSeeAll != null) {
-            // 「影视详情页 优化」spells this as `更多 ›` in the secondary ink, not a chip.
-            // The chip it replaces was filled `palette.card2` over a `palette.border`
-            // hairline — both pure white on this page's white, so all it contributed was
-            // a floating label with a smudge behind it.
-            Row(
-                Modifier
-                    .pressable(onClickLabel = "查看${title}的全部内容", onClick = onSeeAll)
-                    .touchTarget()
-                    .padding(start = 10.dp, top = 2.dp, bottom = 2.dp),
-                horizontalArrangement = Arrangement.spacedBy(3.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text("更多", style = AppTypography.caption.medium, color = palette.sub2)
-                Icon(
-                    AppIcons.ChevronRight,
-                    contentDescription = null,
-                    tint = palette.hint,
-                    modifier = Modifier.size(11.dp),
-                )
-            }
-        }
-    }
-}
-
-/**
- * Category block — a 15sp header with `更多 ›`, over a 104×150 poster rail with
+ * Category block — a 15sp header with `全部`, over a 104×150 poster rail with
  * title/year below each artwork.
  */
 @Composable
@@ -1358,10 +1299,10 @@ private fun CategorySection(
     onItemClick: (MediaItem) -> Unit,
 ) {
     Column {
-        SectionHeader(row.title, onSeeAll = onSeeAll)
+        SectionHeader(row.title, actionLabel = "全部", onAction = onSeeAll)
         if (row.loadFailed) {
             Text(
-                text = "暂时无法加载，点击“更多”查看或下拉重试",
+                text = "暂时无法加载，点击“全部”查看或下拉重试",
                 style = AppTypography.caption.regular,
                 color = LocalPalette.current.sub,
                 modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),

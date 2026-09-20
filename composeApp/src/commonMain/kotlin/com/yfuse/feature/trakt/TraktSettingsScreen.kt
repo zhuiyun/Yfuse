@@ -11,14 +11,14 @@ import androidx.compose.ui.platform.LocalUriHandler
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.Section
+import com.yfuse.core.designsystem.SettingRow
+import com.yfuse.core.designsystem.SettingsCard
+import com.yfuse.core.designsystem.SettingsDivider
+import com.yfuse.core.designsystem.SwitchRow
 import com.yfuse.core.designsystem.ThemeText
 import com.yfuse.core.trakt.TraktRepository
-import com.yfuse.feature.profile.Section
-import com.yfuse.feature.profile.SettingRow
-import com.yfuse.feature.profile.SettingsCard
-import com.yfuse.feature.profile.SettingsDivider
 import com.yfuse.feature.profile.SettingsPage
-import com.yfuse.feature.profile.SwitchRow
 import io.ktor.http.Url
 
 @Composable
@@ -61,7 +61,7 @@ fun TraktSettingsScreen(
                         SettingsDivider()
                         SettingRow(
                             "连接 Trakt",
-                            "打开授权 ›",
+                            "打开授权",
                             embedded = true,
                             onClick =
                                 if (canConnect) {
@@ -104,7 +104,7 @@ fun TraktSettingsScreen(
                             SettingsDivider()
                             SettingRow(
                                 "打开授权网页",
-                                "前往 Trakt ›",
+                                "前往 Trakt",
                                 embedded = true,
                                 onClick = { uriHandler.openUri(challenge.verificationUrl) },
                             )
@@ -121,14 +121,14 @@ fun TraktSettingsScreen(
                     SettingsCard {
                         SettingRow(
                             "导入想看单",
-                            if (state.busy) "正在处理…" else "合并到当前资料 ›",
+                            if (state.busy) "正在处理…" else "合并到当前资料",
                             embedded = true,
                             onClick = if (state.busy) null else repository::importWatchlist,
                         )
                         SettingsDivider()
                         SettingRow(
                             "导入观看历史",
-                            if (state.busy) "正在处理…" else "合并到当前资料 ›",
+                            if (state.busy) "正在处理…" else "合并到当前资料",
                             embedded = true,
                             onClick = if (state.busy) null else repository::importHistory,
                         )

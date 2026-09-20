@@ -36,6 +36,7 @@ import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.Poster
+import com.yfuse.core.designsystem.YfChip
 import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.overlayDismiss
@@ -87,10 +88,38 @@ internal fun EpisodeProgressManager(
                     contentPadding = PaddingValues(horizontal = 16.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    motionItem { PresetChip("全选", accent, !saving) { onPreset(EpisodeSelectionPreset.All) } }
-                    motionItem { PresetChip("选择已看", accent, !saving) { onPreset(EpisodeSelectionPreset.Watched) } }
-                    motionItem { PresetChip("选择未看", accent, !saving) { onPreset(EpisodeSelectionPreset.Unwatched) } }
-                    motionItem { PresetChip("反选", accent, !saving) { onPreset(EpisodeSelectionPreset.Invert) } }
+                    motionItem {
+                        YfChip(
+                            "全选",
+                            selected = false,
+                            enabled = !saving,
+                            onClick = { onPreset(EpisodeSelectionPreset.All) },
+                        )
+                    }
+                    motionItem {
+                        YfChip(
+                            "选择已看",
+                            selected = false,
+                            enabled = !saving,
+                            onClick = { onPreset(EpisodeSelectionPreset.Watched) },
+                        )
+                    }
+                    motionItem {
+                        YfChip(
+                            "选择未看",
+                            selected = false,
+                            enabled = !saving,
+                            onClick = { onPreset(EpisodeSelectionPreset.Unwatched) },
+                        )
+                    }
+                    motionItem {
+                        YfChip(
+                            "反选",
+                            selected = false,
+                            enabled = !saving,
+                            onClick = { onPreset(EpisodeSelectionPreset.Invert) },
+                        )
+                    }
                 }
                 Spacer(Modifier.height(10.dp))
                 LazyColumn(
@@ -149,27 +178,6 @@ private fun ProgressManagerHeader(
             Icon(AppIcons.Close, contentDescription = "关闭", tint = palette.text, modifier = Modifier.size(15.dp))
         }
     }
-}
-
-@Composable
-private fun PresetChip(
-    label: String,
-    accent: Color,
-    enabled: Boolean,
-    onClick: () -> Unit,
-) {
-    val palette = LocalPalette.current
-    Text(
-        label,
-        style = AppTypography.caption.strong,
-        color = if (enabled) accent else palette.sub2,
-        modifier =
-            Modifier
-                .pressable(enabled = enabled, onClick = onClick)
-                .heightIn(min = 44.dp)
-                .solidGlass(AppShapes.chip, accent.copy(alpha = 0.10f), accent.copy(alpha = 0.22f))
-                .padding(horizontal = 13.dp, vertical = 10.dp),
-    )
 }
 
 @Composable

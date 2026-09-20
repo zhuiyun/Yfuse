@@ -173,6 +173,11 @@ internal class AndroidYCoreHttpProxy(
     },
     private val forwardCacheTargetUs: Long = 60_000_000L,
     cacheDirectory: File? = null,
+    /**
+     * Times upstream reads for the ABR bandwidth sample. Injectable so a test can make a link slow
+     * by advancing a clock instead of sleeping inside its fake transport.
+     */
+    private val networkClockNs: () -> Long = System::nanoTime,
 ) : Closeable {
     private data class Route(
         val upstreamUri: String,
@@ -1612,9 +1617,9 @@ internal class AndroidYCoreHttpProxy(
                 var transferredBytes = 0L
                 val buffer = ByteArray(NETWORK_BUFFER_BYTES)
                 while (true) {
-                    val readStartedNs = System.nanoTime()
+                    val readStartedNs = networkClockNs()
                     val count = transport.read(buffer, 0, buffer.size)
-                    networkReadDurationNs += (System.nanoTime() - readStartedNs).coerceAtLeast(0L)
+                    networkReadDurationNs += (networkClockNs() - readStartedNs).coerceAtLeast(0L)
                     if (count < 0) break
                     if (count > 0) {
                         // Local loopback backpressure is deliberately outside networkReadDurationNs.

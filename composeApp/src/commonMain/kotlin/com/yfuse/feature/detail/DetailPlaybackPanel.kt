@@ -90,7 +90,12 @@ internal fun PlaybackVersionSection(
                 maxLines = 2,
             )
         }
-        Text("›", style = AppTypography.section.medium, color = palette.sub2)
+        Icon(
+            AppIcons.ChevronRight,
+            contentDescription = null,
+            tint = palette.sub2,
+            modifier = Modifier.size(16.dp),
+        )
     }
 }
 

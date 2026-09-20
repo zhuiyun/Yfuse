@@ -12,21 +12,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectableGroup
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -40,13 +34,16 @@ import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.OverlayButton
 import com.yfuse.core.designsystem.OverlayButtonTone
 import com.yfuse.core.designsystem.OverlayHeader
-import com.yfuse.core.designsystem.formDivider
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.MediaServerKind
 import com.yfuse.core.network.rememberLocalNetworkPermissionRequest
 import com.yfuse.core.network.validateEmbyServerEndpoint
 import com.yfuse.feature.servers.PlexAccountUiState
+import com.yfuse.feature.servers.ServerFormInput
+import com.yfuse.feature.servers.ServerFormRow
+import com.yfuse.feature.servers.ServerProtocolSegment
+import com.yfuse.feature.servers.ServerProviderSegment
 import com.yfuse.feature.servers.ServersIntent
 import com.yfuse.feature.servers.ServersState
 import com.yfuse.core.designsystem.ThemeIcon as Icon
@@ -193,43 +190,43 @@ fun AddServerDialog(
                     .fillMaxWidth()
                     .glass(AppShapes.card, palette.card2, palette.border),
             ) {
-                FormRow(label = "服务类型", divider = true, labelBottomPadding = 6.dp) {
+                ServerFormRow(label = "服务类型", divider = true, labelBottomPadding = 6.dp) {
                     Row(
                         modifier = Modifier.selectableGroup(),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        ProviderSegment("Emby", MediaServerKind.Emby, form.kind, Modifier.weight(1f)) {
+                        ServerProviderSegment("Emby", MediaServerKind.Emby, form.kind, Modifier.weight(1f)) {
                             onIntent(ServersIntent.ProviderChanged(MediaServerKind.Emby))
                         }
-                        ProviderSegment("Jellyfin", MediaServerKind.Jellyfin, form.kind, Modifier.weight(1f)) {
+                        ServerProviderSegment("Jellyfin", MediaServerKind.Jellyfin, form.kind, Modifier.weight(1f)) {
                             onIntent(ServersIntent.ProviderChanged(MediaServerKind.Jellyfin))
                         }
-                        ProviderSegment("Plex", MediaServerKind.Plex, form.kind, Modifier.weight(1f)) {
+                        ServerProviderSegment("Plex", MediaServerKind.Plex, form.kind, Modifier.weight(1f)) {
                             onIntent(ServersIntent.ProviderChanged(MediaServerKind.Plex))
                         }
                     }
                 }
-                FormInput(
+                ServerFormInput(
                     label = "显示名称",
                     value = form.serverName,
                     placeholder = if (editing) "输入服务器名称" else "留空使用服务器名称",
                     enabled = !form.submitting,
                     divider = true,
                 ) { onIntent(ServersIntent.ServerNameChanged(it)) }
-                FormRow(label = "协议", divider = true, labelBottomPadding = 6.dp) {
+                ServerFormRow(label = "协议", divider = true, labelBottomPadding = 6.dp) {
                     Row(
                         modifier = Modifier.selectableGroup(),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        ProtocolSegment("HTTPS", form.https, Modifier.weight(1f)) {
+                        ServerProtocolSegment("HTTPS", form.https, Modifier.weight(1f)) {
                             onIntent(ServersIntent.ProtocolChanged(true))
                         }
-                        ProtocolSegment("HTTP", !form.https, Modifier.weight(1f)) {
+                        ServerProtocolSegment("HTTP", !form.https, Modifier.weight(1f)) {
                             onIntent(ServersIntent.ProtocolChanged(false))
                         }
                     }
                 }
-                FormInput(
+                ServerFormInput(
                     label = "地址",
                     value = form.host,
                     placeholder = "media.example.com",
@@ -237,7 +234,7 @@ fun AddServerDialog(
                     keyboardType = KeyboardType.Uri,
                     divider = true,
                 ) { onIntent(ServersIntent.HostChanged(it)) }
-                FormInput(
+                ServerFormInput(
                     label = "端口",
                     value = form.port,
                     enabled = !form.submitting,
@@ -253,7 +250,7 @@ fun AddServerDialog(
                     .glass(AppShapes.card, palette.card2, palette.border),
             ) {
                 if (form.kind == MediaServerKind.Plex) {
-                    FormRow(label = "Plex 云账号", divider = true) {
+                    ServerFormRow(label = "Plex 云账号", divider = true) {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             when (val account = state.plexAccount) {
                                 PlexAccountUiState.Idle,
@@ -338,7 +335,7 @@ fun AddServerDialog(
                                         color = palette.text,
                                     )
                                     if (account.users.any { it.pinProtected }) {
-                                        FormInput(
+                                        ServerFormInput(
                                             label = "Home PIN（受保护用户）",
                                             value = state.plexHomePin,
                                             divider = false,
@@ -377,7 +374,7 @@ fun AddServerDialog(
                             }
                         }
                     }
-                    FormInput(
+                    ServerFormInput(
                         label = "手动 Plex Token（备用）",
                         value = form.password,
                         placeholder = if (editing) "修改连接时重新填写 Token" else "输入 X-Plex-Token",
@@ -386,14 +383,14 @@ fun AddServerDialog(
                         divider = false,
                     ) { onIntent(ServersIntent.PasswordChanged(it)) }
                 } else {
-                    FormInput(
+                    ServerFormInput(
                         label = "用户名",
                         value = form.username,
                         placeholder = "输入用户名",
                         enabled = !form.submitting,
                         divider = true,
                     ) { onIntent(ServersIntent.UsernameChanged(it)) }
-                    FormInput(
+                    ServerFormInput(
                         label = "密码",
                         value = form.password,
                         placeholder = if (editing) "仅修改名称时无需填写" else "留空表示无密码",
@@ -539,123 +536,4 @@ private fun FieldLabel(
         )
         trailing?.invoke()
     }
-}
-
-/** Form row — `padding:11px 14px`, hairline `rgba(0,0,0,.06)` between rows. */
-@Composable
-private fun FormRow(
-    label: String,
-    divider: Boolean,
-    labelBottomPadding: androidx.compose.ui.unit.Dp = 3.dp,
-    content: @Composable () -> Unit,
-) {
-    val palette = LocalPalette.current
-    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 9.dp)) {
-        Text(
-            label,
-            style = AppTypography.caption.regular,
-            color = palette.sub2,
-            modifier = Modifier.padding(bottom = labelBottomPadding),
-        )
-        content()
-    }
-    if (divider) {
-        Box(Modifier.fillMaxWidth().height(1.dp).background(formDivider()))
-    }
-}
-
-/** Same row with a `500 13px Manrope` text input; label sits 3px above it. */
-@Composable
-private fun FormInput(
-    label: String,
-    value: String,
-    divider: Boolean,
-    enabled: Boolean = true,
-    placeholder: String? = null,
-    password: Boolean = false,
-    keyboardType: KeyboardType = KeyboardType.Text,
-    onValueChange: (String) -> Unit,
-) {
-    val palette = LocalPalette.current
-    val accent = LocalAccentColors.current
-    FormRow(label = label, divider = divider) {
-        Box(contentAlignment = Alignment.CenterStart) {
-            if (value.isEmpty() && placeholder != null) {
-                Text(placeholder, style = AppTypography.body.medium, color = palette.hint)
-            }
-            BasicTextField(
-                value = value,
-                onValueChange = onValueChange,
-                enabled = enabled,
-                singleLine = true,
-                textStyle = AppTypography.body.medium.copy(color = palette.text),
-                cursorBrush = SolidColor(accent.accent),
-                visualTransformation =
-                    if (password) {
-                        PasswordVisualTransformation()
-                    } else {
-                        VisualTransformation.None
-                    },
-                keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .semantics { contentDescription = label },
-            )
-        }
-    }
-}
-
-/**
- * Protocol segment — `padding:6px 0`, `radius:9px`; selected is
- * `700 11.5px Manrope` `#3D64C9` on `rgba(61,100,201,.12)`, otherwise `500` `--pg-sub2`.
- */
-@Composable
-private fun ProtocolSegment(
-    label: String,
-    selected: Boolean,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit,
-) {
-    val palette = LocalPalette.current
-    val accent = LocalAccentColors.current
-    Box(
-        modifier
-            .pressable(role = Role.RadioButton, onClick = onClick)
-            .semantics { this.selected = selected }
-            .touchTarget()
-            .glass(
-                shape = AppShapes.thumb,
-                fill = if (selected) accent.container else palette.card3,
-                border =
-                    if (selected) {
-                        accent.border
-                    } else {
-                        palette.border.copy(alpha = 0.55f)
-                    },
-            ).padding(vertical = 6.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            label,
-            style = if (selected) AppTypography.caption.strong else AppTypography.caption.medium,
-            color = if (selected) accent.accent else palette.sub2,
-        )
-    }
-}
-
-@Composable
-private fun ProviderSegment(
-    label: String,
-    kind: MediaServerKind,
-    selectedKind: MediaServerKind,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit,
-) {
-    ProtocolSegment(
-        label = label,
-        selected = kind == selectedKind,
-        modifier = modifier,
-        onClick = onClick,
-    )
 }

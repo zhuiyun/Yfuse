@@ -69,7 +69,7 @@ import com.yfuse.core.designsystem.ThemeText as Text
  * gesture and the semantics, and the switch itself draws without an interaction of its own.
  */
 @Composable
-internal fun SwitchRow(
+fun SwitchRow(
     title: String,
     checked: Boolean,
     embedded: Boolean = false,

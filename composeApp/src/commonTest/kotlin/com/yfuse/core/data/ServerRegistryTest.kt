@@ -454,10 +454,19 @@ class ServerRegistryTest {
 
         assertFailsWith<SecureStoreException> { registry.addOrUpdate(server("b")) }
 
-        assertEquals(listOf("a"), registry.data.value.servers.map { it.id })
+        assertEquals(
+            listOf("a"),
+            registry.data.value.servers
+                .map { it.id },
+        )
         secrets.failWrites = false
         registry.addOrUpdate(server("c"))
-        assertEquals(listOf("a", "c"), registry(settings, secrets).data.value.servers.map { it.id })
+        assertEquals(
+            listOf("a", "c"),
+            registry(settings, secrets)
+                .data.value.servers
+                .map { it.id },
+        )
     }
 
     @Test
@@ -473,7 +482,11 @@ class ServerRegistryTest {
             assertTrue(registry.rename("a", "Renamed"))
 
             // Published to every reader, while the caller's thread has not touched storage.
-            assertEquals(listOf("a", "b"), registry.data.value.servers.map { it.id })
+            assertEquals(
+                listOf("a", "b"),
+                registry.data.value.servers
+                    .map { it.id },
+            )
             assertNull(settings.getStringOrNull("servers.data"))
             assertTrue(secrets.storedKeys().isEmpty())
 
@@ -486,7 +499,12 @@ class ServerRegistryTest {
 
             registry.remove("a")
             testScheduler.advanceUntilIdle()
-            assertEquals(listOf("b"), registry(settings, secrets).data.value.servers.map { it.id })
+            assertEquals(
+                listOf("b"),
+                registry(settings, secrets)
+                    .data.value.servers
+                    .map { it.id },
+            )
             assertEquals(1, secrets.storedKeys().size)
         }
 
@@ -507,14 +525,21 @@ class ServerRegistryTest {
 
             // This session keeps working from memory; storage still holds the old registry whole.
             assertEquals("rotated", registry.serverById("a")?.accessToken)
-            assertEquals(listOf("tok-a"), registry(settings, secrets).data.value.servers.map { it.accessToken })
+            assertEquals(
+                listOf("tok-a"),
+                registry(settings, secrets)
+                    .data.value.servers
+                    .map { it.accessToken },
+            )
 
             secrets.failWrites = false
             testScheduler.advanceUntilIdle()
 
             assertEquals(
                 listOf("rotated", "tok-b"),
-                registry(settings, secrets).data.value.servers.map { it.accessToken },
+                registry(settings, secrets)
+                    .data.value.servers
+                    .map { it.accessToken },
             )
         }
 
@@ -533,13 +558,26 @@ class ServerRegistryTest {
 
             secrets.failWrites = true
             registry.addOrUpdate(server("b"))
-            assertEquals(listOf("a", "b"), registry.data.value.servers.map { it.id })
+            assertEquals(
+                listOf("a", "b"),
+                registry.data.value.servers
+                    .map { it.id },
+            )
             testScheduler.advanceUntilIdle()
 
             // Every attempt was refused: the session shows what storage holds, and says why.
-            assertEquals(listOf("a"), registry.data.value.servers.map { it.id })
+            assertEquals(
+                listOf("a"),
+                registry.data.value.servers
+                    .map { it.id },
+            )
             assertEquals(1, failures.size)
-            assertEquals(listOf("a"), registry(settings, secrets).data.value.servers.map { it.id })
+            assertEquals(
+                listOf("a"),
+                registry(settings, secrets)
+                    .data.value.servers
+                    .map { it.id },
+            )
             collector.cancel()
         }
 }

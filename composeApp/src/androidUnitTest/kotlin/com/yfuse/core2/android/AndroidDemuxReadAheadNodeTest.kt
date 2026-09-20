@@ -16,6 +16,7 @@ import com.yfuse.core2.subtitle.YSubtitleDecodeResult
 import com.yfuse.core2.subtitle.YSubtitleFormat
 import com.yfuse.core2.subtitle.YSubtitlePayload
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Semaphore
 import java.util.concurrent.TimeUnit
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -29,8 +30,9 @@ class AndroidDemuxReadAheadNodeTest {
         val packets =
             List(6) { YCompressedSample(subtitleTrack, byteArrayOf(1), it * 10_000_000L) } +
                 listOf(YCompressedSample(TRACK, byteArrayOf(2), 0L), YCompressedSample(YTrackId(1), byteArrayOf(3), 0L))
+        val demuxer = FakeDemuxer(packets)
         val fake =
-            object : YDemuxer by FakeDemuxer(packets), YSubtitlePacketDecoder {
+            object : YDemuxer by demuxer, YSubtitlePacketDecoder {
                 override fun open(source: YDemuxSource) =
                     YDemuxOpenResult(
                         YContainer.Matroska,
@@ -81,7 +83,7 @@ class AndroidDemuxReadAheadNodeTest {
                         } ?: receivedAv.add(result.value.trackId)
                     }
                     is YQueuedDemuxResult.Failed -> throw result.cause
-                    YQueuedDemuxResult.Empty -> Thread.sleep(1L)
+                    YQueuedDemuxResult.Empty -> demuxer.awaitNextRead()
                     YQueuedDemuxResult.EndOfInput -> break
                 }
             }
@@ -170,14 +172,15 @@ class AndroidDemuxReadAheadNodeTest {
     fun backpressured_video_does_not_hide_audio_or_reorder_video_packets() {
         val video = samples(0, 2)
         val audio = video[0].copy(trackId = YTrackId(1))
-        val node = AndroidDemuxReadAheadNode(FakeDemuxer(video + audio))
+        val fake = FakeDemuxer(video + audio)
+        val node = AndroidDemuxReadAheadNode(fake)
         try {
             node.open(YDemuxSource("file:///test.mkv"))
             node.selectTracks(setOf(TRACK, YTrackId(1)))
-            awaitQueuedSamples(node, 3)
+            awaitQueuedSamples(node, fake, 3)
             assertEquals(audio, (node.pollSample(setOf(TRACK)) as YQueuedDemuxResult.Sample).value)
-            assertEquals(video[0], awaitSample(node))
-            assertEquals(video[1], awaitSample(node))
+            assertEquals(video[0], awaitSample(node, fake))
+            assertEquals(video[1], awaitSample(node, fake))
         } finally {
             node.release()
         }
@@ -191,7 +194,7 @@ class AndroidDemuxReadAheadNodeTest {
         try {
             node.adoptOpen(opened)
             node.selectTracks(setOf(TRACK))
-            assertEquals(0L, awaitSample(node).presentationTimeUs)
+            assertEquals(0L, awaitSample(node, fake).presentationTimeUs)
             assertEquals(1, fake.openCount)
         } finally {
             node.release()
@@ -208,7 +211,7 @@ class AndroidDemuxReadAheadNodeTest {
             node.configure(targetAheadUs = 1_000_000L, mediaBitRateBitsPerSecond = 8_000_000L)
             node.selectTracks(setOf(TRACK))
 
-            val first = awaitSample(node)
+            val first = awaitSample(node, fake)
 
             assertEquals(0L, first.presentationTimeUs)
             assertNotEquals(callerThread, fake.lastReadThread)
@@ -226,25 +229,28 @@ class AndroidDemuxReadAheadNodeTest {
             node.open(YDemuxSource("file:///test.mkv"))
             node.configure(targetAheadUs = 1_000_000L, mediaBitRateBitsPerSecond = 8_000_000L)
             node.selectTracks(setOf(TRACK))
-            awaitQueuedSamples(node, 4)
+            awaitQueuedSamples(node, fake, 4)
 
             fake.samplesAfterSeek = samples(start = 100, count = 8)
             node.seekTo(10_000_000L)
 
-            assertEquals(10_000_000L, awaitSample(node).presentationTimeUs)
+            assertEquals(10_000_000L, awaitSample(node, fake).presentationTimeUs)
         } finally {
             node.release()
         }
     }
 
-    private fun awaitSample(node: AndroidDemuxReadAheadNode): YCompressedSample {
+    private fun awaitSample(
+        node: AndroidDemuxReadAheadNode,
+        fake: FakeDemuxer,
+    ): YCompressedSample {
         val deadline = System.nanoTime() + 2_000_000_000L
         while (System.nanoTime() < deadline) {
             when (val result = node.pollSample()) {
                 is YQueuedDemuxResult.Sample -> return result.value
                 is YQueuedDemuxResult.Failed -> throw result.cause
                 YQueuedDemuxResult.EndOfInput -> error("Unexpected end of input")
-                YQueuedDemuxResult.Empty -> Thread.sleep(1L)
+                YQueuedDemuxResult.Empty -> fake.awaitNextRead()
             }
         }
         error("Timed out waiting for demux read-ahead")
@@ -252,12 +258,13 @@ class AndroidDemuxReadAheadNodeTest {
 
     private fun awaitQueuedSamples(
         node: AndroidDemuxReadAheadNode,
+        fake: FakeDemuxer,
         minimum: Int,
     ) {
         val deadline = System.nanoTime() + 2_000_000_000L
         while (System.nanoTime() < deadline) {
             if (node.snapshot().queuedSamples >= minimum) return
-            Thread.sleep(1L)
+            fake.awaitNextRead()
         }
         error("Timed out waiting for queued samples")
     }
@@ -271,6 +278,18 @@ class AndroidDemuxReadAheadNodeTest {
         var lastReadThread: String = ""
         var openCount = 0
 
+        /** One permit per read: the read-ahead queue only changes when the owner thread reads. */
+        private val reads = Semaphore(0)
+
+        /**
+         * Parks until the demuxer is read again instead of for a fixed interval. The bound covers
+         * the gap between a read returning and the node publishing that sample, and the read
+         * after which there are no more.
+         */
+        fun awaitNextRead() {
+            reads.tryAcquire(READ_WAIT_MS, TimeUnit.MILLISECONDS)
+        }
+
         override fun open(source: YDemuxSource): YDemuxOpenResult =
             YDemuxOpenResult(
                 container = YContainer.Matroska,
@@ -281,7 +300,7 @@ class AndroidDemuxReadAheadNodeTest {
 
         override fun readSample(): YCompressedSample? {
             lastReadThread = Thread.currentThread().name
-            return samples.removeFirstOrNull()
+            return samples.removeFirstOrNull().also { reads.release() }
         }
 
         override fun seekTo(positionUs: Long) {
@@ -293,6 +312,7 @@ class AndroidDemuxReadAheadNodeTest {
 
     private companion object {
         val TRACK = YTrackId(0)
+        const val READ_WAIT_MS = 20L
 
         fun samples(
             start: Int,

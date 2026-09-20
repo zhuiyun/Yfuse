@@ -21,6 +21,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
@@ -237,6 +238,7 @@ class AndroidAdaptiveProxyTransitionTest {
                 createTransport = upstream::transport,
                 isMeteredNetwork = { false },
                 cacheDirectory = directory,
+                networkClockNs = upstream.networkClockNs::get,
             ).use(block)
         } finally {
             directory.deleteRecursively()
@@ -272,6 +274,13 @@ class AndroidAdaptiveProxyTransitionTest {
         val closedTransports = AtomicInteger()
         val requests = CopyOnWriteArrayList<YMediaTransportRequest>()
 
+        /**
+         * The clock the proxy times upstream reads with. A segment read advances it instead of
+         * sleeping, so the selector sees the same slow sample without the test depending on how
+         * long the scheduler really parked the thread.
+         */
+        val networkClockNs = AtomicLong()
+
         fun transport(): YMediaTransport =
             object : YMediaTransport {
                 override val supportedProtocols = setOf(YSourceProtocol.Https)
@@ -300,7 +309,7 @@ class AndroidAdaptiveProxyTransitionTest {
                         if (path == blockedPath) alternateRead.countDown()
                         return -1
                     }
-                    if (path.endsWith(".m4s")) Thread.sleep(25L)
+                    if (path.endsWith(".m4s")) networkClockNs.addAndGet(SLOW_SEGMENT_READ_NS)
                     val count = minOf(length, bytes.size - position)
                     bytes.copyInto(destination, offset, position, position + count)
                     position += count
@@ -384,3 +393,6 @@ class AndroidAdaptiveProxyTransitionTest {
         </MPD>
         """.trimIndent()
 }
+
+/** What one segment read costs on the fixture's upstream clock: slow enough to rank below every rendition. */
+private const val SLOW_SEGMENT_READ_NS = 25_000_000L

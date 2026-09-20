@@ -48,6 +48,7 @@ import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.ArtworkPageTheme
 import com.yfuse.core.designsystem.BurstIcon
+import com.yfuse.core.designsystem.DecorativeTints
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.HapticSignal
@@ -77,12 +78,6 @@ import com.yfuse.core.designsystem.ThemeText as Text
 
 private val SeriesCalendarHeroHeight = 148.dp
 private val SeriesCalendarFallbackArtwork = Color(0xFFDAD4E8)
-private val SeriesCalendarTeal = Color(0xFF147E79)
-private val SeriesCalendarCoral = Color(0xFFC96662)
-private val SeriesCalendarAmber = Color(0xFFC4872E)
-private val SeriesCalendarPlum = Color(0xFF76527E)
-private val SeriesCalendarEmerald = Color(0xFF238963)
-private val SeriesCalendarLavender = Color(0xFF9582B3)
 private val SeriesCalendarMinutes = listOf(10, 30, 60, 120, 360)
 
 private data class SeriesScheduleInfo(
@@ -160,7 +155,7 @@ internal fun SeriesAiringCalendarDialog(
             shape = AppShapes.sheet,
         ) {
             val palette = LocalPalette.current
-            val lavender = resolveAccentColors(SeriesCalendarLavender, palette.isDark)
+            val lavender = resolveAccentColors(DecorativeTints.lavender, palette.isDark)
             Column(
                 Modifier
                     .fillMaxSize()
@@ -259,7 +254,7 @@ private fun SeriesCalendarHero(
             .height(SeriesCalendarHeroHeight)
             .background(
                 Brush.linearGradient(
-                    listOf(SeriesCalendarPlum, SeriesCalendarTeal, SeriesCalendarCoral),
+                    listOf(DecorativeTints.plum, DecorativeTints.teal, DecorativeTints.coral),
                 ),
             ),
     ) {
@@ -286,7 +281,7 @@ private fun SeriesCalendarHero(
                 .background(
                     Brush.verticalGradient(
                         0f to Color.Black.copy(alpha = 0.16f),
-                        0.48f to SeriesCalendarPlum.copy(alpha = 0.24f),
+                        0.48f to DecorativeTints.plum.copy(alpha = 0.24f),
                         1f to Color.Black.copy(alpha = 0.72f),
                     ),
                 ),
@@ -352,8 +347,8 @@ private fun SeriesCalendarSummaryControls(
     onToggleReminder: () -> Unit,
 ) {
     val palette = LocalPalette.current
-    val follow = resolveAccentColors(SeriesCalendarTeal, palette.isDark)
-    val reminder = resolveAccentColors(SeriesCalendarCoral, palette.isDark)
+    val follow = resolveAccentColors(DecorativeTints.teal, palette.isDark)
+    val reminder = resolveAccentColors(DecorativeTints.coral, palette.isDark)
     val reminding = followed && reminderMode != CalendarReminderMode.Off
     Row(
         Modifier
@@ -493,7 +488,7 @@ private fun SeriesReminderPicker(
     onMinutes: (Int) -> Unit,
 ) {
     val palette = LocalPalette.current
-    val reminder = resolveAccentColors(SeriesCalendarCoral, palette.isDark)
+    val reminder = resolveAccentColors(DecorativeTints.coral, palette.isDark)
     Column(
         Modifier
             .fillMaxWidth()
@@ -591,7 +586,7 @@ private fun SeriesCalendarDateNavigation(
             SeriesCalendarDateChip(
                 date = date,
                 active = date == selectedDate,
-                roleColor = listOf(SeriesCalendarTeal, SeriesCalendarCoral, SeriesCalendarAmber)[index],
+                roleColor = listOf(DecorativeTints.teal, DecorativeTints.coral, DecorativeTints.amber)[index],
                 onClick = { onSelected(date) },
                 modifier = Modifier.weight(1f),
             )
@@ -796,7 +791,7 @@ private fun SeriesCalendarInlineNotice(
     onRetry: () -> Unit,
 ) {
     val palette = LocalPalette.current
-    val error = resolveAccentColors(SeriesCalendarCoral, palette.isDark)
+    val error = resolveAccentColors(DecorativeTints.coral, palette.isDark)
     Row(
         Modifier
             .fillMaxWidth()
@@ -868,7 +863,7 @@ private fun SeriesIdentityCandidates(
     modifier: Modifier = Modifier,
 ) {
     val palette = LocalPalette.current
-    val plum = resolveAccentColors(SeriesCalendarPlum, palette.isDark)
+    val plum = resolveAccentColors(DecorativeTints.plum, palette.isDark)
     LazyColumn(
         modifier.fillMaxSize(),
         contentPadding = PaddingValues(14.dp),
@@ -939,7 +934,7 @@ private fun SeriesCalendarFooter(
             SeriesCalendarFooterRow(
                 label = "排期来源",
                 value = sourceDescription ?: "查看官方证据页面",
-                color = SeriesCalendarAmber,
+                color = DecorativeTints.amber,
                 onClick = onOpenSource,
             )
             Box(Modifier.fillMaxWidth().height(1.dp).background(palette.border))
@@ -947,7 +942,7 @@ private fun SeriesCalendarFooter(
         SeriesCalendarFooterRow(
             label = "剧集匹配",
             value = "TMDB 已匹配 · 点击更换",
-            color = SeriesCalendarPlum,
+            color = DecorativeTints.plum,
             onClick = onRebindIdentity,
         )
     }
@@ -1082,11 +1077,11 @@ private fun seriesCalendarStatus(
 ): Pair<String, Color> {
     val labelAndBase =
         when (status) {
-            LibraryStatus.Unaired -> "待播" to SeriesCalendarAmber
-            LibraryStatus.Missing -> "未入库" to SeriesCalendarCoral
-            LibraryStatus.Available -> "可播放" to SeriesCalendarEmerald
-            LibraryStatus.InProgress -> "观看中" to SeriesCalendarTeal
-            LibraryStatus.Watched -> "已看" to SeriesCalendarPlum
+            LibraryStatus.Unaired -> "待播" to DecorativeTints.amber
+            LibraryStatus.Missing -> "未入库" to DecorativeTints.coral
+            LibraryStatus.Available -> "可播放" to DecorativeTints.emerald
+            LibraryStatus.InProgress -> "观看中" to DecorativeTints.teal
+            LibraryStatus.Watched -> "已看" to DecorativeTints.plum
             LibraryStatus.Unknown -> return "仅供参考" to mutedColor
         }
     return labelAndBase.first to resolveAccentColors(labelAndBase.second, darkTheme).accent

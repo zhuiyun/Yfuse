@@ -377,7 +377,7 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                                 Text("剧情简介", style = AppTypography.section.strong, color = palette.text)
                                 Text(
                                     item.overview,
-                                    style = AppTypography.body.regular.copy(lineHeight = 20.sp),
+                                    style = AppTypography.body.reading,
                                     color = palette.body,
                                 )
                             }

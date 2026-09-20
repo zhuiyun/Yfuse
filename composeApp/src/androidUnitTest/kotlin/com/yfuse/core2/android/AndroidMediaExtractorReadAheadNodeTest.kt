@@ -345,7 +345,9 @@ class AndroidMediaExtractorReadAheadNodeTest {
         node.selectTracks(setOf(VIDEO_TRACK))
         node.awaitQueued(minimumSamples = 2)
 
-        Thread.sleep(SETTLE_MS)
+        // Nothing is polled here, so the fill that queued those samples is the only one: once the
+        // owner has come back from it the queue is as full as it will ever get.
+        node.awaitOwnerTurn()
         assertTrue(node.snapshot().queuedBytes <= 64L * 1024L + SAMPLE_BYTES, "bytes ${node.snapshot().queuedBytes}")
     }
 
@@ -431,7 +433,8 @@ class AndroidMediaExtractorReadAheadNodeTest {
         // Draining forces a fill per consumed sample; a per-fill allocation would show up here as
         // one distinct staging buffer per sample.
         repeat(64) { node.pollSample() }
-        Thread.sleep(SETTLE_MS)
+        // Each of those polls asked for a refill; wait for the owner to have run them, not for a timer.
+        node.awaitOwner("refills after 64 polls") { extractor.readCount.get() > 40 }
 
         assertTrue(extractor.readCount.get() > 40, "reads ${extractor.readCount.get()}")
         assertEquals(1, extractor.distinctTargets.size, "staging buffers ${extractor.distinctTargets.size}")
@@ -451,41 +454,54 @@ class AndroidMediaExtractorReadAheadNodeTest {
         assertEquals(0, node.snapshot().queuedSamples)
     }
 
-    private fun AndroidMediaExtractorReadAheadNode.awaitQueued(minimumSamples: Int): YExtractorReadAheadSnapshot {
+    /**
+     * Returns once the owner thread has run everything queued ahead of this call.
+     *
+     * Every fill runs on the node's single owner thread and is queued there before the call that
+     * asked for it returns, so a round trip through that thread is a barrier behind the fill in
+     * flight — which is what the fixed sleeps here were approximating.
+     */
+    private fun AndroidMediaExtractorReadAheadNode.awaitOwnerTurn() {
+        findFirstTrack("video/")
+    }
+
+    /** Re-checks [ready] after each owner turn instead of on a timer; the deadline only bounds a failure. */
+    private fun AndroidMediaExtractorReadAheadNode.awaitOwner(
+        failure: String,
+        ready: () -> Boolean,
+    ) {
         val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
         while (System.nanoTime() < deadline) {
-            val snapshot = snapshot()
-            if (snapshot.queuedSamples >= minimumSamples) return snapshot
-            Thread.sleep(2)
+            if (ready()) return
+            awaitOwnerTurn()
         }
-        throw AssertionError("read-ahead never queued $minimumSamples samples: ${snapshot()}")
+        if (!ready()) throw AssertionError("read-ahead never settled: $failure: ${snapshot()}")
+    }
+
+    private fun AndroidMediaExtractorReadAheadNode.awaitQueued(minimumSamples: Int): YExtractorReadAheadSnapshot {
+        awaitOwner("queued $minimumSamples samples") { snapshot().queuedSamples >= minimumSamples }
+        return snapshot()
     }
 
     private fun AndroidMediaExtractorReadAheadNode.awaitBufferedDuration(targetUs: Long): YExtractorReadAheadSnapshot {
-        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
-        while (System.nanoTime() < deadline) {
-            val snapshot = snapshot()
-            if (snapshot.bufferedDurationUs >= targetUs) return snapshot
-            Thread.sleep(2)
-        }
-        throw AssertionError("read-ahead never reached ${targetUs}us: ${snapshot()}")
+        awaitOwner("reached ${targetUs}us") { snapshot().bufferedDurationUs >= targetUs }
+        return snapshot()
     }
 
     private fun AndroidMediaExtractorReadAheadNode.awaitTerminal(): YQueuedExtractorResult {
-        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
-        while (System.nanoTime() < deadline) {
-            val result = pollSample()
-            if (result !is YQueuedExtractorResult.Empty) return result
-            Thread.sleep(2)
+        var result = pollSample()
+        // An empty poll asks for a fill, so the next owner turn is that fill.
+        awaitOwner("a terminal result") {
+            if (result is YQueuedExtractorResult.Empty) result = pollSample()
+            result !is YQueuedExtractorResult.Empty
         }
-        throw AssertionError("read-ahead never reached a terminal result")
+        return result
     }
 
     private companion object {
         const val VIDEO_TRACK = 0
         const val AUDIO_TRACK = 1
         const val SAMPLE_BYTES = 1_024
-        const val SETTLE_MS = 50L
         val SOURCE = YAndroidMediaSource(uri = "file:///fake")
     }
 }

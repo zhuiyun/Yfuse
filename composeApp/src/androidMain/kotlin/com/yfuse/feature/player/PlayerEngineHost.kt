@@ -28,6 +28,8 @@ import kotlinx.coroutines.launch
 internal class PlayerEngineHost(
     val engine: VideoEngine,
     private val handover: PlayerEngineHandover,
+    /** Replaced in tests, which have no application context for the monitor's preferences. */
+    private val disarmNativeCrashMonitor: (successful: Boolean) -> Unit = AndroidNativeCrashMonitor::disarm,
 ) : RememberObserver {
     private val serializedRelease: AndroidSerializedPlayerRelease? = engine.serializedRelease()
     private var crashMonitorDisarmed = false
@@ -47,10 +49,8 @@ internal class PlayerEngineHost(
     fun disarmCrashMonitor() {
         if (crashMonitorDisarmed) return
         crashMonitorDisarmed = true
-        AndroidNativeCrashMonitor.disarm(
-            successful =
-                engine.state.value.diagnostics.effectiveVideoReadiness ==
-                    PlaybackOutputReadiness.Rendering,
+        disarmNativeCrashMonitor(
+            engine.state.value.diagnostics.effectiveVideoReadiness == PlaybackOutputReadiness.Rendering,
         )
     }
 

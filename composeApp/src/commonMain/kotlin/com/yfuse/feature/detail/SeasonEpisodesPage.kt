@@ -30,7 +30,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
@@ -310,7 +309,7 @@ private fun EpisodeRow(
                 Spacer(Modifier.height(5.dp))
                 Text(
                     episode.overview,
-                    style = AppTypography.caption.regular.copy(lineHeight = 17.sp),
+                    style = AppTypography.caption.reading,
                     color = palette.sub,
                     // Three lines: enough to recognise an episode by, short enough that
                     // ten of them still scan as a list.

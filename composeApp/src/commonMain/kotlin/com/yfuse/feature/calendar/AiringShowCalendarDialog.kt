@@ -34,6 +34,7 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.data.CalendarReminderMode
@@ -368,7 +369,11 @@ private fun RowScope.CalendarQuickAction(
         Modifier
             .weight(1f)
             .height(72.dp)
-            .pressable(enabled = enabled, onClick = onClick),
+            .pressable(enabled = enabled, onClick = onClick)
+            .semantics {
+                selected = active
+                stateDescription = if (active) "已选中" else "未选中"
+            },
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
