@@ -75,6 +75,8 @@ fun TvApp(component: RootComponent) {
     val reduceMotion by component.themePreferences.reduceMotion.collectAsState()
     val dialogAnimation by component.themePreferences.dialogAnimation.collectAsState()
     val glassStyle by component.themePreferences.glassStyle.collectAsState()
+    val loadingAnimation by component.themePreferences.loadingAnimation.collectAsState()
+    val glassMaterials by component.themePreferences.glassMaterials.collectAsState()
 
     // Always dark. The shell paints [TvBackground] whatever the phone's 界面模式 says, and that
     // shared preference used to hand the four shared dialogs and the unified library light
@@ -89,6 +91,8 @@ fun TvApp(component: RootComponent) {
             ),
         glassStyle = if (reduceTransparency) GlassStyle.Frosted else glassStyle,
         dialogAnimation = dialogAnimation,
+        loadingAnimation = loadingAnimation,
+        glassMaterials = glassMaterials,
     ) {
         com.yfuse.app.BindProductServices(component)
         TvRoot(component)

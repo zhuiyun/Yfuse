@@ -33,6 +33,20 @@ interface HandoffApi {
     ): HandoffRequest
 }
 
+/** Only local, actionable messages are exposed; response bodies may contain private details. */
+class HandoffApiException(
+    val status: HttpStatusCode,
+) : Exception(
+        when (status.value) {
+            401 -> "登录凭证已失效，请重新登录鱼服账号"
+            403 -> "当前账号无权使用设备接力"
+            404 -> "账号服务器尚未支持设备接力，请等待服务端更新"
+            409 -> "接力请求已结束，请刷新"
+            429 -> "接力操作太频繁，请稍后重试"
+            else -> "设备接力暂不可用（${status.value}），请稍后重试"
+        },
+    )
+
 /** The application owns [client]; this adapter never closes the shared account client. */
 class AccountHandoffApi(
     private val client: HttpClient,
@@ -76,18 +90,15 @@ class AccountHandoffApi(
     }
 
     private suspend fun send(block: suspend (String) -> HttpResponse): HttpResponse {
-        var response = block(tokens.validAccessTokenFor(endpoint) ?: error("请先登录鱼服账号"))
+        var response =
+            block(
+                tokens.validAccessTokenFor(endpoint) ?: throw HandoffApiException(HttpStatusCode.Unauthorized),
+            )
         if (response.status == HttpStatusCode.Unauthorized) {
-            response = block(tokens.refreshAccessTokenFor(endpoint) ?: error("登录已失效，请重新登录"))
+            response =
+                block(tokens.refreshAccessTokenFor(endpoint) ?: throw HandoffApiException(HttpStatusCode.Unauthorized))
         }
-        check(response.status.isSuccess()) {
-            when (response.status.value) {
-                404 -> "账号服务器尚未支持设备接力"
-                409 -> "接力请求已结束，请刷新"
-                429 -> "接力操作太频繁，请稍后重试"
-                else -> "设备接力暂不可用（${response.status.value}）"
-            }
-        }
+        if (!response.status.isSuccess()) throw HandoffApiException(response.status)
         return response
     }
 

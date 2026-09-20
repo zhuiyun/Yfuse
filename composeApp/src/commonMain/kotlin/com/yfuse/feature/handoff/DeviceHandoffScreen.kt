@@ -39,7 +39,7 @@ fun DeviceHandoffScreen(
                 SettingsCard {
                     SettingRow(
                         "连接状态",
-                        if (state.online) "已连接" else "请先登录账号并连接接力服务",
+                        state.connectionLabel,
                         embedded = true,
                     )
                     if (state.online && state.devices.isEmpty()) {

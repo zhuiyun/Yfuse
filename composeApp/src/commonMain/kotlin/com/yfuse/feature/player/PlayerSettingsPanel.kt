@@ -1133,7 +1133,7 @@ private fun PlayerDeviceHandoffPanel(inWatchRoom: Boolean) {
     }
     val state by controller.state.collectAsState()
     DiagnosticRow("接力规则", "接收设备确认就绪后，本机才会暂停")
-    if (!state.online) DiagnosticRow("连接", "请先登录鱼服账号，并保持两台设备在线")
+    if (!state.online) DiagnosticRow("连接", state.connectionLabel)
     if (state.busy) {
         state.message?.let { DiagnosticRow("进度", it) }
         OptionRow("取消接力", selected = false, onClick = controller::cancelTransfer)

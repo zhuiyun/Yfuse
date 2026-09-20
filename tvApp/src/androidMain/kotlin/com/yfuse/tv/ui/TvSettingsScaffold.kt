@@ -49,6 +49,7 @@ internal enum class TvSettingsPage(
     Danmaku("弹幕", "开关、显示与过滤"),
     WatchTogether("一起看", "房间资料与聊天显示"),
     Appearance("外观与辅助", "玻璃、背景、启动位置与辅助显示"),
+    GlassMaterial("玻璃材质", "底色、透明度与背景遮罩"),
     Downloads("下载与离线库", "离线内容、队列与存储位置"),
     ServerBackup("服务器备份与迁移", "导出、导入与换机搬迁"),
     PermissionHealth("权限检查", "影响播放与发现的系统权限"),

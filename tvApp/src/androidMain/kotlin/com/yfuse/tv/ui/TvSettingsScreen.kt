@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.dp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.account.AccountState
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.feature.profile.GlassMaterialSettingsScreen
 import com.yfuse.feature.profile.ProfileComponent
 import com.yfuse.feature.profile.ProfileIntent
 import com.yfuse.tv.focus.requestFocusWhenAttached
@@ -44,7 +45,9 @@ internal fun TvSettingsScreen(
     var page by rememberSaveable { mutableStateOf(TvSettingsPage.Root) }
     val pageRequester = remember { FocusRequester() }
 
-    BackHandler(enabled = page != TvSettingsPage.Root) { page = TvSettingsPage.Root }
+    BackHandler(enabled = page != TvSettingsPage.Root) {
+        page = if (page == TvSettingsPage.GlassMaterial) TvSettingsPage.Appearance else TvSettingsPage.Root
+    }
 
     // A page swap leaves focus on a row that no longer exists, which strands the remote. Pulling
     // focus to the new page's first row keeps every transition navigable.
@@ -124,7 +127,17 @@ internal fun TvSettingsScreen(
                 focusMemory = focusMemory,
                 navigationRequester = navigationRequester,
                 firstRowRequester = pageRequester,
+                onGlassMaterial = { page = TvSettingsPage.GlassMaterial },
             )
+        TvSettingsPage.GlassMaterial -> {
+            val materials by component.themePreferences.glassMaterials.collectAsState()
+            GlassMaterialSettingsScreen(
+                materials = materials,
+                onChange = component.themePreferences::setGlassMaterial,
+                onBack = { page = TvSettingsPage.Appearance },
+                firstControlRequester = pageRequester,
+            )
+        }
         TvSettingsPage.ServerBackup ->
             TvServerBackupPage(
                 component = component,
@@ -485,7 +498,8 @@ private val tvSettingsKeywords: Map<TvSettingsPage, String> =
         TvSettingsPage.AdvancedPlayback to "内核 解码 缓冲 缓存 帧率 直通 音频 硬解 软解 ycore",
         TvSettingsPage.Danmaku to "弹幕 字幕 屏蔽 过滤 字号 透明",
         TvSettingsPage.WatchTogether to "一起看 房间 聊天 昵称 头像",
-        TvSettingsPage.Appearance to "外观 主题 背景 玻璃 弹窗 字体 大字 动效 启动 无障碍",
+        TvSettingsPage.Appearance to "外观 背景 玻璃 弹窗 字体 大字 动效 启动 无障碍",
+        TvSettingsPage.GlassMaterial to "玻璃 材质 底色 透明度 遮罩 预览",
         TvSettingsPage.Downloads to "下载 离线 队列 存储 空间 wifi",
         TvSettingsPage.ServerBackup to "备份 导出 导入 迁移 换机 口令",
         TvSettingsPage.PermissionHealth to "权限 通知 局域网 授权",

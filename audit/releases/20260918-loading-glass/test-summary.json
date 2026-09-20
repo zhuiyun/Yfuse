@@ -1,0 +1,49 @@
+{
+  "jvm": {
+    "tests": 25.0,
+    "failures": 0,
+    "errors": 0,
+    "suites": [
+      {
+        "name": "com.yfuse.core.data.ThemePreferencesTest",
+        "tests": 9,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "name": "com.yfuse.core.designsystem.GlassMaterialTest",
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "name": "com.yfuse.core.designsystem.GlassTest",
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "name": "com.yfuse.core.designsystem.LoadingAnimationTest",
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "name": "com.yfuse.core.designsystem.LoadingMotionTest",
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    ]
+  },
+  "tvMainCompilation": "passed",
+  "scopedFormatting": "passed",
+  "tvSearchTests": "blocked: existing Ktor 3.0.3 lock conflicts with 3.1.0 dependencies",
+  "deviceUiTested": false,
+  "playbackTested": false
+}

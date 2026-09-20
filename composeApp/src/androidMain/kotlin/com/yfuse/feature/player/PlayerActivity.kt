@@ -54,6 +54,8 @@ import com.yfuse.core.data.dto.toMediaVersion
 import com.yfuse.core.data.preferredVersion
 import com.yfuse.core.designsystem.AccessibilityOptions
 import com.yfuse.core.designsystem.DialogAnimation
+import com.yfuse.core.designsystem.GlassMaterials
+import com.yfuse.core.designsystem.LoadingAnimation
 import com.yfuse.core.designsystem.ParticleLight
 import com.yfuse.core.designsystem.ParticleStyle
 import com.yfuse.core.designsystem.PlatformBackHandler
@@ -483,6 +485,8 @@ class PlayerActivity : ComponentActivity() {
         setContent {
             val state by pending.store.states.collectAsState(pending.store.state)
             val dialogAnimation = preferences?.dialogAnimation?.collectAsState()?.value ?: DialogAnimation.Lift
+            val loadingAnimation = preferences?.loadingAnimation?.collectAsState()?.value ?: LoadingAnimation.Orbit
+            val glassMaterials = preferences?.glassMaterials?.collectAsState()?.value ?: GlassMaterials()
             val reduceMotion = preferences?.reduceMotion?.collectAsState()?.value ?: false
             val systemMotionOff = platformAnimationsDisabled()
             val particleLight = preferences?.particleLight?.collectAsState()?.value ?: ParticleLight.Gentle
@@ -490,6 +494,8 @@ class PlayerActivity : ComponentActivity() {
             YfuseTheme(
                 dark = true,
                 dialogAnimation = dialogAnimation,
+                loadingAnimation = loadingAnimation,
+                glassMaterials = glassMaterials,
                 accessibility = AccessibilityOptions(reduceMotion = reduceMotion || systemMotionOff),
                 particleLight = particleLight,
                 particleStyle = particleStyle,
@@ -759,6 +765,8 @@ class PlayerActivity : ComponentActivity() {
             val refreshedRevision by queueRevision.collectAsState()
             // Always the dark palette: the controls float over the picture.
             val dialogAnimation = preferences?.dialogAnimation?.collectAsState()?.value ?: DialogAnimation.Lift
+            val loadingAnimation = preferences?.loadingAnimation?.collectAsState()?.value ?: LoadingAnimation.Orbit
+            val glassMaterials = preferences?.glassMaterials?.collectAsState()?.value ?: GlassMaterials()
             val reduceMotion = preferences?.reduceMotion?.collectAsState()?.value ?: false
             val systemMotionOff = platformAnimationsDisabled()
             val particleLight = preferences?.particleLight?.collectAsState()?.value ?: ParticleLight.Gentle
@@ -766,6 +774,8 @@ class PlayerActivity : ComponentActivity() {
             YfuseTheme(
                 dark = true,
                 dialogAnimation = dialogAnimation,
+                loadingAnimation = loadingAnimation,
+                glassMaterials = glassMaterials,
                 accessibility = AccessibilityOptions(reduceMotion = reduceMotion || systemMotionOff),
                 particleLight = particleLight,
                 particleStyle = particleStyle,
