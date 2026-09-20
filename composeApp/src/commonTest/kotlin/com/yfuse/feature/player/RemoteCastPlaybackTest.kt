@@ -4,6 +4,7 @@ import com.yfuse.core.cast.CastDevice
 import com.yfuse.core.cast.CastOutputEvidence
 import com.yfuse.core.cast.CastPlaybackStatus
 import com.yfuse.core.cast.CastState
+import com.yfuse.core2.api.YFrameRateSample
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -22,6 +23,7 @@ class RemoteCastPlaybackTest {
                 positionMs = 2_000L,
                 durationMs = 100_000L,
                 bufferedPositionMs = 3_000L,
+                diagnostics = PlaybackDiagnostics(renderedFrameRate = YFrameRateSample(60f, 1_000L)),
             )
         val cast =
             CastState(
@@ -43,6 +45,7 @@ class RemoteCastPlaybackTest {
         assertEquals(50_000L, remote.bufferedPositionMs)
         assertEquals("远程投屏 · 客厅电视", remote.diagnostics.engine)
         assertEquals("服务器转码", remote.diagnostics.playMethod)
+        assertNull(remote.diagnostics.renderedFrameRate)
     }
 
     @Test

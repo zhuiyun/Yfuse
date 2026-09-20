@@ -226,6 +226,7 @@ class EmbyRepository(
 ) {
     private val authService = EmbyAuthService(client)
     private val detailService = EmbyDetailService(client, progressProjection)
+    private val playbackDetails = PlaybackMetadataCache<Pair<SavedServer, String>, MediaDetail>()
     private val sourceService = EmbySourceService(client, detailService)
     private val libraryService = EmbyLibraryService(client)
     private val browseService = EmbyBrowseService(client, progressProjection)
@@ -625,6 +626,11 @@ class EmbyRepository(
         detail: MediaDetail,
     ): Result<PlayTargetResolution> = adapterFor(server).resolvePlayTargetWithEpisodes(server, detail)
 
+    internal suspend fun resolveSeriesPlayback(
+        server: SavedServer,
+        seriesId: String,
+    ): Result<SeriesPlaybackResolution> = adapterFor(server).resolveSeriesPlayback(server, seriesId)
+
     /** Libraries available to advanced search filters. */
     suspend fun mediaLibraries(server: SavedServer): Result<List<MediaLibrary>> = libraries(server)
 
@@ -714,7 +720,33 @@ class EmbyRepository(
         server: SavedServer,
         itemId: String,
         includeInheritedPeople: Boolean = true,
-    ): Result<MediaDetail> = adapterFor(server).itemDetail(server, itemId, includeInheritedPeople)
+    ): Result<MediaDetail> =
+        embyApiCall("item_detail") {
+            playbackDetails.get(server to itemId, reuse = false) {
+                adapterFor(server).itemDetail(server, itemId, includeInheritedPeople).getOrThrow()
+            }
+        }
+
+    /** Reuses a fresh detail-page snapshot, otherwise requests only playback fields. */
+    suspend fun playbackItemDetail(
+        server: SavedServer,
+        itemId: String,
+    ): Result<MediaDetail> =
+        embyApiCall("playback_item_detail") {
+            playbackDetails.get(server to itemId) {
+                if (server.kind == MediaServerKind.Plex) {
+                    adapterFor(server).itemDetail(server, itemId, includeInheritedPeople = false).getOrThrow()
+                } else {
+                    detailService
+                        .itemDetail(
+                            server,
+                            itemId,
+                            includeInheritedPeople = false,
+                            playbackOnly = true,
+                        ).getOrThrow()
+                }
+            }
+        }
 
     suspend fun inheritedEpisodePeople(
         server: SavedServer,

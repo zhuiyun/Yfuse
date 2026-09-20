@@ -7,13 +7,74 @@ import com.yfuse.core2.network.YMediaTransportResponse
 import com.yfuse.core2.network.YSourceProtocol
 import com.yfuse.core2.network.YTransportCredentials
 import com.yfuse.core2.network.YTransportFeature
+import java.io.IOException
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class AndroidTransportDiscBlockSourceTest {
+    @Test
+    fun `interrupted range recovers while delayed old transport close cannot close the new range`() {
+        assertSignalRetiresOnlyItsTransport(AndroidTransportDiscBlockSource::interruptPendingRead)
+    }
+
+    @Test
+    fun `cancel signal returns without waiting for transport close and permanent source close remains closed`() {
+        assertSignalRetiresOnlyItsTransport(AndroidTransportDiscBlockSource::cancelPendingRead)
+    }
+
+    private fun assertSignalRetiresOnlyItsTransport(signal: (AndroidTransportDiscBlockSource) -> Unit) {
+        val retired = InterruptibleDiscTransport(delayedFirstClose = true)
+        val fresh = InterruptibleDiscTransport(delayedFirstClose = false)
+        val created = AtomicInteger()
+        val source =
+            AndroidTransportDiscBlockSource(
+                uri = "https://media.invalid/movie.iso",
+                protocol = YSourceProtocol.Https,
+                headers = emptyMap(),
+                credentials = null,
+                createTransport = { if (created.getAndIncrement() == 0) retired else fresh },
+                readAheadBytes = DISC_LOGICAL_BLOCK_BYTES,
+                maximumCacheBytes = DISC_LOGICAL_BLOCK_BYTES,
+            )
+        val workers = Executors.newFixedThreadPool(2)
+        try {
+            val first = workers.submit<Int> { source.readBlocks(0, 1, ByteArray(DISC_LOGICAL_BLOCK_BYTES), 0) }
+            assertTrue(retired.readEntered.await(2, TimeUnit.SECONDS))
+            workers.submit { signal(source) }.get(1, TimeUnit.SECONDS)
+            assertTrue(retired.firstCloseEntered.await(2, TimeUnit.SECONDS))
+            assertEquals(-1, first.get(2, TimeUnit.SECONDS))
+            val output = ByteArray(DISC_LOGICAL_BLOCK_BYTES)
+            val second = workers.submit<Int> { source.readBlocks(1, 1, output, 0) }
+            assertTrue(fresh.readEntered.await(2, TimeUnit.SECONDS))
+            retired.allowFirstClose.countDown()
+            assertTrue(retired.firstCloseFinished.await(2, TimeUnit.SECONDS))
+            assertFalse(fresh.closed.get(), "A late close must retain the old transport identity")
+            fresh.allowRead.countDown()
+            assertEquals(1, second.get(2, TimeUnit.SECONDS))
+            assertContentEquals(ByteArray(DISC_LOGICAL_BLOCK_BYTES) { 7 }, output)
+            assertEquals(2, created.get())
+            source.close()
+            signal(source)
+            assertEquals(-1, source.readBlocks(2, 1, ByteArray(DISC_LOGICAL_BLOCK_BYTES), 0))
+            assertEquals(2, created.get(), "Permanent source close must never create another transport")
+        } finally {
+            retired.allowRead.countDown()
+            retired.allowFirstClose.countDown()
+            fresh.allowRead.countDown()
+            workers.shutdownNow()
+            source.close()
+        }
+    }
+
     @Test
     fun `remote ISO reads exact UDF blocks and forwards credentials`() {
         val media = ByteArray(DISC_LOGICAL_BLOCK_BYTES * 4) { index -> (index % 251).toByte() }
@@ -89,6 +150,58 @@ class AndroidTransportDiscBlockSourceTest {
         val expectedStart = lba.toLong() * DISC_LOGICAL_BLOCK_BYTES
         assertTrue(expectedStart > 4L * 1024L * 1024L * 1024L)
         assertEquals((expectedStart / (256L * 1024L)) * (256L * 1024L), opened.single().range?.startInclusive)
+    }
+}
+
+private class InterruptibleDiscTransport(
+    private val delayedFirstClose: Boolean,
+) : YMediaTransport {
+    override val supportedProtocols = setOf(YSourceProtocol.Https)
+    override val features = setOf(YTransportFeature.ByteRange, YTransportFeature.RandomAccess)
+    val readEntered = CountDownLatch(1)
+    val allowRead = CountDownLatch(1)
+    val firstCloseEntered = CountDownLatch(1)
+    val allowFirstClose = CountDownLatch(1)
+    val firstCloseFinished = CountDownLatch(1)
+    val closed = AtomicBoolean()
+    private val closes = AtomicInteger()
+
+    override suspend fun open(request: YMediaTransportRequest) =
+        YMediaTransportResponse(
+            statusCode = 206,
+            contentLength = DISC_LOGICAL_BLOCK_BYTES * 4L,
+            acceptedRange = requireNotNull(request.range),
+            features = features,
+        )
+
+    override suspend fun read(
+        destination: ByteArray,
+        offset: Int,
+        length: Int,
+    ): Int {
+        readEntered.countDown()
+        check(allowRead.await(3, TimeUnit.SECONDS)) { "Test did not release the range read" }
+        if (delayedFirstClose) return -1
+        if (closed.get()) throw IOException("New transport was closed before its read completed")
+        destination.fill(7, offset, offset + length)
+        return length
+    }
+
+    override suspend fun close() {
+        if (delayedFirstClose) {
+            if (closes.incrementAndGet() != 1) return
+            firstCloseEntered.countDown()
+            allowRead.countDown()
+            try {
+                check(allowFirstClose.await(3, TimeUnit.SECONDS)) { "Test did not release the retired transport close" }
+                closed.set(true)
+            } finally {
+                firstCloseFinished.countDown()
+            }
+        } else {
+            closed.set(true)
+            allowRead.countDown()
+        }
     }
 }
 

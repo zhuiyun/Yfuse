@@ -13,6 +13,7 @@ internal fun PlaybackState.runtimeProjection(): PlaybackState =
                 performanceBaseline = "",
                 bitrateBitsPerSecond = 0L,
                 frameRate = 0f,
+                renderedFrameRate = null,
                 droppedFrames = 0,
                 avSyncOffsetMs = null,
                 avSyncMeasurement = "",

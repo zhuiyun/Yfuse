@@ -22,6 +22,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -45,6 +46,7 @@ import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.GlassStyle
 import com.yfuse.core.designsystem.YfuseTheme
 import com.yfuse.core.designsystem.resolveDark
+import com.yfuse.core.network.LocalNetworkAccessNotice
 import com.yfuse.feature.home.HomeTabComponent
 import com.yfuse.feature.library.LibraryComponent
 import com.yfuse.feature.library.UnifiedLibraryScreen
@@ -54,6 +56,7 @@ import com.yfuse.feature.player.PlayerScreen
 import com.yfuse.feature.profile.ProfileTabComponent
 import com.yfuse.feature.search.SearchComponent
 import com.yfuse.tv.focus.requestFocusWhenAttached
+import kotlinx.coroutines.launch
 
 private data class TvDestination(
     val tab: RootComponent.Tab,
@@ -99,6 +102,12 @@ fun TvApp(component: RootComponent) {
         glassMaterials = glassMaterials,
     ) {
         com.yfuse.app.BindProductServices(component)
+        val savedServers by component.dependencies.serverRegistry.data
+            .collectAsState()
+        val permissionScope = rememberCoroutineScope()
+        LocalNetworkAccessNotice(hasServers = savedServers.servers.isNotEmpty()) {
+            permissionScope.launch { component.dependencies.serverHealthMonitor.refreshAll() }
+        }
         TvRoot(component)
         PlaybackReportingWarning(component.dependencies.playbackReportingCoordinator)
     }

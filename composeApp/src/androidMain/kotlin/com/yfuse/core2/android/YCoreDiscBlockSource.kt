@@ -4,12 +4,18 @@ import com.yfuse.core2.network.YMediaTransport
 import com.yfuse.core2.network.YSourceProtocol
 import com.yfuse.core2.network.YTransportCredentials
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import java.util.LinkedHashMap
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 
 internal interface YCoreDiscBlockSource : AutoCloseable {
     fun cancelPendingRead() {}
+
+    fun interruptPendingRead() = cancelPendingRead()
 
     fun readBlocks(
         lba: Int,
@@ -31,12 +37,16 @@ internal class AndroidTransportDiscBlockSource(
 ) : YCoreDiscBlockSource {
     @Volatile private var closed = false
 
-    @Volatile private var activeTransport: YMediaTransport? = null
+    private val activeTransport = AtomicReference<YMediaTransport?>()
     private val readGeneration = AtomicLong()
 
-    override fun cancelPendingRead() {
+    override fun cancelPendingRead() = interruptPendingRead()
+
+    override fun interruptPendingRead() {
         readGeneration.incrementAndGet()
-        activeTransport?.let { transport -> runCatching { runBlocking { transport.close() } } }
+        val transport = activeTransport.getAndSet(null) ?: return
+        // Only the captured request is retired. The next window creates a fresh transport.
+        CoroutineScope(Dispatchers.IO).launch { runCatching { transport.close() } }
     }
 
     private val cachedWindows = LinkedHashMap<Long, ByteArray>(16, 0.75f, true)
@@ -101,7 +111,7 @@ internal class AndroidTransportDiscBlockSource(
         val end = if (knownLength >= 0L) minOf(unboundedEnd, knownLength - 1L) else unboundedEnd
         val generation = readGeneration.get()
         val transport = createTransport()
-        activeTransport = transport
+        activeTransport.set(transport)
         return runBlocking {
             try {
                 if (closed || generation != readGeneration.get()) return@runBlocking DiscWindowResult.Failure
@@ -169,7 +179,7 @@ internal class AndroidTransportDiscBlockSource(
                 DiscWindowResult.Failure
             } finally {
                 runCatching { transport.close() }
-                if (activeTransport === transport) activeTransport = null
+                activeTransport.compareAndSet(transport, null)
             }
         }
     }

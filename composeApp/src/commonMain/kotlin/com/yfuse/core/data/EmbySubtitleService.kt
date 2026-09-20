@@ -9,7 +9,6 @@ import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.parameter
 import io.ktor.client.request.post
-import io.ktor.http.encodeURLPathPart
 
 /** Remote subtitle discovery and installation. */
 internal class EmbySubtitleService(
@@ -23,8 +22,8 @@ internal class EmbySubtitleService(
         embyApiCall("remote_subtitle_search") {
             client
                 .get(
-                    "${normalizeBaseUrl(server.baseUrl)}/Items/$itemId/RemoteSearch/Subtitles/" +
-                        language.encodeURLPathPart(),
+                    "${normalizeBaseUrl(server.baseUrl)}/Items/${embyPath(itemId)}/RemoteSearch/Subtitles/" +
+                        embyPath(language),
                 ) {
                     header("X-Emby-Token", server.accessToken)
                     parameter("IsPerfectMatch", false)
@@ -38,8 +37,8 @@ internal class EmbySubtitleService(
     ): Result<Unit> =
         embyApiCall("remote_subtitle_download") {
             client.post(
-                "${normalizeBaseUrl(server.baseUrl)}/Items/$itemId/RemoteSearch/Subtitles/" +
-                    subtitleId.encodeURLPathPart(),
+                "${normalizeBaseUrl(server.baseUrl)}/Items/${embyPath(itemId)}/RemoteSearch/Subtitles/" +
+                    embyPath(subtitleId),
             ) {
                 header("X-Emby-Token", server.accessToken)
             }

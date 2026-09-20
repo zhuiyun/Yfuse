@@ -101,6 +101,7 @@ import com.yfuse.core.designsystem.ThemeText as Text
 fun ServersScreen(component: ServersComponent) {
     val state by component.store.states.collectAsState(component.store.state)
     val store = component.store
+    val sendIntent = rememberServerConnectionIntent(state, store::accept)
     val form = state.form
     val palette = LocalPalette.current
     StatusBarIconStyle(darkIcons = !palette.isDark)
@@ -109,7 +110,7 @@ fun ServersScreen(component: ServersComponent) {
     // The standalone onboarding route owns a fresh store; mark its form session open so
     // asynchronous discovery and Quick Connect results are not discarded as stale dialog work.
     LaunchedEffect(Unit) {
-        if (!state.dialogVisible) store.accept(ServersIntent.OpenAddDialog)
+        if (!state.dialogVisible) sendIntent(ServersIntent.OpenAddDialog)
     }
 
     Box(Modifier.fillMaxSize()) {
@@ -117,7 +118,7 @@ fun ServersScreen(component: ServersComponent) {
             OnboardingScreen(
                 state = state,
                 form = form,
-                onIntent = store::accept,
+                onIntent = sendIntent,
                 onManual = { showOnboarding = false },
                 onBack = component.onBack,
             )
@@ -184,7 +185,7 @@ fun ServersScreen(component: ServersComponent) {
                                                 label = label,
                                                 selected = form.kind == kind,
                                                 modifier = Modifier.weight(1f),
-                                            ) { store.accept(ServersIntent.ProviderChanged(kind)) }
+                                            ) { sendIntent(ServersIntent.ProviderChanged(kind)) }
                                         }
                                     }
                                 }
@@ -197,12 +198,12 @@ fun ServersScreen(component: ServersComponent) {
                                             label = "HTTPS",
                                             selected = form.https,
                                             modifier = Modifier.weight(1f),
-                                        ) { store.accept(ServersIntent.ProtocolChanged(true)) }
+                                        ) { sendIntent(ServersIntent.ProtocolChanged(true)) }
                                         ProtocolSegment(
                                             label = "HTTP",
                                             selected = !form.https,
                                             modifier = Modifier.weight(1f),
-                                        ) { store.accept(ServersIntent.ProtocolChanged(false)) }
+                                        ) { sendIntent(ServersIntent.ProtocolChanged(false)) }
                                     }
                                 }
                                 FormInput(
@@ -212,7 +213,7 @@ fun ServersScreen(component: ServersComponent) {
                                     enabled = !form.submitting,
                                     keyboardType = KeyboardType.Uri,
                                     divider = true,
-                                    onValueChange = { store.accept(ServersIntent.HostChanged(it)) },
+                                    onValueChange = { sendIntent(ServersIntent.HostChanged(it)) },
                                 )
                                 FormInput(
                                     label = "端口",
@@ -220,7 +221,7 @@ fun ServersScreen(component: ServersComponent) {
                                     enabled = !form.submitting,
                                     keyboardType = KeyboardType.Number,
                                     divider = true,
-                                    onValueChange = { store.accept(ServersIntent.PortChanged(it)) },
+                                    onValueChange = { sendIntent(ServersIntent.PortChanged(it)) },
                                 )
                                 FormInput(
                                     label = "基础路径（可选）",
@@ -229,7 +230,7 @@ fun ServersScreen(component: ServersComponent) {
                                     enabled = !form.submitting,
                                     keyboardType = KeyboardType.Uri,
                                     divider = true,
-                                    onValueChange = { store.accept(ServersIntent.BasePathChanged(it)) },
+                                    onValueChange = { sendIntent(ServersIntent.BasePathChanged(it)) },
                                 )
                                 if (form.kind == MediaServerKind.Plex) {
                                     FormInput(
@@ -239,7 +240,7 @@ fun ServersScreen(component: ServersComponent) {
                                         enabled = !form.submitting,
                                         password = true,
                                         divider = false,
-                                        onValueChange = { store.accept(ServersIntent.PasswordChanged(it)) },
+                                        onValueChange = { sendIntent(ServersIntent.PasswordChanged(it)) },
                                     )
                                 } else {
                                     FormInput(
@@ -247,7 +248,7 @@ fun ServersScreen(component: ServersComponent) {
                                         value = form.username,
                                         enabled = !form.submitting,
                                         divider = true,
-                                        onValueChange = { store.accept(ServersIntent.UsernameChanged(it)) },
+                                        onValueChange = { sendIntent(ServersIntent.UsernameChanged(it)) },
                                     )
                                     FormInput(
                                         label = "密码",
@@ -255,7 +256,7 @@ fun ServersScreen(component: ServersComponent) {
                                         enabled = !form.submitting,
                                         password = true,
                                         divider = false,
-                                        onValueChange = { store.accept(ServersIntent.PasswordChanged(it)) },
+                                        onValueChange = { sendIntent(ServersIntent.PasswordChanged(it)) },
                                     )
                                 }
                             }
@@ -264,8 +265,8 @@ fun ServersScreen(component: ServersComponent) {
                             QuickConnectPanel(
                                 state = state.quickConnect,
                                 enabled = form.canStartQuickConnect,
-                                onStart = { store.accept(ServersIntent.StartQuickConnect) },
-                                onCancel = { store.accept(ServersIntent.CancelQuickConnect) },
+                                onStart = { sendIntent(ServersIntent.StartQuickConnect) },
+                                onCancel = { sendIntent(ServersIntent.CancelQuickConnect) },
                             )
                             val manualError = rememberLastNonNull(form.error)
                             AnimatedVisibility(
@@ -313,7 +314,7 @@ fun ServersScreen(component: ServersComponent) {
 
                 ManualConnectAction(
                     form = form,
-                    onSubmit = { store.accept(ServersIntent.Submit) },
+                    onSubmit = { sendIntent(ServersIntent.Submit) },
                     modifier = Modifier.align(Alignment.BottomCenter),
                 )
             }
@@ -324,7 +325,7 @@ fun ServersScreen(component: ServersComponent) {
         // saves just happened; the toast is the only thing that says anything happened at all.
         ActionToast(
             message = state.notice,
-            onDismiss = { store.accept(ServersIntent.DismissNotice) },
+            onDismiss = { sendIntent(ServersIntent.DismissNotice) },
             modifier = Modifier.padding(bottom = systemNavigationContentInset()),
         )
     }

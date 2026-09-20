@@ -2,6 +2,7 @@ package com.yfuse.core2.android
 
 import android.content.Context
 import com.yfuse.core.playback.PlaybackDiscMenuCommand
+import com.yfuse.core.playback.PlaybackDiscNavigationState
 import com.yfuse.core2.api.YMediaItem
 import com.yfuse.core2.api.YPlayer
 import com.yfuse.core2.api.YPlayerOpenRequest
@@ -44,9 +45,10 @@ internal class AndroidYCoreDiscRouteFactory(
         startSpeed: Float,
         forceSoftwareDecode: Boolean,
     ): YPlayer? {
+        if (forceSoftwareDecode && item.drmConfiguration != null) return null
         val yCore =
             if (FfmpegNativeBridge.discNavigationAvailable) {
-                createYCore(item, request, startSpeed)
+                createYCore(item, request, startSpeed, forceSoftwareDecode)
             } else {
                 null
             }
@@ -57,6 +59,7 @@ internal class AndroidYCoreDiscRouteFactory(
         item: YMediaItem,
         request: YPlayerOpenRequest,
         startSpeed: Float,
+        forceSoftwareDecode: Boolean,
     ): YPlayer? {
         val source = AndroidYCoreBluRaySource.create(appContext, item) ?: return null
         val nativeId =
@@ -80,6 +83,7 @@ internal class AndroidYCoreDiscRouteFactory(
                     request = nativeRequest,
                     allowAudioPassthrough = allowAudioPassthrough,
                     frameRateSwitchMode = frameRateSwitchMode,
+                    forceSoftwareDecode = forceSoftwareDecode,
                 )
             }.getOrElse {
                 FfmpegNativeBridge.unregisterBluRaySource(nativeId)
@@ -88,20 +92,23 @@ internal class AndroidYCoreDiscRouteFactory(
         delegate.setSpeed(startSpeed)
         return AndroidYCoreBluRayPlayer(
             delegate = delegate,
-            source = source,
+            navigation = source.navigation,
             nativeId = nativeId,
         )
     }
 }
 
-private class AndroidYCoreBluRayPlayer(
+internal class AndroidYCoreBluRayPlayer(
     private val delegate: YPlayer,
-    private val source: AndroidYCoreBluRaySource,
+    navigation: StateFlow<PlaybackDiscNavigationState>,
     private val nativeId: Long,
-) : YPlayer by delegate {
+    private val unregisterSource: (Long) -> Unit = FfmpegNativeBridge::unregisterBluRaySource,
+) : YPlayer by delegate,
+    AndroidSerializedPlayerRelease {
+    private val serializedDelegate = checkNotNull(delegate as? AndroidSerializedPlayerRelease)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     override val state: StateFlow<YPlayerState> =
-        combine(delegate.state, source.navigation) { player, navigation ->
+        combine(delegate.state, navigation) { player, navigation ->
             player.copy(
                 discNavigation = navigation,
                 diagnostics =
@@ -112,11 +119,26 @@ private class AndroidYCoreBluRayPlayer(
         }.stateIn(
             scope = scope,
             started = SharingStarted.Eagerly,
-            initialValue = delegate.state.value.copy(discNavigation = source.navigation.value),
+            initialValue = delegate.state.value.copy(discNavigation = navigation.value),
         )
 
     @Volatile
     private var released = false
+
+    @Volatile
+    private var delegateReleaseRequested = false
+
+    @Volatile
+    private var sourceUnregistered = false
+
+    override val releaseCompleted: Boolean
+        get() = delegateReleaseRequested && sourceUnregistered && serializedDelegate.releaseCompleted
+
+    override suspend fun releaseAndJoin() {
+        release()
+        serializedDelegate.releaseAndJoin()
+        check(releaseCompleted) { "Blu-ray decoder cleanup is not complete" }
+    }
 
     override fun selectDiscTitle(index: Int): Boolean {
         if (released || index !in 0 until state.value.discNavigation.effectiveTitleCount) return false
@@ -142,12 +164,20 @@ private class AndroidYCoreBluRayPlayer(
             state.value.discNavigation.menuSupported &&
             FfmpegNativeBridge.sendDiscMenuCommand(nativeId, command.nativeMenuCode())
 
+    @Synchronized
     override fun release() {
-        if (released) return
         released = true
-        delegate.release()
-        FfmpegNativeBridge.unregisterBluRaySource(nativeId)
         scope.cancel()
+        if (!delegateReleaseRequested) {
+            delegate.release()
+            delegateReleaseRequested = true
+        }
+        if (!sourceUnregistered) {
+            // Demux retains a native shared_ptr; removing the registry entry does not free an
+            // active reader. Decoder completion remains the delegate's serialized barrier.
+            unregisterSource(nativeId)
+            sourceUnregistered = true
+        }
     }
 }
 

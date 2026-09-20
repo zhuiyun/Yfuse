@@ -1075,6 +1075,17 @@ internal class DetailExecutor(
         val current = state()
         val server = current.playServer ?: return
         if (current.resolvingPlay) return
+        pendingLaunchTiming =
+            com.yfuse.feature.player.PlaybackLaunchTiming().also { timing ->
+                timing.stage("play_requested")
+                current.playTarget?.id?.let {
+                    com.yfuse.feature.player.PlaybackLaunchTimings.register(
+                        server.id,
+                        it,
+                        timing,
+                    )
+                }
+            }
         if (current.selectionLoading) {
             queuePlayAfterSelection(fromStart)
             return
@@ -1178,12 +1189,20 @@ internal class DetailExecutor(
         publishPlay(state(), fromStart)
     }
 
+    private var pendingLaunchTiming: com.yfuse.feature.player.PlaybackLaunchTiming? = null
+
     private fun publishPlay(
         current: DetailState,
         fromStart: Boolean,
     ) {
         val target = current.playTarget ?: return
         val server = current.playServer ?: return
+        pendingLaunchTiming?.let {
+            com.yfuse.feature.player.PlaybackLaunchTimings
+                .register(server.id, target.id, it)
+            it.stage("detail_selection_ready")
+        }
+        pendingLaunchTiming = null
         val versionId =
             current.selectedVersionId
                 ?.takeIf { selected -> target.versions.any { it.id == selected } }

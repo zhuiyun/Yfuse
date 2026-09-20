@@ -58,7 +58,9 @@ class WatchGatedPlayback(
 
     fun togglePlayPause(): Boolean =
         gated { player ->
-            val willPlay = state?.playing != true
+            // During buffering or engine retirement no frames are playing yet, but the user can
+            // still withdraw a play request. Toggle intent, including while a pause is settling.
+            val willPlay = !player.playbackRequested
             if (willPlay) player.play() else player.pause()
             publish(paused = !willPlay)
         }

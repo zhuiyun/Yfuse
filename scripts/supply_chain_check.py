@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Scan committed Gradle dependency locks with OSV and emit an SPDX 2.3 SBOM."""
+"""Scan committed Gradle/npm dependency locks with OSV and emit an SPDX 2.3 SBOM."""
 from __future__ import annotations
 
 import argparse
@@ -11,7 +11,9 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 OSV_BATCH_URL = "https://api.osv.dev/v1/querybatch"
 OSV_VULN_URL = "https://api.osv.dev/v1/vulns/"
@@ -30,13 +32,22 @@ class Dependency:
     name: str
     version: str
     source: str
+    ecosystem: str = "Maven"
+
+    @property
+    def package_name(self) -> str:
+        return self.name if self.ecosystem == "npm" else f"{self.group}:{self.name}"
 
     @property
     def purl(self) -> str:
+        if self.ecosystem == "npm":
+            return f"pkg:npm/{urllib.parse.quote(self.name, safe='/')}@{self.version}"
         return f"pkg:maven/{self.group}/{self.name}@{self.version}"
 
     @property
     def coordinate(self) -> str:
+        if self.ecosystem == "npm":
+            return f"npm:{self.name}:{self.version}"
         return f"{self.group}:{self.name}:{self.version}"
 
 
@@ -66,10 +77,14 @@ def read_security_overrides(root: pathlib.Path) -> dict[str, str]:
 
 
 def tracked_lockfiles(root: pathlib.Path) -> list[pathlib.Path]:
+    return tracked_files(root, ["gradle.lockfile", "*/gradle.lockfile"])
+
+
+def tracked_files(root: pathlib.Path, patterns: list[str]) -> list[pathlib.Path]:
     root = root.resolve()
     result = subprocess.run(
         ["git", "-c", f"safe.directory={root.as_posix()}", "ls-files", "-z", "--",
-         "gradle.lockfile", "*/gradle.lockfile"],
+         *patterns],
         cwd=root, capture_output=True, check=True,
     )
     paths = []
@@ -81,6 +96,34 @@ def tracked_lockfiles(root: pathlib.Path) -> list[pathlib.Path]:
             raise ValueError(f"Tracked dependency lock is missing or outside root: {raw}")
         paths.append(path)
     return sorted(paths)
+
+
+def read_npm_dependencies(root: pathlib.Path) -> list[Dependency]:
+    root = root.resolve()
+    found: dict[str, Dependency] = {}
+    for path in tracked_files(root, ["package-lock.json", "*/package-lock.json"]):
+        lock = json.loads(path.read_text(encoding="utf-8"))
+        if (not isinstance(lock, dict) or lock.get("lockfileVersion") not in (2, 3)
+                or not isinstance(lock.get("packages"), dict)):
+            raise ValueError(f"Unsupported npm lockfile: {path.relative_to(root)}")
+        for package_path, record in lock["packages"].items():
+            if not package_path:
+                continue  # The root application is not a downloaded dependency.
+            if not isinstance(record, dict) or "node_modules/" not in package_path or record.get("link"):
+                raise ValueError(f"Unresolved npm package: {package_path}")
+            name = record.get("name") or package_path.rsplit("node_modules/", 1)[1]
+            version = record.get("version")
+            if (not isinstance(name, str) or not name or not isinstance(version, str)
+                    or not re.fullmatch(r"\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?", version)):
+                raise ValueError(f"Missing exact npm package version: {package_path}")
+            dep = Dependency("", name, version, str(path.relative_to(root)), "npm")
+            previous = found.get(dep.coordinate)
+            if previous is not None and dep.source not in previous.source.split("; "):
+                dep = Dependency("", name, version, previous.source + "; " + dep.source, "npm")
+            elif previous is not None:
+                dep = previous
+            found[dep.coordinate] = dep
+    return sorted(found.values(), key=lambda item: item.coordinate)
 
 
 def read_dependencies(root: pathlib.Path) -> list[Dependency]:
@@ -128,7 +171,7 @@ def query_osv(dependencies: list[Dependency]) -> list[tuple[Dependency, str]]:
         payload = {
             "queries": [
                 {
-                    "package": {"name": f"{dep.group}:{dep.name}", "ecosystem": "Maven"},
+                    "package": {"name": dep.package_name, "ecosystem": dep.ecosystem},
                     "version": dep.version,
                 }
                 for dep in batch
@@ -287,7 +330,7 @@ def write_spdx(dependencies: list[Dependency], findings: list[tuple[Dependency, 
         packages.append(
             {
                 "SPDXID": package_id,
-                "name": f"{dep.group}:{dep.name}",
+                "name": dep.package_name,
                 "versionInfo": dep.version,
                 "downloadLocation": "NOASSERTION",
                 "filesAnalyzed": False,
@@ -314,9 +357,12 @@ def write_spdx(dependencies: list[Dependency], findings: list[tuple[Dependency, 
         "spdxVersion": "SPDX-2.3",
         "dataLicense": "CC0-1.0",
         "SPDXID": "SPDXRef-DOCUMENT",
-        "name": "Yfuse Gradle dependency lock snapshot",
-        "documentNamespace": "https://yfuse.app/spdx/yfuse-gradle-locks",
-        "creationInfo": {"creators": ["Tool: Yfuse supply_chain_check.py"]},
+        "name": "Yfuse Maven and npm dependency lock snapshot",
+        "documentNamespace": f"https://yfuse.app/spdx/yfuse-dependency-locks/{uuid.uuid4()}",
+        "creationInfo": {
+            "creators": ["Tool: Yfuse supply_chain_check.py"],
+            "created": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        },
         "packages": packages,
         "relationships": relationships,
     }
@@ -331,12 +377,12 @@ def main() -> int:
     args = parser.parse_args()
     root = pathlib.Path(args.root).resolve()
     try:
-        dependencies = read_dependencies(root)
+        dependencies = read_dependencies(root) + read_npm_dependencies(root)
     except (ValueError, OSError, subprocess.SubprocessError) as exc:
         print(f"::error::Dependency scan inputs could not be verified: {exc}")
         return 2
     if not dependencies:
-        print("::error::No Maven dependencies found in committed Gradle lockfiles")
+        print("::error::No dependencies found in committed lockfiles")
         return 2
     try:
         matches = query_osv(dependencies)
@@ -353,7 +399,7 @@ def main() -> int:
     write_spdx(dependencies, findings, root / args.sbom)
     blocking = [(dep, vuln, severity(vuln)) for dep, vuln in findings if severity(vuln) in BLOCKING]
     print(
-        f"Scanned {len(dependencies)} Maven dependencies; "
+        f"Scanned {len(dependencies)} Maven/npm dependencies; "
         f"OSV returned {len(findings)} active vulnerability records "
         f"({len(matches) - len(findings)} withdrawn)."
     )

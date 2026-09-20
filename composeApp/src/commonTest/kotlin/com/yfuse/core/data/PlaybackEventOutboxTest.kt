@@ -1,8 +1,12 @@
 package com.yfuse.core.data
 
 import com.russhwolf.settings.MapSettings
+import com.yfuse.core.model.SavedServer
 import com.yfuse.core.network.EmbyError
 import com.yfuse.core.network.EmbyErrorException
+import com.yfuse.feature.testRepo
+import io.ktor.client.engine.mock.respond
+import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
@@ -12,6 +16,180 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class PlaybackEventOutboxTest {
+    @Test
+    fun retry_never_regenerates_a_start_that_the_server_already_acknowledged() =
+        runTest {
+            val outbox = PlaybackEventOutbox(MapSettings())
+            outbox.enqueue(PlaybackOutboxEventKind.Started, "a", "item", "session", 0L, false, "DirectPlay")
+            val delivered = mutableListOf<PlaybackOutboxEventKind>()
+            outbox.flush("a") {
+                delivered += it.kind
+                Result.success(Unit)
+            }
+            outbox.enqueue(PlaybackOutboxEventKind.Progress, "a", "item", "session", 10L, false, "DirectPlay")
+            outbox.flush("a") { Result.failure(EmbyErrorException(EmbyError.NotFound)) }
+            outbox.enqueue(PlaybackOutboxEventKind.Stopped, "a", "item", "session", 20L, true, "DirectPlay")
+
+            outbox.retryRejectedReports()
+            outbox.flush("a") {
+                delivered += it.kind
+                Result.success(Unit)
+            }
+
+            assertEquals(listOf(PlaybackOutboxEventKind.Started, PlaybackOutboxEventKind.Stopped), delivered)
+            assertTrue(outbox.events.value.isEmpty())
+        }
+
+    @Test
+    fun gone_http_responses_are_isolated_through_the_real_repository_error_mapping() =
+        runTest {
+            listOf(HttpStatusCode.NotFound, HttpStatusCode.Gone).forEach { status ->
+                val repository = testRepo { respond(content = "", status = status) }
+                val server = SavedServer("a", "https://emby.example", "Emby", "user", "User", "token")
+                val outbox = PlaybackEventOutbox(MapSettings())
+                outbox.enqueue(PlaybackOutboxEventKind.Started, "a", "item", "session", 0L, false, "DirectPlay")
+
+                outbox.flush("a") { event ->
+                    repository.reportPlaybackStarted(
+                        server,
+                        event.itemId,
+                        event.sessionId,
+                        event.positionTicks,
+                        event.isPaused,
+                    )
+                }
+
+                assertTrue(outbox.events.value.isEmpty(), "HTTP ${status.value} must leave the active lane")
+                assertEquals(1, outbox.rejectedSessions.value.size)
+                assertEquals(1L, outbox.rejectedSessionWarnings.value)
+            }
+        }
+
+    @Test
+    fun a_missing_session_is_isolated_while_other_sessions_on_the_same_server_continue() =
+        runTest {
+            val settings = MapSettings()
+            val outbox = PlaybackEventOutbox(settings)
+            outbox.enqueue(PlaybackOutboxEventKind.Started, "a", "gone", "old", 0L, false, "DirectPlay")
+            outbox.enqueue(PlaybackOutboxEventKind.Stopped, "a", "gone", "old", 10L, true, "DirectPlay")
+            outbox.enqueue(PlaybackOutboxEventKind.Started, "a", "healthy", "new", 0L, false, "DirectPlay")
+            outbox.enqueue(PlaybackOutboxEventKind.Stopped, "a", "healthy", "new", 20L, true, "DirectPlay")
+            val sent = mutableListOf<Pair<String, PlaybackOutboxEventKind>>()
+
+            val result =
+                outbox.flush("a") {
+                    sent += it.sessionId to it.kind
+                    if (it.sessionId ==
+                        "old"
+                    ) {
+                        Result.failure(EmbyErrorException(EmbyError.NotFound))
+                    } else {
+                        Result.success(Unit)
+                    }
+                }
+
+            assertEquals(
+                listOf(
+                    "old" to PlaybackOutboxEventKind.Started,
+                    "new" to PlaybackOutboxEventKind.Started,
+                    "new" to PlaybackOutboxEventKind.Stopped,
+                ),
+                sent,
+            )
+            assertEquals(2, result.deliveredCount)
+            assertEquals(0, result.pendingCount)
+            assertTrue(outbox.pendingServerIds().isEmpty())
+            val restored = PlaybackEventOutbox(settings)
+            assertEquals(1L, restored.rejectedSessionWarnings.value)
+            assertEquals(
+                listOf(
+                    PlaybackOutboxEventKind.Started,
+                    PlaybackOutboxEventKind.Stopped,
+                ),
+                restored.rejectedSessions.value.single().events.map {
+                    it.kind
+                },
+            )
+            assertEquals(
+                10L,
+                restored.rejectedSessions.value
+                    .single()
+                    .events
+                    .last()
+                    .positionTicks,
+            )
+        }
+
+    @Test
+    fun late_session_events_stay_isolated_and_explicit_retry_preserves_their_order() =
+        runTest {
+            val settings = MapSettings()
+            val outbox = PlaybackEventOutbox(settings)
+            outbox.enqueue(PlaybackOutboxEventKind.Started, "a", "item", "session", 0L, false, "DirectPlay")
+            outbox.flush("a") { Result.failure(EmbyErrorException(EmbyError.NotFound)) }
+            outbox.enqueue(PlaybackOutboxEventKind.Progress, "a", "item", "session", 10L, false, "DirectPlay")
+            outbox.enqueue(PlaybackOutboxEventKind.Stopped, "a", "item", "session", 20L, true, "DirectPlay")
+            outbox.enqueue(PlaybackOutboxEventKind.Progress, "a", "item", "session", 30L, false, "DirectPlay")
+            assertTrue(outbox.events.value.isEmpty())
+            assertEquals(1L, outbox.rejectedSessionWarnings.value)
+
+            val restored = PlaybackEventOutbox(settings)
+            assertEquals(setOf("a"), restored.retryRejectedReports())
+            assertTrue(restored.rejectedSessions.value.isEmpty())
+            assertEquals(0L, restored.rejectedSessionWarnings.value)
+            val sent = mutableListOf<PlaybackOutboxEvent>()
+            restored.flush("a") {
+                sent += it
+                Result.success(Unit)
+            }
+            assertEquals(listOf(PlaybackOutboxEventKind.Started, PlaybackOutboxEventKind.Stopped), sent.map { it.kind })
+            assertEquals(20L, sent.last().positionTicks)
+        }
+
+    @Test
+    fun ordinary_client_errors_and_throttling_are_not_silently_discarded() =
+        runTest {
+            listOf(400, 408, 409, 422, 429, 500, 503).forEach { status ->
+                val outbox = PlaybackEventOutbox(MapSettings())
+                outbox.enqueue(PlaybackOutboxEventKind.Started, "a", "item", "session", 0L, false, "DirectPlay")
+                val result = outbox.flush("a") { Result.failure(EmbyErrorException(EmbyError.Unknown("HTTP $status"))) }
+                assertEquals(1, result.pendingCount)
+                assertTrue(outbox.rejectedSessions.value.isEmpty())
+                assertEquals(0L, outbox.rejectedSessionWarnings.value)
+                assertFalse(result.authenticationRequired)
+            }
+        }
+
+    @Test
+    fun rejected_session_storage_is_bounded_and_warnings_survive_restart() =
+        runTest {
+            val settings = MapSettings()
+            val outbox = PlaybackEventOutbox(settings)
+            repeat(40) { index ->
+                outbox.enqueue(
+                    PlaybackOutboxEventKind.Stopped,
+                    "a",
+                    "$index",
+                    "$index",
+                    index.toLong(),
+                    true,
+                    "DirectPlay",
+                )
+                outbox.flush("a") { Result.failure(EmbyErrorException(EmbyError.NotFound)) }
+            }
+            assertEquals(32, outbox.rejectedSessions.value.size)
+            assertEquals(40L, outbox.rejectedSessionWarnings.value)
+            assertEquals(40L, PlaybackEventOutbox(settings).rejectedSessionWarnings.value)
+            assertEquals(
+                "39",
+                outbox.rejectedSessions.value
+                    .last()
+                    .events
+                    .single()
+                    .sessionId,
+            )
+        }
+
     @Test
     fun terminal_loss_survives_restart_and_acknowledgement_preserves_new_losses() {
         val settings = MapSettings()

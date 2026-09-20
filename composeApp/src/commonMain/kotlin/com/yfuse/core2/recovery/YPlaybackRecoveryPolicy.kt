@@ -17,6 +17,8 @@ data class YPlaybackRecoveryContext(
     val category: YPlaybackFailureCategory?,
     val sameRouteAttempts: Int,
     val protectedContent: Boolean,
+    /** Intent is authoritative even when a failed executor still reports its old hardware route. */
+    val softwareFallbackAttempted: Boolean = false,
 ) {
     init {
         require(sameRouteAttempts >= 0)
@@ -38,7 +40,7 @@ object YPlaybackRecoveryPolicy {
         ) {
             return YPlaybackRecoveryAction.Stop
         }
-        if (context.route == YPlaybackRoute.SoftwareFallback) {
+        if (context.route == YPlaybackRoute.SoftwareFallback || context.softwareFallbackAttempted) {
             return YPlaybackRecoveryAction.Stop
         }
         if (context.route == YPlaybackRoute.NativeTunnel) {

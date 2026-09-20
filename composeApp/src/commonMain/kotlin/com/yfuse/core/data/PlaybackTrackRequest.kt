@@ -57,6 +57,28 @@ class PlaybackTrackRequest {
         return Tracks(current.audioLanguage, current.subtitleLanguage)
     }
 
+    fun peek(itemId: String?): Tracks? =
+        pending
+            ?.takeIf { itemId != null && it.itemId == itemId }
+            ?.let { Tracks(it.audioLanguage, it.subtitleLanguage) }
+
+    /** A missing/incomplete engine track list must not consume an unapplied language choice. */
+    fun acknowledge(
+        itemId: String?,
+        expected: Tracks,
+        audioApplied: Boolean,
+        subtitleApplied: Boolean,
+    ) {
+        val current = pending ?: return
+        if (current.itemId != itemId || peek(itemId) != expected) return
+        val remaining =
+            current.copy(
+                audioLanguage = current.audioLanguage.takeUnless { audioApplied },
+                subtitleLanguage = current.subtitleLanguage.takeUnless { subtitleApplied },
+            )
+        pending = remaining.takeUnless { it.audioLanguage == null && it.subtitleLanguage == null }
+    }
+
     companion object {
         const val SUBTITLES_OFF = "__off__"
     }

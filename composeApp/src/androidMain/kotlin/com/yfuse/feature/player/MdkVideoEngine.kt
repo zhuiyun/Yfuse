@@ -9,6 +9,8 @@ import com.yfuse.core.logging.safeLogcat
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.playback.PlaybackOptimizationMode
 import com.yfuse.core.playback.mdkBufferProfile
+import com.yfuse.core2.android.AndroidSerializedPlayerRelease
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -29,8 +31,8 @@ private val mdkRuntimeCadence =
         idleIntervalMs = 2_000L,
     )
 
-/** Polls to let a freshly-loaded fallback settle before its status is trusted again. */
-private const val FALLBACK_SETTLE_POLLS = 12
+/** Preserve the former 12 × 250 ms grace period independently of native-event frequency. */
+private const val FALLBACK_SETTLE_MS = 3_000L
 private const val TRACK_SEPARATOR = '\u001F'
 internal const val MDK_SDK_COMPILE_VERSION = "0.37.0"
 
@@ -251,7 +253,8 @@ class MdkVideoEngine(
     context: Context? = null,
     private val videoCacheBytes: Long = 0L,
     private val optimizationMode: PlaybackOptimizationMode = PlaybackOptimizationMode.Balanced,
-) : VideoEngine {
+) : VideoEngine,
+    AndroidSerializedPlayerRelease {
     @Volatile
     private var items = items.toList()
     private val memoryBudgetBytes = context?.let(::playbackMemoryBudgetBytes) ?: 32L * 1024L * 1024L
@@ -326,6 +329,14 @@ class MdkVideoEngine(
 
     @Volatile
     private var released = false
+    private val releaseResult = CompletableDeferred<Unit>()
+
+    override val releaseCompleted: Boolean get() = released && releaseResult.isCompleted && !releaseResult.isCancelled
+
+    override suspend fun releaseAndJoin() {
+        release()
+        releaseResult.await()
+    }
 
     @Volatile
     private var playRequested = startPlaybackRequested
@@ -347,7 +358,7 @@ class MdkVideoEngine(
     @Volatile
     private var pauseAtEndOfCurrentItem = false
     private var wasBuffering = true
-    private val fallbackSettleWindow = FallbackSettleWindow(FALLBACK_SETTLE_POLLS)
+    private val loadStateGate = MdkLoadStateGate(FALLBACK_SETTLE_MS)
     private val nativeEventSignals = Channel<Unit>(Channel.CONFLATED)
 
     private val nativeEventJob: Job =
@@ -559,6 +570,9 @@ class MdkVideoEngine(
     @Synchronized
     override fun selectItem(index: Int) {
         if (index !in items.indices || released) return
+        fallbackJob?.cancel()
+        fallbackJob = null
+        progressiveTransitionIndices.clear()
         pendingSeekMs = 0L
         tracksLoadedForIndex = -1
         endHandled = false
@@ -609,7 +623,12 @@ class MdkVideoEngine(
 
     override fun currentPositionMs(): Long = runCatching { player?.position() }.getOrNull() ?: _state.value.positionMs
 
+    @Synchronized
     override fun retry() {
+        if (released) return
+        fallbackJob?.cancel()
+        fallbackJob = null
+        progressiveTransitionIndices.clear()
         pendingSeekMs = _state.value.positionMs
         tracksLoadedForIndex = -1
         endHandled = false
@@ -631,31 +650,38 @@ class MdkVideoEngine(
         released = true
         // setSurfaceView/close remove SurfaceHolder callbacks. Keep their existing caller/owner
         // thread until device timings and the native SDK contract justify a different teardown.
-        tracePlaybackRelease("Mdk") {
-            stage("cancelJobs") {
-                fallbackJob?.cancel()
-                fallbackJob = null
-                pollJob.cancel()
-                nativeEventJob.cancel()
-                nativeEventSignals.close()
+        try {
+            tracePlaybackRelease("Mdk") {
+                val cleanup = PlaybackResourceCleanup()
+                cleanup.attempt {
+                    stage("cancelJobs") {
+                        fallbackJob?.cancel()
+                        fallbackJob = null
+                        pollJob.cancel()
+                        nativeEventJob.cancel()
+                        nativeEventSignals.close()
+                    }
+                }
+                cleanup.attempt { stage("networkProxy") { networkProxy?.close() } }
+                val instance = player
+                player = null
+                attachedView = null
+                cleanup.attempt { stage("listener") { instance?.setListener(null) } }
+                cleanup.attempt { stage("surface") { instance?.setSurfaceView(null) } }
+                cleanup.attempt { stage("nativeDestroy") { instance?.close() } }
+                cleanup.throwIfFailed()
             }
-            stage("networkProxy") { networkProxy?.close() }
-            val instance = player
-            player = null
-            attachedView = null
-            runCatching {
-                stage("listener") { instance?.setListener(null) }
-                stage("surface") { instance?.setSurfaceView(null) }
-                stage("nativeDestroy") { instance?.close() }
-            }.onFailure {
-                safeLogcat(Log.WARN, MDK_TAG, "MDK teardown failed", it)
-                AppLog.warning(
-                    category = "player.mdk",
-                    event = "teardown_failed",
-                    message = "MDK teardown failed",
-                    throwable = it,
-                )
-            }
+            releaseResult.complete(Unit)
+        } catch (error: Throwable) {
+            releaseResult.completeExceptionally(error)
+            safeLogcat(Log.WARN, MDK_TAG, "MDK teardown failed", error)
+            AppLog.warning(
+                category = "player.mdk",
+                event = "teardown_failed",
+                message = "MDK teardown failed",
+                throwable = error,
+            )
+            throw error
         }
     }
 
@@ -708,9 +734,16 @@ class MdkVideoEngine(
         }.getOrNull()
     }
 
-    private fun loadCurrent(instance: MDKPlayer) {
+    @Synchronized
+    private fun loadCurrent(
+        instance: MDKPlayer,
+        expectedEpoch: Long? = null,
+    ) {
+        if (released || player !== instance) return
+        if (expectedEpoch != null && !loadStateGate.isCurrent(expectedEpoch)) return
         val index = _state.value.currentIndex
         val item = items.getOrNull(index) ?: return
+        val epoch = expectedEpoch ?: loadStateGate.beginLoad()
         runCatching {
             applyBufferRange(instance, item, started = false)
             endStateGate.restart()
@@ -726,6 +759,7 @@ class MdkVideoEngine(
                     upstreamUrl
                 }
             instance.setMedia(transportUrl)
+            loadStateGate.didSubmit(epoch)
             // MDK otherwise selects its first audio track implicitly while our facade has no
             // active-track getter. Submit the choice explicitly so UI state is never a guess.
             instance.setActiveTrack(MDKPlayer.MEDIA_TYPE_AUDIO, 0)
@@ -751,12 +785,22 @@ class MdkVideoEngine(
     @Synchronized
     private fun poll() {
         val instance = player ?: return
+        if (released || _state.value.fallbacksExhausted) return
+        val epoch = loadStateGate.currentEpoch
         runCatching {
             val status = instance.mediaStatus()
+            val loadStatus = loadStateGate.observe(epoch, status and MDKPlayer.STATUS_INVALID != 0)
+            if (loadStatus == MdkLoadStatus.Stale) return
+            if (loadStatus == MdkLoadStatus.Waiting) {
+                // Old INVALID/END/position values cannot terminate or seek the replacement. In
+                // particular, do not consume a previous native error while encoder cleanup waits.
+                _state.update { it.copy(playing = false, buffering = true) }
+                return
+            }
             val loaded =
                 status and (MDKPlayer.STATUS_LOADED or MDKPlayer.STATUS_PREPARED) != 0
             val ended = endStateGate.observe(status and MDKPlayer.STATUS_END != 0)
-            val invalid = status and MDKPlayer.STATUS_INVALID != 0
+            val invalid = loadStatus == MdkLoadStatus.Invalid
             nativePlaybackLogFailure(instance.lastError())?.let { failure ->
                 markTerminalFailure(failure)
                 return
@@ -785,16 +829,9 @@ class MdkVideoEngine(
 
             // Try the next stream down before calling it unplayable: the common cause is a
             // codec this device has no decoder for, which the server can transcode away.
-            //
-            // Guarded by a settle window because this is a poll, not an event: MDK keeps
-            // reporting the failed status for a while after a new URL is handed to it, and
-            // an unguarded check would spend the whole chain in three ticks — before the
-            // first fallback had any chance to load.
-            fallbackSettleWindow.tick()
             if (
                 invalid &&
                 !_state.value.fallbacksExhausted &&
-                fallbackSettleWindow.ready &&
                 switchToTranscode()
             ) {
                 return
@@ -940,6 +977,7 @@ class MdkVideoEngine(
      * transcode, then its progressive MP4. Returns false once the chain is spent, which is
      * what tells the caller to stop retrying and report the failure.
      */
+    @Synchronized
     override fun switchToTranscode(reason: String?): Boolean {
         if (released) return false
         val index = _state.value.currentIndex
@@ -955,7 +993,7 @@ class MdkVideoEngine(
             }
         if (progressive && item.fallbackTranscodeUrl.isEmpty()) return false
         transcodedIndices += index
-        fallbackSettleWindow.restart()
+        val epoch = loadStateGate.beginLoad()
         // Resume where the failure happened rather than from the top; a codec the device
         // can't handle usually fails on the first frame, but a mid-file failure shouldn't
         // cost the user their place.
@@ -1008,7 +1046,7 @@ class MdkVideoEngine(
             )
         }
         if (!progressive) {
-            ensurePlayer()?.let(::loadCurrent)
+            ensurePlayer()?.let { loadCurrent(it, epoch) }
             return true
         }
 
@@ -1020,24 +1058,24 @@ class MdkVideoEngine(
                 val cleaned =
                     item.playSessionId.isBlank() ||
                         withTimeoutOrNull(5_000L) { stopEncoding(item.playSessionId) } == true
-                if (released || _state.value.currentIndex != index) return@launch
-                progressiveTransitionIndices -= index
-                if (!cleaned) {
-                    _state.update {
-                        it.copy(
-                            error = "无法清理旧的服务器转码，正在尝试其他播放器",
-                            buffering = false,
-                            fallbacksExhausted = true,
-                        )
+                synchronized(this@MdkVideoEngine) {
+                    if (released || _state.value.currentIndex != index || !loadStateGate.isCurrent(epoch)) {
+                        return@launch
                     }
-                    return@launch
+                    progressiveTransitionIndices -= index
+                    if (!cleaned) {
+                        _state.update {
+                            it.copy(
+                                error = "无法清理旧的服务器转码，正在尝试其他播放器",
+                                buffering = false,
+                                fallbacksExhausted = true,
+                            )
+                        }
+                        return@launch
+                    }
+                    progressiveIndices += index
+                    ensurePlayer()?.let { loadCurrent(it, epoch) }
                 }
-                progressiveIndices += index
-                // The DELETE wait is not part of the new stream's settle window. A slow cleanup can
-                // consume all twelve polls while no progressive URL is loaded, making the very next
-                // stale STATUS_INVALID tick reject the fresh stream before it gets a chance to open.
-                fallbackSettleWindow.restart()
-                ensurePlayer()?.let(::loadCurrent)
             }
         return true
     }

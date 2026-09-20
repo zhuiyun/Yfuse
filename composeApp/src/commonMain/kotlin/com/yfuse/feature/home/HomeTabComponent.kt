@@ -69,6 +69,8 @@ class HomeTabComponent(
             val mediaSourceId: String? = null,
             /** Defaults true so navigation state saved before TV autoplay support still restores. */
             val startPlaybackRequested: Boolean = true,
+            /** Only a freshly matched Series may skip the parent-item metadata request. */
+            val isSeriesLaunch: Boolean = false,
         ) : Config
 
         @Serializable data class Info(
@@ -195,8 +197,8 @@ class HomeTabComponent(
                         onOpenEmbyItem = { serverId, itemId ->
                             navigation.push(Config.Detail(serverId, itemId))
                         },
-                        onPlayEmbyItem = { serverId, itemId ->
-                            openPlayer(Config.Player(serverId, itemId, 0L))
+                        onPlayEmbyItem = { serverId, itemId, isSeries ->
+                            openPlayer(Config.Player(serverId, itemId, 0L, isSeriesLaunch = isSeries))
                         },
                         onOpenTmdbItem = { item, embyItemId ->
                             navigation.push(Config.Info(item, embyItemId))
@@ -239,6 +241,7 @@ class HomeTabComponent(
                         mediaSourceId = config.mediaSourceId,
                         dependencies = dependencies,
                         startPlaybackRequested = config.startPlaybackRequested,
+                        isSeriesLaunch = config.isSeriesLaunch,
                         onBack = {
                             playerNavigation.complete(config)
                             navigation.pop()

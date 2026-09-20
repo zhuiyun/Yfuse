@@ -132,8 +132,13 @@ class AndroidProbeBudgetTest {
                     val owner = Executors.newSingleThreadExecutor()
                     try {
                         val started = CountDownLatch(1)
+                        val socketClosed = CountDownLatch(1)
+                        val closeSocket = {
+                            client.close()
+                            socketClosed.countDown()
+                        }
                         AndroidProbeBudget(timeoutMs = 100L).use { budget ->
-                            budget.onCancel(client::close).use {
+                            budget.onCancel(closeSocket).use {
                                 val failure =
                                     assertFailsWith<AndroidProbeAbortedException> {
                                         AndroidBoundedProbe(owner).run(
@@ -150,8 +155,11 @@ class AndroidProbeBudgetTest {
                                     }
                                 assertEquals("deadline", failure.reason)
                                 assertTrue(started.await(1L, TimeUnit.SECONDS))
-                                assertTrue(client.isClosed)
+                                // The deadline is published before cancellation callbacks finish.
+                                // Wait for both the close callback and the real socket reader.
+                                assertTrue(socketClosed.await(1L, TimeUnit.SECONDS))
                                 owner.submit {}.get(1L, TimeUnit.SECONDS)
+                                assertTrue(client.isClosed)
                             }
                         }
                     } finally {

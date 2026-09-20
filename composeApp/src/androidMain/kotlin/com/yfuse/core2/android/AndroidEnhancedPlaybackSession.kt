@@ -5,11 +5,13 @@ import android.media.AudioFormat
 import android.media.MediaCodec
 import android.media.MediaFormat
 import android.os.Build
+import android.os.SystemClock
 import android.view.Surface
 import android.view.WindowManager
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core2.api.YDolbyAtmosOutputMode
 import com.yfuse.core2.api.YDualDolbyEvidenceState
+import com.yfuse.core2.api.YFrameRateSample
 import com.yfuse.core2.api.YMediaSourceHints
 import com.yfuse.core2.api.YOutputEvidenceResetReason
 import com.yfuse.core2.api.YPlaybackException
@@ -44,6 +46,7 @@ import com.yfuse.core2.network.YBufferController
 import com.yfuse.core2.network.YPlaybackBufferGate
 import com.yfuse.core2.recovery.requiresPcmAudioPath
 import com.yfuse.core2.render.YFrameRateSwitchMode
+import com.yfuse.core2.render.YRenderedFrameRateSampler
 import com.yfuse.core2.render.YScalingFilter
 import com.yfuse.core2.render.gpuColorPipelineConfig
 import com.yfuse.core2.render.videoFrameRateHint
@@ -107,6 +110,7 @@ internal data class YEnhancedPlaybackSnapshot(
     val outputEvidenceGeneration: Long = 0L,
     val outputEvidenceResetReason: YOutputEvidenceResetReason = YOutputEvidenceResetReason.Initial,
     val pausedPreviewSubmittedUnconfirmed: Boolean = false,
+    val renderedFrameRate: YFrameRateSample? = null,
 )
 
 /**
@@ -181,6 +185,7 @@ internal class AndroidEnhancedPlaybackSession(
     @Volatile
     private var firstVideoFrameRendered = false
     private val videoOutputEpoch = AndroidVideoOutputEpoch()
+    private val renderedFrameRateSampler = YRenderedFrameRateSampler()
     private val pausedPreview = AndroidPausedVideoPreview()
     private val videoEosGate = AndroidVideoEosGate()
     private val surfaceCompletion = AndroidSurfacePlaybackCompletion()
@@ -234,6 +239,7 @@ internal class AndroidEnhancedPlaybackSession(
         allowAudioPassthrough: Boolean = true,
         preparedDemux: AndroidPreparedEnhancedDemux? = null,
         probeBudget: AndroidProbeBudget? = null,
+        initialTrackSelection: com.yfuse.core2.api.YInitialTrackSelection? = null,
     ): YDemuxOpenResult {
         close()
         val adoptedOpen =
@@ -295,8 +301,21 @@ internal class AndroidEnhancedPlaybackSession(
                     },
                 plan = plan,
                 softwareDecodeAvailable = softwareAudioAvailable,
+                preference = initialTrackSelection?.audio,
             )
         val audioTrack = audioSelection?.track
+        val initialSubtitleTrack =
+            if (initialTrackSelection?.subtitlesDisabled == true) {
+                null
+            } else {
+                result.tracks
+                    .preferredSubtitleTrack(initialTrackSelection?.subtitle)
+                    ?.takeIf {
+                        it.subtitle?.format?.let { format ->
+                            format.textOverlaySupported || demuxReadAhead.supportsSubtitleFormat(format)
+                        } == true
+                    }
+            }
         if (expectedAudio && result.tracks.none { it.type == YDemuxTrackType.Audio && it.audio != null }) {
             throw YPlaybackException(
                 category = YPlaybackFailureCategory.Container,
@@ -487,6 +506,7 @@ internal class AndroidEnhancedPlaybackSession(
                 buildSet {
                     add(videoTrack.id)
                     audioTrack?.let { add(it.id) }
+                    initialSubtitleTrack?.let { add(it.id) }
                 },
             )
         } catch (throwable: Throwable) {
@@ -511,6 +531,7 @@ internal class AndroidEnhancedPlaybackSession(
         this.sourceVideoTrack = videoTrack
         this.effectiveVideoTrack = effectiveVideo
         this.audioTrack = audioTrack
+        this.subtitleTrack = initialSubtitleTrack
         if (audioTrack == null) {
             audioOutputPath = YAudioOutputPath.None
         } else if (audioOutputPath == YAudioOutputPath.None) {
@@ -555,6 +576,8 @@ internal class AndroidEnhancedPlaybackSession(
 
     fun selectedAudioTrackId(): YTrackId? = audioTrack?.id
 
+    fun selectedSubtitleTrackId(): YTrackId? = subtitleTrack?.id
+
     fun play() {
         check(prepared) { "Enhanced session is not prepared" }
         val previewResumeUs = pausedPreview.takeResumePosition()
@@ -569,6 +592,7 @@ internal class AndroidEnhancedPlaybackSession(
 
     fun pause() {
         if (!prepared) return
+        renderedFrameRateSampler.reset()
         val position = currentPositionUs()
         playing = false
         outputActive = false
@@ -592,6 +616,7 @@ internal class AndroidEnhancedPlaybackSession(
     fun setOutputSurface(next: Surface) {
         require(next.isValid) { "Output Surface is invalid" }
         check(prepared) { "Enhanced session is not prepared" }
+        renderedFrameRateSampler.reset()
         dualDolbyEvidence = dualDolbyEvidence.invalidate(YOutputEvidenceResetReason.SurfaceChanged)
         videoOutputEpoch.reset()
         yPlaybackStage(
@@ -737,8 +762,7 @@ internal class AndroidEnhancedPlaybackSession(
         audioOutputPath = nextPath
         softwareAudioActive = nextUsesSoftware
         captureAudioRoutingGeneration()
-        demuxReadAhead.selectTracks(selectedTrackIds())
-        seekToInternal(positionUs, tailRetry = false, resetVideoDecoder = false)
+        seekToInternal(positionUs, tailRetry = false, resetVideoDecoder = false, selectedTracks = selectedTrackIds())
         if (playing) refreshOutputGate()
     }
 
@@ -777,9 +801,8 @@ internal class AndroidEnhancedPlaybackSession(
         }
         pendingSamples.clear()
         videoAccessUnits.clear()
-        demuxReadAhead.selectTracks(selectedTrackIds())
         if (nextTrack != null || previousTrack != null) {
-            seekToInternal(position, tailRetry = false, resetVideoDecoder = false)
+            seekToInternal(position, tailRetry = false, resetVideoDecoder = false, selectedTracks = selectedTrackIds())
         }
     }
 
@@ -795,8 +818,10 @@ internal class AndroidEnhancedPlaybackSession(
         positionUs: Long,
         tailRetry: Boolean,
         resetVideoDecoder: Boolean,
+        selectedTracks: Set<YTrackId>? = null,
     ) {
         check(prepared) { "Enhanced session is not prepared" }
+        renderedFrameRateSampler.reset()
         dualDolbyEvidence = dualDolbyEvidence.invalidate(YOutputEvidenceResetReason.Seek)
         val target = positionUs.coerceAtLeast(0L)
         videoOutputEpoch.reset()
@@ -807,7 +832,11 @@ internal class AndroidEnhancedPlaybackSession(
             stage = YPlaybackFailureStage.Seek,
             safeDetail = "Enhanced source seek",
         ) {
-            demuxReadAhead.seekTo(target)
+            if (selectedTracks == null) {
+                demuxReadAhead.seekTo(target)
+            } else {
+                demuxReadAhead.selectTracks(selectedTracks, target)
+            }
         }
         releasePendingAudioOutput()
         pendingEncodedAudioData = null
@@ -1005,6 +1034,19 @@ internal class AndroidEnhancedPlaybackSession(
                 )
         val outputEnded = ended()
         if (prepared && playing && outputEnded) pauseAtEnd()
+        val renderedFrameRate =
+            if (playing && videoVerified && !outputEnded) {
+                val count =
+                    when {
+                        gpu != null -> gpu.renderedFrameCount.toLong()
+                        softwareVideoActive -> softwareVideoRenderer.snapshot().renderedFrameCount.toLong()
+                        else -> videoOutputEpoch.renderedFrameCount
+                    }
+                renderedFrameRateSampler.sample(count, SystemClock.elapsedRealtime())
+            } else {
+                renderedFrameRateSampler.reset()
+                null
+            }
         return YEnhancedPlaybackSnapshot(
             positionUs = currentPositionUs(),
             durationUs = openResult?.durationUs ?: 0L,
@@ -1041,6 +1083,7 @@ internal class AndroidEnhancedPlaybackSession(
             audioUnderrunCount = if (passthrough) encodedAudioRenderer.underrunCount else audioRenderer.underrunCount,
             audioSinkDiagnostics = if (passthrough) emptyMap() else audioRenderer.outputDiagnostics(),
             droppedFrames = droppedFrames,
+            renderedFrameRate = renderedFrameRate,
             avSyncOffsetUs = lastAvSyncOffsetUs,
             sourceQueueBytes = readAhead.queuedBytes,
             sourceBufferedUs = readAhead.bufferedDurationUs,
@@ -1088,10 +1131,11 @@ internal class AndroidEnhancedPlaybackSession(
     }
 
     fun close() {
+        renderedFrameRateSampler.reset()
         cancelPendingRead()
         videoOutputEpoch.reset()
         pausedPreview.clear()
-        runCatching(demuxReadAhead::pauseReadAhead)
+        demuxReadAhead.awaitReleaseBarrier()
         pendingVideoOutput?.let { output ->
             runCatching { videoDecoder.releaseOutput(output, render = false) }
         }
@@ -2022,8 +2066,7 @@ internal class AndroidEnhancedPlaybackSession(
         audioOutputPath = YAudioOutputPath.DecodePcm
         if (countFailure) audioFallbackCount++
         captureAudioRoutingGeneration()
-        demuxReadAhead.selectTracks(selectedTrackIds())
-        seekToInternal(positionUs, tailRetry = false, resetVideoDecoder = false)
+        seekToInternal(positionUs, tailRetry = false, resetVideoDecoder = false, selectedTracks = selectedTrackIds())
     }
 
     private fun handleAudioRoutingChange(): Boolean {
@@ -2083,6 +2126,7 @@ internal class AndroidEnhancedPlaybackSession(
         if (isAudioPassthrough()) encodedAudioRenderer.clockSnapshot() else audioRenderer.clockSnapshot()
 
     private fun attachVideoRenderEvidence() {
+        renderedFrameRateSampler.reset()
         val generation = videoOutputEpoch.reset()
         firstVideoFrameRendered = false
         videoDecoder.setOnFrameRenderedListener { presentationTimeUs, realtimeNs ->

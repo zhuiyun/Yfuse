@@ -6,7 +6,6 @@ import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.DefaultDataSource
-import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.CacheWriter
 import com.yfuse.core.data.PlaybackNetworkClass
@@ -46,7 +45,18 @@ internal class AndroidPlaybackSourcePreloader(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val jobs = ConcurrentHashMap<String, Job>()
 
-    override fun preload(item: PlayerMediaItem): PlaybackSourcePreload {
+    override fun preload(item: PlayerMediaItem): PlaybackSourcePreload = preload(item, 0L)
+
+    override fun preload(
+        item: PlayerMediaItem,
+        startPositionMs: Long,
+    ): PlaybackSourcePreload = preload(item, startPositionMs, null)
+
+    override fun preload(
+        item: PlayerMediaItem,
+        startPositionMs: Long,
+        tracks: com.yfuse.core.data.PlaybackTrackRequest.Tracks?,
+    ): PlaybackSourcePreload {
         val source = item.persistentPlaybackCacheUrl() ?: return noOpPlaybackSourcePreload()
         if (playbackPreferences.videoCacheSize.value.bytes <= 0L) {
             return noOpPlaybackSourcePreload()
@@ -56,6 +66,26 @@ internal class AndroidPlaybackSourcePreloader(
             (
                 applicationContext.getSystemService(Context.POWER_SERVICE) as? PowerManager
             )?.isPowerSaveMode == true
+        if (networkClass == PlaybackNetworkClass.Unmetered &&
+            !powerSaveMode &&
+            (
+                BuildConfig.YFUSE_NATIVE_ONLY_RUNTIME ||
+                    shouldUseCore2Trial(
+                        enabled = playbackPreferences.core2TrialEnabled.value,
+                        engineSelection = playbackPreferences.engineSelection.value,
+                        crashBlocked = false,
+                    )
+            )
+        ) {
+            return com.yfuse.core2.android.AndroidCurrentItemPreparation.preload(
+                applicationContext,
+                item,
+                startPositionMs,
+                userAgentPreferences.userAgent.value,
+                playbackPreferences.videoCacheSize.value.bytes,
+                initialTrackSelection = item.initialPlaybackTracks(playbackPreferences, tracks),
+            )
+        }
         if (
             !shouldWarmPlaybackCache(
                 networkClass = networkClass,
@@ -96,19 +126,7 @@ internal class AndroidPlaybackSourcePreloader(
                     }
                 try {
                     val httpFactory =
-                        DefaultHttpDataSource
-                            .Factory()
-                            .setAllowCrossProtocolRedirects(true)
-                            .setConnectTimeoutMs(20_000)
-                            .setReadTimeoutMs(20_000)
-                            .apply {
-                                userAgentPreferences.userAgent.value
-                                    .trim()
-                                    .takeIf(String::isNotEmpty)
-                                    ?.let { value ->
-                                        setDefaultRequestProperties(mapOf("User-Agent" to value))
-                                    }
-                            }
+                        PlaybackHttpDataSource.factory(userAgentPreferences.userAgent.value)
                     val upstream = DefaultDataSource.Factory(applicationContext, httpFactory)
                     val dataSource =
                         CacheDataSource

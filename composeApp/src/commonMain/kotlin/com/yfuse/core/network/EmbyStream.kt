@@ -1,5 +1,6 @@
 package com.yfuse.core.network
 
+import com.yfuse.core.data.embyPath
 import com.yfuse.deviceId
 import io.ktor.http.URLProtocol
 import io.ktor.http.Url
@@ -56,7 +57,8 @@ object EmbyStream {
         token: String,
         format: String = "srt",
     ): String =
-        "${normalizeBaseUrl(baseUrl)}/Videos/$itemId/$mediaSourceId/Subtitles/$streamIndex/Stream.$format" +
+        "${normalizeBaseUrl(baseUrl)}/Videos/${embyPath(itemId)}/${embyPath(mediaSourceId)}" +
+            "/Subtitles/$streamIndex/Stream.$format" +
             "?${mediaBrowserTokenQuery(token)}"
 
     fun trickplayTilePattern(
@@ -66,7 +68,7 @@ object EmbyStream {
         width: Int,
         token: String,
     ): String =
-        "${normalizeBaseUrl(baseUrl)}/Videos/$itemId/Trickplay/$width/{index}.jpg" +
+        "${normalizeBaseUrl(baseUrl)}/Videos/${embyPath(itemId)}/Trickplay/$width/{index}.jpg" +
             "?MediaSourceId=${mediaSourceId.queryValue()}&${mediaBrowserTokenQuery(token)}"
 
     /** One exact frame from Emby's generated video-preview thumbnail set. */
@@ -80,7 +82,7 @@ object EmbyStream {
         maxWidth: Int = 320,
     ): String =
         buildString {
-            append("${normalizeBaseUrl(baseUrl)}/Items/$itemId/Images/Thumbnail")
+            append("${normalizeBaseUrl(baseUrl)}/Items/${embyPath(itemId)}/Images/Thumbnail")
             append("?PositionTicks=${positionTicks.coerceAtLeast(0L)}")
             append("&MediaSourceId=${mediaSourceId.queryValue()}")
             append("&maxWidth=${maxWidth.coerceAtLeast(1)}")
@@ -244,7 +246,7 @@ object EmbyStream {
         mediaSourceId: String? = null,
         playSessionId: String? = null,
     ): String =
-        "${normalizeBaseUrl(baseUrl)}/Videos/$itemId/stream?static=true&${mediaBrowserTokenQuery(token)}" +
+        "${normalizeBaseUrl(baseUrl)}/Videos/${embyPath(itemId)}/stream?static=true&${mediaBrowserTokenQuery(token)}" +
             mediaSourceParam(mediaSourceId, itemId) +
             sessionParams(playSessionId)
 
@@ -294,7 +296,7 @@ object EmbyStream {
         mediaSourceId: String? = null,
         playSessionId: String? = null,
     ): String =
-        "${normalizeBaseUrl(baseUrl)}/Videos/$itemId/master.m3u8" +
+        "${normalizeBaseUrl(baseUrl)}/Videos/${embyPath(itemId)}/master.m3u8" +
             "?${mediaBrowserTokenQuery(token)}" +
             "&MediaSourceId=${(mediaSourceId ?: itemId).queryValue()}" +
             "&Context=Streaming" +
@@ -333,7 +335,7 @@ object EmbyStream {
         mediaSourceId: String? = null,
         playSessionId: String? = null,
     ): String =
-        "${normalizeBaseUrl(baseUrl)}/Videos/$itemId/stream.mp4" +
+        "${normalizeBaseUrl(baseUrl)}/Videos/${embyPath(itemId)}/stream.mp4" +
             "?static=false" +
             "&${mediaBrowserTokenQuery(token)}" +
             "&MediaSourceId=${(mediaSourceId ?: itemId).queryValue()}" +

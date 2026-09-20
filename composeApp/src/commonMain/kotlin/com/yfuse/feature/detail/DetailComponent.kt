@@ -249,6 +249,21 @@ class DetailComponent(
         var handedOffPreloadKey: PlaybackPreloadKey? = null
         var preloadObserver: Job? = null
         var sourceWarmup: PlaybackSourcePreload? = null
+        var warmedTrackRequest: com.yfuse.core.data.PlaybackTrackRequest.Tracks? = null
+
+        fun warmSelectedSource(playback: com.yfuse.feature.player.PlayerState) {
+            val selected = playback.items.getOrNull(playback.startIndex) ?: return
+            if (playback.loading || playback.error != null || !selected.canPreloadSource) return
+            val tracks =
+                com.yfuse.core.data.PlaybackTrackRequest.Tracks(
+                    store.state.preferredAudioLanguage,
+                    store.state.preferredSubtitleLanguage,
+                )
+            if (sourceWarmup != null && warmedTrackRequest == tracks) return
+            sourceWarmup?.cancel()
+            warmedTrackRequest = tracks
+            sourceWarmup = sourcePreloader?.preload(selected, playback.startPositionMs, tracks)
+        }
 
         fun releaseOwnedPreload() {
             preloadObserver?.cancel()
@@ -281,6 +296,10 @@ class DetailComponent(
                             syncedStartPositionTicks(store.state, it.startPositionTicks)
                         }
                     explicitFromStartPending = false
+                    sourceWarmup?.handoff()
+                    sourceWarmup = null
+                    preloadObserver?.cancel()
+                    preloadObserver = null
                     onPlay(it.serverId, it.itemId, launchTicks, it.mediaSourceId)
                 }
             }.launchIn(scope)
@@ -304,10 +323,15 @@ class DetailComponent(
                     )
                 val currentPrepared = preloadStore
                 if (key == preloadKey && currentPrepared != null) {
-                    if (PreparedPlaybackRegistry.owns(key, currentPrepared)) return@detailState
+                    if (PreparedPlaybackRegistry.owns(key, currentPrepared)) {
+                        warmSelectedSource(currentPrepared.state)
+                        return@detailState
+                    }
                     // Prepared, then claimed by a launching player. That queue is in use; do not
                     // build another one for the same selection behind it.
                     handedOffPreloadKey = key
+                    sourceWarmup?.handoff()
+                    sourceWarmup = null
                     preloadKey = null
                     preloadStore = null
                     preloadObserver?.cancel()
@@ -367,8 +391,7 @@ class DetailComponent(
                                 selected != null &&
                                 selected.canPreloadSource
                             ) {
-                                sourceWarmup?.cancel()
-                                sourceWarmup = sourcePreloader?.preload(selected)
+                                warmSelectedSource(playback)
                             }
                             // Ready/failed is terminal for PlayerStore. Keeping the Store itself is
                             // intentional: PlayerComponent claims this exact result for one launch.

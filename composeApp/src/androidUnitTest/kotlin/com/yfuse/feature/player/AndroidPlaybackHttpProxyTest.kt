@@ -17,6 +17,66 @@ import kotlin.test.assertTrue
 
 class AndroidPlaybackHttpProxyTest {
     @Test
+    fun head_preserves_source_length_without_forwarding_a_body() {
+        MockWebServer().use { upstream ->
+            upstream.enqueue(MockResponse().setHeader("Content-Length", "12345"))
+            upstream.start()
+            AndroidPlaybackHttpProxy(context = null, userAgent = "proxy-test", videoCacheBytes = 0).use { proxy ->
+                val local = URI(proxy.localUrl(upstream.url("/media").toString()))
+                Socket(local.host, local.port).use { client ->
+                    client.soTimeout = 2_000
+                    client.getOutputStream().write(
+                        "HEAD ${local.rawPath} HTTP/1.1\r\nHost: localhost\r\n\r\n".toByteArray(),
+                    )
+                    val response = client.getInputStream().bufferedReader().readText()
+                    assertTrue(response.contains("Content-Length: 12345"))
+                    assertTrue(response.endsWith("\r\n\r\n"))
+                }
+                assertEquals("HEAD", upstream.takeRequest(2, TimeUnit.SECONDS)?.method)
+            }
+        }
+    }
+
+    @Test
+    fun redirect_cookies_range_and_reused_connection_survive_shared_transport() {
+        MockWebServer().use { upstream ->
+            upstream.enqueue(
+                MockResponse()
+                    .setResponseCode(
+                        302,
+                    ).setHeader("Location", "/media")
+                    .setHeader("Set-Cookie", "access=valid; Path=/"),
+            )
+            upstream.enqueue(MockResponse().setBody("first"))
+            upstream.enqueue(
+                MockResponse().setResponseCode(206).setHeader("Content-Range", "bytes 2-3/5").setBody("rs"),
+            )
+            upstream.start()
+            AndroidPlaybackHttpProxy(context = null, userAgent = "proxy-test", videoCacheBytes = 0).use { proxy ->
+                assertEquals("first", readProxyBody(proxy.localUrl(upstream.url("/redirect").toString())))
+                val local = URI(proxy.localUrl(upstream.url("/media").toString()))
+                Socket(local.host, local.port).use { client ->
+                    client.soTimeout = 2_000
+                    client.getOutputStream().write(
+                        "GET ${local.rawPath} HTTP/1.1\r\nHost: localhost\r\nRange: bytes=2-3\r\n\r\n".toByteArray(),
+                    )
+                    val response = client.getInputStream().bufferedReader().readText()
+                    assertTrue(response.startsWith("HTTP/1.1 206"))
+                    assertTrue(response.endsWith("rs"))
+                }
+                upstream.takeRequest(2, TimeUnit.SECONDS)
+                val redirected = assertNotNull(upstream.takeRequest(2, TimeUnit.SECONDS))
+                val ranged = assertNotNull(upstream.takeRequest(2, TimeUnit.SECONDS))
+                assertTrue(redirected.getHeader("Cookie").orEmpty().contains("access=valid"))
+                assertTrue(ranged.getHeader("Cookie").orEmpty().contains("access=valid"))
+                assertEquals("bytes=2-3", ranged.getHeader("Range"))
+                assertEquals("proxy-test", ranged.getHeader("User-Agent"))
+                assertTrue(ranged.sequenceNumber > 0, "The transport should reuse the open upstream connection")
+            }
+        }
+    }
+
+    @Test
     fun rewritten_manifest_segments_are_served_by_the_same_live_proxy() {
         MockWebServer().use { upstream ->
             upstream.enqueue(

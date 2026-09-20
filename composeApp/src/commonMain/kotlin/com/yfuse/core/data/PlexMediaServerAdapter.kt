@@ -90,6 +90,7 @@ internal class PlexMediaServerAdapter(
     // another dispatcher, and an access-ordered map relinks on `get`, so every access
     // holds [cacheLock].
     private val cacheLock = Any()
+    private val playbackMetadata = PlaybackMetadataCache<Pair<SavedServer, String>, PlexMetadataDto>()
     private val durationByItemMs =
         object : LinkedHashMap<String, Long>(64, 0.75f, true) {
             override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Long>): Boolean =
@@ -129,6 +130,7 @@ internal class PlexMediaServerAdapter(
 
     /** Forgets the catalogue read for [server] so the next lookup sees fresh user state. */
     fun invalidateCatalog(server: SavedServer) {
+        playbackMetadata.invalidate { it.first.id == server.id }
         synchronized(cacheLock) {
             topLevelCatalogCache.keys
                 .filter { it.startsWith(catalogKeyPrefix(server)) }
@@ -517,7 +519,10 @@ internal class PlexMediaServerAdapter(
         itemId: String,
     ): Result<MediaDetail> =
         embyApiCall("plex_item_detail") {
-            val item = metadata(server, itemId, includeChildren = false)
+            val item =
+                playbackMetadata.get(server to itemId, reuse = false) {
+                    metadata(server, itemId, includeChildren = false)
+                }
             rememberDuration(server, itemId, item.duration)
             progress.project(server, item.toBaseItem(server)).toMediaDetail()
         }
@@ -576,6 +581,66 @@ internal class PlexMediaServerAdapter(
             }
         }
 
+    suspend fun resolveSeriesPlayback(
+        server: SavedServer,
+        seriesId: String,
+    ): Result<SeriesPlaybackResolution> =
+        embyApiCall("plex_series_playback") {
+            val directory =
+                container(server, "/library/metadata/${plexPath(seriesId)}/allLeaves") {
+                    parameter("includeGuids", 1)
+                    parameter("includeMarkers", 1)
+                    parameter("includeUserState", 1)
+                    parameter("includeMedia", 1)
+                }.allMetadata()
+            val projected = directory.map { item -> item to progress.project(server, item.toBaseItem(server)) }
+            // Keep the same resume/unplayed/directory order as resolvePlayTarget.
+            val selected =
+                projected.firstOrNull { (_, item) -> (item.UserData?.PlaybackPositionTicks ?: 0L) > 0L }
+                    ?: projected.firstOrNull { (_, item) -> item.UserData?.Played != true }
+                    ?: projected.firstOrNull()
+                    ?: error("Plex 剧集没有可播放的分集")
+            val (metadata, item) = selected
+            // Plex can synthesize one video/audio summary when Part.Stream is absent. That is
+            // insufficient for multi-track selection, even if the projected row looks playable.
+            val reusable =
+                item.hasPlaybackSourceSnapshot(seriesId) &&
+                    metadata.Media.isNotEmpty() &&
+                    item.MediaSources?.size == metadata.Media.size &&
+                    metadata.Media.all { media ->
+                        media.Part.isNotEmpty() &&
+                            media.Part.all { part -> !part.key.isNullOrBlank() && part.Stream.isNotEmpty() }
+                    }
+            val detail =
+                if (reusable) {
+                    playbackMetadata.get(server to item.Id, reuse = false) { metadata }
+                    rememberDuration(server, item.Id, metadata.duration)
+                    item.toMediaDetail()
+                } else {
+                    itemDetail(server, item.Id).getOrThrow()
+                }
+            logSeriesPlaybackSnapshot(server.kind.name, reusable)
+            SeriesPlaybackResolution(
+                target = PlayTarget(item.Id, item.UserData?.PlaybackPositionTicks ?: 0L),
+                detail = detail,
+                episodes =
+                    projected
+                        .takeIf { entries ->
+                            entries.all { (raw, projectedItem) ->
+                                projectedItem.hasPlaybackSourceSnapshot(seriesId) &&
+                                    projectedItem.MediaSources?.size == raw.Media.size &&
+                                    raw.Media.all { media ->
+                                        media.Part.isNotEmpty() &&
+                                            media.Part.all { part ->
+                                                !part.key.isNullOrBlank() &&
+                                                    part.Stream.isNotEmpty()
+                                            }
+                                    }
+                            }
+                        }?.map { (_, projectedItem) -> projectedItem.toEpisode() },
+            )
+        }
+
     suspend fun playbackInfo(
         server: SavedServer,
         itemId: String,
@@ -583,7 +648,10 @@ internal class PlexMediaServerAdapter(
         playSessionId: String,
     ): Result<PlaybackInfoResponseDto> =
         embyApiCall("plex_playback_info") {
-            val item = metadata(server, itemId, includeChildren = false)
+            val item =
+                playbackMetadata.get(server to itemId) {
+                    metadata(server, itemId, includeChildren = false)
+                }
             rememberDuration(server, itemId, item.duration)
             val sources =
                 item

@@ -42,7 +42,9 @@ internal class AndroidPreparedExtractorSlot {
                 stored.transportCredentials != item.transportCredentials ||
                 stored.cacheIdentity != item.cacheIdentity ||
                 stored.cacheMaximumBytes != item.cacheMaximumBytes ||
-                stored.drmConfiguration != item.drmConfiguration
+                stored.drmConfiguration != item.drmConfiguration ||
+                stored.sourceHints != item.sourceHints ||
+                stored.initialTrackSelection?.orNull() != item.initialTrackSelection?.orNull()
             ) {
                 return@synchronized null
             }

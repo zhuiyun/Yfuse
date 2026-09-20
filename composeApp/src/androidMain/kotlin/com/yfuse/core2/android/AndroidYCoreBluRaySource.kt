@@ -58,6 +58,12 @@ internal class AndroidYCoreBluRaySource private constructor(
         remoteSource?.cancelPendingRead()
     }
 
+    /** A seek interrupts only the current request; the disc source remains reusable. */
+    @Suppress("unused")
+    fun interruptPendingReadNative() {
+        remoteSource?.interruptPendingRead()
+    }
+
     /** JNI callback. A null result selects bd_open_stream() and [readBlocksNative]. */
     @Suppress("unused")
     fun discPathNative(): String? = discPath

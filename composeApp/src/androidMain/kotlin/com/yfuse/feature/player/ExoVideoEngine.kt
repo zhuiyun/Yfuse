@@ -2,6 +2,7 @@ package com.yfuse.feature.player
 
 import android.content.Context
 import android.os.Handler
+import android.os.SystemClock
 import android.util.Log
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -19,7 +20,6 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.util.Util
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DefaultDataSource
-import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.exoplayer.DecoderCounters
@@ -47,9 +47,12 @@ import com.yfuse.core.playback.PlaybackFailureKind
 import com.yfuse.core.playback.PlaybackHdrFormat
 import com.yfuse.core.playback.PlaybackOptimizationMode
 import com.yfuse.core.playback.playbackBufferProfile
+import com.yfuse.core2.android.AndroidSerializedPlayerRelease
 import com.yfuse.core2.android.AndroidSpatialAudioProbe
 import com.yfuse.core2.android.createAndroidSpatialAudioStateMonitor
+import com.yfuse.core2.render.YRenderedFrameRateSampler
 import com.yfuse.tv.player.isTelevisionDevice
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -95,7 +98,8 @@ class ExoVideoEngine(
     customUserAgent: String,
     videoCacheBytes: Long,
     private val stopEncoding: suspend (String) -> Boolean = { true },
-) : VideoEngine {
+) : VideoEngine,
+    AndroidSerializedPlayerRelease {
     private val items = items.toMutableList()
     private val persistentCacheUrls =
         ConcurrentHashMap.newKeySet<String>().apply {
@@ -160,6 +164,15 @@ class ExoVideoEngine(
     private var retryJob: Job? = null
     private var fallbackJob: Job? = null
     private var released = false
+    private val releaseResult = CompletableDeferred<Unit>()
+
+    override val releaseCompleted: Boolean get() = released && releaseResult.isCompleted && !releaseResult.isCancelled
+
+    override suspend fun releaseAndJoin() {
+        release()
+        releaseResult.await()
+    }
+
     private val spatialAudioStateMonitor =
         createAndroidSpatialAudioStateMonitor(context) {
             if (!released) updateAudioOutput()
@@ -171,16 +184,7 @@ class ExoVideoEngine(
     val player: ExoPlayer =
         run {
             val httpFactory =
-                DefaultHttpDataSource
-                    .Factory()
-                    .setAllowCrossProtocolRedirects(true)
-                    .setConnectTimeoutMs(20_000)
-                    .setReadTimeoutMs(20_000)
-                    .apply {
-                        customUserAgent.trim().takeIf(String::isNotEmpty)?.let { value ->
-                            setDefaultRequestProperties(mapOf("User-Agent" to value))
-                        }
-                    }
+                PlaybackHttpDataSource.factory(customUserAgent)
 
             val selector =
                 MediaCodecSelector { mimeType, requiresSecureDecoder, requiresTunnelingDecoder ->
@@ -319,6 +323,8 @@ class ExoVideoEngine(
     private var currentAudioFormat: Format? = null
     private var currentAudioTrackConfig: AudioSink.AudioTrackConfig? = null
     private var renderedFirstFrame = false
+    private val renderedFrameRateSampler = YRenderedFrameRateSampler()
+    private var sampledVideoCounters: DecoderCounters? = null
     private var audioUnderrunCount = 0
     private var lastAvSyncSampleAtNs = 0L
     private val videoFrameMetadataListener =
@@ -351,6 +357,8 @@ class ExoVideoEngine(
         }
 
     private fun clearActiveOutputEvidence() {
+        renderedFrameRateSampler.reset()
+        sampledVideoCounters = null
         currentVideoDecoder = decoderMode.label
         currentAudioDecoder = ""
         currentVideoFormat = null
@@ -375,6 +383,7 @@ class ExoVideoEngine(
             spatialAudioOutput = false,
             headTrackingAvailable = false,
             droppedFrames = 0,
+            renderedFrameRate = null,
             avSyncOffsetMs = null,
             avSyncMeasurement = "等待 Media3 呈现时钟",
             outputEvidence =
@@ -906,6 +915,8 @@ class ExoVideoEngine(
                 eventTime: AnalyticsListener.EventTime,
                 decoderCounters: DecoderCounters,
             ) {
+                renderedFrameRateSampler.reset()
+                sampledVideoCounters = null
                 decoderCounters.ensureUpdated()
                 val countedDrops = decoderCounters.droppedBufferCount.coerceAtLeast(0)
                 droppedFrames = maxOf(droppedFrames, countedDrops)
@@ -914,6 +925,7 @@ class ExoVideoEngine(
                         diagnostics =
                             it.diagnostics.copy(
                                 droppedFrames = droppedFrames,
+                                renderedFrameRate = null,
                                 outputEvidence =
                                     it.diagnostics.outputEvidence.copy(
                                         droppedFramesMeasured = true,
@@ -993,7 +1005,19 @@ class ExoVideoEngine(
     private val listener =
         object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
-                _state.update { it.copy(playing = isPlaying) }
+                renderedFrameRateSampler.reset()
+                _state.update {
+                    it.copy(playing = isPlaying, diagnostics = it.diagnostics.copy(renderedFrameRate = null))
+                }
+            }
+
+            override fun onPositionDiscontinuity(
+                oldPosition: Player.PositionInfo,
+                newPosition: Player.PositionInfo,
+                reason: Int,
+            ) {
+                renderedFrameRateSampler.reset()
+                _state.update { it.copy(diagnostics = it.diagnostics.copy(renderedFrameRate = null)) }
             }
 
             override fun onPlaybackStateChanged(state: Int) {
@@ -1273,6 +1297,22 @@ class ExoVideoEngine(
         ticker =
             scope.launch {
                 while (isActive) {
+                    val counters = player.videoDecoderCounters
+                    if (counters !== sampledVideoCounters) {
+                        renderedFrameRateSampler.reset()
+                        sampledVideoCounters = counters
+                    }
+                    val renderedFrameRate =
+                        if (player.isPlaying && counters != null && renderedFirstFrame) {
+                            counters.ensureUpdated()
+                            renderedFrameRateSampler.sample(
+                                counters.renderedOutputBufferCount.toLong(),
+                                SystemClock.elapsedRealtime(),
+                            )
+                        } else {
+                            renderedFrameRateSampler.reset()
+                            null
+                        }
                     _state.update {
                         val bufferedDurationMs = player.totalBufferedDuration.coerceAtLeast(0L)
                         it.copy(
@@ -1282,6 +1322,7 @@ class ExoVideoEngine(
                             diagnostics =
                                 it.diagnostics.copy(
                                     bufferedDurationMs = bufferedDurationMs,
+                                    renderedFrameRate = renderedFrameRate,
                                 ),
                         )
                     }
@@ -1413,24 +1454,36 @@ class ExoVideoEngine(
         if (released) return
         released = true
         // Media3 release/listener mutations stay on the player's application looper.
-        tracePlaybackRelease("Exo") {
-            stage("cancelJobs") {
-                retryJob?.cancel()
-                retryJob = null
-                fallbackJob?.cancel()
-                fallbackJob = null
-                ticker?.cancel()
-                ticker = null
+        try {
+            tracePlaybackRelease("Exo") {
+                val cleanup = PlaybackResourceCleanup()
+                cleanup.attempt {
+                    stage("cancelJobs") {
+                        retryJob?.cancel()
+                        retryJob = null
+                        fallbackJob?.cancel()
+                        fallbackJob = null
+                        ticker?.cancel()
+                        ticker = null
+                    }
+                }
+                cleanup.attempt { stage("subtitles") { secondarySubtitles.release() } }
+                cleanup.attempt { stage("audioMonitor") { spatialAudioStateMonitor?.release() } }
+                cleanup.attempt {
+                    stage("listeners") {
+                        player.clearVideoFrameMetadataListener(videoFrameMetadataListener)
+                        player.removeListener(listener)
+                        player.removeAnalyticsListener(analyticsListener)
+                    }
+                }
+                cleanup.attempt { stage("player") { player.release() } }
+                cleanup.attempt { stage("cache") { cacheHandle?.close() } }
+                cleanup.throwIfFailed()
             }
-            stage("subtitles") { secondarySubtitles.release() }
-            stage("audioMonitor") { spatialAudioStateMonitor?.release() }
-            stage("listeners") {
-                player.clearVideoFrameMetadataListener(videoFrameMetadataListener)
-                player.removeListener(listener)
-                player.removeAnalyticsListener(analyticsListener)
-            }
-            stage("player") { player.release() }
-            stage("cache") { cacheHandle?.close() }
+            releaseResult.complete(Unit)
+        } catch (error: Throwable) {
+            releaseResult.completeExceptionally(error)
+            throw error
         }
     }
 

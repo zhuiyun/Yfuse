@@ -273,6 +273,12 @@ renderer 仍强制 HTTPS。
 本地安装 renderer 依赖后可执行 `npm run capture-session`，在打开的浏览器中完成一次微博登录并
 按回车，脚本会直接写入被 Git 忽略的 `renderer-state/storage-state.json`，无需手工整理 Cookie。
 
+渲染服务最多同时处理 2 个页面、排队 8 个请求；超过队列容量返回 `503 renderer_busy`。
+25 秒期限包含排队和渲染时间，超时返回 `504 render_timeout`；客户端断开时取消排队或关闭
+正在使用的浏览器 context。并发名额在 context 清理完成后才释放。`GET /health` 会报告活动、
+排队和缓存数量；浏览器已断开时返回 503，此时应重启 sidecar。部署镜像使用锁文件执行
+`npm ci`；调度与取消逻辑可在此目录运行 `npm test` 验证。
+
 `GET /api/v1/calendar/schedules` 从 SQLite 读取 current revision，继续返回 Ed25519 签名载荷并
 支持 ETag/304。App 每小时检查一次 revision，只有变化时下载并验签，随后写入已有的本地日历
 缓存；用户自己的 Emby/Jellyfin 凭据、库存和观看状态仍只在客户端处理。首次升级若数据库为空，

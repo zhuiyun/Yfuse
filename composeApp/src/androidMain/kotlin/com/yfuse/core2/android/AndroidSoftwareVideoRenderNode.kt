@@ -27,7 +27,7 @@ internal data class YSoftwareRenderSnapshot(
 internal class AndroidSoftwareVideoRenderNode {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     private val lifecycleLock = Any()
-    private var memory: PlaybackMemoryLease? = null
+    private var memory: PlaybackMemoryReservation? = null
     private var requestedMemoryBytes = 0L
     private var executor: ExecutorService? = null
     private val frames =
@@ -64,6 +64,11 @@ internal class AndroidSoftwareVideoRenderNode {
         synchronized(lifecycleLock) {
             throwIfFailed()
             requireNotNull(surface).also { require(it.isValid) }
+            require(
+                frame.width > 0 &&
+                    frame.height > 0 &&
+                    frame.width.toLong() * frame.height <= MAX_SOFTWARE_BITMAP_BYTES / BGRA_BYTES_PER_PIXEL,
+            ) { "Software video frame exceeds the bitmap safety limit" }
             require(frame.width > 0 && frame.height > 0 && frame.strideBytes == frame.width * BGRA_BYTES_PER_PIXEL) {
                 "Software video frame stride is unsupported"
             }
@@ -77,13 +82,13 @@ internal class AndroidSoftwareVideoRenderNode {
                 if (inFlightFrames.get() != 0) return false
                 frames.clear()
                 memory?.close()
-                memory = AndroidPlaybackMemoryBudget.acquire(PlaybackBufferKind.Render, requestedBytes)
+                // These two in-flight frames cannot be shortened to satisfy a weighted cache
+                // share. Account for them before assigning disposable transport/demux caches.
+                // This is required-buffer accounting, not a hard limit on total process memory.
+                memory = AndroidPlaybackMemoryBudget.reserve().also { it.resize(requestedBytes) }
                 requestedMemoryBytes = requestedBytes
             }
             AndroidPlaybackMemoryBudget.refreshPressure()
-            check(requestedBytes <= requireNotNull(memory).limitBytes) {
-                "Software video frames exceed the current playback memory budget"
-            }
             val lease = frames.acquire(frame.width to frame.height) ?: return false
             try {
                 // Copy directly from FFmpeg into the leased Bitmap. No intermediate per-frame
@@ -218,6 +223,8 @@ internal class AndroidSoftwareVideoRenderNode {
         renderedFrames.incrementAndGet()
     }
 }
+
+private const val MAX_SOFTWARE_BITMAP_BYTES = 128L * 1024L * 1024L
 
 private const val SOFTWARE_RENDER_THREAD_NAME = "YCore-Software-Render"
 private const val MAX_IN_FLIGHT_SOFTWARE_FRAMES = 2

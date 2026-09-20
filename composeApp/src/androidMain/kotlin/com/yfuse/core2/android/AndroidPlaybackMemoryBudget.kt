@@ -20,6 +20,7 @@ internal class PlaybackMemoryPool(
     private val normalBytes: Long,
 ) {
     private val leases = mutableListOf<PlaybackMemoryLease>()
+    private var reservedBytes = 0L
     private var pressure = false
 
     @Synchronized
@@ -48,8 +49,32 @@ internal class PlaybackMemoryPool(
         rebalance()
     }
 
+    /** Indivisible current packet/frame storage takes priority over disposable read-ahead caches. */
+    fun reserve(): PlaybackMemoryReservation = PlaybackMemoryReservation(this)
+
+    @Synchronized
+    internal fun resize(
+        reservation: PlaybackMemoryReservation,
+        bytes: Long,
+    ) {
+        require(bytes >= 0L)
+        check(!reservation.closed) { "Playback memory reservation is closed" }
+        reservedBytes += bytes - reservation.bytes
+        reservation.bytes = bytes
+        rebalance()
+    }
+
+    @Synchronized
+    internal fun release(reservation: PlaybackMemoryReservation) {
+        if (reservation.closed) return
+        reservedBytes -= reservation.bytes
+        reservation.bytes = 0L
+        reservation.closed = true
+        rebalance()
+    }
+
     private fun rebalance() {
-        var remaining = if (pressure) normalBytes / 2 else normalBytes
+        var remaining = ((if (pressure) normalBytes / 2 else normalBytes) - reservedBytes).coerceAtLeast(0L)
         val pending = leases.toMutableList()
         if (pressure) {
             pending.removeAll {
@@ -72,6 +97,18 @@ internal class PlaybackMemoryPool(
             pending.removeAll(satisfied.toSet())
         }
     }
+}
+
+/** Required staging may exceed the cache budget for a large frame; it never truncates media. */
+internal class PlaybackMemoryReservation internal constructor(
+    private val pool: PlaybackMemoryPool,
+) : Closeable {
+    internal var bytes = 0L
+    internal var closed = false
+
+    fun resize(bytes: Long) = pool.resize(this, bytes)
+
+    override fun close() = pool.release(this)
 }
 
 internal class PlaybackMemoryLease internal constructor(
@@ -139,6 +176,11 @@ internal object AndroidPlaybackMemoryBudget {
     ): PlaybackMemoryLease {
         refreshPressure()
         return pool.acquire(kind, requestedBytes)
+    }
+
+    fun reserve(): PlaybackMemoryReservation {
+        refreshPressure()
+        return pool.reserve()
     }
 
     /** Also sampled by active I/O; modern Android does not deliver all legacy trim levels. */

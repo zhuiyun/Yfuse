@@ -9,6 +9,51 @@ import kotlin.test.assertTrue
 
 class PlaybackSyncStoreTest {
     @Test
+    fun a_missing_entity_rebase_survives_restart_without_losing_the_local_mutation() {
+        val settings = MapSettings()
+        val store = PlaybackSyncStore(settings) { 1_000L }
+        store.markManual("tmdb:1", watched = true)
+        val pending = store.pending().single()
+        store.markUploaded("tmdb:1", emptyList(), entityKey = "entity", mutationId = pending.mutationId, cursor = 7L)
+        store.markManual("tmdb:1", watched = false)
+        val rejected = store.pending().single()
+
+        assertTrue(store.resetMissingRemoteCursor(rejected, "entity", 7L))
+
+        val restored = PlaybackSyncStore(settings).pending().single()
+        assertEquals(rejected.document, restored.document)
+        assertEquals(rejected.mutationId, restored.mutationId)
+        assertTrue(restored.dirty)
+        assertEquals(null, restored.remoteCursors["entity"])
+    }
+
+    @Test
+    fun a_late_missing_response_cannot_reset_a_newer_cloud_cursor_or_local_mutation() {
+        var now = 1_000L
+        val store = PlaybackSyncStore(MapSettings()) { now }
+        store.markManual("tmdb:1", watched = true)
+        val original = store.pending().single()
+        store.markUploaded("tmdb:1", emptyList(), entityKey = "entity", mutationId = original.mutationId, cursor = 7L)
+        now++
+        store.markManual("tmdb:1", watched = false)
+        val rejected = store.pending().single()
+        store.applyRemote(rejected.document, "entity", 9L)
+        assertFalse(store.resetMissingRemoteCursor(rejected, "entity", 7L))
+        assertEquals(9L, store.pending().single().remoteCursors["entity"])
+        val olderMutation = store.pending().single()
+        now++
+        store.markManual("tmdb:1", watched = true)
+        assertFalse(store.resetMissingRemoteCursor(olderMutation, "entity", 9L))
+        assertEquals(9L, store.pending().single().remoteCursors["entity"])
+        assertTrue(
+            store
+                .pending()
+                .single()
+                .document.state.played,
+        )
+    }
+
+    @Test
     fun serverBatchPersistsOncePreservesLocalMutationsAndRejectsChangedScope() {
         val backing = MapSettings()
         var writes = 0

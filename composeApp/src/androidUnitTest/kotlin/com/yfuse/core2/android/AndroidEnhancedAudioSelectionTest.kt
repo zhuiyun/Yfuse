@@ -22,6 +22,38 @@ import kotlin.test.assertTrue
 
 class AndroidEnhancedAudioSelectionTest {
     @Test
+    fun initial_non_first_language_keeps_its_codec_channels_and_real_demux_id() {
+        val english = audioTrack(YAudioCodec.Aac, 1).copy(language = "eng")
+        val chinese = audioTrack(YAudioCodec.Eac3, 5).copy(language = "zho")
+        val selected =
+            assertNotNull(
+                selectEnhancedAudioTrack(
+                    listOf(english, chinese),
+                    capabilities(setOf(YAudioCodec.Aac)),
+                    plan(),
+                    true,
+                    preference =
+                        com.yfuse.core2.api
+                            .YTrackPreference(language = "中文"),
+                ),
+            )
+        assertEquals(chinese, selected.track)
+        assertEquals(6, selected.track.audio?.channelCount)
+        assertTrue(selected.preferSoftware)
+        assertNull(
+            selectEnhancedAudioTrack(
+                listOf(english, chinese),
+                capabilities(setOf(YAudioCodec.Aac)),
+                plan(),
+                false,
+                preference =
+                    com.yfuse.core2.api
+                        .YTrackPreference(language = "中文"),
+            ),
+        )
+    }
+
+    @Test
     fun hiddenEac3AfterFailedProbeUsesBundledSoftwareAudioWithoutChangingDolbyVideo() {
         val plan = plan(audioPath = YAudioOutputPath.None)
         val original = plan.copy()

@@ -6,12 +6,16 @@ import android.os.Bundle
 import android.os.Looper
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.Modifier
 import com.arkivanov.decompose.retainedComponent
 import com.yfuse.app.RootComponent
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlaybackMethod
 import com.yfuse.core.model.PlayerEngine
+import com.yfuse.core.performance.PageFrameRateOverlay
 import com.yfuse.core.performance.preferHighRefreshRateForUi
 import com.yfuse.core.security.ServerSessionRecovery
 import com.yfuse.feature.player.PlayerActivity
@@ -66,7 +70,10 @@ class TvMainActivity : ComponentActivity() {
         // sees that intent. The callback resolves only TV-local identities or a transient URL.
         CastConnectReceiverBridge.installLoadHandler(castLoadHandler)
         setContent {
-            TvApp(rootComponent)
+            Box(Modifier.fillMaxSize()) {
+                TvApp(rootComponent)
+                PageFrameRateOverlay()
+            }
         }
         consumeIncomingIntent(intent)
     }

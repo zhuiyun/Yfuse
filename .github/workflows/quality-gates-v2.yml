@@ -52,6 +52,8 @@ jobs:
           python3 -m unittest discover -s scripts/tests -p 'test_*.py'
           python3 scripts/verify-tv-source.py --manifest tvApp/src/androidMain/AndroidManifest.xml --banner tvApp/src/main/res/drawable-nodpi/tv_banner.png
           python3 scripts/verify-module-boundaries.py
+      - name: Verify renderer cancellation and Cast media-state isolation
+        run: node --test castReceiver/receiver.test.cjs watchTogetherServer/calendarRenderer/render-scheduler.test.mjs
 
   verify:
     name: Compile, test, lint, and verify design contracts
@@ -209,9 +211,10 @@ jobs:
         # The gate is only as good as its severity parsing, and a regression there fails
         # open. Pin it before trusting the scan below.
         run: python3 -m unittest discover --start-directory scripts --pattern 'test_*.py' --verbose
-      - name: Scan locked Maven dependencies with OSV
+      - name: Scan locked Maven and npm dependencies with OSV
         run: python3 scripts/supply_chain_check.py --root . --sbom build/sbom/yfuse.spdx.json
       - name: Upload SPDX SBOM
+        if: always() && hashFiles('build/sbom/yfuse.spdx.json') != ''
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:

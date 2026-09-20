@@ -1287,7 +1287,8 @@ private class CalendarIngestionRuntime(
                 .GET()
                 .build()
         val response =
-            runCatching { http.send(request, HttpResponse.BodyHandlers.ofString()) }.getOrNull() ?: return null
+            runCatching { http.send(request, boundedStringBodyHandler(MAX_SOURCE_CHARS * 3)) }.getOrNull()
+                ?: return null
         return response.body().takeIf { response.statusCode() in 200..299 && it.length <= MAX_SOURCE_CHARS }
     }
 
@@ -1401,7 +1402,7 @@ private class CalendarIngestionRuntime(
                 .POST(HttpRequest.BodyPublishers.ofString(payload))
         if (!key.isNullOrBlank()) builder.header("Authorization", "Bearer $key")
         val response =
-            runCatching { http.send(builder.build(), HttpResponse.BodyHandlers.ofString()) }
+            runCatching { http.send(builder.build(), boundedStringBodyHandler(MAX_OCR_RESULT_CHARS * 3)) }
                 .getOrNull()
                 ?: return null
         if (response.statusCode() !in 200..299) return null
@@ -1447,7 +1448,8 @@ private class CalendarIngestionRuntime(
                 .build()
         var submitResponse: HttpResponse<String>? = null
         for (attempt in 0 until PADDLE_SUBMIT_ATTEMPTS) {
-            val response = runCatching { http.send(submitRequest, HttpResponse.BodyHandlers.ofString()) }.getOrNull()
+            val response =
+                runCatching { http.send(submitRequest, boundedStringBodyHandler(MAX_OCR_RESULT_CHARS * 3)) }.getOrNull()
             if (response != null && response.statusCode() in 200..299) {
                 submitResponse = response
                 break
@@ -1475,7 +1477,7 @@ private class CalendarIngestionRuntime(
                     .GET()
                     .build()
             val pollResponse =
-                runCatching { http.send(pollRequest, HttpResponse.BodyHandlers.ofString()) }.getOrNull()
+                runCatching { http.send(pollRequest, boundedStringBodyHandler(MAX_OCR_RESULT_CHARS * 3)) }.getOrNull()
                     ?: continue
             if (pollResponse.statusCode() !in 200..299) return null
             val snapshot = PaddleOcrResponseParser.jobSnapshot(pollResponse.body()) ?: return null
@@ -1517,7 +1519,8 @@ private class CalendarIngestionRuntime(
                 .POST(HttpRequest.BodyPublishers.ofString(form))
                 .build()
         for (attempt in 0 until OCR_SPACE_ATTEMPTS) {
-            val response = runCatching { http.send(request, HttpResponse.BodyHandlers.ofString()) }.getOrNull()
+            val response =
+                runCatching { http.send(request, boundedStringBodyHandler(MAX_OCR_RESULT_CHARS * 3)) }.getOrNull()
             if (
                 response != null &&
                 response.statusCode() in 200..299 &&
@@ -1564,7 +1567,7 @@ private class CalendarIngestionRuntime(
                 .GET()
                 .build()
         val response =
-            runCatching { http.send(request, HttpResponse.BodyHandlers.ofString()) }.getOrNull()
+            runCatching { http.send(request, boundedStringBodyHandler(MAX_OCR_RESULT_CHARS * 3)) }.getOrNull()
                 ?: return null
         if (response.statusCode() !in 200..299 || response.body().length > MAX_OCR_RESULT_CHARS) return null
         return PaddleOcrResponseParser.extractMarkdownText(response.body())
@@ -1585,7 +1588,7 @@ private class CalendarIngestionRuntime(
                     .header("Accept-Language", "zh-CN,zh;q=0.9")
                     .GET()
                     .build()
-            val response = runCatching { http.send(request, HttpResponse.BodyHandlers.ofString()) }.getOrNull()
+            val response = runCatching { http.send(request, boundedStringBodyHandler(maxChars * 3)) }.getOrNull()
             if (
                 response != null &&
                 response.statusCode() in 200..299 &&
@@ -1622,7 +1625,7 @@ private class CalendarIngestionRuntime(
                 .POST(HttpRequest.BodyPublishers.ofString(payload))
         if (!key.isNullOrBlank()) builder.header("Authorization", "Bearer $key")
         val response =
-            runCatching { http.send(builder.build(), HttpResponse.BodyHandlers.ofString()) }.getOrNull()
+            runCatching { http.send(builder.build(), boundedStringBodyHandler(MAX_SOURCE_CHARS * 3)) }.getOrNull()
                 ?: return null
         if (response.statusCode() !in 200..299 || response.body().length > MAX_SOURCE_CHARS) return null
         return runCatching {
@@ -2572,6 +2575,9 @@ private const val MAX_OCR_PROVIDERS = 3
 private const val MIN_PARTIAL_OCR_COORDINATES = 3
 private const val MAX_SOURCES_PER_SHOW = 9
 private const val MAX_EVIDENCE_PER_SERIES = 20
+
+// UTF-8 uses at most three bytes per UTF-16 code unit. HTTP reads also cap bytes at
+// three times these character limits, before buffering/decoding a whole response.
 private const val MAX_SOURCE_CHARS = 4_000_000
 private const val MAX_TVMAZE_SCHEDULE_CHARS = 32_000_000
 private val TVMAZE_SHOW_TYPES =

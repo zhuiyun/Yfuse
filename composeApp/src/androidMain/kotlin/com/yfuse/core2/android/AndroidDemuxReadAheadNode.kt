@@ -16,6 +16,8 @@ import java.util.concurrent.ExecutionException
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -26,6 +28,7 @@ import java.util.concurrent.atomic.AtomicInteger
  */
 internal class AndroidDemuxReadAheadNode(
     private val delegate: YDemuxer,
+    private val controlTimeoutMs: Long = 1_500L,
 ) {
     private val monitor = Any()
     private val samples = ArrayDeque<YQueuedDemuxResult.Sample>()
@@ -75,7 +78,7 @@ internal class AndroidDemuxReadAheadNode(
 
     /** Only signal the native interrupt flag here; all context destruction stays on the owner. */
     fun cancelPendingRead() {
-        (delegate as? AndroidFfmpegDemuxer)?.cancelPendingRead()
+        (delegate as? AndroidDemuxReadControl)?.cancelPendingRead()
     }
 
     /** Transfers an already-open, idle demuxer to this owner without repeating source analysis. */
@@ -133,21 +136,14 @@ internal class AndroidDemuxReadAheadNode(
         requestFill()
     }
 
-    fun selectTracks(trackIds: Set<YTrackId>) {
-        synchronized(monitor) {
-            tracksSelected = false
-            clearQueueLocked()
-        }
-        runOnOwner {
+    fun selectTracks(
+        trackIds: Set<YTrackId>,
+        positionUs: Long? = null,
+    ) {
+        runReadControl(resumeReadAhead = trackIds.isNotEmpty()) {
             delegate.selectTracks(trackIds)
-            synchronized(monitor) {
-                tracksSelected = trackIds.isNotEmpty()
-                clearQueueLocked()
-                endOfInput = false
-                failure = null
-            }
+            positionUs?.let(delegate::seekTo)
         }
-        requestFill()
     }
 
     fun pollSample(excludedTrackIds: Set<YTrackId> = emptySet()): YQueuedDemuxResult {
@@ -177,23 +173,8 @@ internal class AndroidDemuxReadAheadNode(
     }
 
     fun seekTo(positionUs: Long) {
-        val resumeReadAhead =
-            synchronized(monitor) {
-                val selected = tracksSelected
-                tracksSelected = false
-                clearQueueLocked()
-                selected
-            }
-        runOnOwner {
-            delegate.seekTo(positionUs)
-            synchronized(monitor) {
-                tracksSelected = resumeReadAhead
-                clearQueueLocked()
-                endOfInput = false
-                failure = null
-            }
-        }
-        requestFill()
+        val resumeReadAhead = synchronized(monitor) { tracksSelected }
+        runReadControl(resumeReadAhead) { delegate.seekTo(positionUs) }
     }
 
     fun supportsSubtitleFormat(format: YSubtitleFormat): Boolean =
@@ -242,6 +223,12 @@ internal class AndroidDemuxReadAheadNode(
 
     /** Stops packet reads and waits until the demux owner reaches a safe native-session barrier. */
     fun pauseReadAhead() {
+        if (synchronized(monitor) { executor == null }) return
+        runReadControl(resumeReadAhead = false) {}
+    }
+
+    /** Cleanup must wait for ownership; a timeout never authorizes native or codec destruction. */
+    fun awaitReleaseBarrier() {
         val owner =
             synchronized(monitor) {
                 tracksSelected = false
@@ -249,6 +236,57 @@ internal class AndroidDemuxReadAheadNode(
                 executor
             } ?: return
         await(owner.submit(Callable { Unit }))
+    }
+
+    private fun runReadControl(
+        resumeReadAhead: Boolean,
+        block: () -> Unit,
+    ) {
+        val request =
+            synchronized(monitor) {
+                tracksSelected = false
+                clearQueueLocked()
+                generation
+            }
+        val deadlineNs = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(controlTimeoutMs)
+        val interruptible = delegate as? AndroidDemuxReadControl
+        interruptible?.interruptRead(request)
+        val control =
+            owner().submit(
+                Callable {
+                    synchronized(monitor) {
+                        check(generation == request && System.nanoTime() < deadlineNs) { "Demux control superseded" }
+                    }
+                    check(interruptible?.resumeRead(request) != false) { "Demux read cannot resume after cancellation" }
+                    block()
+                    synchronized(monitor) {
+                        check(generation == request && System.nanoTime() < deadlineNs) { "Demux control superseded" }
+                        clearQueueLocked()
+                        tracksSelected = resumeReadAhead
+                        endOfInput = false
+                        failure = null
+                    }
+                },
+            )
+        try {
+            control.get((deadlineNs - System.nanoTime()).coerceAtLeast(1L), TimeUnit.NANOSECONDS)
+        } catch (timeout: TimeoutException) {
+            val expired =
+                synchronized(monitor) {
+                    if (generation == request) {
+                        clearQueueLocked()
+                        generation
+                    } else {
+                        null
+                    }
+                }
+            expired?.let { interruptible?.interruptRead(it) }
+            control.cancel(false)
+            throw IllegalStateException("Demux control timed out while its owner was busy", timeout)
+        } catch (failure: ExecutionException) {
+            throw failure.cause ?: failure
+        }
+        requestFill()
     }
 
     fun release() {
@@ -279,9 +317,10 @@ internal class AndroidDemuxReadAheadNode(
     private fun fillToHighWatermark() {
         val fillStartedNs = System.nanoTime()
         var filledBytes = 0L
+        var readGeneration = -1L
         try {
             while (true) {
-                val readGeneration =
+                readGeneration =
                     synchronized(monitor) {
                         if (
                             !opened ||
@@ -328,8 +367,10 @@ internal class AndroidDemuxReadAheadNode(
         } catch (throwable: Throwable) {
             if (throwable is CancellationException) throw throwable
             synchronized(monitor) {
-                failure = throwable
-                endOfInput = true
+                if (opened && readGeneration == generation) {
+                    failure = throwable
+                    endOfInput = true
+                }
             }
         } finally {
             synchronized(monitor) {

@@ -67,10 +67,24 @@ internal object PreparedPlaybackRegistry {
  */
 fun interface PlaybackSourcePreload {
     fun cancel()
+
+    /** Stop unfinished work but allow an already prepared source to be claimed once. */
+    fun handoff() = cancel()
 }
 
 internal fun noOpPlaybackSourcePreload(): PlaybackSourcePreload = PlaybackSourcePreload {}
 
 interface PlaybackSourcePreloader {
     fun preload(item: PlayerMediaItem): PlaybackSourcePreload
+
+    fun preload(
+        item: PlayerMediaItem,
+        startPositionMs: Long,
+    ): PlaybackSourcePreload = preload(item)
+
+    fun preload(
+        item: PlayerMediaItem,
+        startPositionMs: Long,
+        tracks: com.yfuse.core.data.PlaybackTrackRequest.Tracks?,
+    ): PlaybackSourcePreload = preload(item, startPositionMs)
 }

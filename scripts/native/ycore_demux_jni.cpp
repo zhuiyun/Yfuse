@@ -17,6 +17,8 @@
 #include <unordered_map>
 #include <vector>
 #include <unistd.h>
+#include "ycore_extradata_budget.h"
+#include "ycore_demux_interrupt.h"
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -121,6 +123,7 @@ struct DiscSource {
     jmethodID overlay_cleared = nullptr;
     jmethodID close_source = nullptr;
     jmethodID cancel_read = nullptr;
+    jmethodID interrupt_read = nullptr;
     jmethodID open_file = nullptr;
     jmethodID read_file = nullptr;
     jmethodID seek_file = nullptr;
@@ -180,8 +183,7 @@ struct DemuxSession;
 
 // Cancellation has its own registry/lifetime: open has no demux handle yet, and cancelling
 // must never dereference or destroy a session concurrently with av_read_frame/open/close.
-struct DemuxCancellation {
-    std::atomic<bool> cancelled{false};
+struct DemuxCancellation : YCoreDemuxInterrupt {
     std::atomic<int64_t> deadline_ms{0};
 };
 std::mutex g_demux_cancellations_mutex;
@@ -203,7 +205,7 @@ int interrupt_demux(void* opaque) {
     const auto* token = static_cast<DemuxCancellation*>(opaque);
     if (!token) return 0;
     const int64_t deadline = token->deadline_ms.load();
-    return token->cancelled.load() || (deadline > 0 && monotonic_ms() >= deadline);
+    return token->cancelled.load() || token->pending() || (deadline > 0 && monotonic_ms() >= deadline);
 }
 
 bool disc_cancelled(const DiscSource* source) {
@@ -239,6 +241,7 @@ struct SoftwareDecoder {
 };
 
 struct DemuxSession {
+    ycore_demux::ExtradataBudget extradata_budget;
     std::shared_ptr<DemuxCancellation> cancellation;
     AVFormatContext* format = nullptr;
     AVIOContext* custom_io = nullptr;
@@ -1717,6 +1720,8 @@ jlong native_register_bluray_source(JNIEnv* env, jclass, jobject source_object) 
     // Optional for compatibility with older source wrappers; token checks always remain active.
     source->cancel_read = env->GetMethodID(source_class, "cancelPendingReadNative", "()V");
     if (!source->cancel_read) env->ExceptionClear();
+    source->interrupt_read = env->GetMethodID(source_class, "interruptPendingReadNative", "()V");
+    if (!source->interrupt_read) env->ExceptionClear();
     const jmethodID path_method =
         env->GetMethodID(source_class, "discPathNative", "()Ljava/lang/String;");
     if (
@@ -1935,7 +1940,8 @@ jlong open_session(
     jobjectArray header_names,
     jobjectArray header_values,
     bool probe_only,
-    std::shared_ptr<DemuxCancellation> cancellation = nullptr) {
+    std::shared_ptr<DemuxCancellation> cancellation = nullptr,
+    bool startup_analysis = false) {
     if (!uri) {
         throw_illegal_argument(env, "Media URI is required");
         return 0;
@@ -1986,12 +1992,13 @@ jlong open_session(
         av_dict_set(&options, "rw_timeout", "15000000", 0);
     }
 
-    if (probe_only) {
+    if (probe_only || startup_analysis) {
         // A truth probe only needs stream parameters. Keep FFmpeg from reading its default
         // 5 MB / 5 s analysis window over the network before it answers.
         av_dict_set(&options, "probesize", kProbeSizeBytes, 0);
         av_dict_set(&options, "analyzeduration", kProbeAnalyzeDurationUs, 0);
-        av_dict_set(&options, "fflags", "nobuffer", 0);
+        // Retained playback must keep packets gathered during analysis, especially first audio.
+        if (probe_only) av_dict_set(&options, "fflags", "nobuffer", 0);
     }
     if (!session->format) session->format = avformat_alloc_context();
     if (!session->format) {
@@ -2081,6 +2088,38 @@ void native_cancel_demux(JNIEnv* env, jclass, jlong id) {
     }
 }
 
+void native_interrupt_demux_read(JNIEnv* env, jclass, jlong id, jlong generation) {
+    const auto token = find_demux_cancellation(id);
+    if (!token || generation <= 0 || !token->request(generation)) return;
+    std::vector<std::shared_ptr<DiscSource>> sources;
+    {
+        std::lock_guard<std::mutex> lock(g_disc_sources_mutex);
+        for (const auto& entry : g_disc_sources) {
+            if (std::atomic_load(&entry.second->cancellation) == token) sources.push_back(entry.second);
+        }
+    }
+    for (const auto& source : sources) {
+        if (source->object && source->interrupt_read) {
+            env->CallVoidMethod(source->object, source->interrupt_read);
+            clear_java_exception(env);
+        }
+    }
+}
+
+// Called only by the demux owner after its interrupted read has returned.
+jboolean native_resume_demux_read(JNIEnv*, jclass, jlong handle, jlong generation) {
+    DemuxSession* session = from_handle(handle);
+    if (!session || !session->format || !session->cancellation ||
+        !session->cancellation->resume(generation) || interrupt_demux(session->cancellation.get())) {
+        return JNI_FALSE;
+    }
+    if (session->format->pb) {
+        session->format->pb->error = 0;
+        session->format->pb->eof_reached = 0;
+    }
+    return JNI_TRUE;
+}
+
 void native_set_demux_deadline(JNIEnv*, jclass, jlong id, jlong remaining_ms) {
     const auto token = find_demux_cancellation(id);
     if (token) token->deadline_ms.store(remaining_ms > 0 ? monotonic_ms() + remaining_ms : 0);
@@ -2103,6 +2142,16 @@ jlong native_open_cancellable(JNIEnv* env, jclass, jstring uri, jobjectArray nam
 
 jstring native_last_open_failure(JNIEnv* env, jclass) {
     return g_last_open_failure.empty() ? nullptr : nullable_string(env, g_last_open_failure.c_str());
+}
+
+jlong native_open_with_analysis(JNIEnv* env, jclass, jstring uri, jobjectArray names,
+    jobjectArray values, jboolean probe_only, jlong cancellation_id) {
+    const auto token = find_demux_cancellation(cancellation_id);
+    if (!token) {
+        throw_illegal_argument(env, "Demux cancellation token is required");
+        return 0;
+    }
+    return open_session(env, uri, names, values, probe_only == JNI_TRUE, token, true);
 }
 
 jint native_track_count(JNIEnv* env, jclass, jlong handle) {
@@ -2246,10 +2295,36 @@ jstring native_track_title(JNIEnv* env, jclass, jlong handle, jint index) {
     return stream ? dictionary_value(env, stream->metadata, "title") : nullptr;
 }
 
+const char* font_attachment_name(const AVStream* stream) {
+    if (!stream || stream->codecpar->codec_type != AVMEDIA_TYPE_ATTACHMENT ||
+        stream->codecpar->extradata_size <= 0 ||
+        stream->codecpar->extradata_size > static_cast<int>(kMaxSubtitlePayloadBytes)) return nullptr;
+    const AVDictionaryEntry* filename = av_dict_get(stream->metadata, "filename", nullptr, 0);
+    if (!filename || !filename->value) return nullptr;
+    std::string lower(filename->value);
+    std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return std::tolower(c); });
+    const size_t dot = lower.find_last_of('.');
+    const std::string extension = dot == std::string::npos ? "" : lower.substr(dot);
+    return extension == ".ttf" || extension == ".otf" || extension == ".ttc" ? filename->value : nullptr;
+}
+
 jbyteArray native_track_extradata(JNIEnv* env, jclass, jlong handle, jint index) {
-    AVStream* stream = checked_stream(env, from_handle(handle), index);
-    if (!stream) return nullptr;
-    return copy_bytes(env, stream->codecpar->extradata, stream->codecpar->extradata_size);
+    DemuxSession* session = from_handle(handle);
+    AVStream* stream = checked_stream(env, session, index);
+    if (!stream || !stream->codecpar->extradata || stream->codecpar->extradata_size <= 0) return nullptr;
+    const AVMediaType type = stream->codecpar->codec_type;
+    const bool font = type == AVMEDIA_TYPE_ATTACHMENT;
+    if (font ? !font_attachment_name(stream) :
+        (type != AVMEDIA_TYPE_VIDEO && type != AVMEDIA_TYPE_AUDIO && type != AVMEDIA_TYPE_SUBTITLE)) return nullptr;
+    const int size = stream->codecpar->extradata_size;
+    if (!session->extradata_budget.allows(index, size, font)) {
+        // Fonts are optional. Required codec configuration must fail explicitly, never be truncated.
+        if (!font) throw_illegal_argument(env, "FFmpeg codec metadata exceeds its memory limit");
+        return nullptr;
+    }
+    jbyteArray result = copy_bytes(env, stream->codecpar->extradata, size);
+    if (result && !env->ExceptionCheck()) session->extradata_budget.copied(index, size, font);
+    return result;
 }
 
 jintArray native_track_dolby_config(JNIEnv* env, jclass, jlong handle, jint index) {
@@ -2641,18 +2716,8 @@ std::shared_ptr<AssRenderSession> ass_session(jlong handle) {
 
 jstring native_track_font_name(JNIEnv* env, jclass, jlong handle, jint index) {
     AVStream* stream = checked_stream(env, from_handle(handle), index);
-    if (!stream || stream->codecpar->codec_type != AVMEDIA_TYPE_ATTACHMENT ||
-        stream->codecpar->extradata_size <= 0 ||
-        stream->codecpar->extradata_size > static_cast<int>(kMaxSubtitlePayloadBytes)) return nullptr;
-    AVDictionaryEntry* filename = av_dict_get(stream->metadata, "filename", nullptr, 0);
-    if (!filename || !filename->value) return nullptr;
-    std::string name(filename->value);
-    std::string lower = name;
-    std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return std::tolower(c); });
-    const size_t dot = lower.find_last_of('.');
-    const std::string extension = dot == std::string::npos ? "" : lower.substr(dot);
-    if (extension != ".ttf" && extension != ".otf" && extension != ".ttc") return nullptr;
-    return env->NewStringUTF(name.c_str());
+    const char* name = font_attachment_name(stream);
+    return name ? env->NewStringUTF(name) : nullptr;
 }
 
 jlong native_create_ass_renderer(
@@ -2846,6 +2911,10 @@ jint native_ass_renderer_api_version(JNIEnv*, jclass) {
 
 jint native_demux_handle_contract_version(JNIEnv*, jclass) {
     return kDemuxHandleContractVersion;
+}
+
+jint native_demux_read_control_api_version(JNIEnv*, jclass) {
+    return 1;
 }
 
 void native_configure_software_decoder(
@@ -3148,6 +3217,13 @@ jint native_seek(JNIEnv* env, jclass, jlong handle, jlong position_us) {
         throw_illegal_state(env, "FFmpeg demux session is closed");
         return kFailureContainer;
     }
+    if (interrupt_demux(session->cancellation.get())) {
+        return failure_status(AVERROR_EXIT, session->remote_source);
+    }
+    if (session->format->pb) {
+        session->format->pb->error = 0;
+        session->format->pb->eof_reached = 0;
+    }
     const int64_t target = std::max<int64_t>(0, position_us);
     int error = 0;
     if (session->disc) {
@@ -3183,6 +3259,10 @@ jint native_seek(JNIEnv* env, jclass, jlong handle, jlong position_us) {
         return failure_status(error, session->remote_source);
     }
     avformat_flush(session->format);
+    if (session->format->pb) {
+        session->format->pb->error = 0;
+        session->format->pb->eof_reached = 0;
+    }
     for (AVCodecContext* decoder : session->subtitle_decoders) {
         if (decoder) avcodec_flush_buffers(decoder);
     }
@@ -3212,6 +3292,7 @@ static const JNINativeMethod kMethods[] = {
     {"nativeAssRendererApiVersion", "()I", reinterpret_cast<void*>(native_ass_renderer_api_version)},
     {"nativeSubtitleDisplaySetApiVersion", "()I", reinterpret_cast<void*>(native_subtitle_display_set_api_version)},
     {"nativeDemuxHandleContractVersion", "()I", reinterpret_cast<void*>(native_demux_handle_contract_version)},
+    {"nativeDemuxReadControlApiVersion", "()I", reinterpret_cast<void*>(native_demux_read_control_api_version)},
     {"nativeRegisterBluRaySource", "(Ljava/lang/Object;)J", reinterpret_cast<void*>(native_register_bluray_source)},
     {"nativeUnregisterBluRaySource", "(J)V", reinterpret_cast<void*>(native_unregister_bluray_source)},
     {"nativeSelectDiscTitle", "(JI)Z", reinterpret_cast<void*>(native_select_disc_title)},
@@ -3224,9 +3305,12 @@ static const JNINativeMethod kMethods[] = {
     {"nativeClose", "(J)V", reinterpret_cast<void*>(native_close)},
     {"nativeCreateCancellation", "()J", reinterpret_cast<void*>(native_create_cancellation)},
     {"nativeCancelDemux", "(J)V", reinterpret_cast<void*>(native_cancel_demux)},
+    {"nativeInterruptDemuxRead", "(JJ)V", reinterpret_cast<void*>(native_interrupt_demux_read)},
+    {"nativeResumeDemuxRead", "(JJ)Z", reinterpret_cast<void*>(native_resume_demux_read)},
     {"nativeSetDemuxDeadline", "(JJ)V", reinterpret_cast<void*>(native_set_demux_deadline)},
     {"nativeReleaseCancellation", "(J)V", reinterpret_cast<void*>(native_release_cancellation)},
     {"nativeOpenCancellable", "(Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;ZJ)J", reinterpret_cast<void*>(native_open_cancellable)},
+    {"nativeOpenWithAnalysis", "(Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;ZJ)J", reinterpret_cast<void*>(native_open_with_analysis)},
     {"nativeLastOpenFailure", "()Ljava/lang/String;", reinterpret_cast<void*>(native_last_open_failure)},
     {"nativeTrackCount", "(J)I", reinterpret_cast<void*>(native_track_count)},
     {"nativeContainerName", "(J)Ljava/lang/String;", reinterpret_cast<void*>(native_container_name)},

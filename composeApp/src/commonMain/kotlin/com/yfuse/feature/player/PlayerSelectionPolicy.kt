@@ -1,18 +1,16 @@
 package com.yfuse.feature.player
 
-import com.yfuse.core.model.languageDisplayName
+import com.yfuse.core2.api.YTrack
+import com.yfuse.core2.api.YTrackPreference
+import com.yfuse.core2.api.YTrackType
+import com.yfuse.core2.api.matchingPreference
 
 /** Resolves the engine track that best answers to a preferred display language. */
 internal fun List<EngineTrack>.matchingLanguage(language: String): String? {
-    val wanted = language.trim().lowercase()
-    if (wanted.isEmpty()) return null
-    val wantedDisplay = languageDisplayName(wanted)
-    return firstOrNull { it.language?.lowercase() == wanted }?.id
-        ?: firstOrNull {
-            languageDisplayName(it.language).equals(wantedDisplay, ignoreCase = true)
-        }?.id
-        ?: firstOrNull { it.language?.lowercase()?.startsWith(wanted.take(2)) == true }?.id
-        ?: firstOrNull { it.label.contains(language, ignoreCase = true) }?.id
+    if (language.isBlank()) return null
+    return map { YTrack(it.id, YTrackType.Audio, it.label, it.language, it.codec, it.selected) }
+        .matchingPreference(YTrackPreference(language = language))
+        ?.id
 }
 
 /** Best remaining physical file after every engine rejected the selected version. */

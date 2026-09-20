@@ -1,10 +1,29 @@
 package com.yfuse.core2.android
 
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class AndroidVideoOutputEpochTest {
+    @Test
+    fun fps_count_ignores_stale_duplicate_and_unsubmitted_callbacks_and_resets_on_seek() {
+        val evidence = AndroidVideoOutputEpoch()
+        val previous = evidence.reset(100L)
+        evidence.submitted(10L)
+        assertEquals(0L, evidence.renderedFrameCount)
+        assertTrue(evidence.rendered(previous, 10L, 110L) {})
+        assertFalse(evidence.rendered(previous, 10L, 115L) {})
+        assertFalse(evidence.rendered(previous, 20L, 120L) {})
+        assertEquals(1L, evidence.renderedFrameCount)
+        val current = evidence.reset(200L)
+        evidence.submitted(20L)
+        assertFalse(evidence.rendered(previous, 20L, 210L) {})
+        assertEquals(0L, evidence.renderedFrameCount)
+        assertTrue(evidence.rendered(current, 20L, 220L) {})
+        assertEquals(1L, evidence.renderedFrameCount)
+    }
+
     @Test
     fun repeated_media_pts_retain_one_slot_per_genuinely_submitted_frame() {
         val evidence = AndroidVideoOutputEpoch()

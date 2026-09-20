@@ -21,6 +21,8 @@ import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.network.localNetworkPermissionGranted
+import com.yfuse.core.network.localNetworkRuntimePermission
 
 /**
  * Permission health for a television.
@@ -62,9 +64,7 @@ internal fun TvPermissionHealthPage(
         }
     val localNetworkGranted =
         remember(revision) {
-            Build.VERSION.SDK_INT < 33 ||
-                context.checkSelfPermission(Manifest.permission.NEARBY_WIFI_DEVICES) ==
-                PackageManager.PERMISSION_GRANTED
+            localNetworkPermissionGranted()
         }
 
     val requestNotifications =
@@ -114,13 +114,13 @@ internal fun TvPermissionHealthPage(
                 onClick = {
                     if (localNetworkGranted) {
                         openAppSettings()
-                    } else if (Build.VERSION.SDK_INT >= 33) {
-                        requestLocalNetwork.launch(Manifest.permission.NEARBY_WIFI_DEVICES)
+                    } else {
+                        localNetworkRuntimePermission()?.let { requestLocalNetwork.launch(it) }
                     }
                 },
                 icon = AppIcons.Search,
                 focusScope = focusScope,
-                subtitle = "缺少此权限时，添加服务器里的「搜索局域网」找不到任何设备",
+                subtitle = "用于连接家庭服务器、搜索局域网和投屏；互联网服务器不受影响",
                 selected = localNetworkGranted,
                 navigationRequester = navigationRequester,
             )

@@ -1,5 +1,6 @@
 package com.yfuse.core.network
 
+import com.yfuse.core.data.embyPath
 import com.yfuse.core.data.plexArtworkPath
 import com.yfuse.core.model.MediaDetail
 import com.yfuse.core.model.MediaItem
@@ -69,7 +70,7 @@ object EmbyImages {
         val tagQuery = tag?.let { "tag=$it&" }.orEmpty()
         return "${normalizeBaseUrl(
             baseUrl,
-        )}/Items/$itemId/Images/Primary?${tagQuery}maxHeight=$maxHeight&quality=$POSTER_QUALITY$formatQuery"
+        )}/Items/${embyPath(itemId)}/Images/Primary?${tagQuery}maxHeight=$maxHeight&quality=$POSTER_QUALITY$formatQuery"
             .withToken(accessToken)
     }
 
@@ -113,9 +114,8 @@ object EmbyImages {
             )
         }
         val tagQuery = tag?.let { "tag=$it&" }.orEmpty()
-        return "${normalizeBaseUrl(
-            baseUrl,
-        )}/Items/$itemId/Images/Backdrop/$index?${tagQuery}maxWidth=$maxWidth&quality=$BACKDROP_QUALITY$formatQuery"
+        val imageUrl = "${normalizeBaseUrl(baseUrl)}/Items/${embyPath(itemId)}/Images/Backdrop/$index"
+        return "$imageUrl?${tagQuery}maxWidth=$maxWidth&quality=$BACKDROP_QUALITY$formatQuery"
             .withToken(accessToken)
     }
 

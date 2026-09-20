@@ -5,6 +5,7 @@ import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.os.Process
+import android.os.SystemClock
 import android.view.Surface
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core2.api.YDolbyAtmosOutputMode
@@ -24,6 +25,7 @@ import com.yfuse.core2.api.YTrack
 import com.yfuse.core2.api.YTrackType
 import com.yfuse.core2.api.YVideoOutput
 import com.yfuse.core2.api.invalidateOutputEvidence
+import com.yfuse.core2.api.matchingPreference
 import com.yfuse.core2.api.yPlaybackStage
 import com.yfuse.core2.bitstream.YBitstream
 import com.yfuse.core2.bitstream.YSamplePacking
@@ -36,6 +38,7 @@ import com.yfuse.core2.network.YBufferConditions
 import com.yfuse.core2.network.YBufferController
 import com.yfuse.core2.recovery.requiresPcmAudioPath
 import com.yfuse.core2.render.YFrameRateSwitchMode
+import com.yfuse.core2.render.YRenderedFrameRateSampler
 import com.yfuse.core2.render.videoFrameRateHint
 import com.yfuse.core2.subtitle.YSubtitleCue
 import com.yfuse.core2.subtitle.YSubtitleFormat
@@ -140,6 +143,7 @@ internal class AndroidNativeDirectYPlayer(
                 phase = YPlaybackPhase.Preparing,
                 buffering = it.playbackRequested,
                 error = null,
+                diagnostics = it.diagnostics.copy(renderedFrameRate = null),
             )
         }
         submit(Command.Prepare)
@@ -171,6 +175,7 @@ internal class AndroidNativeDirectYPlayer(
                 playbackRequested = false,
                 playing = false,
                 buffering = false,
+                diagnostics = it.diagnostics.copy(renderedFrameRate = null),
             )
         }
         submit(Command.Pause)
@@ -186,6 +191,7 @@ internal class AndroidNativeDirectYPlayer(
                 secondarySubtitleCues = emptyList(),
                 bufferedPositionMs = bounded,
                 buffering = it.playbackRequested,
+                diagnostics = it.diagnostics.copy(renderedFrameRate = null),
                 phase = if (it.phase == YPlaybackPhase.Ended) YPlaybackPhase.Ready else it.phase,
             )
         }
@@ -571,6 +577,7 @@ internal class AndroidNativeDirectYPlayer(
         @Volatile
         private var firstVideoFrameRendered = false
         private val videoOutputEpoch = AndroidVideoOutputEpoch()
+        private val renderedFrameRateSampler = YRenderedFrameRateSampler()
         private val pausedPreview = AndroidPausedVideoPreview()
         private val videoEosGate = AndroidVideoEosGate()
         private val surfaceCompletion = AndroidSurfacePlaybackCompletion()
@@ -821,6 +828,12 @@ internal class AndroidNativeDirectYPlayer(
             externalSubtitleSession.reset(item.allExternalSubtitles, item.headers)
             externalSubtitles = externalSubtitleSession.tracks
             selectedExternalSubtitleId = externalSubtitleSession.defaultId
+            if (item.initialTrackSelection?.subtitlesDisabled == true) selectedExternalSubtitleId = null
+            val initialSubtitle = subtitleTracks().matchingPreference(item.initialTrackSelection?.subtitle)
+            if (initialSubtitle != null && item.initialTrackSelection?.subtitlesDisabled != true) {
+                subtitleTrackIndex = initialSubtitle.id.removePrefix(SUBTITLE_TRACK_PREFIX).toIntOrNull()
+                selectedExternalSubtitleId = initialSubtitle.id.takeIf { subtitleTrackIndex == null }
+            }
             // Audio-only media is a first-class source here: music, audiobooks and audio-only
             // versions have no video track and must not be rejected at the container stage.
             videoTrackIndex = demux.findFirstTrack(VIDEO_MIME_PREFIX)
@@ -833,8 +846,16 @@ internal class AndroidNativeDirectYPlayer(
                         .orEmpty()
                         .startsWith(AUDIO_MIME_PREFIX)
                 }
+            val discoveredAudio = platformAudioTracks(demux.trackCount, demux::trackFormat)
+            val preferredAudioIndex =
+                discoveredAudio
+                    .matchingPreference(item.initialTrackSelection?.audio)
+                    ?.id
+                    ?.substringAfter(':')
+                    ?.toIntOrNull()
+            val audioCandidates = preferredAudioIndex?.let(::listOf) ?: platformAudioTrackIndices
             val initialAudioTrack =
-                platformAudioTrackIndices.firstNotNullOfOrNull { index ->
+                audioCandidates.firstNotNullOfOrNull { index ->
                     val format = demux.trackFormat(index)
                     val coreFormat =
                         runCatching { format.toCore2AudioTrackFormat(item.sourceHints) }.getOrNull()
@@ -886,6 +907,12 @@ internal class AndroidNativeDirectYPlayer(
                 )
             }
             audioTrackIndex = initialAudioTrack?.first
+            logInitialAudioSelection(
+                "NativeDirect",
+                item.initialTrackSelection?.audio != null,
+                discoveredAudio,
+                audioTrackIndex?.let { "audio:$it" },
+            )
             videoFormat =
                 videoTrackIndex
                     ?.let(demux::trackFormat)
@@ -1011,6 +1038,7 @@ internal class AndroidNativeDirectYPlayer(
                             videoWidth = videoFormat?.intOrZero(MediaFormat.KEY_WIDTH) ?: 0,
                             videoHeight = videoFormat?.intOrZero(MediaFormat.KEY_HEIGHT) ?: 0,
                             frameRate = videoFormat?.floatOrZero(MediaFormat.KEY_FRAME_RATE) ?: 0f,
+                            renderedFrameRate = null,
                             audioCodec = audioInputFormat?.getString(MediaFormat.KEY_MIME).orEmpty(),
                             bitrateBitsPerSecond = sourceBitRateBitsPerSecond,
                             dynamicRange = videoFormat.dynamicRangeLabel(),
@@ -1182,6 +1210,7 @@ internal class AndroidNativeDirectYPlayer(
         }
 
         private fun pausePlaybackInternal(keepRequested: Boolean) {
+            renderedFrameRateSampler.reset()
             val positionUs = currentPositionUs()
             wallClock.pause(positionUs, System.nanoTime())
             pauseAudio()
@@ -1192,6 +1221,7 @@ internal class AndroidNativeDirectYPlayer(
                     playing = false,
                     buffering = false,
                     positionMs = positionUs / MICROS_PER_MILLISECOND,
+                    diagnostics = current.diagnostics.copy(renderedFrameRate = null),
                 )
             }
         }
@@ -1986,6 +2016,13 @@ internal class AndroidNativeDirectYPlayer(
                 requestedPlay && !videoOutputPending && !transportBufferingVisible && !isEnded()
             val buffering =
                 requestedPlay && (videoOutputPending || transportBufferingVisible) && !isEnded()
+            val renderedFrameRate =
+                if (requestedPlay && videoTrackIndex != null && firstVideoFrameRendered && !isEnded()) {
+                    renderedFrameRateSampler.sample(videoOutputEpoch.renderedFrameCount, SystemClock.elapsedRealtime())
+                } else {
+                    renderedFrameRateSampler.reset()
+                    null
+                }
             // Every other engine counts a rebuffer on the playing -> buffering edge. NativeDirect
             // only counted transport starvation, so a stall that never starved the read-ahead queue
             // — a pump blocked on the origin, a runtime recovery restart, an audio route change —
@@ -2015,6 +2052,7 @@ internal class AndroidNativeDirectYPlayer(
                             rebufferDurationMs = rebuffers.durationMs,
                             longestRebufferMs = rebuffers.longestMs,
                             droppedFrames = droppedFrames,
+                            renderedFrameRate = renderedFrameRate,
                             videoDecoderName = videoDecoder.decoderName.orEmpty(),
                             audioDecoderName = audioDecoderDiagnosticName().orEmpty(),
                             droppedFramesMeasured = true,
@@ -2561,12 +2599,14 @@ internal class AndroidNativeDirectYPlayer(
         }
 
         private fun resetVideoRenderEvidence() {
+            renderedFrameRateSampler.reset()
             videoOutputEpoch.reset()
             firstVideoFrameRendered = false
             if (videoConfigured) attachVideoRenderEvidence()
         }
 
         private fun attachVideoRenderEvidence() {
+            renderedFrameRateSampler.reset()
             val generation = videoOutputEpoch.reset()
             firstVideoFrameRendered = false
             var callbackRejectionLogged = false
@@ -3172,11 +3212,13 @@ internal fun MediaFormat.toCore2AudioTrackFormat(sourceHints: YMediaSourceHints?
                 codec = codec,
                 extractedChannelCount = intOrZero(MediaFormat.KEY_CHANNEL_COUNT),
                 sourceHintChannelCount = sourceHints?.audioChannelCount ?: 0,
+                sourceAudioTrackCount = sourceHints?.audioTrackCount ?: 0,
             ),
         sampleRate =
             resolveNativeDirectAudioSampleRate(
                 extractedSampleRateHz = intOrZero(MediaFormat.KEY_SAMPLE_RATE),
                 sourceHintSampleRateHz = sourceHints?.audioSampleRateHz ?: 0,
+                sourceAudioTrackCount = sourceHints?.audioTrackCount ?: 0,
             ),
     )
 }
@@ -3185,9 +3227,10 @@ internal fun resolveNativeDirectAudioChannelCount(
     codec: YAudioCodec,
     extractedChannelCount: Int,
     sourceHintChannelCount: Int,
+    sourceAudioTrackCount: Int = 1,
 ): Int =
     extractedChannelCount.takeIf { it > 0 }
-        ?: sourceHintChannelCount.takeIf { it > 0 }
+        ?: sourceHintChannelCount.takeIf { it > 0 && sourceAudioTrackCount == 1 }
         ?: when (codec) {
             YAudioCodec.Ac3, YAudioCodec.Eac3, YAudioCodec.Eac3Joc, YAudioCodec.Dts -> 6
             YAudioCodec.TrueHd, YAudioCodec.TrueHdAtmos, YAudioCodec.DtsHd, YAudioCodec.DtsX -> 8
@@ -3197,9 +3240,10 @@ internal fun resolveNativeDirectAudioChannelCount(
 internal fun resolveNativeDirectAudioSampleRate(
     extractedSampleRateHz: Int,
     sourceHintSampleRateHz: Int,
+    sourceAudioTrackCount: Int = 1,
 ): Int =
     extractedSampleRateHz.takeIf { it > 0 }
-        ?: sourceHintSampleRateHz.takeIf { it > 0 }
+        ?: sourceHintSampleRateHz.takeIf { it > 0 && sourceAudioTrackCount == 1 }
         ?: DEFAULT_AUDIO_SAMPLE_RATE_HZ
 
 private fun MediaFormat.durationUsOrNull(): Long? =

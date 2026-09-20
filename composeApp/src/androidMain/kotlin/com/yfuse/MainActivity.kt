@@ -35,6 +35,7 @@ import com.yfuse.core.logging.AppLog
 import com.yfuse.core.offline.DownloadStatus
 import com.yfuse.core.offline.OfflineMediaManager
 import com.yfuse.core.performance.AppJankMonitor
+import com.yfuse.core.performance.PageFrameRateOverlay
 import com.yfuse.core.performance.preferHighRefreshRateForUi
 import com.yfuse.core.security.ServerSessionRecovery
 import com.yfuse.core.sync.ServerSyncManager
@@ -170,6 +171,7 @@ class MainActivity : ComponentActivity() {
             CompositionLocalProvider(LocalAppUpdateManager provides updateManager) {
                 AnimatedSplashApp(root) {
                     AppUpdateOverlay(updateManager, root)
+                    PageFrameRateOverlay()
                 }
             }
         }

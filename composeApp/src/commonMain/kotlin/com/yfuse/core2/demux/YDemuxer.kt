@@ -152,6 +152,8 @@ data class YDemuxSource(
     val transportCredentials: YTransportCredentials? = null,
     /** Metadata-only open: the demuxer may bound its own stream analysis instead of playing. */
     val probeOnly: Boolean = false,
+    /** Short analysis while retaining normal packet buffering for subsequent playback. */
+    val startupAnalysis: Boolean = false,
 )
 
 /**

@@ -166,7 +166,7 @@ internal class EmbyPlaybackService(
 
                 val response: PlaybackInfoResponseDto =
                     client
-                        .post("${normalizeBaseUrl(server.baseUrl)}/Items/$itemId/PlaybackInfo") {
+                        .post("${normalizeBaseUrl(server.baseUrl)}/Items/${embyPath(itemId)}/PlaybackInfo") {
                             header("X-Emby-Token", server.accessToken)
                             setBody(TextContent(requestJson, ContentType.Application.Json))
                         }.body()

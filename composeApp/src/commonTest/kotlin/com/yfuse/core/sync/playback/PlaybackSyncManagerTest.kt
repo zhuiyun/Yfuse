@@ -21,6 +21,7 @@ import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.security.TestSecureStore
 import com.yfuse.core.security.VaultCrypto
 import com.yfuse.core.sync.ServerSyncManager
+import com.yfuse.watch.protocol.PlaybackMissingEntity
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.MockEngineConfig
@@ -58,6 +59,98 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class PlaybackSyncManagerTest {
+    @Test
+    fun an_evicted_cloud_entity_is_retried_as_a_cas_creation() =
+        runTest {
+            val bases = mutableListOf<Long>()
+            val fixture =
+                fixture(cloudHandler = { request ->
+                    if (request.method == HttpMethod.Get) {
+                        successfulPlaybackResponse(request)
+                    } else {
+                        val item =
+                            Json
+                                .decodeFromString<PlaybackPushRequest>(
+                                    request.body.toByteArray().decodeToString(),
+                                ).items
+                                .single()
+                        bases += item.baseCursor
+                        val response =
+                            if (bases.size == 2) {
+                                PlaybackPushResponse(
+                                    cursor = 2L,
+                                    missing =
+                                        listOf(
+                                            PlaybackMissingEntity(
+                                                item.entity.entityKey,
+                                                item.entity.mutationId,
+                                                item.baseCursor,
+                                            ),
+                                        ),
+                                )
+                            } else {
+                                PlaybackPushResponse(
+                                    cursor = bases.size.toLong(),
+                                    accepted =
+                                        listOf(
+                                            PlaybackAcceptedEntity(
+                                                item.entity.entityKey,
+                                                item.entity.mutationId,
+                                                bases.size.toLong(),
+                                            ),
+                                        ),
+                                )
+                            }
+                        respondJson(Json.encodeToString(response))
+                    }
+                })
+            try {
+                fixture.manager.start()
+                runCurrent()
+                fixture.recordStop(20_000L)
+                advanceTimeBy(5_000L)
+                runCurrent()
+
+                assertEquals(listOf(0L, 1L, 0L), bases)
+                assertTrue(fixture.store.pending().isEmpty())
+                assertEquals(20_000L, fixture.manager.resumePositionMs(MEDIA_KEY))
+                assertNull(fixture.manager.state.value.error)
+            } finally {
+                fixture.close()
+            }
+        }
+
+    @Test
+    fun an_empty_legacy_push_response_keeps_pending_data_and_reports_failure_with_backoff() =
+        runTest {
+            var pushes = 0
+            val fixture =
+                fixture(cloudHandler = { request ->
+                    if (request.method == HttpMethod.Get) {
+                        successfulPlaybackResponse(request)
+                    } else {
+                        pushes++
+                        respondJson("""{"cursor":10,"accepted":[],"conflicts":[]}""")
+                    }
+                })
+            try {
+                fixture.manager.start()
+                runCurrent()
+                assertEquals(1, pushes)
+                assertEquals(1, fixture.store.pending().size)
+                assertNotNull(fixture.manager.state.value.error)
+                assertNull(fixture.manager.state.value.lastSyncedAtEpochMs)
+                advanceTimeBy(29_999L)
+                runCurrent()
+                assertEquals(1, pushes)
+                advanceTimeBy(1L)
+                runCurrent()
+                assertEquals(2, pushes)
+            } finally {
+                fixture.close()
+            }
+        }
+
     @Test
     fun token_timeout_preserves_playback_and_retries_only_after_backoff() =
         runTest {

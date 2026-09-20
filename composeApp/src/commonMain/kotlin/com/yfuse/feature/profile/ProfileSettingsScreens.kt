@@ -292,6 +292,7 @@ internal fun AdvancedPlaybackSettingsScreen(
     val outputPreferences = remember { GlobalContext.get().get<PlaybackPreferences>() }
     val anime4KMode by outputPreferences.anime4KMode.collectAsState()
     val frameRateMatch by outputPreferences.frameRateMatch.collectAsState()
+    val showFrameRate by outputPreferences.showFrameRate.collectAsState()
     val audioPassthrough by outputPreferences.audioPassthrough.collectAsState()
     val core2TrialEnabled by outputPreferences.core2TrialEnabled.collectAsState()
     val core2NativeOnlyEnabled by outputPreferences.core2NativeOnlyEnabled.collectAsState()
@@ -351,6 +352,14 @@ internal fun AdvancedPlaybackSettingsScreen(
         motionItem(key = "advanced-output") {
             Section(title = "显示与音频输出") {
                 SettingsCard {
+                    SwitchRow(
+                        "显示帧率",
+                        showFrameRate,
+                        true,
+                        description = "显示页面绘制帧率及播放时的视频帧率",
+                        onChange = outputPreferences::setShowFrameRate,
+                    )
+                    SettingsDivider()
                     SettingSegmentRow(
                         title = "Anime4K · YCore SDR 动漫（下次播放生效）",
                         options = Anime4KMode.entries.map { it.label },

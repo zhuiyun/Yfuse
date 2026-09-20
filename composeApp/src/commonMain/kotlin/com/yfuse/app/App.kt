@@ -46,6 +46,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
@@ -97,7 +98,6 @@ import com.yfuse.core.designsystem.MinTouchTarget
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.OfficialNavDisplay
 import com.yfuse.core.designsystem.OfficialNavMotion
-import com.yfuse.core.designsystem.OverlayVisibility
 import com.yfuse.core.designsystem.SearchDockOrigin
 import com.yfuse.core.designsystem.SkeletonPulseProvider
 import com.yfuse.core.designsystem.YfuseTheme
@@ -114,6 +114,7 @@ import com.yfuse.core.designsystem.rememberBackdropState
 import com.yfuse.core.designsystem.rememberPhaseLightCount
 import com.yfuse.core.designsystem.resolveDark
 import com.yfuse.core.designsystem.searchDockSource
+import com.yfuse.core.network.LocalNetworkAccessNotice
 import com.yfuse.feature.home.HomeTabComponent
 import com.yfuse.feature.home.HomeTabScreen
 import com.yfuse.feature.library.LibraryComponent
@@ -128,6 +129,7 @@ import com.yfuse.feature.servers.ServersTabScreen
 import com.yfuse.feature.watch.InviteResolution
 import com.yfuse.feature.watch.WatchInviteSheet
 import com.yfuse.feature.watch.WatchRoomInfoDialog
+import kotlinx.coroutines.launch
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
 
@@ -227,6 +229,12 @@ fun App(root: RootComponent) {
         particleStyle = particleStyle,
     ) {
         BindProductServices(root)
+        val savedServers by root.dependencies.serverRegistry.data
+            .collectAsState()
+        val permissionScope = rememberCoroutineScope()
+        LocalNetworkAccessNotice(hasServers = savedServers.servers.isNotEmpty()) {
+            permissionScope.launch { root.dependencies.serverHealthMonitor.refreshAll() }
+        }
         val active by root.activeTab.subscribeAsState()
         val homeStack by root.home.stack.subscribeAsState()
         val browseStack by root.browse.stack.subscribeAsState()
@@ -310,8 +318,9 @@ fun App(root: RootComponent) {
         val showBottomBar = atRoot
 
         // An overlay owned by one of the tab screens composes below this shell's floating
-        // furniture, so the bar has to be told to get out of its way — see [OverlayVisibility].
-        val overlays = remember { OverlayVisibility() }
+        // furniture, so the bar has to be told to get out of its way. Share the theme's
+        // counter: it also enables the backdrop capture used by these same dialogs.
+        val overlays = checkNotNull(LocalOverlayVisibility.current)
 
         var roomInfoOpen by remember { mutableStateOf(false) }
 
@@ -328,7 +337,6 @@ fun App(root: RootComponent) {
         val backdrop = rememberBackdropState()
         CompositionLocalProvider(
             LocalPulseSweepEnabled provides pulseSweep,
-            LocalOverlayVisibility provides overlays,
             LocalTabReselected provides root.tabReselected,
         ) {
             SkeletonPulseProvider {

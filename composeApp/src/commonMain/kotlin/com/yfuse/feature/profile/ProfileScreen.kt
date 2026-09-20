@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
@@ -1107,11 +1108,13 @@ internal fun SettingsPage(
     title: String,
     subtitle: String? = null,
     onBack: () -> Unit,
+    state: LazyListState = rememberLazyListState(),
     content: LazyListScope.() -> Unit,
 ) {
     val bottomContentInset = systemNavigationContentInset()
     LazyColumn(
         modifier = Modifier.fillMaxSize().statusBarsPadding(),
+        state = state,
         contentPadding = PaddingValues(top = SettingsHeaderTop, bottom = bottomContentInset),
         verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {

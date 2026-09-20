@@ -19,6 +19,7 @@ import kotlinx.serialization.json.Json
 private const val PLAYBACK_OUTBOX_KEY = "playback.event.outbox.v1"
 private const val DEFAULT_MAX_PLAYBACK_OUTBOX_EVENTS = 256
 private const val MAX_FLUSH_BATCH = 64
+private const val MAX_REJECTED_SESSIONS = 32
 private const val INITIAL_RETRY_DELAY_MS = 5_000L
 private const val MAX_RETRY_DELAY_MS = 15L * 60L * 1_000L
 
@@ -59,6 +60,15 @@ private data class PersistedPlaybackOutbox(
     val nextOrder: Long = 1L,
     val events: List<PlaybackOutboxEvent> = emptyList(),
     val droppedTerminalEvents: Long = 0L,
+    val rejectedSessions: List<PlaybackRejectedSession> = emptyList(),
+    val rejectedSessionWarnings: Long = 0L,
+)
+
+/** A server-declared missing item/session is isolated without discarding its final position. */
+@Serializable
+data class PlaybackRejectedSession(
+    val events: List<PlaybackOutboxEvent>,
+    val failedAtEpochMs: Long,
 )
 
 data class PlaybackOutboxFlushResult(
@@ -70,6 +80,7 @@ data class PlaybackOutboxFlushResult(
 
 enum class PlaybackDeliveryFailure {
     Authentication,
+    Permanent,
     Retryable,
 }
 
@@ -82,14 +93,14 @@ internal fun Throwable.playbackDeliveryFailure(): PlaybackDeliveryFailure {
                 when (current.error) {
                     EmbyError.Unauthorized, is EmbyError.AccessDenied ->
                         return PlaybackDeliveryFailure.Authentication
+                    EmbyError.NotFound -> return PlaybackDeliveryFailure.Permanent
                     else -> Unit
                 }
 
             is ResponseException ->
-                if (current.response.status.value == 401 ||
-                    current.response.status.value == 403
-                ) {
-                    return PlaybackDeliveryFailure.Authentication
+                when (current.response.status.value) {
+                    401, 403 -> return PlaybackDeliveryFailure.Authentication
+                    404, 410 -> return PlaybackDeliveryFailure.Permanent
                 }
         }
         current = current.cause
@@ -133,6 +144,33 @@ class PlaybackEventOutbox(
     val events: StateFlow<List<PlaybackOutboxEvent>> = _events.asStateFlow()
     private val _droppedTerminalEvents = MutableStateFlow(persisted.droppedTerminalEvents)
     val droppedTerminalEvents: StateFlow<Long> = _droppedTerminalEvents.asStateFlow()
+    private val _rejectedSessionWarnings = MutableStateFlow(persisted.rejectedSessionWarnings)
+    val rejectedSessionWarnings: StateFlow<Long> = _rejectedSessionWarnings.asStateFlow()
+    private val _rejectedSessions = MutableStateFlow(persisted.rejectedSessions)
+    val rejectedSessions: StateFlow<List<PlaybackRejectedSession>> = _rejectedSessions.asStateFlow()
+
+    /** Restore each session's unacknowledged events in order; never regenerate a delivered start. */
+    fun retryRejectedReports(): Set<String> =
+        synchronized(stateLock) {
+            val restored =
+                persisted.rejectedSessions.flatMap { it.events }.map {
+                    it.copy(attemptCount = 0, nextAttemptAtEpochMs = 0L, authenticationRequired = false)
+                }
+            val current = (persisted.events + restored).distinctBy { it.order }
+            val bounded = bound(current)
+            val lost =
+                current.count { it.kind == PlaybackOutboxEventKind.Stopped } -
+                    bounded.count { it.kind == PlaybackOutboxEventKind.Stopped }
+            persisted =
+                persisted.copy(
+                    events = bounded,
+                    rejectedSessions = emptyList(),
+                    rejectedSessionWarnings = 0L,
+                    droppedTerminalEvents = safeAdd(persisted.droppedTerminalEvents, lost.toLong()),
+                )
+            persistLocked()
+            restored.mapTo(linkedSetOf()) { it.serverId }
+        }
 
     /** Acknowledge only the loss the user saw, preserving a concurrently arriving warning. */
     fun acknowledgeDroppedReports(observedCount: Long) =
@@ -165,10 +203,17 @@ class PlaybackEventOutbox(
     ): PlaybackOutboxEvent? {
         if (serverId.isBlank() || itemId.isBlank() || sessionId.isBlank()) return null
         return synchronized(stateLock) {
-            val current = persisted.events.toMutableList()
             val sameSession: (PlaybackOutboxEvent) -> Boolean = {
                 it.serverId == serverId && it.itemId == itemId && it.sessionId == sessionId
             }
+            val rejectedIndex = persisted.rejectedSessions.indexOfFirst { it.events.any(sameSession) }
+            val current =
+                (
+                    persisted.rejectedSessions
+                        .getOrNull(
+                            rejectedIndex,
+                        )?.events ?: persisted.events
+                ).toMutableList()
             val stopped =
                 current.firstOrNull {
                     sameSession(it) && it.kind == PlaybackOutboxEventKind.Stopped
@@ -217,9 +262,13 @@ class PlaybackEventOutbox(
                 current.count { it.kind == PlaybackOutboxEventKind.Stopped } -
                     bounded.count { it.kind == PlaybackOutboxEventKind.Stopped }
             persisted =
-                PersistedPlaybackOutbox(
+                persisted.copy(
                     nextOrder = if (existing == null) persisted.nextOrder + 1L else persisted.nextOrder,
-                    events = bounded,
+                    events = if (rejectedIndex < 0) bounded else persisted.events,
+                    rejectedSessions =
+                        persisted.rejectedSessions.mapIndexed { index, rejected ->
+                            if (index == rejectedIndex) rejected.copy(events = bounded) else rejected
+                        },
                     droppedTerminalEvents = safeAdd(persisted.droppedTerminalEvents, lost.toLong()),
                 )
             persistLocked()
@@ -284,6 +333,10 @@ class PlaybackEventOutbox(
                         Result.failure(error)
                     }
                 outcome.exceptionOrNull()?.let { if (it is CancellationException) throw it }
+                if (outcome.exceptionOrNull()?.playbackDeliveryFailure() == PlaybackDeliveryFailure.Permanent) {
+                    synchronized(stateLock) { rejectSessionLocked(head, now) }
+                    return@repeat
+                }
                 outcome
                     .onSuccess {
                         synchronized(stateLock) {
@@ -337,6 +390,37 @@ class PlaybackEventOutbox(
             }
             resultFor(serverId, deliveredCount)
         }
+    }
+
+    private fun rejectSessionLocked(
+        head: PlaybackOutboxEvent,
+        now: Long,
+    ) {
+        val sameSession: (PlaybackOutboxEvent) -> Boolean = {
+            it.serverId == head.serverId && it.itemId == head.itemId && it.sessionId == head.sessionId
+        }
+        val rejected = persisted.events.filter(sameSession)
+        if (rejected.isEmpty()) return
+        persisted =
+            persisted.copy(
+                events = persisted.events.filterNot(sameSession),
+                rejectedSessions =
+                    (
+                        persisted.rejectedSessions +
+                            PlaybackRejectedSession(
+                                rejected,
+                                now,
+                            )
+                    ).takeLast(MAX_REJECTED_SESSIONS),
+                rejectedSessionWarnings = safeAdd(persisted.rejectedSessionWarnings, 1L),
+            )
+        AppLog.warning(
+            category = "playback.outbox",
+            event = "session_rejected",
+            message = "Playback reporting session isolated after the server declared it missing",
+            attributes = mapOf("eventCount" to rejected.size.toString()),
+        )
+        persistLocked()
     }
 
     private fun resultFor(
@@ -394,6 +478,8 @@ class PlaybackEventOutbox(
     private fun persistLocked() {
         _events.value = persisted.events.sortedBy(PlaybackOutboxEvent::order)
         _droppedTerminalEvents.value = persisted.droppedTerminalEvents
+        _rejectedSessionWarnings.value = persisted.rejectedSessionWarnings
+        _rejectedSessions.value = persisted.rejectedSessions
         runCatching {
             settings.putString(PLAYBACK_OUTBOX_KEY, json.encodeToString(persisted))
         }.onFailure {

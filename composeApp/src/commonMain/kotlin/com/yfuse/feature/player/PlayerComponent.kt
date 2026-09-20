@@ -18,9 +18,23 @@ class PlayerComponent(
     private val mediaSourceId: String? = null,
     private val dependencies: AppDependencies,
     val startPlaybackRequested: Boolean = true,
+    private val isSeriesLaunch: Boolean = false,
     val onBack: () -> Unit,
 ) : ComponentContext by componentContext {
     private var storeOwnershipTransferred = false
+    private val launchTiming =
+        if (startPlaybackRequested) {
+            PlaybackLaunchTimings
+                .find(serverId ?: registry.defaultServer?.id, itemId)
+                ?.takeIf { it.claim() }
+                ?: PlaybackLaunchTiming().also {
+                    it.claim()
+                    PlaybackLaunchTimings.register(serverId ?: registry.defaultServer?.id.orEmpty(), itemId, it)
+                    it.stage("player_requested")
+                }
+        } else {
+            null
+        }
     private val preloadKey =
         PlaybackPreloadKey(
             serverId = serverId,
@@ -50,11 +64,19 @@ class PlayerComponent(
                 mediaVersionPreference = dependencies.playbackPreferences.mediaVersionPreference.value,
                 failoverRequest = dependencies.playbackFailoverRequest,
                 healthMonitor = dependencies.serverHealthMonitor,
+                isSeriesLaunch = isSeriesLaunch,
             ).create()
 
     init {
+        store.state.items
+            .getOrNull(store.state.startIndex)
+            ?.let { launchTiming?.bindSession(it.playSessionId) }
+        launchTiming?.stage(if (preparedStore != null) "prepared_store_claimed" else "store_created")
         lifecycle.doOnDestroy {
-            if (!storeOwnershipTransferred) store.dispose()
+            if (!storeOwnershipTransferred) {
+                launchTiming?.stage("launch_abandoned", output = true)
+                store.dispose()
+            }
         }
     }
 

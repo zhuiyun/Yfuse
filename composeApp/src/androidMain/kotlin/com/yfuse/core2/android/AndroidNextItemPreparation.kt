@@ -133,6 +133,8 @@ internal fun warmNextItemBytes(
     createTransport: () -> YMediaTransport = {
         AndroidHttpMediaTransport(followSafeRedirects = true, allowCrossProtocolRedirects = true)
     },
+    maximumStartupBytes: Long = Long.MAX_VALUE,
+    currentItem: Boolean = false,
     acquireMemory: () -> PlaybackMemoryLease = {
         AndroidPlaybackMemoryBudget.acquire(PlaybackBufferKind.Preload, 8L * 1024 * 1024)
     },
@@ -190,7 +192,12 @@ internal fun warmNextItemBytes(
                 }
                 return read
             }
-            val limit = minOf(nextItemPreloadBytes(item.sourceHints?.bitrateBitsPerSecond ?: 0), item.cacheMaximumBytes)
+            val limit =
+                minOf(
+                    nextItemPreloadBytes(item.sourceHints?.bitrateBitsPerSecond ?: 0),
+                    item.cacheMaximumBytes,
+                    maximumStartupBytes,
+                )
             var read = readRange(0L, limit)
             // Tail indices (e.g. MP4 moov / Matroska cues) use the same validated sparse cache.
             val length = source.size
@@ -202,8 +209,8 @@ internal fun warmNextItemBytes(
             val persisted = source.awaitCacheWrites(minOf(1_000L, budget.remainingMs()))
             AppLog.info(
                 category = "player.core2",
-                event = "next_item_bytes_warmed",
-                message = "YCore next-item ranges available to the playback reader",
+                event = if (currentItem) "current_item_bytes_warmed" else "next_item_bytes_warmed",
+                message = "YCore prepared ranges available to the playback reader",
                 attributes =
                     mapOf(
                         "readBytes" to read.toString(),

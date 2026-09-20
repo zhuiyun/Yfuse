@@ -6,6 +6,12 @@ import kotlin.test.assertNull
 
 class AudioTrackMatchingTest {
     @Test
+    fun ready_track_matching_cannot_reinterpret_french_as_english() {
+        assertNull(listOf(EngineTrack("1", "French", "fr", false)).matchingLanguage("en"))
+        assertEquals("2", listOf(EngineTrack("2", "中文", "zho", true)).matchingLanguage("zh-CN"))
+    }
+
+    @Test
     fun chineseDisplayLanguageMatchesEngineIsoCode() {
         val tracks =
             listOf(

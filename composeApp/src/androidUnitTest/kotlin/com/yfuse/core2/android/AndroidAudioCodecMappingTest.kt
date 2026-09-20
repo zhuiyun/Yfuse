@@ -7,6 +7,17 @@ import kotlin.test.assertNull
 
 class AndroidAudioCodecMappingTest {
     @Test
+    fun multi_track_scalar_metadata_never_supplies_another_tracks_missing_geometry() {
+        assertEquals(2, resolveNativeDirectAudioChannelCount(YAudioCodec.Aac, 0, 8, sourceAudioTrackCount = 2))
+        assertEquals(48_000, resolveNativeDirectAudioSampleRate(0, 96_000, sourceAudioTrackCount = 2))
+        assertEquals(2, resolveNativeDirectAudioChannelCount(YAudioCodec.Aac, 0, 8, sourceAudioTrackCount = 0))
+        assertEquals(8, resolveNativeDirectAudioChannelCount(YAudioCodec.Aac, 0, 8, sourceAudioTrackCount = 1))
+        assertEquals(96_000, resolveNativeDirectAudioSampleRate(0, 96_000, sourceAudioTrackCount = 1))
+        assertEquals(1, resolveNativeDirectAudioChannelCount(YAudioCodec.Aac, 1, 8, sourceAudioTrackCount = 2))
+        assertEquals(44_100, resolveNativeDirectAudioSampleRate(44_100, 96_000, sourceAudioTrackCount = 2))
+    }
+
+    @Test
     fun `known audio mime types keep their identity`() {
         assertEquals(YAudioCodec.Aac, "audio/mp4a-latm".toYAudioCodec())
         assertEquals(YAudioCodec.Eac3, "audio/eac3".toYAudioCodec())

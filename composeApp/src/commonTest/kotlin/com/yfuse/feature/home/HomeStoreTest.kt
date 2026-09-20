@@ -575,6 +575,38 @@ class HomeStoreTest {
         }
 
     @Test
+    fun hero_series_play_preserves_the_matched_type_for_phone_and_tv_navigation() =
+        runTest(scheduler) {
+            val server = SavedServer("one", "http://one", "One", "u", "User", "token")
+            val registry = testRegistry().apply { addOrUpdate(server) }
+            val store =
+                HomeStoreFactory(
+                    storeFactory = DefaultStoreFactory(),
+                    tmdb = unavailableTmdb(),
+                    emby =
+                        testRepo(dispatcher = UnconfinedTestDispatcher(testScheduler)) { request ->
+                            if (request.url.parameters["AnyProviderIdEquals"] == "tmdb.42") {
+                                assertEquals("Series", request.url.parameters["IncludeItemTypes"])
+                                json("""{"Items":[{"Id":"series-42","Name":"Show","Type":"Series"}]}""")
+                            } else {
+                                homeRoutes(request)
+                            }
+                        },
+                    registry = registry,
+                    cache = TmdbHomeCache(MapSettings()),
+                    cacheDispatcher = UnconfinedTestDispatcher(testScheduler),
+                ).create()
+            try {
+                store.labels.test {
+                    store.accept(HomeIntent.Play(CACHED_ITEM.copy(mediaType = "tv")))
+                    assertEquals(HomeLabel.PlayEmbyItem("one", "series-42", isSeries = true), awaitItem())
+                }
+            } finally {
+                store.dispose()
+            }
+        }
+
+    @Test
     fun canceled_old_cache_write_finishes_before_the_newer_write() =
         runTest(scheduler) {
             val firstWriteStarted = kotlinx.coroutines.CompletableDeferred<Unit>()

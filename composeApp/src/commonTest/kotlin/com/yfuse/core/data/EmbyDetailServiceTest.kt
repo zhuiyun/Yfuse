@@ -62,7 +62,9 @@ class EmbyDetailServiceTest {
                             json("""{"Id":"e1","Name":"Pilot","Type":"Episode","SeriesId":"s1","SeriesName":"Show"}""")
                         "/Users/u1/Items/s1" -> {
                             assertEquals("People", request.url.parameters["Fields"])
-                            json("""{"Id":"s1","Name":"Show","Type":"Series","People":[{"Id":"p1","Name":"Actor","Role":"Neo"}]}""")
+                            json(
+                                """{"Id":"s1","Name":"Show","Type":"Series","People":[{"Id":"p1","Name":"Actor","Role":"Neo"}]}""",
+                            )
                         }
                         else -> error("unexpected request ${request.url}")
                     }

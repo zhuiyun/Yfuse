@@ -16,11 +16,13 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.statusBarsIgnoringVisibility
 import androidx.compose.foundation.layout.systemGestures
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -275,6 +277,8 @@ internal fun PlayerRoot(
     val initialResumeNoticeMs = remember { startPositionMs.takeIf { it >= RESUME_NOTICE_MIN_MS } }
     var engineGeneration by remember { mutableIntStateOf(0) }
     var runtimeSessionGeneration by remember { mutableIntStateOf(0) }
+    val sourceSwitchCoordinator = remember { PlaybackSourceSwitchCoordinator() }
+    val latestQueueRevision by rememberUpdatedState(queueRevision)
     var requestedPlaybackSpeed by remember { mutableFloatStateOf(1f) }
     var handoverItemId by remember { mutableStateOf<String?>(null) }
     var audioRestore by remember { mutableStateOf<TrackRestorePreference?>(null) }
@@ -386,7 +390,20 @@ internal fun PlayerRoot(
                     item.versions.any { it.playSessionId == sessionId }
             }?.let(::cachedPlaybackSink)
 
-    val engine: VideoEngine =
+    val trackRequest = remember { GlobalContext.get().get<PlaybackTrackRequest>() }
+    val handoffBridge = remember { GlobalContext.get().getOrNull<com.yfuse.core.handoff.HandoffPlaybackRegistry>() }
+
+    fun initialTracks(item: PlayerMediaItem) =
+        item
+            .initialPlaybackTracks(playbackPreferences, trackRequest.peek(item.id))
+            .withInitialHandoff(item, handoffBridge?.pendingPreferences?.value, personalLibrary?.activeProfileId)
+
+    fun initialTrackSelections(items: List<PlayerMediaItem>) =
+        items
+            .mapNotNull { item ->
+                initialTracks(item)?.let { item.id to it }
+            }.toMap()
+    val engineRequest =
         remember(
             kind,
             engineGeneration,
@@ -399,42 +416,72 @@ internal fun PlayerRoot(
             frameRateMatch,
             yCoreBufferTargetUs,
         ) {
-            createVideoEngine(
-                kind = kind,
-                context = context,
-                items = preflightItems,
-                startIndex = resume.itemIndex,
-                startPositionMs = resume.positionMs,
-                startPlaybackRequested = resume.playbackRequested,
-                startSpeed = resume.speed,
-                decoderMode = effectiveDecoderMode,
-                optimizationMode = effectiveOptimizationMode,
-                autoNext = autoNext,
-                customUserAgent = customUserAgent,
-                videoCacheBytes = videoCacheBytes,
-                yCoreBufferTargetUs = yCoreBufferTargetUs,
+            val requestedKind = kind
+            PlaybackEngineRequest(
+                PlaybackEngineInput(preflightItems, resume),
+                kind = requestedKind,
+            ) { input, crashOwner ->
+                createVideoEngine(
+                    kind = requestedKind,
+                    context = context,
+                    items = input.items,
+                    startIndex = input.handover.itemIndex,
+                    startPositionMs = input.handover.positionMs,
+                    startPlaybackRequested = input.handover.playbackRequested,
+                    startSpeed = input.handover.speed,
+                    decoderMode = effectiveDecoderMode,
+                    optimizationMode = effectiveOptimizationMode,
+                    autoNext = autoNext,
+                    customUserAgent = customUserAgent,
+                    videoCacheBytes = videoCacheBytes,
+                    yCoreBufferTargetUs = yCoreBufferTargetUs,
+                    scope = scope,
+                    stopEncoding = { sessionId ->
+                        playbackSinkForSession(sessionId)?.stopEncoding(sessionId) ?: true
+                    },
+                    core2TrialEnabled = core2TrialEnabled && !core2DisabledForSession,
+                    core2NativeOnlyEnabled = core2NativeOnlyActive,
+                    engineSelection = sessionEngineSelection,
+                    allowAudioPassthrough = allowAudioPassthrough,
+                    frameRateMatch = frameRateMatch,
+                    initialTrackSelections = initialTrackSelections(input.items),
+                    dolbyVisionRuntime = dolbyVisionRuntime,
+                    deviceCapabilities = deviceCapabilities,
+                    capabilitySignature =
+                        input.items
+                            .getOrNull(input.handover.itemIndex)
+                            ?.playbackMediaProbe()
+                            ?.capabilitySignature
+                            .orEmpty(),
+                    crashOwner = crashOwner,
+                )
+            }
+        }
+    val engineSlot =
+        remember {
+            PlaybackEngineSlot(
+                initial = engineRequest.input,
                 scope = scope,
-                stopEncoding = { sessionId ->
-                    playbackSinkForSession(sessionId)?.stopEncoding(sessionId) ?: true
+                retirements = AndroidPlaybackEngineRetirements.registry,
+                onAbandonedOwner = { AndroidNativeCrashMonitor.disarm(it, successful = false) },
+                onReleased = { binding, successful ->
+                    binding.crashOwner?.let { owner ->
+                        AndroidNativeCrashMonitor.disarm(
+                            owner = owner,
+                            successful = successful,
+                        )
+                    }
                 },
-                core2TrialEnabled = core2TrialEnabled && !core2DisabledForSession,
-                core2NativeOnlyEnabled = core2NativeOnlyActive,
-                engineSelection = sessionEngineSelection,
-                allowAudioPassthrough = allowAudioPassthrough,
-                frameRateMatch = frameRateMatch,
-                dolbyVisionRuntime = dolbyVisionRuntime,
-                deviceCapabilities = deviceCapabilities,
-                capabilitySignature =
-                    preflightItems
-                        .getOrNull(resume.itemIndex)
-                        ?.playbackMediaProbe()
-                        ?.capabilitySignature
-                        .orEmpty(),
             )
         }
+    SideEffect { engineSlot.request(engineRequest) }
+    DisposableEffect(engineSlot) { onDispose { engineSlot.close() } }
+    val engineBinding by engineSlot.binding.collectAsState()
+    val engine = engineBinding.engine
+    val latestEngine by rememberUpdatedState(engine)
     val player = remember(engine) { engine.asYPlayer() }
     val engineCreatedElapsedMs = remember(engine) { SystemClock.elapsedRealtime() }
-    val engineHandoverSnapshot = remember(engine) { resume }
+    val engineHandoverSnapshot = remember(engine) { engineBinding.input.handover }
     var handoverPositionValidated by remember(engine) { mutableStateOf(false) }
     // When the replacement engine first reported motion; null until it does. Opening a stream
     // takes wall-clock time in which the timeline does not move, so the handover budget only
@@ -455,6 +502,7 @@ internal fun PlayerRoot(
                     prepared.canUseCore2Trial(startIndex = 0) &&
                         player.appendItems(
                             prepared.toCore2MediaItems(
+                                initialTrackSelections = initialTrackSelections(prepared),
                                 customUserAgent = customUserAgent,
                                 cacheMaximumBytes = videoCacheBytes,
                             ),
@@ -465,6 +513,7 @@ internal fun PlayerRoot(
 
     val latestQueueUpdater =
         rememberUpdatedState<(List<PlayerMediaItem>, Int) -> Boolean> { refreshed, currentIndex ->
+            sourceSwitchCoordinator.invalidate()
             val remappedChoices =
                 serverChoices
                     .mapNotNull { (oldIndex, chosen) ->
@@ -485,6 +534,7 @@ internal fun PlayerRoot(
                 prepared.canUseCore2Trial(startIndex = currentIndex) &&
                     player.updateQueue(
                         prepared.toCore2MediaItems(
+                            initialTrackSelections = initialTrackSelections(prepared),
                             customUserAgent = customUserAgent,
                             cacheMaximumBytes = videoCacheBytes,
                         ),
@@ -501,10 +551,30 @@ internal fun PlayerRoot(
     LaunchedEffect(engine) {
         var videoReported = false
         var audioReported = false
+        var generation: Triple<Int, Long, Long>? = null
+        var generationStarted = SystemClock.elapsedRealtime()
         engine.state.collect { state ->
+            val nextGeneration =
+                Triple(
+                    state.currentIndex,
+                    state.diagnostics.outputEvidenceGeneration,
+                    state.diagnostics.outputEvidence.sessionRevision,
+                )
+            sourceSwitchCoordinator.observePlayback(engine, state)
+            if (generation != nextGeneration) {
+                generation = nextGeneration
+                generationStarted = SystemClock.elapsedRealtime()
+                videoReported = false
+                audioReported = false
+            }
+            val currentItem = latestStartupItems.value.getOrNull(state.currentIndex)
+            val launch = PlaybackLaunchTimings.find(currentItem?.serverId, currentItem?.id, currentItem?.playSessionId)
+            if (state.error != null) launch?.stage("startup_error", output = true)
+
             fun stage(name: String) {
                 val now = SystemClock.elapsedRealtime()
                 val item = latestStartupItems.value.getOrNull(state.currentIndex)
+                launch?.stage(name, output = true)
                 AppLog.info(
                     category = "player",
                     event = "playback_startup_stage",
@@ -525,6 +595,7 @@ internal fun PlayerRoot(
                             "outputGeneration" to state.diagnostics.outputEvidenceGeneration.toString(),
                             "engineElapsedMs" to (now - engineCreatedElapsedMs).coerceAtLeast(0L).toString(),
                             "activityElapsedMs" to (now - launchStartedElapsedMs).coerceAtLeast(0L).toString(),
+                            "generationElapsedMs" to (now - generationStarted).coerceAtLeast(0L).toString(),
                         ),
                 )
             }
@@ -538,7 +609,7 @@ internal fun PlayerRoot(
             }
         }
     }
-    val attachedKind = kind
+    val attachedKind = engineBinding.kind ?: kind
     val attachedEngineLabel =
         if (engine is YPlayerVideoEngineAdapter) {
             YCORE2_NATIVE_ENGINE_LABEL
@@ -563,12 +634,6 @@ internal fun PlayerRoot(
         )
         onDispose {
             onPlayerDetached(player)
-            AndroidNativeCrashMonitor.disarm(
-                successful =
-                    engine.state.value.diagnostics.effectiveVideoReadiness ==
-                        PlaybackOutputReadiness.Rendering,
-            )
-            engine.release()
             AppLog.info(
                 category = "player",
                 event = "engine_detached",
@@ -787,7 +852,8 @@ internal fun PlayerRoot(
                 customUserAgent = customUserAgent,
                 // The engine's own opening requests come first; the probe reads the same source
                 // and used to race them for the server's bandwidth on the first seconds.
-                playbackSettled = !localState.buffering || localState.error != null,
+                playbackSettled = backgroundPlaybackProbeAllowed(localState),
+                engine = engine,
             )
         val activeProbe = activeProbeResult.probe
         val activePlan =
@@ -1207,11 +1273,28 @@ internal fun PlayerRoot(
                     itemId = item.id,
                 )
             handoverItemId = item.id
-            audioRestore = remembered?.audio?.toRestorePreference()
-            subtitleRestore = remembered?.primarySubtitle?.toRestorePreference()
+            val initialTracks = initialTracks(item)
+            audioRestore =
+                initialTracks?.audio?.let {
+                    TrackRestorePreference(
+                        it.language,
+                        it.label.orEmpty(),
+                        it.codec,
+                        it.languageOrdinal,
+                    )
+                }
+            subtitleRestore =
+                initialTracks?.subtitle?.let {
+                    TrackRestorePreference(
+                        it.language,
+                        it.label.orEmpty(),
+                        it.codec,
+                        it.languageOrdinal,
+                    )
+                }
             secondarySubtitleRestore = remembered?.secondarySubtitle?.toRestorePreference()
             secondarySubtitleTrackId = null
-            restoreSubtitlesOff = remembered?.primarySubtitlesOff == true
+            restoreSubtitlesOff = initialTracks?.subtitlesDisabled == true
             requestedPlaybackSpeed = remembered?.speed ?: 1f
             audioControls =
                 audioControls.copy(
@@ -1435,17 +1518,21 @@ internal fun PlayerRoot(
         }
         // 详情页 picked a 音轨 / 字幕 before this opened; apply it once the engine has published
         // what the file actually holds. Consumed rather than remembered — see PlaybackTrackRequest.
-        val trackRequest = remember { GlobalContext.get().get<PlaybackTrackRequest>() }
-        LaunchedEffect(currentItem?.id, state.audioTracks.size, state.subtitleTracks.size) {
+        LaunchedEffect(player, currentItem?.id, state.audioTracks, state.subtitleTracks) {
             if (state.audioTracks.isEmpty() && state.subtitleTracks.isEmpty()) return@LaunchedEffect
-            val requested = trackRequest.consume(currentItem?.id) ?: return@LaunchedEffect
+            val requested = trackRequest.peek(currentItem?.id) ?: return@LaunchedEffect
+            var audioApplied = requested.audioLanguage == null
+            var subtitleApplied = requested.subtitleLanguage == null
             requested.audioLanguage?.let { language ->
                 state.audioTracks.matchingLanguage(language)?.let { trackId ->
                     state.audioTracks.firstOrNull { it.id == trackId }?.let { track ->
                         handoverItemId = currentItem?.id
                         audioRestore = state.audioTracks.restorePreferenceFor(track)
                     }
-                    player.selectTrack(YTrackType.Audio, trackId)
+                    if (state.audioTracks.none { it.id == trackId && it.selected }) {
+                        player.selectTrack(YTrackType.Audio, trackId)
+                    }
+                    audioApplied = state.audioTracks.any { it.id == trackId && it.selected }
                 }
             }
             when (val subtitle = requested.subtitleLanguage) {
@@ -1454,7 +1541,10 @@ internal fun PlayerRoot(
                     handoverItemId = currentItem?.id
                     subtitleRestore = null
                     restoreSubtitlesOff = true
-                    player.selectTrack(YTrackType.Subtitle, EngineTrack.OFF)
+                    if (state.subtitleTracks.any { it.selected }) {
+                        player.selectTrack(YTrackType.Subtitle, EngineTrack.OFF)
+                    }
+                    subtitleApplied = state.subtitleTracks.none { it.selected }
                 }
                 else ->
                     state.subtitleTracks
@@ -1465,12 +1555,15 @@ internal fun PlayerRoot(
                                 subtitleRestore = state.subtitleTracks.restorePreferenceFor(track)
                                 restoreSubtitlesOff = false
                             }
-                            player.selectTrack(YTrackType.Subtitle, trackId)
+                            if (state.subtitleTracks.none { it.id == trackId && it.selected }) {
+                                player.selectTrack(YTrackType.Subtitle, trackId)
+                            }
+                            subtitleApplied = state.subtitleTracks.any { it.id == trackId && it.selected }
                         }
             }
+            trackRequest.acknowledge(currentItem?.id, requested, audioApplied, subtitleApplied)
         }
 
-        val handoffBridge = remember { GlobalContext.get().getOrNull<com.yfuse.core.handoff.HandoffPlaybackRegistry>() }
         val receivedPreferences by (
             handoffBridge?.pendingPreferences ?: remember {
                 kotlinx.coroutines.flow.MutableStateFlow<com.yfuse.core.handoff.HandoffMedia?>(null)
@@ -1569,9 +1662,25 @@ internal fun PlayerRoot(
             watchTogether = watchTogether,
             playbackGate = playbackGate,
             onRemotePlayRequested = onRemotePlayRequested,
+            onPlaybackRequestChanged = sourceSwitchCoordinator::invalidate,
         )
         val latestState by livePlayback
         val latestActiveItems by rememberUpdatedState(activeItems)
+
+        fun sourceSwitchContext(): PlaybackSourceSwitchContext {
+            val index = latestState.currentIndex
+            val item = latestActiveItems.getOrNull(index)
+            return PlaybackSourceSwitchContext(
+                queueRevision = latestQueueRevision,
+                engineGeneration = engineGeneration,
+                runtimeSessionGeneration = runtimeSessionGeneration,
+                itemIndex = index,
+                itemId = item?.id,
+                serverId = item?.serverId,
+                playSessionId = item?.playSessionId,
+                engineIdentity = latestEngine,
+            )
+        }
 
         fun capturePlaybackHandover() {
             val snapshot = latestState
@@ -1650,6 +1759,7 @@ internal fun PlayerRoot(
         // A refreshed queue is one deliberate handover. It must not turn a user pause into autoplay.
         LaunchedEffect(queueRevision) {
             if (queueRevision <= 0L) return@LaunchedEffect
+            sourceSwitchCoordinator.invalidate()
             capturePlaybackHandover()
             serverChoices = emptyMap()
             resume =
@@ -1720,7 +1830,10 @@ internal fun PlayerRoot(
 
             versionSwitchNonce++
             val operation = versionSwitchNonce
+            val switchRequest = sourceSwitchCoordinator.begin(sourceSwitchContext())
             versionSwitchJob?.cancel()
+            serverSwitchJob?.cancel()
+            serverSwitchJob = null
             pendingVersionId = versionId
             AppLog.info(
                 category = "player",
@@ -1738,40 +1851,39 @@ internal fun PlayerRoot(
             versionSwitchJob =
                 scope.launch {
                     try {
-                        val cleanupSucceeded =
-                            if (oldSessionId.isBlank() || playbackSink == null) {
-                                true
-                            } else {
-                                try {
-                                    withTimeoutOrNull(5_000L) {
-                                        playbackSink.stopEncoding(oldSessionId)
-                                    } == true
-                                } catch (cancelled: CancellationException) {
-                                    throw cancelled
-                                } catch (failure: Throwable) {
-                                    AppLog.warning(
-                                        category = "player",
-                                        event = "version_switch_cleanup_failed",
-                                        message = "Old transcode cleanup threw before a version switch",
-                                        throwable = failure,
-                                        attributes =
-                                            mapOf(
-                                                "itemIndex" to itemIndex.toString(),
-                                                "fromVersionId" to committedVersionId.orEmpty(),
-                                                "toVersionId" to versionId,
-                                                "playSessionId" to oldSessionId,
-                                            ),
-                                    )
-                                    false
+                        val preparation =
+                            sourceSwitchCoordinator.prepare(switchRequest, ::sourceSwitchContext) {
+                                if (oldSessionId.isBlank() || playbackSink == null) {
+                                    true
+                                } else {
+                                    try {
+                                        withTimeoutOrNull(5_000L) {
+                                            playbackSink.stopEncoding(oldSessionId)
+                                        } == true
+                                    } catch (cancelled: CancellationException) {
+                                        throw cancelled
+                                    } catch (failure: Throwable) {
+                                        AppLog.warning(
+                                            category = "player",
+                                            event = "version_switch_cleanup_failed",
+                                            message = "Old transcode cleanup threw before a version switch",
+                                            throwable = failure,
+                                            attributes =
+                                                mapOf(
+                                                    "itemIndex" to itemIndex.toString(),
+                                                    "fromVersionId" to committedVersionId.orEmpty(),
+                                                    "toVersionId" to versionId,
+                                                    "playSessionId" to oldSessionId,
+                                                ),
+                                        )
+                                        false
+                                    }
                                 }
                             }
 
                         if (operation != versionSwitchNonce) return@launch
-                        val latestItem = latestActiveItems.getOrNull(latestState.currentIndex)
-                        if (latestState.currentIndex != itemIndex || latestItem?.id != itemId) {
-                            return@launch
-                        }
-                        if (!cleanupSucceeded) {
+                        if (preparation == PlaybackSourceSwitchPreparation.Superseded) return@launch
+                        if (preparation == PlaybackSourceSwitchPreparation.CleanupRejected) {
                             AppLog.warning(
                                 category = "player",
                                 event = "version_switch_cleanup_rejected",
@@ -1839,37 +1951,44 @@ internal fun PlayerRoot(
 
             serverSwitchNonce++
             val operation = serverSwitchNonce
+            val switchRequest = sourceSwitchCoordinator.begin(sourceSwitchContext())
             serverSwitchJob?.cancel()
+            versionSwitchJob?.cancel()
+            versionSwitchJob = null
+            pendingVersionId = null
             serverSwitchJob =
                 scope.launch {
                     try {
-                        val cleanupSucceeded =
-                            if (oldSessionId.isBlank() || playbackSink == null) {
-                                true
-                            } else {
-                                try {
-                                    withTimeoutOrNull(5_000L) {
-                                        playbackSink.stopEncoding(oldSessionId)
-                                    } == true
-                                } catch (cancelled: CancellationException) {
-                                    throw cancelled
-                                } catch (failure: Throwable) {
-                                    AppLog.warning(
-                                        category = "player",
-                                        event = "server_switch_cleanup_failed",
-                                        message = "Old transcode cleanup threw before a server switch",
-                                        throwable = failure,
-                                        attributes =
-                                            mapOf(
-                                                "fromServerId" to item.serverId.orEmpty(),
-                                                "toServerId" to serverId,
-                                            ),
-                                    )
-                                    false
+                        val preparation =
+                            sourceSwitchCoordinator.prepare(switchRequest, ::sourceSwitchContext) {
+                                if (oldSessionId.isBlank() || playbackSink == null) {
+                                    true
+                                } else {
+                                    try {
+                                        withTimeoutOrNull(5_000L) {
+                                            playbackSink.stopEncoding(oldSessionId)
+                                        } == true
+                                    } catch (cancelled: CancellationException) {
+                                        throw cancelled
+                                    } catch (failure: Throwable) {
+                                        AppLog.warning(
+                                            category = "player",
+                                            event = "server_switch_cleanup_failed",
+                                            message = "Old transcode cleanup threw before a server switch",
+                                            throwable = failure,
+                                            attributes =
+                                                mapOf(
+                                                    "fromServerId" to item.serverId.orEmpty(),
+                                                    "toServerId" to serverId,
+                                                ),
+                                        )
+                                        false
+                                    }
                                 }
                             }
                         if (operation != serverSwitchNonce) return@launch
-                        if (!cleanupSucceeded) {
+                        if (preparation == PlaybackSourceSwitchPreparation.Superseded) return@launch
+                        if (preparation == PlaybackSourceSwitchPreparation.CleanupRejected) {
                             Toast
                                 .makeText(
                                     context,
@@ -1909,6 +2028,7 @@ internal fun PlayerRoot(
 
         fun switchEngine(target: PlayerEngine) {
             if (target == kind) return
+            sourceSwitchCoordinator.invalidate()
             // Read the position before the old engine is torn down.
             capturePlaybackHandover()
             player.pause()
@@ -1931,6 +2051,8 @@ internal fun PlayerRoot(
 
         fun selectEngineStrategy(selection: PlaybackEngineSelection) {
             if (selection == sessionEngineSelection) return
+            sourceSwitchCoordinator.invalidate()
+            capturePlaybackHandover()
             sessionEngineSelection = selection
             val selectionPlan =
                 planPlayback(
@@ -1956,7 +2078,6 @@ internal fun PlayerRoot(
             if (selectionPlan.primaryEngine != kind) {
                 switchEngine(selectionPlan.primaryEngine)
             } else if (decoderChanged) {
-                capturePlaybackHandover()
                 resume =
                     resume.copy(
                         itemIndex = state.currentIndex,
@@ -2381,7 +2502,10 @@ internal fun PlayerRoot(
         ): Boolean {
             val loaded = loadPlaybackCastItem(castManager, latestActiveItems, deviceId, index, positionMs)
             if (!loaded) return false
-            if (localState.currentIndex != index) player.selectItem(index)
+            if (localState.currentIndex != index) {
+                sourceSwitchCoordinator.invalidate()
+                player.selectItem(index)
+            }
             player.pause()
             if (sleepTimerOption == SleepTimerOption.EndOfEpisode) {
                 sleepTimerEndIndex = index
@@ -2684,6 +2808,7 @@ internal fun PlayerRoot(
                         }
                     },
                     onRetry = {
+                        sourceSwitchCoordinator.invalidate()
                         val deviceId = castState.activeDeviceId
                         if (castState.hasActiveSession && deviceId != null) {
                             scope.launch { loadCastItem(deviceId, state.currentIndex, livePlayback.value.positionMs) }
@@ -2726,6 +2851,7 @@ internal fun PlayerRoot(
                         seekRequests.trySend(positionMs.coerceAtLeast(0L))
                     },
                     onSelectItem = { index ->
+                        sourceSwitchCoordinator.invalidate()
                         if (sleepTimerOption == SleepTimerOption.EndOfEpisode) {
                             sleepTimerEndIndex = index
                             sleepTimerEndSessionRevision =
@@ -2740,6 +2866,7 @@ internal fun PlayerRoot(
                         }
                     },
                     onPreviousItem = {
+                        sourceSwitchCoordinator.invalidate()
                         val previous = state.currentIndex - 1
                         if (sleepTimerOption == SleepTimerOption.EndOfEpisode && previous in activeItems.indices) {
                             sleepTimerEndIndex = previous
@@ -2759,6 +2886,7 @@ internal fun PlayerRoot(
                     },
                     onDismissNextUp = { nextUpDismissedItemId = activeItems.getOrNull(state.currentIndex)?.id },
                     onNextItem = {
+                        sourceSwitchCoordinator.invalidate()
                         val next = state.currentIndex + 1
                         if (sleepTimerOption == SleepTimerOption.EndOfEpisode && next in activeItems.indices) {
                             sleepTimerEndIndex = next
@@ -3446,6 +3574,17 @@ internal fun PlayerRoot(
                     remoteChrome = remoteChrome,
                 )
             }
+
+            PlayerFrameRateOverlay(
+                playback = livePlayback,
+                preferences = playbackPreferences,
+                visible = !inPictureInPicture && !oledPauseProtectionActive,
+                modifier =
+                    Modifier
+                        .align(androidx.compose.ui.Alignment.TopEnd)
+                        .safeDrawingPadding()
+                        .padding(top = 56.dp, end = 12.dp),
+            )
 
             // Folded into the overlay's own visibility rather than an `if`, so leaving the
             // screensaver for 画中画 fades out instead of vanishing between two frames.

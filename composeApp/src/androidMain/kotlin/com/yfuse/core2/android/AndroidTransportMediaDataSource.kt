@@ -56,6 +56,8 @@ internal class AndroidTransportMediaDataSource(
     memoryLeaseOverride: PlaybackMemoryLease? = null,
     private val allowsSpeculativeWork: () -> Boolean = { AndroidPlaybackMemoryBudget.allowsSpeculativeWork },
     private val refreshMemoryPressure: () -> Unit = AndroidPlaybackMemoryBudget::refreshPressure,
+    private val representationSession: AndroidMediaRepresentationSession? = null,
+    private val rangeReadClock: () -> Long = System::nanoTime,
 ) : MediaDataSource() {
     @Volatile
     private var foregroundRead: YForegroundRangeRead? = null
@@ -108,6 +110,7 @@ internal class AndroidTransportMediaDataSource(
     private val representationLock = Any()
     private var representationTag: String? = null
     private var representationLength: Long? = null
+    private var representationSnapshot: AndroidMediaRepresentationSession.Snapshot? = null
 
     /**
      * Heap budget for [blocks], which holds already-delivered bytes.
@@ -144,35 +147,69 @@ internal class AndroidTransportMediaDataSource(
     private var cachedBytes = 0L
     private var knownSize = -1L
 
-    @Volatile private var cacheValidated = diskCache == null
+    @Volatile private var cacheValidated = diskCache == null && representationSession == null
 
     private fun validatePersistentCache() {
         if (cacheValidated) return
+        val budget = YRangeReadBudget(rangeReadBudgetMs, rangeReadClock)
         // One bounded foreground range validates even same-length replacements before any cached read.
         val operation = YForegroundRangeRead()
         foregroundRead = operation
-        val transport = createTransport()
         try {
-            operation.bind(transport)
-            val fresh =
-                loadRemoteBlockWithRetries(
-                    0L,
-                    transport,
-                    -1L,
-                    requestedBytes = minOf(STARTUP_RANGE_BYTES, blockSize),
-                    isCancelled = { operation.cancelled },
-                    foreground = operation,
-                )
-            operation.checkActive()
-            diskCache?.validateRepresentation(fresh.contentLength, representationTag)
+            fun ensureActive() {
+                if (closed || Thread.currentThread().isInterrupted) throw CancellationException("Media source closed")
+                operation.checkActive()
+                budget.checkRemaining()
+            }
+
+            fun loadInitialRange(): AndroidMediaRepresentationSession.InitialRange {
+                ensureActive()
+                val transport = createTransport()
+                try {
+                    operation.bind(transport)
+                    val fresh =
+                        loadRemoteBlockWithRetries(
+                            0L,
+                            transport,
+                            -1L,
+                            budget = budget,
+                            requestedBytes = minOf(STARTUP_RANGE_BYTES, blockSize),
+                            isCancelled = { operation.cancelled },
+                            foreground = operation,
+                        )
+                    ensureActive()
+                    return AndroidMediaRepresentationSession.InitialRange(
+                        fresh.bytes,
+                        fresh.contentLength,
+                        representationTag?.takeIf { it.length >= 2 && it.startsWith('"') && it.endsWith('"') },
+                    )
+                } finally {
+                    runCatching { runBlocking { transport.close() } }
+                }
+            }
+            val snapshot = representationSession?.obtain(::ensureActive, ::loadInitialRange)
+            val fresh = snapshot?.initial ?: loadInitialRange()
+            ensureActive()
+            if (snapshot != null) {
+                representationSnapshot = snapshot
+                if (!checkNotNull(representationSession).accept(snapshot) {
+                        diskCache?.validateRepresentation(fresh.contentLength, fresh.entityTag)
+                    }
+                ) {
+                    throwRepresentationExpired()
+                }
+            } else {
+                diskCache?.validateRepresentation(fresh.contentLength, fresh.entityTag)
+            }
+            representationTag = fresh.entityTag
+            representationLength = fresh.contentLength
             knownSize = fresh.contentLength ?: -1L
-            startupSlice = 0L to fresh
+            startupSlice = 0L to YLoadedTransportBlock(fresh.bytes, fresh.contentLength)
             cacheValidated = true
         } catch (failure: Throwable) {
             if (!closed && !operation.cancelled && !failure.isTransportCancellation()) foregroundFailure = failure
             throw failure
         } finally {
-            runCatching { runBlocking { transport.close() } }
             if (foregroundRead === operation) foregroundRead = null
             operation.finish()
         }
@@ -268,6 +305,7 @@ internal class AndroidTransportMediaDataSource(
         require(position >= 0L && offset >= 0 && size >= 0 && offset <= buffer.size - size)
         if (size == 0) return 0
         validatePersistentCache()
+        ensureRepresentationCurrent()
         if (knownSize >= 0L && position >= knownSize) return -1
         if (kotlin.math.abs(position - latestReadPosition) > blockSize.toLong() * 2L) {
             forwardCache?.updateWindow(0L, 0L)
@@ -313,6 +351,7 @@ internal class AndroidTransportMediaDataSource(
             latestReadPosition = readPosition
             scheduleForwardCache()
         }
+        ensureRepresentationCurrent()
         return if (copied == 0) -1 else copied
     }
 
@@ -404,7 +443,7 @@ internal class AndroidTransportMediaDataSource(
     ): YLoadedTransportBlock {
         if (startupTailPrefetchBlockIndex == blockIndex) startupTailPrefetchBlockIndex = null
         val startedNs = System.nanoTime()
-        val budget = YRangeReadBudget(rangeReadBudgetMs)
+        val budget = YRangeReadBudget(rangeReadBudgetMs, rangeReadClock)
         val operation = YForegroundRangeRead()
         foregroundRead = operation
         foregroundReadStartedAtNs = startedNs
@@ -556,12 +595,24 @@ internal class AndroidTransportMediaDataSource(
     }
 
     private fun representationChanged(): Nothing {
-        diskCache?.invalidate()
+        if (representationSession != null) {
+            representationSession.invalidate(representationSnapshot) { diskCache?.invalidate() }
+        } else {
+            diskCache?.invalidate()
+        }
+        throwRepresentationExpired()
+    }
+
+    private fun ensureRepresentationCurrent() {
+        val snapshot = representationSnapshot ?: return
+        if (representationSession?.isCurrent(snapshot) == false) throwRepresentationExpired()
+    }
+
+    private fun throwRepresentationExpired(): Nothing =
         throw YRangeReadException(
             YTransportFailureKind.InvalidRange,
             "Remote media representation changed; reopen required",
         )
-    }
 
     private fun loadRemoteBlockWithRetries(
         blockIndex: Long,
@@ -569,7 +620,7 @@ internal class AndroidTransportMediaDataSource(
         knownSizeSnapshot: Long,
         progress: YTransportBlockPrefetch? = null,
         isCancelled: () -> Boolean = { false },
-        budget: YRangeReadBudget = YRangeReadBudget(rangeReadBudgetMs),
+        budget: YRangeReadBudget = YRangeReadBudget(rangeReadBudgetMs, rangeReadClock),
         rangeOffset: Int = 0,
         requestedBytes: Int = blockSize,
         foreground: YForegroundRangeRead? = null,
@@ -688,6 +739,10 @@ internal class AndroidTransportMediaDataSource(
                                     0
                                 ) {
                                     headers + ("If-Range" to checkNotNull(partial.entityTag))
+                                } else if (representationSnapshot != null &&
+                                    representationTag?.startsWith('"') == true
+                                ) {
+                                    headers + ("If-Range" to checkNotNull(representationTag))
                                 } else {
                                     headers
                                 },
@@ -695,6 +750,9 @@ internal class AndroidTransportMediaDataSource(
                         ),
                     )
                 if (response.statusCode != 206) {
+                    if (representationSnapshot != null && response.statusCode in setOf(200, 412, 416)) {
+                        representationChanged()
+                    }
                     throw YRangeReadException(
                         failureKind = response.statusCode.toRangeFailureKind(),
                         safeMessage = "Random-access transport did not accept byte range",
@@ -726,12 +784,14 @@ internal class AndroidTransportMediaDataSource(
                 if (attemptOffset > 0 &&
                     (response.entityTag != partial.entityTag || responseContentLength != partial.contentLength)
                 ) {
-                    throw YRangeReadException(
-                        YTransportFailureKind.InvalidRange,
-                        "Media representation changed during range resumption",
-                    )
+                    representationChanged()
                 }
                 synchronized(representationLock) {
+                    if (representationSnapshot?.initial?.entityTag?.startsWith('"') == true &&
+                        (response.entityTag != representationTag || responseContentLength != representationLength)
+                    ) {
+                        representationChanged()
+                    }
                     if (representationTag != null &&
                         response.entityTag != null &&
                         response.entityTag != representationTag ||
@@ -807,6 +867,7 @@ internal class AndroidTransportMediaDataSource(
                     )
                 }
                 watchdog.checkFailure()
+                ensureRepresentationCurrent()
                 transferredBytes = (total - attemptOffset).toLong()
                 YLoadedTransportBlock(
                     // A full block is the common case; copyOf would duplicate the whole 2 MiB.
@@ -1123,6 +1184,7 @@ internal class AndroidTransportMediaDataSource(
     override fun getSize(): Long {
         checkWorkerThread()
         check(!closed)
+        ensureRepresentationCurrent()
         if (knownSize < 0L) {
             val probe = ByteArray(1)
             prefetchSuppressed = true

@@ -2,7 +2,9 @@ package com.yfuse.core.data
 
 import com.russhwolf.settings.MapSettings
 import com.yfuse.core.designsystem.DialogAnimation
+import com.yfuse.core.designsystem.GlassInk
 import com.yfuse.core.designsystem.GlassMaterial
+import com.yfuse.core.designsystem.GlassMaterialPreset
 import com.yfuse.core.designsystem.GlassMaterials
 import com.yfuse.core.designsystem.LoadingAnimation
 import com.yfuse.core.designsystem.ParticleLight
@@ -17,6 +19,62 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class ThemePreferencesTest {
+    @Test
+    fun all_custom_material_parameters_survive_restart_and_do_not_modify_the_other_theme() {
+        val settings = MapSettings()
+        val prefs = ThemePreferences(settings)
+        val light =
+            GlassMaterialPreset.Prism.material(false).copy(
+                tintRgb = 0xBBDDEE,
+                blur = 48f,
+                saturation = 0.84f,
+                refraction = 0f,
+                rim = 0.17f,
+                rimWidth = 0.4f,
+                prism = 0.23f,
+                pearl = 0.31f,
+                fluted = 0.43f,
+                fluteWidth = 19f,
+                ink = GlassInk.Dark,
+            )
+        val dark = light.copy(tintRgb = 0x243746, ink = GlassInk.Light)
+        prefs.setGlassMaterial(false, light)
+        prefs.setGlassMaterial(true, dark)
+        val restored = ThemePreferences(settings)
+        assertEquals(light, restored.glassMaterials.value.light)
+        assertEquals(dark, restored.glassMaterials.value.dark)
+        restored.setGlassMaterial(false, GlassMaterialPreset.SoftMist.material(false))
+        val reset = ThemePreferences(settings).glassMaterials.value
+        assertEquals(0f, reset.light.prism)
+        assertEquals(0f, reset.light.pearl)
+        assertEquals(0f, reset.light.fluted)
+        assertEquals(dark, reset.dark)
+    }
+
+    @Test
+    fun all_material_presets_and_fine_tuning_persist_independently_per_theme() {
+        val settings = MapSettings()
+        val preferences = ThemePreferences(settings)
+        for (dark in listOf(false, true)) {
+            for (preset in GlassMaterialPreset.selectable) {
+                val other = preferences.glassMaterials.value.forTheme(!dark)
+                val modified = preset.material(dark).copy(tone = 0.43f, opacity = 0.64f, scrim = 0.19f)
+                preferences.setGlassMaterial(dark, modified)
+                val restored = ThemePreferences(settings).glassMaterials.value
+                assertEquals(modified, restored.forTheme(dark))
+                assertEquals(other, restored.forTheme(!dark))
+                preferences.setGlassMaterial(dark, GlassMaterial.defaults(dark))
+                assertEquals(
+                    GlassMaterialPreset.Default,
+                    ThemePreferences(settings)
+                        .glassMaterials.value
+                        .forTheme(dark)
+                        .preset,
+                )
+            }
+        }
+    }
+
     @Test
     fun glass_parameters_survive_restart_and_reset_each_theme_independently() {
         val settings = MapSettings()

@@ -28,8 +28,11 @@ internal fun selectEnhancedAudioTrack(
     capabilities: YDeviceCapabilities,
     plan: YPlaybackPlan,
     softwareDecodeAvailable: Boolean,
+    preference: com.yfuse.core2.api.YTrackPreference? = null,
 ): YEnhancedAudioSelection? {
-    val audioTracks = tracks.filter { it.type == YDemuxTrackType.Audio && it.audio != null }
+    val audioTracks =
+        tracks.preferredAudioTrack(preference)?.let(::listOf)
+            ?: tracks.filter { it.type == YDemuxTrackType.Audio && it.audio != null }
     // An inconclusive None plan must not silently enable passthrough. PCM also needs the
     // decoder-only capabilities when a device advertises both decoding and passthrough.
     val allowPassthrough = plan.audioPath == YAudioOutputPath.Passthrough && !plan.softwareAudioDecode

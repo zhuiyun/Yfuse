@@ -8,7 +8,11 @@ internal class AndroidVideoOutputEpoch {
     private var generation = 0L
     private var earliestRenderNs = 0L
     private var lastMeasuredRenderNs: Long? = null
+    private var renderedFrames = 0L
     private val submitted = ArrayDeque<Long>()
+
+    /** Only current-generation, submitted, non-duplicate output callbacks count toward FPS. */
+    val renderedFrameCount: Long get() = synchronized(lock) { renderedFrames }
 
     @Volatile
     var verified: Boolean = false
@@ -19,6 +23,7 @@ internal class AndroidVideoOutputEpoch {
             generation++
             earliestRenderNs = nowNs
             lastMeasuredRenderNs = null
+            renderedFrames = 0L
             submitted.clear()
             verified = false
             generation
@@ -46,6 +51,7 @@ internal class AndroidVideoOutputEpoch {
             ) {
                 return@synchronized false
             }
+            renderedFrames++
             if (!verified) {
                 verified = true
                 // Publish within the same discontinuity lock so an old callback cannot race a reset.

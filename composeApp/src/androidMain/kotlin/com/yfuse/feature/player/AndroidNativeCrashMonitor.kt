@@ -23,6 +23,7 @@ internal object AndroidNativeCrashMonitor {
     private const val ACTIVE_MAX_AGE_MS = 12L * 60L * 60L * 1_000L
 
     private lateinit var appContext: Context
+    private val ownership = NativeCrashContextOwnership()
 
     @Synchronized
     fun initialize(context: Context) {
@@ -90,6 +91,7 @@ internal object AndroidNativeCrashMonitor {
     /** Must run before native construction so a constructor crash still leaves useful context. */
     @Synchronized
     fun arm(
+        owner: String,
         component: NativePlaybackComponent,
         engine: PlayerEngine,
         decoderMode: DecoderMode,
@@ -112,11 +114,15 @@ internal object AndroidNativeCrashMonitor {
                     .orEmpty(),
             ).putLong("active.started", System.currentTimeMillis())
             .apply()
+        ownership.arm(owner)
     }
 
     /** A normal, rendering teardown proves the exact path worked and breaks the crash streak. */
     @Synchronized
-    fun disarm(successful: Boolean) {
+    fun disarm(
+        owner: String,
+        successful: Boolean,
+    ) = ownership.disarm(owner) {
         val preferences = prefs()
         if (successful) activeKey(preferences)?.let { preferences.edit().remove(countKey(it)).apply() }
         preferences.edit().removeActiveContext().apply()

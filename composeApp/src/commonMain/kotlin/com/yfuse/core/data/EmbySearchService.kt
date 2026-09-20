@@ -52,7 +52,7 @@ internal class EmbySearchService(
                 requestLimit: Int = limit,
             ): ItemsResponseDto =
                 client
-                    .get("${server.baseUrl}/Users/${server.userId}/Items") {
+                    .get("${server.baseUrl}/Users/${embyPath(server.userId)}/Items") {
                         header("X-Emby-Token", server.accessToken)
                         parameter("SearchTerm", term)
                         parameter("Recursive", true)
@@ -223,7 +223,7 @@ internal class EmbySearchService(
         embyApiCall("items_by_person") {
             val dto: ItemsResponseDto =
                 client
-                    .get("${server.baseUrl}/Users/${server.userId}/Items") {
+                    .get("${server.baseUrl}/Users/${embyPath(server.userId)}/Items") {
                         header("X-Emby-Token", server.accessToken)
                         parameter("PersonIds", personId)
                         parameter("Recursive", true)

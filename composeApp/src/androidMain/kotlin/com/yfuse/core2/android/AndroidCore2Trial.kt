@@ -58,6 +58,7 @@ internal object AndroidCore2TrialFactory {
         yCoreBufferTargetUs: Long? = null,
         nativeOnly: Boolean = false,
         allowNativeGpu: Boolean = true,
+        initialTrackSelections: Map<String, com.yfuse.core2.api.YInitialTrackSelection> = emptyMap(),
     ): VideoEngine? {
         if (!items.canUseCore2Trial(startIndex)) return null
         val cacheProxy =
@@ -90,6 +91,7 @@ internal object AndroidCore2TrialFactory {
                     items.toCore2MediaItems(
                         customUserAgent = customUserAgent,
                         cacheMaximumBytes = videoCacheBytes,
+                        initialTrackSelections = initialTrackSelections,
                         localize = { item, upstreamUrl ->
                             val cacheable =
                                 item.persistentPlaybackCacheUrl(item.startsWithServerTranscode()) ==
@@ -375,6 +377,7 @@ private fun PlayerMediaItem.supportsCore2Drm(scheme: PlaybackDrmScheme): Boolean
 internal fun List<PlayerMediaItem>.toCore2MediaItems(
     customUserAgent: String,
     cacheMaximumBytes: Long = 0L,
+    initialTrackSelections: Map<String, com.yfuse.core2.api.YInitialTrackSelection> = emptyMap(),
     localize: (PlayerMediaItem, String) -> String = { _, uri -> uri },
 ): List<YMediaItem> {
     val headers =
@@ -383,7 +386,11 @@ internal fun List<PlayerMediaItem>.toCore2MediaItems(
             .takeIf(String::isNotEmpty)
             ?.let { mapOf(USER_AGENT_HEADER to it) }
             .orEmpty()
-    return map { item -> item.toCore2MediaItem(headers, cacheMaximumBytes, localize) }
+    return map { item ->
+        item
+            .toCore2MediaItem(headers, cacheMaximumBytes, localize)
+            .copy(initialTrackSelection = initialTrackSelections[item.id]?.orNull())
+    }
 }
 
 private fun PlayerMediaItem.toCore2MediaItem(

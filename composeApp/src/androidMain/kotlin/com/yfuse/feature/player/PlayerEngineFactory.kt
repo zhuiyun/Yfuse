@@ -56,6 +56,11 @@ internal fun createVideoEngine(
         PlaybackDolbyVisionRuntimeCapabilities.conservative(),
     deviceCapabilities: PlaybackDeviceCapabilities = PlaybackDeviceCapabilities.conservative(),
     capabilitySignature: String = "unknown",
+    initialTrackSelections: Map<String, com.yfuse.core2.api.YInitialTrackSelection> = emptyMap(),
+    crashOwner: String =
+        java.util.UUID
+            .randomUUID()
+            .toString(),
 ): VideoEngine {
     val packagedNativeOnly = BuildConfig.YFUSE_NATIVE_ONLY_RUNTIME
     val resolvedNativeOnly = packagedNativeOnly || core2NativeOnlyEnabled
@@ -103,6 +108,7 @@ internal fun createVideoEngine(
             }
         }
     AndroidNativeCrashMonitor.arm(
+        owner = crashOwner,
         component = component,
         engine = if (yCoreAllowed) PlayerEngine.Exo else kind,
         decoderMode = resolvedDecoderMode,
@@ -142,6 +148,7 @@ internal fun createVideoEngine(
                 yCoreBufferTargetUs = yCoreBufferTargetUs,
                 nativeOnly = resolvedNativeOnly,
                 allowNativeGpu = !yCoreGpuBlocked,
+                initialTrackSelections = initialTrackSelections,
             )?.let { return it }
         if (resolvedNativeOnly) {
             return MissingNativeCapabilityVideoEngine(

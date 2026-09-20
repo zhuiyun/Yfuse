@@ -67,7 +67,8 @@ class EmbyUserDataServiceTest {
                     when {
                         request.url.parameters["Filters"] == "IsFavorite" ->
                             json(
-                                """{"Items":[{"Id":"f1","Name":"Fav","UserData":{"IsFavorite":true,"Played":false}}],""" +
+                                """{"Items":[{"Id":"f1","Name":"Fav",""" +
+                                    """"UserData":{"IsFavorite":true,"Played":false}}],""" +
                                     """"TotalRecordCount":1}""",
                             )
                         request.url.parameters["Filters"] == "IsResumable" ->
@@ -78,7 +79,8 @@ class EmbyUserDataServiceTest {
                         request.url.parameters["IsPlayed"] == "true" ->
                             json(
                                 """{"Items":[""" +
-                                    """{"Id":"p1","Name":"Done","UserData":{"Played":true},"DateModified":"2026-09-01"},""" +
+                                    """{"Id":"p1","Name":"Done",""" +
+                                    """"UserData":{"Played":true},"DateModified":"2026-09-01"},""" +
                                     """{"Id":"f1","Name":"Fav","UserData":{"IsFavorite":true,"Played":true}}""" +
                                     """],"TotalRecordCount":2}""",
                             )
@@ -109,7 +111,9 @@ class EmbyUserDataServiceTest {
                 client { request ->
                     requests++
                     assertEquals("IsFavorite", request.url.parameters["Filters"])
-                    json("""{"Items":[{"Id":"f1","Name":"Fav","UserData":{"IsFavorite":true,"Played":true,"PlaybackPositionTicks":9}}],"TotalRecordCount":1}""")
+                    json(
+                        """{"Items":[{"Id":"f1","Name":"Fav","UserData":{"IsFavorite":true,"Played":true,"PlaybackPositionTicks":9}}],"TotalRecordCount":1}""",
+                    )
                 }
             try {
                 val snapshot =
@@ -118,7 +122,10 @@ class EmbyUserDataServiceTest {
                         .getOrThrow()
 
                 assertEquals(1, requests)
-                assertEquals(listOf(SyncedUserItem("f1", "Fav", favorite = true, played = false, positionTicks = 0L)), snapshot)
+                assertEquals(
+                    listOf(SyncedUserItem("f1", "Fav", favorite = true, played = false, positionTicks = 0L)),
+                    snapshot,
+                )
             } finally {
                 client.close()
             }

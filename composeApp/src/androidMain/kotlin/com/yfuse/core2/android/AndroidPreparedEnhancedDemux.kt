@@ -99,4 +99,6 @@ internal fun YMediaItem.matchesPreparedSource(other: YMediaItem): Boolean =
         transportCredentials == other.transportCredentials &&
         cacheIdentity == other.cacheIdentity &&
         cacheMaximumBytes == other.cacheMaximumBytes &&
-        drmConfiguration == other.drmConfiguration
+        drmConfiguration == other.drmConfiguration &&
+        sourceHints == other.sourceHints &&
+        initialTrackSelection?.orNull() == other.initialTrackSelection?.orNull()

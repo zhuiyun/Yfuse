@@ -47,7 +47,7 @@ data class PlaybackProbeResult(
         get() =
             buildString {
                 append(detail)
-                if (status == PlaybackProbeStatus.Complete) {
+                if (status == PlaybackProbeStatus.Complete && trackCount > 0) {
                     append(" · ")
                     append(trackCount)
                     append(" 轨")

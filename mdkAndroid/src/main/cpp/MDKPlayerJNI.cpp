@@ -384,7 +384,8 @@ Java_com_mediadevkit_sdk_MDKPlayer_nativePlaybackEvidence(JNIEnv* env, jclass, j
     const VideoCodecParameters* video =
             info.video.empty() ? nullptr : &info.video.front().codec;
     const AudioCodecParameters* audio =
-            info.audio.empty() ? nullptr : &info.audio.front().codec;
+            value->selectedAudio < 0 || static_cast<size_t>(value->selectedAudio) >= info.audio.size()
+            ? nullptr : &info.audio[static_cast<size_t>(value->selectedAudio)].codec;
     return stringArray(env, {
             firstFrame ? "1" : "0",
             videoDecoder,

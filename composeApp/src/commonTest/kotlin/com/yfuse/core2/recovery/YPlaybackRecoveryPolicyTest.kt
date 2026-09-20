@@ -89,6 +89,34 @@ class YPlaybackRecoveryPolicyTest {
         }
     }
 
+    @Test
+    fun `an attempted software route cannot loop through a reported hardware route`() {
+        for (route in YPlaybackRoute.entries) {
+            for (category in YPlaybackFailureCategory.entries) {
+                assertEquals(
+                    YPlaybackRecoveryAction.Stop,
+                    YPlaybackRecoveryPolicy.decide(
+                        context(route, category, attempts = 0).copy(softwareFallbackAttempted = true),
+                    ),
+                    "$route/$category",
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `a hardware disc failure gets one retry and one software transition`() {
+        var request = context(YPlaybackRoute.NativeEnhanced, YPlaybackFailureCategory.Decoder, attempts = 0)
+        assertEquals(YPlaybackRecoveryAction.RetrySameRoute, YPlaybackRecoveryPolicy.decide(request))
+        request = request.copy(sameRouteAttempts = 1)
+        assertEquals(YPlaybackRecoveryAction.FallbackToSoftware, YPlaybackRecoveryPolicy.decide(request))
+        // A faulty executor may retain its hardware label after the software request.
+        request = request.copy(softwareFallbackAttempted = true)
+        repeat(3) {
+            assertEquals(YPlaybackRecoveryAction.Stop, YPlaybackRecoveryPolicy.decide(request))
+        }
+    }
+
     private fun context(
         route: YPlaybackRoute,
         category: YPlaybackFailureCategory,

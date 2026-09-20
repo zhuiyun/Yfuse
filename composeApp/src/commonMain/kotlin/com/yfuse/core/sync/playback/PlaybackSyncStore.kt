@@ -656,6 +656,27 @@ class PlaybackSyncStore(
             RemoteApplyResult(merged, changedLocal, needsUpload)
         }
 
+    /** Reset only the rejected write's cursor; a late response must not undo a newer merge. */
+    fun resetMissingRemoteCursor(
+        expected: StoredPlaybackDocument,
+        entityKey: String,
+        baseCursor: Long,
+    ): Boolean =
+        synchronized(lock) {
+            if (baseCursor <= 0L) return@synchronized false
+            val state = expected.document.state
+            val index = findIndexLocked(state.mediaKey, state.aliases, state.serverId, state.profileId)
+            val existing = documents.getOrNull(index) ?: return@synchronized false
+            if (!existing.dirty ||
+                existing.mutationId != expected.mutationId ||
+                existing.remoteCursors[entityKey] != baseCursor
+            ) {
+                return@synchronized false
+            }
+            replaceLocked(index, existing.copy(remoteCursors = existing.remoteCursors - entityKey))
+            true
+        }
+
     fun markUploaded(
         mediaKey: String,
         aliases: List<String>,

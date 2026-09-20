@@ -904,6 +904,7 @@ internal fun SettingsPanel(
                                     GroupLabel("Anime4K · YCore SDR 动漫")
                                     val animePreferences = remember { GlobalContext.get().get<PlaybackPreferences>() }
                                     val animeMode by animePreferences.anime4KMode.collectAsState()
+                                    val showFrameRate by animePreferences.showFrameRate.collectAsState()
                                     Anime4KMode.entries.forEach { mode ->
                                         OptionRow(
                                             mode.label,
@@ -917,6 +918,16 @@ internal fun SettingsPanel(
                                         color = Color.White.copy(alpha = 0.6f),
                                     )
                                     GroupLabel("画面")
+                                    PopupToggleHeader(
+                                        label = "显示帧率",
+                                        checked = showFrameRate,
+                                        onToggle = { animePreferences.setShowFrameRate(!showFrameRate) },
+                                    )
+                                    Text(
+                                        "显示页面绘制帧率及视频帧率",
+                                        style = AppTypography.caption.regular,
+                                        color = Color.White.copy(alpha = 0.6f),
+                                    )
                                     // Stays open: the light is judged against the picture behind the panel.
                                     PopupToggleHeader(
                                         label = "氛围光",

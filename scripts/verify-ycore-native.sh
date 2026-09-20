@@ -73,6 +73,8 @@ FFMPEG_REVISION="$(manifest_value ffmpeg)"
 [[ "$(manifest_value ycore-libass-api)" == "2" ]] || fail "YCore dynamic libass renderer API v2 is missing"
 [[ "$(manifest_value ycore-subtitle-display-set-api)" == "2" ]] || fail "YCore bitmap subtitle display-set API v2 is missing"
 [[ "$(manifest_value ycore-demux-cancellation-api)" == "1" ]] || fail "YCore demux cancellation API v1 is missing"
+[[ "$(manifest_value ycore-demux-read-control-api)" == "1" ]] || fail "YCore resumable demux read control API v1 is missing"
+[[ "$(manifest_value ycore-demux-extradata-budget)" == "32MiB-codec-32MiB-font-128-fonts" ]] || fail "YCore bounded extradata allocation is missing"
 [[ "$(manifest_value ycore-disc-api)" == "2" ]] || fail "YCore disc API v2 (HDMV overlay/input) is missing"
 [[ "$(manifest_value ycore-bdmv-vfs)" == "read-only-saf" ]] ||
   fail "YCore read-only filesystem/SAF BDMV VFS is missing"
@@ -162,7 +164,7 @@ for bridge in "${bridges[@]}"; do
   done
   grep -F 'nativeAssRendererApiVersion' "$bridge_strings" >/dev/null ||
     fail "$abi bridge is missing the registered libass renderer API"
-  for method in nativeSubtitleDisplaySetApiVersion nativeCreateCancellation nativeOpenCancellable nativeCancelDemux; do
+  for method in nativeSubtitleDisplaySetApiVersion nativeCreateCancellation nativeOpenCancellable nativeCancelDemux nativeDemuxReadControlApiVersion nativeInterruptDemuxRead nativeResumeDemuxRead; do
     grep -F "$method" "$bridge_strings" >/dev/null ||
       fail "$abi bridge is missing the registered subtitle/cancellation method $method"
   done

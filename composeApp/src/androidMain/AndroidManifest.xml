@@ -3,6 +3,7 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
@@ -10,10 +11,9 @@
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <!--
-      Android 16's opt-in local-network protection, and the future enforced model, gate
-      Emby UDP broadcast discovery plus DLNA/SSDP behind the Nearby devices permission.
-      Discovery code checks this permission before opening a socket so denial never breaks
-      ordinary HTTPS playback or manual server entry.
+      Keep NEARBY_WIFI_DEVICES for Android 16's opt-in testing bridge. Android 17 uses
+      ACCESS_LOCAL_NETWORK for discovery, casting and direct LAN connections, including
+      manually entered servers. Internet access remains independent of this permission.
     -->
     <uses-permission
         android:name="android.permission.NEARBY_WIFI_DEVICES"

@@ -11,6 +11,44 @@ import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class AndroidPreparedMediaSlotTest {
+    @Test
+    fun changed_track_intent_rejects_a_prepared_probe_without_changing_the_byte_cache_identity() {
+        val original =
+            YMediaItem(
+                "movie",
+                "https://media/movie",
+                cacheIdentity =
+                    com.yfuse.core2.network
+                        .YCacheIdentity("scope", "movie", "file"),
+            )
+        val changed =
+            original.copy(
+                initialTrackSelection =
+                    com.yfuse.core2.api.YInitialTrackSelection(
+                        audio =
+                            com.yfuse.core2.api
+                                .YTrackPreference(language = "zho"),
+                    ),
+            )
+        val slot = AndroidPreparedMediaSlot<Any> {}
+        val source = Any()
+        slot.offer(original, source)
+        assertEquals(original.cacheIdentity, changed.cacheIdentity)
+        assertNull(slot.take(changed))
+        assertSame(
+            source,
+            slot.take(
+                original.copy(
+                    initialTrackSelection =
+                        com.yfuse.core2.api
+                            .YInitialTrackSelection(),
+                ),
+            ),
+        )
+        assertTrue(original.verifiedRouteIdentity() != changed.verifiedRouteIdentity())
+        slot.close()
+    }
+
     private val item = YMediaItem("movie", "https://media/movie", headers = mapOf("Authorization" to "original"))
 
     @Test fun unclaimed_sources_expire_but_transferred_sources_survive_the_deadline() {

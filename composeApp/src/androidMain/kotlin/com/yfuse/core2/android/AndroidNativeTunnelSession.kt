@@ -5,7 +5,9 @@ import android.media.AudioFormat
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaFormat
+import android.os.SystemClock
 import android.view.Surface
+import com.yfuse.core2.api.YFrameRateSample
 import com.yfuse.core2.api.YPlaybackException
 import com.yfuse.core2.api.YPlaybackFailureCategory
 import com.yfuse.core2.api.YPlaybackFailureStage
@@ -15,6 +17,7 @@ import com.yfuse.core2.network.YBufferConditions
 import com.yfuse.core2.network.YBufferController
 import com.yfuse.core2.network.YPlaybackBufferGate
 import com.yfuse.core2.render.YFrameRateSwitchMode
+import com.yfuse.core2.render.YRenderedFrameRateSampler
 import com.yfuse.core2.render.videoFrameRateHint
 import com.yfuse.core2.sync.YMediaClock
 import kotlinx.coroutines.CancellationException
@@ -38,6 +41,7 @@ internal data class YTunnelPlaybackSnapshot(
     val sourceBufferedUs: Long = 0L,
     val sourceStarvationCount: Long = 0L,
     val pausedPreviewSubmittedUnconfirmed: Boolean = false,
+    val renderedFrameRate: YFrameRateSample? = null,
 )
 
 /**
@@ -76,6 +80,7 @@ internal class AndroidNativeTunnelSession(
     private var lastAudioEndUs = 0L
     private var lastPositionUs = 0L
     private val videoOutputEpoch = AndroidVideoOutputEpoch()
+    private val renderedFrameRateSampler = YRenderedFrameRateSampler()
     private val pausedPreview = AndroidPausedVideoPreview()
     private val outputWatchdog = AndroidTunnelVideoOutputWatchdog()
     private var videoInputQueued = false
@@ -109,6 +114,7 @@ internal class AndroidNativeTunnelSession(
         decoderName: String? = null,
         runtimeCapabilityKey: YRuntimeVideoCapabilityKey? = null,
         dolbyVisionConfig: YDolbyVisionConfig? = null,
+        audioPreference: com.yfuse.core2.api.YTrackPreference? = null,
     ) {
         close()
         sourceRemote = source.uri.isCore2RemoteMediaUri()
@@ -141,8 +147,9 @@ internal class AndroidNativeTunnelSession(
                     stage = YPlaybackFailureStage.Demux,
                     safeDetail = "Tunnel source has no video track",
                 )
+        val discoveredAudio = platformAudioTracks(demuxer.trackCount, demuxer::trackFormat)
         val audioIndex =
-            demuxer.findFirstTrack("audio/")
+            discoveredAudio.initialAudioIndex(audioPreference)
                 ?: throw YPlaybackException(
                     category = YPlaybackFailureCategory.AudioSink,
                     stage = YPlaybackFailureStage.Demux,
@@ -191,6 +198,7 @@ internal class AndroidNativeTunnelSession(
         this.surface = surface
         videoTrackIndex = videoIndex
         audioTrackIndex = audioIndex
+        logInitialAudioSelection("NativeTunnel", audioPreference != null, discoveredAudio, "audio:$audioIndex")
         durationUs =
             listOf(originalVideoFormat, audioFormat)
                 .mapNotNull(::formatDurationUs)
@@ -206,6 +214,10 @@ internal class AndroidNativeTunnelSession(
         demuxer.startReadAhead()
     }
 
+    fun audioTracks(): List<com.yfuse.core2.api.YTrack> =
+        platformAudioTracks(demuxer.trackCount, demuxer::trackFormat)
+            .map { it.copy(selected = it.id == "audio:$audioTrackIndex") }
+
     fun play() {
         check(prepared) { "Tunnel session is not prepared" }
         val previewResumeUs = pausedPreview.takeResumePosition()
@@ -219,6 +231,7 @@ internal class AndroidNativeTunnelSession(
     }
 
     fun pause() {
+        renderedFrameRateSampler.reset()
         if (!prepared) return
         outputWatchdog.suspendWaiting()
         val position = currentPositionUs()
@@ -348,6 +361,15 @@ internal class AndroidNativeTunnelSession(
         val audioReady = audioRenderer?.clockSnapshot() != null
         val isEnded = ended()
         val readAhead = demuxer.snapshot()
+        val renderedFrames = videoOutputEpoch.renderedFrameCount
+        val renderedFrameRate =
+            // Some tunnel implementations only notify the first frame. Do not call that 0 FPS.
+            if (playing && firstVideoFrameRendered && renderedFrames >= 2L && !isEnded) {
+                renderedFrameRateSampler.sample(renderedFrames, SystemClock.elapsedRealtime())
+            } else {
+                renderedFrameRateSampler.reset()
+                null
+            }
         return YTunnelPlaybackSnapshot(
             positionUs = currentPositionUs(),
             durationUs = durationUs,
@@ -366,10 +388,12 @@ internal class AndroidNativeTunnelSession(
             sourceQueueBytes = readAhead.queuedBytes,
             sourceBufferedUs = readAhead.bufferedDurationUs,
             sourceStarvationCount = readAhead.starvationCount,
+            renderedFrameRate = renderedFrameRate,
         )
     }
 
     fun close() {
+        renderedFrameRateSampler.reset()
         videoOutputEpoch.reset()
         pausedPreview.clear()
         previewDecoder = false
@@ -410,6 +434,7 @@ internal class AndroidNativeTunnelSession(
         if (sourceRemote) YPlaybackFailureCategory.Network else YPlaybackFailureCategory.Container
 
     private fun attachVideoRenderEvidence() {
+        renderedFrameRateSampler.reset()
         val generation = videoOutputEpoch.reset()
         val provesTunnelOutput = !previewDecoder
         firstVideoFrameRendered = false

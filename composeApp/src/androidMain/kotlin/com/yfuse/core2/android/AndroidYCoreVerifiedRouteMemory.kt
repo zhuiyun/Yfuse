@@ -98,7 +98,18 @@ internal data class YVerifiedRouteRecord(
 
 /** The credential-free identity a record is keyed by; media without one is never remembered. */
 internal fun YMediaItem.verifiedRouteIdentity(): String? =
-    cacheIdentity?.let { "${it.scope}/${it.mediaId}/${it.version}" }
+    cacheIdentity?.let { identity ->
+        val selection = initialTrackSelection?.orNull()
+        val selectionKey =
+            selection?.let {
+                java.security.MessageDigest
+                    .getInstance("SHA-256")
+                    .digest(it.toString().toByteArray(Charsets.UTF_8))
+                    .joinToString("") { byte -> "%02x".format(byte) }
+            }
+        "${identity.scope}/${identity.mediaId}/${identity.version}" +
+            (selectionKey?.let { "/tracks:$it" } ?: "")
+    }
 
 /**
  * Whether a probe describes the media completely enough to stand in for the probes next time.

@@ -15,6 +15,9 @@ internal object FfmpegNativeBridge {
     private val loadResult by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         runCatching {
             System.loadLibrary(LIBRARY_NAME)
+            check(nativeDemuxReadControlApiVersion() >= 1) {
+                "Bundled YCore demux lacks recoverable read control API 1; rebuild the native AAR"
+            }
         }
     }
 
@@ -176,13 +179,20 @@ internal object FfmpegNativeBridge {
         headers: Map<String, String>,
         probeOnly: Boolean = false,
         cancellationToken: Long = 0L,
+        startupAnalysis: Boolean = false,
     ): Long {
         check(available) { "YCore FFmpeg demux bridge is not installed" }
         val entries = headers.entries.toList()
         val names = entries.map { it.key }.toTypedArray()
         val values = entries.map { it.value }.toTypedArray()
         val status =
-            if (cancellationToken > 0L) {
+            if (startupAnalysis && cancellationToken > 0L) {
+                try {
+                    nativeOpenWithAnalysis(uri, names, values, probeOnly, cancellationToken)
+                } catch (_: UnsatisfiedLinkError) {
+                    nativeOpenCancellable(uri, names, values, probeOnly, cancellationToken)
+                }
+            } else if (cancellationToken > 0L) {
                 nativeOpenCancellable(uri, names, values, probeOnly, cancellationToken)
             } else if (probeOnly) {
                 // Older native artifacts predate the bounded probe entry point; the full open
@@ -225,6 +235,18 @@ internal object FfmpegNativeBridge {
     fun cancelDemux(token: Long) {
         if (token > 0L) nativeCancelDemux(token)
     }
+
+    fun interruptDemuxRead(
+        token: Long,
+        generation: Long,
+    ) {
+        if (token > 0L) nativeInterruptDemuxRead(token, generation)
+    }
+
+    fun resumeDemuxRead(
+        handle: Long,
+        generation: Long,
+    ): Boolean = nativeResumeDemuxRead(handle, generation)
 
     fun setDemuxDeadline(
         token: Long,
@@ -393,11 +415,23 @@ internal object FfmpegNativeBridge {
 
     private external fun nativeDemuxHandleContractVersion(): Int
 
+    private external fun nativeDemuxReadControlApiVersion(): Int
+
     private external fun nativeClose(handle: Long)
 
     private external fun nativeCreateCancellation(): Long
 
     private external fun nativeCancelDemux(token: Long)
+
+    private external fun nativeInterruptDemuxRead(
+        token: Long,
+        generation: Long,
+    )
+
+    private external fun nativeResumeDemuxRead(
+        handle: Long,
+        generation: Long,
+    ): Boolean
 
     private external fun nativeSetDemuxDeadline(
         token: Long,
@@ -405,6 +439,14 @@ internal object FfmpegNativeBridge {
     )
 
     private external fun nativeReleaseCancellation(token: Long)
+
+    private external fun nativeOpenWithAnalysis(
+        uri: String,
+        names: Array<String>,
+        values: Array<String>,
+        probeOnly: Boolean,
+        cancellationToken: Long,
+    ): Long
 
     private external fun nativeOpenCancellable(
         uri: String,

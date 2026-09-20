@@ -18,7 +18,7 @@ internal class EmbyLibraryService(
     suspend fun views(server: SavedServer): List<MediaLibrary> {
         val dto: ViewsDto =
             client
-                .get("${server.baseUrl}/Users/${server.userId}/Views") {
+                .get("${server.baseUrl}/Users/${embyPath(server.userId)}/Views") {
                     header("X-Emby-Token", server.accessToken)
                 }.body()
         return dto.Items.map { MediaLibrary(it.Id, it.Name, it.CollectionType) }

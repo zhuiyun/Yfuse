@@ -15,7 +15,8 @@ jobs:
   analyze:
     name: Analyze Kotlin and Java
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    # Native prerequisites may need a cold bootstrap, as in the Android quality job.
+    timeout-minutes: 300
     permissions:
       contents: read
       security-events: write
@@ -25,11 +26,44 @@ jobs:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Set up Java
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Prepare Android and player dependencies
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          manager="$sdk/cmdline-tools/latest/bin/sdkmanager"
+          if [[ ! -x "$manager" ]]; then manager="$(find "$sdk/cmdline-tools" -type f -name sdkmanager -print -quit)"; fi
+          test -x "$manager"
+          yes | "$manager" --licenses >/dev/null 2>&1 || true
+          "$manager" 'platforms;android-37.0' 'ndk;29.0.14206865' 'cmake;3.22.1'
+          if ! command -v 7z >/dev/null 2>&1; then sudo apt-get update && sudo apt-get install -y p7zip-full; fi
+          chmod +x gradlew scripts/fetch-engines.sh
+          scripts/fetch-engines.sh
+
+      # Bootstrap before extraction so the third-party carrier is not the Kotlin coverage.
+      - name: Build and install current YCore runtime
+        uses: ./.github/actions/build-current-ycore
+
       - name: Initialize CodeQL
         uses: github/codeql-action/init@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
         with:
           languages: java-kotlin
-          build-mode: none
+          build-mode: manual
+
+      - name: Compile phone, TV, protocol, and server Kotlin for extraction
+        run: >-
+          ./gradlew :composeApp:compileDebugKotlin :tvApp:compileDebugKotlin
+          :watchTogetherServer:classes
+          --no-daemon --no-build-cache --rerun-tasks -Pkotlin.incremental=false
 
       - name: Analyze
         uses: github/codeql-action/analyze@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0

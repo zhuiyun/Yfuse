@@ -31,6 +31,11 @@ unknown.
 
 ## Physical Chromecast acceptance
 
+Run the receiver event-order regression tests from the repository root with
+`node --test castReceiver/receiver.test.cjs` (Node.js 20+). They cover stale/missing revision
+receipts, a new load before its first status, and automatic queue advance. These tests mock
+the CAF device API; the physical acceptance below remains necessary.
+
 Run this matrix against application ID `E9107559`; record the Cast device model, firmware, TV/AVR
 route and source. Automated tests and Chrome playback are not substitutes.
 

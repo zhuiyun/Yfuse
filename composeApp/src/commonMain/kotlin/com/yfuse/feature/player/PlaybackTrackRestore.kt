@@ -1,6 +1,11 @@
 package com.yfuse.feature.player
 
 import com.yfuse.core.data.RememberedPlaybackTrack
+import com.yfuse.core2.api.YTrack
+import com.yfuse.core2.api.YTrackPreference
+import com.yfuse.core2.api.YTrackType
+import com.yfuse.core2.api.matchingPreference
+import com.yfuse.core2.api.preferenceIn
 
 /**
  * Stable track identity used while an engine or physical media version is rebuilt.
@@ -27,10 +32,11 @@ internal fun List<EngineTrack>.restorePreferenceFor(track: EngineTrack): TrackRe
     track.toRestorePreference().copy(languageOrdinal = languageOrdinalOf(track))
 
 private fun List<EngineTrack>.languageOrdinalOf(track: EngineTrack): Int? {
-    val language = track.language?.trim()?.takeIf(String::isNotEmpty) ?: return null
-    val siblings = filter { it.language.equals(language, ignoreCase = true) }
-    return siblings.indexOfFirst { it.id == track.id }.takeIf { it >= 0 }
+    if (track.language.isNullOrBlank()) return null
+    return track.toCoreTrack().preferenceIn(map(EngineTrack::toCoreTrack)).languageOrdinal
 }
+
+private fun EngineTrack.toCoreTrack() = YTrack(id, YTrackType.Audio, label, language, codec, selected)
 
 internal fun EngineTrack.toRememberedPlaybackTrack(): RememberedPlaybackTrack =
     RememberedPlaybackTrack(
@@ -59,18 +65,10 @@ internal fun RememberedPlaybackTrack.toRestorePreference(): TrackRestorePreferen
  * Without a language, only an exact label counts.
  */
 internal fun List<EngineTrack>.bestRestoreMatch(preference: TrackRestorePreference): EngineTrack? {
-    val languageMatches =
-        preference.language
-            ?.let { language ->
-                filter { it.language.equals(language, ignoreCase = true) }
-            }.orEmpty()
-    if (languageMatches.isEmpty()) {
-        return firstOrNull { it.label.equals(preference.label, ignoreCase = true) }
-    }
-    return languageMatches.firstOrNull { it.label.equals(preference.label, ignoreCase = true) }
-        ?: preference.codec?.let { codec ->
-            languageMatches.firstOrNull { it.codec.equals(codec, ignoreCase = true) }
-        }
-        ?: preference.languageOrdinal?.let(languageMatches::getOrNull)
-        ?: languageMatches.first()
+    if (preference.language.isNullOrBlank() && none { it.label.equals(preference.label, true) }) return null
+    val selected =
+        map(EngineTrack::toCoreTrack).matchingPreference(
+            YTrackPreference(preference.language, preference.label, preference.codec, preference.languageOrdinal),
+        ) ?: return null
+    return firstOrNull { it.id == selected.id }
 }

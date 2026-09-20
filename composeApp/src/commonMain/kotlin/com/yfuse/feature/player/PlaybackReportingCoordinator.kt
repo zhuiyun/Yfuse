@@ -19,6 +19,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /** One bounded pass over every server lane, suitable for a network-constrained background job. */
@@ -48,8 +49,14 @@ class PlaybackReportingCoordinator(
     private val jobs = mutableMapOf<String, Job>()
 
     val droppedTerminalEvents get() = outbox.droppedTerminalEvents
+    val rejectedSessionWarnings get() = outbox.rejectedSessionWarnings
+    val rejectedSessions get() = outbox.rejectedSessions
 
     fun acknowledgeDroppedReports(observedCount: Long) = outbox.acknowledgeDroppedReports(observedCount)
+
+    fun retryRejectedReports() {
+        outbox.retryRejectedReports().forEach(::wake)
+    }
 
     init {
         // Stop active delivery promptly when consent is withdrawn. Re-enabling resumes durable
@@ -171,12 +178,16 @@ class PlaybackReportingCoordinator(
                 val relaunch =
                     synchronized(jobsLock) {
                         if (jobs[serverId] === job) jobs.remove(serverId)
-                        registry.serverById(serverId) != null &&
-                            outbox.events.value.any {
-                                it.serverId == serverId &&
-                                    !it.authenticationRequired &&
-                                    it.nextAttemptAtEpochMs <= nowEpochMs()
-                            }
+                        val head =
+                            outbox.events.value
+                                .filter { it.serverId == serverId }
+                                .minByOrNull { it.order }
+                        scope.isActive &&
+                            remoteProgressSyncEnabled() &&
+                            registry.serverById(serverId) != null &&
+                            head != null &&
+                            !head.authenticationRequired &&
+                            head.nextAttemptAtEpochMs <= nowEpochMs()
                     }
                 // Covers an enqueue racing with the final empty-queue observation.
                 if (relaunch) wake(serverId)

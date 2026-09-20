@@ -33,7 +33,7 @@ internal class EmbyLookupService(
         embyApiCall("series_identity_catalog") {
             val dto: ItemsResponseDto =
                 client
-                    .get("${server.baseUrl}/Users/${server.userId}/Items") {
+                    .get("${server.baseUrl}/Users/${embyPath(server.userId)}/Items") {
                         header("X-Emby-Token", server.accessToken)
                         parameter("IncludeItemTypes", "Series")
                         parameter("Recursive", "true")
@@ -73,7 +73,7 @@ internal class EmbyLookupService(
             val dto: ItemsResponseDto =
                 client
                     .get(
-                        "${server.baseUrl}/Users/${server.userId}/Items",
+                        "${server.baseUrl}/Users/${embyPath(server.userId)}/Items",
                     ) {
                         header("X-Emby-Token", server.accessToken)
                         parameter("IncludeItemTypes", includeItemTypes)
@@ -115,7 +115,7 @@ internal class EmbyLookupService(
         embyApiCall("find_item_by_provider") {
             val dto: ItemsResponseDto =
                 client
-                    .get("${server.baseUrl}/Users/${server.userId}/Items") {
+                    .get("${server.baseUrl}/Users/${embyPath(server.userId)}/Items") {
                         header("X-Emby-Token", server.accessToken)
                         parameter("Recursive", true)
                         parameter("IncludeItemTypes", if (mediaType == "tv") "Series" else "Movie")
@@ -177,7 +177,7 @@ internal class EmbyLookupService(
                 val dto: BaseItemDto =
                     client
                         .get(
-                            "${server.baseUrl}/Users/${server.userId}/Items/${embyPath(value)}",
+                            "${server.baseUrl}/Users/${embyPath(server.userId)}/Items/${embyPath(value)}",
                         ) {
                             header("X-Emby-Token", server.accessToken)
                             parameter("Fields", "ProductionYear,Overview,ProviderIds")
@@ -186,7 +186,7 @@ internal class EmbyLookupService(
             }
             val dto: ItemsResponseDto =
                 client
-                    .get("${server.baseUrl}/Users/${server.userId}/Items") {
+                    .get("${server.baseUrl}/Users/${embyPath(server.userId)}/Items") {
                         header("X-Emby-Token", server.accessToken)
                         parameter("Recursive", true)
                         parameter("IncludeItemTypes", "Movie,Series,Episode")

@@ -46,12 +46,14 @@ internal fun PlayerWatchSyncEffects(
     watchTogether: WatchTogetherClient,
     playbackGate: WatchGatedPlayback,
     onRemotePlayRequested: () -> Boolean,
+    onPlaybackRequestChanged: () -> Unit,
 ) {
     val latestItems by rememberUpdatedState(items)
     val latestPlayer by rememberUpdatedState(player)
     val latestPlaybackState by playbackState
     val readiness by rememberPlayerControlSnapshot(playbackState)
     val latestRemotePlayRequested by rememberUpdatedState(onRemotePlayRequested)
+    val latestPlaybackRequestChanged by rememberUpdatedState(onPlaybackRequestChanged)
     val mediaMatcher =
         remember(watchTogether) {
             WatchMediaMatcher(
@@ -127,6 +129,7 @@ internal fun PlayerWatchSyncEffects(
                                 bufferingSince.elapsedNow().inWholeMilliseconds >=
                                 GUEST_BUFFER_RECOVERY_MS
                             ) {
+                                latestPlaybackRequestChanged()
                                 latestPlayer.retry()
                                 bufferingSince = TimeSource.Monotonic.markNow()
                             }
@@ -138,6 +141,7 @@ internal fun PlayerWatchSyncEffects(
                         wasBuffering = false
 
                         if (targetIndex != latestPlaybackState.currentIndex) {
+                            latestPlaybackRequestChanged()
                             latestPlayer.selectItem(targetIndex)
                             awaitCorrection(positionMs = null, index = targetIndex)
                             delay(GUEST_RECONCILE_TICK_MS)

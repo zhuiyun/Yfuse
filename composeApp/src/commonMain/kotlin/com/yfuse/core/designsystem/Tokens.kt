@@ -215,8 +215,7 @@ data class Palette(
     /** `--pg-tabbar-border` */
     val tabbarBorder: Color,
     val isDark: Boolean,
-    // ------------------------------------------------------------ material
-    /** Modal scrim, alpha included: what the page is dimmed by while a dialog is up. */
+    /** Material modal scrim, alpha included: what the page is dimmed by while a dialog is up. */
     val scrim: Color,
     /** The dialog panel's own tint, alpha included — see [Modifier.mutedGlassPanel]. */
     val dialogTint: Color,

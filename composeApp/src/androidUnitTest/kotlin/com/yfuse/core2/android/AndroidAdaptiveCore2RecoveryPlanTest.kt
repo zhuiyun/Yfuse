@@ -6,6 +6,8 @@ import com.yfuse.core2.api.YPlaybackFailureStage
 import com.yfuse.core2.api.YPlaybackPhase
 import com.yfuse.core2.api.YPlaybackRoute
 import com.yfuse.core2.capability.YHdrType
+import com.yfuse.core2.capability.YVideoCodec
+import com.yfuse.core2.capability.YVideoRequirement
 import com.yfuse.core2.strategy.YDecodePath
 import com.yfuse.core2.strategy.YDemuxPath
 import com.yfuse.core2.strategy.YRenderPath
@@ -77,6 +79,41 @@ class AndroidAdaptiveCore2RecoveryPlanTest {
         assertNull(yCoreInternalSoftwareRecoveryPlan(YHdrType.DolbyVision))
         assertFailsWith<YPlaybackException> {
             validateEnhancedDolbyVisionIdentity(required = true, config = null)
+        }
+    }
+
+    @Test
+    fun `explicit disc software decode follows probed HDR and owns required tone mapping`() {
+        for (hdr in listOf(YHdrType.Sdr, YHdrType.Hdr10, YHdrType.Hdr10Plus, YHdrType.Hlg)) {
+            val plan =
+                requiredYCoreSoftwarePlan(
+                    probedVideo = YVideoRequirement(codec = YVideoCodec.H265, hdrType = hdr),
+                    protectedContent = false,
+                )
+            assertEquals(YDecodePath.Software, plan.decodePath)
+            assertEquals(YPlaybackRoute.SoftwareFallback, plan.route)
+            assertEquals(hdr, plan.inputHdrType)
+            assertEquals(YHdrType.Sdr, plan.outputHdrType)
+            assertEquals(hdr != YHdrType.Sdr, plan.softwareVideoToneMap)
+        }
+    }
+
+    @Test
+    fun `explicit software refuses missing probe Dolby Vision and either protection signal`() {
+        val clearVideo = YVideoRequirement(codec = YVideoCodec.H265)
+        val refused =
+            listOf(
+                Triple(null, false, YPlaybackFailureCategory.Container),
+                Triple(clearVideo.copy(hdrType = YHdrType.DolbyVision), false, YPlaybackFailureCategory.Decoder),
+                Triple(clearVideo, true, YPlaybackFailureCategory.Drm),
+                Triple(clearVideo.copy(secureDecodeRequired = true), false, YPlaybackFailureCategory.Drm),
+            )
+        for ((video, protected, category) in refused) {
+            val failure =
+                assertFailsWith<YPlaybackException> {
+                    requiredYCoreSoftwarePlan(probedVideo = video, protectedContent = protected)
+                }
+            assertEquals(category, failure.category)
         }
     }
 

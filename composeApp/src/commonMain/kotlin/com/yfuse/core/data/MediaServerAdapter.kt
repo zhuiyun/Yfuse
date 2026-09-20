@@ -202,6 +202,11 @@ internal interface MediaServerAdapter {
         detail: MediaDetail,
     ): Result<PlayTargetResolution>
 
+    suspend fun resolveSeriesPlayback(
+        server: SavedServer,
+        seriesId: String,
+    ): Result<SeriesPlaybackResolution>
+
     suspend fun searchGenres(
         server: SavedServer,
         parentId: String?,
@@ -572,6 +577,11 @@ internal class EmbyAdapter(
         detail: MediaDetail,
     ): Result<PlayTargetResolution> = detailService.resolvePlayTargetWithEpisodes(server, detail)
 
+    override suspend fun resolveSeriesPlayback(
+        server: SavedServer,
+        seriesId: String,
+    ): Result<SeriesPlaybackResolution> = detailService.resolveSeriesPlayback(server, seriesId)
+
     override suspend fun searchGenres(
         server: SavedServer,
         parentId: String?,
@@ -909,6 +919,11 @@ internal class PlexAdapter(
         server: SavedServer,
         detail: MediaDetail,
     ): Result<PlayTargetResolution> = plex.resolvePlayTarget(server, detail).map { PlayTargetResolution(it) }
+
+    override suspend fun resolveSeriesPlayback(
+        server: SavedServer,
+        seriesId: String,
+    ): Result<SeriesPlaybackResolution> = plex.resolveSeriesPlayback(server, seriesId)
 
     override suspend fun searchGenres(
         server: SavedServer,

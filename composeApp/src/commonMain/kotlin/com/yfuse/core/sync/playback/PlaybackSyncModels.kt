@@ -1,5 +1,6 @@
 package com.yfuse.core.sync.playback
 
+import com.yfuse.watch.protocol.PlaybackMissingEntity
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -145,6 +146,7 @@ data class PlaybackPushResponse(
     val cursor: Long,
     val accepted: List<PlaybackAcceptedEntity> = emptyList(),
     val conflicts: List<EncryptedPlaybackEntity> = emptyList(),
+    val missing: List<PlaybackMissingEntity> = emptyList(),
 )
 
 @Serializable

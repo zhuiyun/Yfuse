@@ -144,7 +144,7 @@ android {
     defaultConfig {
         applicationId = "com.yfuse"
         minSdk = 26
-        targetSdk = 36
+        targetSdk = 37
         versionCode = tvVersionCode
         versionName = tvVersionName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -366,6 +366,7 @@ dependencies {
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.process)
     implementation(libs.media3.exoplayer)
+    implementation(libs.media3.datasource.okhttp)
     implementation(libs.media3.ui)
     implementation(libs.media3.hls)
     implementation(libs.media3.dash)

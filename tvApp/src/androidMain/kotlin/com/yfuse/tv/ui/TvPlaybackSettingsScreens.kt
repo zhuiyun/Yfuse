@@ -140,6 +140,7 @@ internal fun TvAdvancedPlaybackSettingsPage(
     val bufferDuration by component.playbackPreferences.yCoreBufferDuration.collectAsState()
     val videoCacheSize by component.playbackPreferences.videoCacheSize.collectAsState()
     val frameRateMatch by component.playbackPreferences.frameRateMatch.collectAsState()
+    val showFrameRate by component.playbackPreferences.showFrameRate.collectAsState()
     val passthrough by component.playbackPreferences.audioPassthrough.collectAsState()
 
     TvSettingsPageScaffold(page = TvSettingsPage.AdvancedPlayback) {
@@ -228,6 +229,19 @@ internal fun TvAdvancedPlaybackSettingsPage(
         }
 
         item(key = "advanced-section-output") { TvSettingsSectionTitle("显示与音频输出") }
+        item(key = "advanced-show-frame-rate") {
+            TvToggleRow(
+                title = "显示帧率",
+                checked = showFrameRate,
+                stableId = "advanced:show-frame-rate",
+                focusMemory = focusMemory,
+                onToggle = component.playbackPreferences::setShowFrameRate,
+                icon = AppIcons.Refresh,
+                focusScope = focusScope,
+                subtitle = "显示页面绘制帧率及播放时的视频帧率",
+                navigationRequester = navigationRequester,
+            )
+        }
         item(key = "advanced-frame-rate") {
             TvChoiceRow(
                 title = "匹配内容帧率",

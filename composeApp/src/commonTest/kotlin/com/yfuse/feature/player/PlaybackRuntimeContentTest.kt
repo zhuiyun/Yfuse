@@ -9,6 +9,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.Snapshot
+import com.yfuse.core2.api.YFrameRateSample
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runCurrent
@@ -63,6 +64,7 @@ class PlaybackRuntimeContentTest {
                             diagnostics =
                                 source.value.diagnostics.copy(
                                     frameRate = 23.9f + index * 0.01f,
+                                    renderedFrameRate = YFrameRateSample(24f + index, 1_000L + index),
                                     networkBitsPerSecond = 1_000_000L + index,
                                     droppedFrames = index,
                                     avSyncOffsetMs = index.toLong(),

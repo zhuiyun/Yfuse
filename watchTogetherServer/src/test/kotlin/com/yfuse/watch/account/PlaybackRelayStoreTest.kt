@@ -1,5 +1,6 @@
 package com.yfuse.watch.account
 
+import com.yfuse.watch.protocol.PlaybackMissingEntity
 import java.util.Base64
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -7,6 +8,73 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class PlaybackRelayStoreTest {
+    @Test
+    fun anEvictedEntityCanBeRecreatedWithoutBypassingCas() {
+        PlaybackRelayStore.inMemoryForTests(maxEntitiesPerUser = 1).use { store ->
+            val first = entity('A', "mutation-first", 1)
+            val original = store.push("user-a", PlaybackPushRequest(listOf(PlaybackPutItem(0L, first))), 1_000L)
+            store.push(
+                "user-a",
+                PlaybackPushRequest(listOf(PlaybackPutItem(0L, entity('B', "mutation-other", 2)))),
+                2_000L,
+            )
+            val updated = first.copy(mutationId = "mutation-updated")
+
+            val missing = store.push("user-a", PlaybackPushRequest(listOf(PlaybackPutItem(1L, updated))), 3_000L)
+
+            assertTrue(missing.accepted.isEmpty())
+            assertTrue(missing.conflicts.isEmpty())
+            assertEquals(listOf(PlaybackMissingEntity(first.entityKey, updated.mutationId, 1L)), missing.missing)
+            assertEquals(2L, missing.cursor, "A missing response must not advance the relay cursor")
+            val recreated = store.push("user-a", PlaybackPushRequest(listOf(PlaybackPutItem(0L, updated))), 4_000L)
+            assertEquals(3L, recreated.accepted.single().cursor)
+            assertTrue(recreated.missing.isEmpty())
+            assertTrue(recreated.accepted.single().cursor > original.accepted.single().cursor)
+            assertEquals(
+                updated.mutationId,
+                store
+                    .pull("user-a", 0L, 10)
+                    .changes
+                    .single()
+                    .mutationId,
+            )
+        }
+    }
+
+    @Test
+    fun aConcurrentRecreationWinsOverTheMissingEntityRetry() {
+        PlaybackRelayStore.inMemoryForTests(maxEntitiesPerUser = 1).use { store ->
+            val old = entity('A', "mutation-old", 1)
+            store.push("user-a", PlaybackPushRequest(listOf(PlaybackPutItem(0L, old))), 1_000L)
+            store.push(
+                "user-a",
+                PlaybackPushRequest(listOf(PlaybackPutItem(0L, entity('B', "mutation-other", 2)))),
+                2_000L,
+            )
+            val retry = old.copy(mutationId = "mutation-retry")
+            assertEquals(
+                1,
+                store.push("user-a", PlaybackPushRequest(listOf(PlaybackPutItem(1L, retry))), 3_000L).missing.size,
+            )
+            val concurrent = entity('A', "mutation-concurrent", 3)
+            store.push("user-a", PlaybackPushRequest(listOf(PlaybackPutItem(0L, concurrent))), 4_000L)
+
+            val response = store.push("user-a", PlaybackPushRequest(listOf(PlaybackPutItem(0L, retry))), 5_000L)
+
+            assertTrue(response.accepted.isEmpty())
+            assertTrue(response.missing.isEmpty())
+            assertEquals(concurrent.mutationId, response.conflicts.single().mutationId)
+            assertEquals(
+                concurrent.ciphertext,
+                store
+                    .pull("user-a", 0L, 10)
+                    .changes
+                    .single()
+                    .ciphertext,
+            )
+        }
+    }
+
     @Test
     fun accountQuotaEvictsOldestEntityWithoutAffectingOtherUsers() {
         PlaybackRelayStore.inMemoryForTests(maxEntitiesPerUser = 2).use { store ->

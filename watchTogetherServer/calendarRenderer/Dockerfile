@@ -1,9 +1,9 @@
 FROM mcr.microsoft.com/playwright:v1.62.1-noble
 
 WORKDIR /app
-COPY package.json ./
-RUN npm install --omit=dev --ignore-scripts && npm cache clean --force
-COPY server.mjs ./
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
+COPY server.mjs render-scheduler.mjs ./
 
 ENV YFUSE_RENDERER_HOST=0.0.0.0 \
     YFUSE_RENDERER_PORT=8091

@@ -609,8 +609,10 @@ class ServersStoreFactory(
                 is ServersIntent.SelectPlexCloudServer -> selectPlexCloudServer(intent.id)
                 ServersIntent.Submit -> submit()
                 ServersIntent.Scan -> scan()
-                ServersIntent.LocalNetworkPermissionDenied ->
+                ServersIntent.LocalNetworkPermissionDenied -> {
                     dispatch(Msg.ScanDone(emptyList(), LocalNetworkPermissionRequiredException().message))
+                    dispatch(Msg.SubmitError(LocalNetworkPermissionRequiredException().message.orEmpty()))
+                }
                 is ServersIntent.SelectDiscovered -> selectDiscovered(intent.server)
                 is ServersIntent.SelectPublicUser ->
                     dispatch(Msg.Username(intent.name))

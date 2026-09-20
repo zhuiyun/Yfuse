@@ -276,6 +276,8 @@ val verifyStandaloneYCoreArtifact by tasks.registering {
             "ycore-libass-api=2",
             "ycore-subtitle-display-set-api=2",
             "ycore-demux-cancellation-api=1",
+            "ycore-demux-read-control-api=1",
+            "ycore-demux-extradata-budget=32MiB-codec-32MiB-font-128-fonts",
             "ycore-disc-api=2",
             "ycore-bdmv-vfs=read-only-saf",
             "ycore-gpu-api=2",
@@ -801,7 +803,7 @@ val yfuseCastReceiverApplicationId =
 
 android {
     namespace = "com.yfuse"
-    // Compile against API 37 for current dependencies; targetSdk 36 remains the runtime baseline.
+    // Android 17: local-network runtime permission and adaptive window behavior are enabled.
     compileSdk { version = release(37) { minorApiLevel = 0 } }
 
     buildFeatures {
@@ -821,7 +823,7 @@ android {
     defaultConfig {
         applicationId = buildApplicationId
         minSdk = 26
-        targetSdk = 36
+        targetSdk = 37
         versionCode = buildVersionCode
         versionName = buildVersionName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -1222,11 +1224,13 @@ dependencies {
         // Compatibility adapters remain source-compatible until the final deletion stage,
         // but their third-party playback runtime must not enter a pure YCore APK.
         compileOnly(libs.media3.exoplayer)
+        compileOnly(libs.media3.datasource.okhttp)
         compileOnly(libs.media3.ui)
         compileOnly(libs.media3.hls)
         compileOnly(libs.media3.dash)
     } else {
         implementation(libs.media3.exoplayer)
+        implementation(libs.media3.datasource.okhttp)
         implementation(libs.media3.ui)
         implementation(libs.media3.hls)
         implementation(libs.media3.dash)

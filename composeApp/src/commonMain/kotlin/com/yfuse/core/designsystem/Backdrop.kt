@@ -3,7 +3,6 @@ package com.yfuse.core.designsystem
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -54,6 +53,8 @@ data class BackdropRefraction(
     val edgeX: Float = 0.20f,
     val edgeY: Float = 0.35f,
     val strength: Dp = 27.dp,
+    val fluted: Float = 0f,
+    val fluteWidth: Dp = 12.dp,
 )
 
 /**
@@ -70,6 +71,7 @@ expect fun refractiveBlurEffect(
     heightPx: Float,
     refraction: BackdropRefraction,
     strengthPx: Float,
+    fluteWidthPx: Float,
     saturation: Float,
 ): RenderEffect?
 
@@ -132,7 +134,7 @@ class BackdropState internal constructor(
     internal var origin by mutableStateOf(Offset.Zero)
 
     /** False until the source has drawn once; there is nothing to sample before that. */
-    internal var hasContent = false
+    internal val hasContent: Boolean get() = frames.available
 
     /**
      * Bumped every time the source re-records.
@@ -142,33 +144,21 @@ class BackdropState internal constructor(
      * its blurred copy would be captured once and then sit frozen while the page scrolled
      * beneath it.
      */
-    private var revision by mutableIntStateOf(0)
-
-    /**
-     * Counted outside the snapshot so [recorded] can raise [revision] without reading it.
-     *
-     * `revision++` would read the state it writes, inside the source's own draw — which
-     * subscribes the source to a value the source itself changes, and that is a redraw
-     * loop that never settles.
-     */
-    private var records = 0
+    private val frames = BackdropFrames()
 
     internal fun recorded() {
-        hasContent = true
-        records++
-        revision = records
+        frames.recorded()
     }
 
     /**
      * The captured content, and the subscription that keeps it live.
      *
-     * Reading [revision] here is not incidental — it is how the calling draw scope comes to
-     * depend on the source, so returning the layer without it would give a surface one
-     * frozen frame and nothing after.
+     * Reading frame availability makes the calling draw scope depend on the source;
+     * returning the layer without it would give a surface one frozen frame and nothing after.
      */
     internal fun sample(): GraphicsLayer {
         @Suppress("UNUSED_VARIABLE")
-        val subscription = revision
+        val subscription = frames.available
         return layer
     }
 }
@@ -273,7 +263,7 @@ fun Modifier.backdropBlur(
     // edges are — so it is rebuilt when the size changes, not per frame. Plain fields, not
     // snapshot state: this is written from inside the draw, and a state written by the draw
     // that reads it is an invalidation loop.
-    val refractive = remember(resolvedSaturation) { RefractionCache() }
+    val refractive = remember(resolvedSaturation, radiusPx, refraction, refractionPx) { RefractionCache() }
     var origin by remember { mutableStateOf(Offset.Zero) }
     if (!state.enabled) return this
     return this
@@ -293,6 +283,7 @@ fun Modifier.backdropBlur(
                         heightPx = size.height,
                         refraction = refraction,
                         strengthPx = refractionPx,
+                        fluteWidthPx = with(density) { refraction.fluteWidth.toPx() },
                         saturation = resolvedSaturation,
                     )
             }

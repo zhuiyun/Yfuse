@@ -63,7 +63,22 @@ internal fun rememberDeepPlaybackProbe(
     transcoding: Boolean,
     customUserAgent: String,
     playbackSettled: Boolean = true,
+    engine: VideoEngine? = null,
 ): PlaybackProbeResult {
+    val nativeOwner = (engine as? com.yfuse.core2.legacy.YPlayerVideoEngineAdapter)?.player
+    val adaptiveOwner = nativeOwner as? com.yfuse.core2.android.AndroidAdaptiveCore2YPlayer
+    if (nativeOwner != null) {
+        val facts = adaptiveOwner?.sourceFacts?.collectAsState()?.value
+        return remember(item, transcoding, customUserAgent, facts) {
+            val baseline = item.playbackMediaProbe(usingServerTranscode = transcoding)
+            if (!transcoding && item != null && facts?.matches(item, customUserAgent) == true) {
+                facts.presentation(baseline)
+            } else {
+                // Core2 owns routing and its own bounded fallback. A second extractor cannot help it.
+                PlaybackProbeResult.metadataOnly(baseline, "由播放内核管理媒体探测")
+            }
+        }
+    }
     val service =
         remember {
             runCatching { GlobalContext.get().get<PlaybackMediaProbeService>() }.getOrNull()

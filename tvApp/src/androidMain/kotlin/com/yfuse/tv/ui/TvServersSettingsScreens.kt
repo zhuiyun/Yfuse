@@ -45,6 +45,7 @@ import com.yfuse.feature.servers.QuickConnectUiState
 import com.yfuse.feature.servers.ServersIntent
 import com.yfuse.feature.servers.ServersState
 import com.yfuse.feature.servers.ServersTabComponent
+import com.yfuse.feature.servers.rememberServerConnectionIntent
 import com.yfuse.tv.focus.FocusCandidate
 import com.yfuse.tv.focus.requestFocusWhenAttached
 import com.yfuse.tv.focus.tvFocusScope
@@ -284,22 +285,23 @@ private fun TvServerDialog(
     focusMemory: TvUiFocusMemory,
     onIntent: (ServersIntent) -> Unit,
 ) {
+    val sendIntent = rememberServerConnectionIntent(state, onIntent)
     val hostRequester = remember { FocusRequester() }
     val requestScan =
         rememberLocalNetworkPermissionRequest(
-            onGranted = { onIntent(ServersIntent.Scan) },
-            onDenied = { onIntent(ServersIntent.LocalNetworkPermissionDenied) },
+            onGranted = { sendIntent(ServersIntent.Scan) },
+            onDenied = { sendIntent(ServersIntent.LocalNetworkPermissionDenied) },
         )
     LaunchedEffect(Unit) { hostRequester.requestFocusWhenAttached() }
     DisposableEffect(focusMemory) {
         onDispose { focusMemory.requestLastForRoute("servers") }
     }
     GlassDialog(
-        onDismiss = { onIntent(ServersIntent.DismissDialog) },
+        onDismiss = { sendIntent(ServersIntent.DismissDialog) },
         maxWidth = 920.dp,
         contentPadding = 28.dp,
     ) {
-        val dismiss = overlayDismiss { onIntent(ServersIntent.DismissDialog) }
+        val dismiss = overlayDismiss { sendIntent(ServersIntent.DismissDialog) }
         Column(
             Modifier
                 .fillMaxWidth()
@@ -319,7 +321,7 @@ private fun TvServerDialog(
                         stableId = "server-dialog:provider:${kind.name}",
                         focusScope = "server-dialog:provider",
                         focusMemory = focusMemory,
-                        onClick = { onIntent(ServersIntent.ProviderChanged(kind)) },
+                        onClick = { sendIntent(ServersIntent.ProviderChanged(kind)) },
                         modifier = Modifier.width(136.dp),
                         selected = kind == state.form.kind,
                     )
@@ -329,7 +331,7 @@ private fun TvServerDialog(
                     stableId = "server-dialog:protocol",
                     focusScope = "server-dialog:provider",
                     focusMemory = focusMemory,
-                    onClick = { onIntent(ServersIntent.ProtocolChanged(!state.form.https)) },
+                    onClick = { sendIntent(ServersIntent.ProtocolChanged(!state.form.https)) },
                     modifier = Modifier.width(136.dp),
                     selected = state.form.https,
                 )
@@ -361,7 +363,7 @@ private fun TvServerDialog(
                             stableId = "server-dialog:discovered:${found.id}",
                             focusScope = "server-dialog:discovery",
                             focusMemory = focusMemory,
-                            onClick = { onIntent(ServersIntent.SelectDiscovered(found)) },
+                            onClick = { sendIntent(ServersIntent.SelectDiscovered(found)) },
                             modifier = Modifier.width(212.dp),
                             icon = AppIcons.Server,
                         )
@@ -380,7 +382,7 @@ private fun TvServerDialog(
                     label = "服务器名称（可选）",
                     stableId = "server-dialog:name",
                     focusMemory = focusMemory,
-                    onValueChange = { onIntent(ServersIntent.ServerNameChanged(it)) },
+                    onValueChange = { sendIntent(ServersIntent.ServerNameChanged(it)) },
                     modifier = Modifier.weight(1f),
                 )
                 TvServerTextField(
@@ -388,7 +390,7 @@ private fun TvServerDialog(
                     label = "主机或完整地址",
                     stableId = "server-dialog:host",
                     focusMemory = focusMemory,
-                    onValueChange = { onIntent(ServersIntent.HostChanged(it)) },
+                    onValueChange = { sendIntent(ServersIntent.HostChanged(it)) },
                     modifier = Modifier.weight(1.4f),
                     focusRequester = hostRequester,
                 )
@@ -397,7 +399,7 @@ private fun TvServerDialog(
                     label = "端口",
                     stableId = "server-dialog:port",
                     focusMemory = focusMemory,
-                    onValueChange = { onIntent(ServersIntent.PortChanged(it)) },
+                    onValueChange = { sendIntent(ServersIntent.PortChanged(it)) },
                     modifier = Modifier.width(130.dp),
                 )
             }
@@ -407,7 +409,7 @@ private fun TvServerDialog(
                     label = if (state.form.kind == MediaServerKind.Plex) "Plex 用户" else "用户名",
                     stableId = "server-dialog:username",
                     focusMemory = focusMemory,
-                    onValueChange = { onIntent(ServersIntent.UsernameChanged(it)) },
+                    onValueChange = { sendIntent(ServersIntent.UsernameChanged(it)) },
                     modifier = Modifier.weight(1f),
                 )
                 TvServerTextField(
@@ -415,7 +417,7 @@ private fun TvServerDialog(
                     label = if (state.form.kind == MediaServerKind.Plex) "Plex Token" else "密码",
                     stableId = "server-dialog:password",
                     focusMemory = focusMemory,
-                    onValueChange = { onIntent(ServersIntent.PasswordChanged(it)) },
+                    onValueChange = { sendIntent(ServersIntent.PasswordChanged(it)) },
                     modifier = Modifier.weight(1f),
                     secret = true,
                 )
@@ -453,7 +455,7 @@ private fun TvServerDialog(
                         stableId = "server-dialog:quick-connect",
                         focusScope = "server-dialog:actions",
                         focusMemory = focusMemory,
-                        onClick = { onIntent(ServersIntent.StartQuickConnect) },
+                        onClick = { sendIntent(ServersIntent.StartQuickConnect) },
                         modifier = Modifier.width(158.dp),
                     )
                     Spacer(Modifier.width(10.dp))
@@ -463,7 +465,7 @@ private fun TvServerDialog(
                     stableId = "server-dialog:submit",
                     focusScope = "server-dialog:actions",
                     focusMemory = focusMemory,
-                    onClick = { if (state.form.canSubmit) onIntent(ServersIntent.Submit) },
+                    onClick = { if (state.form.canSubmit) sendIntent(ServersIntent.Submit) },
                     modifier = Modifier.width(150.dp),
                     icon = AppIcons.ChevronRight,
                     primary = state.form.canSubmit,

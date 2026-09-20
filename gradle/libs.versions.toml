@@ -25,7 +25,7 @@ media3 = "1.9.0"
 palette = "1.0.0"
 turbine = "1.2.0"
 # Effective version: scripts/security-overrides.properties forces every BC artifact to this release.
-bouncycastle = "1.84"
+bouncycastle = "1.85"
 zxing = "3.5.4"
 google-cast = "22.3.1"
 google-cast-tv = "21.1.1"
@@ -95,6 +95,7 @@ media3-dash = { module = "androidx.media3:media3-exoplayer-dash", version.ref = 
 media3-common = { module = "androidx.media3:media3-common", version.ref = "media3" }
 media3-database = { module = "androidx.media3:media3-database", version.ref = "media3" }
 media3-datasource = { module = "androidx.media3:media3-datasource", version.ref = "media3" }
+media3-datasource-okhttp = { module = "androidx.media3:media3-datasource-okhttp", version.ref = "media3" }
 androidx-palette = { module = "androidx.palette:palette-ktx", version.ref = "palette" }
 zxing-core = { module = "com.google.zxing:core", version.ref = "zxing" }
 google-cast-framework = { module = "com.google.android.gms:play-services-cast-framework", version.ref = "google-cast" }

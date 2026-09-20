@@ -48,7 +48,8 @@ import java.nio.ByteOrder
  */
 internal class AndroidFfmpegDemuxer :
     YDemuxer,
-    YSubtitlePacketDecoder {
+    YSubtitlePacketDecoder,
+    AndroidDemuxReadControl {
     override val name: String = "FFmpeg / libavformat"
 
     private val timeline = YMediaTimestampTimeline()
@@ -57,7 +58,7 @@ internal class AndroidFfmpegDemuxer :
     @Volatile
     private var cancellationToken = 0L
     private var openResult: YDemuxOpenResult? = null
-    private var packetBuffer = ByteBuffer.allocateDirect(INITIAL_PACKET_BUFFER_BYTES)
+    private val packetStorage = AndroidPlaybackStagingBuffer(INITIAL_PACKET_BUFFER_BYTES, MAX_PACKET_BUFFER_BYTES)
     private var prefetchedSample: YCompressedSample? = null
     private var discSource = false
     private val assSources = mutableMapOf<YTrackId, YAssSubtitleSource>()
@@ -87,6 +88,7 @@ internal class AndroidFfmpegDemuxer :
                     request.headers,
                     probeOnly = source.probeOnly,
                     cancellationToken = cancellationToken,
+                    startupAnalysis = source.startupAnalysis,
                 )
             budget?.ensureActive()
             handle = openedHandle
@@ -121,7 +123,11 @@ internal class AndroidFfmpegDemuxer :
     }
 
     /** Thread-safe signal only. The owner thread remains solely responsible for native close. */
-    fun cancelPendingRead() = FfmpegNativeBridge.cancelDemux(cancellationToken)
+    override fun cancelPendingRead() = FfmpegNativeBridge.cancelDemux(cancellationToken)
+
+    override fun interruptRead(generation: Long) = FfmpegNativeBridge.interruptDemuxRead(cancellationToken, generation)
+
+    override fun resumeRead(generation: Long): Boolean = FfmpegNativeBridge.resumeDemuxRead(requireHandle(), generation)
 
     fun clearProbeDeadline() = FfmpegNativeBridge.setDemuxDeadline(cancellationToken, 0L)
 
@@ -158,6 +164,7 @@ internal class AndroidFfmpegDemuxer :
     private fun readRawSample(): YCompressedSample? {
         val handle = requireHandle()
         while (true) {
+            val packetBuffer = packetStorage.get()
             val result = FfmpegNativeBridge.readPacket(handle, packetBuffer)
             require(result.size >= PACKET_RESULT_FIELDS) { "Invalid FFmpeg packet result" }
             when (result[PACKET_STATUS_INDEX]) {
@@ -174,7 +181,7 @@ internal class AndroidFfmpegDemuxer :
                                 .coerceAtMost(MAX_PACKET_BUFFER_BYTES.toLong())
                                 .toInt(),
                         )
-                    packetBuffer = ByteBuffer.allocateDirect(nextSize)
+                    packetStorage.grow(nextSize)
                 }
                 FFMPEG_PACKET_DATA -> {
                     val size = result[PACKET_SIZE_INDEX].toInt()
@@ -274,6 +281,7 @@ internal class AndroidFfmpegDemuxer :
         var remaining = 32 * 1024 * 1024
         return buildList {
             for (index in 0 until FfmpegNativeBridge.trackCount(requireHandle())) {
+                if (remaining == 0 || size >= 128) break
                 val name = FfmpegNativeBridge.trackFontName(requireHandle(), index) ?: continue
                 val bytes = FfmpegNativeBridge.trackExtradata(requireHandle(), index) ?: continue
                 if (bytes.isEmpty() || bytes.size > remaining) continue
@@ -340,7 +348,7 @@ internal class AndroidFfmpegDemuxer :
         prefetchedSample = null
         discSource = false
         timeline.reset()
-        packetBuffer.clear()
+        packetStorage.close()
         if (previous != 0L) FfmpegNativeBridge.close(previous)
         FfmpegNativeBridge.releaseCancellation(cancellationToken)
         cancellationToken = 0L
@@ -352,12 +360,18 @@ internal class AndroidFfmpegDemuxer :
         val codecName = FfmpegNativeBridge.trackCodecName(handle, index)?.lowercase().orEmpty()
         val language = FfmpegNativeBridge.trackLanguage(handle, index)?.takeIf(String::isNotBlank)
         val label = FfmpegNativeBridge.trackTitle(handle, index)?.takeIf(String::isNotBlank)
+        // Attachments/data streams do not need codec configuration. Fetching first would copy
+        // even a discarded cover/font attachment into the Java heap during every metadata probe.
         val extradata =
-            FfmpegNativeBridge
-                .trackExtradata(handle, index)
-                ?.takeIf(ByteArray::isNotEmpty)
-                ?.let(::listOf)
-                .orEmpty()
+            if (type == FFMPEG_TRACK_VIDEO || type == FFMPEG_TRACK_AUDIO || type == FFMPEG_TRACK_SUBTITLE) {
+                FfmpegNativeBridge
+                    .trackExtradata(handle, index)
+                    ?.takeIf(ByteArray::isNotEmpty)
+                    ?.let(::listOf)
+                    .orEmpty()
+            } else {
+                emptyList()
+            }
         val id = YTrackId(index)
         return when (type) {
             FFMPEG_TRACK_VIDEO -> {

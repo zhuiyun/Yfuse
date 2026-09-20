@@ -130,7 +130,7 @@ internal class EmbySourceService(
                                 discoverSourceWithRetry {
                                     suspend fun query(providerMatch: Boolean): ItemsResponseDto =
                                         client
-                                            .get("${server.baseUrl}/Users/${server.userId}/Items") {
+                                            .get("${server.baseUrl}/Users/${embyPath(server.userId)}/Items") {
                                                 header("X-Emby-Token", server.accessToken)
                                                 parameter("Recursive", true)
                                                 parameter(
@@ -284,7 +284,7 @@ internal class EmbySourceService(
 
         val full: BaseItemDto =
             client
-                .get("${server.baseUrl}/Users/${server.userId}/Items/${playable.Id}") {
+                .get("${server.baseUrl}/Users/${embyPath(server.userId)}/Items/${embyPath(playable.Id)}") {
                     header("X-Emby-Token", server.accessToken)
                     parameter("Fields", "MediaSources")
                 }.body()
@@ -300,7 +300,7 @@ internal class EmbySourceService(
     ): BaseItemDto? {
         val dto: ItemsResponseDto =
             client
-                .get("${server.baseUrl}/Shows/$seriesId/Episodes") {
+                .get("${server.baseUrl}/Shows/${embyPath(seriesId)}/Episodes") {
                     header("X-Emby-Token", server.accessToken)
                     parameter("UserId", server.userId)
                     parameter("Season", seasonNumber)

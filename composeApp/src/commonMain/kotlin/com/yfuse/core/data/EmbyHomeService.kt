@@ -284,7 +284,7 @@ internal class EmbyHomeService(
     ): Int {
         val dto: ItemsResponseDto =
             client
-                .get("${server.baseUrl}/Users/${server.userId}/Items") {
+                .get("${server.baseUrl}/Users/${embyPath(server.userId)}/Items") {
                     header("X-Emby-Token", server.accessToken)
                     parameter("ParentId", viewId)
                     parameter("Recursive", true)
@@ -307,7 +307,7 @@ internal class EmbyHomeService(
         if (ids.isEmpty()) return emptyList()
         val localItems: ItemsResponseDto =
             client
-                .get("${server.baseUrl}/Users/${server.userId}/Items") {
+                .get("${server.baseUrl}/Users/${embyPath(server.userId)}/Items") {
                     header("X-Emby-Token", server.accessToken)
                     parameter("Ids", ids.joinToString(","))
                     parameter(
@@ -328,7 +328,7 @@ internal class EmbyHomeService(
         viewId: String,
     ): List<MediaItem> {
         val response =
-            client.get("${server.baseUrl}/Users/${server.userId}/Items/Latest") {
+            client.get("${server.baseUrl}/Users/${embyPath(server.userId)}/Items/Latest") {
                 header("X-Emby-Token", server.accessToken)
                 parameter("ParentId", viewId)
                 parameter("Limit", 16)

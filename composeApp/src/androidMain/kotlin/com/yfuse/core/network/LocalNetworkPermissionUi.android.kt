@@ -1,15 +1,16 @@
 package com.yfuse.core.network
 
-import android.Manifest
 import android.annotation.SuppressLint
+import android.content.Context
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
 
 /**
- * Requests Android's local-network permission only when the user starts discovery/casting.
- * A denial intentionally does not block manual server entry or regular Internet playback.
+ * Requests local-network access for user-initiated connections, discovery and casting.
+ * The caller decides whether a denied request can continue using an Internet endpoint.
  */
 @Composable
 @SuppressLint("InlinedApi")
@@ -17,10 +18,19 @@ actual fun rememberLocalNetworkPermissionRequest(
     onGranted: () -> Unit,
     onDenied: () -> Unit,
 ): () -> Unit {
+    val context = LocalContext.current
     val launcher =
         rememberLauncherForActivityResult(
             ActivityResultContracts.RequestPermission(),
         ) { granted ->
+            if (localNetworkConnectionsRestricted()) {
+                // Do not immediately show the upgrade notice after a manual connection was declined.
+                context
+                    .getSharedPreferences("local_network_access", Context.MODE_PRIVATE)
+                    .edit()
+                    .putBoolean("explained", !granted)
+                    .apply()
+            }
             if (granted) onGranted() else onDenied()
         }
     return remember(launcher, onGranted, onDenied) {
@@ -28,7 +38,7 @@ actual fun rememberLocalNetworkPermissionRequest(
             if (localNetworkPermissionGranted()) {
                 onGranted()
             } else {
-                launcher.launch(Manifest.permission.NEARBY_WIFI_DEVICES)
+                localNetworkRuntimePermission()?.let { launcher.launch(it) }
             }
         }
     }

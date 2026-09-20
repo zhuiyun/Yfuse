@@ -176,6 +176,7 @@ sealed interface HomeLabel {
     data class PlayEmbyItem(
         val serverId: String,
         val itemId: String,
+        val isSeries: Boolean = false,
     ) : HomeLabel
 }
 
@@ -635,7 +636,7 @@ class HomeStoreFactory(
                 if (match != null) {
                     publish(
                         if (play) {
-                            HomeLabel.PlayEmbyItem(server.id, match.id)
+                            HomeLabel.PlayEmbyItem(server.id, match.id, isSeries = match.type == "Series")
                         } else {
                             HomeLabel.OpenEmbyItem(server.id, match.id)
                         },

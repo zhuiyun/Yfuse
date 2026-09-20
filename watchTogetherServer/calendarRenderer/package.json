@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "start": "node server.mjs",
-    "check": "node --check server.mjs && node --check capture-session.mjs",
-    "capture-session": "node capture-session.mjs"
+    "check": "node --check server.mjs && node --check render-scheduler.mjs && node --check capture-session.mjs",
+    "capture-session": "node capture-session.mjs",
+    "test": "node --test render-scheduler.test.mjs"
   },
   "dependencies": {
     "playwright": "1.62.1"

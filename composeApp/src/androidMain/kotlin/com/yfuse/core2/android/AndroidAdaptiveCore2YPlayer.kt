@@ -11,6 +11,7 @@ import android.os.Looper
 import android.os.PowerManager
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.logging.playbackDiagnosticTrace
+import com.yfuse.core2.api.YInitialTrackSelection
 import com.yfuse.core2.api.YMediaItem
 import com.yfuse.core2.api.YOutputEvidenceResetReason
 import com.yfuse.core2.api.YPlaybackFailureCategory
@@ -26,6 +27,8 @@ import com.yfuse.core2.api.YVideoOutput
 import com.yfuse.core2.api.appendingDistinct
 import com.yfuse.core2.api.invalidateOutputEvidence
 import com.yfuse.core2.api.isPrematurePlaybackEnd
+import com.yfuse.core2.api.preferenceIn
+import com.yfuse.core2.api.trackSelectionSkipReason
 import com.yfuse.core2.capability.YAudioOutputPath
 import com.yfuse.core2.capability.YHdrType
 import com.yfuse.core2.learning.YLearnedRouteAdvice
@@ -134,6 +137,7 @@ internal class AndroidAdaptiveCore2YPlayer(
             ),
         )
     override val state: StateFlow<YPlayerState> = mutableState.asStateFlow()
+    val sourceFacts = routeEvaluator.sourceFacts.asStateFlow()
     override val playbackRequested: Boolean get() = mutableState.value.playbackRequested
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -308,6 +312,8 @@ internal class AndroidAdaptiveCore2YPlayer(
     override fun selectDiscTitle(index: Int): Boolean = !released && activeChild?.selectDiscTitle(index) == true
 
     override fun selectDiscChapter(index: Int): Boolean = !released && activeChild?.selectDiscChapter(index) == true
+
+    override fun selectDiscAngle(index: Int): Boolean = !released && activeChild?.selectDiscAngle(index) == true
 
     override fun sendDiscMenuCommand(command: com.yfuse.core.playback.PlaybackDiscMenuCommand): Boolean =
         !released && activeChild?.sendDiscMenuCommand(command) == true
@@ -504,6 +510,13 @@ internal class AndroidAdaptiveCore2YPlayer(
             (child?.currentPositionMs() ?: 0L) + (adaptiveTarget?.presentationOffsetMs ?: 0L)
         var pendingPositionMs = request.startPositionMs
         var allowTunnel = true
+        val runtimeTrackSelections =
+            request.items
+                .mapNotNull { item ->
+                    item.initialTrackSelection?.orNull()?.let { item.id to it }
+                }.toMap()
+                .toMutableMap()
+        val loggedTrackSkips = mutableSetOf<String>()
         var forceEnhancedFallback = false
         var forceSoftwareFallback = false
         var bypassLearnedRouteMemoryOnce = false
@@ -881,7 +894,10 @@ internal class AndroidAdaptiveCore2YPlayer(
                     compatibilityRouteAvailable = fallbackRouteFactory != null,
                 )
             bypassLearnedRouteMemoryOnce = false
-            val rootItem = queueItems[currentIndex]
+            val queueItem = queueItems[currentIndex]
+            val rootItem =
+                runtimeTrackSelections[queueItem.id]?.let { queueItem.copy(initialTrackSelection = it) }
+                    ?: queueItem
             val target =
                 pendingAdaptiveTarget?.takeIf { it.rootUri == rootItem.uri }
                     ?: budget.await {
@@ -897,6 +913,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                     audioDelayMs == 0L &&
                     item.drmConfiguration == null &&
                     item.allExternalSubtitles.isEmpty() &&
+                    item.initialTrackSelection?.subtitle == null &&
                     kotlin.math.abs(speed - 1f) <= TUNNEL_SPEED_EPSILON
             val singleRequest =
                 YPlayerOpenRequest(
@@ -946,7 +963,12 @@ internal class AndroidAdaptiveCore2YPlayer(
             // A route this device already rendered for exactly this media skips the probes and
             // starts at planning; the device-side gates below still run on it.
             val rememberedProbe =
-                if (target == null && warmedRoute == null && !bypassLearnedRouteMemory && !forceSoftwareFallback) {
+                if (target == null &&
+                    warmedRoute == null &&
+                    !routeEvaluator.adoptCurrentItem(item, positionMs) &&
+                    !bypassLearnedRouteMemory &&
+                    !forceSoftwareFallback
+                ) {
                     verifiedRouteMemory.probeFor(item)
                 } else {
                     null
@@ -1206,6 +1228,8 @@ internal class AndroidAdaptiveCore2YPlayer(
             child = next
             secondarySubtitleSupported = next.supportsSecondarySubtitleTrack
             val childItemId = queueItems[currentIndex].id
+            val childSoftwareFallbackAttempted =
+                forceSoftwareFallback || (preferSoftwareDecode && queueItems[currentIndex].disc != null)
             activeChild = next
 
             fun childIndex(): Int = queueItems.indexOfFirst { it.id == childItemId }.coerceAtLeast(0)
@@ -1485,6 +1509,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                                         category = childState.errorCategory,
                                         sameRouteAttempts = sameRouteRecoveryAttempts[recoveryKey] ?: 0,
                                         protectedContent = queueItems[childIndex()].drmConfiguration != null,
+                                        softwareFallbackAttempted = childSoftwareFallbackAttempted,
                                     ),
                                 )
                             ) {
@@ -1733,6 +1758,42 @@ internal class AndroidAdaptiveCore2YPlayer(
                         }
                         is Command.SelectTrack -> {
                             val active = child
+                            val state = active?.state?.value ?: continue
+                            val skipReason = state.trackSelectionSkipReason(command.type, command.id)
+                            if (skipReason != null) {
+                                if (loggedTrackSkips.add("$currentIndex:${command.type}:$skipReason")) {
+                                    AppLog.info(
+                                        category = "player.core2",
+                                        event = "track_selection_skipped",
+                                        message = "Track selection does not require a playback change",
+                                        attributes = mapOf("type" to command.type.name, "reason" to skipReason),
+                                    )
+                                }
+                                continue
+                            }
+                            val tracks =
+                                if (command.type ==
+                                    YTrackType.Audio
+                                ) {
+                                    state.audioTracks
+                                } else {
+                                    state.subtitleTracks
+                                }
+                            val preference = tracks.firstOrNull { it.id == command.id }?.preferenceIn(tracks)
+                            val currentItem = queueItems[currentIndex]
+                            val previousSelection =
+                                runtimeTrackSelections[currentItem.id]
+                                    ?: currentItem.initialTrackSelection ?: YInitialTrackSelection()
+                            runtimeTrackSelections[currentItem.id] =
+                                if (command.type == YTrackType.Audio) {
+                                    previousSelection.copy(audio = preference)
+                                } else {
+                                    previousSelection.copy(
+                                        subtitle = preference,
+                                        subtitlesDisabled =
+                                            command.id == "off",
+                                    )
+                                }
                             if (active
                                     ?.state
                                     ?.value
@@ -1741,7 +1802,16 @@ internal class AndroidAdaptiveCore2YPlayer(
                             ) {
                                 allowTunnel = false
                                 pendingPositionMs = globalChildPosition()
+                                AppLog.info(
+                                    category = "player.core2",
+                                    event = "track_selection_route_rebuild",
+                                    message = "Changing an active Tunnel track requires a new playback graph",
+                                    attributes = mapOf("type" to command.type.name, "reason" to "tunnel_track_change"),
+                                )
                                 rebuild(pendingPositionMs)
+                                // The new demux resolves the stable preference itself. Platform and
+                                // FFmpeg stream indexes need not agree, so never forward the old id.
+                                continue
                             }
                             child?.selectTrack(command.type, command.id)
                         }

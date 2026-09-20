@@ -58,6 +58,21 @@ subprojects {
         }
     }
 
+    // AGP resolves lint tools through detached configurations, which are not members of
+    // configurations and therefore do not receive the resolution strategy above.
+    dependencies.components.all {
+        allVariants {
+            withDependencies {
+                forEach { dependency ->
+                    val securityOverride = securityOverrides.getProperty("${dependency.group}:${dependency.name}")
+                    if (securityOverride != null) {
+                        dependency.version { require(securityOverride) }
+                    }
+                }
+            }
+        }
+    }
+
     dependencyLocking {
         // Security-overridden modules are reproducibly pinned by security-overrides.properties,
         // so an older committed lock entry must not veto the centrally forced patched version.

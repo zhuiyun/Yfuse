@@ -1,7 +1,5 @@
 package com.yfuse.feature.player
 
-import java.util.concurrent.atomic.AtomicInteger
-
 internal fun mpvDynamicRange(gamma: String): String =
     when (gamma.trim().lowercase()) {
         "pq" -> "HDR10 / PQ"
@@ -70,33 +68,57 @@ internal class MpvEndFileTracker {
 }
 
 /**
- * Poll window used by MDK after changing playback source.
- *
- * Polling runs on a worker dispatcher while encoder cleanup may resume on the main dispatcher, so
- * the counter is atomic rather than tied to either thread.
+ * Keeps the previous MDK status out of a replacement load. The window starts when setMedia is
+ * submitted, so neither encoder cleanup nor a burst of native events consumes its duration.
  */
-internal class FallbackSettleWindow(
-    private val requiredPolls: Int,
+internal class MdkLoadStateGate(
+    private val settleDurationMs: Long,
+    private val nowMs: () -> Long = { System.nanoTime() / 1_000_000L },
 ) {
-    private val polls = AtomicInteger(Int.MAX_VALUE)
+    private var epoch = 0L
+    private var submittedAtMs: Long? = null
 
     init {
-        require(requiredPolls >= 0) { "Fallback settle poll count must not be negative" }
+        require(settleDurationMs >= 0L)
     }
 
-    val ready: Boolean
-        get() = polls.get() >= requiredPolls
+    @get:Synchronized
+    val currentEpoch: Long get() = epoch
 
-    fun tick() {
-        polls.getAndUpdate { current ->
-            if (current == Int.MAX_VALUE) current else current + 1
+    @Synchronized
+    fun beginLoad(): Long {
+        submittedAtMs = null
+        return ++epoch
+    }
+
+    @Synchronized
+    fun isCurrent(expectedEpoch: Long): Boolean = expectedEpoch == epoch
+
+    @Synchronized
+    fun didSubmit(expectedEpoch: Long): Boolean {
+        if (!isCurrent(expectedEpoch)) return false
+        submittedAtMs = nowMs()
+        return true
+    }
+
+    @Synchronized
+    fun observe(
+        expectedEpoch: Long,
+        rawInvalid: Boolean,
+    ): MdkLoadStatus {
+        if (!isCurrent(expectedEpoch)) return MdkLoadStatus.Stale
+        val submitted = submittedAtMs ?: return MdkLoadStatus.Waiting
+        if (!rawInvalid) return MdkLoadStatus.Active
+        // The first source has no previous INVALID state to outlive.
+        return if (epoch > 1L && nowMs() - submitted < settleDurationMs) {
+            MdkLoadStatus.Waiting
+        } else {
+            MdkLoadStatus.Invalid
         }
     }
-
-    fun restart() {
-        polls.set(0)
-    }
 }
+
+internal enum class MdkLoadStatus { Stale, Waiting, Active, Invalid }
 
 /**
  * Requires the replacement media to leave MDK's terminal state before accepting a new end.

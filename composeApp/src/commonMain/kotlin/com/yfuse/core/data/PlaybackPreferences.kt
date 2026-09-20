@@ -193,6 +193,14 @@ class PlaybackPreferences(
         settings.putString(KEY_FRAME_RATE_MATCH, mode.storageValue)
     }
 
+    private val _showFrameRate = MutableStateFlow(settings.getBoolean(KEY_SHOW_FRAME_RATE, false))
+    val showFrameRate: StateFlow<Boolean> = _showFrameRate.asStateFlow()
+
+    fun setShowFrameRate(enabled: Boolean) {
+        _showFrameRate.value = enabled
+        settings.putBoolean(KEY_SHOW_FRAME_RATE, enabled)
+    }
+
     private val _audioPassthrough =
         MutableStateFlow(
             PlaybackAudioPassthrough.fromStorage(settings.getStringOrNull(KEY_AUDIO_PASSTHROUGH)),
@@ -605,6 +613,7 @@ class PlaybackPreferences(
         const val KEY_VIDEO_CACHE_SIZE = "player.videoCacheSize"
         const val KEY_YCORE_BUFFER_DURATION = "player.ycore.bufferDuration"
         const val KEY_FRAME_RATE_MATCH = "player.output.frameRateMatch"
+        const val KEY_SHOW_FRAME_RATE = "player.showFrameRate"
         const val KEY_AUDIO_PASSTHROUGH = "player.output.audioPassthrough"
         const val KEY_MEDIA_VERSION_PREFERENCE = "player.mediaVersionPreference"
         const val KEY_OPTIMIZATION_MODE = "player.optimizationMode"

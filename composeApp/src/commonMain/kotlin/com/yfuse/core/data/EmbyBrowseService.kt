@@ -177,7 +177,7 @@ internal class EmbyBrowseService(
                 when (kind) {
                     MediaContainerKind.BoxSet ->
                         client
-                            .get("${server.baseUrl}/Users/${server.userId}/Items") {
+                            .get("${server.baseUrl}/Users/${embyPath(server.userId)}/Items") {
                                 header("X-Emby-Token", server.accessToken)
                                 parameter("ParentId", containerId)
                                 parameter("Recursive", false)
@@ -287,7 +287,7 @@ internal class EmbyBrowseService(
             }
             val dto: ItemsResponseDto =
                 client
-                    .get("${server.baseUrl}/Users/${server.userId}/Items") {
+                    .get("${server.baseUrl}/Users/${embyPath(server.userId)}/Items") {
                         header("X-Emby-Token", server.accessToken)
                         parameter("ParentId", libraryId)
                         parameter("Recursive", true)
@@ -342,7 +342,7 @@ internal class EmbyBrowseService(
         ) {
             val dto: ItemsResponseDto =
                 client
-                    .get("${server.baseUrl}/Users/${server.userId}/Items") {
+                    .get("${server.baseUrl}/Users/${embyPath(server.userId)}/Items") {
                         header("X-Emby-Token", server.accessToken)
                         parameter("ParentId", libraryId)
                         parameter("Recursive", true)
@@ -391,7 +391,7 @@ internal class EmbyBrowseService(
 
         val cards: ItemsResponseDto =
             client
-                .get("${server.baseUrl}/Users/${server.userId}/Items") {
+                .get("${server.baseUrl}/Users/${embyPath(server.userId)}/Items") {
                     header("X-Emby-Token", server.accessToken)
                     parameter("Ids", pageIds.joinToString(","))
                     parameter("Recursive", true)
@@ -464,7 +464,7 @@ internal class EmbyBrowseService(
     private suspend fun findWatchLaterPlaylistId(server: SavedServer): String? {
         val playlists: ItemsResponseDto =
             client
-                .get("${server.baseUrl}/Users/${server.userId}/Items") {
+                .get("${server.baseUrl}/Users/${embyPath(server.userId)}/Items") {
                     header("X-Emby-Token", server.accessToken)
                     parameter("Recursive", true)
                     parameter("IncludeItemTypes", "Playlist")
@@ -524,7 +524,7 @@ internal class EmbyBrowseService(
     ): MediaContainerPage {
         val dto: ItemsResponseDto =
             client
-                .get("${server.baseUrl}/Users/${server.userId}/Items") {
+                .get("${server.baseUrl}/Users/${embyPath(server.userId)}/Items") {
                     header("X-Emby-Token", server.accessToken)
                     parameter("Recursive", true)
                     parameter(
@@ -639,7 +639,7 @@ internal class EmbyBrowseService(
     ): PersonalCollection {
         val dto: ItemsResponseDto =
             client
-                .get("${server.baseUrl}/Users/${server.userId}/Items") {
+                .get("${server.baseUrl}/Users/${embyPath(server.userId)}/Items") {
                     header("X-Emby-Token", server.accessToken)
                     parameter("Recursive", true)
                     parameter("Filters", "IsFavorite")

@@ -153,8 +153,8 @@ class PlayerStoreTest {
         }
 
     @Test
-    fun episode_metadata_starts_before_playback_negotiation_completes() =
-        runTest {
+    fun episode_metadata_waits_until_current_playback_negotiation_completes() =
+        runBlocking {
             val seriesRequested = CompletableDeferred<Unit>()
             val episodesRequested = CompletableDeferred<Unit>()
             var negotiationCompleted = false
@@ -163,19 +163,21 @@ class PlayerStoreTest {
                     addOrUpdate(SavedServer("id", "http://host:8096", "server", "u1", "user", "tok"))
                 }
             val repo =
-                testRepo(dispatcher = UnconfinedTestDispatcher(testScheduler)) { request ->
+                testRepo { request ->
                     when {
                         request.url.encodedPath.endsWith("/PlaybackInfo") -> {
-                            seriesRequested.await()
-                            episodesRequested.await()
+                            assertFalse(seriesRequested.isCompleted)
+                            assertFalse(episodesRequested.isCompleted)
                             negotiationCompleted = true
                             json("""{"MediaSources":[],"PlaySessionId":"session"}""")
                         }
                         request.url.encodedPath.contains("/Shows/s1/Episodes") -> {
+                            assertTrue(negotiationCompleted)
                             episodesRequested.complete(Unit)
                             json("""{"Items":[{"Id":"e1","Name":"第1集","Type":"Episode","IndexNumber":1}]}""")
                         }
                         request.url.encodedPath.endsWith("/Items/s1") -> {
+                            assertTrue(negotiationCompleted)
                             seriesRequested.complete(Unit)
                             json("""{"Id":"s1","Name":"剧集","Type":"Series"}""")
                         }
@@ -191,7 +193,7 @@ class PlayerStoreTest {
                     startPositionTicks = 0L,
                 ).create()
             try {
-                val state = store.states.first { !it.loading && !it.enrichmentPending }
+                val state = withTimeout(5_000L) { store.states.first { !it.loading && !it.enrichmentPending } }
                 assertNull(state.error)
                 assertTrue(negotiationCompleted)
                 assertEquals("e1", state.items.first().id)
@@ -293,13 +295,14 @@ class PlayerStoreTest {
 
     @Test
     fun episode_loads_series_queue_and_resume_position() =
-        runTest {
+        runBlocking {
+            // Negotiation resumes from Dispatchers.Default. Keep its catalog deadline on real time.
             val registry =
                 testRegistry().apply {
                     addOrUpdate(SavedServer("id", "http://host:8096", "server", "u1", "user", "tok"))
                 }
             val repo =
-                testRepo(dispatcher = UnconfinedTestDispatcher(testScheduler)) { request ->
+                testRepo { request ->
                     when {
                         request.url.encodedPath.endsWith("/PlaybackInfo") ->
                             json("""{"MediaSources":[],"PlaySessionId":"session-e2"}""")
@@ -329,7 +332,7 @@ class PlayerStoreTest {
                     startPositionTicks = 25_000_000L,
                 ).create()
 
-            val state = store.states.first { !it.loading && !it.enrichmentPending }
+            val state = withTimeout(5_000L) { store.states.first { !it.loading && !it.enrichmentPending } }
 
             assertEquals(listOf("e1", "e2"), state.items.map { it.id })
             assertEquals(listOf(2, 2), state.items.map { it.seasonNumber })
@@ -444,13 +447,13 @@ class PlayerStoreTest {
 
     @Test
     fun sibling_episode_transcodes_use_its_real_media_source_id() =
-        runTest {
+        runBlocking {
             val registry =
                 testRegistry().apply {
                     addOrUpdate(SavedServer("id", "http://host:8096", "server", "u1", "user", "tok"))
                 }
             val repo =
-                testRepo(dispatcher = UnconfinedTestDispatcher(testScheduler)) { request ->
+                testRepo { request ->
                     when {
                         request.url.encodedPath.endsWith("/PlaybackInfo") ->
                             json(
@@ -484,7 +487,7 @@ class PlayerStoreTest {
                     startPositionTicks = 0L,
                 ).create()
 
-            val state = store.states.first { !it.loading && !it.enrichmentPending }
+            val state = withTimeout(5_000L) { store.states.first { !it.loading && !it.enrichmentPending } }
             val sibling = state.items.single { it.id == "e2" }
 
             assertTrue("MediaSourceId=source-e2" in sibling.transcodeUrl, sibling.transcodeUrl)
@@ -499,13 +502,13 @@ class PlayerStoreTest {
 
     @Test
     fun next_episode_uses_hdr_preference_instead_of_media_source_order() =
-        runTest {
+        runBlocking {
             val registry =
                 testRegistry().apply {
                     addOrUpdate(SavedServer("id", "http://host:8096", "server", "u1", "user", "tok"))
                 }
             val repo =
-                testRepo(dispatcher = UnconfinedTestDispatcher(testScheduler)) { request ->
+                testRepo { request ->
                     when {
                         request.url.encodedPath.endsWith("/PlaybackInfo") ->
                             json("""{"MediaSources":[],"PlaySessionId":"session-e1"}""")
@@ -601,8 +604,7 @@ class PlayerStoreTest {
                 ).create()
 
             val next =
-                store.states
-                    .first { !it.loading && !it.enrichmentPending }
+                withTimeout(5_000L) { store.states.first { !it.loading && !it.enrichmentPending } }
                     .items
                     .single { it.id == "e2" }
 

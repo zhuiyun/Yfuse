@@ -50,6 +50,7 @@ import com.yfuse.core.network.validateEmbyServerEndpoint
 import com.yfuse.feature.servers.PlexAccountUiState
 import com.yfuse.feature.servers.ServersIntent
 import com.yfuse.feature.servers.ServersState
+import com.yfuse.feature.servers.rememberServerConnectionIntent
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
 import com.yfuse.core.designsystem.liquidGlass as glass
@@ -68,6 +69,7 @@ fun AddServerDialog(
     onIntent: (ServersIntent) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val sendIntent = rememberServerConnectionIntent(state, onIntent)
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
     val form = state.form
@@ -76,8 +78,8 @@ fun AddServerDialog(
     val endpointValidation = validateEmbyServerEndpoint(form.url, form.httpRiskAccepted)
     val requestLanScan =
         rememberLocalNetworkPermissionRequest(
-            onGranted = { onIntent(ServersIntent.Scan) },
-            onDenied = { onIntent(ServersIntent.LocalNetworkPermissionDenied) },
+            onGranted = { sendIntent(ServersIntent.Scan) },
+            onDenied = { sendIntent(ServersIntent.LocalNetworkPermissionDenied) },
         )
 
     GlassDialog(onDismiss = onDismiss, scrollable = false) {
@@ -129,7 +131,7 @@ fun AddServerDialog(
                         Row(
                             Modifier
                                 .fillMaxWidth()
-                                .pressable { onIntent(ServersIntent.SelectDiscovered(server)) }
+                                .pressable { sendIntent(ServersIntent.SelectDiscovered(server)) }
                                 .glass(GlassShapes.chip, palette.card2, palette.border)
                                 .padding(horizontal = 10.dp, vertical = 9.dp),
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -200,13 +202,13 @@ fun AddServerDialog(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         ProviderSegment("Emby", MediaServerKind.Emby, form.kind, Modifier.weight(1f)) {
-                            onIntent(ServersIntent.ProviderChanged(MediaServerKind.Emby))
+                            sendIntent(ServersIntent.ProviderChanged(MediaServerKind.Emby))
                         }
                         ProviderSegment("Jellyfin", MediaServerKind.Jellyfin, form.kind, Modifier.weight(1f)) {
-                            onIntent(ServersIntent.ProviderChanged(MediaServerKind.Jellyfin))
+                            sendIntent(ServersIntent.ProviderChanged(MediaServerKind.Jellyfin))
                         }
                         ProviderSegment("Plex", MediaServerKind.Plex, form.kind, Modifier.weight(1f)) {
-                            onIntent(ServersIntent.ProviderChanged(MediaServerKind.Plex))
+                            sendIntent(ServersIntent.ProviderChanged(MediaServerKind.Plex))
                         }
                     }
                 }
@@ -216,17 +218,17 @@ fun AddServerDialog(
                     placeholder = if (editing) "输入服务器名称" else "留空使用服务器名称",
                     enabled = !form.submitting,
                     divider = true,
-                ) { onIntent(ServersIntent.ServerNameChanged(it)) }
+                ) { sendIntent(ServersIntent.ServerNameChanged(it)) }
                 FormRow(label = "协议", divider = true, labelBottomPadding = 6.dp) {
                     Row(
                         modifier = Modifier.selectableGroup(),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         ProtocolSegment("HTTPS", form.https, Modifier.weight(1f)) {
-                            onIntent(ServersIntent.ProtocolChanged(true))
+                            sendIntent(ServersIntent.ProtocolChanged(true))
                         }
                         ProtocolSegment("HTTP", !form.https, Modifier.weight(1f)) {
-                            onIntent(ServersIntent.ProtocolChanged(false))
+                            sendIntent(ServersIntent.ProtocolChanged(false))
                         }
                     }
                 }
@@ -237,14 +239,14 @@ fun AddServerDialog(
                     enabled = !form.submitting,
                     keyboardType = KeyboardType.Uri,
                     divider = true,
-                ) { onIntent(ServersIntent.HostChanged(it)) }
+                ) { sendIntent(ServersIntent.HostChanged(it)) }
                 FormInput(
                     label = "端口",
                     value = form.port,
                     enabled = !form.submitting,
                     keyboardType = KeyboardType.Number,
                     divider = false,
-                ) { onIntent(ServersIntent.PortChanged(it)) }
+                ) { sendIntent(ServersIntent.PortChanged(it)) }
             }
             Spacer(Modifier.height(4.dp))
             FieldLabel("账号")
@@ -279,7 +281,7 @@ fun AddServerDialog(
                                     )
                                     OverlayButton(
                                         label = if (account == PlexAccountUiState.Idle) "使用 Plex 账号登录" else "重新登录",
-                                        onClick = { onIntent(ServersIntent.StartPlexAccountSignIn) },
+                                        onClick = { sendIntent(ServersIntent.StartPlexAccountSignIn) },
                                         modifier = Modifier.fillMaxWidth(),
                                         tone = OverlayButtonTone.Plain,
                                     )
@@ -326,7 +328,7 @@ fun AddServerDialog(
                                         )
                                         OverlayButton(
                                             label = "取消",
-                                            onClick = { onIntent(ServersIntent.CancelPlexAccountSignIn) },
+                                            onClick = { sendIntent(ServersIntent.CancelPlexAccountSignIn) },
                                             modifier = Modifier.weight(1f),
                                             tone = OverlayButtonTone.Plain,
                                         )
@@ -345,7 +347,7 @@ fun AddServerDialog(
                                             divider = false,
                                             password = true,
                                             keyboardType = KeyboardType.Number,
-                                        ) { onIntent(ServersIntent.PlexHomePinChanged(it)) }
+                                        ) { sendIntent(ServersIntent.PlexHomePinChanged(it)) }
                                     }
                                     account.error?.let {
                                         Text(it, style = AppTypography.caption.medium, color = palette.error)
@@ -358,7 +360,7 @@ fun AddServerDialog(
                                                     append(if (user.admin) "管理员" else "家庭用户")
                                                     if (user.pinProtected) append(" · 需要 PIN")
                                                 },
-                                        ) { onIntent(ServersIntent.SelectPlexHomeUser(user.id)) }
+                                        ) { sendIntent(ServersIntent.SelectPlexHomeUser(user.id)) }
                                     }
                                 }
                                 is PlexAccountUiState.SelectingServer -> {
@@ -372,7 +374,7 @@ fun AddServerDialog(
                                             title = server.name,
                                             subtitle =
                                                 "${if (server.owned) "自有" else "共享"} · ${server.routeCount} 条线路",
-                                        ) { onIntent(ServersIntent.SelectPlexCloudServer(server.id)) }
+                                        ) { sendIntent(ServersIntent.SelectPlexCloudServer(server.id)) }
                                     }
                                 }
                             }
@@ -385,7 +387,7 @@ fun AddServerDialog(
                         enabled = !form.submitting,
                         password = true,
                         divider = false,
-                    ) { onIntent(ServersIntent.PasswordChanged(it)) }
+                    ) { sendIntent(ServersIntent.PasswordChanged(it)) }
                 } else {
                     FormInput(
                         label = "用户名",
@@ -393,7 +395,7 @@ fun AddServerDialog(
                         placeholder = "输入用户名",
                         enabled = !form.submitting,
                         divider = true,
-                    ) { onIntent(ServersIntent.UsernameChanged(it)) }
+                    ) { sendIntent(ServersIntent.UsernameChanged(it)) }
                     FormInput(
                         label = "密码",
                         value = form.password,
@@ -401,7 +403,7 @@ fun AddServerDialog(
                         enabled = !form.submitting,
                         password = true,
                         divider = false,
-                    ) { onIntent(ServersIntent.PasswordChanged(it)) }
+                    ) { sendIntent(ServersIntent.PasswordChanged(it)) }
                 }
             }
 
@@ -432,7 +434,7 @@ fun AddServerDialog(
                                 modifier =
                                     Modifier
                                         .pressable(role = Role.RadioButton) {
-                                            onIntent(ServersIntent.SelectPublicUser(name))
+                                            sendIntent(ServersIntent.SelectPublicUser(name))
                                         }.semantics { this.selected = selected }
                                         .touchTarget()
                                         .glass(
@@ -472,7 +474,7 @@ fun AddServerDialog(
 
         OverlayButton(
             label = if (editing) "保存修改" else "连接到服务器",
-            onClick = { onIntent(ServersIntent.Submit) },
+            onClick = { sendIntent(ServersIntent.Submit) },
             modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
             tone = OverlayButtonTone.Primary,
             enabled =

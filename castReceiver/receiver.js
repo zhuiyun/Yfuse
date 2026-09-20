@@ -92,6 +92,13 @@
     return { revision, profile };
   }
 
+  function statusForLoad(load) {
+    const media = latestMediaStatus && latestMediaStatus.media;
+    const customData = media && media.customData;
+    const revision = customData && Number(customData.yfuseRevision);
+    return Number.isSafeInteger(revision) && revision === load.revision ? latestMediaStatus : null;
+  }
+
   function activeAtmosTrackConfirmed() {
     const audioManager = player.getAudioTracksManager && player.getAudioTracksManager();
     const active = audioManager && audioManager.getActiveTrack && audioManager.getActiveTrack();
@@ -108,28 +115,32 @@
     );
   }
 
-  function activeDolbyVisionConfirmed() {
-    const videoInfo = latestMediaStatus && latestMediaStatus.videoInfo;
+  function activeDolbyVisionConfirmed(status) {
+    const videoInfo = status && status.videoInfo;
     return Boolean(videoInfo && videoInfo.hdrType === cast.framework.messages.HdrType.DV);
   }
 
   function sendOutputReceipt(playbackConfirmed, detail) {
     const load = currentLoadFacts();
     if (!load) return;
+    const status = statusForLoad(load);
+    const confirmed = Boolean(
+      playbackConfirmed && status && status.playerState === cast.framework.messages.PlayerState.PLAYING,
+    );
     const facts = deviceFacts();
     const mediaSupported = supportsProfile(load.profile) === true;
     context.sendCustomMessage(namespace, undefined, {
       type: 'output.receipt',
       revision: load.revision,
-      playbackConfirmed,
+      playbackConfirmed: confirmed,
       dolbyVisionOutput:
-        playbackConfirmed &&
+        confirmed &&
         mediaSupported &&
         load.profile.dolbyVision === true &&
         facts.dolbyVision === true &&
-        activeDolbyVisionConfirmed(),
+        activeDolbyVisionConfirmed(status),
       dolbyAtmosOutput:
-        playbackConfirmed &&
+        confirmed &&
         mediaSupported &&
         load.profile.dolbyAtmos === true &&
         facts.dolbyAtmos === true &&
@@ -165,7 +176,18 @@
   player.addEventListener(
     cast.framework.events.EventType.MEDIA_STATUS,
     (event) => {
-      latestMediaStatus = event.mediaStatus || null;
+      const status = event.mediaStatus;
+      const media = status && status.media;
+      const revision = media && media.customData && Number(media.customData.yfuseRevision);
+      const load = currentLoadFacts();
+      // Late events and sparse statuses cannot attest to the current load. Retain a previously
+      // matched status, but never relabel an older media's evidence with the current revision.
+      if (load && Number.isSafeInteger(revision) && revision === load.revision) {
+        latestMediaStatus = status;
+      } else {
+        sendSessionState(undefined);
+        return;
+      }
       const playing =
         latestMediaStatus &&
         latestMediaStatus.playerState === cast.framework.messages.PlayerState.PLAYING;
@@ -214,6 +236,7 @@
         showError('手机发来的播放地址无效');
         return error;
       }
+      latestMediaStatus = null;
       showError(null);
       return request;
     },

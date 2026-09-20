@@ -50,7 +50,7 @@ internal class EmbyDetailService(
         embyApiCall("similar_items") {
             val dto: ItemsResponseDto =
                 client
-                    .get("${server.baseUrl}/Items/$itemId/Similar") {
+                    .get("${server.baseUrl}/Items/${embyPath(itemId)}/Similar") {
                         header("X-Emby-Token", server.accessToken)
                         parameter("UserId", server.userId)
                         parameter("Limit", limit)
@@ -106,6 +106,37 @@ internal class EmbyDetailService(
             }
         }
 
+    /** Reads the directory once for both next-up selection and the selected file's media facts. */
+    suspend fun resolveSeriesPlayback(
+        server: SavedServer,
+        seriesId: String,
+    ): Result<SeriesPlaybackResolution> =
+        embyApiCall("resolve_series_playback") {
+            val directory = fetchLocalEpisodeDirectory(server, seriesId, includePlaybackSources = true)
+            val projected = directory.map { item -> item to progress.project(server, item) }
+            val episode =
+                requireNotNull(selectLocalNextUp(server, projected) ?: directory.firstOrNull()) {
+                    "no episodes"
+                }
+            val selected = progress.project(server, episode)
+            val reusable = selected.hasPlaybackSourceSnapshot(seriesId)
+            val detail =
+                if (reusable) {
+                    selected.toMediaDetail()
+                } else {
+                    itemDetail(server, selected.Id, includeInheritedPeople = false, playbackOnly = true).getOrThrow()
+                }
+            logSeriesPlaybackSnapshot(server.kind.name, reusable)
+            SeriesPlaybackResolution(
+                target = PlayTarget(selected.Id, selected.UserData?.PlaybackPositionTicks ?: 0L),
+                detail = detail,
+                episodes =
+                    projected
+                        .takeIf { entries -> entries.all { (_, item) -> item.hasPlaybackSourceSnapshot(seriesId) } }
+                        ?.map { (_, item) -> item.toEpisode() },
+            )
+        }
+
     internal suspend fun fetchNextUp(
         server: SavedServer,
         seriesId: String,
@@ -117,7 +148,7 @@ internal class EmbyDetailService(
     ): BaseItemDto? {
         val dto: ItemsResponseDto =
             client
-                .get("${server.baseUrl}/Shows/$seriesId/Episodes") {
+                .get("${server.baseUrl}/Shows/${embyPath(seriesId)}/Episodes") {
                     header("X-Emby-Token", server.accessToken)
                     parameter("UserId", server.userId)
                     parameter("Limit", 1)
@@ -138,15 +169,21 @@ internal class EmbyDetailService(
     private suspend fun fetchLocalEpisodeDirectory(
         server: SavedServer,
         seriesId: String,
+        includePlaybackSources: Boolean = false,
     ): List<BaseItemDto> {
         val dto: ItemsResponseDto =
             client
-                .get("${server.baseUrl}/Shows/$seriesId/Episodes") {
+                .get("${server.baseUrl}/Shows/${embyPath(seriesId)}/Episodes") {
                     header("X-Emby-Token", server.accessToken)
                     parameter("UserId", server.userId)
                     parameter(
                         "Fields",
-                        "Overview,Chapters,ProviderIds,RunTimeTicks,UserData,PremiereDate",
+                        "Overview,Chapters,ProviderIds,RunTimeTicks,UserData,PremiereDate" +
+                            if (includePlaybackSources) {
+                                ",MediaSources,MediaStreams,Path,SeriesPrimaryImageTag"
+                            } else {
+                                ""
+                            },
                     )
                 }.body()
         return dto.Items
@@ -187,7 +224,7 @@ internal class EmbyDetailService(
         if (ids.isEmpty()) return emptyList()
         val cards: ItemsResponseDto =
             client
-                .get("${server.baseUrl}/Users/${server.userId}/Items") {
+                .get("${server.baseUrl}/Users/${embyPath(server.userId)}/Items") {
                     header("X-Emby-Token", server.accessToken)
                     parameter("Ids", ids.joinToString(","))
                     parameter(
@@ -252,7 +289,7 @@ internal class EmbyDetailService(
     ): List<BaseItemDto> {
         val dto: ItemsResponseDto =
             client
-                .get("${server.baseUrl}/Shows/$seriesId/Episodes") {
+                .get("${server.baseUrl}/Shows/${embyPath(seriesId)}/Episodes") {
                     header("X-Emby-Token", server.accessToken)
                     parameter("UserId", server.userId)
                     parameter(
@@ -279,11 +316,12 @@ internal class EmbyDetailService(
         server: SavedServer,
         itemId: String,
         includeInheritedPeople: Boolean = true,
+        playbackOnly: Boolean = false,
     ): Result<MediaDetail> =
         embyApiCall("item_detail") {
             val dto: BaseItemDto =
                 client
-                    .get("${server.baseUrl}/Users/${server.userId}/Items/$itemId") {
+                    .get("${server.baseUrl}/Users/${embyPath(server.userId)}/Items/${embyPath(itemId)}") {
                         header("X-Emby-Token", server.accessToken)
                         parameter(
                             "Fields",
@@ -291,9 +329,13 @@ internal class EmbyDetailService(
                             // them. BackdropImageTags is deliberately absent: it is not an ItemFields
                             // value — image tags come back on their own — and naming one Emby doesn't
                             // know risks the whole request rather than adding a field.
-                            "Overview,Genres,People,ParentBackdropItemId,ParentBackdropImageTags," +
-                                "SeriesPrimaryImageTag,MediaSources,MediaStreams," +
-                                "Path,DateCreated,Chapters,ProviderIds",
+                            if (playbackOnly) {
+                                "MediaSources,MediaStreams,Chapters,ProviderIds,Path,SeriesPrimaryImageTag"
+                            } else {
+                                "Overview,Genres,People,ParentBackdropItemId,ParentBackdropImageTags," +
+                                    "SeriesPrimaryImageTag,MediaSources,MediaStreams," +
+                                    "Path,DateCreated,Chapters,ProviderIds"
+                            },
                         )
                     }.body()
             val detail = progress.project(server, dto).toMediaDetail()
@@ -321,7 +363,7 @@ internal class EmbyDetailService(
             }
             val series: BaseItemDto =
                 client
-                    .get("${server.baseUrl}/Users/${server.userId}/Items/${detail.seriesId}") {
+                    .get("${server.baseUrl}/Users/${embyPath(server.userId)}/Items/${embyPath(detail.seriesId)}") {
                         header("X-Emby-Token", server.accessToken)
                         parameter("Fields", "People")
                     }.body()
@@ -336,7 +378,7 @@ internal class EmbyDetailService(
         embyApiCall("seasons") {
             val dto: ItemsResponseDto =
                 client
-                    .get("${server.baseUrl}/Shows/$seriesId/Seasons") {
+                    .get("${server.baseUrl}/Shows/${embyPath(seriesId)}/Seasons") {
                         header("X-Emby-Token", server.accessToken)
                         parameter("UserId", server.userId)
                     }.body()
@@ -353,7 +395,7 @@ internal class EmbyDetailService(
         embyApiCall("episodes") {
             val dto: ItemsResponseDto =
                 client
-                    .get("${server.baseUrl}/Shows/$seriesId/Episodes") {
+                    .get("${server.baseUrl}/Shows/${embyPath(seriesId)}/Episodes") {
                         header("X-Emby-Token", server.accessToken)
                         parameter("UserId", server.userId)
                         if (seasonId != null) parameter("SeasonId", seasonId)
@@ -388,7 +430,7 @@ internal class EmbyDetailService(
             val dto: BaseItemDto =
                 client
                     .get(
-                        "${server.baseUrl}/Users/${server.userId}/Items/$itemId",
+                        "${server.baseUrl}/Users/${embyPath(server.userId)}/Items/${embyPath(itemId)}",
                     ) {
                         header("X-Emby-Token", server.accessToken)
                         parameter("Fields", "Trickplay")
@@ -404,7 +446,7 @@ internal class EmbyDetailService(
         embyApiCall("emby_thumbnail_set") {
             val dto: EmbyThumbnailSetDto =
                 client
-                    .get("${server.baseUrl}/Items/$itemId/ThumbnailSet") {
+                    .get("${server.baseUrl}/Items/${embyPath(itemId)}/ThumbnailSet") {
                         header("X-Emby-Token", server.accessToken)
                         parameter("MediaSourceId", mediaSourceId)
                     }.body()

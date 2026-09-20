@@ -6,6 +6,29 @@ import kotlin.test.assertNull
 
 class PlaybackTrackRequestTest {
     @Test
+    fun incomplete_tracks_do_not_consume_the_language_and_each_applied_choice_is_acknowledged() {
+        val request = PlaybackTrackRequest()
+        request.set("movie", "zho", PlaybackTrackRequest.SUBTITLES_OFF)
+        val original = requireNotNull(request.peek("movie"))
+        request.acknowledge("movie", original, audioApplied = false, subtitleApplied = true)
+        assertEquals(PlaybackTrackRequest.Tracks("zho", null), request.peek("movie"))
+        val remaining = requireNotNull(request.peek("movie"))
+        request.acknowledge("movie", remaining, audioApplied = true, subtitleApplied = true)
+        assertNull(request.peek("movie"))
+    }
+
+    @Test
+    fun acknowledging_an_old_or_different_item_cannot_discard_a_new_choice() {
+        val request = PlaybackTrackRequest()
+        request.set("movie", "en")
+        val old = requireNotNull(request.peek("movie"))
+        request.set("movie", "zh")
+        request.acknowledge("movie", old, true, true)
+        request.acknowledge("other", requireNotNull(request.peek("movie")), true, true)
+        assertEquals("zh", request.peek("movie")?.audioLanguage)
+    }
+
+    @Test
     fun the_request_reaches_the_entry_it_was_made_for() {
         val request = PlaybackTrackRequest()
         request.set("item-1", audioLanguage = "chi", subtitleLanguage = "eng")

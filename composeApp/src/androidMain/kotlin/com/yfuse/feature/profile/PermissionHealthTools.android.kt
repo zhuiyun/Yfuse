@@ -26,6 +26,8 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.flatGlass
+import com.yfuse.core.network.localNetworkPermissionGranted
+import com.yfuse.core.network.localNetworkRuntimePermission
 
 @Composable
 actual fun PermissionHealthTools() {
@@ -90,14 +92,12 @@ actual fun PermissionHealthTools() {
         )
         SettingsDivider()
         PermissionHealthRow(
-            title = "局域网发现",
+            title = "局域网访问",
             healthy = snapshot.localNetwork,
             healthyLabel = if (Build.VERSION.SDK_INT < 36) "当前系统无需授权" else "已允许",
-            unavailableLabel = "仅自动发现服务器时需要 ›",
+            unavailableLabel = "连接家庭服务器、扫描和投屏时需要 ›",
             onClick = {
-                if (Build.VERSION.SDK_INT >= 36) {
-                    requestPermission.launch(Manifest.permission.NEARBY_WIFI_DEVICES)
-                }
+                localNetworkRuntimePermission()?.let { requestPermission.launch(it) }
             },
         )
         SettingsDivider()
@@ -150,9 +150,7 @@ private fun Context.permissionHealthSnapshot(): PermissionHealthSnapshot {
             Build.VERSION.SDK_INT < 33 ||
                 checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED,
         exactAlarms = Build.VERSION.SDK_INT < 31 || alarmManager.canScheduleExactAlarms(),
-        localNetwork =
-            Build.VERSION.SDK_INT < 36 ||
-                checkSelfPermission(Manifest.permission.NEARBY_WIFI_DEVICES) == PackageManager.PERMISSION_GRANTED,
+        localNetwork = localNetworkPermissionGranted(),
         camera = checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED,
         packageInstall = packageManager.canRequestPackageInstalls(),
     )

@@ -4,6 +4,9 @@ import android.content.Context
 import com.yfuse.core.data.PlaybackNetworkClass
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.network.currentPlaybackNetworkClass
+import com.yfuse.core.playback.PLAYBACK_PROXY_HEADER_TIMEOUT_MS
+import com.yfuse.core.playback.PlaybackProxyAdmission
+import com.yfuse.core.playback.PlaybackProxyHeaderReader
 import com.yfuse.core2.adaptive.YAdaptiveBandwidthEstimator
 import com.yfuse.core2.adaptive.YAdaptiveEncryptionMethod
 import com.yfuse.core2.adaptive.YAdaptiveSelectionConditions
@@ -44,11 +47,9 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
-import java.io.BufferedReader
 import java.io.ByteArrayOutputStream
 import java.io.Closeable
 import java.io.File
-import java.io.InputStreamReader
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
@@ -58,7 +59,6 @@ import java.security.MessageDigest
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutorService
-import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -173,6 +173,8 @@ internal class AndroidYCoreHttpProxy(
     },
     private val forwardCacheTargetUs: Long = 60_000_000L,
     cacheDirectory: File? = null,
+    private val connectionAdmission: PlaybackProxyAdmission = PlaybackProxyAdmission(),
+    private val headerTimeoutMs: Long = PLAYBACK_PROXY_HEADER_TIMEOUT_MS,
 ) : Closeable {
     private data class Route(
         val upstreamUri: String,
@@ -541,6 +543,7 @@ internal class AndroidYCoreHttpProxy(
     private val responsesStarted = ConcurrentHashMap.newKeySet<Socket>()
     private val closed = AtomicBoolean(false)
     private val requests = YCoreProxyRequests()
+    private val mediaSessions = AndroidProxyMediaSessions()
     private val activeRangeSources = ConcurrentHashMap.newKeySet<AndroidTransportMediaDataSource>()
     private val manifestDiscovery = AndroidAdaptiveManifestDiscovery()
     private val presentations = ConcurrentHashMap<String, AdaptivePresentation>()
@@ -548,10 +551,7 @@ internal class AndroidYCoreHttpProxy(
 
     @Volatile
     private var adaptivePlaybackFeedback: TimedAdaptivePlaybackFeedback? = null
-    private val workers: ExecutorService =
-        Executors.newCachedThreadPool { runnable ->
-            Thread(runnable, "YCore-HttpProxy-worker").apply { isDaemon = true }
-        }
+    private val workers: ExecutorService = connectionAdmission.workers("YCore-HttpProxy-worker")
     private val server = ServerSocket(0, LOOPBACK_BACKLOG, InetAddress.getByName(LOOPBACK_HOST))
     private val acceptThread =
         Thread(::acceptLoop, "YCore-HttpProxy-accept").apply {
@@ -768,6 +768,7 @@ internal class AndroidYCoreHttpProxy(
         // belongs here: range sources retain their cache/memory leases until their finally runs.
         runCatching { server.close() }
         activeRangeSources.forEach(AndroidTransportMediaDataSource::cancelReads)
+        mediaSessions.close()
         requests.close()
         manifestDiscovery.close()
         presentations.clear()
@@ -830,33 +831,43 @@ internal class AndroidYCoreHttpProxy(
                     }
                     break
                 }
+            val acceptedAtNs = System.nanoTime()
+            val admission = connectionAdmission.tryAcquire()
+            if (admission == null) {
+                runCatching { socket.close() }
+                continue
+            }
             val registration = requests.register { runCatching { socket.close() } }
-            if (registration == null) continue
+            if (registration == null) {
+                admission.close()
+                continue
+            }
             runCatching {
                 workers.execute {
                     try {
-                        socket.use { if (!closed.get()) serve(it) }
+                        socket.use { if (!closed.get()) serve(it, acceptedAtNs) }
                     } catch (_: Exception) {
                         // Closing a client can interrupt header reads before serve installs its response handling.
                     } finally {
                         responsesStarted.remove(socket)
                         registration.close()
+                        admission.close()
                     }
                 }
             }.onFailure {
                 registration.close()
+                admission.close()
                 runCatching { socket.close() }
             }
         }
     }
 
-    private fun serve(socket: Socket) {
-        socket.soTimeout = CLIENT_SOCKET_TIMEOUT_MS
-        val reader =
-            BufferedReader(
-                InputStreamReader(socket.getInputStream(), StandardCharsets.ISO_8859_1),
-            )
-        val requestLine = readProxyLine(reader, MAX_REQUEST_LINE_BYTES).orEmpty()
+    private fun serve(
+        socket: Socket,
+        acceptedAtNs: Long,
+    ) {
+        val reader = PlaybackProxyHeaderReader(socket, headerTimeoutMs, acceptedAtNs)
+        val requestLine = reader.readLine().orEmpty()
         val requestParts = requestLine.split(' ', limit = 3)
         val method = requestParts.getOrNull(0)?.uppercase().orEmpty()
         val requestTarget = requestParts.getOrNull(1).orEmpty()
@@ -905,7 +916,7 @@ internal class AndroidYCoreHttpProxy(
             writeEmptyResponse(socket, 404, "Not Found")
             return
         }
-        val headers = readRequestHeaders(reader)
+        val headers = reader.readHeaders()
         runCatching {
             if (route.hlsManifest) {
                 serveHls(socket, route, method)
@@ -991,20 +1002,6 @@ internal class AndroidYCoreHttpProxy(
                 ),
             hlsAbrResource = abr.copy(selectedVariantId = selected.variant.id),
         )
-    }
-
-    private fun readRequestHeaders(reader: BufferedReader): Map<String, String> {
-        val headers = linkedMapOf<String, String>()
-        repeat(MAX_REQUEST_HEADER_COUNT) {
-            val line = readProxyLine(reader, MAX_REQUEST_HEADER_BYTES) ?: return headers
-            if (line.isEmpty()) return headers
-            val separator = line.indexOf(':')
-            if (separator > 0) {
-                headers[line.substring(0, separator).trim().lowercase()] =
-                    line.substring(separator + 1).trim().take(MAX_REQUEST_HEADER_BYTES)
-            }
-        }
-        return headers
     }
 
     private fun serveHls(
@@ -1515,30 +1512,50 @@ internal class AndroidYCoreHttpProxy(
             serveSequential(socket, route, method)
             return
         }
-        val source =
-            AndroidTransportMediaDataSource(
-                uri = route.upstreamUri,
-                protocol = requireNotNull(route.upstreamUri.sourceProtocolOrNull()),
-                headers = route.upstreamHeadersWithUserAgent(),
-                credentials = route.credentialsFor(route.upstreamUri),
-                createTransport = ::trackedTransport,
-                initialMediaBitRateBitsPerSecond = route.mediaBitRateBitsPerSecond,
-                cacheDirectory = cacheDirectory.takeIf { route.cacheable },
-                cacheIdentity = route.cacheIdentity.takeIf { route.cacheable },
-                cacheMaximumBytes = cacheMaximumBytes.takeIf { route.cacheable } ?: 0L,
-                onNetworkSample =
-                    when {
-                        route.hlsAbrResource != null -> {
-                            val abr = route.hlsAbrResource
-                            { bytes: Long, durationMs: Long -> abr.session.recordNetworkSample(bytes, durationMs) }
-                        }
-                        route.dashAbrResource != null -> {
-                            val abr = route.dashAbrResource
-                            { bytes: Long, durationMs: Long -> abr.session.recordNetworkSample(bytes, durationMs) }
-                        }
-                        else -> null
-                    },
+        val upstreamHeaders = route.upstreamHeadersWithUserAgent()
+        val credentials = route.credentialsFor(route.upstreamUri)
+        val identity = route.cacheIdentity.takeIf { route.cacheable }
+        val maximumBytes = cacheMaximumBytes.takeIf { route.cacheable } ?: 0L
+        val lease =
+            mediaSessions.acquire(
+                AndroidProxyMediaIdentity(
+                    route.upstreamUri,
+                    upstreamHeaders.toMap(),
+                    credentials,
+                    identity,
+                    maximumBytes,
+                ),
             )
+        val source =
+            try {
+                AndroidTransportMediaDataSource(
+                    uri = route.upstreamUri,
+                    protocol = requireNotNull(route.upstreamUri.sourceProtocolOrNull()),
+                    headers = upstreamHeaders,
+                    credentials = credentials,
+                    createTransport = ::trackedTransport,
+                    initialMediaBitRateBitsPerSecond = route.mediaBitRateBitsPerSecond,
+                    cacheDirectory = cacheDirectory.takeIf { route.cacheable },
+                    cacheIdentity = identity,
+                    cacheMaximumBytes = maximumBytes,
+                    representationSession = lease.session,
+                    onNetworkSample =
+                        when {
+                            route.hlsAbrResource != null -> {
+                                val abr = route.hlsAbrResource
+                                { bytes: Long, durationMs: Long -> abr.session.recordNetworkSample(bytes, durationMs) }
+                            }
+                            route.dashAbrResource != null -> {
+                                val abr = route.dashAbrResource
+                                { bytes: Long, durationMs: Long -> abr.session.recordNetworkSample(bytes, durationMs) }
+                            }
+                            else -> null
+                        },
+                )
+            } catch (failure: Throwable) {
+                lease.close()
+                throw failure
+            }
         try {
             activeRangeSources.add(source)
             check(!closed.get()) { "Playback proxy is closed" }
@@ -1579,7 +1596,11 @@ internal class AndroidYCoreHttpProxy(
             }
         } finally {
             activeRangeSources.remove(source)
-            source.close()
+            try {
+                source.close()
+            } finally {
+                lease.close()
+            }
         }
     }
 
@@ -2022,14 +2043,10 @@ private fun String.sha256(): String =
 private const val LOOPBACK_HOST = "127.0.0.1"
 private const val LOOPBACK_BACKLOG = 8
 private const val ROUTE_PREFIX = "ycore-resource"
-private const val CLIENT_SOCKET_TIMEOUT_MS = 30_000
 private const val NETWORK_BUFFER_BYTES = 64 * 1024
 private const val MAX_HLS_MANIFEST_BYTES = 4 * 1024 * 1024
 private const val MAX_DASH_MANIFEST_BYTES = 8 * 1024 * 1024
 private const val MAX_ROUTES = 50_000
-private const val MAX_REQUEST_LINE_BYTES = 8 * 1024
-private const val MAX_REQUEST_HEADER_BYTES = 8 * 1024
-private const val MAX_REQUEST_HEADER_COUNT = 64
 private const val MAX_HLS_RELOAD_QUERY_PARAMETERS = 8
 private const val INITIAL_BANDWIDTH_BITS_PER_SECOND = 25_000_000L
 private const val STARTUP_BUFFER_US = 10_000_000L

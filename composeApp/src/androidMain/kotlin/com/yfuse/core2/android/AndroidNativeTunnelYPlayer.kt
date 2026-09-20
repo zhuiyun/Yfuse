@@ -11,7 +11,6 @@ import com.yfuse.core2.api.YPlayer
 import com.yfuse.core2.api.YPlayerDiagnostics
 import com.yfuse.core2.api.YPlayerOpenRequest
 import com.yfuse.core2.api.YPlayerState
-import com.yfuse.core2.api.YTrack
 import com.yfuse.core2.api.YTrackType
 import com.yfuse.core2.api.YVideoOutput
 import com.yfuse.core2.api.invalidateOutputEvidence
@@ -115,7 +114,12 @@ internal class AndroidNativeTunnelYPlayer(
     override fun pause() {
         if (released) return
         mutableState.updateState {
-            it.copy(playbackRequested = false, playing = false, buffering = false)
+            it.copy(
+                playbackRequested = false,
+                playing = false,
+                buffering = false,
+                diagnostics = it.diagnostics.copy(renderedFrameRate = null),
+            )
         }
         send(Command.Pause)
     }
@@ -123,7 +127,13 @@ internal class AndroidNativeTunnelYPlayer(
     override fun seekTo(positionMs: Long) {
         if (released) return
         val target = positionMs.coerceAtLeast(0L)
-        mutableState.updateState { it.copy(positionMs = target, buffering = it.playbackRequested) }
+        mutableState.updateState {
+            it.copy(
+                positionMs = target,
+                buffering = it.playbackRequested,
+                diagnostics = it.diagnostics.copy(renderedFrameRate = null),
+            )
+        }
         send(Command.Seek(target * MICROS_PER_MILLISECOND))
     }
 
@@ -340,6 +350,7 @@ internal class AndroidNativeTunnelYPlayer(
                 decoderName = decision.plan.decoderName,
                 runtimeCapabilityKey = decision.runtimeCapabilityKey(),
                 dolbyVisionConfig = decision.probe.dolbyVisionConfig,
+                audioPreference = item.initialTrackSelection?.audio,
             )
             prepared = true
             val snapshot = session.snapshot()
@@ -352,15 +363,7 @@ internal class AndroidNativeTunnelYPlayer(
                     currentIndex = currentIndex,
                     itemCount = request.items.size,
                     speed = 1f,
-                    audioTracks =
-                        listOf(
-                            YTrack(
-                                id = PRIMARY_AUDIO_TRACK_ID,
-                                type = YTrackType.Audio,
-                                label = "Primary audio",
-                                selected = true,
-                            ),
-                        ),
+                    audioTracks = session.audioTracks(),
                     error = null,
                     errorCategory = null,
                     diagnostics =
@@ -375,6 +378,7 @@ internal class AndroidNativeTunnelYPlayer(
                             videoWidth = decision.probe.playbackRequest.video.width,
                             videoHeight = decision.probe.playbackRequest.video.height,
                             frameRate = decision.probe.playbackRequest.video.frameRate,
+                            renderedFrameRate = null,
                             audioCodec = decision.probe.audioMime.orEmpty(),
                             dynamicRange = decision.plan.outputHdrType.name,
                             videoOutput = "等待 Tunnel 首帧",
@@ -435,6 +439,7 @@ internal class AndroidNativeTunnelYPlayer(
                                     "等待 HW_AV_SYNC 时钟"
                                 },
                             videoOutputVerified = snapshot.videoOutputVerified,
+                            renderedFrameRate = snapshot.renderedFrameRate,
                             renderer =
                                 if (snapshot.tunneledOutput) {
                                     "Tunnel sideband + HW_AV_SYNC AudioTrack"
@@ -620,7 +625,6 @@ private inline fun MutableStateFlow<YPlayerState>.updateState(transform: (YPlaye
     update(transform)
 }
 
-private const val PRIMARY_AUDIO_TRACK_ID = "audio:tunnel-primary"
 private const val MICROS_PER_MILLISECOND = 1_000L
 private const val STATE_PUBLISH_INTERVAL_NS = 200_000_000L
 private const val PUMP_IDLE_DELAY_MS = 2L

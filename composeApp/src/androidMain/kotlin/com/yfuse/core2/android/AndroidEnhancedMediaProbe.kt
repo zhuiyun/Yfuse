@@ -93,14 +93,14 @@ internal class AndroidEnhancedMediaProbe(
                 if (budget == null) {
                     probeUncached(item, knownDolbyEvidence, retainForPlayback, null)
                 } else {
-                    AndroidMetadataProbeLane.enhanced.run(
-                        timeoutMs = budget.remainingMs(),
-                        budget = budget,
-                        skipped = {
-                            budget.ensureActive()
-                            YCore2ProbeResult.Failure(YCore2ProbeFailure.SourceUnavailable)
-                        },
-                    ) { _ -> probeUncached(item, knownDolbyEvidence, retainForPlayback, budget) }
+                    runMetadataProbeStage(
+                        parent = budget,
+                        lane = AndroidMetadataProbeLane.enhanced,
+                        limitMs = 18_000L,
+                        stageName = "enhanced",
+                        reserveMs = 2_000L,
+                        unavailable = { YCore2ProbeResult.Failure(YCore2ProbeFailure.SourceUnavailable) },
+                    ) { stage -> probeUncached(item, knownDolbyEvidence, retainForPlayback, stage) }
                 }
             }
         budget?.ensureActive()
@@ -160,16 +160,30 @@ internal class AndroidEnhancedMediaProbe(
                 proxyCancellation = proxy?.let { budget?.onCancel(it::close) }
             }
             budget?.ensureActive()
-            val result =
-                demuxer.open(
+            val source =
+                (
                     proxy?.enhancedSource(item, probeOnly = !retainForPlayback)
-                        ?: enhancedDemuxSource(item, probeOnly = !retainForPlayback),
-                    budget = budget,
+                        ?: enhancedDemuxSource(item, probeOnly = !retainForPlayback)
+                ).copy(
+                    startupAnalysis = retainForPlayback && item.allowsShortDemuxAnalysis(),
                 )
+            var result = demuxer.open(source, budget = budget)
+            if (source.startupAnalysis && !result.hasRequiredStartupTracks(item)) {
+                AppLog.info(
+                    "player.core2",
+                    "demux_analysis_expanded",
+                    "Incomplete startup tracks require full analysis",
+                )
+                // Container hints are not proof. Reopen with the full analysis budget if incomplete.
+                budget?.ensureActive()
+                result = demuxer.open(source.copy(startupAnalysis = false), budget = budget)
+            }
             budget?.ensureActive()
             val videoTrack =
                 result.tracks.firstOrNull { it.type == YDemuxTrackType.Video && it.video != null }
-            val audioTrack = result.tracks.firstOrNull { it.type == YDemuxTrackType.Audio && it.audio != null }
+            val audioTrack =
+                result.tracks.preferredAudioTrack(item.initialTrackSelection?.audio)
+                    ?: result.tracks.firstOrNull { it.type == YDemuxTrackType.Audio && it.audio != null }
             val audio = audioTrack?.audio
             if (videoTrack == null) {
                 // Audio-only media reaches the enhanced probe whenever the platform extractor could
@@ -390,6 +404,7 @@ private fun YMediaItem.enhancedProbeCacheKey(): String =
             ?: "uri:$uri",
         mimeType.orEmpty(),
         (sourceHints?.dolbyVision == true).toString(),
+        initialTrackSelection?.orNull().toString(),
     ).joinToString("\u0000")
 
 private const val MAX_CACHED_ENHANCED_PROBES = 4

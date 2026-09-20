@@ -13,13 +13,18 @@ internal fun requireLocalNetworkPermission() {
 }
 
 actual fun localNetworkPermissionGranted(): Boolean {
-    // NEARBY_WIFI_DEVICES is only the Android 16 opt-in bridge for local-network
-    // protection. Requesting it on Android 13-15 would show an unrelated prompt even
-    // though those releases do not gate LAN sockets this way.
-    if (Build.VERSION.SDK_INT < 36) return true
+    val permission = localNetworkRuntimePermission(Build.VERSION.SDK_INT) ?: return true
     val context = androidAppContext ?: return true
     return ContextCompat.checkSelfPermission(
         context,
-        Manifest.permission.NEARBY_WIFI_DEVICES,
+        permission,
     ) == PackageManager.PERMISSION_GRANTED
 }
+
+/** Android 16 retains its opt-in bridge; Android 17 gates every LAN connection. */
+fun localNetworkRuntimePermission(sdk: Int = Build.VERSION.SDK_INT): String? =
+    when {
+        sdk >= 37 -> Manifest.permission.ACCESS_LOCAL_NETWORK
+        sdk == 36 -> Manifest.permission.NEARBY_WIFI_DEVICES
+        else -> null
+    }

@@ -4,6 +4,7 @@ import com.yfuse.core.playback.PlaybackDiscMenuCommand
 import com.yfuse.core.playback.PlaybackDiscNavigationState
 import com.yfuse.core.playback.PlaybackFailureKind
 import com.yfuse.core2.api.YDolbyAtmosOutputMode
+import com.yfuse.core2.api.YFrameRateSample
 import kotlinx.coroutines.flow.StateFlow
 import kotlin.math.roundToInt
 
@@ -193,6 +194,8 @@ data class PlaybackDiagnostics(
     val fallbackReason: String? = null,
     val bitrateBitsPerSecond: Long = 0L,
     val frameRate: Float = 0f,
+    /** Renderer output per elapsed second, distinct from the source's [frameRate]. */
+    val renderedFrameRate: YFrameRateSample? = null,
     val droppedFrames: Int = 0,
     /** Video presentation timestamp minus the active playback clock; null when unavailable. */
     val avSyncOffsetMs: Long? = null,

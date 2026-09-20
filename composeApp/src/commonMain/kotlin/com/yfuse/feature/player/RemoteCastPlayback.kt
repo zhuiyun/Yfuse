@@ -62,6 +62,7 @@ internal fun PlaybackState.withRemoteCast(
                     "Cast：DV ${cast.capabilities.dolbyVision.label} · Atmos ${cast.capabilities.dolbyAtmos.label}",
                 bitrateBitsPerSecond = 0L,
                 frameRate = 0f,
+                renderedFrameRate = null,
                 droppedFrames = 0,
                 bufferedDurationMs = 0L,
                 networkBitsPerSecond = 0L,

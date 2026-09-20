@@ -90,7 +90,7 @@ private suspend fun Throwable.toEmbyError(): EmbyError =
             when (response.status.value) {
                 401 -> EmbyError.Unauthorized
                 403 -> forbiddenError()
-                404 -> EmbyError.NotFound
+                404, 410 -> EmbyError.NotFound
                 in 500..599 -> EmbyError.Server(response.status.value)
                 else -> EmbyError.Unknown("HTTP ${response.status.value}")
             }

@@ -18,6 +18,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 /** A real modal material over a separate, static backdrop; never captures its own pane. */
@@ -26,14 +27,16 @@ fun GlassMaterialPreview(
     dark: Boolean,
     materials: GlassMaterials,
     modifier: Modifier = Modifier,
+    height: Dp = 232.dp,
 ) {
-    val palette = if (dark) DarkPalette else LightPalette
     val material = materials.forTheme(dark)
+    val opaqueGlass = LocalAccessibilityOptions.current.reduceTransparency || !supportsBackdropBlur
+    val palette = material.contentPalette(if (dark) DarkPalette else LightPalette, opaqueGlass)
     val backdrop = rememberBackdropState()
     Box(
         modifier
             .fillMaxWidth()
-            .height(232.dp)
+            .height(height)
             .clip(AppShapes.sheet)
             .clearAndSetSemantics {},
         contentAlignment = Alignment.Center,
@@ -70,7 +73,7 @@ fun GlassMaterialPreview(
                     .padding(24.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                ThemeText("YFUSE · GLASS", style = AppTypography.caption.strong, color = palette.text)
+                ThemeText(material.preset.label, style = AppTypography.caption.strong, color = palette.text)
                 ThemeText("光影，透过玻璃", style = AppTypography.section.strong, color = palette.text)
                 ThemeText("观察背景的色彩、边缘与透光变化", style = AppTypography.caption.regular, color = palette.dialogBody)
             }

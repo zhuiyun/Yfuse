@@ -1,5 +1,6 @@
 package com.yfuse.watch.account
 
+import com.yfuse.watch.protocol.PlaybackMissingEntity
 import kotlinx.serialization.Serializable
 import java.io.File
 import java.sql.Connection
@@ -42,6 +43,7 @@ internal data class PlaybackPushResponse(
     val cursor: Long,
     val accepted: List<PlaybackAcceptedEntity> = emptyList(),
     val conflicts: List<EncryptedPlaybackEntity> = emptyList(),
+    val missing: List<PlaybackMissingEntity> = emptyList(),
 )
 
 @Serializable
@@ -175,6 +177,7 @@ internal class PlaybackRelayStore private constructor(
                 var cursor = cursorLocked(userId)
                 val accepted = mutableListOf<PlaybackAcceptedEntity>()
                 val conflicts = mutableListOf<EncryptedPlaybackEntity>()
+                val missing = mutableListOf<PlaybackMissingEntity>()
                 normalized.forEach { item ->
                     val current = entityLocked(userId, item.entity.entityKey)
                     if (current?.mutationId == item.entity.mutationId) {
@@ -188,7 +191,12 @@ internal class PlaybackRelayStore private constructor(
                     }
                     val currentCursor = current?.cursor ?: 0L
                     if (currentCursor != item.baseCursor) {
-                        current?.let(conflicts::add)
+                        if (current != null) {
+                            conflicts += current
+                        } else {
+                            missing +=
+                                PlaybackMissingEntity(item.entity.entityKey, item.entity.mutationId, item.baseCursor)
+                        }
                         return@forEach
                     }
                     cursor++
@@ -211,7 +219,7 @@ internal class PlaybackRelayStore private constructor(
                 )
                 setCursorLocked(userId, cursor)
                 connection.commit()
-                PlaybackPushResponse(cursor = cursor, accepted = accepted, conflicts = conflicts)
+                PlaybackPushResponse(cursor = cursor, accepted = accepted, conflicts = conflicts, missing = missing)
             } catch (error: Throwable) {
                 runCatching { connection.rollback() }
                 throw error

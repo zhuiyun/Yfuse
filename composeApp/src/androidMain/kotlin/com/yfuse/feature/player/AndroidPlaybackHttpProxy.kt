@@ -5,26 +5,26 @@ import androidx.annotation.OptIn
 import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSpec
-import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.ContentMetadata
 import com.yfuse.core.logging.AppLog
-import java.io.BufferedReader
+import com.yfuse.core.playback.PLAYBACK_PROXY_HEADER_TIMEOUT_MS
+import com.yfuse.core.playback.PlaybackProxyAdmission
+import com.yfuse.core.playback.PlaybackProxyHeaderReader
+import okhttp3.Request
+import okhttp3.Response
 import java.io.Closeable
 import java.io.InputStream
-import java.io.InputStreamReader
 import java.net.CookieManager
 import java.net.CookiePolicy
-import java.net.HttpURLConnection
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
 import java.net.URI
-import java.net.URL
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.ExecutorService
-import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.min
 
@@ -40,9 +40,33 @@ internal class AndroidPlaybackHttpProxy(
     context: Context?,
     private val userAgent: String,
     videoCacheBytes: Long,
+    private val connectionAdmission: PlaybackProxyAdmission = PlaybackProxyAdmission(),
+    private val headerTimeoutMs: Long = PLAYBACK_PROXY_HEADER_TIMEOUT_MS,
 ) : Closeable {
     private val routes = PlaybackProxyRoutes()
     private val cookieManager = CookieManager(null, CookiePolicy.ACCEPT_ALL)
+    private val httpClient =
+        PlaybackHttpDataSource.client
+            .newBuilder()
+            .connectTimeout(UPSTREAM_CONNECT_TIMEOUT_MS.toLong(), TimeUnit.MILLISECONDS)
+            .readTimeout(UPSTREAM_READ_TIMEOUT_MS.toLong(), TimeUnit.MILLISECONDS)
+            .addNetworkInterceptor { chain ->
+                val original = chain.request()
+                val uri = original.url.toUri()
+                val cookies = cookieManager.get(uri, emptyMap())["Cookie"].orEmpty()
+                val outgoing =
+                    if (cookies.isEmpty()) {
+                        original
+                    } else {
+                        original
+                            .newBuilder()
+                            .header("Cookie", cookies.joinToString("; "))
+                            .build()
+                    }
+                chain.proceed(outgoing).also { response ->
+                    cookieManager.put(uri, response.headers.toMultimap())
+                }
+            }.build()
     private val cacheHandle =
         if (videoCacheBytes >
             0L
@@ -63,10 +87,7 @@ internal class AndroidPlaybackHttpProxy(
                 )
             }
         }
-    private val workers: ExecutorService =
-        Executors.newCachedThreadPool { runnable ->
-            Thread(runnable, "Yfuse-PlaybackHttpProxy-worker").apply { isDaemon = true }
-        }
+    private val workers: ExecutorService = connectionAdmission.workers("Yfuse-PlaybackHttpProxy-worker")
     private val server = ServerSocket(0, LOOPBACK_BACKLOG, InetAddress.getByName(LOOPBACK_HOST))
     private val acceptThread =
         Thread(::acceptLoop, "Yfuse-PlaybackHttpProxy-accept").apply {
@@ -105,12 +126,22 @@ internal class AndroidPlaybackHttpProxy(
     private fun acceptLoop() {
         while (!closed.get()) {
             val socket = runCatching { server.accept() }.getOrNull() ?: break
-            val request = requests.register(socket) ?: continue
+            val acceptedAtNs = System.nanoTime()
+            val admission = connectionAdmission.tryAcquire()
+            if (admission == null) {
+                runCatching { socket.close() }
+                continue
+            }
+            val request = requests.register(socket)
+            if (request == null) {
+                admission.close()
+                continue
+            }
             runCatching {
                 workers.execute {
                     try {
                         request.ensureOpen()
-                        serve(request)
+                        serve(request, acceptedAtNs)
                     } catch (error: Exception) {
                         if (!request.isCancelled) {
                             AppLog.warning(
@@ -121,21 +152,30 @@ internal class AndroidPlaybackHttpProxy(
                             )
                         }
                     } finally {
-                        requests.finish(request)
+                        try {
+                            requests.finish(request)
+                        } finally {
+                            admission.close()
+                        }
                     }
                 }
-            }.onFailure { requests.finish(request) }
+            }.onFailure {
+                try {
+                    requests.finish(request)
+                } finally {
+                    admission.close()
+                }
+            }
         }
     }
 
-    private fun serve(request: PlaybackProxyRequest) {
+    private fun serve(
+        request: PlaybackProxyRequest,
+        acceptedAtNs: Long,
+    ) {
         val socket = request.socket
-        socket.soTimeout = CLIENT_SOCKET_TIMEOUT_MS
-        val reader =
-            BufferedReader(
-                InputStreamReader(socket.getInputStream(), StandardCharsets.ISO_8859_1),
-            )
-        val requestLine = reader.readLine()?.take(MAX_REQUEST_LINE_LENGTH).orEmpty()
+        val reader = PlaybackProxyHeaderReader(socket, headerTimeoutMs, acceptedAtNs)
+        val requestLine = reader.readLine().orEmpty()
         val parts = requestLine.split(' ', limit = 3)
         val method = parts.getOrNull(0)?.uppercase().orEmpty()
         val routeId = parts.getOrNull(1)?.substringBefore('?')?.substringAfter("/$ROUTE_PREFIX/")
@@ -144,17 +184,7 @@ internal class AndroidPlaybackHttpProxy(
             return
         }
 
-        val requestHeaders = linkedMapOf<String, String>()
-        var headerCount = 0
-        while (headerCount++ < MAX_REQUEST_HEADER_COUNT) {
-            val line = reader.readLine() ?: break
-            if (line.isEmpty()) break
-            val separator = line.indexOf(':')
-            if (separator > 0) {
-                requestHeaders[line.substring(0, separator).trim().lowercase()] =
-                    line.substring(separator + 1).trim().take(MAX_REQUEST_HEADER_LENGTH)
-            }
-        }
+        val requestHeaders = reader.readHeaders()
         request.ensureOpen()
 
         val lease = routeId?.let(routes::acquire)
@@ -200,16 +230,7 @@ internal class AndroidPlaybackHttpProxy(
                     ?.let { put("Cookie", it.joinToString("; ")) }
             }
         val upstreamFactory =
-            DefaultHttpDataSource
-                .Factory()
-                .setAllowCrossProtocolRedirects(true)
-                .setConnectTimeoutMs(UPSTREAM_CONNECT_TIMEOUT_MS)
-                .setReadTimeoutMs(UPSTREAM_READ_TIMEOUT_MS)
-                .apply {
-                    userAgent.trim().takeIf(String::isNotEmpty)?.let { value ->
-                        setDefaultRequestProperties(mapOf("User-Agent" to value))
-                    }
-                }
+            PlaybackHttpDataSource.factory(userAgent)
         val dataSource =
             CacheDataSource
                 .Factory()
@@ -313,50 +334,49 @@ internal class AndroidPlaybackHttpProxy(
         val route = lease.route
         val socket = request.socket
         val upstreamUri = URI(route.upstreamUrl)
-        val connection = URL(route.upstreamUrl).openConnection() as HttpURLConnection
+        val builder =
+            Request
+                .Builder()
+                .url(route.upstreamUrl)
+                .method(method, null)
+                .header("Accept-Encoding", "identity")
+        userAgent.trim().takeIf(String::isNotEmpty)?.let { builder.header("User-Agent", it) }
+        FORWARDED_REQUEST_HEADERS.forEach { name ->
+            requestHeaders[name.lowercase()]?.let { builder.header(name, it) }
+        }
+        val call = httpClient.newCall(builder.build())
+        var responseStarted = false
         try {
-            request.attachUpstreamCancellation(connection::disconnect)
-            connection.instanceFollowRedirects = true
-            connection.connectTimeout = UPSTREAM_CONNECT_TIMEOUT_MS
-            connection.readTimeout = UPSTREAM_READ_TIMEOUT_MS
-            connection.requestMethod = method
-            connection.setRequestProperty("Accept-Encoding", "identity")
-            userAgent.trim().takeIf(String::isNotEmpty)?.let {
-                connection.setRequestProperty("User-Agent", it)
-            }
-            FORWARDED_REQUEST_HEADERS.forEach { name ->
-                requestHeaders[name.lowercase()]?.let { value ->
-                    connection.setRequestProperty(name, value)
+            request.attachUpstreamCancellation(call::cancel)
+            request.ensureOpen()
+            call.execute().use { connection ->
+                val status = connection.code
+                request.ensureOpen()
+                val body = connection.body?.byteStream()
+                val manifest = method == "GET" && connection.isHlsManifest(route.upstreamUrl)
+                if (manifest) {
+                    val bytes = body?.readBounded(MAX_HLS_MANIFEST_BYTES) ?: ByteArray(0)
+                    val rewritten =
+                        routes
+                            .rewriteManifest(
+                                parent = lease,
+                                manifest = bytes.toString(StandardCharsets.UTF_8),
+                                upstreamUrl = connection.request.url.toString(),
+                                localUrl = ::routeUrl,
+                            ).toByteArray(StandardCharsets.UTF_8)
+                    responseStarted = true
+                    writeResponse(socket, connection, status, rewritten.size.toLong())
+                    socket.getOutputStream().write(rewritten)
+                } else {
+                    responseStarted = true
+                    val length =
+                        connection.header("Content-Length")?.toLongOrNull()
+                            ?: connection.body?.contentLength() ?: UNKNOWN_LENGTH
+                    writeResponse(socket, connection, status, length)
+                    if (method == "GET") body?.copyTo(socket.getOutputStream(), NETWORK_BUFFER_BYTES)
                 }
+                socket.getOutputStream().flush()
             }
-            cookieManager
-                .get(upstreamUri, emptyMap())["Cookie"]
-                ?.takeIf(List<String>::isNotEmpty)
-                ?.let { connection.setRequestProperty("Cookie", it.joinToString("; ")) }
-
-            request.ensureOpen()
-            val status = connection.responseCode
-            request.ensureOpen()
-            runCatching { cookieManager.put(upstreamUri, connection.headerFields) }
-            val body = responseBody(connection)
-            val manifest = method == "GET" && connection.isHlsManifest(route.upstreamUrl)
-            if (manifest) {
-                val bytes = body?.readBounded(MAX_HLS_MANIFEST_BYTES) ?: ByteArray(0)
-                val rewritten =
-                    routes
-                        .rewriteManifest(
-                            parent = lease,
-                            manifest = bytes.toString(StandardCharsets.UTF_8),
-                            upstreamUrl = connection.url.toString(),
-                            localUrl = ::routeUrl,
-                        ).toByteArray(StandardCharsets.UTF_8)
-                writeResponse(socket, connection, status, rewritten.size.toLong())
-                socket.getOutputStream().write(rewritten)
-            } else {
-                writeResponse(socket, connection, status, connection.contentLengthLong)
-                if (method == "GET") body?.copyTo(socket.getOutputStream(), NETWORK_BUFFER_BYTES)
-            }
-            socket.getOutputStream().flush()
         } catch (error: Exception) {
             if (request.isCancelled) return
             AppLog.warning(
@@ -366,9 +386,9 @@ internal class AndroidPlaybackHttpProxy(
                 throwable = error,
                 attributes = mapOf("scheme" to upstreamUri.scheme.orEmpty()),
             )
-            runCatching { writeSimpleResponse(socket, 502, "Bad Gateway") }
+            if (!responseStarted) runCatching { writeSimpleResponse(socket, 502, "Bad Gateway") }
         } finally {
-            connection.disconnect()
+            call.cancel()
         }
     }
 
@@ -445,15 +465,15 @@ internal class AndroidPlaybackHttpProxy(
 
     private fun writeResponse(
         socket: Socket,
-        connection: HttpURLConnection,
+        connection: Response,
         status: Int,
         contentLength: Long,
     ) {
         val output = socket.getOutputStream()
-        val reason = connection.responseMessage?.takeIf(String::isNotBlank) ?: "Upstream"
+        val reason = connection.message.takeIf(String::isNotBlank) ?: "Upstream"
         output.write("HTTP/1.1 $status $reason\r\n".toByteArray(StandardCharsets.ISO_8859_1))
         FORWARDED_RESPONSE_HEADERS.forEach { name ->
-            connection.getHeaderField(name)?.let { value ->
+            connection.header(name)?.let { value ->
                 output.write("$name: $value\r\n".toByteArray(StandardCharsets.ISO_8859_1))
             }
         }
@@ -488,9 +508,6 @@ internal class AndroidPlaybackHttpProxy(
         socket.getOutputStream().write(response.toByteArray(StandardCharsets.ISO_8859_1))
         socket.getOutputStream().flush()
     }
-
-    private fun responseBody(connection: HttpURLConnection): InputStream? =
-        if (connection.responseCode >= 400) connection.errorStream else connection.inputStream
 }
 
 internal data class PlaybackHttpByteRange(
@@ -564,9 +581,9 @@ private fun InputStream.readBounded(limit: Int): ByteArray {
     return output.toByteArray()
 }
 
-private fun HttpURLConnection.isHlsManifest(originalUrl: String): Boolean {
-    val contentType = contentType.orEmpty().lowercase()
-    val path = runCatching { URI(url.toString()).path }.getOrNull().orEmpty().lowercase()
+private fun Response.isHlsManifest(originalUrl: String): Boolean {
+    val contentType = header("Content-Type").orEmpty().lowercase()
+    val path = request.url.encodedPath.lowercase()
     val originalPath = runCatching { URI(originalUrl).path }.getOrNull().orEmpty().lowercase()
     return "mpegurl" in contentType || path.endsWith(".m3u8") || originalPath.endsWith(".m3u8")
 }
@@ -574,15 +591,11 @@ private fun HttpURLConnection.isHlsManifest(originalUrl: String): Boolean {
 private const val LOOPBACK_HOST = "127.0.0.1"
 private const val LOOPBACK_BACKLOG = 8
 private const val ROUTE_PREFIX = "yfuse-media"
-private const val CLIENT_SOCKET_TIMEOUT_MS = 30_000
 private const val UPSTREAM_CONNECT_TIMEOUT_MS = 15_000
 private const val UPSTREAM_READ_TIMEOUT_MS = 30_000
 private const val UNKNOWN_LENGTH = -1L
 private const val NETWORK_BUFFER_BYTES = 64 * 1024
 private const val MAX_HLS_MANIFEST_BYTES = 4 * 1024 * 1024
-private const val MAX_REQUEST_LINE_LENGTH = 8 * 1024
-private const val MAX_REQUEST_HEADER_LENGTH = 8 * 1024
-private const val MAX_REQUEST_HEADER_COUNT = 64
 private val HTTP_BYTE_RANGE = Regex("^bytes=(\\d+)-(\\d*)$", RegexOption.IGNORE_CASE)
 private val CONTENT_RANGE_TOTAL = Regex("^bytes \\d+-\\d+/(\\d+|\\*)$", RegexOption.IGNORE_CASE)
 private val HLS_URI_ATTRIBUTE = Regex("URI=([\\\"'])(.*?)(?:\\1)")

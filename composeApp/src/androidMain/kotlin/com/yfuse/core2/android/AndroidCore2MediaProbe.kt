@@ -171,6 +171,17 @@ internal class AndroidCore2MediaProbe(
      */
     private val probeCache = LinkedHashMap<String, YCore2ProbeResult.Success>()
 
+    fun adopt(
+        item: YMediaItem,
+        prepared: PreparedCurrentItem,
+    ) {
+        synchronized(probeCacheLock) {
+            probeCache[item.probeCacheKey()] = prepared.probe
+            while (probeCache.size > MAX_CACHED_PROBES) probeCache.remove(probeCache.keys.first())
+        }
+        preparedExtractor.offer(item, prepared.extractor)
+    }
+
     fun probe(
         item: YMediaItem,
         budget: AndroidProbeBudget? = null,
@@ -183,14 +194,14 @@ internal class AndroidCore2MediaProbe(
                 if (budget == null) {
                     probeUncached(item, null)
                 } else {
-                    AndroidMetadataProbeLane.platform.run(
-                        timeoutMs = budget.remainingMs(),
-                        budget = budget,
-                        skipped = {
-                            budget.ensureActive()
-                            YCore2ProbeResult.Failure(YCore2ProbeFailure.SourceUnavailable)
-                        },
-                    ) { _ -> probeUncached(item, budget) }
+                    runMetadataProbeStage(
+                        parent = budget,
+                        lane = AndroidMetadataProbeLane.platform,
+                        limitMs = 8_000L,
+                        stageName = "platform",
+                        reserveMs = 2_000L,
+                        unavailable = { YCore2ProbeResult.Failure(YCore2ProbeFailure.SourceUnavailable) },
+                    ) { stage -> probeUncached(item, stage) }
                 }
             }
         budget?.ensureActive()
@@ -273,7 +284,9 @@ internal class AndroidCore2MediaProbe(
             val videoCodec =
                 effectiveVideoMime.toCore2VideoCodec(videoFormat, dolbyVisionConfig)
                     ?: return YCore2ProbeResult.Failure(YCore2ProbeFailure.UnknownVideoCodec)
-            val audioIndex = demux.findFirstTrack("audio/")
+            val audioIndex =
+                platformAudioTracks(demux.trackCount, demux::trackFormat)
+                    .initialAudioIndex(item.initialTrackSelection?.audio)
             val audioFormat = audioIndex?.let(demux::trackFormat)
             val audioMime = audioFormat?.getString(MediaFormat.KEY_MIME)?.lowercase()
             if (audioIndex == null && (item.sourceHints?.audioTrackCount ?: 0) > 0) {
@@ -344,7 +357,7 @@ internal class AndroidCore2MediaProbe(
      */
     private fun AndroidMediaExtractorDemuxNode.probeAudioOnly(item: YMediaItem): YCore2ProbeResult {
         val audioIndex =
-            findFirstTrack("audio/")
+            platformAudioTracks(trackCount, ::trackFormat).initialAudioIndex(item.initialTrackSelection?.audio)
                 ?: return YCore2ProbeResult.Failure(YCore2ProbeFailure.NoPlayableTrack)
         val audioFormat = trackFormat(audioIndex)
         val audioMime = audioFormat.getString(MediaFormat.KEY_MIME)?.lowercase()
@@ -515,6 +528,16 @@ internal class AndroidCore2RouteEvaluator(
 ) {
     private val appContext = context.applicationContext
     private val platformProbe = AndroidCore2MediaProbe(context)
+    val sourceFacts = kotlinx.coroutines.flow.MutableStateFlow<AndroidPlaybackProbeFacts?>(null)
+
+    fun adoptCurrentItem(
+        item: YMediaItem,
+        positionMs: Long,
+    ): Boolean {
+        val prepared = AndroidCurrentItemPreparation.claim(item, positionMs) ?: return false
+        platformProbe.adopt(item, prepared)
+        return true
+    }
 
     /** Separate resource ownership, identical decoder/optimization/quirk policy. */
     fun newPreparationEvaluator(): AndroidCore2RouteEvaluator =
@@ -584,10 +607,12 @@ internal class AndroidCore2RouteEvaluator(
         val resolved = rememberedProbe ?: resolveProbe(item, prepareSourceForPlayback, budget)
         budget?.ensureActive()
         if (resolved == null) {
+            sourceFacts.value = null
             closePreparedExtractor()
             closePreparedEnhancedDemux()
             return null
         }
+        sourceFacts.value = AndroidPlaybackProbeFacts(item, resolved)
         val decision =
             yCoreStartupStage("route_decision", item) {
                 decide(item, resolved, preferTunnel, allowAudioPassthrough, forcePowerSaver, budget)
@@ -910,6 +935,7 @@ private fun YMediaItem.probeCacheKey(): String =
         (drmConfiguration != null).toString(),
         (sourceHints?.dolbyVision == true).toString(),
         (sourceHints?.audioTrackCount ?: 0).toString(),
+        initialTrackSelection?.orNull().toString(),
         (disc != null).toString(),
     ).joinToString("\u0000")
 

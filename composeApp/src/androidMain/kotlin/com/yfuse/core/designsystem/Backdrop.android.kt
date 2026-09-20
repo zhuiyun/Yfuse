@@ -31,6 +31,8 @@ uniform shader content;
 uniform float2 size;
 uniform float2 edge;
 uniform float strength;
+uniform float fluted;
+uniform float fluteWidth;
 
 half4 main(float2 position) {
     float2 uv = position / size;
@@ -45,7 +47,13 @@ half4 main(float2 position) {
     } else if (uv.y > 1.0 - edge.y) {
         shift.y = -(1.0 - (1.0 - uv.y) / edge.y);
     }
-    return content.eval(position + shift * strength);
+    float2 samplePosition = position + shift * strength;
+    if (fluted > 0.0) {
+        float period = max(fluteWidth, 1.0);
+        samplePosition.x += sin(position.x / period * 6.2831853) * period * 0.1375 * fluted;
+        samplePosition = clamp(samplePosition, float2(0.0), size);
+    }
+    return content.eval(samplePosition);
 }
 """
 
@@ -59,11 +67,12 @@ actual fun refractiveBlurEffect(
     heightPx: Float,
     refraction: BackdropRefraction,
     strengthPx: Float,
+    fluteWidthPx: Float,
     saturation: Float,
 ): RenderEffect? {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return null
     if (widthPx <= 0f || heightPx <= 0f) return null
-    return buildRefractiveBlurEffect(blurRadiusPx, widthPx, heightPx, refraction, strengthPx, saturation)
+    return buildRefractiveBlurEffect(blurRadiusPx, widthPx, heightPx, refraction, strengthPx, fluteWidthPx, saturation)
 }
 
 actual fun saturatedBlurEffect(
@@ -90,6 +99,7 @@ private fun buildRefractiveBlurEffect(
     heightPx: Float,
     refraction: BackdropRefraction,
     strengthPx: Float,
+    fluteWidthPx: Float,
     saturation: Float,
 ): RenderEffect {
     val shader =
@@ -97,6 +107,8 @@ private fun buildRefractiveBlurEffect(
             setFloatUniform("size", widthPx, heightPx)
             setFloatUniform("edge", refraction.edgeX, refraction.edgeY)
             setFloatUniform("strength", strengthPx)
+            setFloatUniform("fluted", refraction.fluted)
+            setFloatUniform("fluteWidth", fluteWidthPx)
         }
     val refract = AndroidRenderEffect.createRuntimeShaderEffect(shader, "content")
     if (blurRadiusPx <= 0f) return refract.saturated(saturation).asComposeRenderEffect()

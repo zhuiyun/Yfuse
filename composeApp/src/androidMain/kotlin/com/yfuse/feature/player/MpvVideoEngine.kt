@@ -1312,7 +1312,7 @@ class MpvVideoEngine(
     }
 
     override val releaseCompleted: Boolean
-        get() = released && nativeTeardown.isCompleted
+        get() = released && nativeTeardown.isCompleted && !nativeTeardown.isCancelled
 
     override suspend fun releaseAndJoin() {
         release()
@@ -1369,13 +1369,15 @@ class MpvVideoEngine(
         thread(name = "mpv-release", isDaemon = true) {
             try {
                 tracePlaybackRelease("Mpv.native") {
-                    runCatching {
-                        stage("stop") { instance.command(arrayOf("stop")) }
-                        stage("nativeDestroy") { instance.destroy() }
-                    }.onFailure { logTeardownFailure(it) }
+                    runCatching { stage("stop") { instance.command(arrayOf("stop")) } }
+                        .onFailure { logTeardownFailure(it) }
+                    // A failed stop command does not discharge native ownership or skip destroy.
+                    stage("nativeDestroy") { instance.destroy() }
                 }
-            } finally {
                 nativeTeardown.complete(Unit)
+            } catch (error: Throwable) {
+                nativeTeardown.completeExceptionally(error)
+                logTeardownFailure(error)
             }
         }
     }

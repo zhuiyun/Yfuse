@@ -8,14 +8,16 @@ search surface from any tab.
 
 ## Supported Android devices
 
-The distributed APK targets Android API 36, requires Android 8.0/API 26 or newer,
+The last delivered phone APK targets Android API 36, requires Android 8.0/API 26 or newer,
 and currently contains only the `arm64-v8a` ABI. It does not support 32-bit-only
 devices, x86/x86_64 Android emulators, or x86 Chromebooks.
 
 ## Build
 
 The build uses AGP 9.1.1, Kotlin 2.4.20, and Android SDK Platform 37.0. Install
-`platforms;android-37.0` before building; the application's target SDK remains 36.
+`platforms;android-37.0` before building. The current phone, TV and performance-test
+source targets Android API 37; that migration is newer than the last delivered APK.
+See [the Android 17 migration and device validation checklist](docs/ANDROID17_MIGRATION_20260920.md).
 `:composeApp` and `:tvApp` own Android packaging, manifests, signing, and runtime
 dependencies. `:phoneShared` and `:tvShared` compile their existing KMP source trees
 using the Android KMP library plugin. See [the migration notes](docs/AGP9_MIGRATION_20260916.md).

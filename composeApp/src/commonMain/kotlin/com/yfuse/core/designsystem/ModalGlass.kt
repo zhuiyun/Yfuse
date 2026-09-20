@@ -13,6 +13,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.unit.dp
 
 internal val LocalDialogBackdrop = staticCompositionLocalOf<BackdropState?> { null }
@@ -51,22 +52,19 @@ fun Modifier.mutedGlassPanel(
     // In-window player panels must never sample a root layer that contains themselves.
     val backdrop = LocalDialogBackdrop.current.takeIf { samplePage }
     val opaque = LocalAccessibilityOptions.current.reduceTransparency || backdrop?.active != true
-    val material = LocalGlassMaterials.current.forTheme(dark)
-    // Without a backdrop (including reduced transparency), light text tokens need their
-    // light surface. Making the translucent grey tint opaque leaves captions hard to read.
-    val tint =
-        when {
-            dark -> material.tint(true)
-            opaque -> LightPalette.background
-            else -> material.tint(false)
-        }
-    val body = if (opaque) tint.copy(alpha = 1f) else tint
+    val material = LocalGlassMaterials.current.forTheme(dark).normalized(dark)
+    // One definition of the fill, shared with the ink decision in [GlassMaterial.resolvedInk], so
+    // the text colour is always chosen against the surface that is actually painted.
+    val body = material.panelBody(dark, opaque)
+    val rimStart = material.rim * if (dark) 0.73f else 1f
+    val rimSide = material.rim * (0.13f + material.prism * 0.87f)
+    val rimEnd = material.rim * (0.53f + material.prism * 0.47f)
     val rim =
         Brush.linearGradient(
-            0f to Color.White.copy(alpha = if (dark) 0.22f else 0.30f),
-            0.38f to Color.White.copy(alpha = 0.06f),
-            0.70f to Color.White.copy(alpha = 0.04f),
-            1f to Color.White.copy(alpha = 0.16f),
+            0f to lerp(Color.White, Color(0xFFBCF9EB), material.prism).copy(alpha = rimStart),
+            0.38f to Color.White.copy(alpha = material.rim * 0.20f),
+            0.70f to lerp(Color.White, Color(0xFFDBA9FF), material.prism).copy(alpha = rimSide),
+            1f to lerp(Color.White, Color(0xFFFFD9BC), material.prism).copy(alpha = rimEnd),
         )
     return this
         .then(
@@ -74,9 +72,20 @@ fun Modifier.mutedGlassPanel(
                 Modifier.backdropBlur(
                     backdrop,
                     shape,
-                    radius = 22.dp,
-                    saturation = 1.12f,
-                    refraction = BackdropRefraction(edgeX = 0.08f, edgeY = 0.10f, strength = 3.dp),
+                    radius = material.blur.dp,
+                    saturation = material.saturation,
+                    refraction =
+                        if (material.refraction > 0f || material.fluted > 0f) {
+                            BackdropRefraction(
+                                edgeX = 0.08f,
+                                edgeY = 0.10f,
+                                strength = material.refraction.dp,
+                                fluted = material.fluted,
+                                fluteWidth = material.fluteWidth.dp,
+                            )
+                        } else {
+                            null
+                        },
                 )
             } else {
                 Modifier
@@ -92,7 +101,8 @@ fun Modifier.mutedGlassPanel(
                 0.30f to Color.Transparent,
                 1f to Color.Black.copy(alpha = if (opaque) 0f else 0.025f),
             ),
-        ).border(0.6.dp, rim, shape)
+        ).glassMaterialFinish(material, dark, opaque)
+        .border(material.rimWidth.dp, rim, shape)
 }
 
 /** Nested controls inherit the modal's quiet material, including callers with white fills. */

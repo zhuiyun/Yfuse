@@ -24,7 +24,7 @@ internal class EmbyUserDataService(
         favorite: Boolean,
     ): Result<Unit> =
         embyApiCall("set_favorite") {
-            val url = "${server.baseUrl}/Users/${server.userId}/FavoriteItems/$itemId"
+            val url = "${server.baseUrl}/Users/${embyPath(server.userId)}/FavoriteItems/${embyPath(itemId)}"
             if (favorite) {
                 client.post(url) { header("X-Emby-Token", server.accessToken) }
             } else {
@@ -38,7 +38,7 @@ internal class EmbyUserDataService(
         played: Boolean,
     ): Result<Unit> =
         embyApiCall("set_played") {
-            val url = "${server.baseUrl}/Users/${server.userId}/PlayedItems/$itemId"
+            val url = "${server.baseUrl}/Users/${embyPath(server.userId)}/PlayedItems/${embyPath(itemId)}"
             if (played) {
                 client.post(url) { header("X-Emby-Token", server.accessToken) }
             } else {
@@ -81,7 +81,7 @@ internal class EmbyUserDataService(
             val dto: ItemsResponseDto =
                 try {
                     client
-                        .get("${server.baseUrl}/Users/${server.userId}/Items") {
+                        .get("${server.baseUrl}/Users/${embyPath(server.userId)}/Items") {
                             header("X-Emby-Token", server.accessToken)
                             parameter("Recursive", true)
                             parameter("IncludeItemTypes", "Movie,Series,Episode")

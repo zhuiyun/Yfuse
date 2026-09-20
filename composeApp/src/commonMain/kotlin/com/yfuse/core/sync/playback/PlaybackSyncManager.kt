@@ -285,6 +285,7 @@ class PlaybackSyncManager(
                         lastSyncedAtEpochMs = nowEpochMs(),
                         error = null,
                     )
+                if (store.pending(1).isNotEmpty()) scheduleCloudRetry(CLOUD_DEBOUNCE_MS)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Throwable) {
@@ -364,15 +365,21 @@ class PlaybackSyncManager(
                         stored to PlaybackPutItem(baseCursor, encrypted)
                     }
                 }
-            if (prepared.isEmpty()) return
+            if (prepared.isEmpty()) throw PlaybackPushNoProgressException()
             val response =
                 cloud.push(
                     accessToken,
                     PlaybackPushRequest(prepared.map { it.second }),
                 )
+            var madeProgress = false
             response.accepted.forEach { accepted ->
                 val local =
-                    prepared.firstOrNull { it.second.entity.entityKey == accepted.entityKey }?.first
+                    prepared
+                        .firstOrNull {
+                            it.second.entity.entityKey == accepted.entityKey &&
+                                it.second.entity.mutationId == accepted.mutationId &&
+                                accepted.cursor > 0L
+                        }?.first
                         ?: return@forEach
                 store.markUploaded(
                     mediaKey = local.document.state.mediaKey,
@@ -383,8 +390,13 @@ class PlaybackSyncManager(
                     cursor = accepted.cursor,
                     profileId = local.document.state.profileId,
                 )
+                madeProgress = true
             }
             response.conflicts.forEach { conflict ->
+                val sent =
+                    prepared.firstOrNull { it.second.entity.entityKey == conflict.entityKey }?.second
+                        ?: return@forEach
+                if (conflict.cursor <= 0L || conflict.cursor == sent.baseCursor) return@forEach
                 val remote =
                     cipher.decrypt(conflict)
                         ?: throw PlaybackEntityDecryptException(conflict.entityKey)
@@ -394,6 +406,7 @@ class PlaybackSyncManager(
                         entityKey = conflict.entityKey,
                         cursor = conflict.cursor,
                     )
+                madeProgress = true
                 if (applied.changedLocal && remote.state.deviceId != store.deviceId) {
                     store.enqueueServerApply(
                         document = applied.document,
@@ -401,6 +414,18 @@ class PlaybackSyncManager(
                     )
                 }
             }
+            response.missing.forEach { missing ->
+                val sent =
+                    prepared.firstOrNull {
+                        it.second.entity.entityKey == missing.entityKey &&
+                            it.second.entity.mutationId == missing.mutationId &&
+                            it.second.baseCursor == missing.baseCursor
+                    } ?: return@forEach
+                if (store.resetMissingRemoteCursor(sent.first, missing.entityKey, missing.baseCursor)) {
+                    madeProgress = true
+                }
+            }
+            if (!madeProgress) throw PlaybackPushNoProgressException()
         }
     }
 
@@ -689,6 +714,8 @@ internal fun playbackServerApplyFailurePolicy(error: Throwable?): PlaybackServer
     }
 
 internal const val PLAYBACK_SERVER_ACCESS_DENIED_COOLDOWN_MS = 30 * 60_000L
+
+private class PlaybackPushNoProgressException : IllegalStateException("云端未确认播放记录，本地记录已保留，稍后重试")
 
 private class PlaybackEntityDecryptException(
     entityKey: String,

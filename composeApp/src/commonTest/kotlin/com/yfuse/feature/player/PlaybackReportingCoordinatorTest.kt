@@ -4,12 +4,15 @@ import com.russhwolf.settings.MapSettings
 import com.yfuse.core.data.PlaybackEventOutbox
 import com.yfuse.core.data.PlaybackOutboxEventKind
 import com.yfuse.core.model.SavedServer
+import com.yfuse.core.network.EmbyError
+import com.yfuse.core.network.EmbyErrorException
 import com.yfuse.feature.json
 import com.yfuse.feature.testRegistry
 import com.yfuse.feature.testRepo
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -17,6 +20,41 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class PlaybackReportingCoordinatorTest {
+    @Test
+    fun an_authentication_blocked_head_does_not_spin_on_later_ready_events() =
+        runTest {
+            var requests = 0
+            val repo =
+                testRepo {
+                    requests++
+                    json("{}")
+                }
+            val registry = testRegistry()
+            registry.addOrUpdate(
+                SavedServer("server", "https://emby.example", "Emby", "user", "User", "token"),
+            )
+            val outbox = PlaybackEventOutbox(MapSettings())
+            enqueue(outbox, PlaybackOutboxEventKind.Started, 10L)
+            enqueue(outbox, PlaybackOutboxEventKind.Progress, 20L)
+            outbox.flush("server") { Result.failure(EmbyErrorException(EmbyError.Unauthorized)) }
+            val coordinator = PlaybackReportingCoordinator(repo, registry, outbox, scope = backgroundScope)
+
+            coordinator.flushPending()
+            runCurrent()
+
+            assertEquals(0, requests)
+            assertEquals(2, outbox.events.value.size)
+            assertTrue(
+                outbox.events.value
+                    .first()
+                    .authenticationRequired,
+            )
+            coordinator.resumeAfterAuthentication("server")
+            runCurrent()
+            assertEquals(2, requests)
+            assertTrue(outbox.events.value.isEmpty())
+        }
+
     @Test
     fun concurrentFlushPassesShareTheOrderedServerLane() =
         runTest {

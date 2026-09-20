@@ -75,6 +75,7 @@ data class YDualDolbyEvidenceState(
 /** Atomically removes stale video and audio proof from a published diagnostics snapshot. */
 fun YPlayerDiagnostics.invalidateOutputEvidence(reason: YOutputEvidenceResetReason): YPlayerDiagnostics =
     copy(
+        renderedFrameRate = null,
         outputEvidenceGeneration = outputEvidenceGeneration + 1L,
         outputEvidenceResetReason = reason,
         videoOutputVerified = false,

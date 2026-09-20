@@ -38,8 +38,8 @@ internal class AndroidFfmpegSoftwareDecoderNode(
 ) {
     private var videoTrackId: YTrackId? = null
     private var audioTrackId: YTrackId? = null
-    private var videoBuffer = ByteBuffer.allocateDirect(INITIAL_VIDEO_FRAME_BYTES)
-    private var audioBuffer = ByteBuffer.allocateDirect(INITIAL_AUDIO_FRAME_BYTES)
+    private val videoStorage = AndroidPlaybackStagingBuffer(1, MAX_VIDEO_FRAME_BYTES)
+    private val audioStorage = AndroidPlaybackStagingBuffer(1, MAX_AUDIO_FRAME_BYTES)
 
     val available: Boolean get() = demuxer.softwareDecodeAvailable
 
@@ -65,6 +65,7 @@ internal class AndroidFfmpegSoftwareDecoderNode(
     fun receiveVideo(): YSoftwareVideoDecodeResult {
         val trackId = requireNotNull(videoTrackId)
         repeat(MAX_GROW_RETRIES) {
+            val videoBuffer = videoStorage.get()
             val result = demuxer.receiveSoftwareVideoFrame(trackId, videoBuffer)
             require(result.size >= SOFTWARE_FRAME_RESULT_FIELDS) { "Invalid FFmpeg software video result" }
             when (result[SOFTWARE_FRAME_STATUS]) {
@@ -75,7 +76,7 @@ internal class AndroidFfmpegSoftwareDecoderNode(
                     require(required in 1..MAX_VIDEO_FRAME_BYTES.toLong()) {
                         "FFmpeg software video frame exceeds the Kotlin safety limit"
                     }
-                    videoBuffer = ByteBuffer.allocateDirect(required.toInt())
+                    videoStorage.grow(required.toInt())
                 }
                 SOFTWARE_FRAME_DATA -> {
                     val size = result[SOFTWARE_FRAME_SIZE].validSize(videoBuffer, MAX_VIDEO_FRAME_BYTES)
@@ -100,6 +101,7 @@ internal class AndroidFfmpegSoftwareDecoderNode(
     fun receiveAudio(): YSoftwareAudioDecodeResult {
         val trackId = requireNotNull(audioTrackId)
         repeat(MAX_GROW_RETRIES) {
+            val audioBuffer = audioStorage.get()
             val result = demuxer.receiveSoftwareAudioFrame(trackId, audioBuffer)
             require(result.size >= SOFTWARE_FRAME_RESULT_FIELDS) { "Invalid FFmpeg software audio result" }
             when (result[SOFTWARE_FRAME_STATUS]) {
@@ -110,7 +112,7 @@ internal class AndroidFfmpegSoftwareDecoderNode(
                     require(required in 1..MAX_AUDIO_FRAME_BYTES.toLong()) {
                         "FFmpeg software audio frame exceeds the Kotlin safety limit"
                     }
-                    audioBuffer = ByteBuffer.allocateDirect(required.toInt())
+                    audioStorage.grow(required.toInt())
                 }
                 SOFTWARE_FRAME_DATA -> {
                     val size = result[SOFTWARE_FRAME_SIZE].validSize(audioBuffer, MAX_AUDIO_FRAME_BYTES)
@@ -141,8 +143,8 @@ internal class AndroidFfmpegSoftwareDecoderNode(
     fun release() {
         videoTrackId = null
         audioTrackId = null
-        videoBuffer.clear()
-        audioBuffer.clear()
+        videoStorage.close()
+        audioStorage.close()
     }
 }
 
@@ -171,8 +173,6 @@ private const val SOFTWARE_FRAME_AGAIN = 0L
 private const val SOFTWARE_FRAME_DATA = 1L
 private const val SOFTWARE_FRAME_EOF = 2L
 private const val SOFTWARE_FRAME_GROW = -1L
-private const val INITIAL_VIDEO_FRAME_BYTES = 4 * 1024 * 1024
-private const val INITIAL_AUDIO_FRAME_BYTES = 256 * 1024
 private const val MAX_VIDEO_FRAME_BYTES = 128 * 1024 * 1024
 private const val MAX_AUDIO_FRAME_BYTES = 8 * 1024 * 1024
 private const val BYTES_PER_BGRA_PIXEL = 4

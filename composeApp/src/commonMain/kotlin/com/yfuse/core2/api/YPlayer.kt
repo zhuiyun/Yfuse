@@ -152,6 +152,8 @@ data class YMediaItem(
     val playbackSessionId: String? = null,
     /** False for server transcodes/live/adaptive sessions that must not be opened speculatively. */
     val allowNextItemPreparation: Boolean = true,
+    /** Initial user intent, resolved against real tracks before choosing the playback route. */
+    val initialTrackSelection: YInitialTrackSelection? = null,
 ) {
     init {
         require(cacheMaximumBytes >= 0L)
@@ -354,6 +356,12 @@ enum class YDolbyAtmosOutputMode {
         get() = this == Eac3JocPassthrough || this == TrueHdAtmosPassthrough
 }
 
+/** Measured output frames per wall-clock second; the timestamp uses Android elapsed realtime. */
+data class YFrameRateSample(
+    val framesPerSecond: Float,
+    val sampledAtElapsedMs: Long,
+)
+
 data class YPlayerDiagnostics(
     val route: YPlaybackRoute = YPlaybackRoute.Legacy,
     val container: String = "",
@@ -367,6 +375,8 @@ data class YPlayerDiagnostics(
     val videoWidth: Int = 0,
     val videoHeight: Int = 0,
     val frameRate: Float = 0f,
+    /** Null until the active renderer provides a measured sample; never derived from source FPS. */
+    val renderedFrameRate: YFrameRateSample? = null,
     val audioCodec: String = "",
     val bitrateBitsPerSecond: Long = 0L,
     val droppedFrames: Int = 0,
