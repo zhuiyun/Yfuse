@@ -19,11 +19,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.account.AccountState
 import com.yfuse.core.designsystem.AppIcons
-import com.yfuse.core.designsystem.ThemeMode
 import com.yfuse.feature.profile.ProfileComponent
 import com.yfuse.feature.profile.ProfileIntent
 import com.yfuse.tv.focus.requestFocusWhenAttached
@@ -127,13 +125,6 @@ internal fun TvSettingsScreen(
                 navigationRequester = navigationRequester,
                 firstRowRequester = pageRequester,
             )
-        TvSettingsPage.Splash ->
-            TvSplashSettingsPage(
-                component = component,
-                focusMemory = focusMemory,
-                navigationRequester = navigationRequester,
-                firstRowRequester = pageRequester,
-            )
         TvSettingsPage.ServerBackup ->
             TvServerBackupPage(
                 component = component,
@@ -173,7 +164,6 @@ private fun TvSettingsRootPage(
     onOpen: (TvSettingsPage) -> Unit,
 ) {
     val state by component.store.states.collectAsState(component.store.state)
-    val mode by component.themePreferences.mode.collectAsState()
     val largeText by component.themePreferences.largeText.collectAsState()
     val reduceMotion by component.themePreferences.reduceMotion.collectAsState()
     val dialogAnimation by component.themePreferences.dialogAnimation.collectAsState()
@@ -190,7 +180,7 @@ private fun TvSettingsRootPage(
         route = "settings",
         focusMemory = focusMemory,
         fallback = contentRequester,
-        contentGeneration = listOf(state.currentServer?.id, mode, largeText, reduceMotion, account::class),
+        contentGeneration = listOf(state.currentServer?.id, largeText, reduceMotion, account::class),
     )
 
     TvSettingsPageScaffold(page = TvSettingsPage.Root) {
@@ -200,7 +190,7 @@ private fun TvSettingsRootPage(
                     state.currentServer?.let { "${it.serverName} · ${it.userName}" }
                         ?: "尚未连接服务器",
                     color = TvOnSurfaceMuted,
-                    fontSize = 15.sp,
+                    fontSize = TvType.caption,
                 )
                 Spacer(Modifier.height(10.dp))
             }
@@ -302,23 +292,8 @@ private fun TvSettingsRootPage(
             )
         }
 
+        // No 界面模式 here: the television shell is dark glass on a dark room and nothing else.
         item(key = "settings-section-appearance") { TvSettingsSectionTitle("外观") }
-        // 界面模式 stays on the root because it is the one appearance control people change
-        // often; everything else lives on its own page rather than lengthening this list.
-        item(key = "settings-theme") {
-            TvChoiceRow(
-                title = "界面模式",
-                options = ThemeMode.entries,
-                selected = mode,
-                label = { it.label },
-                stableId = "settings:theme",
-                focusMemory = focusMemory,
-                onSelect = component.themePreferences::setMode,
-                icon = AppIcons.Grid,
-                focusScope = scope,
-                navigationRequester = navigationRequester,
-            )
-        }
         item(key = "settings-appearance") {
             TvSettingRow(
                 title = TvSettingsPage.Appearance.title,
@@ -334,19 +309,6 @@ private fun TvSettingsRootPage(
                 icon = AppIcons.Expand,
                 focusScope = scope,
                 subtitle = TvSettingsPage.Appearance.subtitle,
-                navigationRequester = navigationRequester,
-            )
-        }
-        item(key = "settings-splash") {
-            TvSettingRow(
-                title = TvSettingsPage.Splash.title,
-                value = "",
-                stableId = "settings:splash",
-                focusMemory = focusMemory,
-                onClick = { onOpen(TvSettingsPage.Splash) },
-                icon = AppIcons.Star,
-                focusScope = scope,
-                subtitle = TvSettingsPage.Splash.subtitle,
                 navigationRequester = navigationRequester,
             )
         }
@@ -496,7 +458,7 @@ private fun TvSettingsRootPage(
                 Text(
                     "Yfuse for Android TV · ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
                     color = TvOnSurfaceMuted,
-                    fontSize = 14.sp,
+                    fontSize = TvType.caption,
                     fontWeight = FontWeight.Medium,
                 )
             }
@@ -523,8 +485,7 @@ private val tvSettingsKeywords: Map<TvSettingsPage, String> =
         TvSettingsPage.AdvancedPlayback to "内核 解码 缓冲 缓存 帧率 直通 音频 硬解 软解 ycore",
         TvSettingsPage.Danmaku to "弹幕 字幕 屏蔽 过滤 字号 透明",
         TvSettingsPage.WatchTogether to "一起看 房间 聊天 昵称 头像",
-        TvSettingsPage.Appearance to "主题 深色 浅色 背景 玻璃 字体 大字 动效 启动 无障碍",
-        TvSettingsPage.Splash to "开屏 动画 logo 启动画面",
+        TvSettingsPage.Appearance to "外观 主题 背景 玻璃 弹窗 字体 大字 动效 启动 无障碍",
         TvSettingsPage.Downloads to "下载 离线 队列 存储 空间 wifi",
         TvSettingsPage.ServerBackup to "备份 导出 导入 迁移 换机 口令",
         TvSettingsPage.PermissionHealth to "权限 通知 局域网 授权",

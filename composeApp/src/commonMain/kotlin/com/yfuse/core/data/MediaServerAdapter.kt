@@ -44,9 +44,39 @@ internal enum class PlaybackReportPhase {
  * message the repository used to produce, so screens keep their copy.
  */
 internal interface MediaServerAdapter {
+    /** Signs in with a user's own credentials; Plex has no user name and reads [password] as its token. */
+    suspend fun authenticate(
+        baseUrl: String,
+        username: String,
+        password: String,
+    ): Result<AuthedServer>
+
     suspend fun libraries(server: SavedServer): Result<List<MediaLibrary>>
 
     suspend fun scheduledTasks(server: SavedServer): Result<List<ServerScheduledTask>>
+
+    /** Whether the account behind [server] can be switched to another managed home profile. */
+    fun supportsHomeUserSwitch(server: SavedServer): Boolean
+
+    /** Profiles [server]'s owner account can switch to; empty where the family has none. */
+    suspend fun homeUsers(server: SavedServer): List<PlexHomeUser>
+
+    /**
+     * Where else this title can be played, one answer per server in [servers].
+     *
+     * It takes the family's whole group because Emby-compatible servers share one retry and
+     * timeout budget across the batch, while Plex answers server by server.
+     */
+    suspend fun compareSources(
+        servers: List<SavedServer>,
+        currentServerId: String?,
+        title: String,
+        tmdbId: Int?,
+        mediaType: String?,
+        year: Int?,
+        seasonNumber: Int?,
+        episodeNumber: Int?,
+    ): List<ServerSource>
 
     suspend fun refreshLibrary(
         server: SavedServer,
@@ -315,10 +345,11 @@ internal class EmbyAdapter(
     private val playbackService: EmbyPlaybackService,
     private val searchService: EmbySearchService,
     private val serverService: EmbyServerService,
+    private val sourceService: EmbySourceService,
     private val subtitleService: EmbySubtitleService,
     private val userDataService: EmbyUserDataService,
 ) : MediaServerAdapter {
-    suspend fun authenticate(
+    override suspend fun authenticate(
         baseUrl: String,
         username: String,
         password: String,
@@ -326,6 +357,31 @@ internal class EmbyAdapter(
 
     override suspend fun libraries(server: SavedServer): Result<List<MediaLibrary>> =
         embyApiCall("libraries") { libraryService.views(server) }
+
+    override fun supportsHomeUserSwitch(server: SavedServer): Boolean = false
+
+    override suspend fun homeUsers(server: SavedServer): List<PlexHomeUser> = emptyList()
+
+    override suspend fun compareSources(
+        servers: List<SavedServer>,
+        currentServerId: String?,
+        title: String,
+        tmdbId: Int?,
+        mediaType: String?,
+        year: Int?,
+        seasonNumber: Int?,
+        episodeNumber: Int?,
+    ): List<ServerSource> =
+        sourceService.compareSources(
+            servers = servers,
+            currentServerId = currentServerId,
+            title = title,
+            tmdbId = tmdbId,
+            mediaType = mediaType,
+            year = year,
+            seasonNumber = seasonNumber,
+            episodeNumber = episodeNumber,
+        )
 
     override suspend fun scheduledTasks(server: SavedServer): Result<List<ServerScheduledTask>> =
         runCatchingCancellable {
@@ -688,16 +744,30 @@ internal class PlexAdapter(
     private val plex: PlexMediaServerAdapter,
     private val plexCloud: PlexCloudAccountService,
 ) : MediaServerAdapter {
-    suspend fun authenticate(
+    /** A plex.tv resource sign-in: the server token plus the account identity it was issued to. */
+    suspend fun authenticateWithToken(
         baseUrl: String,
         token: String,
-        account: PlexAccountIdentity? = null,
+        account: PlexAccountIdentity,
     ): Result<AuthedServer> = plex.authenticate(baseUrl, token, account)
 
     suspend fun machineIdentifierFor(server: SavedServer): Result<String> = plex.machineIdentifierFor(server)
 
-    suspend fun compareSource(
-        server: SavedServer,
+    override suspend fun authenticate(
+        baseUrl: String,
+        username: String,
+        password: String,
+    ): Result<AuthedServer> = plex.authenticate(baseUrl, password)
+
+    override fun supportsHomeUserSwitch(server: SavedServer): Boolean = server.homeOwnerToken != null
+
+    override suspend fun homeUsers(server: SavedServer): List<PlexHomeUser> =
+        server.homeOwnerToken?.let { plexCloud.homeUsers(it).getOrDefault(emptyList()) }.orEmpty()
+
+    private val SavedServer.homeOwnerToken: String? get() = cloudOwnerAccessToken ?: cloudAccessToken
+
+    override suspend fun compareSources(
+        servers: List<SavedServer>,
         currentServerId: String?,
         title: String,
         tmdbId: Int?,
@@ -705,17 +775,19 @@ internal class PlexAdapter(
         year: Int?,
         seasonNumber: Int?,
         episodeNumber: Int?,
-    ): ServerSource =
-        plex.compareSource(
-            server = server,
-            currentServerId = currentServerId,
-            title = title,
-            tmdbId = tmdbId,
-            mediaType = mediaType,
-            year = year,
-            seasonNumber = seasonNumber,
-            episodeNumber = episodeNumber,
-        )
+    ): List<ServerSource> =
+        servers.map { server ->
+            plex.compareSource(
+                server = server,
+                currentServerId = currentServerId,
+                title = title,
+                tmdbId = tmdbId,
+                mediaType = mediaType,
+                year = year,
+                seasonNumber = seasonNumber,
+                episodeNumber = episodeNumber,
+            )
+        }
 
     override suspend fun libraries(server: SavedServer): Result<List<MediaLibrary>> = plex.libraries(server)
 

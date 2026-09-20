@@ -3,7 +3,6 @@ package com.yfuse.tv.ui
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusGroup
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,7 +35,6 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.arkivanov.decompose.extensions.compose.subscribeAsState
 import com.yfuse.app.BindBackgroundServices
 import com.yfuse.app.RootComponent
@@ -44,7 +42,6 @@ import com.yfuse.core.designsystem.AccessibilityOptions
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.GlassStyle
 import com.yfuse.core.designsystem.YfuseTheme
-import com.yfuse.core.designsystem.resolveDark
 import com.yfuse.feature.home.HomeTabComponent
 import com.yfuse.feature.library.LibraryComponent
 import com.yfuse.feature.library.UnifiedLibraryScreen
@@ -73,18 +70,17 @@ private val tvDestinations =
 /** Public Android-TV entry point used by TvMainActivity. */
 @Composable
 fun TvApp(component: RootComponent) {
-    val mode by component.themePreferences.mode.collectAsState()
-    val accent by component.themePreferences.accent.collectAsState()
     val reduceTransparency by component.themePreferences.reduceTransparency.collectAsState()
     val largeText by component.themePreferences.largeText.collectAsState()
     val reduceMotion by component.themePreferences.reduceMotion.collectAsState()
     val dialogAnimation by component.themePreferences.dialogAnimation.collectAsState()
     val glassStyle by component.themePreferences.glassStyle.collectAsState()
-    val dark = mode.resolveDark(isSystemInDarkTheme())
 
+    // Always dark. The shell paints [TvBackground] whatever the phone's 界面模式 says, and that
+    // shared preference used to hand the four shared dialogs and the unified library light
+    // tokens — a grey or white panel over a dark room. A television has one theme.
     YfuseTheme(
-        dark = dark,
-        accent = accent,
+        dark = true,
         accessibility =
             AccessibilityOptions(
                 reduceTransparency = reduceTransparency,
@@ -199,7 +195,7 @@ private fun TvNavigationRail(
         Text(
             text = "Yfuse",
             color = TvOnSurface,
-            fontSize = 25.sp,
+            fontSize = TvType.section,
             fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(start = 14.dp, bottom = 34.dp),
         )
@@ -262,7 +258,7 @@ private fun TvNavigationRail(
                                 isSelected -> TvOnSurface
                                 else -> TvOnSurfaceMuted
                             },
-                        fontSize = 16.sp,
+                        fontSize = TvType.caption,
                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                     )
                 }

@@ -52,11 +52,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.BackOverlay
 import com.yfuse.core.designsystem.BackdropState
 import com.yfuse.core.designsystem.Dimens
-import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.LocalRouteVisible
@@ -129,7 +129,7 @@ private fun EpisodeHeader(
                     .onGloballyPositioned { onPickerAnchor(it.boundsInRoot()) }
                     .pressable(
                         onClickLabel = "切换季数",
-                        focusShape = GlassShapes.chip,
+                        focusShape = AppShapes.chip,
                         onClick = onTogglePicker,
                     ).semantics { this.selected = pickerOpen }
                     .heightIn(min = 44.dp)
@@ -247,7 +247,7 @@ internal fun SeasonPickerOverlay(
     if (!open && progress.value <= 0f) return
     if (anchor == null) return
 
-    val shape = GlassShapes.sheet
+    val shape = AppShapes.sheet
     // With the page blurred beneath it the fill can be a fill; without the blur (older
     // platforms) the alpha has to keep the rows underneath from reading through the list.
     val blurred = backdrop.active
@@ -361,11 +361,11 @@ private fun SeasonRow(
             .semantics { this.selected = selected }
             .pressable(
                 role = Role.RadioButton,
-                focusShape = GlassShapes.chip,
+                focusShape = AppShapes.chip,
                 onClick = onClick,
             ).background(
                 selectionColor(accent.copy(alpha = if (selected) 0.12f else 0f)),
-                GlassShapes.chip,
+                AppShapes.chip,
             ).heightIn(min = 52.dp)
             .padding(horizontal = 16.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -527,7 +527,7 @@ private fun EpisodeCard(
                 transformOrigin = TransformOrigin(0.5f, 1f)
             }.pressable(onClick = onPlay)
             .solidGlass(
-                shape = GlassShapes.card,
+                shape = AppShapes.card,
                 fill =
                     if (selected) {
                         selectedHighlight.copy(alpha = if (palette.isDark) 0.24f else 0.30f)
@@ -539,7 +539,7 @@ private fun EpisodeCard(
                 border = Color.Transparent,
             ).then(
                 if (selected) {
-                    Modifier.border(3.dp, selectedHighlight, GlassShapes.card)
+                    Modifier.border(3.dp, selectedHighlight, AppShapes.card)
                 } else {
                     Modifier
                 },
@@ -557,7 +557,7 @@ private fun EpisodeCard(
                         accessToken = accessToken,
                     ),
                 fallbackUrls = listOfNotNull(seriesPosterUrl),
-                shape = GlassShapes.thumb,
+                shape = AppShapes.thumb,
                 progress = episode.playedPercentage?.let { (it / 100.0).toFloat() },
                 modifier = Modifier.fillMaxSize(),
             )

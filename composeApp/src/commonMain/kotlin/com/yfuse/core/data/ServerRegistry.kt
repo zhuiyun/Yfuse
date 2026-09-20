@@ -15,9 +15,19 @@ import com.yfuse.core.security.ServerMigrationCrypto
 import com.yfuse.core.security.ServerMigrationRelayCrypto
 import com.yfuse.core.security.VaultCrypto
 import com.yfuse.core.security.toBase64Url
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -112,9 +122,18 @@ class ServerRegistry(
     /** Unit fixtures may opt into direct local-HTTP construction; production never does. */
     private val allowUnconfirmedLocalForTests: Boolean = false,
     private val personal: com.yfuse.core.personal.PersonalLibraryRepository? = null,
+    /**
+     * Where Keystore encryption and the settings write of a commit run. The app passes a
+     * background dispatcher so an edit, a login or an account restore never encrypts on the main
+     * thread. `null` keeps a commit synchronous and transactional - it throws when storage fails
+     * and publishes nothing - which is what unit fixtures and one-shot hosts want.
+     */
+    persistDispatcher: CoroutineDispatcher? = null,
 ) {
     private companion object {
         const val KEY = "servers.data"
+        const val PERSIST_ATTEMPTS = 3
+        const val PERSIST_RETRY_DELAY_MS = 2_000L
         const val PERSISTED_VERSION = 2
         const val PORTABLE_BACKUP_VERSION = 2
         const val MAX_SERVERS = 100
@@ -132,14 +151,54 @@ class ServerRegistry(
         }
     private val migrationCrypto = ServerMigrationCrypto(crypto)
     private val migrationRelayCrypto = ServerMigrationRelayCrypto(crypto)
+
+    /**
+     * Serializes every read-modify-write of the registry. Edits come from the UI thread, route
+     * fail-over from the health monitor and restores from the account scope; each derives the
+     * next registry from the current one, so two of them interleaving would drop an update.
+     * Shared with [personal] so the profile observer below can never deadlock against a commit.
+     */
+    private val lock = personal?.coordinationLock ?: Any()
     private val loaded = load()
+
+    // Guarded by [lock], together with every write of [_data] and [visibleData].
     private var secretRefs: Map<String, String> = loaded.secretRefs
+
+    /** What storage holds. It trails the published registry only while a persist is queued. */
+    private var durable: LoadedRegistry = loaded
     private val _data = MutableStateFlow(loaded.data)
     private val visibleData = MutableStateFlow(projectVisible(loaded.data))
     val data: StateFlow<ServersData> = visibleData.asStateFlow()
 
+    /** Conflated: a burst of commits is persisted once, as the newest registry. */
+    private val persistSignal: Channel<Unit>? = persistDispatcher?.let { Channel<Unit>(Channel.CONFLATED) }
+    private val _persistFailures =
+        MutableSharedFlow<Throwable>(extraBufferCapacity = 8, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+
+    /**
+     * One event each time a deferred persist was given up and the published registry was put
+     * back to what storage holds. Without it a refused write would read as saved until the
+     * next launch, when the server silently vanished.
+     */
+    val persistFailures: SharedFlow<Throwable> = _persistFailures.asSharedFlow()
+
     init {
-        personal?.observeChanges { visibleData.value = projectVisible(_data.value) }
+        personal?.observeChanges { synchronized(lock) { visibleData.value = projectVisible(_data.value) } }
+        if (persistDispatcher != null && persistSignal != null) {
+            // One consumer, so persists never overlap and [durable] has a single writer.
+            CoroutineScope(SupervisorJob() + persistDispatcher).launch {
+                while (true) {
+                    persistSignal.receive()
+                    var failure: PersistFailure? = null
+                    for (attempt in 1..PERSIST_ATTEMPTS) {
+                        failure = persistPending()
+                        if (failure == null) break
+                        if (attempt < PERSIST_ATTEMPTS) delay(PERSIST_RETRY_DELAY_MS * attempt)
+                    }
+                    failure?.let(::abandonPersist)
+                }
+            }
+        }
     }
 
     /** Only the encrypted account snapshot may bypass the browsing projection. */
@@ -159,60 +218,64 @@ class ServerRegistry(
 
     /** Adds a server (or updates it if the same id already exists). First one becomes default. */
     fun addOrUpdate(server: SavedServer) {
-        personal?.requireServerManagement()
-        val current = _data.value
-        val existing = current.servers.firstOrNull { it.id == server.id }
-        val replacing = existing != null
-        val normalized =
-            server
-                .copy(
-                    previousIds =
-                        recentPreviousIds(
-                            server.id,
-                            server.previousIds,
-                            existing?.previousIds.orEmpty(),
-                        ),
-                ).carryingUserSettingsFrom(existing)
-                .requiringAllowedTransport("服务器", allowUnconfirmedLocalForTests)
-        val servers =
-            current.servers
-                .filterNot { it.id == server.id }
-                .map { it.copy(previousIds = it.previousIds - server.id) } + normalized
-        val defaultId = current.defaultServerId ?: server.id
-        commit(current.copy(servers = servers, defaultServerId = defaultId))
-        AppLog.info(
-            category = "server.registry",
-            event = if (replacing) "server_updated" else "server_added",
-            message = "Saved server registry changed",
-            attributes =
-                mapOf(
-                    "serverId" to server.id,
-                    "serverCount" to servers.size.toString(),
-                ),
-        )
+        synchronized(lock) {
+            personal?.requireServerManagement()
+            val current = _data.value
+            val existing = current.servers.firstOrNull { it.id == server.id }
+            val replacing = existing != null
+            val normalized =
+                server
+                    .copy(
+                        previousIds =
+                            recentPreviousIds(
+                                server.id,
+                                server.previousIds,
+                                existing?.previousIds.orEmpty(),
+                            ),
+                    ).carryingUserSettingsFrom(existing)
+                    .requiringAllowedTransport("服务器", allowUnconfirmedLocalForTests)
+            val servers =
+                current.servers
+                    .filterNot { it.id == server.id }
+                    .map { it.copy(previousIds = it.previousIds - server.id) } + normalized
+            val defaultId = current.defaultServerId ?: server.id
+            commit(current.copy(servers = servers, defaultServerId = defaultId))
+            AppLog.info(
+                category = "server.registry",
+                event = if (replacing) "server_updated" else "server_added",
+                message = "Saved server registry changed",
+                attributes =
+                    mapOf(
+                        "serverId" to server.id,
+                        "serverCount" to servers.size.toString(),
+                    ),
+            )
+        }
     }
 
     fun setDefault(id: String) {
-        require(personal == null || personal.canAccessServer(id)) { "当前资料不能访问这个服务器用户" }
-        if (_data.value.servers.any { it.id == id }) {
-            // Re-selecting the server that is already default is not a change. Committing it
-            // republished the registry - which restarts every collector downstream, health
-            // probing included - and logged a default_changed that made ordinary browsing look
-            // like the app was switching servers on its own.
-            if (_data.value.defaultServerId == id) return
-            commit(_data.value.copy(defaultServerId = id))
-            AppLog.info(
-                category = "server.registry",
-                event = "default_changed",
-                message = "Default server changed",
-                attributes = mapOf("serverId" to id),
-            )
-        } else {
-            AppLog.warning(
-                category = "server.registry",
-                event = "default_missing",
-                message = "Ignored request to select an unknown server",
-            )
+        synchronized(lock) {
+            require(personal == null || personal.canAccessServer(id)) { "当前资料不能访问这个服务器用户" }
+            if (_data.value.servers.any { it.id == id }) {
+                // Re-selecting the server that is already default is not a change. Committing it
+                // republished the registry - which restarts every collector downstream, health
+                // probing included - and logged a default_changed that made ordinary browsing look
+                // like the app was switching servers on its own.
+                if (_data.value.defaultServerId == id) return
+                commit(_data.value.copy(defaultServerId = id))
+                AppLog.info(
+                    category = "server.registry",
+                    event = "default_changed",
+                    message = "Default server changed",
+                    attributes = mapOf("serverId" to id),
+                )
+            } else {
+                AppLog.warning(
+                    category = "server.registry",
+                    event = "default_missing",
+                    message = "Ignored request to select an unknown server",
+                )
+            }
         }
     }
 
@@ -221,32 +284,34 @@ class ServerRegistry(
         id: String,
         name: String,
     ): Boolean {
-        personal?.requireServerManagement()
-        val normalized =
-            name
-                .replace('\r', ' ')
-                .replace('\n', ' ')
-                .trim()
-                .take(60)
-        if (normalized.isBlank()) return false
-        val current = _data.value
-        val existing = current.servers.firstOrNull { it.id == id } ?: return false
-        if (existing.serverName == normalized) return true
-        commit(
-            current.copy(
-                servers =
-                    current.servers.map {
-                        if (it.id == id) it.copy(serverName = normalized) else it
-                    },
-            ),
-        )
-        AppLog.info(
-            category = "server.registry",
-            event = "server_renamed",
-            message = "Saved server display name changed",
-            attributes = mapOf("serverId" to id),
-        )
-        return true
+        synchronized(lock) {
+            personal?.requireServerManagement()
+            val normalized =
+                name
+                    .replace('\r', ' ')
+                    .replace('\n', ' ')
+                    .trim()
+                    .take(60)
+            if (normalized.isBlank()) return false
+            val current = _data.value
+            val existing = current.servers.firstOrNull { it.id == id } ?: return false
+            if (existing.serverName == normalized) return true
+            commit(
+                current.copy(
+                    servers =
+                        current.servers.map {
+                            if (it.id == id) it.copy(serverName = normalized) else it
+                        },
+                ),
+            )
+            AppLog.info(
+                category = "server.registry",
+                event = "server_renamed",
+                message = "Saved server display name changed",
+                attributes = mapOf("serverId" to id),
+            )
+            return true
+        }
     }
 
     /**
@@ -261,57 +326,59 @@ class ServerRegistry(
         routes: List<ServerRoute>,
         localCleartextConfirmed: Boolean = false,
     ): Boolean {
-        personal?.requireServerManagement()
-        val current = _data.value
-        val existing = current.servers.firstOrNull { it.id == id } ?: return false
-        val cleartextConfirmed = existing.localCleartextConfirmed || localCleartextConfirmed
-        val primary =
-            ServerRoute(
-                id = ServerRoute.PRIMARY_ID,
-                name =
-                    routes
-                        .firstOrNull { it.id == ServerRoute.PRIMARY_ID }
-                        ?.let { ServerRoute.sanitizeName(it.name) }
-                        ?: ServerRoute.PRIMARY_NAME,
-                url = existing.primaryUrl,
-            )
-        val normalized =
-            (listOf(primary) + routes.filterNot { it.id == ServerRoute.PRIMARY_ID })
-                .normalizedRoutes()
-        if (normalized.any {
-                !validateEmbyServerEndpoint(
-                    it.url,
-                    localCleartextConfirmed = cleartextConfirmed,
-                ).allowed
+        synchronized(lock) {
+            personal?.requireServerManagement()
+            val current = _data.value
+            val existing = current.servers.firstOrNull { it.id == id } ?: return false
+            val cleartextConfirmed = existing.localCleartextConfirmed || localCleartextConfirmed
+            val primary =
+                ServerRoute(
+                    id = ServerRoute.PRIMARY_ID,
+                    name =
+                        routes
+                            .firstOrNull { it.id == ServerRoute.PRIMARY_ID }
+                            ?.let { ServerRoute.sanitizeName(it.name) }
+                            ?: ServerRoute.PRIMARY_NAME,
+                    url = existing.primaryUrl,
+                )
+            val normalized =
+                (listOf(primary) + routes.filterNot { it.id == ServerRoute.PRIMARY_ID })
+                    .normalizedRoutes()
+            if (normalized.any {
+                    !validateEmbyServerEndpoint(
+                        it.url,
+                        localCleartextConfirmed = cleartextConfirmed,
+                    ).allowed
+                }
+            ) {
+                return false
             }
-        ) {
-            return false
-        }
-        if (normalized.isEmpty()) return false
-        val updated =
-            existing
-                .copy(
-                    routes = normalized,
-                    activeRouteId = existing.activeRouteId,
-                    localCleartextConfirmed = cleartextConfirmed,
-                ).withNormalizedRoutes()
-        if (updated == existing) return true
-        commit(
-            current.copy(
-                servers = current.servers.map { if (it.id == id) updated else it },
-            ),
-        )
-        AppLog.info(
-            category = "server.registry",
-            event = "server_routes_changed",
-            message = "Saved server route list changed",
-            attributes =
-                mapOf(
-                    "serverId" to id,
-                    "routeCount" to normalized.size.toString(),
+            if (normalized.isEmpty()) return false
+            val updated =
+                existing
+                    .copy(
+                        routes = normalized,
+                        activeRouteId = existing.activeRouteId,
+                        localCleartextConfirmed = cleartextConfirmed,
+                    ).withNormalizedRoutes()
+            if (updated == existing) return true
+            commit(
+                current.copy(
+                    servers = current.servers.map { if (it.id == id) updated else it },
                 ),
-        )
-        return true
+            )
+            AppLog.info(
+                category = "server.registry",
+                event = "server_routes_changed",
+                message = "Saved server route list changed",
+                attributes =
+                    mapOf(
+                        "serverId" to id,
+                        "routeCount" to normalized.size.toString(),
+                    ),
+            )
+            return true
+        }
     }
 
     /**
@@ -322,33 +389,35 @@ class ServerRegistry(
         id: String,
         routeId: String,
     ): Boolean {
-        if (personal != null && !personal.canAccessServer(id)) return false
-        val current = _data.value
-        val existing = current.servers.firstOrNull { it.id == id } ?: return false
-        val route = existing.effectiveRoutes.firstOrNull { it.id == routeId } ?: return false
-        if (!validateEmbyServerEndpoint(
-                route.url,
-                localCleartextConfirmed = existing.localCleartextConfirmed,
-            ).allowed
-        ) {
-            return false
+        synchronized(lock) {
+            if (personal != null && !personal.canAccessServer(id)) return false
+            val current = _data.value
+            val existing = current.servers.firstOrNull { it.id == id } ?: return false
+            val route = existing.effectiveRoutes.firstOrNull { it.id == routeId } ?: return false
+            if (!validateEmbyServerEndpoint(
+                    route.url,
+                    localCleartextConfirmed = existing.localCleartextConfirmed,
+                ).allowed
+            ) {
+                return false
+            }
+            if (existing.activeRoute.id == route.id && existing.baseUrl == route.url) return true
+            commit(
+                current.copy(
+                    servers =
+                        current.servers.map {
+                            if (it.id == id) it.activating(route).withNormalizedRoutes() else it
+                        },
+                ),
+            )
+            AppLog.info(
+                category = "server.registry",
+                event = "server_route_activated",
+                message = "Saved server switched to another route",
+                attributes = mapOf("serverId" to id, "routeId" to route.id),
+            )
+            return true
         }
-        if (existing.activeRoute.id == route.id && existing.baseUrl == route.url) return true
-        commit(
-            current.copy(
-                servers =
-                    current.servers.map {
-                        if (it.id == id) it.activating(route).withNormalizedRoutes() else it
-                    },
-            ),
-        )
-        AppLog.info(
-            category = "server.registry",
-            event = "server_route_activated",
-            message = "Saved server switched to another route",
-            attributes = mapOf("serverId" to id, "routeId" to route.id),
-        )
-        return true
     }
 
     /** Sets the card's emoji and tint. Both are cosmetic and neither affects identity. */
@@ -357,26 +426,28 @@ class ServerRegistry(
         emoji: String?,
         tint: Long?,
     ): Boolean {
-        personal?.requireServerManagement()
-        val current = _data.value
-        val existing = current.servers.firstOrNull { it.id == id } ?: return false
-        val normalizedEmoji = sanitizeIconEmoji(emoji)
-        if (existing.iconEmoji == normalizedEmoji && existing.iconTint == tint) return true
-        commit(
-            current.copy(
-                servers =
-                    current.servers.map {
-                        if (it.id == id) it.copy(iconEmoji = normalizedEmoji, iconTint = tint) else it
-                    },
-            ),
-        )
-        AppLog.info(
-            category = "server.registry",
-            event = "server_icon_changed",
-            message = "Saved server icon changed",
-            attributes = mapOf("serverId" to id),
-        )
-        return true
+        synchronized(lock) {
+            personal?.requireServerManagement()
+            val current = _data.value
+            val existing = current.servers.firstOrNull { it.id == id } ?: return false
+            val normalizedEmoji = sanitizeIconEmoji(emoji)
+            if (existing.iconEmoji == normalizedEmoji && existing.iconTint == tint) return true
+            commit(
+                current.copy(
+                    servers =
+                        current.servers.map {
+                            if (it.id == id) it.copy(iconEmoji = normalizedEmoji, iconTint = tint) else it
+                        },
+                ),
+            )
+            AppLog.info(
+                category = "server.registry",
+                event = "server_icon_changed",
+                message = "Saved server icon changed",
+                attributes = mapOf("serverId" to id),
+            )
+            return true
+        }
     }
 
     /** Atomically replaces an edited server while preserving its list position and default. */
@@ -384,118 +455,124 @@ class ServerRegistry(
         id: String,
         server: SavedServer,
     ): Boolean {
-        personal?.requireServerManagement()
-        val current = _data.value
-        val oldIndex = current.servers.indexOfFirst { it.id == id }
-        if (oldIndex < 0) return false
-        val existing = current.servers[oldIndex]
-        val colliding = current.servers.firstOrNull { it.id == server.id }
-        val replacement =
-            server
-                .copy(
-                    previousIds =
-                        recentPreviousIds(
-                            server.id,
-                            server.previousIds,
-                            existing.previousIds,
-                            colliding?.previousIds.orEmpty(),
-                            listOf(id),
-                        ),
-                ).carryingUserSettingsFrom(existing)
-                .requiringAllowedTransport("服务器", allowUnconfirmedLocalForTests)
-        val remaining =
-            current.servers
-                .filterNot { it.id == id || it.id == server.id }
-                .map { it.copy(previousIds = it.previousIds - server.id) }
-        val servers =
-            remaining.toMutableList().apply {
-                add(oldIndex.coerceAtMost(size), replacement)
-            }
-        val defaultId =
-            when (current.defaultServerId) {
-                id, server.id -> server.id
-                else -> current.defaultServerId
-            }
-        commit(current.copy(servers = servers, defaultServerId = defaultId))
-        AppLog.info(
-            category = "server.registry",
-            event = "server_replaced",
-            message = "Saved server connection changed",
-            attributes =
-                mapOf(
-                    "previousServerId" to id,
-                    "serverId" to server.id,
-                ),
-        )
-        return true
+        synchronized(lock) {
+            personal?.requireServerManagement()
+            val current = _data.value
+            val oldIndex = current.servers.indexOfFirst { it.id == id }
+            if (oldIndex < 0) return false
+            val existing = current.servers[oldIndex]
+            val colliding = current.servers.firstOrNull { it.id == server.id }
+            val replacement =
+                server
+                    .copy(
+                        previousIds =
+                            recentPreviousIds(
+                                server.id,
+                                server.previousIds,
+                                existing.previousIds,
+                                colliding?.previousIds.orEmpty(),
+                                listOf(id),
+                            ),
+                    ).carryingUserSettingsFrom(existing)
+                    .requiringAllowedTransport("服务器", allowUnconfirmedLocalForTests)
+            val remaining =
+                current.servers
+                    .filterNot { it.id == id || it.id == server.id }
+                    .map { it.copy(previousIds = it.previousIds - server.id) }
+            val servers =
+                remaining.toMutableList().apply {
+                    add(oldIndex.coerceAtMost(size), replacement)
+                }
+            val defaultId =
+                when (current.defaultServerId) {
+                    id, server.id -> server.id
+                    else -> current.defaultServerId
+                }
+            commit(current.copy(servers = servers, defaultServerId = defaultId))
+            AppLog.info(
+                category = "server.registry",
+                event = "server_replaced",
+                message = "Saved server connection changed",
+                attributes =
+                    mapOf(
+                        "previousServerId" to id,
+                        "serverId" to server.id,
+                    ),
+            )
+            return true
+        }
     }
 
     fun remove(id: String) {
-        personal?.requireServerManagement()
-        val current = _data.value
-        val servers =
-            current.servers
-                .filterNot { it.id == id }
-                .map { it.copy(previousIds = it.previousIds - id) }
-        val defaultId = if (current.defaultServerId == id) servers.firstOrNull()?.id else current.defaultServerId
-        commit(current.copy(servers = servers, defaultServerId = defaultId))
-        AppLog.info(
-            category = "server.registry",
-            event = "server_removed",
-            message = "Saved server removed",
-            attributes =
-                mapOf(
-                    "serverId" to id,
-                    "serverCount" to servers.size.toString(),
-                ),
-        )
+        synchronized(lock) {
+            personal?.requireServerManagement()
+            val current = _data.value
+            val servers =
+                current.servers
+                    .filterNot { it.id == id }
+                    .map { it.copy(previousIds = it.previousIds - id) }
+            val defaultId = if (current.defaultServerId == id) servers.firstOrNull()?.id else current.defaultServerId
+            commit(current.copy(servers = servers, defaultServerId = defaultId))
+            AppLog.info(
+                category = "server.registry",
+                event = "server_removed",
+                message = "Saved server removed",
+                attributes =
+                    mapOf(
+                        "serverId" to id,
+                        "serverCount" to servers.size.toString(),
+                    ),
+            )
+        }
     }
 
     /** Replaces the local registry with an already authenticated account-sync snapshot. */
     fun replaceFromSync(snapshot: ServersData): Result<Int> =
         runCatching {
-            personal?.requireServerManagement()
-            require(snapshot.servers.size <= MAX_SERVERS) { "同步的服务器数量过多" }
-            val localServers = _data.value.servers
-            val normalized =
-                snapshot.servers.map { server ->
-                    val normalizedPrimary = server.primaryUrl.trim().trimEnd('/')
-                    val deviceConfirmation =
-                        localServers
-                            .firstOrNull {
-                                it.primaryUrl == normalizedPrimary && it.userId == server.userId.trim()
-                            }?.localCleartextConfirmed == true
-                    normalizeImportedServer(
-                        baseUrl = server.primaryUrl,
-                        serverName = server.serverName,
-                        userId = server.userId,
-                        userName = server.userName,
-                        accessToken = server.accessToken,
-                        cloudAccessToken = server.cloudAccessToken,
-                        cloudOwnerAccessToken = server.cloudOwnerAccessToken,
-                        previousIds = server.previousIds,
-                        invalidMessagePrefix = "同步的",
-                        routes = server.routes,
-                        iconEmoji = server.iconEmoji,
-                        iconTint = server.iconTint,
-                        localCleartextConfirmed = deviceConfirmation,
-                        kind = server.kind,
-                    )
+            synchronized(lock) {
+                personal?.requireServerManagement()
+                require(snapshot.servers.size <= MAX_SERVERS) { "同步的服务器数量过多" }
+                val localServers = _data.value.servers
+                val normalized =
+                    snapshot.servers.map { server ->
+                        val normalizedPrimary = server.primaryUrl.trim().trimEnd('/')
+                        val deviceConfirmation =
+                            localServers
+                                .firstOrNull {
+                                    it.primaryUrl == normalizedPrimary && it.userId == server.userId.trim()
+                                }?.localCleartextConfirmed == true
+                        normalizeImportedServer(
+                            baseUrl = server.primaryUrl,
+                            serverName = server.serverName,
+                            userId = server.userId,
+                            userName = server.userName,
+                            accessToken = server.accessToken,
+                            cloudAccessToken = server.cloudAccessToken,
+                            cloudOwnerAccessToken = server.cloudOwnerAccessToken,
+                            previousIds = server.previousIds,
+                            invalidMessagePrefix = "同步的",
+                            routes = server.routes,
+                            iconEmoji = server.iconEmoji,
+                            iconTint = server.iconTint,
+                            localCleartextConfirmed = deviceConfirmation,
+                            kind = server.kind,
+                        )
+                    }
+                require(normalized.map { it.id }.distinct().size == normalized.size) {
+                    "同步数据中包含重复服务器"
                 }
-            require(normalized.map { it.id }.distinct().size == normalized.size) {
-                "同步数据中包含重复服务器"
+                val requestedDefault = snapshot.defaultServerId
+                val defaultId =
+                    requestedDefault?.let { oldId ->
+                        snapshot.servers
+                            .indexOfFirst { it.id == oldId }
+                            .takeIf { it >= 0 }
+                            ?.let(normalized::get)
+                            ?.id
+                    } ?: normalized.firstOrNull()?.id
+                commit(ServersData(normalized, defaultId))
+                normalized.size
             }
-            val requestedDefault = snapshot.defaultServerId
-            val defaultId =
-                requestedDefault?.let { oldId ->
-                    snapshot.servers
-                        .indexOfFirst { it.id == oldId }
-                        .takeIf { it >= 0 }
-                        ?.let(normalized::get)
-                        ?.id
-                } ?: normalized.firstOrNull()?.id
-            commit(ServersData(normalized, defaultId))
-            normalized.size
         }
 
     /** Creates an AES-256-GCM package; no API returns the credential-bearing plaintext backup. */
@@ -510,33 +587,7 @@ class ServerRegistry(
             require(current.servers.isNotEmpty()) { "暂无可迁移的服务器" }
             require(ttlSeconds in 60..ServerMigrationCrypto.MAX_TTL_SECONDS) { "迁移包有效期无效" }
             require(createdAtEpochSeconds <= Long.MAX_VALUE - ttlSeconds) { "迁移包时间无效" }
-            val plaintext =
-                json
-                    .encodeToString(
-                        PortableServerBackup.serializer(),
-                        PortableServerBackup(
-                            defaultServerId = current.defaultServerId,
-                            servers =
-                                current.servers.map {
-                                    PortableServer(
-                                        // The identity address, not the active one: a package restored on
-                                        // another device must rebuild the same server ids, and the device it
-                                        // was exported from may have been sitting on a backup route.
-                                        baseUrl = it.primaryUrl,
-                                        serverName = it.serverName,
-                                        userId = it.userId,
-                                        userName = it.userName,
-                                        accessToken = it.accessToken,
-                                        cloudAccessToken = it.cloudAccessToken,
-                                        cloudOwnerAccessToken = it.cloudOwnerAccessToken,
-                                        routes = it.routes,
-                                        iconEmoji = it.iconEmoji,
-                                        iconTint = it.iconTint,
-                                        kind = it.kind,
-                                    )
-                                },
-                        ),
-                    ).encodeToByteArray()
+            val plaintext = portableBackupBytes(current)
             try {
                 migrationCrypto.protect(
                     plaintext = plaintext,
@@ -664,6 +715,9 @@ class ServerRegistry(
                     servers =
                         current.servers.map {
                             PortableServer(
+                                // The identity address, not the active one: a package restored on
+                                // another device must rebuild the same server ids, and the device it
+                                // was exported from may have been sitting on a backup route.
                                 baseUrl = it.primaryUrl,
                                 serverName = it.serverName,
                                 userId = it.userId,
@@ -681,94 +735,185 @@ class ServerRegistry(
             ).encodeToByteArray()
 
     private fun importPortableBackup(plaintext: ByteArray): Int {
-        val backup =
-            try {
-                json.decodeFromString(PortableServerBackup.serializer(), plaintext.decodeToString())
-            } catch (_: Exception) {
-                throw IllegalArgumentException("受保护迁移包中的服务器数据已损坏")
-            }
-        require(backup.version == PORTABLE_BACKUP_VERSION) { "不支持的服务器数据版本" }
-        require(backup.servers.isNotEmpty()) { "迁移包中没有服务器" }
-        require(backup.servers.size <= MAX_SERVERS) { "迁移包中的服务器数量过多" }
-        val current = _data.value
-        val imported =
-            backup.servers.map { portable ->
-                val id = SavedServer.idOf(portable.baseUrl.trim().trimEnd('/'), portable.userId.trim())
-                normalizeImportedServer(
-                    baseUrl = portable.baseUrl,
-                    serverName = portable.serverName,
-                    userId = portable.userId,
-                    userName = portable.userName,
-                    accessToken = portable.accessToken,
-                    cloudAccessToken = portable.cloudAccessToken,
-                    cloudOwnerAccessToken = portable.cloudOwnerAccessToken,
-                    previousIds =
-                        current.servers
-                            .firstOrNull { it.id == id }
-                            ?.previousIds
-                            .orEmpty(),
-                    invalidMessagePrefix = "迁移包中的",
-                    localCleartextConfirmed =
-                        current.servers.firstOrNull { it.id == id }?.localCleartextConfirmed == true,
-                    routes = portable.routes,
-                    iconEmoji = portable.iconEmoji,
-                    iconTint = portable.iconTint,
-                    kind = portable.kind,
-                )
-            }
-        require(imported.map { it.id }.distinct().size == imported.size) { "迁移包中包含重复服务器" }
-        val ids = imported.mapTo(hashSetOf()) { it.id }
-        val merged =
-            current.servers
-                .filterNot { it.id in ids }
-                .map { it.copy(previousIds = it.previousIds - ids) } + imported
-        val importedDefault =
-            backup.defaultServerId?.let { oldId ->
-                backup.servers
-                    .firstOrNull {
-                        SavedServer.idOf(it.baseUrl.trim().trimEnd('/'), it.userId.trim()) == oldId
-                    }?.let { SavedServer.idOf(it.baseUrl.trim().trimEnd('/'), it.userId.trim()) }
-            }
-        commit(
-            ServersData(
-                servers = merged,
-                defaultServerId = current.defaultServerId ?: importedDefault ?: imported.first().id,
-            ),
-        )
-        return imported.size
+        synchronized(lock) {
+            val backup =
+                try {
+                    json.decodeFromString(PortableServerBackup.serializer(), plaintext.decodeToString())
+                } catch (_: Exception) {
+                    throw IllegalArgumentException("受保护迁移包中的服务器数据已损坏")
+                }
+            require(backup.version == PORTABLE_BACKUP_VERSION) { "不支持的服务器数据版本" }
+            require(backup.servers.isNotEmpty()) { "迁移包中没有服务器" }
+            require(backup.servers.size <= MAX_SERVERS) { "迁移包中的服务器数量过多" }
+            val current = _data.value
+            val imported =
+                backup.servers.map { portable ->
+                    val id = SavedServer.idOf(portable.baseUrl.trim().trimEnd('/'), portable.userId.trim())
+                    normalizeImportedServer(
+                        baseUrl = portable.baseUrl,
+                        serverName = portable.serverName,
+                        userId = portable.userId,
+                        userName = portable.userName,
+                        accessToken = portable.accessToken,
+                        cloudAccessToken = portable.cloudAccessToken,
+                        cloudOwnerAccessToken = portable.cloudOwnerAccessToken,
+                        previousIds =
+                            current.servers
+                                .firstOrNull { it.id == id }
+                                ?.previousIds
+                                .orEmpty(),
+                        invalidMessagePrefix = "迁移包中的",
+                        localCleartextConfirmed =
+                            current.servers.firstOrNull { it.id == id }?.localCleartextConfirmed == true,
+                        routes = portable.routes,
+                        iconEmoji = portable.iconEmoji,
+                        iconTint = portable.iconTint,
+                        kind = portable.kind,
+                    )
+                }
+            require(imported.map { it.id }.distinct().size == imported.size) { "迁移包中包含重复服务器" }
+            val ids = imported.mapTo(hashSetOf()) { it.id }
+            val merged =
+                current.servers
+                    .filterNot { it.id in ids }
+                    .map { it.copy(previousIds = it.previousIds - ids) } + imported
+            val importedDefault =
+                backup.defaultServerId?.let { oldId ->
+                    backup.servers
+                        .firstOrNull {
+                            SavedServer.idOf(it.baseUrl.trim().trimEnd('/'), it.userId.trim()) == oldId
+                        }?.let { SavedServer.idOf(it.baseUrl.trim().trimEnd('/'), it.userId.trim()) }
+                }
+            commit(
+                ServersData(
+                    servers = merged,
+                    defaultServerId = current.defaultServerId ?: importedDefault ?: imported.first().id,
+                ),
+            )
+            return imported.size
+        }
     }
 
+    /**
+     * Validates [data] and makes it the registry. Callers hold [lock] across their whole
+     * read-modify-write, so the registry they derived [data] from is still the current one.
+     *
+     * Without a persist dispatcher, storage is written here, before anything is published, and
+     * a failure rolls back and throws. With one, the registry is published at once and
+     * [persistPending] carries it to storage off the caller's thread: a restore rewrites up to
+     * three Keystore-encrypted secrets per server, which on the main thread dropped frames.
+     */
     private fun commit(data: ServersData) {
-        data.servers.forEach {
-            it.requiringAllowedTransport("服务器", allowUnconfirmedLocalForTests)
-        }
-        val normalized = data.withBoundedPreviousIds()
-        require(normalized.servers.size <= MAX_SERVERS) { "服务器数量过多" }
-        require(
-            normalized.servers
-                .map { it.id }
-                .distinct()
-                .size == normalized.servers.size,
-        ) {
-            "服务器列表包含重复项"
-        }
-        normalized.servers.forEach {
-            requireValidToken(it.accessToken)
-            it.cloudAccessToken?.let(::requireValidToken)
-            it.cloudOwnerAccessToken?.let(::requireValidToken)
-        }
+        synchronized(lock) {
+            data.servers.forEach {
+                it.requiringAllowedTransport("服务器", allowUnconfirmedLocalForTests)
+            }
+            val normalized = data.withBoundedPreviousIds()
+            require(normalized.servers.size <= MAX_SERVERS) { "服务器数量过多" }
+            require(
+                normalized.servers
+                    .map { it.id }
+                    .distinct()
+                    .size == normalized.servers.size,
+            ) {
+                "服务器列表包含重复项"
+            }
+            normalized.servers.forEach {
+                requireValidToken(it.accessToken)
+                it.cloudAccessToken?.let(::requireValidToken)
+                it.cloudOwnerAccessToken?.let(::requireValidToken)
+            }
 
-        val oldData = _data.value
-        val oldRefs = secretRefs
-        val newRefs = assignSecretRefs(normalized, oldRefs)
+            val target = LoadedRegistry(normalized, assignSecretRefs(normalized, secretRefs))
+            if (persistSignal == null) {
+                val previous = durable
+                persistTransition(previous, target)
+                durable = target
+                publishLocked(target)
+                cleanUpAfterPersist(previous, target, liveData = target.data)
+            } else {
+                publishLocked(target)
+                persistSignal.trySend(Unit)
+            }
+        }
+    }
+
+    private fun publishLocked(registry: LoadedRegistry) {
+        secretRefs = registry.secretRefs
+        _data.value = registry.data
+        visibleData.value = projectVisible(registry.data)
+    }
+
+    /**
+     * Brings storage up to the published registry. Runs on the persist dispatcher only, and
+     * takes [lock] just to read and to record - never across Keystore or settings work, or a
+     * commit on the main thread would wait for exactly what was moved off it.
+     *
+     * Returns the failure when storage refused; [durable] then still describes what is stored,
+     * so the retry - or the next commit - diffs from the truth and writes the whole difference
+     * again. Returns null once storage matches the published registry.
+     */
+    private fun persistPending(): PersistFailure? {
+        val (from, to) = synchronized(lock) { durable to LoadedRegistry(_data.value, secretRefs) }
+        if (from == to) return null
+        try {
+            persistTransition(from, to)
+        } catch (error: Exception) {
+            AppLog.error(
+                category = "server.registry",
+                event = "deferred_persist_failed",
+                message = "The saved server registry could not be written to storage",
+                throwable = error,
+                attributes = mapOf("serverCount" to to.data.servers.size.toString()),
+            )
+            return PersistFailure(to, error)
+        }
+        synchronized(lock) { durable = to }
+        // The caches of a server added after [to] was read must survive this cleanup.
+        cleanUpAfterPersist(from, to, liveData = _data.value)
+        return null
+    }
+
+    private class PersistFailure(
+        val target: LoadedRegistry,
+        val error: Exception,
+    )
+
+    /**
+     * Storage refused every attempt. The published registry goes back to what is stored, so the
+     * session shows the truth now instead of losing the server at the next launch. A commit that
+     * arrived after the refused target is left alone: it queued its own persist.
+     */
+    private fun abandonPersist(failure: PersistFailure) {
+        val rolledBack =
+            synchronized(lock) {
+                if (LoadedRegistry(_data.value, secretRefs) != failure.target) return@synchronized false
+                publishLocked(durable)
+                true
+            }
+        if (!rolledBack) return
+        AppLog.error(
+            category = "server.registry",
+            event = "deferred_persist_rolled_back",
+            message = "The server registry was restored to what storage holds after the write kept failing",
+            throwable = failure.error,
+        )
+        _persistFailures.tryEmit(failure.error)
+    }
+
+    /** Encrypts the secrets that differ between two registries, then writes the metadata. All or nothing. */
+    private fun persistTransition(
+        from: LoadedRegistry,
+        to: LoadedRegistry,
+    ) {
         val oldByRef =
-            oldData.servers
+            from.data.servers
                 .mapNotNull { server ->
-                    oldRefs[server.id]?.let { it to server }
+                    from.secretRefs[server.id]?.let { it to server }
                 }.toMap()
         val writes =
-            normalized.servers.mapNotNull { server ->
-                val ref = requireNotNull(newRefs[server.id])
+            to.data.servers.mapNotNull { server ->
+                val ref = requireNotNull(to.secretRefs[server.id])
                 val previousServer = oldByRef[ref]
                 if (
                     previousServer?.accessToken == server.accessToken &&
@@ -791,18 +936,22 @@ class ServerRegistry(
 
         try {
             writes.forEach { writeSecret(it.ref, it.newToken, it.newCloudToken, it.newOwnerToken) }
-            persistMetadata(normalized, newRefs)
+            persistMetadata(to.data, to.secretRefs)
         } catch (error: Exception) {
             rollbackSecretWrites(writes)
             throw error
         }
+    }
 
-        secretRefs = newRefs
-        _data.value = normalized
-        visibleData.value = projectVisible(normalized)
-        val orphanedRefs = oldRefs.values.toSet() - newRefs.values.toSet()
+    private fun cleanUpAfterPersist(
+        from: LoadedRegistry,
+        to: LoadedRegistry,
+        liveData: ServersData,
+    ) {
+        // A reference that left the registry is never assigned again, so nothing newer uses it.
+        val orphanedRefs = from.secretRefs.values.toSet() - to.secretRefs.values.toSet()
         orphanedRefs.forEach(::removeSecretBestEffort)
-        clearOrphanedLibraryCaches(normalized)
+        clearOrphanedLibraryCaches(liveData)
     }
 
     private fun load(): LoadedRegistry {

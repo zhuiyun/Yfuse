@@ -23,7 +23,7 @@ internal class EmbySubtitleService(
         embyApiCall("remote_subtitle_search") {
             client
                 .get(
-                    "${normalizeBaseUrl(server.baseUrl)}/Items/$itemId/RemoteSearch/Subtitles/" +
+                    "${normalizeBaseUrl(server.baseUrl)}/Items/${embyPath(itemId)}/RemoteSearch/Subtitles/" +
                         language.encodeURLPathPart(),
                 ) {
                     header("X-Emby-Token", server.accessToken)
@@ -38,7 +38,7 @@ internal class EmbySubtitleService(
     ): Result<Unit> =
         embyApiCall("remote_subtitle_download") {
             client.post(
-                "${normalizeBaseUrl(server.baseUrl)}/Items/$itemId/RemoteSearch/Subtitles/" +
+                "${normalizeBaseUrl(server.baseUrl)}/Items/${embyPath(itemId)}/RemoteSearch/Subtitles/" +
                     subtitleId.encodeURLPathPart(),
             ) {
                 header("X-Emby-Token", server.accessToken)

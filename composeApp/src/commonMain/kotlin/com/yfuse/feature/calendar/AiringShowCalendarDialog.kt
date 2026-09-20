@@ -39,11 +39,11 @@ import androidx.compose.ui.unit.dp
 import com.yfuse.core.data.CalendarReminderMode
 import com.yfuse.core.data.FollowedSeries
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.ArtworkPageTheme
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassDialog
-import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
@@ -171,7 +171,7 @@ internal fun AiringShowCalendarDialog(
             Column(
                 Modifier
                     .fillMaxWidth()
-                    .clip(GlassShapes.card)
+                    .clip(AppShapes.card)
                     .background(palette.background.copy(alpha = 0.04f))
                     .verticalScroll(rememberScrollState()),
             ) {
@@ -325,7 +325,7 @@ private fun CalendarQuickActions(
             .fillMaxWidth()
             .padding(horizontal = 14.dp)
             .height(72.dp)
-            .flatGlass(GlassShapes.card, palette.card2, palette.border),
+            .flatGlass(AppShapes.card, palette.card2, palette.border),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         CalendarQuickAction(
@@ -401,7 +401,7 @@ private fun ReminderOptions(
         Modifier
             .fillMaxWidth()
             .padding(horizontal = 14.dp, vertical = 8.dp)
-            .flatGlass(GlassShapes.card, palette.card2, palette.border)
+            .flatGlass(AppShapes.card, palette.card2, palette.border)
             .padding(7.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
@@ -418,7 +418,7 @@ private fun ReminderOptions(
                     .fillMaxWidth()
                     .pressable(haptic = HapticSignal.Select, role = Role.RadioButton) { onSelect(timing) }
                     .semantics { this.selected = active }
-                    .clip(GlassShapes.chip)
+                    .clip(AppShapes.chip)
                     .background(if (active) accent.container else Color.Transparent)
                     .padding(horizontal = 10.dp, vertical = 9.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -510,7 +510,7 @@ private fun DialogDateChip(
             .pressable(haptic = HapticSignal.Select, role = Role.RadioButton, onClick = onClick)
             .semantics { selected = active }
             .flatGlass(
-                GlassShapes.chip,
+                AppShapes.chip,
                 selectionColor(if (active) accent.container else palette.card2),
                 selectionColor(if (active) accent.border else palette.border),
             ).padding(horizontal = 5.dp, vertical = 7.dp),
@@ -547,7 +547,7 @@ private fun DialogEpisodePanel(
         Modifier
             .fillMaxWidth()
             .padding(start = 14.dp, end = 14.dp, bottom = 14.dp)
-            .flatGlass(GlassShapes.card, palette.card2, palette.border),
+            .flatGlass(AppShapes.card, palette.card2, palette.border),
     ) {
         Row(
             Modifier

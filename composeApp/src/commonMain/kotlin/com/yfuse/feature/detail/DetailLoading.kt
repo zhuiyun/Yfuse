@@ -18,8 +18,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.Dimens
-import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.Motion
@@ -60,7 +60,7 @@ internal fun DetailSkeleton(heroHeight: Dp) {
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 SkeletonBlock(
                     Modifier.width(96.dp).height(142.dp),
-                    shape = GlassShapes.poster,
+                    shape = AppShapes.card,
                 )
                 Column(
                     Modifier.weight(1f).padding(top = 8.dp),
@@ -68,43 +68,43 @@ internal fun DetailSkeleton(heroHeight: Dp) {
                 ) {
                     SkeletonBlock(
                         Modifier.fillMaxWidth(0.72f).height(18.dp),
-                        shape = GlassShapes.thumb,
+                        shape = AppShapes.thumb,
                         phaseMs = SKELETON_PHASE_STEP_MS,
                     )
                     SkeletonBlock(
                         Modifier.fillMaxWidth(0.46f).height(11.dp),
-                        shape = GlassShapes.thumb,
+                        shape = AppShapes.thumb,
                         phaseMs = SKELETON_PHASE_STEP_MS * 2,
                     )
                     SkeletonBlock(
                         Modifier.width(64.dp).height(11.dp),
-                        shape = GlassShapes.thumb,
+                        shape = AppShapes.thumb,
                         phaseMs = SKELETON_PHASE_STEP_MS * 3,
                     )
                 }
             }
             SkeletonBlock(
                 Modifier.fillMaxWidth().height(48.dp),
-                shape = GlassShapes.card,
+                shape = AppShapes.card,
                 phaseMs = SKELETON_PHASE_STEP_MS * 2,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 repeat(3) { index ->
                     SkeletonBlock(
                         Modifier.weight(1f).height(36.dp),
-                        shape = GlassShapes.chip,
+                        shape = AppShapes.chip,
                         phaseMs = SKELETON_PHASE_STEP_MS * (3 + index),
                     )
                 }
             }
             SkeletonBlock(
                 Modifier.fillMaxWidth().height(12.dp),
-                shape = GlassShapes.thumb,
+                shape = AppShapes.thumb,
                 phaseMs = SKELETON_PHASE_STEP_MS * 5,
             )
             SkeletonBlock(
                 Modifier.fillMaxWidth(0.86f).height(12.dp),
-                shape = GlassShapes.thumb,
+                shape = AppShapes.thumb,
                 phaseMs = SKELETON_PHASE_STEP_MS * 6,
             )
         }

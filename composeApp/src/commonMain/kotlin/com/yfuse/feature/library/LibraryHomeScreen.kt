@@ -67,7 +67,6 @@ import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassDialog
-import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HeroActionDock
 import com.yfuse.core.designsystem.HeroPageFade
 import com.yfuse.core.designsystem.HeroPageIndicator
@@ -707,7 +706,7 @@ private fun LibraryFreshnessBanner(
         Modifier
             .padding(horizontal = Dimens.pageHorizontal)
             .glass(
-                shape = GlassShapes.card,
+                shape = AppShapes.card,
                 fill = palette.card2,
                 border = palette.border,
             ).padding(start = 14.dp, end = 8.dp, top = 12.dp, bottom = 8.dp),
@@ -851,7 +850,7 @@ private fun HeroCarousel(
                     .pressable(onClickLabel = "切换媒体服务器", onClick = onToggleServerMenu)
                     .touchTarget()
                     .glass(
-                        shape = GlassShapes.chip,
+                        shape = AppShapes.chip,
                         fill = Color(0xFF141826).copy(alpha = 0.36f),
                         border = Color.White.copy(alpha = 0.30f),
                     ).padding(horizontal = 12.dp, vertical = 7.dp),
@@ -1002,7 +1001,7 @@ private fun ServerSheet(
                             onClick = overlayAction { onSelect(server.id) },
                         ).semantics { this.selected = isCurrent }
                         .glass(
-                            shape = GlassShapes.chip,
+                            shape = AppShapes.chip,
                             fill = selectionColor(if (isCurrent) themeAccent.container else palette.card2),
                             border =
                                 selectionColor(
@@ -1166,7 +1165,7 @@ private fun LibraryCategoryCard(
             .width(148.dp)
             .height(88.dp)
             .pressable(onClick = onClick)
-            .clip(GlassShapes.poster)
+            .clip(AppShapes.card)
             .background(
                 if (coverUrl == null && fallbackIcon != null) {
                     Color(0xFF4C5F83)

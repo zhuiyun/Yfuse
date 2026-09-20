@@ -1,9 +1,7 @@
 package com.yfuse.tv.ui
 
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -25,7 +23,6 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -39,13 +36,17 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawOutline
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -62,8 +63,9 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.lerp
 import coil3.compose.AsyncImage
+import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.tv.focus.FocusAnchor
 import com.yfuse.tv.focus.FocusCandidate
 import com.yfuse.tv.focus.FocusContext
@@ -80,13 +82,6 @@ import com.yfuse.tv.focus.tvRemoteKeyHandler
 internal val TvSafeHorizontal = 48.dp
 internal val TvSafeVertical = 27.dp
 internal val TvRailWidth = 184.dp
-
-internal val TvBackground = Color(0xFF080B10)
-internal val TvSurface = Color(0xFF141922)
-internal val TvSurfaceFocused = Color(0xFF243146)
-internal val TvOnSurface = Color(0xFFF5F7FA)
-internal val TvOnSurfaceMuted = Color(0xFFB2BAC7)
-internal val TvAccent = Color(0xFF7BC7FF)
 
 /**
  * TV focus is restored by semantic identity, never by a Lazy list index. An item can move after
@@ -193,19 +188,17 @@ internal fun TvFocusableSurface(
     content: @Composable (focused: Boolean) -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(
-        targetValue = if (focused) scaleWhenFocused else 1f,
-        label = "tv-focus-scale",
-    )
-    val border by animateColorAsState(
-        targetValue =
-            when {
-                focused -> Color.White
-                selected -> TvAccent.copy(alpha = 0.88f)
-                else -> Color.White.copy(alpha = 0.08f)
-            },
-        label = "tv-focus-border",
-    )
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    // One clock, read only in the layer and draw phases: scale, edge and plate move together
+    // and a focus change recomposes nothing. See [TvFocusMotion].
+    val focusAmount =
+        animateFloatAsState(
+            targetValue = if (focused) 1f else 0f,
+            animationSpec = TvFocusMotion.spec(reduceMotion),
+            label = "tv-focus",
+        )
+    val focusScale = TvFocusMotion.scale(scaleWhenFocused, reduceMotion)
+    val restEdge = if (selected) TvAccent.copy(alpha = 0.88f) else TvHairline
     val requesterModifier =
         if (focusRequester == null) Modifier else Modifier.focusRequester(focusRequester)
     val targetId = remember(focusScope, stableId) { focusMemory.targetId(focusScope, stableId) }
@@ -213,6 +206,7 @@ internal fun TvFocusableSurface(
     Box(
         modifier
             .graphicsLayer {
+                val scale = 1f + (focusScale - 1f) * focusAmount.value
                 scaleX = scale
                 scaleY = scale
             }.then(requesterModifier)
@@ -256,9 +250,18 @@ internal fun TvFocusableSurface(
                     false
                 }
             }.clip(shape)
-            .border(if (focused) 3.dp else 1.dp, border, shape)
-            .background(if (focused) TvSurfaceFocused else TvSurface)
-            .clickable(onClick = onClick)
+            .drawWithCache {
+                val outline = shape.createOutline(size, layoutDirection, this)
+                onDrawWithContent {
+                    val amount = focusAmount.value.coerceIn(0f, 1f)
+                    drawOutline(outline, lerp(TvSurface, TvSurfaceFocused, amount))
+                    drawContent()
+                    // The clip removes the outer half of a centred stroke, so twice the width
+                    // leaves exactly the token inside the shape — what `border` used to draw.
+                    val edge = lerp(TvFocusMotion.restBorder, TvFocusMotion.focusBorder, amount).toPx()
+                    drawOutline(outline, lerp(restEdge, Color.White, amount), style = Stroke(edge * 2f))
+                }
+            }.clickable(onClick = onClick)
             .testTag(stableId)
             .semantics {
                 role = Role.Button
@@ -343,7 +346,7 @@ internal fun TvActionButton(
                     } else {
                         TvOnSurface
                     },
-                fontSize = 17.sp,
+                fontSize = TvType.body,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
             )
@@ -387,7 +390,7 @@ internal fun TvMediaCard(
                 Modifier
                     .fillMaxWidth()
                     .aspectRatio(model.artworkShape.ratio)
-                    .background(Color(0xFF222A35)),
+                    .background(TvPlaceholder),
             ) {
                 AsyncImage(
                     model = model.imageUrl,
@@ -412,7 +415,7 @@ internal fun TvMediaCard(
                     Text(
                         text = badge,
                         color = Color.White,
-                        fontSize = 14.sp,
+                        fontSize = TvType.caption,
                         fontWeight = FontWeight.Bold,
                         modifier =
                             Modifier
@@ -444,7 +447,7 @@ internal fun TvMediaCard(
                 Text(
                     text = model.title,
                     color = TvOnSurface,
-                    fontSize = 15.sp,
+                    fontSize = TvType.caption,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -453,7 +456,7 @@ internal fun TvMediaCard(
                     Text(
                         text = subtitle,
                         color = TvOnSurfaceMuted,
-                        fontSize = 14.sp,
+                        fontSize = TvType.caption,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -578,14 +581,14 @@ internal fun TvMediaRow(
             Text(
                 text = title,
                 color = TvOnSurface,
-                fontSize = 23.sp,
+                fontSize = TvType.section,
                 fontWeight = FontWeight.Bold,
             )
             if (onSeeAll != null) {
                 Text(
                     text = "查看全部",
                     color = TvOnSurfaceMuted,
-                    fontSize = 14.sp,
+                    fontSize = TvType.caption,
                     modifier = Modifier.padding(end = 8.dp),
                 )
             }
@@ -620,8 +623,8 @@ internal fun TvMediaRow(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.Center,
                         ) {
-                            Text("›", color = TvOnSurface, fontSize = 40.sp)
-                            Text("查看全部", color = TvOnSurfaceMuted, fontSize = 14.sp)
+                            Text("›", color = TvOnSurface, fontSize = TvType.display)
+                            Text("查看全部", color = TvOnSurfaceMuted, fontSize = TvType.caption)
                         }
                     }
                 }
@@ -646,9 +649,9 @@ internal fun TvEmptyState(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Text(title, color = TvOnSurface, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+        Text(title, color = TvOnSurface, fontSize = TvType.section, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(10.dp))
-        Text(description, color = TvOnSurfaceMuted, fontSize = 17.sp)
+        Text(description, color = TvOnSurfaceMuted, fontSize = TvType.body)
         if (actionLabel != null && onAction != null) {
             Spacer(Modifier.height(22.dp))
             TvActionButton(
@@ -678,7 +681,7 @@ internal fun TvLoadingState(label: String = "正在加载") {
                     .background(TvAccent),
             )
             Spacer(Modifier.height(12.dp))
-            Text(label, color = TvOnSurfaceMuted, style = MaterialTheme.typography.bodyLarge)
+            Text(label, color = TvOnSurfaceMuted, fontSize = TvType.body)
         }
     }
 }

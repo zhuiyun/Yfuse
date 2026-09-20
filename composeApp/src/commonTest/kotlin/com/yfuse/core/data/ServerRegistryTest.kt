@@ -6,11 +6,16 @@ import com.yfuse.core.model.MediaServerKind
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.ServerRoute
 import com.yfuse.core.model.ServersData
+import com.yfuse.core.security.SecureStoreException
 import com.yfuse.core.security.ServerMigrationCrypto
 import com.yfuse.core.security.TestSecureStore
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertSame
@@ -439,4 +444,102 @@ class ServerRegistryTest {
         assertTrue(confirmedDevice.defaultServer?.localCleartextConfirmed == true)
         passphrase.fill('\u0000')
     }
+
+    @Test
+    fun aSynchronousCommitThatStorageRefusesThrowsAndPublishesNothing() {
+        val settings = MapSettings()
+        val secrets = TestSecureStore()
+        val registry = registry(settings, secrets).apply { addOrUpdate(server("a")) }
+        secrets.failWrites = true
+
+        assertFailsWith<SecureStoreException> { registry.addOrUpdate(server("b")) }
+
+        assertEquals(listOf("a"), registry.data.value.servers.map { it.id })
+        secrets.failWrites = false
+        registry.addOrUpdate(server("c"))
+        assertEquals(listOf("a", "c"), registry(settings, secrets).data.value.servers.map { it.id })
+    }
+
+    @Test
+    fun aPersistDispatcherPublishesAtOnceAndWritesStorageOffTheCallingThread() =
+        runTest {
+            val settings = MapSettings()
+            val secrets = TestSecureStore()
+            val registry =
+                ServerRegistry(settings, secrets, persistDispatcher = StandardTestDispatcher(testScheduler))
+
+            registry.addOrUpdate(server("a"))
+            registry.addOrUpdate(server("b"))
+            assertTrue(registry.rename("a", "Renamed"))
+
+            // Published to every reader, while the caller's thread has not touched storage.
+            assertEquals(listOf("a", "b"), registry.data.value.servers.map { it.id })
+            assertNull(settings.getStringOrNull("servers.data"))
+            assertTrue(secrets.storedKeys().isEmpty())
+
+            testScheduler.advanceUntilIdle()
+
+            val restored = registry(settings, secrets).data.value
+            assertEquals(listOf("Renamed", "name-b"), restored.servers.map { it.serverName })
+            assertEquals(listOf("tok-a", "tok-b"), restored.servers.map { it.accessToken })
+            assertEquals("a", restored.defaultServerId)
+
+            registry.remove("a")
+            testScheduler.advanceUntilIdle()
+            assertEquals(listOf("b"), registry(settings, secrets).data.value.servers.map { it.id })
+            assertEquals(1, secrets.storedKeys().size)
+        }
+
+    @Test
+    fun aRefusedDeferredPersistKeepsStorageWholeAndIsRetriedFromWhatStorageHolds() =
+        runTest {
+            val settings = MapSettings()
+            val secrets = TestSecureStore()
+            val registry =
+                ServerRegistry(settings, secrets, persistDispatcher = StandardTestDispatcher(testScheduler))
+            registry.addOrUpdate(server("a"))
+            testScheduler.advanceUntilIdle()
+
+            secrets.failWrites = true
+            registry.addOrUpdate(server("a", token = "rotated"))
+            registry.addOrUpdate(server("b"))
+            testScheduler.runCurrent()
+
+            // This session keeps working from memory; storage still holds the old registry whole.
+            assertEquals("rotated", registry.serverById("a")?.accessToken)
+            assertEquals(listOf("tok-a"), registry(settings, secrets).data.value.servers.map { it.accessToken })
+
+            secrets.failWrites = false
+            testScheduler.advanceUntilIdle()
+
+            assertEquals(
+                listOf("rotated", "tok-b"),
+                registry(settings, secrets).data.value.servers.map { it.accessToken },
+            )
+        }
+
+    @Test
+    fun aDeferredPersistThatKeepsFailingRollsMemoryBackToStorageAndReportsIt() =
+        runTest {
+            val settings = MapSettings()
+            val secrets = TestSecureStore()
+            val registry =
+                ServerRegistry(settings, secrets, persistDispatcher = StandardTestDispatcher(testScheduler))
+            registry.addOrUpdate(server("a"))
+            testScheduler.advanceUntilIdle()
+            val failures = mutableListOf<Throwable>()
+            val collector = launch { registry.persistFailures.collect { failures += it } }
+            testScheduler.runCurrent()
+
+            secrets.failWrites = true
+            registry.addOrUpdate(server("b"))
+            assertEquals(listOf("a", "b"), registry.data.value.servers.map { it.id })
+            testScheduler.advanceUntilIdle()
+
+            // Every attempt was refused: the session shows what storage holds, and says why.
+            assertEquals(listOf("a"), registry.data.value.servers.map { it.id })
+            assertEquals(1, failures.size)
+            assertEquals(listOf("a"), registry(settings, secrets).data.value.servers.map { it.id })
+            collector.cancel()
+        }
 }

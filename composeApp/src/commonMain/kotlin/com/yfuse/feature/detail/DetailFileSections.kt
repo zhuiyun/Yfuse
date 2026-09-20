@@ -32,11 +32,11 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.data.PlaybackTrackRequest
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.DolbyChip
 import com.yfuse.core.designsystem.GlassLift
-import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.motionItem
@@ -294,7 +294,7 @@ internal fun MediaInfoSection(
                     .padding(horizontal = Dimens.pageHorizontal)
                     .fillMaxWidth()
                     .solidGlass(
-                        shape = GlassShapes.card,
+                        shape = AppShapes.card,
                         fill =
                             if (palette.isDark) {
                                 Color.White.copy(alpha = 0.05f)
@@ -339,7 +339,7 @@ private fun SpecCard(
         Modifier
             .width(width)
             .solidGlass(
-                shape = GlassShapes.card,
+                shape = AppShapes.card,
                 fill =
                     if (palette.isDark) {
                         Color.White.copy(alpha = 0.06f)
@@ -527,9 +527,9 @@ private fun TrackChipRow(
                             onClick = { onSelect(option.value) },
                         ).semantics { this.selected = active }
                         .touchTarget()
-                        .shadow(GlassLift.control, GlassShapes.chip)
+                        .shadow(GlassLift.control, AppShapes.chip)
                         .liquidGlass(
-                            shape = GlassShapes.chip,
+                            shape = AppShapes.chip,
                             fill =
                                 if (palette.isDark) {
                                     Color.White.copy(alpha = 0.075f)
@@ -562,7 +562,7 @@ private fun VersionCard(
                 onClick = onSelect,
             ).semantics { this.selected = selected }
             .solidGlass(
-                shape = GlassShapes.card,
+                shape = AppShapes.card,
                 fill =
                     if (selected) {
                         stateColors.surface
@@ -574,7 +574,7 @@ private fun VersionCard(
                 border = Color.Transparent,
             ).then(
                 if (selected) {
-                    Modifier.border(1.5.dp, stateColors.border, GlassShapes.card)
+                    Modifier.border(1.5.dp, stateColors.border, AppShapes.card)
                 } else {
                     Modifier
                 },
@@ -747,7 +747,7 @@ private fun SourceCard(
                 onClick = onSelect,
             ).semantics { this.selected = selected }
             .solidGlass(
-                shape = GlassShapes.card,
+                shape = AppShapes.card,
                 fill =
                     if (selected) {
                         stateColors.surface
@@ -759,7 +759,7 @@ private fun SourceCard(
                 border = Color.Transparent,
             ).then(
                 if (selected) {
-                    Modifier.border(1.5.dp, stateColors.border, GlassShapes.card)
+                    Modifier.border(1.5.dp, stateColors.border, AppShapes.card)
                 } else {
                     Modifier
                 },
@@ -799,7 +799,7 @@ private fun SourceCard(
                     color = Color(0xFF9A6B12),
                     modifier =
                         Modifier
-                            .clip(GlassShapes.chip)
+                            .clip(AppShapes.chip)
                             .background(Color(0xFFF5C86A).copy(alpha = 0.30f))
                             .padding(horizontal = 6.dp, vertical = 2.dp),
                 )
@@ -826,7 +826,7 @@ private fun SourceCard(
                     maxLines = 1,
                     modifier =
                         Modifier
-                            .clip(GlassShapes.chip)
+                            .clip(AppShapes.chip)
                             .background(
                                 if (selected) {
                                     stateColors.iconSurface.copy(alpha = 0.72f)

@@ -44,12 +44,12 @@ import androidx.compose.ui.unit.dp
 import com.yfuse.core.data.CalendarReminderMode
 import com.yfuse.core.data.TmdbSeriesIdentityCandidate
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.ArtworkPageTheme
 import com.yfuse.core.designsystem.BurstIcon
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassDialog
-import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
@@ -157,14 +157,14 @@ internal fun SeriesAiringCalendarDialog(
             contentPadding = 0.dp,
             alignment = Alignment.BottomCenter,
             windowPadding = PaddingValues(start = 12.dp, top = 72.dp, end = 12.dp, bottom = 0.dp),
-            shape = GlassShapes.sheet,
+            shape = AppShapes.sheet,
         ) {
             val palette = LocalPalette.current
             val lavender = resolveAccentColors(SeriesCalendarLavender, palette.isDark)
             Column(
                 Modifier
                     .fillMaxSize()
-                    .clip(GlassShapes.sheet)
+                    .clip(AppShapes.sheet)
                     .background(
                         Brush.verticalGradient(
                             0f to palette.background.copy(alpha = 0.04f),
@@ -370,7 +370,7 @@ private fun SeriesCalendarSummaryControls(
                 .pressable(haptic = HapticSignal.Confirm, role = Role.Switch, onClick = onToggleFollow)
                 .semantics { stateDescription = if (followed) "已加入追剧" else "未加入追剧" }
                 .flatGlass(
-                    GlassShapes.card,
+                    AppShapes.card,
                     lerp(palette.card2, follow.container, 0.72f),
                     follow.border.copy(alpha = 0.55f),
                 ).padding(horizontal = 11.dp, vertical = 10.dp),
@@ -415,7 +415,7 @@ private fun SeriesCalendarSummaryControls(
                     role = Role.Button,
                     onClick = onToggleReminder,
                 ).flatGlass(
-                    GlassShapes.card,
+                    AppShapes.card,
                     lerp(palette.card2, reminder.container, if (followed) 0.72f else 0.22f),
                     if (followed) reminder.border.copy(alpha = 0.55f) else palette.border,
                 ).padding(horizontal = 11.dp, vertical = 10.dp),
@@ -498,7 +498,7 @@ private fun SeriesReminderPicker(
         Modifier
             .fillMaxWidth()
             .padding(start = 14.dp, end = 14.dp, bottom = 8.dp)
-            .flatGlass(GlassShapes.card, palette.card2, palette.border)
+            .flatGlass(AppShapes.card, palette.card2, palette.border)
             .padding(7.dp),
         verticalArrangement = Arrangement.spacedBy(3.dp),
     ) {
@@ -509,7 +509,7 @@ private fun SeriesReminderPicker(
                     .fillMaxWidth()
                     .pressable(haptic = HapticSignal.Select, role = Role.RadioButton) { onSelect(mode) }
                     .semantics { this.selected = active }
-                    .clip(GlassShapes.chip)
+                    .clip(AppShapes.chip)
                     .background(if (active) reminder.container else Color.Transparent)
                     .padding(horizontal = 10.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -628,7 +628,7 @@ private fun SeriesCalendarDateChip(
             .pressable(haptic = HapticSignal.Select, role = Role.RadioButton, onClick = onClick)
             .semantics { selected = active }
             .flatGlass(
-                GlassShapes.chip,
+                AppShapes.chip,
                 // The selection moves between three chips at once — the one leaving and the one
                 // arriving. Bare [lerp] gave each its new colour between two frames while the
                 // date under them animated; [selectionColor] puts all three on the same settle.
@@ -695,7 +695,7 @@ private fun SeriesCalendarEpisodeContent(
                     Column(
                         Modifier
                             .fillMaxWidth()
-                            .flatGlass(GlassShapes.card, palette.card2, palette.border),
+                            .flatGlass(AppShapes.card, palette.card2, palette.border),
                     ) {
                         selectedDay.entries.forEachIndexed { index, entry ->
                             if (index > 0) {
@@ -802,7 +802,7 @@ private fun SeriesCalendarInlineNotice(
             .fillMaxWidth()
             .padding(horizontal = 14.dp, vertical = 3.dp)
             .pressable(onClick = onRetry)
-            .clip(GlassShapes.chip)
+            .clip(AppShapes.chip)
             .background(error.container)
             .padding(horizontal = 10.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -888,7 +888,7 @@ private fun SeriesIdentityCandidates(
                     .fillMaxWidth()
                     .pressable { onSelect(candidate) }
                     .flatGlass(
-                        GlassShapes.card,
+                        AppShapes.card,
                         lerp(palette.card2, plum.container, 0.46f),
                         plum.border.copy(alpha = 0.36f),
                     ).padding(horizontal = 13.dp, vertical = 11.dp),
@@ -933,7 +933,7 @@ private fun SeriesCalendarFooter(
         Modifier
             .fillMaxWidth()
             .padding(start = 14.dp, end = 14.dp, bottom = 13.dp)
-            .flatGlass(GlassShapes.card, palette.card2, palette.border),
+            .flatGlass(AppShapes.card, palette.card2, palette.border),
     ) {
         if (sourceUrl != null && onOpenSource != null) {
             SeriesCalendarFooterRow(

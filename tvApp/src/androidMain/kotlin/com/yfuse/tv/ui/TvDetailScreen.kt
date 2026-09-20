@@ -31,7 +31,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.data.rankServerSources
@@ -175,7 +174,7 @@ internal fun TvDetailScreen(
                             Modifier.padding(horizontal = TvSafeHorizontal),
                             verticalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
-                            Text("季", color = TvOnSurface, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                            Text("季", color = TvOnSurface, fontSize = TvType.section, fontWeight = FontWeight.Bold)
                             LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 itemsIndexed(
                                     state.seasons,
@@ -232,7 +231,7 @@ internal fun TvDetailScreen(
                             Modifier.padding(horizontal = TvSafeHorizontal),
                             verticalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
-                            Text("播放版本", color = TvOnSurface, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                            Text("播放版本", color = TvOnSurface, fontSize = TvType.section, fontWeight = FontWeight.Bold)
                             LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 itemsIndexed(
                                     versions,
@@ -263,7 +262,7 @@ internal fun TvDetailScreen(
                             Modifier.padding(horizontal = TvSafeHorizontal),
                             verticalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
-                            Text("服务器片源", color = TvOnSurface, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                            Text("服务器片源", color = TvOnSurface, fontSize = TvType.section, fontWeight = FontWeight.Bold)
                             LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 itemsIndexed(
                                     comparableSources.filter { it.reachable && it.itemId != null },
@@ -418,7 +417,7 @@ private fun TvDetailHero(
     serverId: String,
     profileId: String,
 ) {
-    Box(Modifier.fillMaxWidth().height(475.dp).background(Color(0xFF121720))) {
+    Box(Modifier.fillMaxWidth().height(475.dp).background(TvPlaceholder)) {
         AsyncImage(
             model = heroUrl,
             contentDescription = detail.title,
@@ -463,7 +462,7 @@ private fun TvDetailHero(
             Text(
                 detail.title,
                 color = Color.White,
-                fontSize = 42.sp,
+                fontSize = TvType.display,
                 fontWeight = FontWeight.ExtraBold,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
@@ -481,14 +480,14 @@ private fun TvDetailHero(
                         .takeIf(String::isNotBlank),
                 ).joinToString("  ·  "),
                 color = Color.White.copy(alpha = 0.8f),
-                fontSize = 16.sp,
+                fontSize = TvType.caption,
             )
             Spacer(Modifier.height(12.dp))
             Text(
                 detail.overview.orEmpty(),
                 color = Color.White.copy(alpha = 0.74f),
-                fontSize = 16.sp,
-                lineHeight = 23.sp,
+                fontSize = TvType.caption,
+                lineHeight = TvType.readingLineHeight,
                 maxLines = 4,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -639,7 +638,7 @@ private fun TvEpisodeRow(
         Modifier.padding(horizontal = TvSafeHorizontal),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("剧集", color = TvOnSurface, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+        Text("剧集", color = TvOnSurface, fontSize = TvType.section, fontWeight = FontWeight.Bold)
         LazyRow(
             state = rowState,
             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 9.dp),
@@ -687,7 +686,7 @@ private fun TvEpisodeRow(
         Text(
             "按一次选择剧集，再按一次直接播放",
             color = TvOnSurfaceMuted,
-            fontSize = 13.sp,
+            fontSize = TvType.caption,
             modifier = Modifier.padding(start = 8.dp),
         )
     }

@@ -39,6 +39,7 @@ class ThemePreferences(
         const val KEY_REDUCE_MOTION = "accessibility.reduceMotion"
         const val KEY_PARTICLE_LIGHT = "appearance.particleLight"
         const val KEY_PULSE_SWEEP = "appearance.pulseSweep"
+        const val KEY_LIBRARY_CAROUSEL = "appearance.libraryCarousel"
         const val KEY_SPLASH_ANIMATION = "appearance.splashAnimation"
         const val KEY_STARTUP_TAB = "appearance.startupTab"
         const val KEY_DIALOG_ANIMATION = "appearance.dialogAnimation"
@@ -114,14 +115,16 @@ class ThemePreferences(
         settings.putBoolean(KEY_PULSE_SWEEP, enabled)
     }
 
-    private val _libraryCarousel = MutableStateFlow(settings.getBoolean("appearance.libraryCarousel", true))
+    private val _libraryCarousel = MutableStateFlow(settings.getBoolean(KEY_LIBRARY_CAROUSEL, true))
     val libraryCarousel: StateFlow<Boolean> = _libraryCarousel.asStateFlow()
 
     fun setLibraryCarousel(enabled: Boolean) {
-        settings.putBoolean("appearance.libraryCarousel", enabled)
+        settings.putBoolean(KEY_LIBRARY_CAROUSEL, enabled)
         _libraryCarousel.value = enabled
     }
 
+    // Whether a launch plays the splash at all — a real choice, unlike *which* one plays: that is
+    // [SplashAnimation.forMotion] and nothing is stored for it.
     private val _splashAnimation = MutableStateFlow(settings.getBoolean(KEY_SPLASH_ANIMATION, true))
     val splashAnimation: StateFlow<Boolean> = _splashAnimation.asStateFlow()
 

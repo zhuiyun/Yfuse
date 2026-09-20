@@ -10,8 +10,6 @@ import androidx.compose.ui.focus.FocusRequester
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.DialogAnimation
 import com.yfuse.core.designsystem.GlassStyle
-import com.yfuse.core.designsystem.SplashAnimation
-import com.yfuse.core.designsystem.ThemeMode
 import com.yfuse.core.model.ServerLayout
 import com.yfuse.core.model.StartupTab
 import com.yfuse.feature.profile.ProfileComponent
@@ -27,7 +25,6 @@ internal fun TvAppearanceSettingsPage(
 ) {
     val focusScope = "settings:appearance"
     val prefs = component.themePreferences
-    val mode by prefs.mode.collectAsState()
     val dialogAnimation by prefs.dialogAnimation.collectAsState()
     val glassStyle by prefs.glassStyle.collectAsState()
     val reduceTransparency by prefs.reduceTransparency.collectAsState()
@@ -48,22 +45,8 @@ internal fun TvAppearanceSettingsPage(
         }
 
     TvSettingsPageScaffold(page = TvSettingsPage.Appearance, status = status) {
-        item(key = "appearance-section-theme") { TvSettingsSectionTitle("主题") }
-        item(key = "appearance-mode") {
-            TvChoiceRow(
-                title = "界面模式",
-                options = ThemeMode.entries,
-                selected = mode,
-                label = { it.label },
-                stableId = "appearance:mode",
-                focusMemory = focusMemory,
-                onSelect = prefs::setMode,
-                icon = AppIcons.Grid,
-                focusScope = focusScope,
-                focusRequester = firstRowRequester,
-                navigationRequester = navigationRequester,
-            )
-        }
+        // The television is always dark — see [TvApp] — so there is no 界面模式 to choose.
+        item(key = "appearance-section-theme") { TvSettingsSectionTitle("材质") }
         item(key = "appearance-glass") {
             TvChoiceRow(
                 title = "玻璃质感",
@@ -76,6 +59,7 @@ internal fun TvAppearanceSettingsPage(
                 icon = AppIcons.Expand,
                 focusScope = focusScope,
                 subtitle = "面板与弹窗的背景处理方式",
+                focusRequester = firstRowRequester,
                 navigationRequester = navigationRequester,
             )
         }
@@ -203,65 +187,6 @@ internal fun TvAppearanceSettingsPage(
                 focusScope = focusScope,
                 subtitle = "面板改用实心底色，文字对比度更高",
                 navigationRequester = navigationRequester,
-            )
-        }
-    }
-}
-
-/**
- * Splash animation only.
- *
- * The phone also switches its launcher icon here. That works by enabling one of several
- * `activity-alias` entries, and the television package declares none: a leanback launcher shows
- * the banner, not an icon, so the aliases would have nothing to change.
- */
-@Composable
-internal fun TvSplashSettingsPage(
-    component: ProfileComponent,
-    focusMemory: TvUiFocusMemory,
-    navigationRequester: FocusRequester,
-    firstRowRequester: FocusRequester,
-) {
-    val focusScope = "settings:splash"
-    val prefs = component.themePreferences
-    val splashEnabled by prefs.splashAnimation.collectAsState()
-    val splashVariant by prefs.splashVariant.collectAsState()
-
-    TvSettingsPageScaffold(page = TvSettingsPage.Splash) {
-        item(key = "splash-enabled") {
-            TvToggleRow(
-                title = "播放开屏动画",
-                checked = splashEnabled,
-                stableId = "splash:enabled",
-                focusMemory = focusMemory,
-                onToggle = prefs::setSplashAnimation,
-                icon = AppIcons.Play,
-                focusScope = focusScope,
-                subtitle = "关闭后启动会直接进入内容",
-                focusRequester = firstRowRequester,
-                navigationRequester = navigationRequester,
-            )
-        }
-        item(key = "splash-variant") {
-            TvChoiceRow(
-                title = "动画样式",
-                options = SplashAnimation.entries,
-                selected = splashVariant,
-                label = { it.label },
-                stableId = "splash:variant",
-                focusMemory = focusMemory,
-                onSelect = prefs::setSplashVariant,
-                icon = AppIcons.Star,
-                focusScope = focusScope,
-                subtitle = splashVariant.description,
-                enabled = splashEnabled,
-                navigationRequester = navigationRequester,
-            )
-        }
-        item(key = "splash-icon-note") {
-            TvSettingsNote(
-                "手机端还可以在这里更换启动器图标。电视版没有这一项：leanback 启动器显示的是横幅，" +
-                    "电视安装包也没有声明可切换的图标别名。",
             )
         }
     }

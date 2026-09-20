@@ -34,11 +34,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassLift
-import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.Motion
@@ -77,9 +77,9 @@ internal fun GenreSection(
                         Modifier
                             .let { base ->
                                 if (onGenreClick != null) base.pressable { onGenreClick(genre) } else base
-                            }.shadow(GlassLift.control, GlassShapes.chip)
+                            }.shadow(GlassLift.control, AppShapes.chip)
                             .liquidGlass(
-                                shape = GlassShapes.chip,
+                                shape = AppShapes.chip,
                                 fill =
                                     if (palette.isDark) {
                                         Color.White.copy(alpha = 0.075f)
@@ -139,7 +139,7 @@ internal fun ArtworkSection(
                         Modifier
                             .width(232.dp)
                             .height(130.dp)
-                            .clip(GlassShapes.card),
+                            .clip(AppShapes.card),
                 )
             }
         }
@@ -163,9 +163,9 @@ internal fun ExternalLinksSection(
                 Row(
                     Modifier
                         .pressable { runCatching { uriHandler.openUri(url) } }
-                        .shadow(GlassLift.control, GlassShapes.chip)
+                        .shadow(GlassLift.control, AppShapes.chip)
                         .liquidGlass(
-                            shape = GlassShapes.chip,
+                            shape = AppShapes.chip,
                             fill =
                                 if (palette.isDark) {
                                     Color.White.copy(alpha = 0.075f)

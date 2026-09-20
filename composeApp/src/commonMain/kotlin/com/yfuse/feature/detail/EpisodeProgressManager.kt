@@ -30,9 +30,9 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.GlassDialog
-import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.Poster
@@ -167,7 +167,7 @@ private fun PresetChip(
             Modifier
                 .pressable(enabled = enabled, onClick = onClick)
                 .heightIn(min = 44.dp)
-                .solidGlass(GlassShapes.chip, accent.copy(alpha = 0.10f), accent.copy(alpha = 0.22f))
+                .solidGlass(AppShapes.chip, accent.copy(alpha = 0.10f), accent.copy(alpha = 0.22f))
                 .padding(horizontal = 13.dp, vertical = 10.dp),
     )
 }
@@ -195,7 +195,7 @@ private fun ProgressEpisodeRow(
             ).semantics {
                 this.selected = selected
                 stateDescription = if (selected) "已选择" else "未选择"
-            }.clip(GlassShapes.card)
+            }.clip(AppShapes.card)
             .background(if (selected) accent.copy(alpha = if (palette.isDark) 0.24f else 0.16f) else palette.card2)
             .padding(8.dp),
         horizontalArrangement = Arrangement.spacedBy(11.dp),
@@ -212,7 +212,7 @@ private fun ProgressEpisodeRow(
                         accessToken = accessToken,
                     ),
                 fallbackUrls = listOfNotNull(seriesPosterUrl),
-                shape = GlassShapes.thumb,
+                shape = AppShapes.thumb,
                 progress = episode.playedPercentage?.let { (it / 100.0).toFloat() },
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize(),
@@ -258,7 +258,7 @@ private fun ProgressManagerActions(
     Row(
         Modifier
             .fillMaxWidth()
-            .solidGlass(GlassShapes.card, palette.card)
+            .solidGlass(AppShapes.card, palette.card)
             .padding(horizontal = 14.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -299,7 +299,7 @@ private fun ProgressAction(
             .heightIn(min = 48.dp)
             .pressable(enabled = enabled, onClick = onClick)
             .solidGlass(
-                GlassShapes.thumb,
+                AppShapes.thumb,
                 if (enabled) accent.copy(alpha = 0.16f) else palette.card2,
                 if (enabled) accent.copy(alpha = 0.30f) else palette.border,
             ),

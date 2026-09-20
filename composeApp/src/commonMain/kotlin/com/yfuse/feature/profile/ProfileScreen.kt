@@ -62,7 +62,6 @@ import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.ConfirmDialog
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.GlassDialog
-import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.GlassSlider
 import com.yfuse.core.designsystem.GlassStyle
 import com.yfuse.core.designsystem.HapticSignal
@@ -270,11 +269,9 @@ fun ProfileScreen(component: ProfileComponent) {
     val pulseSweep by prefs.pulseSweep.collectAsState()
     val libraryCarousel by prefs.libraryCarousel.collectAsState()
     val particleLight by prefs.particleLight.collectAsState()
-    val particleStyle by prefs.particleStyle.collectAsState()
     val decoder by prefs.decoder.collectAsState()
     val autoNext by prefs.autoNext.collectAsState()
     val splashAnimation by prefs.splashAnimation.collectAsState()
-    val splashVariant by prefs.splashVariant.collectAsState()
     val startupTab by prefs.startupTab.collectAsState()
     val glassStyle by prefs.glassStyle.collectAsState()
     val dialogAnimation by prefs.dialogAnimation.collectAsState()
@@ -476,7 +473,7 @@ fun ProfileScreen(component: ProfileComponent) {
                         onBack = ::closePage,
                         brandSummary =
                             if (splashAnimation) {
-                                "${appIcon.label} · ${splashVariant.label} ›"
+                                "${appIcon.label} · 开屏已开启 ›"
                             } else {
                                 "${appIcon.label} · 开屏已关闭 ›"
                             },
@@ -487,8 +484,8 @@ fun ProfileScreen(component: ProfileComponent) {
                                 "已设置 · ${(backgroundDim * 100).toInt()}% 遮罩 ›"
                             },
                         startupSummary = "${startupTab.label} ›",
-                        dialogAnimationSummary = "${dialogAnimation.label} · 全部 43 款 ›",
-                        particleLightSummary = "${particleLight.label} · ${particleStyle.label} ›",
+                        dialogAnimationSummary = "${dialogAnimation.label} ›",
+                        particleLightSummary = "${particleLight.label} ›",
                         onParticleLight = { sheet = Sheet.ParticleLight },
                         onDialogAnimation = { sheet = Sheet.DialogAnimation },
                         reduceTransparency = reduceTransparency,
@@ -1143,7 +1140,7 @@ internal fun SettingsCard(content: @Composable ColumnScope.() -> Unit) {
     Column(
         Modifier
             .fillMaxWidth()
-            .flatGlass(GlassShapes.card, palette.card2, palette.border),
+            .flatGlass(AppShapes.card, palette.card2, palette.border),
         content = content,
     )
 }
@@ -1178,7 +1175,7 @@ internal fun Section(
                             .pressable(onClick = onAction)
                             .touchTarget()
                             .liquidGlass(
-                                shape = GlassShapes.chip,
+                                shape = AppShapes.chip,
                                 fill = palette.card2,
                                 border = palette.border,
                                 over = palette.background,

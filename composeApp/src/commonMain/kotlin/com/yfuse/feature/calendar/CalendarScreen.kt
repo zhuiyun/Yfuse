@@ -59,13 +59,13 @@ import com.yfuse.core.data.FollowedSeries
 import com.yfuse.core.data.isToday
 import com.yfuse.core.data.missingCount
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.DisclosureContent
 import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.FallbackImage
-import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.InlineLoadingContent
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
@@ -233,7 +233,7 @@ fun CalendarScreen(component: CalendarComponent) {
                     Modifier
                         .fillMaxWidth()
                         .padding(horizontal = Dimens.pageHorizontal)
-                        .glass(GlassShapes.card, palette.card2, palette.border)
+                        .glass(AppShapes.card, palette.card2, palette.border)
                         .padding(horizontal = 13.dp, vertical = 10.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
@@ -296,13 +296,13 @@ fun CalendarScreen(component: CalendarComponent) {
                                             filtersExpanded = false
                                         }.semantics { this.selected = active }
                                         .touchTarget()
-                                        .clip(GlassShapes.chip)
+                                        .clip(AppShapes.chip)
                                         .background(selectionColor(if (active) accent.accent else Color.Transparent))
                                         .then(
                                             if (active) {
                                                 Modifier
                                             } else {
-                                                Modifier.glass(GlassShapes.chip, palette.card2, palette.border)
+                                                Modifier.glass(AppShapes.chip, palette.card2, palette.border)
                                             },
                                         ).padding(horizontal = 13.dp, vertical = 6.dp),
                             )
@@ -405,7 +405,7 @@ private fun CalendarLoadingContent() {
         Modifier
             .fillMaxSize()
             .padding(horizontal = Dimens.pageHorizontal)
-            .clip(GlassShapes.card)
+            .clip(AppShapes.card)
             .background(palette.card2)
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -593,9 +593,9 @@ private fun CalendarListResults(
             Modifier
                 .fillMaxSize()
                 .padding(horizontal = Dimens.pageHorizontal)
-                .clip(GlassShapes.card)
+                .clip(AppShapes.card)
                 .background(palette.card2)
-                .border(1.dp, palette.border, GlassShapes.card),
+                .border(1.dp, palette.border, AppShapes.card),
         state = listState,
         contentPadding = PaddingValues(bottom = bottomContentInset),
     ) {
@@ -785,7 +785,7 @@ private fun CalendarDayHeader(
                             color = accent.onAccent,
                             modifier =
                                 Modifier
-                                    .clip(GlassShapes.chip)
+                                    .clip(AppShapes.chip)
                                     .background(accent.accent)
                                     .padding(horizontal = 7.dp, vertical = 2.dp),
                         )
@@ -922,7 +922,7 @@ private fun AccordionCalendarEntry(
                 Modifier
                     .width(if (expanded) 62.dp else 44.dp)
                     .height(if (expanded) 88.dp else 62.dp)
-                    .clip(GlassShapes.thumb)
+                    .clip(AppShapes.thumb)
                     .background(palette.card),
         )
         Column(
@@ -1065,7 +1065,7 @@ private fun TabletWeekCalendar(
                 Modifier
                     .weight(1f)
                     .fillMaxSize()
-                    .glass(GlassShapes.card, palette.card2, palette.border)
+                    .glass(AppShapes.card, palette.card2, palette.border)
                     .padding(horizontal = 8.dp, vertical = 10.dp),
             ) {
                 Text(
@@ -1118,7 +1118,7 @@ private fun TabletWeekEntryCard(
     Column(
         Modifier
             .fillMaxWidth()
-            .clip(GlassShapes.chip)
+            .clip(AppShapes.chip)
             .background(palette.card)
             .pressable(onClickLabel = "打开${entry.episode.showTitle}播出日历") { onOpen(entry) }
             .padding(8.dp),
@@ -1266,7 +1266,7 @@ private fun CalendarTrackingPane(
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .glass(GlassShapes.card, palette.card2, palette.border)
+                    .glass(AppShapes.card, palette.card2, palette.border)
                     .padding(horizontal = 13.dp, vertical = 10.dp),
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -1347,7 +1347,7 @@ private fun CalendarTrackingPane(
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .glass(GlassShapes.card, palette.card2, palette.border)
+                    .glass(AppShapes.card, palette.card2, palette.border)
                     .then(
                         if (seriesItemId != null) {
                             Modifier.pressable(onClick = openSeriesDetail)
@@ -1372,7 +1372,7 @@ private fun CalendarTrackingPane(
                             .sharedMediaArtwork(sharedKey)
                             .width(48.dp)
                             .height(68.dp)
-                            .clip(GlassShapes.thumb)
+                            .clip(AppShapes.thumb)
                             .background(palette.card2),
                 )
                 Column(Modifier.weight(1f)) {
@@ -1572,7 +1572,7 @@ private fun CalendarResourcesPane(
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .glass(GlassShapes.card, palette.card2, palette.border)
+                    .glass(AppShapes.card, palette.card2, palette.border)
                     .then(
                         summary.entry.openItemId?.let { itemId ->
                             Modifier.pressable {
@@ -1658,13 +1658,13 @@ private fun CalendarSettingsPane(
                                 .pressable {
                                     component.store.accept(CalendarIntent.SelectContent(content))
                                 }.touchTarget()
-                                .clip(GlassShapes.chip)
+                                .clip(AppShapes.chip)
                                 .background(selectionColor(if (active) accent.accent else Color.Transparent))
                                 .then(
                                     if (active) {
                                         Modifier
                                     } else {
-                                        Modifier.glass(GlassShapes.chip, palette.card2, palette.border)
+                                        Modifier.glass(AppShapes.chip, palette.card2, palette.border)
                                     },
                                 ).padding(horizontal = 13.dp, vertical = 7.dp),
                     )
@@ -1686,13 +1686,13 @@ private fun CalendarSettingsPane(
                                 .pressable {
                                     component.store.accept(CalendarIntent.SelectPlatform(null))
                                 }.touchTarget()
-                                .clip(GlassShapes.chip)
+                                .clip(AppShapes.chip)
                                 .background(selectionColor(if (active) accent.accent else Color.Transparent))
                                 .then(
                                     if (active) {
                                         Modifier
                                     } else {
-                                        Modifier.glass(GlassShapes.chip, palette.card2, palette.border)
+                                        Modifier.glass(AppShapes.chip, palette.card2, palette.border)
                                     },
                                 ).padding(horizontal = 13.dp, vertical = 7.dp),
                     )
@@ -1708,13 +1708,13 @@ private fun CalendarSettingsPane(
                                 .pressable {
                                     component.store.accept(CalendarIntent.SelectPlatform(platform))
                                 }.touchTarget()
-                                .clip(GlassShapes.chip)
+                                .clip(AppShapes.chip)
                                 .background(selectionColor(if (active) accent.accent else Color.Transparent))
                                 .then(
                                     if (active) {
                                         Modifier
                                     } else {
-                                        Modifier.glass(GlassShapes.chip, palette.card2, palette.border)
+                                        Modifier.glass(AppShapes.chip, palette.card2, palette.border)
                                     },
                                 ).padding(horizontal = 13.dp, vertical = 7.dp),
                     )
@@ -1765,7 +1765,7 @@ private fun CalendarSettingsAction(
             .fillMaxWidth()
             .pressable(onClick = onClick)
             .touchTarget()
-            .glass(GlassShapes.card, palette.card2, palette.border)
+            .glass(AppShapes.card, palette.card2, palette.border)
             .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -1931,7 +1931,7 @@ private fun StatusBadge(entry: CalendarEntry) {
         color = tint,
         modifier =
             Modifier
-                .clip(GlassShapes.chip)
+                .clip(AppShapes.chip)
                 .background(tint.copy(alpha = 0.12f))
                 .padding(horizontal = 7.dp, vertical = 2.dp),
     )

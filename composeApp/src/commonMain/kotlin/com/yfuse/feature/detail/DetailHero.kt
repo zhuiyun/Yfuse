@@ -60,7 +60,6 @@ import com.yfuse.core.designsystem.BackdropState
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.DolbyBadge
 import com.yfuse.core.designsystem.FallbackImage
-import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HeroInk
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
@@ -326,7 +325,9 @@ internal fun DetailTopBar(
             Modifier
                 .matchParentSize()
                 .graphicsLayer { alpha = progress.value }
-                .backdropBlur(backdrop, RectangleShape)
+                // The layer above carries the fade; this only says "not on screen yet", so the
+                // page is not blurred under a bar that is still fully transparent.
+                .backdropBlur(backdrop, RectangleShape, alpha = { if (progress.value > 0f) 1f else 0f })
                 .background(plateFill),
         )
         Box(
@@ -375,7 +376,7 @@ internal fun DetailTopBar(
                             onClick = onPlay,
                         ).touchTarget()
                         .liquidGlass(
-                            shape = GlassShapes.chip,
+                            shape = AppShapes.chip,
                             fill = playBody,
                             border = null,
                             // It only ever appears once the bar's own plate is opaque.

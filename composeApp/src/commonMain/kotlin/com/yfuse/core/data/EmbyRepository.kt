@@ -226,7 +226,6 @@ class EmbyRepository(
 ) {
     private val authService = EmbyAuthService(client)
     private val detailService = EmbyDetailService(client, progressProjection)
-    private val sourceService = EmbySourceService(client, detailService)
     private val libraryService = EmbyLibraryService(client)
     private val browseService = EmbyBrowseService(client, progressProjection)
     private val emby =
@@ -241,6 +240,7 @@ class EmbyRepository(
             playbackService = EmbyPlaybackService(client, capabilitiesProvider, audioPassthroughEnabled),
             searchService = EmbySearchService(client, progressProjection),
             serverService = EmbyServerService(client),
+            sourceService = EmbySourceService(client, detailService),
             subtitleService = EmbySubtitleService(client),
             userDataService = EmbyUserDataService(client),
         )
@@ -286,7 +286,7 @@ class EmbyRepository(
         val serverToken = resource.accessToken ?: accountToken
         var lastError: Throwable? = null
         resource.rankedConnections().forEach { connection ->
-            val authenticated = plex.authenticate(connection.uri, serverToken, account)
+            val authenticated = plex.authenticateWithToken(connection.uri, serverToken, account)
             authenticated.onSuccess { server ->
                 return Result.success(
                     server.copy(
@@ -327,45 +327,37 @@ class EmbyRepository(
         username: String,
         password: String,
         kind: MediaServerKind = MediaServerKind.Emby,
-    ): Result<AuthedServer> =
-        if (kind == MediaServerKind.Plex) {
-            plex.authenticate(baseUrl, password)
-        } else {
-            emby.authenticate(baseUrl, username, password)
-        }
+    ): Result<AuthedServer> = adapterFor(kind).authenticate(baseUrl, username, password)
 
     suspend fun libraries(server: SavedServer): Result<List<MediaLibrary>> = adapterFor(server).libraries(server)
 
-    suspend fun serverManagement(server: SavedServer): Result<ServerManagementSnapshot> =
-        libraries(server).mapCatching { mediaLibraries ->
+    suspend fun serverManagement(server: SavedServer): Result<ServerManagementSnapshot> {
+        val adapter = adapterFor(server)
+        val mediaLibraries = adapter.libraries(server).getOrElse { return Result.failure(it) }
+        // Not mapCatching: the follow-up requests suspend, and a cancelled management page must
+        // stay cancelled instead of coming back as a failed snapshot.
+        return runCatchingCancellable {
             val capabilities = server.kind.capabilities()
             val taskResult: Result<List<ServerScheduledTask>> =
                 if (!capabilities.scheduledTasks) {
                     Result.success(emptyList())
                 } else {
-                    adapterFor(server).scheduledTasks(server)
+                    adapter.scheduledTasks(server)
                 }
             ServerManagementSnapshot(
                 libraries = mediaLibraries,
                 tasks = taskResult.getOrDefault(emptyList()),
                 supportsScheduledTasks = capabilities.scheduledTasks,
                 supportsMetadataAnalysis = capabilities.itemAnalysis,
-                plexHomeUsers =
-                    if (server.kind == MediaServerKind.Plex) {
-                        val ownerToken = server.cloudOwnerAccessToken ?: server.cloudAccessToken
-                        ownerToken?.let { plexHomeUsers(it).getOrDefault(emptyList()) }.orEmpty()
-                    } else {
-                        emptyList()
-                    },
-                supportsPlexHomeSwitch =
-                    server.kind == MediaServerKind.Plex &&
-                        (server.cloudOwnerAccessToken != null || server.cloudAccessToken != null),
+                plexHomeUsers = adapter.homeUsers(server),
+                supportsPlexHomeSwitch = adapter.supportsHomeUserSwitch(server),
                 scheduledTasksError =
                     taskResult.exceptionOrNull()?.let {
                         "当前账号无权读取服务器计划任务，媒体库扫描仍可使用"
                     },
             )
         }
+    }
 
     suspend fun refreshLibrary(
         server: SavedServer,
@@ -731,34 +723,26 @@ class EmbyRepository(
         seasonNumber: Int? = null,
         episodeNumber: Int? = null,
     ): List<ServerSource> {
-        // Emby-compatible servers are compared as one batch with shared retry and timeout
-        // policy; Plex answers per server, so both halves are folded back into the caller's order.
-        val compatibleServers = servers.filterNot { it.kind == MediaServerKind.Plex }
-        val compatible =
-            sourceService.compareSources(
-                servers = compatibleServers,
-                currentServerId = currentServerId,
-                title = title,
-                tmdbId = tmdbId,
-                mediaType = mediaType,
-                year = year,
-                seasonNumber = seasonNumber,
-                episodeNumber = episodeNumber,
-            )
-        val plexSources =
-            servers.filter { it.kind == MediaServerKind.Plex }.map { server ->
-                plex.compareSource(
-                    server = server,
-                    currentServerId = currentServerId,
-                    title = title,
-                    tmdbId = tmdbId,
-                    mediaType = mediaType,
-                    year = year,
-                    seasonNumber = seasonNumber,
-                    episodeNumber = episodeNumber,
-                )
-            }
-        val byId = (compatible + plexSources).associateBy(ServerSource::serverId)
+        // Each family compares its own servers as one group - Emby-compatible ones share a retry
+        // and timeout budget, Plex answers per server - and the groups are folded back into the
+        // caller's order. Emby goes first, as it did when this branched on the server kind.
+        val byId =
+            servers
+                .groupBy { adapterFor(it) }
+                .entries
+                .sortedBy { (adapter, _) -> if (adapter === emby) 0 else 1 }
+                .flatMap { (adapter, group) ->
+                    adapter.compareSources(
+                        servers = group,
+                        currentServerId = currentServerId,
+                        title = title,
+                        tmdbId = tmdbId,
+                        mediaType = mediaType,
+                        year = year,
+                        seasonNumber = seasonNumber,
+                        episodeNumber = episodeNumber,
+                    )
+                }.associateBy(ServerSource::serverId)
         return servers.mapNotNull { byId[it.id] }
     }
 

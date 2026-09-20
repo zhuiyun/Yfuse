@@ -50,7 +50,7 @@ internal class EmbyDetailService(
         embyApiCall("similar_items") {
             val dto: ItemsResponseDto =
                 client
-                    .get("${server.baseUrl}/Items/$itemId/Similar") {
+                    .get("${server.baseUrl}/Items/${embyPath(itemId)}/Similar") {
                         header("X-Emby-Token", server.accessToken)
                         parameter("UserId", server.userId)
                         parameter("Limit", limit)
@@ -117,7 +117,7 @@ internal class EmbyDetailService(
     ): BaseItemDto? {
         val dto: ItemsResponseDto =
             client
-                .get("${server.baseUrl}/Shows/$seriesId/Episodes") {
+                .get("${server.baseUrl}/Shows/${embyPath(seriesId)}/Episodes") {
                     header("X-Emby-Token", server.accessToken)
                     parameter("UserId", server.userId)
                     parameter("Limit", 1)
@@ -141,7 +141,7 @@ internal class EmbyDetailService(
     ): List<BaseItemDto> {
         val dto: ItemsResponseDto =
             client
-                .get("${server.baseUrl}/Shows/$seriesId/Episodes") {
+                .get("${server.baseUrl}/Shows/${embyPath(seriesId)}/Episodes") {
                     header("X-Emby-Token", server.accessToken)
                     parameter("UserId", server.userId)
                     parameter(
@@ -252,7 +252,7 @@ internal class EmbyDetailService(
     ): List<BaseItemDto> {
         val dto: ItemsResponseDto =
             client
-                .get("${server.baseUrl}/Shows/$seriesId/Episodes") {
+                .get("${server.baseUrl}/Shows/${embyPath(seriesId)}/Episodes") {
                     header("X-Emby-Token", server.accessToken)
                     parameter("UserId", server.userId)
                     parameter(
@@ -336,7 +336,7 @@ internal class EmbyDetailService(
         embyApiCall("seasons") {
             val dto: ItemsResponseDto =
                 client
-                    .get("${server.baseUrl}/Shows/$seriesId/Seasons") {
+                    .get("${server.baseUrl}/Shows/${embyPath(seriesId)}/Seasons") {
                         header("X-Emby-Token", server.accessToken)
                         parameter("UserId", server.userId)
                     }.body()
@@ -353,7 +353,7 @@ internal class EmbyDetailService(
         embyApiCall("episodes") {
             val dto: ItemsResponseDto =
                 client
-                    .get("${server.baseUrl}/Shows/$seriesId/Episodes") {
+                    .get("${server.baseUrl}/Shows/${embyPath(seriesId)}/Episodes") {
                         header("X-Emby-Token", server.accessToken)
                         parameter("UserId", server.userId)
                         if (seasonId != null) parameter("SeasonId", seasonId)
@@ -404,7 +404,7 @@ internal class EmbyDetailService(
         embyApiCall("emby_thumbnail_set") {
             val dto: EmbyThumbnailSetDto =
                 client
-                    .get("${server.baseUrl}/Items/$itemId/ThumbnailSet") {
+                    .get("${server.baseUrl}/Items/${embyPath(itemId)}/ThumbnailSet") {
                         header("X-Emby-Token", server.accessToken)
                         parameter("MediaSourceId", mediaSourceId)
                     }.body()

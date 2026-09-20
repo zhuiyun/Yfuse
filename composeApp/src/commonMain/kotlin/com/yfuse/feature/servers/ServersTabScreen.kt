@@ -78,7 +78,6 @@ import com.yfuse.core.designsystem.ConfirmDialog
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassLift
-import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
@@ -601,9 +600,9 @@ private fun ServersHeader(
                 Modifier
                     .pressable(onClickLabel = "添加服务器", onClick = onAdd)
                     .touchTarget()
-                    .shadow(GlassLift.control, GlassShapes.chip)
+                    .shadow(GlassLift.control, AppShapes.chip)
                     .liquidGlass(
-                        shape = GlassShapes.chip,
+                        shape = AppShapes.chip,
                         fill = accent.container,
                         border = accent.border.copy(alpha = 0.42f),
                         sheen = 0.7f,
@@ -629,9 +628,9 @@ private fun ServersHeader(
                     .weight(1f)
                     .pressable(onClickLabel = "打开排序与筛选", onClick = onFilter)
                     .touchTarget()
-                    .shadow(GlassLift.control, GlassShapes.chip)
+                    .shadow(GlassLift.control, AppShapes.chip)
                     .liquidGlass(
-                        shape = GlassShapes.chip,
+                        shape = AppShapes.chip,
                         fill = if (filterActive) accent.container else palette.card2,
                         border = if (filterActive) accent.border else palette.border,
                         sheen = 0.75f,
@@ -755,9 +754,9 @@ private fun CurrentServerHero(
                 onClick = onOpen,
             ).shadow(
                 Shadows.primaryButton(accent.accent.copy(alpha = 0.42f)),
-                GlassShapes.card,
+                AppShapes.card,
             ).liquidGlass(
-                shape = GlassShapes.card,
+                shape = AppShapes.card,
                 fill = lerp(palette.card, accent.container, if (palette.isDark) 0.26f else 0.22f),
                 border = accent.border.copy(alpha = 0.72f),
                 over = palette.background,
@@ -906,7 +905,7 @@ private fun HeroMetric(
         Box(
             Modifier
                 .size(32.dp)
-                .glass(GlassShapes.thumb, color.copy(alpha = 0.08f), color.copy(alpha = 0.24f)),
+                .glass(AppShapes.thumb, color.copy(alpha = 0.08f), color.copy(alpha = 0.24f)),
             contentAlignment = Alignment.Center,
         ) {
             Icon(icon, null, tint = color, modifier = Modifier.size(15.dp))
@@ -977,9 +976,9 @@ private fun ServerCard(
     val surfaceModifier =
         if (isCurrent) {
             Modifier
-                .shadow(Shadows.primaryButton(accent.accent.copy(alpha = 0.55f)), GlassShapes.card)
+                .shadow(Shadows.primaryButton(accent.accent.copy(alpha = 0.55f)), AppShapes.card)
                 .liquidGlass(
-                    shape = GlassShapes.card,
+                    shape = AppShapes.card,
                     fill = lerp(palette.card, accent.container, if (palette.isDark) 0.26f else 0.20f),
                     border = accent.border.copy(alpha = 0.72f),
                     over = palette.background,
@@ -990,9 +989,9 @@ private fun ServerCard(
             // and fades out well before the numbers, so the figures keep the page's own contrast
             // rather than being read through a colour.
             Modifier
-                .shadow(GlassLift.control, GlassShapes.card)
+                .shadow(GlassLift.control, AppShapes.card)
                 .liquidGlass(
-                    shape = GlassShapes.card,
+                    shape = AppShapes.card,
                     // One tinted colour, not a gradient: liquidGlass draws its own body ramp
                     // over whatever fill it is given, and it takes a Color.
                     fill = lerp(palette.card, badgeColor, if (palette.isDark) 0.20f else 0.16f),
@@ -1001,9 +1000,9 @@ private fun ServerCard(
                 )
         } else {
             Modifier
-                .shadow(GlassLift.control, GlassShapes.card)
+                .shadow(GlassLift.control, AppShapes.card)
                 .liquidGlass(
-                    shape = GlassShapes.card,
+                    shape = AppShapes.card,
                     fill = palette.card,
                     border = palette.border,
                     sheen = 0.52f,
@@ -1263,7 +1262,7 @@ private fun EmptyServers(onAdd: () -> Unit) {
     Column(
         Modifier
             .fillMaxWidth()
-            .glass(GlassShapes.card, palette.card2, palette.border)
+            .glass(AppShapes.card, palette.card2, palette.border)
             .padding(horizontal = 18.dp, vertical = 26.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
@@ -1285,7 +1284,7 @@ private fun EmptyServers(onAdd: () -> Unit) {
                 Modifier
                     .pressable(onClick = onAdd)
                     .heightIn(min = MinTouchTarget)
-                    .glass(GlassShapes.chip, accent.accent, accent.border)
+                    .glass(AppShapes.chip, accent.accent, accent.border)
                     .padding(horizontal = 22.dp, vertical = 13.dp),
         )
     }
@@ -1506,7 +1505,7 @@ private fun ServerActionsDialog(
                             color = accent.accent,
                             modifier =
                                 Modifier
-                                    .glass(GlassShapes.chip, accent.container, accent.border)
+                                    .glass(AppShapes.chip, accent.container, accent.border)
                                     .padding(horizontal = 7.dp, vertical = 2.dp),
                         )
                     }
@@ -1527,7 +1526,7 @@ private fun ServerActionsDialog(
         Row(
             Modifier
                 .fillMaxWidth()
-                .glass(GlassShapes.chip, palette.card2, palette.border)
+                .glass(AppShapes.chip, palette.card2, palette.border)
                 .padding(horizontal = 12.dp, vertical = 10.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -1681,7 +1680,7 @@ private fun ServerActionRow(
             .fillMaxWidth()
             .pressable(enabled = enabled, onClick = onClick)
             .liquidGlass(
-                shape = GlassShapes.chip,
+                shape = AppShapes.chip,
                 // The destructive fill stays inside the row's own rounded shape instead of
                 // bleeding to the panel's edges the way the old option row's band did.
                 fill =
@@ -1703,7 +1702,7 @@ private fun ServerActionRow(
         Box(
             Modifier
                 .size(30.dp)
-                .clip(GlassShapes.thumb)
+                .clip(AppShapes.thumb)
                 .background(
                     when {
                         destructive -> palette.error.copy(alpha = 0.12f)
@@ -1899,7 +1898,7 @@ private fun ServerRouteRow(
             ).semantics { selected = isActive }
             .heightIn(min = MinTouchTarget)
             .liquidGlass(
-                shape = GlassShapes.chip,
+                shape = AppShapes.chip,
                 fill = if (isActive) accent.container else palette.card2,
                 border = if (isActive) accent.border else palette.border,
             ).padding(horizontal = 12.dp, vertical = 10.dp),
@@ -2066,7 +2065,7 @@ private fun ServerTransportDiagnosticsDialog(
                 Row(
                     Modifier
                         .fillMaxWidth()
-                        .flatGlass(GlassShapes.chip, palette.card2, palette.border)
+                        .flatGlass(AppShapes.chip, palette.card2, palette.border)
                         .padding(horizontal = 12.dp, vertical = 10.dp),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically,

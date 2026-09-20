@@ -53,22 +53,21 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
-import com.yfuse.app.TabBarInset
 import com.yfuse.core.designsystem.ActionToast
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.Dimens
-import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LightEffect
-import com.yfuse.core.designsystem.LocalAccent
+import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.MinTouchTarget
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.Semantic
 import com.yfuse.core.designsystem.SettingTint
+import com.yfuse.core.designsystem.TabBarInset
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.lightOnChange
 import com.yfuse.core.designsystem.motionItem
@@ -148,7 +147,7 @@ internal fun DownloadsScreen(
     onPlay: (OfflineMedia) -> Unit,
 ) {
     val palette = LocalPalette.current
-    val accent = LocalAccent.current.color
+    val accent = LocalAccentColors.current.accent
     val largeText = LocalDensity.current.fontScale >= 1.3f
     val personal =
         remember {
@@ -547,7 +546,7 @@ internal fun DownloadsScreen(
                                     top = DownloadBarGap,
                                     start = Dimens.pageHorizontal,
                                     end = Dimens.pageHorizontal,
-                                ).glass(GlassShapes.card, palette.card2, palette.border)
+                                ).glass(AppShapes.card, palette.card2, palette.border)
                                 .padding(10.dp)
                         if (largeText) {
                             Column(
@@ -705,7 +704,7 @@ private fun DownloadChip(
     onClick: () -> Unit,
 ) {
     val palette = LocalPalette.current
-    val accent = LocalAccent.current.color
+    val accent = LocalAccentColors.current.accent
     Text(
         label,
         style = if (active) AppTypography.body.strong else AppTypography.body.medium,
@@ -719,7 +718,7 @@ private fun DownloadChip(
                 .touchTarget()
                 .then(if (role == Role.RadioButton) Modifier.semantics { selected = active } else Modifier)
                 .glass(
-                    GlassShapes.chip,
+                    AppShapes.chip,
                     selectionColor(if (active) accent.copy(alpha = 0.13f) else palette.card2),
                     selectionColor(if (active) accent.copy(alpha = 0.28f) else palette.border),
                 ).padding(horizontal = 13.dp, vertical = 7.dp),
@@ -735,7 +734,7 @@ private fun BatchAction(
     onClick: () -> Unit,
 ) {
     val palette = LocalPalette.current
-    val accent = LocalAccent.current.color
+    val accent = LocalAccentColors.current.accent
     Text(
         label,
         style = AppTypography.body.strong,
@@ -750,7 +749,7 @@ private fun BatchAction(
             modifier
                 .pressable(enabled = enabled, onClickLabel = label, onClick = onClick)
                 .touchTarget()
-                .glass(GlassShapes.chip, palette.card3, palette.border)
+                .glass(AppShapes.chip, palette.card3, palette.border)
                 .padding(horizontal = 11.dp, vertical = 7.dp),
     )
 }
@@ -768,7 +767,7 @@ private fun DownloadTaskRow(
     modifier: Modifier = Modifier,
 ) {
     val palette = LocalPalette.current
-    val accent = LocalAccent.current.color
+    val accent = LocalAccentColors.current.accent
     Column(
         modifier
             .fillMaxWidth()
@@ -791,7 +790,7 @@ private fun DownloadTaskRow(
                     },
             ).heightIn(min = MinTouchTarget)
             .glass(
-                GlassShapes.card,
+                AppShapes.card,
                 if (selected) accent.copy(alpha = 0.10f) else palette.card,
                 if (selected) accent.copy(alpha = 0.30f) else palette.border,
             ).padding(13.dp),

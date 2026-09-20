@@ -34,7 +34,6 @@ import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.GlassDialog
-import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OrbProgress
@@ -107,7 +106,7 @@ fun AddServerDialog(
                         .pressable(enabled = !state.scanning) {
                             requestLanScan()
                         }.touchTarget()
-                        .glass(GlassShapes.thumb, palette.card2, palette.border)
+                        .glass(AppShapes.thumb, palette.card2, palette.border)
                         .padding(horizontal = 10.dp, vertical = 5.dp),
                     horizontalArrangement = Arrangement.spacedBy(5.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -130,7 +129,7 @@ fun AddServerDialog(
                             Modifier
                                 .fillMaxWidth()
                                 .pressable { onIntent(ServersIntent.SelectDiscovered(server)) }
-                                .glass(GlassShapes.chip, palette.card2, palette.border)
+                                .glass(AppShapes.chip, palette.card2, palette.border)
                                 .padding(horizontal = 10.dp, vertical = 9.dp),
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -192,7 +191,7 @@ fun AddServerDialog(
             Column(
                 Modifier
                     .fillMaxWidth()
-                    .glass(GlassShapes.card, palette.card2, palette.border),
+                    .glass(AppShapes.card, palette.card2, palette.border),
             ) {
                 FormRow(label = "服务类型", divider = true, labelBottomPadding = 6.dp) {
                     Row(
@@ -251,7 +250,7 @@ fun AddServerDialog(
             Column(
                 Modifier
                     .fillMaxWidth()
-                    .glass(GlassShapes.card, palette.card2, palette.border),
+                    .glass(AppShapes.card, palette.card2, palette.border),
             ) {
                 if (form.kind == MediaServerKind.Plex) {
                     FormRow(label = "Plex 云账号", divider = true) {
@@ -436,7 +435,7 @@ fun AddServerDialog(
                                         }.semantics { this.selected = selected }
                                         .touchTarget()
                                         .glass(
-                                            shape = GlassShapes.thumb,
+                                            shape = AppShapes.thumb,
                                             fill =
                                                 if (selected) {
                                                     accent.container
@@ -496,7 +495,7 @@ private fun PlexChoiceRow(
             .fillMaxWidth()
             .pressable(onClick = onClick)
             .touchTarget()
-            .glass(GlassShapes.thumb, palette.card3, palette.border)
+            .glass(AppShapes.thumb, palette.card3, palette.border)
             .padding(horizontal = 10.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,

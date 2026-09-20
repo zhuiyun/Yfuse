@@ -111,6 +111,8 @@ fun appModule(
                 ),
             crypto = get(),
             personal = get(),
+            // Keystore encryption of session tokens stays off the UI thread that commits them.
+            persistDispatcher = Dispatchers.Default,
         )
     }
     single { ThemePreferences(get()) }

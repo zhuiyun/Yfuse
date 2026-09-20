@@ -45,12 +45,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yfuse.core.designsystem.AnimatedColorContent
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.ArtworkPageTheme
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.FallbackImage
-import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HeroPageFade
 import com.yfuse.core.designsystem.InlineLoadingContent
 import com.yfuse.core.designsystem.LocalAccentColors
@@ -202,9 +202,9 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                         Column(
                             Modifier
                                 .fillMaxWidth()
-                                .shadow(Shadows.sheet, GlassShapes.sheet)
+                                .shadow(Shadows.sheet, AppShapes.sheet)
                                 .solidGlass(
-                                    shape = GlassShapes.card,
+                                    shape = AppShapes.card,
                                     fill = palette.card2,
                                     border = palette.border,
                                 ).padding(10.dp),
@@ -227,8 +227,8 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                                         Modifier
                                             .width(78.dp)
                                             .height(110.dp)
-                                            .shadow(Shadows.detailPoster, GlassShapes.poster)
-                                            .border(2.dp, palette.border, GlassShapes.poster),
+                                            .shadow(Shadows.detailPoster, AppShapes.card)
+                                            .border(2.dp, palette.border, AppShapes.card),
                                 )
                                 Column(Modifier.weight(1f)) {
                                     Text(
@@ -301,7 +301,7 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                                         onClick = component::toggleFollow,
                                     ).touchTarget()
                                     .solidGlass(
-                                        shape = GlassShapes.card,
+                                        shape = AppShapes.card,
                                         fill = palette.card2,
                                         border = palette.border,
                                     ).padding(horizontal = 14.dp, vertical = 12.dp),
@@ -358,7 +358,7 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                                     Modifier
                                         .fillMaxWidth()
                                         .pressable(onClick = component::dismissError)
-                                        .solidGlass(GlassShapes.card)
+                                        .solidGlass(AppShapes.card)
                                         .padding(12.dp),
                             )
                         }
@@ -392,7 +392,7 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                                         color = palette.sub,
                                         modifier =
                                             Modifier
-                                                .solidGlass(GlassShapes.thumb)
+                                                .solidGlass(AppShapes.thumb)
                                                 .padding(horizontal = 11.dp, vertical = 7.dp),
                                     )
                                 }
@@ -504,7 +504,7 @@ private fun TmdbSourceStrip(
                     .pressable {
                         entry.itemId?.let { onSelect(entry.serverId, it) }
                     }.solidGlass(
-                        shape = GlassShapes.thumb,
+                        shape = AppShapes.thumb,
                         fill = palette.card2,
                         border = palette.border,
                     ).padding(horizontal = 10.dp, vertical = 7.dp),
@@ -556,7 +556,7 @@ private fun TmdbPlayDock(
         Modifier
             .fillMaxWidth()
             .solidGlass(
-                shape = GlassShapes.card,
+                shape = AppShapes.card,
                 fill = palette.card2,
                 border = palette.border,
             ).padding(7.dp),
@@ -567,10 +567,10 @@ private fun TmdbPlayDock(
                     .fillMaxWidth()
                     .height(46.dp)
                     .pressable(enabled = !resolving, onClick = onPlay)
-                    .clip(GlassShapes.card)
+                    .clip(AppShapes.card)
                     .background(accent)
-                    .waitingPulse(active = resolving, shape = GlassShapes.card, color = Color.White)
-                    .border(1.dp, Color.White.copy(alpha = 0.24f), GlassShapes.card),
+                    .waitingPulse(active = resolving, shape = AppShapes.card, color = Color.White)
+                    .border(1.dp, Color.White.copy(alpha = 0.24f), AppShapes.card),
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
             ) {

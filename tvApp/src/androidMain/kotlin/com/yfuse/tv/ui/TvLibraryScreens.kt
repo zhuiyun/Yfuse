@@ -34,7 +34,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.designsystem.AppIcons
@@ -200,7 +199,7 @@ private fun TvLibraryServerSelector(
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("媒体库", color = TvOnSurface, fontSize = 30.sp, fontWeight = FontWeight.ExtraBold)
+        Text("媒体库", color = TvOnSurface, fontSize = TvType.display, fontWeight = FontWeight.ExtraBold)
         Spacer(Modifier.width(12.dp))
         servers.take(5).forEachIndexed { index, server ->
             TvActionButton(
@@ -236,7 +235,7 @@ private fun TvLibraryHero(
             .height(350.dp)
             .padding(horizontal = 8.dp)
             .clip(RoundedCornerShape(18.dp))
-            .background(Color(0xFF151B25)),
+            .background(TvPlaceholder),
     ) {
         AsyncImage(
             model =
@@ -266,7 +265,7 @@ private fun TvLibraryHero(
             Text(
                 text = item.title,
                 color = Color.White,
-                fontSize = 35.sp,
+                fontSize = TvType.display,
                 fontWeight = FontWeight.ExtraBold,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
@@ -280,14 +279,14 @@ private fun TvLibraryHero(
                         item.communityRating?.let { "%.1f 分".format(it) },
                     ).joinToString("  ·  "),
                 color = Color.White.copy(alpha = 0.78f),
-                fontSize = 16.sp,
+                fontSize = TvType.caption,
             )
             Spacer(Modifier.height(10.dp))
             Text(
                 text = item.overview.orEmpty(),
                 color = Color.White.copy(alpha = 0.72f),
-                fontSize = 16.sp,
-                lineHeight = 23.sp,
+                fontSize = TvType.caption,
+                lineHeight = TvType.readingLineHeight,
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -424,11 +423,11 @@ internal fun TvLibraryGridScreen(
                 serverId = component.serverId,
             )
             Column {
-                Text(component.title, color = TvOnSurface, fontSize = 30.sp, fontWeight = FontWeight.ExtraBold)
+                Text(component.title, color = TvOnSurface, fontSize = TvType.display, fontWeight = FontWeight.ExtraBold)
                 Text(
                     "已加载 ${state.loadedCount} / ${state.totalCount}",
                     color = TvOnSurfaceMuted,
-                    fontSize = 14.sp,
+                    fontSize = TvType.caption,
                 )
             }
         }
@@ -484,7 +483,7 @@ internal fun TvLibraryGridScreen(
         if (state.genres.isNotEmpty() || state.genreLoadError != null) {
             state.genreLoadError?.let { message ->
                 Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                    Text(message, color = TvOnSurfaceMuted, fontSize = 14.sp)
+                    Text(message, color = TvOnSurfaceMuted, fontSize = TvType.caption)
                     TvActionButton(
                         label = "重试",
                         stableId = "grid:genre:retry",

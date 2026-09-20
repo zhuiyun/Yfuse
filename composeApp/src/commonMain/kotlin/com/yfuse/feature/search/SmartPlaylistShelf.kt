@@ -18,9 +18,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.data.SmartPlaylist
 import com.yfuse.core.data.SmartPlaylistStore
+import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.GlassDialog
-import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.OverlayOptionRow
@@ -64,7 +64,7 @@ fun SmartPlaylistShelf(
                             .pressable(onClick = { editing = rule })
                             .touchTarget()
                             .liquidGlass(
-                                shape = GlassShapes.chip,
+                                shape = AppShapes.chip,
                                 fill = palette.card2,
                                 border = palette.border,
                                 over = palette.background,

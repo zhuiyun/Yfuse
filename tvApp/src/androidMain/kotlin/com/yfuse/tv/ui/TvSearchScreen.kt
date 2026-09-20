@@ -46,9 +46,9 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.feature.search.SearchHomeComponent
@@ -133,7 +133,7 @@ internal fun TvSearchHomeScreen(
             .fillMaxSize()
             .padding(top = TvSafeVertical, bottom = TvSafeVertical),
     ) {
-        Text("搜索", color = TvOnSurface, fontSize = 32.sp, fontWeight = FontWeight.ExtraBold)
+        Text("搜索", color = TvOnSurface, fontSize = TvType.display, fontWeight = FontWeight.ExtraBold)
         Spacer(Modifier.height(14.dp))
         TvSearchField(
             query = state.query,
@@ -194,7 +194,7 @@ internal fun TvSearchHomeScreen(
                             Text(
                                 "最近搜索",
                                 color = TvOnSurface,
-                                fontSize = 22.sp,
+                                fontSize = TvType.section,
                                 fontWeight = FontWeight.Bold,
                             )
                             TvActionButton(
@@ -251,7 +251,7 @@ internal fun TvSearchHomeScreen(
                         Text(
                             "搜索建议",
                             color = TvOnSurface,
-                            fontSize = 22.sp,
+                            fontSize = TvType.section,
                             fontWeight = FontWeight.Bold,
                         )
                         LazyRow(horizontalArrangement = Arrangement.spacedBy(11.dp)) {
@@ -279,7 +279,7 @@ internal fun TvSearchHomeScreen(
                     Text(
                         "按确定键打开电视键盘，也可以使用遥控器语音输入。",
                         color = TvOnSurfaceMuted,
-                        fontSize = 14.sp,
+                        fontSize = TvType.caption,
                     )
                 }
             }
@@ -294,7 +294,7 @@ internal fun TvSearchHomeScreen(
                 Text(
                     "找到 ${state.visibleResultCount} 个结果",
                     color = TvOnSurfaceMuted,
-                    fontSize = 14.sp,
+                    fontSize = TvType.caption,
                 )
                 Spacer(Modifier.height(10.dp))
                 LazyVerticalGrid(
@@ -344,6 +344,7 @@ private fun TvSearchField(
     var focused by remember { mutableStateOf(false) }
     val border by animateColorAsState(
         if (focused) Color.White else Color.White.copy(alpha = 0.16f),
+        animationSpec = TvFocusMotion.spec(LocalAccessibilityOptions.current.reduceMotion),
         label = "tv-search-border",
     )
     Row(
@@ -385,7 +386,7 @@ private fun TvSearchField(
             textStyle =
                 TextStyle(
                     color = if (focused) Color.Black else TvOnSurface,
-                    fontSize = 20.sp,
+                    fontSize = TvType.body,
                     fontWeight = FontWeight.Medium,
                 ),
             cursorBrush = SolidColor(if (focused) Color.Black else TvAccent),
@@ -397,7 +398,7 @@ private fun TvSearchField(
                         Text(
                             "搜索影片、剧集或演员",
                             color = if (focused) Color.Black.copy(alpha = 0.48f) else TvOnSurfaceMuted,
-                            fontSize = 20.sp,
+                            fontSize = TvType.body,
                         )
                     }
                     inner()

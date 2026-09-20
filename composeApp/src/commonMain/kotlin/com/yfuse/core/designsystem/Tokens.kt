@@ -257,6 +257,8 @@ data class OpaqueFills(
     val glassStrong: Color,
     /** For translucent-white controls that carry white glyphs over artwork: a dark plate in both themes. */
     val control: Color,
+    /** What [Palette.border] and [Palette.tabbarBorder] become: an edge that reads on an opaque plate. */
+    val border: Color,
 )
 
 /**
@@ -323,6 +325,7 @@ val LightPalette =
                 glass = Color(0xFFEDF2F8),
                 glassStrong = Color(0xFFE8EEF7),
                 control = Color(0xFF303A4D),
+                border = Color(0xFFD3DBE7),
             ),
         skeleton = Color(0x2996A0B4),
         pearlRose = Color(0xFFE5A4EE),
@@ -371,6 +374,7 @@ val DarkPalette =
                 glass = Color(0xFF172235),
                 glassStrong = Color(0xFF1B273B),
                 control = Color(0xFF273246),
+                border = Color.White.copy(alpha = 0.24f),
             ),
         skeleton = Color.White.copy(alpha = 0.08f),
         pearlRose = Color(0xFFE5A4EE),

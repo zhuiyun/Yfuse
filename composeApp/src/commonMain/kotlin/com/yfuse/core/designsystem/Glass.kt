@@ -142,8 +142,7 @@ private fun reducedTransparencyBorder(
 ): Color? =
     when {
         border == null -> null
-        border == palette.border || border == palette.tabbarBorder ->
-            if (palette.isDark) Color.White.copy(alpha = 0.24f) else Color(0xFFD3DBE7)
+        border == palette.border || border == palette.tabbarBorder -> palette.reducedFill.border
         else -> border
     }
 

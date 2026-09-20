@@ -70,6 +70,14 @@ import com.yfuse.core.designsystem.ThemeText as Text
 private val OverlayShape = AppShapes.sheet
 private val OverlayMaxWidth = 560.dp
 
+// Component sizes, not spacing: the close key, the loading orb beside a label, and the
+// selected row's check badge with its glyph and ring. Gaps and insets come from [Dimens.space].
+private val CloseKeySize = 28.dp
+private val ButtonOrbSize = 16.dp
+private val CheckBadgeSize = 20.dp
+private val CheckGlyphSize = 12.dp
+private val SelectionRingWidth = 2.dp
+
 @Stable
 class OverlayVisibility {
     var count by mutableStateOf(0)
@@ -358,7 +366,7 @@ fun OverlayHeader(
         Column(Modifier.weight(1f)) {
             Text(title, style = AppTypography.section.strong, color = palette.text, maxLines = 1)
             if (subtitle != null) {
-                Spacer(Modifier.height(3.dp))
+                Spacer(Modifier.height(Dimens.space.xs))
                 Text(
                     subtitle,
                     style = AppTypography.caption.regular,
@@ -378,7 +386,7 @@ fun OverlayHeader(
                     Modifier
                         .pressable(onClick = close)
                         .touchTarget()
-                        .size(28.dp)
+                        .size(CloseKeySize)
                         .then(
                             if (LocalOverlayLiquidButtons.current) {
                                 Modifier.liquidGlass(
@@ -391,7 +399,7 @@ fun OverlayHeader(
                             } else {
                                 Modifier.flatGlass(CircleShape, palette.card2, palette.border)
                             },
-                        ).padding(8.dp),
+                        ).padding(Dimens.space.sm),
             )
         }
     }
@@ -424,7 +432,7 @@ fun OverlayButton(
     Row(
         modifier
             .dialogElementMotion(DialogElementRole.Action)
-            .defaultMinSize(minHeight = 48.dp)
+            .defaultMinSize(minHeight = MinTouchTarget)
             .graphicsLayer { alpha = glassButtonAlpha(enabled) }
             .pressable(
                 enabled = enabled && !loading,
@@ -450,8 +458,8 @@ fun OverlayButton(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (loading) {
-            OrbProgress(size = 16.dp, color = visuals.content)
-            Spacer(Modifier.width(8.dp))
+            OrbProgress(size = ButtonOrbSize, color = visuals.content)
+            Spacer(Modifier.width(Dimens.space.sm))
         }
         Text(
             label,
@@ -502,7 +510,7 @@ fun ConfirmDialog(
     val palette = LocalPalette.current
     GlassDialog(onDismiss = onDismiss, liquidButtons = liquidButtons) {
         Text(title, style = AppTypography.section.strong, color = palette.text)
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(Dimens.space.sm))
         Text(
             message,
             style = AppTypography.body.regular.copy(lineHeight = 21.sp),
@@ -523,7 +531,7 @@ fun ConfirmDialog(
     }
 }
 
-val OverlayOptionSpacing: Dp = 8.dp
+val OverlayOptionSpacing: Dp = Dimens.space.sm
 
 /** Selectable rows use the same liquid body as buttons; selection is a separate focus ring. */
 @Composable
@@ -570,7 +578,7 @@ fun OverlayOptionRow(
                 },
             ).then(
                 if (selected) {
-                    Modifier.border(2.dp, accent.border, AppShapes.chip)
+                    Modifier.border(SelectionRingWidth, accent.border, AppShapes.chip)
                 } else {
                     Modifier
                 },
@@ -592,7 +600,7 @@ fun OverlayOptionRow(
                 overflow = TextOverflow.Ellipsis,
             )
             if (description != null) {
-                Spacer(Modifier.height(3.dp))
+                Spacer(Modifier.height(Dimens.space.xs))
                 Text(
                     description,
                     style = AppTypography.caption.regular,
@@ -603,19 +611,21 @@ fun OverlayOptionRow(
             }
         }
         Box(
-            Modifier.size(20.dp).lightOnChange(selected, LightEffect.Converge, emitWhen = selected && !destructive),
+            Modifier
+                .size(CheckBadgeSize)
+                .lightOnChange(selected, LightEffect.Converge, emitWhen = selected && !destructive),
             contentAlignment = Alignment.Center,
         ) {
             if (selected) {
                 Box(
-                    Modifier.size(20.dp).clip(CircleShape).background(accent.accent),
+                    Modifier.size(CheckBadgeSize).clip(CircleShape).background(accent.accent),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
                         AppIcons.Check,
                         contentDescription = null,
                         tint = accent.onAccent,
-                        modifier = Modifier.size(12.dp),
+                        modifier = Modifier.size(CheckGlyphSize),
                     )
                 }
             }

@@ -21,9 +21,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
+import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.GlassDialog
-import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OverlayHeader
@@ -84,7 +84,7 @@ internal fun SearchFilterBar(
                         .pressable(onClick = { onOpen(sheet) })
                         .touchTarget()
                         .liquidGlass(
-                            shape = GlassShapes.chip,
+                            shape = AppShapes.chip,
                             fill = palette.card2,
                             border = selectionColor(if (active) accent.border else palette.border),
                             over = palette.background,
@@ -103,7 +103,7 @@ internal fun SearchFilterBar(
                             .pressable(onClick = onClear)
                             .touchTarget()
                             .liquidGlass(
-                                shape = GlassShapes.chip,
+                                shape = AppShapes.chip,
                                 fill = palette.glassStrong,
                                 border = accent.border,
                                 over = palette.background,

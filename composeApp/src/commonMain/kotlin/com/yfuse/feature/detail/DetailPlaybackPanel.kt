@@ -25,10 +25,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.data.PlaybackTrackRequest
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.GlassDialog
-import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
@@ -75,7 +75,7 @@ internal fun PlaybackVersionSection(
             .fillMaxWidth()
             .padding(horizontal = Dimens.pageHorizontal)
             .pressable(onClick = onClick)
-            .glass(GlassShapes.card, palette.card2, palette.border)
+            .glass(AppShapes.card, palette.card2, palette.border)
             .padding(horizontal = 15.dp, vertical = 13.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -300,7 +300,7 @@ private fun ComparisonCard(
             .width(ComparisonCardWidth)
             .pressable(onClick = onClick)
             .glass(
-                shape = GlassShapes.card,
+                shape = AppShapes.card,
                 fill = selectionColor(if (selected) accent.container else palette.card2),
                 border = selectionColor(if (selected) accent.border else palette.border),
             ).padding(12.dp),
@@ -400,7 +400,7 @@ private fun CardBadge(
         overflow = TextOverflow.Ellipsis,
         modifier =
             Modifier
-                .glass(GlassShapes.chip, fill, border)
+                .glass(AppShapes.chip, fill, border)
                 .padding(horizontal = 7.dp, vertical = 2.dp),
     )
 }

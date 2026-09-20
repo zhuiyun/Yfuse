@@ -20,10 +20,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.GlassDialog
-import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OrbProgress
@@ -124,7 +124,7 @@ fun WatchInviteSheet(
                                 Modifier
                                     .fillMaxWidth()
                                     .solidGlass(
-                                        shape = GlassShapes.chip,
+                                        shape = AppShapes.chip,
                                         fill = accent.container,
                                         border = accent.border,
                                     ).padding(12.dp),
@@ -308,7 +308,7 @@ fun WatchInviteShareSheet(
                             Modifier
                                 .fillMaxWidth()
                                 .solidGlass(
-                                    shape = GlassShapes.chip,
+                                    shape = AppShapes.chip,
                                     fill = accent.container,
                                     border = accent.border,
                                 ).padding(vertical = 16.dp),

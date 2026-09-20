@@ -11,7 +11,7 @@ import com.yfuse.core.designsystem.Dimens
  * Bottom space required while the compact floating navigation dock is visible.
  *
  * The dock is laid out above the system navigation bar, then adds its own bottom margin and
- * fixed-height controls. Keeping that geometry here prevents pages from guessing a device-
+ * its controls' height. Keeping that geometry here prevents pages from guessing a device-
  * independent padding that is too small with three-button navigation and unnecessarily large
  * on gesture-navigation devices. [Dimens.sectionGap] leaves the final row visibly separate
  * from the glass instead of merely moving its baseline to the dock's top edge.
@@ -20,10 +20,14 @@ import com.yfuse.core.designsystem.Dimens
 fun floatingNavigationContentInset(): Dp =
     floatingNavigationContentInset(
         systemNavigationInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
+        // The dock grows with the font scale; the clearance has to grow with it.
+        dock = dockHeight(),
     )
 
-internal fun floatingNavigationContentInset(systemNavigationInset: Dp): Dp =
-    systemNavigationInset + Dimens.tabBarInset + Dimens.tabBarHeight + Dimens.sectionGap
+internal fun floatingNavigationContentInset(
+    systemNavigationInset: Dp,
+    dock: Dp = Dimens.tabBarHeight,
+): Dp = systemNavigationInset + Dimens.tabBarInset + dock + Dimens.sectionGap
 
 /** Bottom space for full-screen child pages where the shell has already hidden its dock. */
 @Composable

@@ -243,6 +243,33 @@ class PlaybackSyncManagerTest {
         }
 
     @Test
+    fun leaving_the_foreground_writes_coalesced_progress_to_storage() =
+        runTest {
+            val fixture = fixture()
+            try {
+                fixture.manager.recordPlayback(
+                    mediaKey = MEDIA_KEY,
+                    aliases = emptyList(),
+                    positionMs = 30_000L,
+                    durationMs = 100_000L,
+                    sessionId = "playing-session",
+                    serverId = null,
+                    serverItemId = null,
+                    trigger = PlaybackSyncTrigger.Periodic,
+                )
+                assertEquals(30_000L, fixture.manager.resumePositionMs(MEDIA_KEY))
+                assertEquals(12_000L, fixture.persistedPositionMs())
+
+                fixture.manager.setAppForeground(false)
+                runCurrent()
+
+                assertEquals(30_000L, fixture.persistedPositionMs())
+            } finally {
+                fixture.close()
+            }
+        }
+
+    @Test
     fun token_cancellation_is_not_reported_as_a_network_failure_or_retried() =
         runTest {
             var tokenRequests = 0
@@ -366,7 +393,15 @@ class PlaybackSyncManagerTest {
                 nowEpochMs = { testScheduler.currentTime },
                 scope = syncScope,
             )
-        return Fixture(manager, store, account, tokens, syncScope, listOf(accountClient, cloudClient, embyClient))
+        return Fixture(
+            manager,
+            store,
+            account,
+            tokens,
+            settings,
+            syncScope,
+            listOf(accountClient, cloudClient, embyClient),
+        )
     }
 
     private class Fixture(
@@ -374,9 +409,18 @@ class PlaybackSyncManagerTest {
         val store: PlaybackSyncStore,
         val account: AccountRepository,
         val tokens: AccountAccessTokenSource,
+        private val settings: MapSettings,
         private val scope: CoroutineScope,
         private val clients: List<HttpClient>,
     ) {
+        /** What a process started now would resume from: storage, not this store's memory. */
+        fun persistedPositionMs(): Long? =
+            PlaybackSyncStore(settings)
+                .find(MEDIA_KEY)
+                ?.document
+                ?.state
+                ?.positionMs
+
         fun recordStop(positionMs: Long) {
             manager.recordPlayback(
                 mediaKey = MEDIA_KEY,

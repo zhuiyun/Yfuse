@@ -16,7 +16,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.model.Episode
@@ -71,11 +70,11 @@ internal fun TvOfflineDownloadDialog(
             Modifier.fillMaxWidth().tvFocusScope(trapFocus = true),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text("离线下载", color = TvOnSurface, fontSize = 27.sp, fontWeight = FontWeight.ExtraBold)
+            Text("离线下载", color = TvOnSurface, fontSize = TvType.section, fontWeight = FontWeight.ExtraBold)
             Text(
                 "${detail.title} · $count 项 · ${estimate?.let(::formatDownloadBytes) ?: "空间待服务器确认"}",
                 color = TvOnSurface.copy(alpha = 0.7f),
-                fontSize = 16.sp,
+                fontSize = TvType.caption,
             )
             LazyColumn(
                 Modifier.fillMaxWidth().heightIn(max = 420.dp),

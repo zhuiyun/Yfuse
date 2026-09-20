@@ -94,23 +94,26 @@ fun <T : Any> OfficialNavDisplay(
                         LocalRouteVisible provides
                             (parentRouteVisible && entryKey == currentTop),
                     ) {
-                        if (roundsCorners) {
-                            val visibility = LocalNavAnimatedContentScope.current
-                            val edge =
-                                visibility.transition.animateFloat(
-                                    transitionSpec = { tween(Motion.POP, easing = Motion.Curve) },
-                                    label = "routeReturnCorners",
-                                ) { if (it == EnterExitState.Visible) 0f else 1f }
-                            Box(
-                                Modifier.fillMaxSize().graphicsLayer {
+                        // The animation and its layer are conditional; the Box is not. Switching
+                        // 减弱动态效果 from a pushed settings page flips [roundsCorners] under that
+                        // very page, and a Box per branch would dispose and rebuild it.
+                        val corners =
+                            if (roundsCorners) {
+                                val visibility = LocalNavAnimatedContentScope.current
+                                val edge =
+                                    visibility.transition.animateFloat(
+                                        transitionSpec = { tween(Motion.POP, easing = Motion.Curve) },
+                                        label = "routeReturnCorners",
+                                    ) { if (it == EnterExitState.Visible) 0f else 1f }
+                                Modifier.graphicsLayer {
                                     val amount = edge.value
                                     shape = RoundedCornerShape(Motion.routeReturnCorner * amount)
                                     clip = amount > 0f
-                                },
-                            ) { currentContent(entryKey) }
-                        } else {
-                            Box(Modifier.fillMaxSize()) { currentContent(entryKey) }
-                        }
+                                }
+                            } else {
+                                Modifier
+                            }
+                        Box(Modifier.fillMaxSize().then(corners)) { currentContent(entryKey) }
                     }
                 }
             }

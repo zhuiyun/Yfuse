@@ -41,7 +41,6 @@ import com.yfuse.core.designsystem.CaptionedPoster
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.GlassDialog
-import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
@@ -146,7 +145,7 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                         .pressable(onClickLabel = "返回上一页", onClick = component.onBack)
                         .touchTarget()
                         .size(34.dp)
-                        .glass(GlassShapes.chip),
+                        .glass(AppShapes.chip),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
@@ -344,7 +343,7 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                                                     Modifier
                                                         .size(30.dp)
                                                         .glass(
-                                                            shape = GlassShapes.chip,
+                                                            shape = AppShapes.chip,
                                                             fill = palette.background.copy(alpha = 0.82f),
                                                             border = palette.border,
                                                         ),
@@ -514,7 +513,7 @@ private fun GenreLoadErrorRow(
                     .pressable(onClickLabel = "重新加载分类", onClick = onRetry)
                     .touchTarget()
                     .glass(
-                        shape = GlassShapes.chip,
+                        shape = AppShapes.chip,
                         fill = accent.container,
                         border = accent.border.copy(alpha = 0.28f),
                     ).padding(horizontal = 14.dp, vertical = 7.dp),
@@ -613,7 +612,7 @@ private fun GenreChip(
                 ).semantics { this.selected = selected }
                 .touchTarget()
                 .glass(
-                    shape = GlassShapes.chip,
+                    shape = AppShapes.chip,
                     fill = selectionColor(if (selected) accent.container else palette.card2),
                     border = selectionColor(if (selected) accent.border.copy(alpha = 0.34f) else palette.border),
                 ).padding(horizontal = 13.dp, vertical = 7.dp),
@@ -675,7 +674,7 @@ private fun GridFooter(
                             .pressable(onClickLabel = "重新加载更多内容", onClick = onRetry)
                             .touchTarget()
                             .glass(
-                                shape = GlassShapes.chip,
+                                shape = AppShapes.chip,
                                 fill = accent.container,
                                 border = accent.border.copy(alpha = 0.28f),
                             ).padding(horizontal = 14.dp, vertical = 7.dp),

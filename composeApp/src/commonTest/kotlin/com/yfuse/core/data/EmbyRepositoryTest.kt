@@ -977,6 +977,37 @@ class EmbyRepositoryTest {
         }
 
     @Test
+    fun compareSources_asks_each_server_family_and_answers_in_the_callers_order() =
+        runTest {
+            val plex =
+                server.copy(
+                    id = "plex",
+                    baseUrl = "https://plex.example.com",
+                    kind = MediaServerKind.Plex,
+                )
+            val repo =
+                testRepo { request ->
+                    when {
+                        request.url.host == "plex.example.com" -> json("""{"MediaContainer":{"size":0}}""")
+                        request.url.encodedPath.endsWith("/Items/m1") ->
+                            json(
+                                """{"Id":"m1","Name":"电影A","Type":"Movie","MediaSources":[{""" +
+                                    """"Size":10737418240,"Bitrate":18000000,""" +
+                                    """"MediaStreams":[{"Type":"Video","Height":2160,"VideoRange":"HDR10"}]}]}""",
+                            )
+                        else -> json("""{"Items":[{"Id":"m1","Name":"电影A","Type":"Movie"}]}""")
+                    }
+                }
+
+            val sources = repo.compareSources(listOf(plex, server), server.id, "电影A")
+
+            assertEquals(listOf("plex", server.id), sources.map { it.serverId })
+            assertTrue(sources.all { it.reachable })
+            assertNull(sources.first().itemId)
+            assertEquals("4K HDR10 · 10.0 GB · 18 Mbps", sources.last().source?.summary)
+        }
+
+    @Test
     fun compareSources_fetches_media_details_when_search_result_omits_them() =
         runTest {
             val repo =

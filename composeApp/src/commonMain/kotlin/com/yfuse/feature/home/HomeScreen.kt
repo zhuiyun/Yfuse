@@ -55,6 +55,7 @@ import androidx.compose.ui.unit.dp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.designsystem.ActionToast
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.ArrivalMotion
 import com.yfuse.core.designsystem.ArtworkPageTheme
@@ -65,7 +66,6 @@ import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassDialog
-import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HeroActionDock
 import com.yfuse.core.designsystem.HeroPageFade
 import com.yfuse.core.designsystem.HeroPageIndicator
@@ -402,7 +402,7 @@ internal fun HomeContentBody(
                                     Modifier
                                         .fillMaxWidth()
                                         .padding(horizontal = Dimens.pageHorizontal)
-                                        .glass(GlassShapes.chip, palette.card2, palette.border)
+                                        .glass(AppShapes.chip, palette.card2, palette.border)
                                         .padding(horizontal = 14.dp, vertical = 10.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -1020,7 +1020,7 @@ private fun HeroCaption(
                 Modifier
                     .carouselCaptionEntry(captionProgress, stage = 0)
                     .glass(
-                        shape = GlassShapes.chip,
+                        shape = AppShapes.chip,
                         fill = Color.White.copy(alpha = 0.14f),
                         border = Color.White.copy(alpha = 0.30f),
                     ).padding(horizontal = 9.dp, vertical = 3.dp),
@@ -1127,7 +1127,7 @@ private fun HomeSourceBadge(source: String) {
         modifier =
             Modifier
                 .glass(
-                    shape = GlassShapes.chip,
+                    shape = AppShapes.chip,
                     fill = accent.container,
                     border = accent.border,
                 ).padding(horizontal = 7.dp, vertical = 2.dp),
@@ -1275,7 +1275,7 @@ private fun ContinueWatchingCard(
                         Modifier
                             .align(Alignment.BottomStart)
                             .padding(start = 9.dp, bottom = 9.dp)
-                            .background(Color.Black.copy(alpha = 0.48f), GlassShapes.chip)
+                            .background(Color.Black.copy(alpha = 0.48f), AppShapes.chip)
                             .padding(horizontal = 7.dp, vertical = 3.dp),
                 )
             }

@@ -37,10 +37,10 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassDialog
-import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.flatGlass
@@ -134,14 +134,14 @@ internal fun DetailMoreActionsDialog(
         contentPadding = 0.dp,
         alignment = Alignment.BottomCenter,
         windowPadding = PaddingValues(start = 12.dp, top = 72.dp, end = 12.dp, bottom = 0.dp),
-        shape = GlassShapes.sheet,
+        shape = AppShapes.sheet,
     ) {
         val palette = LocalPalette.current
         val lavender = resolveAccentColors(DetailMoreLavender, palette.isDark)
         Column(
             Modifier
                 .fillMaxSize()
-                .clip(GlassShapes.sheet)
+                .clip(AppShapes.sheet)
                 .background(
                     Brush.verticalGradient(
                         0f to palette.background.copy(alpha = 0.04f),
@@ -326,7 +326,7 @@ private fun DetailWatchTogetherAction(
             .semantics {
                 stateDescription = if (active) "一起看房间已创建" else "尚未创建一起看房间"
             }.flatGlass(
-                GlassShapes.card,
+                AppShapes.card,
                 lerp(palette.card2, iconFill, 0.76f),
                 lerp(plum.border, artwork.border, 0.4f).copy(alpha = 0.72f),
             ).padding(horizontal = 13.dp, vertical = 11.dp),
@@ -379,7 +379,7 @@ private fun DetailQuickActionStrip(actions: List<DetailQuickAction>) {
         Modifier
             .fillMaxWidth()
             .height(82.dp)
-            .flatGlass(GlassShapes.card, palette.card2, palette.border),
+            .flatGlass(AppShapes.card, palette.card2, palette.border),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         actions.forEachIndexed { index, action ->
@@ -447,7 +447,7 @@ private fun DetailManagementActions(
     Column(
         Modifier
             .fillMaxWidth()
-            .flatGlass(GlassShapes.card, palette.card2, palette.border),
+            .flatGlass(AppShapes.card, palette.card2, palette.border),
     ) {
         var needsDivider = false
 

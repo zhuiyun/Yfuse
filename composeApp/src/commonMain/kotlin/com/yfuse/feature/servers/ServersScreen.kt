@@ -68,7 +68,6 @@ import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.Dimens
-import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
@@ -169,7 +168,7 @@ fun ServersScreen(component: ServersComponent) {
                                 modifier = Modifier.padding(bottom = 8.dp),
                             )
                             // `--pg-card` over 1px `--pg-border`, `radius:16px`, `padding:4px`.
-                            Column(Modifier.fillMaxWidth().glass(GlassShapes.card).padding(4.dp)) {
+                            Column(Modifier.fillMaxWidth().glass(AppShapes.card).padding(4.dp)) {
                                 FormField(label = "服务类型", divider = true) {
                                     Row(
                                         modifier = Modifier.selectableGroup(),
@@ -702,7 +701,7 @@ private fun OnboardingScreen(
                                     .pressable(onClick = onManual)
                                     .heightIn(min = 48.dp)
                                     .glass(
-                                        shape = GlassShapes.chip,
+                                        shape = AppShapes.chip,
                                         fill = palette.card2,
                                         border = palette.border,
                                     ).padding(horizontal = 18.dp, vertical = 14.dp),

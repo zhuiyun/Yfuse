@@ -5,9 +5,11 @@ import com.yfuse.core.model.SavedServer
 import com.yfuse.feature.json
 import com.yfuse.feature.testRepo
 import io.ktor.http.HttpMethod
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -53,6 +55,47 @@ class ServerManagementTest {
             assertTrue(repo.runServerTask(jellyfin, "task-1").isSuccess)
             assertEquals(HttpMethod.Post, methods["/Items/lib-1/Refresh"])
             assertEquals(HttpMethod.Post, methods["/ScheduledTasks/Running/task-1"])
+        }
+
+    @Test
+    fun a_management_page_cancelled_mid_load_stays_cancelled_instead_of_failing() =
+        runTest {
+            val repo =
+                testRepo { request ->
+                    when (request.url.encodedPath) {
+                        "/Users/user-1/Views" ->
+                            json(
+                                """{"Items":[{"Id":"lib-1","Name":"电影","CollectionType":"movies"}]}""",
+                            )
+                        "/ScheduledTasks" -> throw CancellationException("management page closed")
+                        else -> error("unexpected ${request.url}")
+                    }
+                }
+
+            assertFailsWith<CancellationException> { repo.serverManagement(jellyfin) }
+        }
+
+    @Test
+    fun an_unreadable_task_list_degrades_to_a_notice_while_libraries_still_load() =
+        runTest {
+            val repo =
+                testRepo { request ->
+                    when (request.url.encodedPath) {
+                        "/Users/user-1/Views" ->
+                            json(
+                                """{"Items":[{"Id":"lib-1","Name":"电影","CollectionType":"movies"}]}""",
+                            )
+                        else -> error("forbidden ${request.url}")
+                    }
+                }
+
+            val snapshot = repo.serverManagement(jellyfin).getOrThrow()
+
+            assertEquals("lib-1", snapshot.libraries.single().id)
+            assertTrue(snapshot.tasks.isEmpty())
+            assertTrue(snapshot.scheduledTasksError != null)
+            assertFalse(snapshot.supportsPlexHomeSwitch)
+            assertTrue(snapshot.plexHomeUsers.isEmpty())
         }
 
     @Test

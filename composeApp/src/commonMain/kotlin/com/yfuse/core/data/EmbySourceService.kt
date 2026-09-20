@@ -300,7 +300,7 @@ internal class EmbySourceService(
     ): BaseItemDto? {
         val dto: ItemsResponseDto =
             client
-                .get("${server.baseUrl}/Shows/$seriesId/Episodes") {
+                .get("${server.baseUrl}/Shows/${embyPath(seriesId)}/Episodes") {
                     header("X-Emby-Token", server.accessToken)
                     parameter("UserId", server.userId)
                     parameter("Season", seasonNumber)

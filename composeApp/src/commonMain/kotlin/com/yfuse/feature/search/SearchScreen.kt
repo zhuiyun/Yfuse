@@ -67,7 +67,6 @@ import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.DisclosureContent
 import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.FallbackImage
-import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
@@ -504,7 +503,7 @@ private fun TypeChip(
                 .semantics { this.selected = selected }
                 .touchTarget()
                 .glass(
-                    shape = GlassShapes.chip,
+                    shape = AppShapes.chip,
                     fill = selectionColor(if (selected) accent.container else palette.card2),
                     border = selectionColor(if (selected) accent.border else palette.border),
                 ).padding(horizontal = 11.dp, vertical = 5.dp),
@@ -591,7 +590,7 @@ private fun PersonBanner(
         Modifier
             .fillMaxWidth()
             .padding(horizontal = Dimens.pageHorizontal)
-            .glass(GlassShapes.chip, palette.card2, palette.border)
+            .glass(AppShapes.chip, palette.card2, palette.border)
             .padding(horizontal = 14.dp, vertical = 10.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -661,7 +660,7 @@ private fun ServerGroup(
                 group.error,
                 style = AppTypography.caption.regular,
                 color = palette.hint,
-                modifier = Modifier.fillMaxWidth().glass(GlassShapes.card).padding(12.dp),
+                modifier = Modifier.fillMaxWidth().glass(AppShapes.card).padding(12.dp),
             )
         } else if (group.items.size > 1) {
             LazyRow(
@@ -706,7 +705,7 @@ private fun ServerGroup(
                         onClickLabel = if (group.loadMoreError == null) "加载更多结果" else "重试加载更多",
                         onClick = onLoadMore,
                     ).touchTarget()
-                    .glass(GlassShapes.chip, palette.card2, palette.border)
+                    .glass(AppShapes.chip, palette.card2, palette.border)
                     .padding(horizontal = 14.dp, vertical = 9.dp),
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
@@ -741,7 +740,7 @@ private fun SearchCoverageNotice(
     Column(
         Modifier
             .fillMaxWidth()
-            .glass(GlassShapes.card, palette.card2, palette.border),
+            .glass(AppShapes.card, palette.card2, palette.border),
     ) {
         Row(
             Modifier
@@ -792,7 +791,7 @@ private fun SearchCoverageNotice(
                     Column(
                         Modifier
                             .fillMaxWidth()
-                            .glass(GlassShapes.chip, palette.card3, palette.border)
+                            .glass(AppShapes.chip, palette.card3, palette.border)
                             .padding(horizontal = 11.dp, vertical = 9.dp),
                     ) {
                         Text(
@@ -874,7 +873,7 @@ private fun SearchSkeleton() {
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .glass(GlassShapes.card)
+                    .glass(AppShapes.card)
                     .padding(8.dp),
                 horizontalArrangement = Arrangement.spacedBy(11.dp),
             ) {
@@ -932,7 +931,7 @@ private fun ResultRow(
     Row(
         modifier
             .pressable(onClick = onClick)
-            .glass(GlassShapes.card)
+            .glass(AppShapes.card)
             .padding(8.dp),
         horizontalArrangement = Arrangement.spacedBy(11.dp),
     ) {
@@ -987,7 +986,7 @@ private fun ResultRow(
                 Spacer(Modifier.height(5.dp))
                 Row(
                     Modifier
-                        .clip(GlassShapes.chip)
+                        .clip(AppShapes.chip)
                         .background(accent.container)
                         .padding(horizontal = 8.dp, vertical = 4.dp),
                     horizontalArrangement = Arrangement.spacedBy(5.dp),
@@ -1099,7 +1098,7 @@ private fun RecentSearches(
                             onLongClickLabel = if (canEdit) "删除搜索记录" else null,
                             onClick = { if (editing) onForget(term) else onSelect(term) },
                         ).touchTarget()
-                        .glass(GlassShapes.chip, palette.card2)
+                        .glass(AppShapes.chip, palette.card2)
                         .padding(horizontal = 13.dp, vertical = 7.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -1142,7 +1141,7 @@ private fun HistoryAction(
                 .pressable(onClick = onClick)
                 .touchTarget()
                 .glass(
-                    shape = GlassShapes.chip,
+                    shape = AppShapes.chip,
                     fill = if (accent) accentColors.container else palette.card2,
                     border = if (accent) accentColors.border else palette.border,
                 ).padding(horizontal = 11.dp, vertical = 6.dp),
