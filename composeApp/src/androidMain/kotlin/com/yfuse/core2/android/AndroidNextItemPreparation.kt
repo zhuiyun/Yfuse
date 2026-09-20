@@ -13,7 +13,9 @@ import com.yfuse.core2.network.YSourceProtocol
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runInterruptible
 import java.io.File
@@ -73,7 +75,7 @@ internal suspend fun awaitNextItemBoundary(
     stableMs: Long = 1_000L,
 ): Boolean {
     var healthyMs = 0L
-    while (true) {
+    while (currentCoroutineContext().isActive) {
         val current = state() ?: return false
         if (current.phase == YPlaybackPhase.Ended || current.phase == YPlaybackPhase.Failed) return false
         val remaining = nextItemRemainingMs(current, boundary())
@@ -92,6 +94,7 @@ internal suspend fun awaitNextItemBoundary(
         }
         delay(250L)
     }
+    return false
 }
 
 /** A watchdog cancels real reads on pressure, stalls, pause, cancellation or the shared deadline. */
@@ -104,7 +107,7 @@ internal suspend fun <T> speculativeNextItemWork(
         val guard =
             launch {
                 try {
-                    while (true) {
+                    while (isActive) {
                         AndroidPlaybackMemoryBudget.refreshPressure()
                         if (!allowed()) budget.cancel("next_item_yield")
                         delay(250L)

@@ -56,6 +56,7 @@ import com.yfuse.core2.subtitle.YSubtitleClockAnchor
 import com.yfuse.core2.subtitle.YSubtitleCue
 import com.yfuse.core2.subtitle.YSubtitlePayload
 import com.yfuse.core2.subtitle.YSubtitleTimeline
+import kotlinx.coroutines.isActive
 import kotlin.math.roundToInt
 import com.yfuse.core.designsystem.ThemeText as Text
 
@@ -315,7 +316,7 @@ private fun Core2SubtitleChannel(
         submit(clock.positionMs)
         // Start with the same active-ASS gate as before; the next engine tick handles a new cue.
         if (animateFrames) {
-            while (true) withFrameNanos { submit(clock.positionAt(it)) }
+            while (isActive) withFrameNanos { submit(clock.positionAt(it)) }
         }
     }
     val activeText = remember(activeCues) { activeCues.mapNotNull { it.payload as? YSubtitlePayload.Text } }

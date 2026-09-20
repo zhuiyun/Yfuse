@@ -52,7 +52,6 @@ import com.yfuse.core.data.UserAgentPreferences
 import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.data.dto.toMediaVersion
 import com.yfuse.core.data.preferredVersion
-import com.yfuse.core.designsystem.AccentColor
 import com.yfuse.core.designsystem.AccessibilityOptions
 import com.yfuse.core.designsystem.DialogAnimation
 import com.yfuse.core.designsystem.ParticleLight
@@ -481,7 +480,6 @@ class PlayerActivity : ComponentActivity() {
 
     private fun showPendingPlayer(pending: PendingPlayerLaunch) {
         val preferences = runCatching { GlobalContext.get().get<ThemePreferences>() }.getOrNull()
-        val accent = preferences?.accent?.value ?: AccentColor.Blue
         setContent {
             val state by pending.store.states.collectAsState(pending.store.state)
             val dialogAnimation = preferences?.dialogAnimation?.collectAsState()?.value ?: DialogAnimation.Lift
@@ -491,7 +489,6 @@ class PlayerActivity : ComponentActivity() {
             val particleStyle = preferences?.particleStyle?.collectAsState()?.value ?: ParticleStyle.Stardust
             YfuseTheme(
                 dark = true,
-                accent = accent,
                 dialogAnimation = dialogAnimation,
                 accessibility = AccessibilityOptions(reduceMotion = reduceMotion || systemMotionOff),
                 particleLight = particleLight,
@@ -731,7 +728,6 @@ class PlayerActivity : ComponentActivity() {
             close = ::stopPlaybackAndFinish,
         )
         ensureAudioFocus()
-        val accent = preferences?.accent?.value ?: AccentColor.Blue
         val playbackSinkFor =
             runCatching {
                 val registry = koin.get<ServerRegistry>()
@@ -769,7 +765,6 @@ class PlayerActivity : ComponentActivity() {
             val particleStyle = preferences?.particleStyle?.collectAsState()?.value ?: ParticleStyle.Stardust
             YfuseTheme(
                 dark = true,
-                accent = accent,
                 dialogAnimation = dialogAnimation,
                 accessibility = AccessibilityOptions(reduceMotion = reduceMotion || systemMotionOff),
                 particleLight = particleLight,

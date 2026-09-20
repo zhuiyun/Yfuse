@@ -30,6 +30,7 @@ import com.yfuse.core.playback.YCoreRuntimeAssessment
 import com.yfuse.core.playback.YCoreRuntimeObservation
 import com.yfuse.core2.api.YPlayer
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.koin.core.context.GlobalContext
 
@@ -169,7 +170,7 @@ internal fun rememberYCoreRuntimeAssessmentState(
         state.error != null,
     ) {
         if (castAuthoritative) return@LaunchedEffect
-        while (true) {
+        while (isActive) {
             val current = latestState
             val observed =
                 session.observe(

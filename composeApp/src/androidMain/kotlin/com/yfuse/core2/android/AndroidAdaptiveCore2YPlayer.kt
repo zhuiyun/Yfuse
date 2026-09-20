@@ -2031,9 +2031,13 @@ internal class AndroidAdaptiveCore2YPlayer(
         } finally {
             probes.invalidate("released")
             discardNextPreparation()
-            while (true) {
-                val pending = commands.tryReceive().getOrNull() ?: break
+            // A bounded, non-suspending drain, deliberately not `while (isActive)`: this runs in the
+            // worker's `finally`, where the scope is already cancelled, and skipping it would leak
+            // the sources of every preloaded route still sitting in the channel.
+            var pending = commands.tryReceive().getOrNull()
+            while (pending != null) {
                 if (pending is Command.NextItemPreloaded) pending.route.sources.close()
+                pending = commands.tryReceive().getOrNull()
             }
             try {
                 stopChild(waitForRelease = false)
