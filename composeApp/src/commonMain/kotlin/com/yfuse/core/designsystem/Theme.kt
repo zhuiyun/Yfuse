@@ -166,35 +166,6 @@ val LocalAccentColors =
     }
 
 /**
- * Transitional source compatibility for old call sites that only read `.color`.
- * This value is fixed product identity, not a setting and not persisted anywhere.
- *
- * Kept only for the Android player (`PlayerActivity`), which is migrated in the next wave;
- * everything else reads [LocalAccentColors] — through [ArtworkAccent] on media pages.
- */
-@Deprecated("Read LocalAccentColors.current.accent; removed once PlayerActivity migrates.")
-@Immutable
-internal data class FixedBrandEmphasis(
-    val color: Color,
-)
-
-@Suppress("DEPRECATION")
-@Deprecated("Read LocalAccentColors.current.accent; removed once PlayerActivity migrates.")
-internal val LocalAccent =
-    staticCompositionLocalOf {
-        FixedBrandEmphasis(Brand.Primary) // design-system: brand-identity
-    }
-
-/**
- * Transitional source compatibility for the Android player. This is a fixed brand value,
- * not the removed selectable theme-colour enum.
- */
-@Deprecated("Read LocalAccentColors inside a theme.")
-internal object AccentColor {
-    val Blue: Color = Brand.Primary // design-system: brand-identity
-}
-
-/**
  * The colour of whatever the page currently on screen is showing, or null where it shows no
  * artwork at all. Published by the screens that already derive one — see [ArtworkAccent].
  */
@@ -352,48 +323,6 @@ fun YfuseTheme(
     ) {
         TargetThemeColors(dark, colors) { DialogBackdropHost(content) }
     }
-}
-
-/**
- * Source compatibility for the Android player, which still passes the fixed brand colour it
- * read from `ThemePreferences.accent`. The value is ignored: emphasis is [Brand.Primary]
- * whatever is passed, exactly as it already was. Removed once `PlayerActivity` migrates.
- */
-@Deprecated(
-    "Emphasis is fixed product identity; call YfuseTheme without accent.",
-    ReplaceWith(
-        "YfuseTheme(dark, accessibility, glassStyle, dialogAnimation, particleLight, particleStyle, " +
-            "particleLimit, particleActive, loadingAnimation, glassMaterials, content)",
-    ),
-)
-@Composable
-fun YfuseTheme(
-    dark: Boolean,
-    @Suppress("UNUSED_PARAMETER") accent: Color,
-    accessibility: AccessibilityOptions = AccessibilityOptions(),
-    glassStyle: GlassStyle = GlassStyle.Liquid,
-    dialogAnimation: DialogAnimation = DialogAnimation.Lift,
-    particleLight: ParticleLight = ParticleLight.Gentle,
-    particleStyle: ParticleStyle = ParticleStyle.Stardust,
-    particleLimit: Int = 64,
-    particleActive: Boolean = true,
-    loadingAnimation: LoadingAnimation = LoadingAnimation.Orbit,
-    glassMaterials: GlassMaterials = GlassMaterials(),
-    content: @Composable () -> Unit,
-) {
-    YfuseTheme(
-        dark = dark,
-        accessibility = accessibility,
-        glassStyle = glassStyle,
-        dialogAnimation = dialogAnimation,
-        particleLight = particleLight,
-        particleStyle = particleStyle,
-        particleLimit = particleLimit,
-        particleActive = particleActive,
-        loadingAnimation = loadingAnimation,
-        glassMaterials = glassMaterials,
-        content = content,
-    )
 }
 
 /** Publish targets once. Finite colour motion is owned by the consuming text/material node. */
