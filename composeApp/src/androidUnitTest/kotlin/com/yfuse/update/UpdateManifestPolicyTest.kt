@@ -159,23 +159,24 @@ class UpdateManifestPolicyTest {
     }
 
     @Test
-    fun a_release_build_without_a_key_rejects_every_manifest() {
-        val unsigned = manifest("https://updates.example.com/yfuse/Yfuse-latest.apk")
+    fun an_unpinned_production_release_can_discover_the_published_update() {
+        val source = "https://47.112.219.60/yfuse/update-v2.json"
+        val published =
+            UpdateManifest(
+                versionCode = 236,
+                versionName = "1.0.74",
+                apkUrl = "https://47.112.219.60/yfuse/Yfuse-236-1.0.74.apk",
+                sha256 = "097ef573cd1f9211346be8f40ad14892678a5ca82a0800da44ea5cf643e5e03c",
+                size = 29_212_566L,
+            ).validateForUpdateSource(source)
         val mustNotVerify: (String, ByteArray, String) -> Boolean = { _, _, _ ->
             error("Signature verification requires a configured key")
         }
 
-        for (signature in listOf(null, "", "previously-published-signature")) {
-            val verdict = unsigned.copy(signature = signature).trustVerdict("", mustNotVerify, requireKey = true)
-            assertEquals(UpdateManifestTrust.RejectedNoKey, verdict)
-            assertNotNull(verdict.rejectionMessage())
-        }
-        // A pinned key behaves the same whether or not the build demands one.
-        val accept: (String, ByteArray, String) -> Boolean = { _, _, _ -> true }
-        assertEquals(
-            UpdateManifestTrust.Signed,
-            unsigned.copy(signature = "c2ln").trustVerdict("key", accept, requireKey = true),
-        )
-        assertEquals(UpdateManifestTrust.RejectedUnsigned, unsigned.trustVerdict("key", accept, requireKey = true))
+        // Reproduce the diagnostic package: installed 1.0.73 (235), unsigned feed, no public pin.
+        assertNull(published.trustVerdict("", mustNotVerify).rejectionMessage())
+        assertTrue(isPublishedUpdateAvailable(published.versionCode, installedVersionCode = 235))
+        assertFalse(isPublishedUpdateAvailable(published.versionCode, installedVersionCode = 236))
+        assertEquals(UpdateManifestTrust.RejectedUnsigned, published.trustVerdict("pinned-key", mustNotVerify))
     }
 }

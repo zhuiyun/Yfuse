@@ -27,7 +27,6 @@ class UpdateCheckPolicyTest {
     @Test
     fun trust_failures_are_not_misreported_as_connection_errors() {
         for (verdict in listOf(
-            UpdateManifestTrust.RejectedNoKey,
             UpdateManifestTrust.RejectedUnsigned,
             UpdateManifestTrust.RejectedInvalidSignature,
         )) {
