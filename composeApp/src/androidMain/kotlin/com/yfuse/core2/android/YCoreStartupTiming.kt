@@ -12,8 +12,12 @@ internal inline fun <T> yCoreStartupStage(
     operation: () -> T,
 ): T {
     val startedNs = System.nanoTime()
+    var outcome = "success"
     return try {
         operation()
+    } catch (failure: Throwable) {
+        outcome = "failed"
+        throw failure
     } finally {
         AppLog.info(
             category = "player.core2",
@@ -30,6 +34,7 @@ internal inline fun <T> yCoreStartupStage(
                     "playbackTrace" to playbackDiagnosticTrace(item?.playbackSessionId),
                     "decoder" to decoderName.orEmpty(),
                     "elapsedMs" to ((System.nanoTime() - startedNs) / 1_000_000L).toString(),
+                    "outcome" to outcome,
                 ),
         )
     }

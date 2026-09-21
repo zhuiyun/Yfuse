@@ -41,7 +41,7 @@ actual fun AppUpdateTools() {
         when (val current = state) {
             UpdateState.Idle -> "检测升级 ›"
             UpdateState.Checking -> "正在检查…"
-            UpdateState.Current -> "已是最新版本 ›"
+            UpdateState.Current -> "暂无可用更新 ›"
             is UpdateState.Available -> "发现 ${current.manifest.versionName} ›"
             is UpdateState.Downloading ->
                 "后台下载 ${(current.progress * 100).toInt()}% ›"

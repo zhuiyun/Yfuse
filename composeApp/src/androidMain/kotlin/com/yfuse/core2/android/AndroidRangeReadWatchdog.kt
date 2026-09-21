@@ -34,6 +34,7 @@ internal class AndroidRangeReadWatchdog(
     private val budget: YRangeReadBudget,
     private val idleBudgetMs: () -> Long,
     pollMs: Long = 250L,
+    private val onDiagnosticTick: () -> Unit = {},
 ) : AutoCloseable {
     private val lock = Any()
     private var active = true
@@ -51,6 +52,8 @@ internal class AndroidRangeReadWatchdog(
     private fun checkTimeout() {
         synchronized(lock) {
             if (!active || timedOut) return
+            // Diagnostic sinks must never disable cancellation of a blocked transport.
+            runCatching(onDiagnosticTick)
             val idleMs = (System.nanoTime() - lastProgressNs) / 1_000_000L
             if (budget.remainingMs() > 0L && idleMs < idleBudgetMs()) return
             timedOut = true

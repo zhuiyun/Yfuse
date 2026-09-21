@@ -7,6 +7,43 @@ import kotlin.test.assertTrue
 
 class YBufferControllerTest {
     @Test
+    fun `long rebuffer wait drops extra reserve but still requires base buffer`() {
+        val gate =
+            YPlaybackBufferGate(true, 2_500_000L).also {
+                it.updateThresholds(YBufferPlan(8_000_000, 2_500_000, 24 * 1024 * 1024))
+            }
+        gate.evaluate(500_000L, false)
+        gate.markStarved()
+        gate.evaluate(2_500_000L, false)
+        gate.markStarved()
+        assertFalse(gate.evaluate(2_500_000L, false, rebufferWaitUs = 9_000_000L).outputAllowed)
+        assertFalse(gate.evaluate(1_000_000L, false, rebufferWaitUs = 10_000_000L).outputAllowed)
+        val resumed = gate.evaluate(2_500_000L, false, rebufferWaitUs = 10_000_000L)
+        assertTrue(resumed.outputAllowed)
+        assertEquals(2_500_000L, resumed.requiredBufferedUs)
+    }
+
+    @Test
+    fun `healthy playback decays starvation history while pauses do not`() {
+        val gate =
+            YPlaybackBufferGate(true, 2_500_000L).also {
+                it.updateThresholds(YBufferPlan(8_000_000, 2_500_000, 24 * 1024 * 1024))
+            }
+        gate.evaluate(500_000L, false)
+        repeat(3) {
+            gate.markStarved()
+            gate.evaluate(6_000_000L, false)
+        }
+        repeat(100) { gate.recordPlaybackProgress(0) }
+        gate.markStarved()
+        assertEquals(6_000_000L, gate.evaluate(0, false).requiredBufferedUs)
+        gate.evaluate(6_000_000L, false)
+        repeat(90) { gate.recordPlaybackProgress(1_000_000L) }
+        gate.markStarved()
+        assertTrue(gate.evaluate(2_500_000L, false).outputAllowed)
+    }
+
+    @Test
     fun `repeated starvation increases recovery reserve without delaying startup or deadlocking a full queue`() {
         val plan = YBufferPlan(8_000_000, 2_500_000, 24 * 1024 * 1024)
         val gate = YPlaybackBufferGate(true, plan.resumePlaybackUs).also { it.updateThresholds(plan) }

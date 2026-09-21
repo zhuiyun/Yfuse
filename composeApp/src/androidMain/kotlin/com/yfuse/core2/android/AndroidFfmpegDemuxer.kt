@@ -58,6 +58,7 @@ internal class AndroidFfmpegDemuxer :
     @Volatile
     private var cancellationToken = 0L
     private var openResult: YDemuxOpenResult? = null
+    var sourceFailure: (() -> com.yfuse.core2.api.YPlaybackException?)? = null
     private val packetStorage = AndroidPlaybackStagingBuffer(INITIAL_PACKET_BUFFER_BYTES, MAX_PACKET_BUFFER_BYTES)
     private var prefetchedSample: YCompressedSample? = null
     private var discSource = false
@@ -116,7 +117,8 @@ internal class AndroidFfmpegDemuxer :
             discSource = false
             timeline.reset()
             budget?.ensureActive()
-            throw throwable
+            if (throwable is kotlinx.coroutines.CancellationException) throw throwable
+            throw (sourceFailure?.invoke() ?: throwable)
         } finally {
             cancellation?.close()
         }
@@ -165,10 +167,19 @@ internal class AndroidFfmpegDemuxer :
         val handle = requireHandle()
         while (true) {
             val packetBuffer = packetStorage.get()
-            val result = FfmpegNativeBridge.readPacket(handle, packetBuffer)
+            val result =
+                try {
+                    FfmpegNativeBridge.readPacket(handle, packetBuffer)
+                } catch (failure: Throwable) {
+                    if (failure is kotlinx.coroutines.CancellationException) throw failure
+                    throw (sourceFailure?.invoke() ?: failure)
+                }
             require(result.size >= PACKET_RESULT_FIELDS) { "Invalid FFmpeg packet result" }
             when (result[PACKET_STATUS_INDEX]) {
-                FFMPEG_PACKET_EOF -> return null
+                FFMPEG_PACKET_EOF -> {
+                    sourceFailure?.invoke()?.let { throw it }
+                    return null
+                }
                 FFMPEG_PACKET_GROW_BUFFER -> {
                     val required = result[PACKET_SIZE_INDEX]
                     require(required in 1..MAX_PACKET_BUFFER_BYTES.toLong()) {

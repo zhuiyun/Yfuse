@@ -545,6 +545,12 @@ internal class AndroidYCoreHttpProxy(
     private val requests = YCoreProxyRequests()
     private val mediaSessions = AndroidProxyMediaSessions()
     private val activeRangeSources = ConcurrentHashMap.newKeySet<AndroidTransportMediaDataSource>()
+    private val terminalSourceFailures = LinkedHashMap<String, com.yfuse.core2.api.YPlaybackException>()
+
+    /** Used when a source fails after loopback headers have already been sent. */
+    fun sourceFailure(upstreamUri: String): com.yfuse.core2.api.YPlaybackException? =
+        synchronized(routesLock) { terminalSourceFailures[upstreamUri] }
+
     private val manifestDiscovery = AndroidAdaptiveManifestDiscovery()
     private val presentations = ConcurrentHashMap<String, AdaptivePresentation>()
     private val unmanagedManifestRoots = ConcurrentHashMap.newKeySet<String>()
@@ -576,6 +582,8 @@ internal class AndroidYCoreHttpProxy(
         credentialOrigin: String = upstreamUri,
     ): String {
         if (closed.get() || upstreamUri.sourceProtocolOrNull() == null) return upstreamUri
+        // An explicit source preparation/retry starts a new failure observation window.
+        synchronized(routesLock) { terminalSourceFailures.remove(upstreamUri) }
         val route =
             Route(
                 upstreamUri = upstreamUri,
@@ -778,6 +786,7 @@ internal class AndroidYCoreHttpProxy(
             resolvedResources.clear()
             routes.clear()
             routeIds.clear()
+            terminalSourceFailures.clear()
         }
     }
 
@@ -925,8 +934,19 @@ internal class AndroidYCoreHttpProxy(
             } else {
                 serveBinary(socket, route, method, headers["range"])
             }
-        }.onFailure {
-            if (socket !in responsesStarted) runCatching { writeEmptyResponse(socket, 502, "Bad Gateway") }
+        }.onFailure { failure ->
+            if (!closed.get() && failure.mediaHttpStatus() in setOf(401, 403, 404, 410)) {
+                synchronized(routesLock) {
+                    failure.mediaSourceFailure()?.let { terminalSourceFailures[route.upstreamUri] = it }
+                    while (terminalSourceFailures.size >
+                        MAX_ROUTES
+                    ) {
+                        terminalSourceFailures.remove(terminalSourceFailures.keys.first())
+                    }
+                }
+            }
+            val (status, reason) = proxyFailureStatus(failure)
+            if (socket !in responsesStarted) runCatching { writeEmptyResponse(socket, status, reason) }
         }
     }
 
@@ -1620,7 +1640,7 @@ internal class AndroidYCoreHttpProxy(
                         credentials = route.credentialsFor(route.upstreamUri),
                     ),
                 )
-            require(response.statusCode in 200..299) { "Upstream returned ${response.statusCode}" }
+            if (response.statusCode !in 200..299) throw YUpstreamHttpException(response.statusCode)
             writeHeaders(
                 socket = socket,
                 status = 200,
@@ -1717,7 +1737,7 @@ internal class AndroidYCoreHttpProxy(
                             credentials = route.credentialsFor(upstreamUri),
                         ),
                     )
-                require(response.statusCode in 200..299) { "Manifest returned ${response.statusCode}" }
+                if (response.statusCode !in 200..299) throw YUpstreamHttpException(response.statusCode)
                 response.contentLength?.let { require(it <= maximumBytes) { "Manifest exceeds the byte limit" } }
                 val output = ByteArrayOutputStream()
                 val buffer = ByteArray(NETWORK_BUFFER_BYTES)

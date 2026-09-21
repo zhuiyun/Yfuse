@@ -116,15 +116,20 @@ internal class AndroidMediaExtractorDemuxNode(
         val opened = createExtractor()
         try {
             opened.setPrivateDataSource(source)
+            (mediaDataSource as? AndroidTransportMediaDataSource)?.throwIfReadFailed()
             probeBudget?.ensureActive()
             extractor = opened
             currentSource = source
             selectedTracks = emptySet()
         } catch (throwable: Throwable) {
+            val readFailure =
+                runCatching {
+                    (mediaDataSource as? AndroidTransportMediaDataSource)?.throwIfReadFailed()
+                }.exceptionOrNull()
             runCatching { opened.release() }
             runCatching { mediaDataSource?.close() }
             mediaDataSource = null
-            throw throwable
+            throw (readFailure?.mediaSourceFailure() ?: readFailure ?: throwable)
         }
     }
 

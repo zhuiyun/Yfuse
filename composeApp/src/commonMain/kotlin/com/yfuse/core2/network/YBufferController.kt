@@ -36,6 +36,7 @@ enum class YPlaybackBufferPhase {
 data class YPlaybackBufferDecision(
     val phase: YPlaybackBufferPhase,
     val outputAllowed: Boolean,
+    val requiredBufferedUs: Long = 0L,
 ) {
     val buffering: Boolean get() = !outputAllowed
 }
@@ -56,6 +57,17 @@ class YPlaybackBufferGate(
     private var startupPlaybackUs = startupPlaybackUs
     private var rebufferCount = 0
     private var maximumResumePlaybackUs = resumePlaybackUs
+    private var healthyPlaybackUs = 0L
+
+    /** Count actual advancing media time, so a user pause never clears starvation history. */
+    fun recordPlaybackProgress(advancedUs: Long) {
+        if (phase != YPlaybackBufferPhase.Ready || advancedUs <= 0L) return
+        healthyPlaybackUs += advancedUs.coerceAtMost(1_000_000L)
+        if (healthyPlaybackUs >= 30_000_000L) {
+            rebufferCount = (rebufferCount - 1).coerceAtLeast(0)
+            healthyPlaybackUs = 0L
+        }
+    }
 
     init {
         require(resumePlaybackUs >= 0L)
@@ -68,12 +80,14 @@ class YPlaybackBufferGate(
     fun reset() {
         phase = initialPhase()
         rebufferCount = 0
+        healthyPlaybackUs = 0L
     }
 
     fun markStarved() {
         if (remote) {
             if (phase != YPlaybackBufferPhase.Rebuffering) rebufferCount = (rebufferCount + 1).coerceAtMost(3)
             phase = YPlaybackBufferPhase.Rebuffering
+            healthyPlaybackUs = 0L
         }
     }
 
@@ -93,9 +107,10 @@ class YPlaybackBufferGate(
         bufferedDurationUs: Long,
         endOfInput: Boolean,
         bufferFull: Boolean = false,
+        rebufferWaitUs: Long = 0L,
     ): YPlaybackBufferDecision {
         if (!remote) phase = YPlaybackBufferPhase.Ready
-        val thresholdUs =
+        var thresholdUs =
             if (phase == YPlaybackBufferPhase.Startup) {
                 startupPlaybackUs
             } else {
@@ -104,6 +119,11 @@ class YPlaybackBufferGate(
                     maximumResumePlaybackUs,
                 )
             }
+        // Do not wait indefinitely for the extra reserve added after repeated stalls. The
+        // base reserve must still be present; this never opens an empty or undersupplied queue.
+        if (phase == YPlaybackBufferPhase.Rebuffering && rebufferWaitUs >= 10_000_000L) {
+            thresholdUs = minOf(thresholdUs, resumePlaybackUs)
+        }
         if (
             phase != YPlaybackBufferPhase.Ready &&
             (bufferedDurationUs.coerceAtLeast(0L) >= thresholdUs || endOfInput || bufferFull)
@@ -113,6 +133,7 @@ class YPlaybackBufferGate(
         return YPlaybackBufferDecision(
             phase = phase,
             outputAllowed = phase == YPlaybackBufferPhase.Ready,
+            requiredBufferedUs = thresholdUs,
         )
     }
 

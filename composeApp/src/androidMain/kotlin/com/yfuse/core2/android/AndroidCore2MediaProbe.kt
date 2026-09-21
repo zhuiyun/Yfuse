@@ -67,6 +67,7 @@ internal sealed interface YCore2ProbeResult {
 
     data class Failure(
         val reason: YCore2ProbeFailure,
+        val sourceFailure: com.yfuse.core2.api.YPlaybackException? = null,
     ) : YCore2ProbeResult
 }
 
@@ -343,7 +344,7 @@ internal class AndroidCore2MediaProbe(
         } catch (error: Throwable) {
             if (error is CancellationException) throw error
             budget?.ensureActive()
-            YCore2ProbeResult.Failure(YCore2ProbeFailure.SourceUnavailable)
+            YCore2ProbeResult.Failure(YCore2ProbeFailure.SourceUnavailable, error.mediaSourceFailure())
         } finally {
             if (!retained) demux.release()
         }
@@ -604,7 +605,15 @@ internal class AndroidCore2RouteEvaluator(
         budget: AndroidProbeBudget? = null,
     ): YCore2RouteDecision? {
         budget?.ensureActive()
-        val resolved = rememberedProbe ?: resolveProbe(item, prepareSourceForPlayback, budget)
+        val resolved =
+            try {
+                rememberedProbe ?: resolveProbe(item, prepareSourceForPlayback, budget)
+            } catch (failure: Throwable) {
+                sourceFacts.value = null
+                runCatching { closePreparedExtractor() }
+                runCatching { closePreparedEnhancedDemux() }
+                throw failure
+            }
         budget?.ensureActive()
         if (resolved == null) {
             sourceFacts.value = null
@@ -631,7 +640,9 @@ internal class AndroidCore2RouteEvaluator(
         budget: AndroidProbeBudget?,
     ): YCore2ProbeResult.Success? {
         val platform =
-            (platformProbe.probe(item, budget) as? YCore2ProbeResult.Success)
+            platformProbe
+                .probe(item, budget)
+                .sourceSuccessOrThrow()
                 ?.withConfirmedDolbyVisionSourceHint(item)
         val sourceClaimsDolbyVision = item.sourceHints?.dolbyVision == true
         val resolved =
@@ -639,11 +650,12 @@ internal class AndroidCore2RouteEvaluator(
                 platform == null && item.drmConfiguration != null -> null
                 platform == null ->
                     (
-                        enhancedProbe.probe(
-                            item,
-                            budget = budget,
-                            retainForPlayback = prepareSourceForPlayback,
-                        ) as? YCore2ProbeResult.Success
+                        enhancedProbe
+                            .probe(
+                                item,
+                                budget = budget,
+                                retainForPlayback = prepareSourceForPlayback,
+                            ).sourceSuccessOrThrow()
                     )?.takeUnless { it.unconfiguredDolbyVisionSignal }
                 item.drmConfiguration != null ->
                     platform.takeUnless {
@@ -656,17 +668,18 @@ internal class AndroidCore2RouteEvaluator(
                             platform.dolbyVisionConfig == null
                     val deep =
                         (
-                            enhancedProbe.probe(
-                                item,
-                                budget = budget,
-                                knownDolbyEvidence = platform.dolbyVisionStreamEvidence?.observedNals,
-                                retainForPlayback =
-                                    prepareSourceForPlayback &&
-                                        (
-                                            !platform.playbackRequest.platformAudioDemuxSupported ||
-                                                platform.playbackRequest.audio == null
-                                        ),
-                            ) as? YCore2ProbeResult.Success
+                            enhancedProbe
+                                .probe(
+                                    item,
+                                    budget = budget,
+                                    knownDolbyEvidence = platform.dolbyVisionStreamEvidence?.observedNals,
+                                    retainForPlayback =
+                                        prepareSourceForPlayback &&
+                                            (
+                                                !platform.playbackRequest.platformAudioDemuxSupported ||
+                                                    platform.playbackRequest.audio == null
+                                            ),
+                                ).sourceSuccessOrThrow()
                         )?.preservingPlatformDemuxCapability(platform)
                     when {
                         deep?.dolbyVisionConfig != null -> deep

@@ -212,6 +212,12 @@ internal class AndroidEnhancedPlaybackSession(
     private var bufferPlan = YBufferController.plan(YBufferConditions(remote = false))
     private var bufferGate = YPlaybackBufferGate(remote = false, resumePlaybackUs = 0L)
     private var lastBufferReplanNs = 0L
+    private var diagnosticItem: com.yfuse.core2.api.YMediaItem? = null
+    private var diagnosticSequence = 0L
+    private var lastBufferDiagnosticNs = 0L
+    private var lastDiagnosticOutputAllowed: Boolean? = null
+    private var lastGatePositionUs = 0L
+    private val bufferWaitMonitor = AndroidBufferWaitMonitor()
 
     @Volatile
     private var speed = 1f
@@ -240,8 +246,15 @@ internal class AndroidEnhancedPlaybackSession(
         preparedDemux: AndroidPreparedEnhancedDemux? = null,
         probeBudget: AndroidProbeBudget? = null,
         initialTrackSelection: com.yfuse.core2.api.YInitialTrackSelection? = null,
+        diagnosticItem: com.yfuse.core2.api.YMediaItem? = null,
+        sourceFailure: (() -> YPlaybackException?)? = null,
     ): YDemuxOpenResult {
         close()
+        this.diagnosticItem = diagnosticItem
+        diagnosticSequence = 0L
+        lastBufferDiagnosticNs = 0L
+        lastDiagnosticOutputAllowed = null
+        bufferWaitMonitor.reset()
         val adoptedOpen =
             if (preparedDemux != null) {
                 demuxReadAhead.release()
@@ -253,6 +266,22 @@ internal class AndroidEnhancedPlaybackSession(
             } else {
                 null
             }
+        (demuxer as? AndroidFfmpegDemuxer)?.sourceFailure = sourceFailure
+        AppLog.info(
+            "player.core2",
+            "enhanced_source_adoption",
+            "Enhanced source ownership resolved",
+            attributes =
+                mapOf(
+                    "playbackTrace" to
+                        com.yfuse.core.logging
+                            .playbackDiagnosticTrace(diagnosticItem?.playbackSessionId),
+                    "preparedDemuxReused" to (adoptedOpen != null).toString(),
+                    "sourceTrace" to
+                        com.yfuse.core.logging
+                            .playbackDiagnosticTrace(diagnosticItem?.uri),
+                ),
+        )
         dualDolbyEvidence = dualDolbyEvidence.invalidate(YOutputEvidenceResetReason.SourceChanged)
         this.runtimeCapabilityKey = runtimeCapabilityKey
         require(
@@ -277,7 +306,9 @@ internal class AndroidEnhancedPlaybackSession(
                 stage = YPlaybackFailureStage.SourceOpen,
                 safeDetail = "Enhanced source open",
             ) {
-                adoptedOpen ?: demuxReadAhead.open(source, probeBudget)
+                yCoreStartupStage("enhanced_source_open", diagnosticItem) {
+                    adoptedOpen ?: demuxReadAhead.open(source, probeBudget)
+                }
             }
         val videoTrack =
             result.tracks.firstOrNull { it.type == YDemuxTrackType.Video && it.video != null }
@@ -502,13 +533,15 @@ internal class AndroidEnhancedPlaybackSession(
                     YAudioOutputPath.None -> error("Enhanced route selected an audio track without an output path")
                 }
             }
-            demuxReadAhead.selectTracks(
-                buildSet {
-                    add(videoTrack.id)
-                    audioTrack?.let { add(it.id) }
-                    initialSubtitleTrack?.let { add(it.id) }
-                },
-            )
+            yCoreStartupStage("enhanced_select_tracks_first_packet", diagnosticItem) {
+                demuxReadAhead.selectTracks(
+                    buildSet {
+                        add(videoTrack.id)
+                        audioTrack?.let { add(it.id) }
+                        initialSubtitleTrack?.let { add(it.id) }
+                    },
+                )
+            }
         } catch (throwable: Throwable) {
             if (throwable is CancellationException) throw throwable
             if (!softwareVideoActive && !videoConfiguredForProbe) {
@@ -567,7 +600,7 @@ internal class AndroidEnhancedPlaybackSession(
         prepared = true
         resetEndState()
         if (startPositionUs > 0L) {
-            seekTo(startPositionUs)
+            yCoreStartupStage("enhanced_initial_seek", diagnosticItem) { seekTo(startPositionUs) }
         } else {
             wallClock.seek(0L, System.nanoTime())
         }
@@ -595,6 +628,8 @@ internal class AndroidEnhancedPlaybackSession(
         renderedFrameRateSampler.reset()
         val position = currentPositionUs()
         playing = false
+        bufferWaitMonitor.reset()
+        lastGatePositionUs = position
         outputActive = false
         pauseAudio()
         wallClock.pause(position, System.nanoTime())
@@ -1816,14 +1851,83 @@ internal class AndroidEnhancedPlaybackSession(
      * after the compressed queue reaches the resume watermark.
      */
     private fun refreshOutputGate(): Boolean {
+        if (!outputActive) {
+            yPlaybackStage(
+                category = if (sourceRemote) YPlaybackFailureCategory.Network else YPlaybackFailureCategory.Container,
+                stage = YPlaybackFailureStage.Demux,
+                safeDetail = "Enhanced buffered source read",
+            ) { demuxReadAhead.ensureReadAhead() }
+        }
+        val nowNs = System.nanoTime()
         val readAhead = demuxReadAhead.snapshot()
+        val positionUs = currentPositionUs()
+        if (outputActive) bufferGate.recordPlaybackProgress(positionUs - lastGatePositionUs)
+        lastGatePositionUs = positionUs
+        val waitingUs =
+            if (outputActive) {
+                0L
+            } else {
+                bufferWaitMonitor.observe(
+                    nowNs,
+                    readAhead.packetsRead,
+                    readAhead.generation,
+                )
+            }
         refreshAdaptiveBufferPlan(readAhead)
         val decision =
             bufferGate.evaluate(
                 bufferedDurationUs = readAhead.bufferedDurationUs,
                 endOfInput = readAhead.endOfInput,
                 bufferFull = readAhead.atCapacity,
+                rebufferWaitUs = waitingUs,
             )
+        if (lastDiagnosticOutputAllowed != decision.outputAllowed || nowNs - lastBufferDiagnosticNs >= 5_000_000_000L) {
+            lastBufferDiagnosticNs = nowNs
+            lastDiagnosticOutputAllowed = decision.outputAllowed
+            val detailed = demuxReadAhead.snapshot(includeTrackDetails = true)
+            val trace =
+                com.yfuse.core.logging
+                    .playbackDiagnosticTrace(diagnosticItem?.playbackSessionId)
+            AppLog.info(
+                "player.core2",
+                "enhanced_buffer_progress",
+                "Enhanced buffer progress $trace #${++diagnosticSequence}",
+                attributes =
+                    mapOf(
+                        "playbackTrace" to trace,
+                        "positionMs" to (positionUs / 1_000L).toString(),
+                        "phase" to decision.phase.name,
+                        "outputAllowed" to decision.outputAllowed.toString(),
+                        "bufferedMs" to (readAhead.bufferedDurationUs / 1_000L).toString(),
+                        "requiredMs" to (decision.requiredBufferedUs / 1_000L).toString(),
+                        "targetMs" to (bufferPlan.targetAheadUs / 1_000L).toString(),
+                        "waitMs" to (waitingUs / 1_000L).toString(),
+                        "queueBytes" to readAhead.queuedBytes.toString(),
+                        "queueSamples" to readAhead.queuedSamples.toString(),
+                        "fillScheduled" to readAhead.fillScheduled.toString(),
+                        "readElapsedMs" to readAhead.readElapsedMs.toString(),
+                        "lastPacketAgeMs" to readAhead.lastPacketAgeMs.toString(),
+                        "packetsRead" to readAhead.packetsRead.toString(),
+                        "demuxThroughputBps" to readAhead.throughputBitsPerSecond.toString(),
+                        "trackBufferedUs" to detailed.trackBufferedUs.toString(),
+                        "pendingTrackCount" to pendingSamples.size.toString(),
+                        "endOfInput" to readAhead.endOfInput.toString(),
+                        "atCapacity" to readAhead.atCapacity.toString(),
+                        "generation" to readAhead.generation.toString(),
+                    ),
+            )
+        }
+        if (decision.outputAllowed) {
+            bufferWaitMonitor.reset()
+        } else if (sourceRemote && bufferWaitMonitor.stalled(nowNs)) {
+            demuxReadAhead.cancelPendingRead()
+            throw YPlaybackException(
+                category = YPlaybackFailureCategory.Network,
+                stage = YPlaybackFailureStage.Demux,
+                safeDetail = "Enhanced buffer made no packet progress for 35 seconds",
+                cause = java.net.SocketTimeoutException("Buffered source stopped progressing"),
+            )
+        }
         if (decision.outputAllowed && !outputActive) {
             val position = currentPositionUs()
             outputActive = true

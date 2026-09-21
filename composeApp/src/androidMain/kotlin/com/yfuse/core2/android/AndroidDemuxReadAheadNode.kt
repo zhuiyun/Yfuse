@@ -29,6 +29,8 @@ import java.util.concurrent.atomic.AtomicInteger
 internal class AndroidDemuxReadAheadNode(
     private val delegate: YDemuxer,
     private val controlTimeoutMs: Long = 1_500L,
+    /** Deterministic test barrier outside the queue lock, at the fill/consumer handoff. */
+    private val beforeFillFinished: (() -> Unit)? = null,
 ) {
     private val monitor = Any()
     private val samples = ArrayDeque<YQueuedDemuxResult.Sample>()
@@ -41,6 +43,10 @@ internal class AndroidDemuxReadAheadNode(
     private var endOfInput = false
     private var failure: Throwable? = null
     private var fillScheduled = false
+    private var selectedTrackIds = emptySet<YTrackId>()
+    private var readStartedNs = 0L
+    private var lastPacketNs = 0L
+    private var packetsRead = 0L
     private var queuedBytes = 0L
     private var lowWatermarkUs = DEFAULT_LOW_WATERMARK_US
     private var highWatermarkUs = DEFAULT_HIGH_WATERMARK_US
@@ -143,6 +149,7 @@ internal class AndroidDemuxReadAheadNode(
         runReadControl(resumeReadAhead = trackIds.isNotEmpty()) {
             delegate.selectTracks(trackIds)
             positionUs?.let(delegate::seekTo)
+            synchronized(monitor) { selectedTrackIds = trackIds.toSet() }
         }
     }
 
@@ -180,7 +187,7 @@ internal class AndroidDemuxReadAheadNode(
     fun supportsSubtitleFormat(format: YSubtitleFormat): Boolean =
         (delegate as? YSubtitlePacketDecoder)?.supportsSubtitleFormat(format) == true
 
-    fun snapshot(): YDemuxReadAheadSnapshot =
+    fun snapshot(includeTrackDetails: Boolean = false): YDemuxReadAheadSnapshot =
         synchronized(monitor) {
             YDemuxReadAheadSnapshot(
                 queuedSamples = samples.size,
@@ -191,8 +198,32 @@ internal class AndroidDemuxReadAheadNode(
                 throughputBitsPerSecond = throughputBitsPerSecond,
                 endOfInput = endOfInput,
                 atCapacity = samples.isNotEmpty() && queuedBytes >= queueBudgetBytes(),
+                fillScheduled = fillScheduled,
+                readElapsedMs = if (readStartedNs == 0L) 0L else (System.nanoTime() - readStartedNs) / 1_000_000L,
+                lastPacketAgeMs = if (lastPacketNs == 0L) -1L else (System.nanoTime() - lastPacketNs) / 1_000_000L,
+                packetsRead = packetsRead,
+                generation = generation,
+                trackBufferedUs =
+                    if (includeTrackDetails) {
+                        selectedTrackIds.filter { it !in subtitleTracks }.associate { id ->
+                            val queued = samples.filter { it.value.trackId == id }
+                            val first = queued.minOfOrNull { it.value.presentationTimeUs }
+                            val last = queued.maxOfOrNull { it.value.presentationTimeUs + (it.value.durationUs ?: 0L) }
+                            id.value to if (first == null || last == null) 0L else (last - first).coerceAtLeast(0L)
+                        }
+                    } else {
+                        emptyMap()
+                    },
             )
         }
+
+    /** A closed output gate must still observe source failures and keep its producer alive. */
+    fun ensureReadAhead() {
+        synchronized(monitor) {
+            failure?.let { throw it }
+            requestFillLocked()
+        }
+    }
 
     fun close() {
         cancelPendingRead()
@@ -318,6 +349,7 @@ internal class AndroidDemuxReadAheadNode(
         val fillStartedNs = System.nanoTime()
         var filledBytes = 0L
         var readGeneration = -1L
+        var cancelled = false
         try {
             while (true) {
                 readGeneration =
@@ -331,6 +363,7 @@ internal class AndroidDemuxReadAheadNode(
                         ) {
                             return
                         }
+                        readStartedNs = System.nanoTime()
                         generation
                     }
                 val sample = delegate.readSample()
@@ -353,19 +386,25 @@ internal class AndroidDemuxReadAheadNode(
                         )
                     }
                 synchronized(monitor) {
+                    readStartedNs = 0L
                     if (!opened || readGeneration != generation) return
                     if (queued == null) {
                         endOfInput = true
                         return
                     }
                     samples.addLast(queued)
+                    lastPacketNs = System.nanoTime()
+                    packetsRead++
                     queuedBytes += queued.memoryBytes
                     filledBytes += queued.value.data.size
                     maximumQueuedBytesObserved = maxOf(maximumQueuedBytesObserved, queuedBytes)
                 }
             }
         } catch (throwable: Throwable) {
-            if (throwable is CancellationException) throw throwable
+            if (throwable is CancellationException) {
+                cancelled = true
+                throw throwable
+            }
             synchronized(monitor) {
                 if (opened && readGeneration == generation) {
                     failure = throwable
@@ -373,12 +412,17 @@ internal class AndroidDemuxReadAheadNode(
                 }
             }
         } finally {
+            beforeFillFinished?.invoke()
             synchronized(monitor) {
                 updateThroughputLocked(
                     bytesRead = filledBytes,
                     elapsedNs = (System.nanoTime() - fillStartedNs).coerceAtLeast(1L),
                 )
                 fillScheduled = false
+                readStartedNs = 0L
+                // A consumer can drain the queue after the high-water check but before this
+                // handoff. Clear and recheck atomically so its refill request is never lost.
+                if (!cancelled) requestFillLocked()
             }
         }
     }
@@ -404,6 +448,7 @@ internal class AndroidDemuxReadAheadNode(
         generation++
         samples.clear()
         queuedBytes = 0L
+        lastPacketNs = 0L
     }
 
     private fun updateThroughputLocked(
@@ -493,6 +538,12 @@ internal data class YDemuxReadAheadSnapshot(
     val throughputBitsPerSecond: Long,
     val endOfInput: Boolean,
     val atCapacity: Boolean = false,
+    val fillScheduled: Boolean = false,
+    val readElapsedMs: Long = 0L,
+    val lastPacketAgeMs: Long = -1L,
+    val packetsRead: Long = 0L,
+    val generation: Long = 0L,
+    val trackBufferedUs: Map<Int, Long> = emptyMap(),
 )
 
 private const val DEMUX_THREAD_NAME = "YCore-Demux"

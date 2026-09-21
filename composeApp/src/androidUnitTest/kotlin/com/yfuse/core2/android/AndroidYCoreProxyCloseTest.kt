@@ -27,6 +27,96 @@ import kotlin.test.assertTrue
 
 class AndroidYCoreProxyCloseTest {
     @Test
+    fun retrying_a_source_does_not_inherit_its_previous_denial() {
+        val status = AtomicInteger(403)
+        val upstream =
+            object : RecordingTransport() {
+                override suspend fun open(request: YMediaTransportRequest): YMediaTransportResponse =
+                    YMediaTransportResponse(status.get(), contentLength = 0L)
+            }
+        withProxy({ upstream }) { proxy ->
+            val source = "https://media.test/refreshed.mkv"
+
+            fun request(): Int {
+                val connection =
+                    URL(
+                        proxy.localUrl(source, cacheable = false, cacheIdentity = null),
+                    ).openConnection() as HttpURLConnection
+                connection.readTimeout = 3_000
+                return try {
+                    connection.responseCode
+                } finally {
+                    connection.disconnect()
+                }
+            }
+            assertEquals(403, request())
+            assertEquals(403, proxy.sourceFailure(source)?.mediaHttpStatus())
+            status.set(200)
+            assertEquals(200, request())
+            kotlin.test.assertNull(proxy.sourceFailure(source))
+        }
+    }
+
+    @Test
+    fun denied_sequential_and_range_requests_keep_the_upstream_status_and_source_identity() {
+        for (range in listOf(false, true)) {
+            for (status in listOf(401, 403, 404, 410)) {
+                val upstream =
+                    object : RecordingTransport() {
+                        override suspend fun open(request: YMediaTransportRequest): YMediaTransportResponse =
+                            YMediaTransportResponse(status, contentLength = 0L)
+                    }
+                withProxy({ upstream }) { proxy ->
+                    val source = "https://media.test/denied.mkv"
+                    val uri = proxy.localUrl(source, cacheable = false, cacheIdentity = null)
+                    val connection = URL(uri).openConnection() as HttpURLConnection
+                    connection.connectTimeout = 2_000
+                    connection.readTimeout = 3_000
+                    if (range) connection.setRequestProperty("Range", "bytes=0-99")
+                    try {
+                        assertEquals(status, connection.responseCode)
+                        assertEquals(status, proxy.sourceFailure(source)?.mediaHttpStatus())
+                        kotlin.test.assertNull(proxy.sourceFailure("https://media.test/other.mkv"))
+                    } finally {
+                        connection.disconnect()
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    fun denial_after_headers_is_retained_instead_of_becoming_clean_eof() {
+        val upstream =
+            object : RecordingTransport() {
+                override suspend fun read(
+                    destination: ByteArray,
+                    offset: Int,
+                    length: Int,
+                ): Int = throw YUpstreamHttpException(403)
+            }
+        withProxy({ upstream }) { proxy ->
+            val source = "https://media.test/interrupted.mkv"
+            val uri = proxy.localUrl(source, cacheable = false, cacheIdentity = null)
+            val connection = URL(uri).openConnection() as HttpURLConnection
+            connection.readTimeout = 3_000
+            try {
+                assertEquals(200, connection.responseCode)
+                runCatching { connection.inputStream.read() }
+                val deadline = System.nanoTime() + 2_000_000_000L
+                while (proxy.sourceFailure(source) == null && System.nanoTime() < deadline) Thread.sleep(1)
+                assertEquals(403, proxy.sourceFailure(source)?.mediaHttpStatus())
+                assertEquals(
+                    com.yfuse.core2.api.YPlaybackFailureCategory.Authorization,
+                    proxy.sourceFailure(source)?.category,
+                )
+            } finally {
+                connection.disconnect()
+            }
+        }
+    }
+
+    @Test
     fun sequential_and_range_shutdown_cancel_upstream_without_waiting_for_slow_cleanup() {
         listOf(false, true).forEach { range ->
             val upstream = BlockingTransport()

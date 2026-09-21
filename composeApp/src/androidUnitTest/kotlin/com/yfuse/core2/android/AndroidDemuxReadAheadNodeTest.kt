@@ -24,6 +24,71 @@ import kotlin.test.assertTrue
 
 class AndroidDemuxReadAheadNodeTest {
     @Test
+    fun refill_request_at_owner_exit_survives_without_another_consumer_poll() {
+        val finishing = CountDownLatch(1)
+        val finishAllowed = CountDownLatch(1)
+        val firstFill =
+            java.util.concurrent.atomic
+                .AtomicBoolean(true)
+        val node =
+            AndroidDemuxReadAheadNode(FakeDemuxer(samples(0, 20)), beforeFillFinished = {
+                if (firstFill.compareAndSet(true, false)) {
+                    finishing.countDown()
+                    check(finishAllowed.await(3, TimeUnit.SECONDS))
+                }
+            })
+        try {
+            node.open(YDemuxSource("file:///handoff.mkv"))
+            node.configure(10_000_000L, 8_000_000L, 4L * 1024L * 1024L)
+            node.selectTracks(setOf(TRACK))
+            assertTrue(finishing.await(2, TimeUnit.SECONDS))
+            repeat(4) { assertTrue(node.pollSample() is YQueuedDemuxResult.Sample) }
+            assertEquals(0, node.snapshot().queuedSamples)
+            assertTrue(node.snapshot().fillScheduled)
+            finishAllowed.countDown()
+            // A buffering player no longer polls packets: only the producer can recover here.
+            awaitQueuedSamples(node, 4)
+            assertTrue(node.snapshot().packetsRead >= 8)
+        } finally {
+            finishAllowed.countDown()
+            node.release()
+        }
+    }
+
+    @Test
+    fun buffering_observes_read_failure_without_consuming_packets() {
+        val finished = CountDownLatch(1)
+        val failure = java.io.IOException("test read failed")
+        val fake =
+            object : YDemuxer by FakeDemuxer(emptyList()) {
+                override fun readSample(): YCompressedSample? = throw failure
+            }
+        val node = AndroidDemuxReadAheadNode(fake, beforeFillFinished = { finished.countDown() })
+        try {
+            node.open(YDemuxSource("file:///failure.mkv"))
+            node.selectTracks(setOf(TRACK))
+            assertTrue(finished.await(2, TimeUnit.SECONDS))
+            kotlin.test.assertSame(failure, kotlin.test.assertFailsWith<java.io.IOException> { node.ensureReadAhead() })
+        } finally {
+            node.release()
+        }
+    }
+
+    @Test
+    fun queue_diagnostics_distinguish_missing_audio_from_video_reserve() {
+        val node = AndroidDemuxReadAheadNode(FakeDemuxer(samples(0, 4)))
+        try {
+            node.open(YDemuxSource("file:///tracks.mkv"))
+            node.selectTracks(setOf(TRACK, YTrackId(1)))
+            awaitQueuedSamples(node, 4)
+            assertEquals(mapOf(0 to 400_000L, 1 to 0L), node.snapshot(includeTrackDetails = true).trackBufferedUs)
+            assertTrue(node.snapshot().trackBufferedUs.isEmpty())
+        } finally {
+            node.release()
+        }
+    }
+
+    @Test
     fun future_subtitle_memory_pressure_does_not_hold_av_packets_behind_the_shared_queue() {
         val subtitleTrack = YTrackId(2)
         val packets =

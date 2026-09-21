@@ -160,6 +160,7 @@ internal class AndroidEnhancedMediaProbe(
                 proxyCancellation = proxy?.let { budget?.onCancel(it::close) }
             }
             budget?.ensureActive()
+            demuxer.sourceFailure = { proxy?.sourceFailure(item.uri) }
             val source =
                 (
                     proxy?.enhancedSource(item, probeOnly = !retainForPlayback)
@@ -301,7 +302,7 @@ internal class AndroidEnhancedMediaProbe(
         } catch (failure: Throwable) {
             if (failure is CancellationException) throw failure
             budget?.ensureActive()
-            val typed = failure as? YPlaybackException
+            val typed = proxy?.sourceFailure(item.uri) ?: failure.mediaSourceFailure() ?: failure as? YPlaybackException
             // The deep probe is the first FFmpeg open of a source. When it fails, the bundle
             // needs the same typed detail the playback open reports, or the five seconds it
             // cost stay unexplained between "route_selected" lines.
@@ -318,7 +319,7 @@ internal class AndroidEnhancedMediaProbe(
                         "sourceScheme" to item.uri.substringBefore(':').lowercase(),
                     ),
             )
-            YCore2ProbeResult.Failure(YCore2ProbeFailure.SourceUnavailable)
+            YCore2ProbeResult.Failure(YCore2ProbeFailure.SourceUnavailable, typed?.mediaSourceFailure())
         } finally {
             demuxCancellation?.close()
             proxyCancellation?.close()

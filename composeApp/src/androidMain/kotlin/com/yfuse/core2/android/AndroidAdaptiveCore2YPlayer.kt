@@ -563,7 +563,10 @@ internal class AndroidAdaptiveCore2YPlayer(
             if (waitForRelease) releaseBarrier.await()
         }
 
-        suspend fun publishUnavailable(reason: String) {
+        suspend fun publishUnavailable(
+            reason: String,
+            sourceFailure: com.yfuse.core2.api.YPlaybackException? = null,
+        ) {
             stopChild(waitForRelease = false)
             val item = queueItems[currentIndex]
             mutableState.updateState {
@@ -573,7 +576,9 @@ internal class AndroidAdaptiveCore2YPlayer(
                     playbackRequested = requestedPlay,
                     buffering = false,
                     error =
-                        if (item.drmConfiguration != null) {
+                        if (sourceFailure != null) {
+                            yCoreEnhancedFailureMessage(sourceFailure)
+                        } else if (item.drmConfiguration != null) {
                             "YCore 2.0 无法打开当前受保护片源，" +
                                 "设备未提供可执行的安全解码路径"
                         } else if (nativeOnly) {
@@ -582,7 +587,9 @@ internal class AndroidAdaptiveCore2YPlayer(
                             "YCore 2.0 与兼容内核均无法打开当前片源"
                         },
                     errorCategory =
-                        if (nativeOnly) {
+                        if (sourceFailure != null) {
+                            sourceFailure.category
+                        } else if (nativeOnly) {
                             it.errorCategory ?: YPlaybackFailureCategory.Unknown
                         } else {
                             YPlaybackFailureCategory.Unknown
@@ -2095,7 +2102,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                             )
                         }
                     }
-                    publishUnavailable(core2RouterFailureReason(failure))
+                    publishUnavailable(core2RouterFailureReason(failure), failure.mediaSourceFailure())
                 }
             }
         } finally {

@@ -559,6 +559,7 @@ sealed interface UpdateState {
 
     data object Checking : UpdateState
 
+    /** The accepted feed offers no newer version, including locally installed releases ahead of it. */
     data object Current : UpdateState
 
     data class Available(
@@ -885,16 +886,16 @@ class AppUpdateManager(
                                 "currentVersionCode" to BuildConfig.VERSION_CODE.toString(),
                             )
                         if (manifest.versionCode < BuildConfig.VERSION_CODE) {
-                            // The installed build is ahead of what the manifest advertises, so the
-                            // release feed is stale or points at the wrong channel. No update can be
-                            // offered from here, and reporting it as "current" hides that.
-                            AppLog.warning(
+                            // A locally installed release can precede its publication. The check
+                            // succeeded; retain the version difference in diagnostics without
+                            // presenting a connection or validation failure to the user.
+                            AppLog.info(
                                 category = "update",
                                 event = "manifest_behind_installed",
                                 message = "Update manifest advertises an older build than the installed one",
                                 attributes = attributes,
                             )
-                            publishStaleFeedIfCheckCurrent(checkSnapshot, previous, automatic)
+                            publishStaleFeedIfCheckCurrent(checkSnapshot, previous)
                         } else {
                             AppLog.info(
                                 category = "update",
@@ -1053,12 +1054,11 @@ class AppUpdateManager(
     private fun publishStaleFeedIfCheckCurrent(
         snapshot: UpdateCheckSnapshot,
         previous: UpdateState,
-        automatic: Boolean,
     ) {
         if (!isUpdateCheckSnapshotCurrent(snapshot)) return
         // Preserve download progress recorded after this check started.
         _state.value =
-            staleUpdateFeedState(if (_state.value == UpdateState.Checking) previous else _state.value, automatic)
+            staleUpdateFeedState(if (_state.value == UpdateState.Checking) previous else _state.value)
     }
 
     @Synchronized
@@ -2149,12 +2149,9 @@ private fun PackageManager.signerDigests(info: PackageInfo): Set<String> {
         }.toSet()
 }
 
-/** An outdated feed cannot invalidate a newer package the user already owns. */
-internal fun staleUpdateFeedState(
-    previous: UpdateState,
-    automatic: Boolean,
-): UpdateState =
+/** A valid older feed is a successful check and cannot invalidate a newer package already owned. */
+internal fun staleUpdateFeedState(previous: UpdateState): UpdateState =
     when (previous) {
         is UpdateState.Downloading, is UpdateState.Paused, is UpdateState.Ready, is UpdateState.Available -> previous
-        else -> if (automatic) UpdateState.Idle else UpdateState.Error("更新源版本落后于当前安装版本，请稍后重试")
+        else -> UpdateState.Current
     }

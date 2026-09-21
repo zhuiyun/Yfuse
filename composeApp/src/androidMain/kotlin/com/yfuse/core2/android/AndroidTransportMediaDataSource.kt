@@ -59,6 +59,11 @@ internal class AndroidTransportMediaDataSource(
     private val representationSession: AndroidMediaRepresentationSession? = null,
     private val rangeReadClock: () -> Long = System::nanoTime,
 ) : MediaDataSource() {
+    private val sourceTrace by lazy {
+        com.yfuse.core.logging
+            .playbackDiagnosticTrace(uri)
+    }
+
     @Volatile
     private var foregroundRead: YForegroundRangeRead? = null
 
@@ -643,6 +648,7 @@ internal class AndroidTransportMediaDataSource(
                     partial,
                     rangeOffset,
                     foreground,
+                    completedRetries,
                 ).copy(
                     remoteLoadDurationMs =
                         ((System.nanoTime() - startedNs) / NANOS_PER_MILLISECOND).coerceAtLeast(
@@ -712,6 +718,7 @@ internal class AndroidTransportMediaDataSource(
         partial: YPartialTransportBlock,
         rangeOffset: Int,
         foreground: YForegroundRangeRead? = null,
+        retry: Int = 0,
     ): YLoadedTransportBlock =
         runBlocking(foreground?.job ?: EmptyCoroutineContext) {
             val startedNs = System.nanoTime()
@@ -721,11 +728,12 @@ internal class AndroidTransportMediaDataSource(
             val end = blockStart.saturatedAdd(partial.bytes.size.toLong() - 1L)
             val attemptOffset = partial.total
             var transferredBytes = 0L
+            val diagnostics = AndroidRangeReadDiagnostics(sourceTrace, position, end, retry, foreground != null)
             bandwidthMeter.onTransferStarted(startedNs)
             val watchdog =
                 AndroidRangeReadWatchdog(blockTransport, budget, idleBudgetMs = {
                     (playbackWindow.bufferedUs / playbackWindow.speed / 1_000L).toLong().coerceIn(4_000L, 12_000L)
-                })
+                }, onDiagnosticTick = diagnostics::tick)
             try {
                 val response =
                     blockTransport.open(
@@ -749,6 +757,8 @@ internal class AndroidTransportMediaDataSource(
                             credentials = credentials,
                         ),
                     )
+                diagnostics.status = response.statusCode
+                diagnostics.phase = "reading"
                 if (response.statusCode != 206) {
                     if (representationSnapshot != null && response.statusCode in setOf(200, 412, 416)) {
                         representationChanged()
@@ -839,6 +849,7 @@ internal class AndroidTransportMediaDataSource(
                     total += count
                     partial.total = total
                     transferredBytes += count
+                    diagnostics.bytes.addAndGet(count.toLong())
                     val nowNs = System.nanoTime()
                     progress?.recordProgress(total.toLong(), nowNs)
                     bandwidthMeter
@@ -869,6 +880,7 @@ internal class AndroidTransportMediaDataSource(
                 watchdog.checkFailure()
                 ensureRepresentationCurrent()
                 transferredBytes = (total - attemptOffset).toLong()
+                diagnostics.phase = "completed"
                 YLoadedTransportBlock(
                     // A full block is the common case; copyOf would duplicate the whole 2 MiB.
                     bytes = if (total == output.size) output else output.copyOf(total),
@@ -878,11 +890,13 @@ internal class AndroidTransportMediaDataSource(
                         ((System.nanoTime() - startedNs) / NANOS_PER_MILLISECOND).coerceAtLeast(1L),
                 )
             } catch (failure: Exception) {
+                diagnostics.phase = "failed"
                 // A watchdog close is a retryable timeout, not a user cancellation or clean EOF.
                 watchdog.checkFailure()
                 throw failure
             } finally {
                 watchdog.close()
+                diagnostics.finish()
                 // One aggregate sample per busy period, not one per range: see
                 // YAggregateBandwidthMeter for why per-range wall clocks under-report the link.
                 bandwidthMeter
@@ -1484,7 +1498,7 @@ private class YForegroundRangeRead {
 
 private val foregroundRangeCleanup = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-private class YRangeReadException(
+internal class YRangeReadException(
     val failureKind: YTransportFailureKind,
     safeMessage: String,
     val statusCode: Int? = null,
@@ -1517,6 +1531,7 @@ internal fun isRecoverableMediaReadFailure(failure: Throwable?): Boolean {
     repeat(8) {
         val cause = current ?: return false
         when (cause) {
+            is YUpstreamHttpException -> return cause.statusCode in setOf(408, 425, 429, 500, 502, 503, 504)
             is YRangeReadException ->
                 return cause.failureKind in
                     setOf(YTransportFailureKind.TransientIo, YTransportFailureKind.PrematureEof)

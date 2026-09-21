@@ -479,24 +479,31 @@ internal class AndroidNativeEnhancedYPlayer(
                     session.close()
                     proxy?.close()
                     proxy = preparedDemux.proxy
-                } else if (proxy == null) {
+                } else {
+                    // Each fresh demux attempt owns its proxy and failure window. A late
+                    // response from the retired attempt cannot poison a retry or next item.
+                    proxy?.close()
                     proxy = newProxy()
                 }
                 val result =
-                    session.open(
-                        source = proxy?.enhancedSource(item) ?: enhancedDemuxSource(item),
-                        plan = playbackPlan,
-                        surface = output,
-                        startPositionUs = positionUs.coerceAtLeast(0L),
-                        runtimeCapabilityKey = decision?.runtimeCapabilityKey(),
-                        requireDolbyVisionIdentity = requireDolbyVisionIdentity,
-                        expectedAudio = (item.sourceHints?.audioTrackCount ?: 0) > 0,
-                        sourceHints = item.sourceHints,
-                        allowAudioPassthrough = allowAudioPassthrough,
-                        preparedDemux = preparedDemux,
-                        probeBudget = budget,
-                        initialTrackSelection = item.initialTrackSelection,
-                    )
+                    yCoreStartupStage("enhanced_session_prepare", item) {
+                        session.open(
+                            source = proxy?.enhancedSource(item) ?: enhancedDemuxSource(item),
+                            plan = playbackPlan,
+                            surface = output,
+                            startPositionUs = positionUs.coerceAtLeast(0L),
+                            runtimeCapabilityKey = decision?.runtimeCapabilityKey(),
+                            requireDolbyVisionIdentity = requireDolbyVisionIdentity,
+                            expectedAudio = (item.sourceHints?.audioTrackCount ?: 0) > 0,
+                            sourceHints = item.sourceHints,
+                            allowAudioPassthrough = allowAudioPassthrough,
+                            preparedDemux = preparedDemux,
+                            probeBudget = budget,
+                            initialTrackSelection = item.initialTrackSelection,
+                            diagnosticItem = item,
+                            sourceFailure = { proxy?.sourceFailure(item.uri) },
+                        )
+                    }
                 budget.ensureActive()
                 currentCoroutineContext().ensureActive()
                 session.clearProbeDeadline()
@@ -801,7 +808,9 @@ internal class AndroidNativeEnhancedYPlayer(
             }
         }
 
-        fun publishFailure(failure: Throwable) {
+        fun publishFailure(caught: Throwable) {
+            if (caught is CancellationException) throw caught
+            val failure = proxy?.sourceFailure(request.items[currentIndex].uri) ?: caught
             if (failure is CancellationException) throw failure
             finishRebuffer()
             val typed = failure as? YPlaybackException
@@ -1128,7 +1137,7 @@ internal fun shouldProxyEnhancedSourceUri(uri: String): Boolean {
 
 internal fun yCoreEnhancedFailureMessage(failure: YPlaybackException?): String =
     when (failure?.category) {
-        YPlaybackFailureCategory.Authorization -> "YCore 2.0 片源授权已失效，请刷新播放地址后重试"
+        YPlaybackFailureCategory.Authorization -> "YCore 2.0 片源访问被拒绝，请检查访问权限或刷新播放地址"
         YPlaybackFailureCategory.Drm -> "YCore 2.0 无法建立当前片源的 DRM 会话"
         YPlaybackFailureCategory.Network -> "YCore 2.0 无法连接片源，请检查服务器或网络"
         YPlaybackFailureCategory.Container ->

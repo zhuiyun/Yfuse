@@ -9,9 +9,21 @@ import kotlin.test.assertTrue
 
 class UpdateCheckPolicyTest {
     @Test
-    fun stale_feed_is_not_reported_as_current() {
-        assertEquals(UpdateState.Idle, staleUpdateFeedState(UpdateState.Idle, automatic = true))
-        assertTrue(staleUpdateFeedState(UpdateState.Current, automatic = false) is UpdateState.Error)
+    fun an_older_valid_feed_completes_the_check_and_clears_a_previous_failure() {
+        // Diagnostic regression: locally installed 1.0.75 (237), published 1.0.74 (236).
+        assertFalse(isPublishedUpdateAvailable(publishedVersionCode = 236, installedVersionCode = 237))
+        for (previous in listOf(
+            UpdateState.Idle,
+            UpdateState.Checking,
+            UpdateState.Current,
+            UpdateState.Error("previous connection failure"),
+        )) {
+            assertEquals(UpdateState.Current, staleUpdateFeedState(previous))
+        }
+    }
+
+    @Test
+    fun an_older_feed_preserves_newer_packages_and_download_progress() {
         val newer = manifest(versionCode = 230)
         for (state in listOf(
             UpdateState.Downloading(newer, 100L, newer.size),
@@ -19,8 +31,7 @@ class UpdateCheckPolicyTest {
             UpdateState.Ready(newer, File("newer.apk")),
             UpdateState.Available(newer),
         )) {
-            assertEquals(state, staleUpdateFeedState(state, automatic = true))
-            assertEquals(state, staleUpdateFeedState(state, automatic = false))
+            assertEquals(state, staleUpdateFeedState(state))
         }
     }
 
