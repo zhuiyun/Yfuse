@@ -302,6 +302,7 @@ internal class AndroidMediaExtractorReadAheadNode(
                 endOfInput = endOfInput || failure != null,
                 atCapacity = samples.isNotEmpty() && queuedBytes >= queueBudgetBytes(),
                 trackBufferedDurationUs = trackBufferedDurationsUsLocked(),
+                generation = generation,
             )
         }
 
@@ -570,6 +571,8 @@ internal data class YExtractorReadAheadSnapshot(
     val endOfInput: Boolean = false,
     val atCapacity: Boolean = false,
     val trackBufferedDurationUs: Map<Int, Long> = emptyMap(),
+    /** Changes when the queue is invalidated so consumers discard stale buffering state. */
+    val generation: Long = 0L,
 )
 
 private const val EXTRACTOR_THREAD_NAME = "YCore-PlatformDemux"

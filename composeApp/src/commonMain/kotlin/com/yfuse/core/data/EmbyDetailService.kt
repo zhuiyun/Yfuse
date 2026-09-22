@@ -315,11 +315,12 @@ internal class EmbyDetailService(
         const val DEFAULT_EMBY_THUMBNAIL_INTERVAL_MS = 10_000L
     }
 
-    /** Full detail for a single item. Episodes inherit the series' cast. */
+    /** Detail for a single item; file-level playback fields can be deferred by the caller. */
     suspend fun itemDetail(
         server: SavedServer,
         itemId: String,
         includeInheritedPeople: Boolean = true,
+        includePlaybackFields: Boolean = true,
         playbackOnly: Boolean = false,
     ): Result<MediaDetail> =
         embyApiCall("item_detail") {
@@ -334,7 +335,13 @@ internal class EmbyDetailService(
                             // value — image tags come back on their own — and naming one Emby doesn't
                             // know risks the whole request rather than adding a field.
                             if (playbackOnly) {
-                                "MediaSources,MediaStreams,Chapters,ProviderIds,Path,SeriesPrimaryImageTag"
+                                "MediaSources,MediaStreams,Chapters,ProviderIds,Path,DateCreated," +
+                                    "SeriesPrimaryImageTag"
+                            } else if (!includePlaybackFields) {
+                                // Detail pages paint from this request. Keep the response small and
+                                // fetch file-level metadata after the first content is visible.
+                                "Overview,Genres,People,ParentBackdropItemId,ParentBackdropImageTags," +
+                                    "SeriesPrimaryImageTag,ProviderIds,DateCreated"
                             } else {
                                 "Overview,Genres,People,ParentBackdropItemId,ParentBackdropImageTags," +
                                     "SeriesPrimaryImageTag,MediaSources,MediaStreams," +

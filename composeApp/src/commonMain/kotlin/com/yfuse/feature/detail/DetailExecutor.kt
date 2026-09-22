@@ -17,6 +17,7 @@ import com.yfuse.core.data.smartFailoverServerIds
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.Episode
 import com.yfuse.core.model.MediaDetail
+import com.yfuse.core.model.MediaServerKind
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.ServerSource
 import com.yfuse.core.network.toUserMessage
@@ -297,7 +298,12 @@ internal class DetailExecutor(
                     loadPeople(server, cached)
                 }
                 repo
-                    .itemDetail(server, itemId, includeInheritedPeople = false)
+                    .itemDetail(
+                        server,
+                        itemId,
+                        includeInheritedPeople = false,
+                        includePlaybackFields = false,
+                    )
                     .onSuccess { detail ->
                         if (generation != detailLoadGeneration) return@onSuccess
                         detailStage(if (cached == null) "content_ready" else "refresh_ready", "network")
@@ -353,14 +359,13 @@ internal class DetailExecutor(
     /**
      * Works out what 播放 opens, before it is pressed.
      *
-     * A film already knows: it is the item on screen, versions and resume position
-     * included, so this costs nothing. A series does not — `NextUp` names an episode,
-     * and only that episode's own detail carries the file and the progress. One extra
-     * request per series page buys the button its label, 从头播放 its reason to exist,
-     * and the 杜比 badge something to describe.
+     * The first detail request is intentionally lightweight. A film or episode then needs one
+     * deferred playback request for versions and resume position; a series additionally resolves
+     * the concrete episode named by `NextUp`. Those requests buy the button its label,
+     * 从头播放 its reason to exist, and the 杜比 badge something to describe.
      *
-     * Failure is silent on purpose: everything it feeds is an enrichment, and the page
-     * behaves exactly as it did before when it does not arrive.
+     * Failure leaves the detail content visible; pressing 播放 can retry this enrichment on
+     * demand instead of turning a partial target into an unplayable selection.
      */
     private fun loadPlaybackSelection(
         server: SavedServer,
@@ -421,11 +426,22 @@ internal class DetailExecutor(
     ): Result<ResolvedPlaybackSelection> =
         cancellableResult {
             if (sourceDetail.type != "Series") {
+                val targetDetail =
+                    if (server.kind == MediaServerKind.Emby) {
+                        repo.playbackItemDetail(server, sourceDetail.id).getOrThrow()
+                    } else {
+                        // Plex ignores the lightweight-field flag and already returned its
+                        // playback metadata with the first request.
+                        sourceDetail
+                    }
                 return@cancellableResult ResolvedPlaybackSelection(
                     server = server,
                     sourceDetail = sourceDetail,
-                    target = sourceDetail,
-                    positionTicks = sourceDetail.resumePositionTicks ?: 0L,
+                    target = targetDetail,
+                    positionTicks =
+                        targetDetail.resumePositionTicks
+                            ?: sourceDetail.resumePositionTicks
+                            ?: 0L,
                 )
             }
 

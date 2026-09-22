@@ -51,6 +51,33 @@ class EmbyDetailServiceTest {
         }
 
     @Test
+    fun lightweight_item_detail_omits_file_level_playback_fields() =
+        runTest {
+            var seen: HttpRequestData? = null
+            val client =
+                client { request ->
+                    seen = request
+                    json("""{"Id":"m1","Name":"The Matrix","Type":"Movie","Overview":"A test"}""")
+                }
+            try {
+                val detail =
+                    EmbyDetailService(client)
+                        .itemDetail(server, "m1", includePlaybackFields = false)
+                        .getOrThrow()
+
+                val fields = requireNotNull(seen).url.parameters["Fields"].orEmpty().split(',').toSet()
+                assertTrue("Overview" in fields)
+                assertTrue("MediaSources" !in fields)
+                assertTrue("MediaStreams" !in fields)
+                assertTrue("Chapters" !in fields)
+                assertTrue("Path" !in fields)
+                assertEquals("A test", detail.overview)
+            } finally {
+                client.close()
+            }
+        }
+
+    @Test
     fun an_episode_without_its_own_cast_borrows_the_series_cast() =
         runTest {
             val paths = mutableListOf<String>()

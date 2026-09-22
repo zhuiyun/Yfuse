@@ -263,6 +263,7 @@ internal interface MediaServerAdapter {
         server: SavedServer,
         itemId: String,
         includeInheritedPeople: Boolean,
+        includePlaybackFields: Boolean = true,
     ): Result<MediaDetail>
 
     suspend fun inheritedEpisodePeople(
@@ -638,7 +639,14 @@ internal class EmbyAdapter(
         server: SavedServer,
         itemId: String,
         includeInheritedPeople: Boolean,
-    ): Result<MediaDetail> = detailService.itemDetail(server, itemId, includeInheritedPeople)
+        includePlaybackFields: Boolean,
+    ): Result<MediaDetail> =
+        detailService.itemDetail(
+            server,
+            itemId,
+            includeInheritedPeople,
+            includePlaybackFields = includePlaybackFields,
+        )
 
     override suspend fun inheritedEpisodePeople(
         server: SavedServer,
@@ -982,6 +990,7 @@ internal class PlexAdapter(
         server: SavedServer,
         itemId: String,
         includeInheritedPeople: Boolean,
+        includePlaybackFields: Boolean,
     ): Result<MediaDetail> = plex.itemDetail(server, itemId)
 
     override suspend fun inheritedEpisodePeople(

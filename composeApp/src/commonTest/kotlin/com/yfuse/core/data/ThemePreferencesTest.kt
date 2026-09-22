@@ -172,7 +172,7 @@ class ThemePreferencesTest {
     }
 
     @Test
-    fun retired_variant_keys_are_scrubbed_and_retired_dialog_names_fall_back() {
+    fun retired_variant_keys_are_scrubbed_and_restored_dialog_names_are_preserved() {
         val settings = MapSettings()
         settings.putString("appearance.particleStyle", "Flow")
         settings.putString("appearance.splashVariant.v2", "CloudWell")
@@ -182,7 +182,7 @@ class ThemePreferencesTest {
         assertNull(settings.getStringOrNull("appearance.particleStyle"))
         assertNull(settings.getStringOrNull("appearance.splashVariant.v2"))
         assertFalse(settings.hasKey("appearance.dialogAnimationLab"))
-        assertEquals(DialogAnimation.Lift, prefs.dialogAnimation.value)
+        assertEquals(DialogAnimation.Hologram, prefs.dialogAnimation.value)
         prefs.setDialogAnimation(DialogAnimation.Cascade)
         assertEquals(DialogAnimation.Cascade, ThemePreferences(settings).dialogAnimation.value)
     }

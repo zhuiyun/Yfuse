@@ -48,6 +48,16 @@ private fun Url.transportValidationEndpoint(): String {
 
 /** Builds Emby playback URLs. */
 object EmbyStream {
+    /** A provider URL outside the media server must keep its signed query unchanged. */
+    internal fun isCrossOriginStreamUrl(
+        baseUrl: String,
+        streamUrl: String,
+    ): Boolean {
+        val target = streamUrl.negotiatedStreamOrigin() ?: return false
+        val server = normalizeBaseUrl(baseUrl).negotiatedStreamOrigin() ?: return false
+        return target != server
+    }
+
     /** External subtitle stream. Tokens are created at the last responsible moment. */
     fun subtitle(
         baseUrl: String,

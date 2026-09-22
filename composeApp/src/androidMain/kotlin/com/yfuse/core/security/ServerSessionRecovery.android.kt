@@ -23,6 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.lifecycleScope
 import com.yfuse.core.data.AsyncServerSessionStartup
 import com.yfuse.core.data.SessionStartupPhase
 import kotlinx.coroutines.CoroutineScope
@@ -30,6 +31,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 /** Application installs this before any account or server-dependent work starts. Main-thread owned. */
 object ServerSessionRecovery {
@@ -51,7 +53,22 @@ object ServerSessionRecovery {
     }
 
     fun showIfNeeded(activity: ComponentActivity): Boolean {
-        val pending = startup?.takeUnless { it.phase.value == SessionStartupPhase.Ready } ?: return false
+        // Restoring is an asynchronous warm-up, not a reason to block the app. In particular,
+        // users who never signed in must be able to enter the local library while secure state is
+        // being checked. Only an explicit retryable failure owns this fallback screen.
+        val pending = startup ?: return false
+        if (pending.phase.value == SessionStartupPhase.Restoring) {
+            // Do not flash a recovery screen during a normal cold start. If the background read
+            // later proves that secure storage is unavailable, recreate into the retry screen.
+            activity.lifecycleScope.launch {
+                pending.phase.first { it != SessionStartupPhase.Restoring }
+                if (pending.phase.value == SessionStartupPhase.NeedsRetry && !activity.isFinishing) {
+                    activity.recreate()
+                }
+            }
+            return false
+        }
+        if (pending.phase.value != SessionStartupPhase.NeedsRetry) return false
         activity.setContent {
             val phase by pending.phase.collectAsState()
             val restoring = phase == SessionStartupPhase.Restoring

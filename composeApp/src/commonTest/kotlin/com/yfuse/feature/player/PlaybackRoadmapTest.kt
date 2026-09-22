@@ -12,6 +12,72 @@ import kotlin.test.assertTrue
 
 class PlaybackRoadmapTest {
     @Test
+    fun directPlayKeepsNegotiatedStaticPathAndProviderParameters() {
+        val player =
+            listOf(
+                version(
+                    supportsDirectPlay = true,
+                    supportsDirectStream = true,
+                    supportsTranscoding = true,
+                    directStreamUrl = "/Videos/item/original.mkv?Static=true&MediaSourceId=source&route=provider",
+                ),
+            ).toPlayerMediaVersions("https://emby.example", "item", "token", "session").single()
+
+        assertEquals(PlaybackMethod.DirectPlay, player.playMethod)
+        assertContains(player.url, "/Videos/item/original.mkv?")
+        assertContains(player.url, "route=provider")
+        assertContains(player.url, "MediaSourceId=source")
+        assertContains(player.url, "api_key=token")
+        assertContains(player.url, "PlaySessionId=session")
+        val refreshed = player.withFreshPlaySession()
+        assertContains(refreshed.url, "/Videos/item/original.mkv?")
+        assertContains(refreshed.url, "PlaySessionId=${refreshed.playSessionId}")
+    }
+
+    @Test
+    fun dolbyDirectPlayKeepsStaticSignedCdnUrlWithoutAddingCredentials() {
+        val direct = "https://cdn.example/original.mkv?static=true&signature=provider%2Bsignature"
+        val player =
+            listOf(
+                version(
+                    supportsDirectPlay = true,
+                    supportsDirectStream = true,
+                    supportsTranscoding = true,
+                    directStreamUrl = direct,
+                ).copy(videoCodec = "hevc", videoRange = "DOVI"),
+            ).toPlayerMediaVersions("https://emby.example", "item", "server-secret", "session").single()
+
+        assertTrue(player.dolbyVision)
+        assertEquals(PlaybackMethod.DirectPlay, player.playMethod)
+        assertEquals(direct, player.url)
+        assertEquals(direct, player.withFreshPlaySession().url)
+    }
+
+    @Test
+    fun dolbyDoesNotMistakeNonStaticOrAmbiguousNegotiatedStreamsForOriginalBytes() {
+        listOf(
+            "/Videos/item/master.m3u8?VideoCodec=h264",
+            "/Videos/item/stream.mp4?static=false",
+            "/Videos/item/stream.mp4?static=true&static=false",
+            "/Videos/item/stream.mp4?Static=true&static=false",
+            "/Videos/item/stream.mp4?note=static=true",
+        ).forEach { direct ->
+            val player =
+                listOf(
+                    version(
+                        supportsDirectPlay = true,
+                        supportsDirectStream = true,
+                        supportsTranscoding = true,
+                        directStreamUrl = direct,
+                    ).copy(videoCodec = "hevc", videoRange = "DOVI"),
+                ).toPlayerMediaVersions("https://emby.example", "item", "token", "session").single()
+
+            assertEquals(PlaybackMethod.DirectPlay, player.playMethod)
+            assertContains(player.url, "/Videos/item/stream?static=true&")
+        }
+    }
+
+    @Test
     fun playbackInfoDirectStreamUrlBecomesPrimaryAndKeepsSession() {
         val version =
             version(

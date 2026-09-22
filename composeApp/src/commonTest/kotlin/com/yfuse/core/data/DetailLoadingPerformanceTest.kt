@@ -91,6 +91,22 @@ class DetailLoadingPerformanceTest {
     }
 
     @Test
+    fun lightweight_detail_does_not_poison_the_playback_metadata_cache() = runTest {
+        val fieldsSeen = mutableListOf<Set<String>>()
+        val repo = testRepo(dispatcher = Dispatchers.Unconfined) { request ->
+            fieldsSeen += request.url.parameters["Fields"].orEmpty().split(',').toSet()
+            json("""{"Id":"m1","Name":"Movie","Type":"Movie"}""")
+        }
+
+        repo.itemDetail(server, "m1", includePlaybackFields = false).getOrThrow()
+        repo.playbackItemDetail(server, "m1").getOrThrow()
+
+        assertEquals(2, fieldsSeen.size)
+        assertTrue("MediaSources" !in fieldsSeen.first())
+        assertTrue("MediaSources" in fieldsSeen.last())
+    }
+
+    @Test
     fun playback_directory_still_requests_chapters_and_is_separate_from_the_lightweight_cache() = runTest {
         val fieldsSeen = mutableListOf<Set<String>>()
         val repo = testRepo(dispatcher = Dispatchers.Unconfined) { request ->

@@ -30,6 +30,7 @@ import com.yfuse.core.sync.episodeWatchKey
 import com.yfuse.core.sync.watchKey
 import com.yfuse.core.sync.watchMatchKeys
 import com.yfuse.core2.network.YTransportCredentials
+import io.ktor.http.parseQueryString
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -140,6 +141,8 @@ data class PlayerMediaVersion(
      * and for offline files, which have no server session at all.
      */
     val playSessionId: String = "",
+    /** Cross-origin provider URLs may be signed and do not accept our reporting session id. */
+    val preserveUrlOnSessionRefresh: Boolean = false,
 ) {
     /**
      * The same physical file addressed as a brand-new playback session.
@@ -150,7 +153,7 @@ data class PlayerMediaVersion(
     fun withFreshPlaySession(): PlayerMediaVersion {
         val sessionId = EmbyStream.newPlaySessionId()
         return copy(
-            url = url.withPlaySessionId(sessionId),
+            url = if (preserveUrlOnSessionRefresh) url else url.withPlaySessionId(sessionId),
             transcodeUrl = transcodeUrl.withPlaySessionId(sessionId),
             fallbackTranscodeUrl = fallbackTranscodeUrl.withPlaySessionId(sessionId),
             playSessionId = sessionId,
@@ -254,7 +257,11 @@ internal fun List<MediaVersion>.toPlayerMediaVersions(
                     // Keep provider paths/signatures/user identity for an original linear file.
                     // Never replace raw-disc navigation or a local Dolby route with a transcode.
                     directStream
-                        ?.takeIf { version.supportsDirectPlay == true && !requiresDiscStream }
+                        ?.takeIf {
+                            !requiresDiscStream &&
+                                (version.supportsDirectPlay == true || version.directStreamUrl.isStaticMediaStreamUrl()) &&
+                                (!preserveDolbyLocally || version.directStreamUrl.isStaticMediaStreamUrl())
+                        }
                         ?.let(::originalNegotiatedPlaybackUrl)
                         ?: generated.direct.withPlaySessionId(sessionId)
                 PlaybackMethod.DirectStream -> requireNotNull(directStream)
@@ -275,6 +282,7 @@ internal fun List<MediaVersion>.toPlayerMediaVersions(
             fallbackTranscodeUrl = progressiveTranscode,
             playSessionId = sessionId,
             playMethod = method,
+            preserveUrlOnSessionRefresh = EmbyStream.isCrossOriginStreamUrl(baseUrl, primaryUrl),
             serverTranscodeSupported =
                 requiresDiscStream ||
                     negotiatedTranscode != null ||
@@ -324,6 +332,18 @@ internal fun List<MediaVersion>.toPlayerMediaVersions(
 private fun String?.isLinearMediaStreamUrl(): Boolean {
     val path = this?.substringBefore('?')?.substringBefore('#')?.lowercase() ?: return false
     return LINEAR_MEDIA_STREAM_EXTENSIONS.any(path::endsWith)
+}
+
+private fun String?.isStaticMediaStreamUrl(): Boolean {
+    val query = this?.substringBefore('#')?.substringAfter('?', missingDelimiterValue = "") ?: return false
+    return runCatching {
+        parseQueryString(query)
+            .entries()
+            .singleOrNull { it.key.equals("Static", ignoreCase = true) }
+            ?.value
+            ?.singleOrNull()
+            ?.equals("true", ignoreCase = true) == true
+    }.getOrDefault(false)
 }
 
 private val LINEAR_MEDIA_STREAM_EXTENSIONS =

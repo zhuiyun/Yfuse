@@ -150,7 +150,10 @@ fun GlassDialog(
         val animation = remember { selectedAnimation }
         val modalMotionHost =
             remember {
-                DialogMotionHost().apply { touch = parentMotionHost.touch }
+                DialogMotionHost().apply {
+                    touch = parentMotionHost.touch
+                    poster = parentMotionHost.poster
+                }
             }
         val progress =
             rememberOverlayTransition(leaving = leaving, animation = animation) { (afterExit ?: onDismiss)() }

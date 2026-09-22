@@ -65,7 +65,9 @@ class AndroidMediaExtractorReadAheadNodeTest {
             node.selectTracks(setOf(VIDEO_TRACK))
             node.awaitQueued(1)
             val old = (node.pollSample() as YQueuedExtractorResult.Sample).value
+            val previousGeneration = node.snapshot().generation
             node.seekTo(9_000_000L)
+            assertTrue(node.snapshot().generation > previousGeneration)
             node.returnSample(old)
             node.awaitQueued(1)
             val fresh = (node.pollSample() as YQueuedExtractorResult.Sample).value

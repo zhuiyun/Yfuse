@@ -732,14 +732,48 @@ class EmbyRepository(
         server: SavedServer,
         itemId: String,
         includeInheritedPeople: Boolean = true,
+        includePlaybackFields: Boolean = true,
     ): Result<MediaDetail> =
         embyApiCall("item_detail") {
-            detailSnapshots.get(server to itemId, reuse = false) {
-                playbackDetails.get(server to itemId, reuse = false) {
-                    adapterFor(server).itemDetail(server, itemId, includeInheritedPeople).getOrThrow()
-                }
+            val key = server to itemId
+            val previous = detailSnapshots.peek(key)
+            detailSnapshots.get(key, reuse = false) {
+                val loaded =
+                    if (includePlaybackFields) {
+                        playbackDetails.get(server to itemId, reuse = false) {
+                            adapterFor(server)
+                                .itemDetail(
+                                    server,
+                                    itemId,
+                                    includeInheritedPeople,
+                                    includePlaybackFields = true,
+                                ).getOrThrow()
+                        }
+                    } else {
+                        adapterFor(server)
+                            .itemDetail(
+                                server,
+                                itemId,
+                                includeInheritedPeople,
+                                includePlaybackFields = false,
+                            ).getOrThrow()
+                    }
+                if (includePlaybackFields) loaded else loaded.retainPlaybackMetadata(previous)
             }
         }
+
+    /** A lightweight refresh must never erase file metadata already shown from a full snapshot. */
+    private fun MediaDetail.retainPlaybackMetadata(previous: MediaDetail?): MediaDetail {
+        if (previous == null) return this
+        return copy(
+            dateCreated = dateCreated ?: previous.dateCreated,
+            source = source ?: previous.source,
+            versions = versions.ifEmpty { previous.versions },
+            playbackSegments = playbackSegments.ifEmpty { previous.playbackSegments },
+            trickplay = trickplay ?: previous.trickplay,
+            runtimeTicks = runtimeTicks ?: previous.runtimeTicks,
+        )
+    }
 
     internal fun cachedItemDetail(server: SavedServer, itemId: String): MediaDetail? =
         detailSnapshots.peek(server to itemId)?.let { progressProjection.projectDetail(server, it) }
