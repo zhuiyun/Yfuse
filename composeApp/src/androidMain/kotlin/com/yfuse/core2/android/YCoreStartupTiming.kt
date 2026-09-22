@@ -14,7 +14,14 @@ internal inline fun <T> yCoreStartupStage(
     val startedNs = System.nanoTime()
     var outcome = "success"
     return try {
-        operation()
+        operation().also { result ->
+            outcome = when (result) {
+                is YCore2ProbeResult.Failure ->
+                    if (result.reason == YCore2ProbeFailure.DeadlineOrBusy) "deadline_or_busy" else "unavailable"
+                null -> "unavailable"
+                else -> "success"
+            }
+        }
     } catch (failure: Throwable) {
         outcome = "failed"
         throw failure

@@ -7,6 +7,17 @@ internal object DetailReducer : Reducer<DetailState, DetailMsg> {
     override fun DetailState.reduce(msg: DetailMsg): DetailState =
         when (msg) {
             DetailMsg.Loading -> copy(loading = true, error = null)
+            is DetailMsg.Refreshed ->
+                if (server?.id == msg.server.id && detail?.id == msg.detail.id) {
+                    copy(
+                        // Cast is loaded independently; a lean metadata refresh must not erase it.
+                        detail = msg.detail.copy(people = msg.detail.people.ifEmpty { detail.people }),
+                        loading = false,
+                        error = null,
+                    )
+                } else {
+                    this
+                }
             is DetailMsg.PeopleLoaded ->
                 if (server?.id == msg.serverId && detail?.id == msg.itemId) {
                     copy(
@@ -70,7 +81,7 @@ internal object DetailReducer : Reducer<DetailState, DetailMsg> {
                 val selected = msg.sources.firstOrNull { it.isCurrent && it.itemId != null }
                 copy(
                     sources = msg.sources,
-                    sourcesLoading = false,
+                    sourcesLoading = !msg.complete,
                     sourcesError = null,
                     selectedSourceServerId = selectedSourceServerId ?: selected?.serverId,
                     selectedSourceItemId = selectedSourceItemId ?: selected?.itemId,

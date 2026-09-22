@@ -700,7 +700,7 @@ internal fun SourceSection(
             ) {
                 motionItemsIndexed(
                     availableSources,
-                    key = { index, entry -> "source-${entry.serverId}-${entry.itemId}-$index" },
+                    key = { _, entry -> "source-${entry.serverId}-${entry.itemId}" },
                 ) { _, entry ->
                     SourceCard(
                         entry = entry,

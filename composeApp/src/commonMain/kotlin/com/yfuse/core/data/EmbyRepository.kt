@@ -28,6 +28,14 @@ import com.yfuse.core.playback.PlaybackDeviceCapabilities
 import com.yfuse.core.playback.PlaybackDeviceCapabilitiesProvider
 import com.yfuse.core.sync.SyncedUserItem
 import io.ktor.client.HttpClient
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** Result of a successful authentication, ready to persist as a [SavedServer]. */
 data class AuthedServer(
@@ -227,7 +235,9 @@ class EmbyRepository(
     private val authService = EmbyAuthService(client)
     private val detailService = EmbyDetailService(client, progressProjection)
     private val playbackDetails = PlaybackMetadataCache<Pair<SavedServer, String>, MediaDetail>()
+    private val detailSnapshots = PlaybackMetadataCache<Pair<SavedServer, String>, MediaDetail>(ttlMs = 30_000L)
     private val sourceService = EmbySourceService(client, detailService)
+    private val sourceLookupCooldown = SourceLookupCooldown()
     private val libraryService = EmbyLibraryService(client)
     private val browseService = EmbyBrowseService(client, progressProjection)
     private val emby =
@@ -407,7 +417,9 @@ class EmbyRepository(
         server: SavedServer,
         itemId: String,
         favorite: Boolean,
-    ): Result<Unit> = adapterFor(server).setFavorite(server, itemId, favorite)
+    ): Result<Unit> = adapterFor(server).setFavorite(server, itemId, favorite).onSuccess {
+        detailSnapshots.invalidate { it == (server to itemId) }
+    }
 
     suspend fun setPlayed(
         server: SavedServer,
@@ -722,10 +734,23 @@ class EmbyRepository(
         includeInheritedPeople: Boolean = true,
     ): Result<MediaDetail> =
         embyApiCall("item_detail") {
-            playbackDetails.get(server to itemId, reuse = false) {
-                adapterFor(server).itemDetail(server, itemId, includeInheritedPeople).getOrThrow()
+            detailSnapshots.get(server to itemId, reuse = false) {
+                playbackDetails.get(server to itemId, reuse = false) {
+                    adapterFor(server).itemDetail(server, itemId, includeInheritedPeople).getOrThrow()
+                }
             }
         }
+
+    internal fun cachedItemDetail(server: SavedServer, itemId: String): MediaDetail? =
+        detailSnapshots.peek(server to itemId)?.let { progressProjection.projectDetail(server, it) }
+
+    /** Only a known exact episode may bypass the directory; never guess a series from a title. */
+    internal fun cachedResumeEpisode(server: SavedServer, seriesId: String): MediaDetail? {
+        return progressProjection.localStates(server).asSequence()
+            .filter { !it.played && it.positionMs > 0L }
+            .mapNotNull { it.serverItemId?.let { id -> cachedItemDetail(server, id) } }
+            .firstOrNull { it.type == "Episode" && it.seriesId == seriesId }
+    }
 
     /** Reuses a fresh detail-page snapshot, otherwise requests only playback fields. */
     suspend fun playbackItemDetail(
@@ -762,36 +787,47 @@ class EmbyRepository(
         year: Int? = null,
         seasonNumber: Int? = null,
         episodeNumber: Int? = null,
+        forceRefresh: Boolean = false,
+        onSource: (ServerSource) -> Unit = {},
     ): List<ServerSource> {
-        // Emby-compatible servers are compared as one batch with shared retry and timeout
-        // policy; Plex answers per server, so both halves are folded back into the caller's order.
-        val compatibleServers = servers.filterNot { it.kind == MediaServerKind.Plex }
-        val compatible =
-            sourceService.compareSources(
-                servers = compatibleServers,
-                currentServerId = currentServerId,
-                title = title,
-                tmdbId = tmdbId,
-                mediaType = mediaType,
-                year = year,
-                seasonNumber = seasonNumber,
-                episodeNumber = episodeNumber,
-            )
-        val plexSources =
-            servers.filter { it.kind == MediaServerKind.Plex }.map { server ->
-                plex.compareSource(
-                    server = server,
-                    currentServerId = currentServerId,
-                    title = title,
-                    tmdbId = tmdbId,
-                    mediaType = mediaType,
-                    year = year,
-                    seasonNumber = seasonNumber,
-                    episodeNumber = episodeNumber,
-                )
-            }
-        val byId = (compatible + plexSources).associateBy(ServerSource::serverId)
-        return servers.mapNotNull { byId[it.id] }
+        return coroutineScope {
+            val permits = Semaphore(4)
+            val callbackLock = Mutex()
+            servers.map { server ->
+                async {
+                    permits.withPermit {
+                        val unavailable = ServerSource(
+                            serverId = server.id,
+                            serverName = server.serverName,
+                            isCurrent = server.id == currentServerId,
+                            itemId = null,
+                            source = null,
+                            reachable = false,
+                        )
+                        val coolingDown = !forceRefresh && sourceLookupCooldown.blocked(server)
+                        val source = if (coolingDown) {
+                            unavailable
+                        } else if (server.kind == MediaServerKind.Plex) {
+                            withTimeoutOrNull(8_000L) {
+                                plex.compareSource(
+                                    server, currentServerId, title, tmdbId,
+                                    mediaType, year, seasonNumber, episodeNumber,
+                                )
+                            } ?: unavailable
+                        } else {
+                            sourceService.compareSources(
+                                listOf(server), currentServerId, title, tmdbId,
+                                mediaType, year, seasonNumber, episodeNumber,
+                            ).single()
+                        }
+                        // A skipped lookup must not perpetually extend its own cooldown.
+                        if (!coolingDown) sourceLookupCooldown.record(server, source.reachable)
+                        callbackLock.withLock { onSource(source) }
+                        source
+                    }
+                }
+            }.awaitAll()
+        }
     }
 
     suspend fun seasons(

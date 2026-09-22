@@ -33,6 +33,68 @@ import kotlin.test.assertTrue
 
 class PlayerStoreTest {
     @Test
+    fun directPlayUsesTheServerOriginalUrlIncludingProviderIdentity() {
+        val source = playbackIdentitySource("/gateway/original.mkv?ticket=a%2Bb&static=true")
+        val selected =
+            listOf(source).toPlayerMediaVersions(
+                baseUrl = "https://host",
+                itemId = "movie",
+                token = "token-a",
+                userId = "user-a",
+                negotiatedPlaySessionId = "session-a",
+            ).single()
+        assertEquals(PlaybackMethod.DirectPlay, selected.playMethod)
+        assertTrue(selected.url.startsWith("https://host/gateway/original.mkv?ticket=a%2Bb"))
+        assertTrue("UserId=user-a" in selected.url)
+        assertTrue("PlaySessionId=session-a" in selected.url)
+    }
+
+    @Test
+    fun directPlayKeepsSignedCdnUrlUnmodified() {
+        val raw = "https://cdn.example/original.mkv?ticket=a%2Bb"
+        val selected =
+            listOf(playbackIdentitySource(raw)).toPlayerMediaVersions(
+                baseUrl = "https://host",
+                itemId = "movie",
+                token = "private-token",
+                userId = "private-user",
+            ).single()
+        assertEquals(raw, selected.url)
+        assertEquals(PlaybackMethod.DirectPlay, selected.playMethod)
+    }
+
+    @Test
+    fun directPlayWithoutAUsableNegotiatedUrlStillCarriesTheSelectedAccount() {
+        listOf(null, "/Videos/movie/master.m3u8", "/Videos/movie/stream?AudioCodec=aac")
+            .forEach { raw ->
+                val selected =
+                    listOf(playbackIdentitySource(raw)).toPlayerMediaVersions(
+                        baseUrl = "https://host",
+                        itemId = "movie",
+                        token = "token-b",
+                        userId = "user-b",
+                    ).single()
+                assertTrue(selected.url.startsWith("https://host/Videos/movie/stream?static=true"))
+                assertTrue("UserId=user-b" in selected.url)
+                assertTrue("api_key=token-b" in selected.url)
+            }
+    }
+
+    private fun playbackIdentitySource(url: String?) =
+        MediaVersion(
+            id = "source",
+            name = "original",
+            container = "mkv",
+            sizeBytes = 100L,
+            bitrateBps = null,
+            videoCodec = "hevc",
+            videoHeight = 2160,
+            videoRange = "HDR10",
+            supportsDirectPlay = true,
+            directStreamUrl = url,
+        )
+
+    @Test
     fun current_episode_is_ready_before_the_catalog_and_keeps_its_negotiated_session() =
         runBlocking {
             withTimeout(5_000L) {

@@ -7,6 +7,7 @@ import com.arkivanov.mvikotlin.main.store.DefaultStoreFactory
 import com.russhwolf.settings.MapSettings
 import com.yfuse.core.data.PlaybackProgressProjection
 import com.yfuse.core.data.PlaybackTrackRequest
+import com.yfuse.core.data.dto.toMediaDetail
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.sync.ServerSyncManager
 import com.yfuse.core.sync.playback.PlaybackSyncStore
@@ -44,6 +45,26 @@ import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 
 class DetailStoreTest {
+    @Test
+    fun fresh_metadata_does_not_reset_a_user_selection_and_partial_sources_stay_loading() {
+        val server = SavedServer("one", "http://one", "Server", "u", "User", "token")
+        val detail = com.yfuse.core.data.dto.BaseItemDto(Id = "e1", Name = "Old", Type = "Episode")
+            .toMediaDetail()
+        val original = DetailState(
+            detail = detail, server = server, playTarget = detail,
+            selectedVersionId = "second", selectedEpisodeId = "e2",
+        )
+        val refreshed =
+            with(DetailReducer) { original.reduce(DetailMsg.Refreshed(detail.copy(title = "Fresh"), server)) }
+        assertEquals("Fresh", refreshed.detail?.title)
+        assertEquals("second", refreshed.selectedVersionId)
+        assertEquals("e2", refreshed.selectedEpisodeId)
+        assertEquals(detail, refreshed.playTarget)
+        val partial = with(DetailReducer) { refreshed.reduce(DetailMsg.SourcesLoaded(emptyList(), complete = false)) }
+        assertTrue(partial.sourcesLoading)
+        val finished = with(DetailReducer) { partial.reduce(DetailMsg.SourcesLoaded(emptyList())) }
+        assertEquals(false, finished.sourcesLoading)
+    }
     private lateinit var testPlaybackTrackRequest: PlaybackTrackRequest
     private lateinit var testSyncManager: ServerSyncManager
     private val realTimeWaitDispatcher = Dispatchers.Default.limitedParallelism(1)
@@ -72,6 +93,54 @@ class DetailStoreTest {
     @AfterTest
     fun tearDown() {
         stopKoin()
+    }
+
+    @Test
+    fun cached_detail_is_playable_while_refresh_waits_and_refresh_keeps_selected_version() = runTest {
+        val refreshStarted = CompletableDeferred<Unit>()
+        val releaseRefresh = CompletableDeferred<Unit>()
+        val registry = testRegistry().apply {
+            addOrUpdate(SavedServer("one", "http://one", "Server", "u", "user", "token"))
+        }
+        var detailRequests = 0
+        val repo = testRepo(dispatcher = Dispatchers.Unconfined) { request ->
+            if (request.url.encodedPath.endsWith("/Items/m1")) {
+                detailRequests++
+                if (detailRequests > 1) {
+                    refreshStarted.complete(Unit)
+                    releaseRefresh.await()
+                    json(MOVIE_ONE.replace("电影", "更新后的电影"))
+                } else {
+                    json(MOVIE_ONE)
+                }
+            } else {
+                json("""{"Items":[]}""")
+            }
+        }
+        val server = requireNotNull(registry.serverById("one"))
+        val cached = repo.itemDetail(server, "m1", includeInheritedPeople = false).getOrThrow()
+        val store = DetailStoreFactory(
+            DefaultStoreFactory(), repo, registry, "m1", "one",
+            mainContext = Dispatchers.Unconfined,
+            playbackTrackRequest = testPlaybackTrackRequest,
+            syncManager = testSyncManager,
+        ).create()
+        try {
+            refreshStarted.await()
+            assertEquals(cached.title, store.state.detail?.title)
+            assertEquals("m1", store.state.playTarget?.id)
+            assertEquals(false, store.state.loading)
+            assertEquals(false, store.state.selectionLoading)
+            store.accept(DetailIntent.SelectVersion("v2"))
+            assertEquals("v2", store.state.selectedVersionId)
+            releaseRefresh.complete(Unit)
+            store.states.first { it.detail?.title == "更新后的电影" }
+            assertEquals("v2", store.state.selectedVersionId)
+            assertEquals("m1", store.state.playTarget?.id)
+        } finally {
+            releaseRefresh.complete(Unit)
+            store.dispose()
+        }
     }
 
     @Test

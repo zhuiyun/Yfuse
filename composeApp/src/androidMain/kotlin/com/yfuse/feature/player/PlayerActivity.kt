@@ -1224,6 +1224,7 @@ class PlayerActivity : ComponentActivity() {
                                 ?.takeIf(String::isNotBlank)
                                 ?: requestedSessionId,
                         localCleartextConfirmed = server.localCleartextConfirmed,
+                        userId = server.userId,
                     )
                 val selected =
                     versions.firstOrNull { version -> version.id == preferredVersionId }
@@ -1384,6 +1385,7 @@ class PlayerActivity : ComponentActivity() {
                                     baseUrl = server.baseUrl,
                                     itemId = episode.id,
                                     token = server.accessToken,
+                                    userId = server.userId,
                                 )
                             val selected =
                                 versions.firstOrNull { it.id == selectedVersionId }
@@ -1394,6 +1396,7 @@ class PlayerActivity : ComponentActivity() {
                                         baseUrl = server.baseUrl,
                                         itemId = episode.id,
                                         token = server.accessToken,
+                                        userId = server.userId,
                                     )
                                 } else {
                                     null

@@ -2,6 +2,7 @@ package com.yfuse.feature.player
 
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import com.yfuse.core.network.sharedOriginConnectionPool
+import com.yfuse.core.platform.AppBuildConfig
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
@@ -15,6 +16,7 @@ internal object PlaybackHttpDataSource {
             .readTimeout(20, TimeUnit.SECONDS)
             .followRedirects(true)
             .followSslRedirects(true)
+            .addNetworkInterceptor(EmbyPlaybackInterceptor { AppBuildConfig.VERSION_NAME })
             .build()
     }
 

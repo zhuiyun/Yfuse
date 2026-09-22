@@ -59,6 +59,7 @@ internal class AndroidTransportMediaDataSource(
     private val representationSession: AndroidMediaRepresentationSession? = null,
     private val rangeReadClock: () -> Long = System::nanoTime,
 ) : MediaDataSource() {
+    private val sourceInstance = transportSourceSequence.incrementAndGet().toString()
     private val sourceTrace by lazy {
         com.yfuse.core.logging
             .playbackDiagnosticTrace(uri)
@@ -454,22 +455,9 @@ internal class AndroidTransportMediaDataSource(
         foregroundReadStartedAtNs = startedNs
         onBlockingReadStateChanged?.invoke(true)
         try {
-            val pending = prefetchedBlocks[blockIndex]
-            val preferStartupSlice =
-                startupOffset != null &&
-                    pending != null &&
-                    !pending.future.isDone &&
-                    pending.completedBytes.get() < blockSize.toLong() * 3L / 4L
-            val prefetched =
-                if (preferStartupSlice) {
-                    // A seek needs a small access unit now, not an unfinished whole speculative block.
-                    // Preserve almost-complete transfers so a late seek does not discard their tail.
-                    prefetchedBlocks.remove(blockIndex)?.cancel()
-                    promotedPrefetchCount++
-                    null
-                } else {
-                    takePrefetchedBlock(blockIndex, budget, operation)
-                }
+            // Join an already running range instead of cancelling it for every small extractor
+            // read. Queued/stalled ranges are still promoted by takePrefetchedBlock's budget.
+            val prefetched = takePrefetchedBlock(blockIndex, budget, operation)
             val loaded =
                 if (prefetched != null) {
                     prefetchHitCount++
@@ -728,7 +716,9 @@ internal class AndroidTransportMediaDataSource(
             val end = blockStart.saturatedAdd(partial.bytes.size.toLong() - 1L)
             val attemptOffset = partial.total
             var transferredBytes = 0L
-            val diagnostics = AndroidRangeReadDiagnostics(sourceTrace, position, end, retry, foreground != null)
+            val diagnostics =
+                AndroidRangeReadDiagnostics(sourceTrace, position, end, retry, foreground != null, sourceInstance)
+            diagnostics.queueWaitMs = progress?.queueWaitMs ?: 0L
             bandwidthMeter.onTransferStarted(startedNs)
             val watchdog =
                 AndroidRangeReadWatchdog(blockTransport, budget, idleBudgetMs = {
@@ -758,6 +748,7 @@ internal class AndroidTransportMediaDataSource(
                         ),
                     )
                 diagnostics.status = response.statusCode
+                diagnostics.headersMs = (System.nanoTime() - startedNs) / NANOS_PER_MILLISECOND
                 diagnostics.phase = "reading"
                 if (response.statusCode != 206) {
                     if (representationSnapshot != null && response.statusCode in setOf(200, 412, 416)) {
@@ -845,6 +836,9 @@ internal class AndroidTransportMediaDataSource(
                         continue
                     }
                     watchdog.progressed()
+                    if (diagnostics.firstByteMs < 0L) {
+                        diagnostics.firstByteMs = (System.nanoTime() - startedNs) / NANOS_PER_MILLISECOND
+                    }
                     emptyReads = 0
                     total += count
                     partial.total = total
@@ -890,7 +884,18 @@ internal class AndroidTransportMediaDataSource(
                         ((System.nanoTime() - startedNs) / NANOS_PER_MILLISECOND).coerceAtLeast(1L),
                 )
             } catch (failure: Exception) {
-                diagnostics.phase = "failed"
+                val cancelled =
+                    closed || progress?.isCancelled == true || foreground?.cancelled == true ||
+                        failure.isTransportCancellation()
+                diagnostics.phase = if (cancelled) "cancelled" else "failed"
+                diagnostics.reason = when {
+                    closed -> "source_closed"
+                    progress?.isCancelled == true -> progress.cancellationReason
+                    foreground?.cancelled == true -> "foreground_superseded"
+                    failure.isTransportCancellation() -> "operation_cancelled"
+                    else -> failure.javaClass.simpleName
+                }
+                failure.mediaHttpStatus()?.let { diagnostics.status = it }
                 // A watchdog close is a retryable timeout, not a user cancellation or clean EOF.
                 watchdog.checkFailure()
                 throw failure
@@ -992,7 +997,7 @@ internal class AndroidTransportMediaDataSource(
                 bufferedUs = (window.bufferedUs / window.speed).toLong(),
             )
         val activeDepth =
-            if (foregroundReadStartedAtNs != 0L && window.bufferedUs / window.speed < 2_000_000L) {
+            if (!window.playing || window.bufferedUs / window.speed < 2_000_000L) {
                 minOf(prefetchDepthBlocks, 2)
             } else {
                 prefetchDepthBlocks
@@ -1014,11 +1019,14 @@ internal class AndroidTransportMediaDataSource(
         // blocks; that turns a temporary shortage into another download of the same bytes.
         prefetchedBlocks.forEach { (index, pending) ->
             if (index in blockIndex until blockIndex.saturatedAdd(prefetchDepthBlocks.toLong()) &&
-                (pending.future.isDone || pending.completedBytes.get() >= blockSize.toLong() * 3L / 4L)
+                (pending.future.isDone || pending.completedBytes.get() > 0L)
             ) {
                 desired.add(index)
             }
         }
+        // MP4 audio/video/index reads can alternate distant regions. Give at most two moving
+        // ranges a chance to finish instead of repeatedly discarding them as that window moves.
+        retainMovingPrefetches(desired)
         cancelPrefetchOutside(desired)
         desired.sorted().forEach(::schedulePrefetchBlock)
     }
@@ -1078,7 +1086,7 @@ internal class AndroidTransportMediaDataSource(
         // wait for a block whose actual network transfer took only 2.2 s.
         if (shouldPromoteTransportPrefetch(prefetch.future.isDone, prefetch.started)) {
             promotedPrefetchCount++
-            prefetch.cancel()
+            prefetch.cancel("foreground_promotion")
             return null
         }
         shedSpeculativeWorkFor(blockIndex)
@@ -1087,7 +1095,7 @@ internal class AndroidTransportMediaDataSource(
             var loaded: YLoadedTransportBlock? = null
             while (loaded == null) {
                 if (operation.cancelled) {
-                    prefetch.cancel()
+                    prefetch.cancel("foreground_superseded")
                     operation.checkActive()
                 }
                 try {
@@ -1111,7 +1119,7 @@ internal class AndroidTransportMediaDataSource(
         } catch (_: TimeoutException) {
             // A stalled range is promoted only after checking live byte progress and headroom.
             promotedPrefetchCount++
-            prefetch.cancel()
+            prefetch.cancel("prefetch_stalled")
             null
         } catch (_: CancellationException) {
             null
@@ -1126,25 +1134,33 @@ internal class AndroidTransportMediaDataSource(
     private fun shedSpeculativeWorkFor(blockIndex: Long) {
         if (playbackWindow.bufferedUs / playbackWindow.speed >= 2_000_000L) return
         forwardCache?.updateWindow(0L, 0L)
-        cancelPrefetchOutside(
+        val retained =
             prefetchedBlocks
                 .filter { (index, pending) ->
                     pending.future.isDone ||
-                        index in blockIndex..blockIndex.saturatedAdd(2L) ||
-                        (
-                            index in blockIndex..blockIndex.saturatedAdd(prefetchDepthBlocks.toLong()) &&
-                                pending.completedBytes.get() >= blockSize.toLong() * 3L / 4L
-                        )
-                }.keys,
-        )
+                        index in blockIndex..blockIndex.saturatedAdd(2L)
+                }.keys.toMutableSet()
+        retainMovingPrefetches(retained)
+        cancelPrefetchOutside(retained)
     }
 
-    private fun cancelPrefetchOutside(retained: Set<Long>) {
+    private fun retainMovingPrefetches(retained: MutableSet<Long>) {
+        val nowNs = System.nanoTime()
+        prefetchedBlocks.entries
+            .filter { (index, pending) ->
+                index !in retained && !pending.future.isDone && pending.started &&
+                    keepActiveTransportPrefetch((nowNs - pending.lastProgressNs.get()) / NANOS_PER_MILLISECOND)
+            }
+            .take(2)
+            .forEach { retained.add(it.key) }
+    }
+
+    private fun cancelPrefetchOutside(retained: Set<Long>, reason: String = "window_changed") {
         val iterator = prefetchedBlocks.entries.iterator()
         while (iterator.hasNext()) {
             val entry = iterator.next()
             if (entry.key !in retained) {
-                entry.value.cancel()
+                entry.value.cancel(reason)
                 iterator.remove()
             }
         }
@@ -1290,7 +1306,7 @@ internal class AndroidTransportMediaDataSource(
                     .sortedBy { kotlin.math.abs(it - currentBlock) }
                     .take(retainedCount)
                     .toSet()
-            cancelPrefetchOutside(retained)
+            cancelPrefetchOutside(retained, "memory_pressure")
         }
         prefetchDepthBlocks = minOf(prefetchDepthBlocks, retainedCount)
         if (!speculative) forwardCache?.updateWindow(0L, 0L)
@@ -1408,6 +1424,9 @@ private class YPartialTransportBlock(
 private class YTransportBlockPrefetch(
     val blockIndex: Long,
 ) {
+    private val queuedAtNs = System.nanoTime()
+    @Volatile var queueWaitMs: Long = 0L
+        private set
     private val cancelled = AtomicBoolean(false)
     private val executionStarted = AtomicBoolean(false)
     private var activeTransport: YMediaTransport? = null
@@ -1431,8 +1450,13 @@ private class YTransportBlockPrefetch(
 
     val started: Boolean get() = executionStarted.get()
     val isCancelled: Boolean get() = cancelled.get()
+    @Volatile var cancellationReason: String = "cancelled"
+        private set
 
     fun markStarted(): Boolean {
+        val nowNs = System.nanoTime()
+        queueWaitMs = (nowNs - queuedAtNs) / 1_000_000L
+        lastProgressNs.set(nowNs)
         executionStarted.set(true)
         return !cancelled.get()
     }
@@ -1451,13 +1475,14 @@ private class YTransportBlockPrefetch(
         if (activeTransport === transport) activeTransport = null
     }
 
-    fun cancel() {
+    fun cancel(reason: String = "cancelled") {
+        cancellationReason = reason
         cancelled.set(true)
         val transport = synchronized(this) { activeTransport.also { activeTransport = null } }
         // Capture the socket owner before interrupting the worker: its finally block can unbind
         // immediately, while a cancelled coroutine still has blocking network I/O to tear down.
         future.cancel(true)
-        transport?.let { active -> runCatching { runBlocking { active.close() } } }
+        transport?.let { active -> foregroundRangeCleanup.launch { runCatching { active.close() } } }
     }
 }
 
@@ -1497,6 +1522,9 @@ private class YForegroundRangeRead {
 }
 
 private val foregroundRangeCleanup = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+private val transportSourceSequence = AtomicLong()
+
+internal fun keepActiveTransportPrefetch(idleMs: Long): Boolean = idleMs in 0L until 4_000L
 
 internal class YRangeReadException(
     val failureKind: YTransportFailureKind,
@@ -1609,10 +1637,10 @@ internal fun transportPrefetchConcurrency(
     bufferedUs: Long,
 ): Int =
     when {
-        consumption <= 0L || throughput <= 0L -> 3
+        consumption <= 0L || throughput <= 0L -> 2
         bufferedUs < 3_000_000L && throughput < consumption -> 2
         bufferedUs >= 8_000_000L && throughput > consumption -> 2
-        bufferedUs < 2_000_000L && throughput > consumption * 1.5 -> MAX_TRANSPORT_PREFETCH_CONCURRENCY
+        bufferedUs < 2_000_000L -> 2
         else -> 4
     }
 

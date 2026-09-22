@@ -96,7 +96,8 @@ object EmbyStream {
      * Relative and same-origin absolute URLs remain authenticated against the saved server.
      * A server may legitimately negotiate an absolute CDN URL, but appending the Emby credential
      * or internal session identifiers to that different authority would disclose them and can
-     * also invalidate a signed CDN URL, so a cross-origin address is returned unmodified.
+     * also invalidate a signed CDN URL. Cross-origin, signed and provider-owned addresses
+     * are therefore returned unmodified.
      */
     fun negotiatedUrl(
         baseUrl: String,
@@ -105,6 +106,7 @@ object EmbyStream {
         playSessionId: String,
         addApiKey: Boolean = true,
         localCleartextConfirmed: Boolean = false,
+        userId: String? = null,
     ): String? {
         val trimmedUrl = rawUrl.trim()
         val absoluteWebUrl =
@@ -140,11 +142,10 @@ object EmbyStream {
         val targetOrigin = parsedAbsoluteUrl?.negotiatedStreamOrigin() ?: value.negotiatedStreamOrigin()
         val serverOrigin = normalizeBaseUrl(baseUrl).negotiatedStreamOrigin()
         val sameServerOrigin = !absoluteWebUrl || (targetOrigin != null && targetOrigin == serverOrigin)
-        if (!sameServerOrigin) return value
+        if (!sameServerOrigin || !addApiKey || value.hasSignedPlaybackQuery()) return value
 
         var authenticatedValue = value
         if (
-            addApiKey &&
             !authenticatedValue.hasQueryParameter("ApiKey") &&
             !authenticatedValue.hasQueryParameter("api_key") &&
             !authenticatedValue.hasQueryParameter("X-Emby-Token")
@@ -152,7 +153,7 @@ object EmbyStream {
             authenticatedValue = authenticatedValue.withQueryParameter("api_key", token.queryValue())
         }
         // Canonicalize only same-origin media URLs, never a signed CDN URL.
-        if (addApiKey && !authenticatedValue.hasQueryParameter("ApiKey")) {
+        if (!authenticatedValue.hasQueryParameter("ApiKey")) {
             val existingToken =
                 runCatching {
                     Url(authenticatedValue).let {
@@ -167,6 +168,9 @@ object EmbyStream {
         }
         if (playSessionId.isNotBlank() && !authenticatedValue.hasQueryParameter("PlaySessionId")) {
             authenticatedValue = authenticatedValue.withQueryParameter("PlaySessionId", playSessionId.queryValue())
+        }
+        if (!userId.isNullOrBlank() && !authenticatedValue.hasQueryParameter("UserId")) {
+            authenticatedValue = authenticatedValue.withQueryParameter("UserId", userId.queryValue())
         }
         return authenticatedValue
     }
@@ -187,11 +191,12 @@ object EmbyStream {
         mediaSourceId: String? = null,
         sourceWidth: Int? = null,
         sourceBitrateBps: Int? = null,
+        userId: String? = null,
     ): StreamUrls {
         val (maxWidth, videoBitrate) = transcodeTarget(sourceWidth, sourceBitrateBps)
         val session = newPlaySessionId()
         return StreamUrls(
-            direct = directPlay(baseUrl, itemId, token, mediaSourceId, session),
+            direct = directPlay(baseUrl, itemId, token, mediaSourceId, session, userId),
             transcode =
                 transcode(
                     baseUrl = baseUrl,
@@ -201,6 +206,7 @@ object EmbyStream {
                     videoBitrate = videoBitrate,
                     mediaSourceId = mediaSourceId,
                     playSessionId = session,
+                    userId = userId,
                 ),
             progressiveTranscode =
                 progressiveTranscode(
@@ -211,6 +217,7 @@ object EmbyStream {
                     videoBitrate = videoBitrate,
                     mediaSourceId = mediaSourceId,
                     playSessionId = session,
+                    userId = userId,
                 ),
             playSessionId = session,
         )
@@ -245,10 +252,11 @@ object EmbyStream {
         token: String,
         mediaSourceId: String? = null,
         playSessionId: String? = null,
+        userId: String? = null,
     ): String =
         "${normalizeBaseUrl(baseUrl)}/Videos/${embyPath(itemId)}/stream?static=true&${mediaBrowserTokenQuery(token)}" +
             mediaSourceParam(mediaSourceId, itemId) +
-            sessionParams(playSessionId)
+            sessionParams(playSessionId, userId)
 
     /**
      * The width and bitrate a transcode of this source should aim at.
@@ -295,6 +303,7 @@ object EmbyStream {
         videoBitrate: Int = 6_000_000,
         mediaSourceId: String? = null,
         playSessionId: String? = null,
+        userId: String? = null,
     ): String =
         "${normalizeBaseUrl(baseUrl)}/Videos/${embyPath(itemId)}/master.m3u8" +
             "?${mediaBrowserTokenQuery(token)}" +
@@ -323,7 +332,7 @@ object EmbyStream {
             "&TranscodingMaxAudioChannels=2" +
             "&MinSegments=2" +
             "&BreakOnNonKeyFrames=true" +
-            sessionParams(playSessionId)
+            sessionParams(playSessionId, userId)
 
     /** Progressive H.264/AAC compatibility fallback when a server cannot produce valid HLS. */
     fun progressiveTranscode(
@@ -334,6 +343,7 @@ object EmbyStream {
         videoBitrate: Int = 6_000_000,
         mediaSourceId: String? = null,
         playSessionId: String? = null,
+        userId: String? = null,
     ): String =
         "${normalizeBaseUrl(baseUrl)}/Videos/${embyPath(itemId)}/stream.mp4" +
             "?static=false" +
@@ -353,7 +363,7 @@ object EmbyStream {
             "&AudioBitrate=192000" +
             "&MaxAudioChannels=2" +
             "&TranscodingMaxAudioChannels=2" +
-            sessionParams(playSessionId)
+            sessionParams(playSessionId, userId)
 
     /**
      * Makes a same-server PlaybackInfo HLS URL honor Yfuse's compatibility contract.
@@ -392,12 +402,16 @@ object EmbyStream {
      * `PlaySessionId` is omitted rather than invented when absent: a wrong id is worse than
      * none, because `Playing/Stopped` would then end somebody else's encoding.
      */
-    private fun sessionParams(playSessionId: String?): String =
+    private fun sessionParams(
+        playSessionId: String?,
+        userId: String?,
+    ): String =
         "&DeviceId=${deviceId().queryValue()}" +
             playSessionId
                 ?.takeIf { it.isNotBlank() }
                 ?.let { "&PlaySessionId=${it.queryValue()}" }
-                .orEmpty()
+                .orEmpty() +
+            userId?.takeIf(String::isNotBlank)?.let { "&UserId=${it.queryValue()}" }.orEmpty()
 
     /**
      * Names a specific file when the item has more than one.

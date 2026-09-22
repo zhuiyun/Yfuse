@@ -99,7 +99,7 @@ internal class AndroidEnhancedMediaProbe(
                         limitMs = 18_000L,
                         stageName = "enhanced",
                         reserveMs = 2_000L,
-                        unavailable = { YCore2ProbeResult.Failure(YCore2ProbeFailure.SourceUnavailable) },
+                        unavailable = { YCore2ProbeResult.Failure(YCore2ProbeFailure.DeadlineOrBusy) },
                     ) { stage -> probeUncached(item, knownDolbyEvidence, retainForPlayback, stage) }
                 }
             }

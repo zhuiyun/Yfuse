@@ -48,6 +48,7 @@ import java.nio.ByteBuffer
 
 internal enum class YCore2ProbeFailure {
     SourceUnavailable,
+    DeadlineOrBusy,
     NoPlayableTrack,
     NoVideoTrack,
     UnknownVideoCodec,
@@ -201,7 +202,7 @@ internal class AndroidCore2MediaProbe(
                         limitMs = 8_000L,
                         stageName = "platform",
                         reserveMs = 2_000L,
-                        unavailable = { YCore2ProbeResult.Failure(YCore2ProbeFailure.SourceUnavailable) },
+                        unavailable = { YCore2ProbeResult.Failure(YCore2ProbeFailure.DeadlineOrBusy) },
                     ) { stage -> probeUncached(item, stage) }
                 }
             }
@@ -529,6 +530,9 @@ internal class AndroidCore2RouteEvaluator(
 ) {
     private val appContext = context.applicationContext
     private val platformProbe = AndroidCore2MediaProbe(context)
+    // One evaluation owns this evidence. A refreshed item/budget can probe again; the
+    // inconclusive fallback for the same start must not pay a second platform open.
+    private var lastPlatformAttempt: Triple<YMediaItem, AndroidProbeBudget?, YCore2ProbeResult>? = null
     val sourceFacts = kotlinx.coroutines.flow.MutableStateFlow<AndroidPlaybackProbeFacts?>(null)
 
     fun adoptCurrentItem(
@@ -585,9 +589,12 @@ internal class AndroidCore2RouteEvaluator(
     fun probePlatformForNativeAttempt(
         item: YMediaItem,
         budget: AndroidProbeBudget? = null,
-    ): YCore2ProbeResult.Success? =
-        (platformProbe.probe(item, budget) as? YCore2ProbeResult.Success)
-            ?.withConfirmedDolbyVisionSourceHint(item)
+    ): YCore2ProbeResult.Success? {
+        budget?.ensureActive()
+        val previous = lastPlatformAttempt?.takeIf { it.first == item && it.second === budget }
+        return (previous?.third ?: platformProbe.probe(item, budget))
+            .sourceSuccessOrThrow()?.withConfirmedDolbyVisionSourceHint(item)
+    }
 
     /**
      * [rememberedProbe] is a probe result this device has already proven on screen for exactly
@@ -639,11 +646,14 @@ internal class AndroidCore2RouteEvaluator(
         prepareSourceForPlayback: Boolean,
         budget: AndroidProbeBudget?,
     ): YCore2ProbeResult.Success? {
-        val platform =
-            platformProbe
-                .probe(item, budget)
-                .sourceSuccessOrThrow()
-                ?.withConfirmedDolbyVisionSourceHint(item)
+        val platformResult = platformProbe.probe(item, budget)
+        lastPlatformAttempt = Triple(item, budget, platformResult)
+        val platform = platformResult.sourceSuccessOrThrow()?.withConfirmedDolbyVisionSourceHint(item)
+        if (skipEnhancedProbeAfterDeadline(platformResult, item)) {
+            // A deadline is not proof that the container needs FFmpeg. Let the normal
+            // native open attempt read it, without first adding another 18-second probe.
+            return null
+        }
         val sourceClaimsDolbyVision = item.sourceHints?.dolbyVision == true
         val resolved =
             when {

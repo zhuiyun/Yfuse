@@ -3,6 +3,8 @@ package com.yfuse.core2.android
 import android.content.Context
 import com.yfuse.core.data.PlaybackFrameRateMatch
 import com.yfuse.core.model.DecoderMode
+import com.yfuse.core.network.embyPlaybackHeaders
+import com.yfuse.core.platform.AppBuildConfig
 import com.yfuse.core.playback.PlaybackDiscKind
 import com.yfuse.core.playback.PlaybackDrmScheme
 import com.yfuse.core.playback.PlaybackOptimizationMode
@@ -110,7 +112,8 @@ internal object AndroidCore2TrialFactory {
                                                 .trim()
                                                 .takeIf(String::isNotEmpty)
                                                 ?.let { mapOf(USER_AGENT_HEADER to it) }
-                                                .orEmpty(),
+                                                .orEmpty() +
+                                                embyPlaybackHeaders(upstreamUrl) { AppBuildConfig.VERSION_NAME },
                                         credentials = item.transportCredentials,
                                         cacheable = cacheable,
                                         cacheIdentity = item.yCoreCacheIdentity(),
@@ -378,6 +381,7 @@ internal fun List<PlayerMediaItem>.toCore2MediaItems(
     customUserAgent: String,
     cacheMaximumBytes: Long = 0L,
     initialTrackSelections: Map<String, com.yfuse.core2.api.YInitialTrackSelection> = emptyMap(),
+    appVersion: () -> String = { AppBuildConfig.VERSION_NAME },
     localize: (PlayerMediaItem, String) -> String = { _, uri -> uri },
 ): List<YMediaItem> {
     val headers =
@@ -388,7 +392,7 @@ internal fun List<PlayerMediaItem>.toCore2MediaItems(
             .orEmpty()
     return map { item ->
         item
-            .toCore2MediaItem(headers, cacheMaximumBytes, localize)
+            .toCore2MediaItem(headers, cacheMaximumBytes, localize, appVersion)
             .copy(initialTrackSelection = initialTrackSelections[item.id]?.orNull())
     }
 }
@@ -397,25 +401,32 @@ private fun PlayerMediaItem.toCore2MediaItem(
     headers: Map<String, String>,
     cacheMaximumBytes: Long,
     localize: (PlayerMediaItem, String) -> String,
+    appVersion: () -> String,
 ): YMediaItem {
     val usingServerTranscode = startsWithServerTranscode()
     val version = activeVersion
+    val upstreamUri =
+        if (usingServerTranscode) {
+            transcodeUrl.ifBlank { fallbackTranscodeUrl }
+        } else if (version?.discSource == true) {
+            rawDiscUri?.takeIf(String::isNotBlank) ?: url
+        } else {
+            url
+        }
+    val localizedUri = localize(this, upstreamUri)
     return YMediaItem(
         id = id,
-        uri =
-            localize(
-                this,
-                if (usingServerTranscode) {
-                    transcodeUrl.ifBlank { fallbackTranscodeUrl }
-                } else if (version?.discSource == true) {
-                    rawDiscUri?.takeIf(String::isNotBlank) ?: url
-                } else {
-                    url
-                },
-            ),
+        uri = localizedUri,
         title = title,
         mimeType = if (usingServerTranscode) null else version?.container.toCore2ContainerMimeType(),
-        headers = headers,
+        headers =
+            headers +
+                if (mediaCredentialOriginsMatch(upstreamUri, localizedUri)) {
+                    embyPlaybackHeaders(upstreamUri, appVersion)
+                } else {
+                    // A loopback proxy owns upstream auth; it must not receive it as a client header.
+                    emptyMap()
+                },
         providerKey = serverId,
         playbackSessionId = playSessionId,
         allowNextItemPreparation = canPreloadSource && !usingServerTranscode,

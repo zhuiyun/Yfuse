@@ -119,8 +119,9 @@ class AndroidTransportMediaDataSourcePrefetchTest {
 
     @Test
     fun `prefetch concurrency follows link capacity and remaining playback time`() {
-        assertEquals(3, transportPrefetchConcurrency(0, 10, 0))
-        assertEquals(6, transportPrefetchConcurrency(20, 10, 0))
+        assertEquals(2, transportPrefetchConcurrency(0, 10, 0))
+        assertEquals(2, transportPrefetchConcurrency(20, 10, 0))
+        assertEquals(4, transportPrefetchConcurrency(20, 10, 4_000_000))
         assertEquals(2, transportPrefetchConcurrency(20, 10, 9_000_000))
         assertEquals(2, transportPrefetchConcurrency(8, 10, 0))
     }
@@ -303,7 +304,7 @@ class AndroidTransportMediaDataSourcePrefetchTest {
             )
         val worker = Executors.newSingleThreadExecutor()
         try {
-            source.updatePlaybackWindow(YTransportPlaybackWindow(bufferedUs = 2_000_000L))
+            source.updatePlaybackWindow(YTransportPlaybackWindow(bufferedUs = 2_000_000L, playing = true))
             assertEquals(1, worker.submit<Int> { source.readAt(0L, ByteArray(1), 0, 1) }.get(2, TimeUnit.SECONDS))
             assertTrue(activePrefetches.await(2, TimeUnit.SECONDS))
             assertEquals(
@@ -402,9 +403,9 @@ class AndroidTransportMediaDataSourcePrefetchTest {
     }
 
     @Test
-    fun `random extractor seek closes cancelled range prefetch transports`() {
+    fun `short extractor window changes retain active ranges and source close releases them`() {
         val media = ByteArray(TEST_BLOCK_BYTES * 8) { it.toByte() }
-        val prefetchOpened = CountDownLatch(1)
+        val prefetchOpened = CountDownLatch(2)
         val prefetchClosed = CountDownLatch(1)
         val source =
             AndroidTransportMediaDataSource(
@@ -427,8 +428,56 @@ class AndroidTransportMediaDataSourcePrefetchTest {
                         source.readAt(TEST_BLOCK_BYTES.toLong() * 6L, ByteArray(1), 0, 1)
                     }.get(2, TimeUnit.SECONDS),
             )
-            assertTrue(prefetchClosed.await(2, TimeUnit.SECONDS))
+            assertEquals(1L, prefetchClosed.count)
         } finally {
+            source.close()
+            assertTrue(prefetchClosed.await(2, TimeUnit.SECONDS))
+            worker.shutdownNow()
+        }
+    }
+
+    @Test
+    fun `foreground joins an in flight range instead of opening the same bytes again`() {
+        // Larger than the 128 KiB startup slice: this exercises the former cancel/reopen branch.
+        val blockBytes = 256 * 1024
+        val media = ByteArray(blockBytes * 8) { it.toByte() }
+        val started = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val joined = CountDownLatch(1)
+        val opens = AtomicInteger()
+        val source = AndroidTransportMediaDataSource(
+            uri = "https://example.invalid/video.mp4",
+            protocol = YSourceProtocol.Https,
+            headers = emptyMap(),
+            blockSizeOverride = blockBytes,
+            onBlockingReadStateChanged = { blocked ->
+                if (blocked && started.count == 0L) joined.countDown()
+            },
+            createTransport = {
+                MemoryRangeTransport(media) { start, complete ->
+                    if (!complete && start == blockBytes.toLong()) {
+                        opens.incrementAndGet()
+                        started.countDown()
+                        check(release.await(5, TimeUnit.SECONDS))
+                    }
+                }
+            },
+        )
+        val worker = Executors.newSingleThreadExecutor()
+        try {
+            worker.submit<Int> { source.readAt(0L, ByteArray(1), 0, 1) }.get(2, TimeUnit.SECONDS)
+            assertTrue(started.await(2, TimeUnit.SECONDS))
+            val output = ByteArray(1)
+            val read = worker.submit<Int> { source.readAt(blockBytes.toLong(), output, 0, 1) }
+            assertTrue(joined.await(2, TimeUnit.SECONDS))
+            release.countDown()
+            assertEquals(1, read.get(2, TimeUnit.SECONDS))
+            assertEquals(media[blockBytes], output.single())
+            assertEquals(1, opens.get())
+            assertEquals(1L, source.qoeSnapshot().hitCount)
+            assertEquals(0L, source.qoeSnapshot().promotedPrefetchCount)
+        } finally {
+            release.countDown()
             source.close()
             worker.shutdownNow()
         }

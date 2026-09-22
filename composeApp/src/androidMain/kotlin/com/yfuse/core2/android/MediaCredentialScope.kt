@@ -41,6 +41,7 @@ internal fun String.isCredentialHeader(): Boolean {
         normalized == "proxy-authorization" ||
         normalized == "cookie" ||
         normalized == "cookie2" ||
+        normalized.startsWith("x-emby-") ||
         normalized.contains("auth") ||
         normalized.contains("token") ||
         normalized.contains("api-key") ||

@@ -95,6 +95,7 @@ internal class AndroidNativeTunnelSession(
     private var audioBytesPerFrame = 0
     private var bufferPlan = YBufferController.plan(YBufferConditions(remote = false))
     private var bufferGate = YPlaybackBufferGate(remote = false, resumePlaybackUs = 0L)
+    private val bufferWaitClock = AndroidBufferWaitClock()
 
     @Volatile
     private var firstVideoFrameRendered = false
@@ -231,6 +232,7 @@ internal class AndroidNativeTunnelSession(
     }
 
     fun pause() {
+        bufferWaitClock.reset()
         renderedFrameRateSampler.reset()
         if (!prepared) return
         outputWatchdog.suspendWaiting()
@@ -309,6 +311,7 @@ internal class AndroidNativeTunnelSession(
         if (nextPreviewDecoder) pausedPreview.begin(target) else pausedPreview.clear()
         outputActive = false
         bufferGate.reset()
+        bufferWaitClock.reset()
         audioSeekTargetUs = target
         lastQueuedUs = target
         lastPositionUs = target
@@ -468,6 +471,11 @@ internal class AndroidNativeTunnelSession(
                 bufferedDurationUs = readAhead.bufferedDurationUs,
                 endOfInput = readAhead.endOfInput,
                 bufferFull = readAhead.atCapacity,
+                rebufferWaitUs = bufferWaitClock.observe(
+                    System.nanoTime(),
+                    playing && bufferGate.phase == com.yfuse.core2.network.YPlaybackBufferPhase.Rebuffering,
+                    readAhead.generation,
+                ),
             )
         if (decision.outputAllowed && !outputActive) {
             val position = currentPositionUs()

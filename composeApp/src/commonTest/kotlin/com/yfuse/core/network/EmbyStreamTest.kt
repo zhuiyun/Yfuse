@@ -1,10 +1,82 @@
 package com.yfuse.core.network
 
+import io.ktor.http.Url
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class EmbyStreamTest {
+    @Test
+    fun generatedPlaybackLadderCarriesTheSelectedUserWithEncodedValues() {
+        val urls = EmbyStream.streamUrls("https://emby.example", "movie", "t&+", userId = "u&+=二")
+        listOf(urls.direct, urls.transcode, urls.progressiveTranscode).forEach { value ->
+            val query = Url(value).parameters
+            assertEquals("u&+=二", query["UserId"])
+            assertEquals("t&+", query["api_key"])
+            assertEquals(urls.playSessionId, query["PlaySessionId"])
+        }
+    }
+
+    @Test
+    fun missingUserDoesNotInventAnIdentity() {
+        val url = EmbyStream.directPlay("https://emby.example", "movie", "token")
+        assertEquals(null, Url(url).parameters["UserId"])
+    }
+
+    @Test
+    fun negotiatedSameOriginPreservesProviderParametersAndCompletesUserIdentity() {
+        val url =
+            EmbyStream.negotiatedUrl(
+                baseUrl = "https://emby.example",
+                rawUrl = "/proxy/original.mkv?provider_ticket=a%2Bb&static=true",
+                token = "token",
+                playSessionId = "session",
+                userId = "current-user",
+            )!!
+        assertTrue("provider_ticket=a%2Bb" in url)
+        assertEquals("current-user", Url(url).parameters["UserId"])
+        assertEquals("token", Url(url).parameters["api_key"])
+    }
+
+    @Test
+    fun negotiatedUserIsNotDuplicatedOrRewritten() {
+        val url =
+            EmbyStream.negotiatedUrl(
+                "https://emby.example",
+                "/Videos/movie/stream?UserId=provider-user",
+                "token",
+                "session",
+                userId = "local-user",
+            )!!
+        assertEquals(listOf("provider-user"), Url(url).parameters.getAll("UserId"))
+    }
+
+    @Test
+    fun neitherCrossOriginNorProviderOwnedSignedUrlsReceiveLocalUserOrSession() {
+        listOf("https://cdn.example/video?sig=a%2Bb", "https://emby.example/video?sig=a%2Bb")
+            .forEach { raw ->
+                val url =
+                    EmbyStream.negotiatedUrl(
+                        baseUrl = "https://emby.example",
+                        rawUrl = raw,
+                        token = "private-token",
+                        playSessionId = "private-session",
+                        userId = "private-user",
+                        addApiKey = !raw.startsWith("https://emby.example"),
+                    )
+                assertEquals(raw, url)
+            }
+    }
+
+    @Test
+    fun sameOriginSignatureIsPreservedEvenIfTheServerOmitsTheNoApiKeyFlag() {
+        val raw = "https://emby.example/video?X-Amz-Signature=a%2Bb"
+        assertEquals(
+            raw,
+            EmbyStream.negotiatedUrl("https://emby.example", raw, "private-token", "session", userId = "user"),
+        )
+    }
+
     @Test
     fun unconfirmedHttpCdnUrlsAreAllowedWithoutServerCredentials() {
         listOf("http://media.example/video", "http://192.168.1.20/video").forEach { url ->

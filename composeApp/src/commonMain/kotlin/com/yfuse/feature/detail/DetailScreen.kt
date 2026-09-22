@@ -135,6 +135,14 @@ fun DetailScreen(component: DetailComponent) {
     val playbackSelection by PlaybackSelection.state.collectAsState()
     val palette = LocalPalette.current
     val detail = state.detail
+    LaunchedEffect(component, detail != null) {
+        if (detail != null) {
+            // Record after a content composition has crossed a frame, not just after HTTP returned.
+            androidx.compose.runtime.withFrameNanos { }
+            androidx.compose.runtime.withFrameNanos { }
+            component.recordFirstContentFrame()
+        }
+    }
     val baseUrl = state.server?.baseUrl.orEmpty()
     // Emby answers 401 for artwork without it when the server requires authentication, so
     // every image on this page — hero, 艺术图, 剧集, 主演, 相关推荐 — is built with it.

@@ -41,6 +41,10 @@ internal class EmbyDetailService(
     private val client: HttpClient,
     private val progress: PlaybackProgressProjection = PlaybackProgressProjection(),
 ) {
+    // Raw DTOs only: re-project local progress on every use, including after marking an episode played.
+    private val episodeDirectories =
+        PlaybackMetadataCache<Triple<SavedServer, String, Boolean>, List<BaseItemDto>>(ttlMs = 30_000L)
+
     /** Real Emby recommendations used by the detail page's compact poster rail. */
     suspend fun similarItems(
         server: SavedServer,
@@ -170,7 +174,7 @@ internal class EmbyDetailService(
         server: SavedServer,
         seriesId: String,
         includePlaybackSources: Boolean = false,
-    ): List<BaseItemDto> {
+    ): List<BaseItemDto> = episodeDirectories.get(Triple(server, seriesId, includePlaybackSources)) {
         val dto: ItemsResponseDto =
             client
                 .get("${server.baseUrl}/Shows/${embyPath(seriesId)}/Episodes") {
@@ -178,15 +182,15 @@ internal class EmbyDetailService(
                     parameter("UserId", server.userId)
                     parameter(
                         "Fields",
-                        "Overview,Chapters,ProviderIds,RunTimeTicks,UserData,PremiereDate" +
+                        "Overview,ProviderIds,RunTimeTicks,UserData,PremiereDate" +
                             if (includePlaybackSources) {
-                                ",MediaSources,MediaStreams,Path,SeriesPrimaryImageTag"
+                                ",Chapters,MediaSources,MediaStreams,Path,SeriesPrimaryImageTag"
                             } else {
                                 ""
                             },
                     )
                 }.body()
-        return dto.Items
+        dto.Items
     }
 
     private fun selectLocalNextUp(

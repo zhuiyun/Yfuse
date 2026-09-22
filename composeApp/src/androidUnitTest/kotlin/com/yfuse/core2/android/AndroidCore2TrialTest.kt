@@ -14,6 +14,33 @@ import kotlin.test.assertTrue
 
 class AndroidCore2TrialTest {
     @Test
+    fun queueMappingKeepsUserAndTokenBoundToEachItem() {
+        val items =
+            listOf("a", "b").map { account ->
+                mediaItem("https://host/Videos/1/stream?api_key=token-$account&UserId=user-$account")
+            }
+        val mapped = items.toCore2MediaItems("player", appVersion = { "1" })
+        mapped.forEachIndexed { index, item ->
+            val account = if (index == 0) "a" else "b"
+            assertEquals("token-$account", item.headers["X-Emby-Token"])
+            assertTrue(item.headers.getValue("Authorization").contains("UserId=\"user-$account\""))
+            assertEquals("player", item.headers["User-Agent"])
+        }
+    }
+
+    @Test
+    fun loopbackLocalizationDoesNotReceiveUpstreamAuthenticationHeaders() {
+        val item = mediaItem("https://host/Videos/1/stream?api_key=secret&UserId=user")
+        val mapped =
+            listOf(item).toCore2MediaItems(
+                customUserAgent = "player",
+                appVersion = { "1" },
+                localize = { _, _ -> "http://127.0.0.1:1234/media/session" },
+            ).single()
+        assertEquals(mapOf("User-Agent" to "player"), mapped.headers)
+    }
+
+    @Test
     fun native_disc_source_matrix_admits_saf_bdmv_but_not_remote_directory_trees() {
         assertTrue(supportsYCoreNativeDiscSource(PlaybackDiscKind.Bdmv, "file"))
         assertTrue(supportsYCoreNativeDiscSource(PlaybackDiscKind.Bdmv, "content"))

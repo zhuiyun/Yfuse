@@ -39,6 +39,25 @@ internal fun Throwable.mediaSourceFailure(): YPlaybackException? {
             cause = this,
         )
     }
+    val networkFailure = generateSequence(this) { it.cause.takeUnless { cause -> cause === it } }
+        .take(8)
+        .firstOrNull {
+            it is java.net.SocketTimeoutException || it is java.net.UnknownHostException ||
+                it is java.net.ConnectException || it is javax.net.ssl.SSLException ||
+                it is YRangeReadException && it.failureKind in setOf(
+                    com.yfuse.core2.network.YTransportFailureKind.TransientIo,
+                    com.yfuse.core2.network.YTransportFailureKind.ServerBusy,
+                    com.yfuse.core2.network.YTransportFailureKind.PrematureEof,
+                )
+        }
+    if (networkFailure != null) {
+        return YPlaybackException(
+            category = YPlaybackFailureCategory.Network,
+            stage = YPlaybackFailureStage.SourceOpen,
+            safeDetail = "Media transport could not provide source bytes",
+            cause = this,
+        )
+    }
     return (this as? YPlaybackException)?.takeIf {
         it.category in
             setOf(
@@ -66,3 +85,12 @@ internal fun YCore2ProbeResult?.sourceSuccessOrThrow(): YCore2ProbeResult.Succes
     if (this is YCore2ProbeResult.Failure) sourceFailure?.let { throw it }
     return this as? YCore2ProbeResult.Success
 }
+
+internal fun skipEnhancedProbeAfterDeadline(
+    result: YCore2ProbeResult,
+    item: com.yfuse.core2.api.YMediaItem,
+): Boolean =
+    result is YCore2ProbeResult.Failure &&
+        result.reason == YCore2ProbeFailure.DeadlineOrBusy &&
+        item.drmConfiguration == null &&
+        item.sourceHints?.dolbyVision != true

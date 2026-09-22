@@ -24,6 +24,7 @@ import com.yfuse.core.network.EmbyError
 import com.yfuse.core.network.EmbyErrorException
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.network.EmbyStream
+import com.yfuse.core.network.originalNegotiatedPlaybackUrl
 import com.yfuse.core.playback.PlaybackDrmConfiguration
 import com.yfuse.core.sync.episodeWatchKey
 import com.yfuse.core.sync.watchKey
@@ -164,6 +165,7 @@ internal fun List<MediaVersion>.toPlayerMediaVersions(
     token: String,
     negotiatedPlaySessionId: String? = null,
     localCleartextConfirmed: Boolean = false,
+    userId: String? = null,
 ): List<PlayerMediaVersion> =
     map { version ->
         val preferredAudio =
@@ -177,6 +179,7 @@ internal fun List<MediaVersion>.toPlayerMediaVersions(
                 mediaSourceId = version.id,
                 sourceWidth = version.video?.width,
                 sourceBitrateBps = version.bitrateBps ?: version.video?.bitrateBps,
+                userId = userId,
             )
         val sessionId =
             negotiatedPlaySessionId?.takeIf { it.isNotBlank() }
@@ -190,6 +193,7 @@ internal fun List<MediaVersion>.toPlayerMediaVersions(
                     playSessionId = sessionId,
                     addApiKey = version.addApiKeyToDirectStreamUrl,
                     localCleartextConfirmed = localCleartextConfirmed,
+                    userId = userId,
                 )
             }
         val negotiatedTranscode =
@@ -201,6 +205,7 @@ internal fun List<MediaVersion>.toPlayerMediaVersions(
                     playSessionId = sessionId,
                     addApiKey = !raw.contains("X-Plex-Token=", ignoreCase = true),
                     localCleartextConfirmed = localCleartextConfirmed,
+                    userId = userId,
                 )
             }
         val requiresDiscStream = version.requiresDiscNavigation
@@ -245,7 +250,13 @@ internal fun List<MediaVersion>.toPlayerMediaVersions(
             }
         val primaryUrl =
             when (method) {
-                PlaybackMethod.DirectPlay -> generated.direct.withPlaySessionId(sessionId)
+                PlaybackMethod.DirectPlay ->
+                    // Keep provider paths/signatures/user identity for an original linear file.
+                    // Never replace raw-disc navigation or a local Dolby route with a transcode.
+                    directStream
+                        ?.takeIf { version.supportsDirectPlay == true && !requiresDiscStream }
+                        ?.let(::originalNegotiatedPlaybackUrl)
+                        ?: generated.direct.withPlaySessionId(sessionId)
                 PlaybackMethod.DirectStream -> requireNotNull(directStream)
                 PlaybackMethod.Transcode -> hlsTranscode
             }
@@ -1006,6 +1017,7 @@ class PlayerStoreFactory(
                                 token = server.accessToken,
                                 negotiatedPlaySessionId = negotiatedSessionId.takeIf { id == effectiveItemId },
                                 localCleartextConfirmed = server.localCleartextConfirmed,
+                                userId = server.userId,
                             )
                         // Preserve an explicit choice for the opened episode. Every other queue
                         // entry is selected by persisted preference, never server/ingest order.
@@ -1043,7 +1055,7 @@ class PlayerStoreFactory(
                         // the unqualified ones, which is the file the server would have picked.
                         val unqualified =
                             chosen ?: EmbyStream
-                                .streamUrls(server.baseUrl, id, server.accessToken)
+                                .streamUrls(server.baseUrl, id, server.accessToken, userId = server.userId)
                                 .let {
                                     PlayerMediaVersion(
                                         id = id,
@@ -1500,6 +1512,7 @@ class PlayerStoreFactory(
                     baseUrl = fallback.baseUrl,
                     itemId = detail.id,
                     token = fallback.accessToken,
+                    userId = fallback.userId,
                     negotiatedPlaySessionId =
                         playbackInfo
                             ?.PlaySessionId
@@ -1513,7 +1526,7 @@ class PlayerStoreFactory(
                     ?: playerVersions.firstOrNull()
             val playable =
                 selected ?: EmbyStream
-                    .streamUrls(fallback.baseUrl, detail.id, fallback.accessToken)
+                    .streamUrls(fallback.baseUrl, detail.id, fallback.accessToken, userId = fallback.userId)
                     .let { urls ->
                         PlayerMediaVersion(
                             id = detail.id,

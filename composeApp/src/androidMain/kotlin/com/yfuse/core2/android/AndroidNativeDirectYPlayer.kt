@@ -600,6 +600,8 @@ internal class AndroidNativeDirectYPlayer(
         @Volatile
         private var transportBufferingVisible = false
 
+        private val bufferWaitClock = AndroidBufferWaitClock()
+
         @Volatile
         private var transportBlockGeneration = 0L
         private var droppedFrames = 0
@@ -1210,6 +1212,7 @@ internal class AndroidNativeDirectYPlayer(
         }
 
         private fun pausePlaybackInternal(keepRequested: Boolean) {
+            bufferWaitClock.reset()
             renderedFrameRateSampler.reset()
             val positionUs = currentPositionUs()
             wallClock.pause(positionUs, System.nanoTime())
@@ -1275,6 +1278,7 @@ internal class AndroidNativeDirectYPlayer(
             resetEndState()
             seekTargetVideoUs = targetUs
             bufferGate.reset()
+            bufferWaitClock.reset()
             rebufferTracker.discontinuity(System.nanoTime() / 1_000_000L)
             hdrAccessUnits.clear()
             seekTargetAudioUs = targetUs
@@ -1956,7 +1960,16 @@ internal class AndroidNativeDirectYPlayer(
             ) {
                 bufferGate.markStarved()
             }
-            val decision = bufferGate.evaluate(ahead.bufferedDurationUs, ahead.endOfInput, ahead.atCapacity)
+            val decision = bufferGate.evaluate(
+                ahead.bufferedDurationUs,
+                ahead.endOfInput,
+                ahead.atCapacity,
+                rebufferWaitUs = bufferWaitClock.observe(
+                    System.nanoTime(),
+                    requestedPlay && bufferGate.phase == com.yfuse.core2.network.YPlaybackBufferPhase.Rebuffering,
+                    ahead.generation,
+                ),
+            )
             if (!decision.outputAllowed && !transportBufferingVisible) {
                 val position = currentPositionUs()
                 monotonicPositionFloorUs = maxOf(monotonicPositionFloorUs, position)

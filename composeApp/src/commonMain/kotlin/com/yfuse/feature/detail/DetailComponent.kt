@@ -63,6 +63,21 @@ class DetailComponent(
         mediaSourceId: String?,
     ) -> Unit,
 ) : ComponentContext by componentContext {
+    private val openedAt = kotlin.time.TimeSource.Monotonic.markNow()
+    private var firstContentRecorded = false
+
+    internal fun recordFirstContentFrame() {
+        if (firstContentRecorded) return
+        firstContentRecorded = true
+        com.yfuse.core.logging.AppLog.info(
+            "feature.detail", "detail_first_content_frame", "Detail content reached a frame ($itemId)",
+            attributes = mapOf(
+                "itemId" to itemId,
+                "serverId" to (serverId ?: registry.defaultServer?.id).orEmpty(),
+                "elapsedMs" to openedAt.elapsedNow().inWholeMilliseconds.toString(),
+            ),
+        )
+    }
     private val playbackSync =
         runCatching { GlobalContext.get().get<PlaybackSyncManager>() }.getOrNull()
     private var explicitFromStartPending = false

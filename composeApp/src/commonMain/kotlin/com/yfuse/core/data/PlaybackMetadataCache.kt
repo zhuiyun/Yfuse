@@ -16,6 +16,7 @@ internal class PlaybackMetadataCache<K, V>(
     private class Entry<V> {
         val result = CompletableDeferred<Result<V>>()
         var completedAtMs: Long? = null
+        var value: V? = null
     }
 
     private val lock = Any()
@@ -52,6 +53,7 @@ internal class PlaybackMetadataCache<K, V>(
                     }
                 synchronized(lock) {
                     entry.completedAtMs = nowMs()
+                    entry.value = result.getOrNull()
                     if (result.isFailure && entries[key] === entry) entries.remove(key)
                 }
                 entry.result.complete(result)
@@ -78,6 +80,13 @@ internal class PlaybackMetadataCache<K, V>(
         synchronized(lock) {
             entries.keys.filter(predicate).forEach(entries::remove)
         }
+
+    /** Non-blocking first paint: never waits for an in-flight owner or returns an expired value. */
+    fun peek(key: K): V? = synchronized(lock) {
+        val entry = entries[key] ?: return@synchronized null
+        val completed = entry.completedAtMs ?: return@synchronized null
+        entry.value.takeIf { nowMs() - completed in 0 until ttlMs }
+    }
 }
 
 private fun monotonicMillis(): () -> Long {

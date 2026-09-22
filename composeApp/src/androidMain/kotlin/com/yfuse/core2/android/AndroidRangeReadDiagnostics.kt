@@ -10,6 +10,7 @@ internal class AndroidRangeReadDiagnostics(
     private val rangeEnd: Long,
     private val retry: Int,
     private val foreground: Boolean,
+    private val sourceInstance: String = "",
 ) {
     private val id = sequence.incrementAndGet()
     private val startedNs = System.nanoTime()
@@ -19,6 +20,10 @@ internal class AndroidRangeReadDiagnostics(
     @Volatile var status = 0
 
     @Volatile var phase = "opening"
+    @Volatile var reason = ""
+    @Volatile var queueWaitMs = 0L
+    @Volatile var headersMs = -1L
+    @Volatile var firstByteMs = -1L
 
     @Synchronized
     fun tick() {
@@ -31,7 +36,7 @@ internal class AndroidRangeReadDiagnostics(
     @Synchronized
     fun finish() {
         val now = System.nanoTime()
-        if (now - startedNs >= 1_000_000_000L || phase == "failed") report(now, "finished")
+        if (now - startedNs >= 1_000_000_000L || phase == "failed" || phase == "cancelled") report(now, "finished")
     }
 
     private fun report(
@@ -46,12 +51,17 @@ internal class AndroidRangeReadDiagnostics(
             attributes =
                 mapOf(
                     "sourceTrace" to sourceTrace,
+                    "sourceInstance" to sourceInstance,
                     "rangeId" to id.toString(),
                     "rangeStart" to rangeStart.toString(),
                     "rangeEnd" to rangeEnd.toString(),
                     "retry" to retry.toString(),
                     "foreground" to foreground.toString(),
                     "phase" to phase,
+                    "reason" to reason,
+                    "queueWaitMs" to queueWaitMs.toString(),
+                    "headersMs" to headersMs.toString(),
+                    "firstByteMs" to firstByteMs.toString(),
                     "status" to status.toString(),
                     "bytes" to bytes.get().toString(),
                     "elapsedMs" to elapsedMs.toString(),

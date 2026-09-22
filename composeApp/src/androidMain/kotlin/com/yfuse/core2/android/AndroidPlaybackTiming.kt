@@ -2,6 +2,25 @@ package com.yfuse.core2.android
 
 import kotlin.math.roundToLong
 
+/** Wall time spent in one active buffer wait; pauses and seeks must not age the next wait. */
+internal class AndroidBufferWaitClock {
+    private var startedNs: Long? = null
+    private var generation: Long? = null
+
+    fun reset() {
+        startedNs = null
+        generation = null
+    }
+
+    fun observe(nowNs: Long, waiting: Boolean, generation: Long): Long {
+        if (!waiting || this.generation != generation) startedNs = null
+        this.generation = generation
+        if (!waiting) return 0L
+        val start = startedNs ?: nowNs.also { startedNs = it }
+        return (nowNs - start).coerceAtLeast(0L) / 1_000L
+    }
+}
+
 /** A user phase correction changes video scheduling, never the measured AudioTrack timestamp. */
 internal fun audioDelayVideoPositionUs(
     audioPositionUs: Long,
