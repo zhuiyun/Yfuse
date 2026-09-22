@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.AndroidNextItemPreloadWindowTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-09-20T01:56:34.529Z" hostname="DESKTOP-HM2J0FM" time="0.113">
+  <properties/>
+  <testcase name="a replaced child stops waiting instead of starting its old preload" classname="com.yfuse.core2.android.AndroidNextItemPreloadWindowTest" time="0.086"/>
+  <testcase name="ended or failed playback does not warm another source" classname="com.yfuse.core2.android.AndroidNextItemPreloadWindowTest" time="0.002"/>
+  <testcase name="paused playback and faster consumption both defer preloading" classname="com.yfuse.core2.android.AndroidNextItemPreloadWindowTest" time="0.007"/>
+  <testcase name="insufficient buffer never becomes permission merely because two minutes passed" classname="com.yfuse.core2.android.AndroidNextItemPreloadWindowTest" time="0.011"/>
+  <testcase name="cancelling the waiting job stops the preload window" classname="com.yfuse.core2.android.AndroidNextItemPreloadWindowTest" time="0.004"/>
+  <testcase name="a brief refill cannot trigger next-item traffic" classname="com.yfuse.core2.android.AndroidNextItemPreloadWindowTest" time="0.003"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

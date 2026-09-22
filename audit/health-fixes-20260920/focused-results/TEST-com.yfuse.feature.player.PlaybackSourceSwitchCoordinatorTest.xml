@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.PlaybackSourceSwitchCoordinatorTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-09-20T04:16:52.303Z" hostname="DESKTOP-HM2J0FM" time="0.031">
+  <properties/>
+  <testcase name="a_new_version_or_server_switch_supersedes_an_older_switch_of_either_kind" classname="com.yfuse.feature.player.PlaybackSourceSwitchCoordinatorTest" time="0.003"/>
+  <testcase name="seek_and_output_evidence_resets_do_not_supersede_a_same_item_switch" classname="com.yfuse.feature.player.PlaybackSourceSwitchCoordinatorTest" time="0.006"/>
+  <testcase name="queue_edit_or_leave_and_return_invalidates_even_an_identical_media_identity" classname="com.yfuse.feature.player.PlaybackSourceSwitchCoordinatorTest" time="0.003"/>
+  <testcase name="delayed_cleanup_cannot_replace_a_changed_playback_request" classname="com.yfuse.feature.player.PlaybackSourceSwitchCoordinatorTest" time="0.009"/>
+  <testcase name="observed_same_engine_media_round_trip_does_not_revive_an_old_switch" classname="com.yfuse.feature.player.PlaybackSourceSwitchCoordinatorTest" time="0.003"/>
+  <testcase name="unchanged_playback_requires_successful_cleanup_before_the_switch_is_ready" classname="com.yfuse.feature.player.PlaybackSourceSwitchCoordinatorTest" time="0.002"/>
+  <testcase name="cancellation_does_not_publish_a_preparation_result" classname="com.yfuse.feature.player.PlaybackSourceSwitchCoordinatorTest" time="0.003"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,69 @@
+--- before/composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/SegmentIndicator.kt
++++ after/composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/SegmentIndicator.kt
+@@ -1,7 +1,9 @@
+ package com.yfuse.core.designsystem
+ 
+-import androidx.compose.animation.core.animateFloatAsState
++import androidx.compose.animation.animateColorAsState
++import androidx.compose.animation.core.Animatable
+ import androidx.compose.runtime.Composable
++import androidx.compose.runtime.LaunchedEffect
+ import androidx.compose.runtime.mutableStateMapOf
+ import androidx.compose.runtime.remember
+ import androidx.compose.ui.Modifier
+@@ -17,6 +19,8 @@
+ import androidx.compose.ui.layout.onPlaced
+ import androidx.compose.ui.layout.positionInParent
+ import androidx.compose.ui.unit.dp
++import kotlinx.coroutines.coroutineScope
++import kotlinx.coroutines.launch
+ 
+ internal class SegmentIndicator(
+     val container: Modifier,
+@@ -34,8 +38,33 @@
+     val bounds = remember { mutableStateMapOf<Int, Rect>() }
+     val target = bounds[selectedIndex]
+     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+-    val left = animateFloatAsState(target?.left ?: 0f, Motion.settle(reduceMotion), label = "segmentLeft")
+-    val right = animateFloatAsState(target?.right ?: 0f, Motion.settle(reduceMotion), label = "segmentRight")
++    val left = remember { Animatable(0f) }
++    val right = remember { Animatable(0f) }
++    val placed = remember { booleanArrayOf(false) }
++    LaunchedEffect(target, reduceMotion) {
++        val bounds = target ?: return@LaunchedEffect
++        if (!placed[0] || reduceMotion) {
++            left.snapTo(bounds.left)
++            right.snapTo(bounds.right)
++            placed[0] = true
++        } else {
++            val movingRight = bounds.center.x >= (left.value + right.value) / 2f
++            coroutineScope {
++                launch {
++                    left.animateTo(
++                        bounds.left,
++                        if (movingRight) Motion.tabIndicatorTrailing() else Motion.tabIndicatorLeading(),
++                    )
++                }
++                launch {
++                    right.animateTo(
++                        bounds.right,
++                        if (movingRight) Motion.tabIndicatorLeading() else Motion.tabIndicatorTrailing(),
++                    )
++                }
++            }
++        }
++    }
+     return SegmentIndicator(
+         Modifier.drawBehind {
+             if (target != null) {
+@@ -68,4 +97,9 @@
+ }
+ 
+ @Composable
+-internal fun selectionColor(target: Color): Color = rememberAnimatedColorState(target, Motion.QUICK).value
++internal fun selectionColor(target: Color): Color =
++    animateColorAsState(
++        target,
++        Motion.settle(LocalAccessibilityOptions.current.reduceMotion || !LocalRouteVisible.current),
++        label = "selectionColor",
++    ).value

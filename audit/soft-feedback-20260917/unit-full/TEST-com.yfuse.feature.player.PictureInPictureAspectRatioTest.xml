@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.PictureInPictureAspectRatioTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:15.853Z" hostname="DESKTOP-HM2J0FM" time="0.0">
+  <properties/>
+  <testcase name="falls_back_and_clamps_extreme_dimensions_to_android_limits" classname="com.yfuse.feature.player.PictureInPictureAspectRatioTest" time="0.0"/>
+  <testcase name="uses_decoded_video_dimensions_when_android_accepts_them" classname="com.yfuse.feature.player.PictureInPictureAspectRatioTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

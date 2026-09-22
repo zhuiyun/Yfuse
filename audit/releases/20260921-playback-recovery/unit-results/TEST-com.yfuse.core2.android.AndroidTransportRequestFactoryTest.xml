@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.AndroidTransportRequestFactoryTest" tests="1" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:43:59.367Z" hostname="DESKTOP-HM2J0FM" time="0.0">
+  <properties/>
+  <testcase name="random access request preserves credentials and exact range" classname="com.yfuse.core2.android.AndroidTransportRequestFactoryTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

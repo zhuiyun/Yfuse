@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.playback.PlaybackStartupPolicyTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:06.684Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="mpv_respects_explicit_quality_but_lowers_gpu_cost_under_pressure" classname="com.yfuse.core.playback.PlaybackStartupPolicyTest" time="0.0"/>
+  <testcase name="live_and_compatibility_keep_the_original_startup_policy" classname="com.yfuse.core.playback.PlaybackStartupPolicyTest" time="0.0"/>
+  <testcase name="cache_fast_start_requires_enough_actual_media_bytes_for_two_seconds" classname="com.yfuse.core.playback.PlaybackStartupPolicyTest" time="0.001"/>
+  <testcase name="fast_start_requires_a_real_sustained_sample_and_headroom_at_the_selected_speed" classname="com.yfuse.core.playback.PlaybackStartupPolicyTest" time="0.0"/>
+  <testcase name="mdk_raises_rebuffer_reserve_after_first_output_without_exceeding_memory_budget" classname="com.yfuse.core.playback.PlaybackStartupPolicyTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

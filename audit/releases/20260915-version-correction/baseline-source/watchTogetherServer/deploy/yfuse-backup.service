@@ -1,0 +1,12 @@
+[Unit]
+Description=Yfuse database snapshots
+After=yfuse-update.service
+
+[Service]
+Type=oneshot
+User=yfuse
+Group=yfuse
+EnvironmentFile=-/etc/yfuse-watch/backup.env
+ExecStart=/opt/yfuse-watch/deploy/yfuse-backup.sh
+Nice=10
+IOSchedulingClass=idle

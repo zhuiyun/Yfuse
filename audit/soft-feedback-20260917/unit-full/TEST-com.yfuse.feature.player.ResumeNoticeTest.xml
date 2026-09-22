@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.ResumeNoticeTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:16.197Z" hostname="DESKTOP-HM2J0FM" time="0.012">
+  <properties/>
+  <testcase name="dismissed_offer_cannot_be_revived_and_new_playback_has_no_offer" classname="com.yfuse.feature.player.ResumeNoticeTest" time="0.001"/>
+  <testcase name="buffering_does_not_consume_the_three_second_offer_and_reopening_controls_does_not_replay_it" classname="com.yfuse.feature.player.ResumeNoticeTest" time="0.011"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

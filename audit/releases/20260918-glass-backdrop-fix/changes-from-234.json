@@ -1,0 +1,9 @@
+[
+  "composeApp/src/commonMain/kotlin/com/yfuse/app/App.kt",
+  "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/Backdrop.kt",
+  "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/BackdropFrames.kt",
+  "composeApp/src/commonTest/kotlin/com/yfuse/core/designsystem/BackdropFramesTest.kt",
+  "composeApp/src/commonTest/kotlin/com/yfuse/core/designsystem/OverlayVisibilityTest.kt",
+  "release-notes.txt",
+  "version.properties"
+]

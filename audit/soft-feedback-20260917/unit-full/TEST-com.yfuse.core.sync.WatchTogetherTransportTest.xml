@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.sync.WatchTogetherTransportTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:07.491Z" hostname="DESKTOP-HM2J0FM" time="0.002">
+  <properties/>
+  <testcase name="domain_and_message_based_authentication_failures_are_recognised" classname="com.yfuse.core.sync.WatchTogetherTransportTest" time="0.001"/>
+  <testcase name="reconnect_backoff_doubles_per_attempt_with_bounded_jitter_and_a_cap" classname="com.yfuse.core.sync.WatchTogetherTransportTest" time="0.0"/>
+  <testcase name="attempts_below_one_are_treated_as_the_first_attempt" classname="com.yfuse.core.sync.WatchTogetherTransportTest" time="0.0"/>
+  <testcase name="endpoints_without_a_web_scheme_are_rejected" classname="com.yfuse.core.sync.WatchTogetherTransportTest" time="0.0"/>
+  <testcase name="only_a_401_response_counts_as_an_authentication_failure" classname="com.yfuse.core.sync.WatchTogetherTransportTest" time="0.001"/>
+  <testcase name="http_endpoints_become_the_matching_websocket_scheme_with_one_watch_path" classname="com.yfuse.core.sync.WatchTogetherTransportTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.AndroidBoundedProbeTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:43:54.214Z" hostname="DESKTOP-HM2J0FM" time="0.167">
+  <properties/>
+  <testcase name="sequential_candidate_probes_never_skip_an_already_completed_owner" classname="com.yfuse.core2.android.AndroidBoundedProbeTest" time="0.044"/>
+  <testcase name="interrupted_caller_returns_unclaimed_resources_before_a_queued_worker_starts" classname="com.yfuse.core2.android.AndroidBoundedProbeTest" time="0.0"/>
+  <testcase name="source_failure_after_budget_cancellation_preserves_the_abort_reason" classname="com.yfuse.core2.android.AndroidBoundedProbeTest" time="0.003"/>
+  <testcase name="timeout_includes_blocking_open_and_does_not_accumulate_probe_workers" classname="com.yfuse.core2.android.AndroidBoundedProbeTest" time="0.118"/>
+  <testcase name="source_failure_without_cancellation_keeps_its_original_cause" classname="com.yfuse.core2.android.AndroidBoundedProbeTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

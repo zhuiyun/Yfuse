@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.playback.YCorePlaybackSessionTest" tests="9" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:06.688Z" hostname="DESKTOP-HM2J0FM" time="0.003">
+  <properties/>
+  <testcase name="huge_mov_gets_a_long_but_finite_startup_budget" classname="com.yfuse.core.playback.YCorePlaybackSessionTest" time="0.001"/>
+  <testcase name="intentional_buffering_does_not_trigger_a_position_stall" classname="com.yfuse.core.playback.YCorePlaybackSessionTest" time="0.0"/>
+  <testcase name="healthy_session_clears_a_previous_engine_quirk" classname="com.yfuse.core.playback.YCorePlaybackSessionTest" time="0.002"/>
+  <testcase name="large_remote_source_gets_time_for_multiple_random_access_reads" classname="com.yfuse.core.playback.YCorePlaybackSessionTest" time="0.0"/>
+  <testcase name="remote_startup_without_a_first_frame_is_reported_once_after_transport_budget" classname="com.yfuse.core.playback.YCorePlaybackSessionTest" time="0.0"/>
+  <testcase name="session_records_sustained_renderer_loss_once" classname="com.yfuse.core.playback.YCorePlaybackSessionTest" time="0.0"/>
+  <testcase name="native_runtime_fault_does_not_penalize_the_compatibility_engine_identity" classname="com.yfuse.core.playback.YCorePlaybackSessionTest" time="0.0"/>
+  <testcase name="local_media_keeps_the_short_startup_budget" classname="com.yfuse.core.playback.YCorePlaybackSessionTest" time="0.0"/>
+  <testcase name="remote_direct_media_gets_time_for_transport_recovery" classname="com.yfuse.core.playback.YCorePlaybackSessionTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

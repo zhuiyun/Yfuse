@@ -1,0 +1,25 @@
+settingsEvaluated { settings ->
+    settings.dependencyResolutionManagement.repositories.exclusiveContent {
+        forRepository {
+            settings.dependencyResolutionManagement.repositories.maven { url = new File("D:/Demo/Yfuse/audit/playback-optimization-20260920/maven").toURI() }
+        }
+        filter {
+            includeModule("androidx.media3", "media3-datasource-okhttp")
+            ['bcprov-jdk18on', 'bcpkix-jdk18on', 'bcutil-jdk18on', 'bctls-jdk18on'].each {
+                includeVersion('org.bouncycastle', it, '1.85')
+            }
+        }
+    }
+    def sharedStaging = new File(settings.rootDir, '.gradle-tmp/health-maven')
+    if (sharedStaging.isDirectory()) {
+        settings.dependencyResolutionManagement.repositories.maven {
+            url = sharedStaging.toURI()
+            content {
+                includeGroup('com.squareup.wire')
+                includeGroup('org.apache.commons')
+                includeGroup('org.apache.httpcomponents')
+                includeGroup('org.apache')
+            }
+        }
+    }
+}

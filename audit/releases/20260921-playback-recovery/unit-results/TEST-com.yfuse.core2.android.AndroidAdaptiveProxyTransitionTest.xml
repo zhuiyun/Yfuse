@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.AndroidAdaptiveProxyTransitionTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:43:53.838Z" hostname="DESKTOP-HM2J0FM" time="0.344">
+  <properties/>
+  <testcase name="cancelling_manifest_resolution_closes_the_inflight_transport_without_publishing_a_target" classname="com.yfuse.core2.android.AndroidAdaptiveProxyTransitionTest" time="0.04"/>
+  <testcase name="dash_switch_changes_initialization_only_after_the_actor_consumes_a_reopen_plan" classname="com.yfuse.core2.android.AndroidAdaptiveProxyTransitionTest" time="0.101"/>
+  <testcase name="dash_period_targets_keep_global_time_and_upstream_identity_while_rebuilding_initialization" classname="com.yfuse.core2.android.AndroidAdaptiveProxyTransitionTest" time="0.017"/>
+  <testcase name="an_old_period_abr_plan_is_discarded_at_the_boundary_before_resolving_the_next_period" classname="com.yfuse.core2.android.AndroidAdaptiveProxyTransitionTest" time="0.096"/>
+  <testcase name="slow_alternate_does_not_delay_selected_playlist_and_different_init_requires_a_new_target" classname="com.yfuse.core2.android.AndroidAdaptiveProxyTransitionTest" time="0.089"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

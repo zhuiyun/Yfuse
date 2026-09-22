@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.render.YGpuPipelineTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:13.350Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="refuses dishonest HDR fallback without a tone mapper" classname="com.yfuse.core2.render.YGpuPipelineTest" time="0.0"/>
+  <testcase name="keeps native direct path when no processing is necessary" classname="com.yfuse.core2.render.YGpuPipelineTest" time="0.0"/>
+  <testcase name="selects Vulkan BT2390 and dithering for HDR to SDR" classname="com.yfuse.core2.render.YGpuPipelineTest" time="0.001"/>
+  <testcase name="never selects Vulkan from an advertised API without a verified executor" classname="com.yfuse.core2.render.YGpuPipelineTest" time="0.0"/>
+  <testcase name="ordinary display scaling remains on native Surface path" classname="com.yfuse.core2.render.YGpuPipelineTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

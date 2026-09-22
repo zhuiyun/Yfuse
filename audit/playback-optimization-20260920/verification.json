@@ -1,0 +1,3531 @@
+{
+  "verified_at": "2026-09-20T03:29:33.557840+00:00",
+  "implementation": "A-F playback optimizations and launch/session timing",
+  "unit_results": {
+    "phoneShared": {
+      "totals": {
+        "tests": 2775,
+        "failures": 0,
+        "skipped": 0
+      },
+      "suites": [
+        {
+          "name": "com.yfuse.Android16CompatibilityPolicyTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.app.FloatingNavigationInsetsTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.app.NavigationCollapseGuardTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.app.NavigationGlassVisualsTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.app.RootTabMotionTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.app.SplashTimingPolicyTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.app.TopLevelBackStackTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.account.AccountAccessTokenSourceTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.account.AccountInviteCapabilityTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.account.AccountRepositoryStateTest",
+          "tests": 17,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.account.AccountRepositoryTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.account.PersonalCloudSyncTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.account.PlaybackCloudApiTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.account.WatchTogetherAccountPolicyTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.cast.CastResponseBoundaryTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.cast.CastStateMachineTest",
+          "tests": 9,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.cast.DlnaOperationsTest",
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.data.AiringCalendarMergeTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.data.AiringCalendarTest",
+          "tests": 13,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.data.AsyncServerSessionStartupTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.data.CalendarFollowStoreTest",
+          "tests": 12,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.data.CalendarIdentityRetentionTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.data.CalendarLocalStoreTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.data.DanmakuTest",
+          "tests": 35,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.data.DiagnosticPreferencesTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.data.dto.DolbyVisionLayerMappingTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.data.dto.PlaybackSegmentsTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.data.EmbyAuthServiceTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.data.EmbyDetailServiceTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.data.EmbyDeviceProfileFactoryTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.data.EmbyHomeServiceTest",
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.data.EmbyLookupServiceTest",
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.data.EmbyPathContractTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.data.EmbyPlaybackServiceTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.data.EmbyRepositoryTest",
+          "tests": 71,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.data.EmbySearchServiceTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.data.EmbyServerServiceTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.data.EmbySourceServiceTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.data.EmbySubtitleServiceTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.data.EmbyUserDataServiceTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.data.GenreFacetNormalizationTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.data.LibraryCacheTest",
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.data.MediaServerKindTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.data.MediaVersionSelectionTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.data.MetadataEditorServiceTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.data.OfficialAiringScheduleCatalogTest",
+          "tests": 9,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.data.PlaybackBookmarksTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.data.PlaybackEventOutboxTest",
+          "tests": 17,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.data.PlaybackFailoverRequestTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.data.PlaybackMetadataCacheTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.data.PlaybackNegotiationContractTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.data.PlaybackPreferencesTest",
+          "tests": 17,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.data.PlaybackProgressProjectionTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.data.PlaybackTrackRequestTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.data.PlexCloudAccountServiceTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.data.PlexIdentityIsolationTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.data.PlexMediaServerAdapterTest",
+          "tests": 12,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.data.SeriesCalendarLoadingTest",
+          "tests": 11,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.data.ServerHealthRefreshResultTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.data.ServerManagementTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.data.ServerRegistryTest",
+          "tests": 18,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.data.ServerSessionRecoveryTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.data.SkipSegmentPreferencesTest",
+          "tests": 11,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.data.SmartPlaylistStoreTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.data.SmartSourceSelectionTest",
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.data.ThemePreferencesTest",
+          "tests": 11,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.data.TmdbHomeCacheTest",
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.data.TmdbHomeRefreshTest",
+          "tests": 11,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.data.TmdbHomeTimeoutTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.data.TmdbRepositoryTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.data.UserAgentPreferencesTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.data.WatchTogetherPreferencesTest",
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.designsystem.AmbientLightTest",
+          "tests": 11,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.designsystem.AmbientLightTransitionTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.designsystem.AnimatedColorStateTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.designsystem.ArtworkBlurCacheTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.designsystem.ArtworkColorCacheTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.designsystem.ArtworkColorMotionTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.designsystem.ArtworkPageSurfaceTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.designsystem.ArtworkPageThemeTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.designsystem.BackdropFramesTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.designsystem.CarouselMotionTest",
+          "tests": 9,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.designsystem.ContentHandoffTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.designsystem.DecorativePhaseTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.designsystem.DesignSystemContractTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.designsystem.DialogAnimationTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.designsystem.DialogMotionPolishTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.designsystem.DominantColorTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.designsystem.GlassButtonStyleTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.designsystem.GlassMaterialTest",
+          "tests": 12,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.designsystem.GlassTest",
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.designsystem.LightParticlesTest",
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.designsystem.LivingPosterMetadataTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.designsystem.LoadingAnimationTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.designsystem.LoadingMotionTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.designsystem.LoopingCarouselTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.designsystem.MediaLazyItemKeyTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.designsystem.MotionAccessibilityPolicyTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.designsystem.MotionHandoffPolicyTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.designsystem.NavigationGlassTest",
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.designsystem.NavigationIdentityTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.designsystem.NavigationPearlGlassTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.designsystem.NavigationRailPolicyTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.designsystem.OverlayVisibilityTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.designsystem.PosterRatingTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.designsystem.SharedMediaTransitionTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.designsystem.ThemeCrossfadeStateTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.designsystem.ThemeCrossfadeTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.designsystem.ToastQueueTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.designsystem.WaitingPulsePolicyTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.handoff.AccountHandoffApiTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.handoff.HandoffControllerTest",
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.handoff.HandoffPlaybackRegistryTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.handoff.HandoffVaultCipherTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.logging.DiagnosticLogBoundaryTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.logging.DiagnosticRedactorTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.logging.PlaybackDiagnosticTraceTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.logging.SafeLogcatOutputGateTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.migration.MigrationRelayApiTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.migration.MigrationRelayHttpEngineTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.model.DolbyVisionTest",
+          "tests": 12,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.model.DolbyVisionUnknownProfileTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.model.MediaServerCapabilitiesTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.model.PlaybackHistoryTest",
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.navigation.SingleFlightNavigationGuardTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.network.AndroidHttpEnginePolicyTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.network.EmbyAuthTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.network.EmbyErrorMessagesTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.network.EmbyImagesTest",
+          "tests": 9,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.network.EmbyStreamTest",
+          "tests": 16,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.network.FallbackTranscodeContractTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.network.HttpClientFactoryTest",
+          "tests": 12,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.network.ImageCacheKeyTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.network.Jellyfin12CompatibilityTest",
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.network.LocalNetworkPermissionTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.network.ServerEndpointPolicyTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.network.ServiceEndpointPolicyTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.network.TmdbImagesTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.offline.DownloadSummaryTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.offline.OfflineBatchCommandTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.offline.OfflineBatchSelectionTest",
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.offline.OfflineCommandQueueTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.offline.OfflineDownloadBudgetTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.offline.OfflineEnqueueBatchTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.offline.OfflineIndexMigrationTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.offline.OfflineIndexRecoveryTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.offline.OfflineMediaSecurityTest",
+          "tests": 26,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.offline.OfflineRetryPolicyTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.offline.OfflineWakeWorkTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.performance.HighRefreshRateTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.performance.JankFrameWindowTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.personal.PersonalLibraryRepositoryTest",
+          "tests": 10,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.playback.AndroidBlockingMediaProbeLaneTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.playback.DolbyVisionEnhancementValidationTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.playback.DolbyVisionMediaEvidenceMappingTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.playback.NativeCrashIsolationTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.playback.OpticalPlaybackReleaseValidationTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.playback.PlaybackAdaptiveManifestTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.playback.PlaybackBufferPolicyTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.playback.PlaybackCodecMappingTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.playback.PlaybackDeviceCapabilitiesAndroidTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.playback.PlaybackDiscImageInspectorTest",
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.playback.PlaybackDiscNavigationTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.playback.PlaybackDiscPolicyTest",
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.playback.PlaybackDolbyVisionRoutingTest",
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.playback.PlaybackDrmTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.playback.PlaybackFailureMemoryTest",
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.playback.PlaybackHdrPolicyTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.playback.PlaybackHealthTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.playback.PlaybackNetworkRecoveryControllerTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.playback.PlaybackOfflineLicenseCatalogTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.playback.PlaybackOfflineLicenseNativeTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.playback.PlaybackPerformanceMemoryTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.playback.PlaybackPlannerTest",
+          "tests": 22,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.playback.PlaybackQoeReporterTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.playback.PlaybackReleaseValidationTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.playback.PlaybackRuntimeEnvironmentTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.playback.PlaybackRuntimeFaultDetectorTest",
+          "tests": 30,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.playback.PlaybackStartupPolicyTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.playback.ProResPlaybackPlanningTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.playback.RemoteDiscRoutingTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.playback.UhdBluRayPlaybackPlannerTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.playback.YCorePlaybackSessionTest",
+          "tests": 9,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.security.Base64UrlTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.security.CredentialPersistingSettingsTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.security.SecureStoreEnvelopeCodecTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.security.ServerMigrationRelayCryptoTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.security.VaultCryptoTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.sync.ClockSyncTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.sync.CloudSyncSnapshotTest",
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.sync.playback.PlaybackCloudSyncPolicyTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.sync.playback.PlaybackConflictResolverTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.sync.playback.PlaybackServerApplyPolicyTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.sync.playback.PlaybackStartPositionTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.sync.playback.PlaybackSyncManagerTest",
+          "tests": 9,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.sync.playback.PlaybackSyncStoreTest",
+          "tests": 19,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.sync.playback.PlaybackWireCompatibilityTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.sync.ServerSyncManagerTest",
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.sync.UserStateWriterTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.sync.WatchConnectionOwnershipTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.sync.WatchDurationMismatchTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.sync.WatchInviteTest",
+          "tests": 18,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.sync.WatchRoomPlaylistTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.sync.WatchRoomResumeStoreTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.sync.WatchStickerTest",
+          "tests": 9,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.sync.WatchTogetherCapabilityTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.sync.WatchTogetherChatTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.sync.WatchTogetherClientTest",
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.sync.WatchTogetherOutgoingQueueTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.sync.WatchTogetherTransportTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.trakt.HttpTraktApiTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.trakt.TraktRepositoryTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.util.DateWindowTest",
+          "tests": 11,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.util.UnicodeTextTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.adaptive.YAdaptiveBitrateTest",
+          "tests": 9,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.adaptive.YAdaptiveReopenCompatibilityTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.adaptive.YDashFinitePlaybackTimelineTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.adaptive.YDashParserTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.adaptive.YDashPresentationTimelineTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.adaptive.YHlsParserTest",
+          "tests": 10,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidActiveAudioOutputFingerprintTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidAdaptiveCore2RecoveryPlanTest",
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidAdaptiveDrmInitializationDataTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidAdaptiveHttpMediaTransportTest",
+          "tests": 17,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidAdaptiveManifestDiscoveryTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidAdaptivePresentationStateTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidAdaptiveProxyTransitionTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidAssSubtitleRendererTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidAudioClockProgressGuardTest",
+          "tests": 11,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidAudioCodecMappingTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidAudioRouteEvidenceTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidAudioTrackRenderNodePolicyTest",
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidBoundedProbeTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidCore2DolbyTrialGuardTest",
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidCore2FallbackPolicyTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidCore2ProbeTruthMergeTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidCore2SoftwareRouteTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidCore2TrialTest",
+          "tests": 11,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidCronetHostHealthTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidDemuxAnalysisPolicyTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidDemuxReadAheadNodeTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidDolbyProfileMappingTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidEncodedAudioTrackRenderNodeTest",
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidEnhancedAudioSelectionTest",
+          "tests": 11,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidEnhancedMediaProbeFailureMemoryTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidExternalSubtitleCancellationTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidExternalSubtitleSessionTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidFfmpegDemuxerMappingTest",
+          "tests": 16,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidForwardCacheWarmerTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidHttpMediaTransportTest",
+          "tests": 15,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidHttpRangeHeadersTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidHttpRangeMediaDataSourceTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidMediaCodecVideoNodePolicyTest",
+          "tests": 24,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidMediaExtractorReadAheadNodeTest",
+          "tests": 21,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidMetadataProbeStageTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidNativeDirectAudioRoutePreviewTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidNetworkRecoveryWindowTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidNextItemPreloadWindowTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidNextItemPreparationTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidPausedVideoPreviewTest",
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidPlaybackMemoryBudgetTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidPlaybackProbeFactsTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidPlaybackTimingTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidPlaybackWorkerStepTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidPreparedMediaSlotTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidProbeBudgetTest",
+          "tests": 9,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidQueueCursorTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidRangeReadWatchdogTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidRuntimeCapabilityRegistryTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidSecureSurfacePolicyTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidSourceRouteStateRegistryTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidSurfacePlaybackCompletionTest",
+          "tests": 9,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidTransportCancellationTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidTransportDiscBlockSourceTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidTransportMediaDataSourcePrefetchTest",
+          "tests": 16,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidTransportMemoryPressureTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidTransportRequestFactoryTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidTransportStartupAndResumeTest",
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidTunnelSeekAudioTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidVideoEosGateTest",
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidVideoOutputEpochTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidYCoreBlockCacheTest",
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidYCoreCryptoInfoTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidYCoreHttpProxyTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidYCoreProxyCloseTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidYCoreVerifiedRouteMemoryTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.Anime4KFrameLedgerTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.BoundedFrameLeasePoolTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.CodecFrameTimestampMapperTest",
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.Core2NativeBaselineTest",
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.NativeDirectCommandPolicyTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.NativeDirectHdr10PlusTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.NativeDirectPacingPolicyTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.NativeEnhancedCommandPolicyTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.NextItemCancellationTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.NextItemOutputHandoffTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.NextItemRangeReuseTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.PlaybackAuditRegressionTest",
+          "tests": 10,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.PlaybackTransportAuditTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.SharedOriginConnectionPoolTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.YAdaptiveBufferModelTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.YAdaptiveReopenGateTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.YEnhancedAudioSelectionTest",
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.android.YEnhancedDemuxSourceTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.api.YDualDolbyEvidenceTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.api.YPlayerDiagnosticsTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.api.YPlayerQueueTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.api.YRebufferTrackerTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.bitstream.YBitstreamTest",
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.bitstream.YCodecConfigurationTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.capability.YCapabilityTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.dolby.YDolbyVisionBitstreamTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.dolby.YDolbyVisionConfigEncodingTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.dolby.YDolbyVisionConfigTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.dolby.YDolbyVisionFelEvidenceProviderTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.dolby.YDolbyVisionLayerSynchronizerTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.dolby.YDolbyVisionRouterTest",
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.dolby.YMatroskaDolbyVisionMetadataParserTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.dolby.YMatroskaTrackCodecParserTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.drm.YDrmRenewalPolicyTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.graph.YPlaybackGraphTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.hdr.YHdr10PlusParserTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.hdr.YHdrMetadataTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.hdr.YHdrRouterTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.learning.YPlaybackLearningTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.legacy.AndroidMpvCore2FallbackFactoryTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.legacy.LegacyYPlayerAdapterTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.legacy.YPlayerVideoEngineAdapterTest",
+          "tests": 12,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.network.YAggregateBandwidthMeterTest",
+          "tests": 10,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.network.YBufferControllerTest",
+          "tests": 14,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.network.YMediaTransportTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.network.YTransportRetryPolicyTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.quirk.YCore2FailureLedgerTest",
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.quirk.YDeviceQuirkDatabaseTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.recovery.YAudioHandoverPolicyTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.recovery.YPlaybackRecoveryPolicyTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.release.YCoreNativeReadinessTest",
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.render.YFrameRatePolicyTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.render.YGpuColorPipelineTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.render.YGpuPipelineTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.render.YNativeGpuRuntimeTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.security.YCoreMalformedInputFuzzTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.strategy.YAudioOnlyStrategyTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.strategy.YPlatformAudioDemuxStrategyTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.strategy.YPlaybackStrategyTest",
+          "tests": 16,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.strategy.YProbeTruthPolicyTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.strategy.YTunnelPolicyTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.subtitle.YDualSubtitleTimelineTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.subtitle.YEmbeddedTextSubtitleQueueTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.subtitle.YSubtitleClockAnchorTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.subtitle.YSubtitleCueBufferTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.subtitle.YSubtitleParserCancellationTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.subtitle.YSubtitleRegexRegressionTest",
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.subtitle.YTextSubtitleParserTest",
+          "tests": 9,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.sync.YAvSyncTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.sync.YMediaClockTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.sync.YMediaTimestampTimelineTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core2.test.YMediaTestSuiteTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.calendar.AiringShowCalendarDialogTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.calendar.CalendarFilterTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.calendar.CalendarIcsTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.calendar.CalendarLoadDeadlineTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.calendar.CalendarStateTest",
+          "tests": 13,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.detail.DetailActionColorTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.detail.DetailActionFormattingTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.detail.DetailHeroPhysicsTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.detail.DetailPlaybackSelectionTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.detail.DetailStateColorsTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.detail.DetailStoreTest",
+          "tests": 32,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.detail.EpisodeFocusTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.detail.EpisodeProgressReducerTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.detail.MediaQualitySortingTest",
+          "tests": 11,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.detail.OfflineDownloadDraftTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.detail.SeriesAiringCalendarTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.detail.SourceSelectionPresentationTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.handoff.HandoffTargetIdentityTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.handoff.HandoffTimelineTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.home.HomeCalendarOpenTargetTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.home.HomePlaybackRecoveryTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.home.HomePlayerRouteAutoplayTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.home.HomeStoreTest",
+          "tests": 17,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.library.LibraryContainerRouteTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.library.LibraryFreshnessTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.library.LibraryGridStoreTest",
+          "tests": 17,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.library.LibraryHeroUiContractTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.library.LibraryStoreTest",
+          "tests": 11,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.library.PlayerRouteLaunchGateTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.library.UnifiedLibraryPagerTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.ActivePlaybackTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.AdaptiveStartupLoadControlTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.AmbientCopyTest",
+          "tests": 13,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.AmbientSamplingPolicyTest",
+          "tests": 12,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.AndroidDolbyVisionRuntimeTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.AndroidPlaybackHttpProxyTest",
+          "tests": 9,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.AndroidPlaybackOutputTest",
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.ArtworkProgressBarTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.AudioControlPolicyTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.AudioOutputDelayPreferencesTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.AudioTrackMatchingTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.BackgroundPlaybackProbePolicyTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.BdJDiscNavigationBackendTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.BufferedPositionTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.CastMediaProfileTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.Core2SurfaceTest",
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.DanmakuLayoutTest",
+          "tests": 9,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.DiscMenuAndroidInputTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.DiscNavigationBackendTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.DualSubtitlePreferencesTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.EpisodeStripTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.ExoDrmConfigurationTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.ExoDualSubtitleCueMergerTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.ExoMainFeatureSupportTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.ExoSecondarySubtitleRecoveryTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.HandoffPreferenceResolutionTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.HdmvDiscNavigationBackendTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.HdmvOverlayMappingTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.HlsManifestGuardDataSourceTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.ManifestTrackDeduplicationTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.MdkEndStateGateTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.MdkFallbackSettleWindowTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.MdkPlaybackEvidenceTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.MpvDiscNavigationMetadataTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.MpvDiscPlaybackUrlTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.MpvDolbyRuntimeEvidenceTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.MpvEndFileTrackerTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.MpvExternalSubtitleCommandTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.MpvFileLoadWatchdogTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.MpvNativeBuildCapabilitiesTest",
+          "tests": 10,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.MpvOutputStateTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.MpvSubtitleTextTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.MpvVideoReadinessGateTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.NativeLocalBdmvPathTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.NativePlaybackFailureTest",
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.NativeRemoteBluRayPlanningTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.NativeRemoteBluRayPreflightTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.NextItemCreditsBoundaryTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.NextUpRingCompositionTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.NextUpRingStateTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.OfflineSubtitleConfigurationTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.PersistentPlaybackCachePolicyTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.PictureInPictureAspectRatioTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackBackgroundFlushTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackBackgroundNotifierTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackDiagnosticsTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackEngineBindingLabelTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackFailoverPolicyTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackFailureKindReportingTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackHandoverTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackKeepAliveServiceTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackLaunchTimingTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackLifecyclePolicyTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackNegotiationPolicyTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackOutboxWorkTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackOutputCapabilitiesTest",
+          "tests": 9,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackOutputEvidenceTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackOutputReadinessTest",
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackPreloaderPolicyTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackPreloadTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackProbeCompletionGateTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackProblemExplanationTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackProgressReporterTest",
+          "tests": 11,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackProxyRequestsTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackProxyRoutesTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackQueueUpdateTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackReleaseTimingTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackRemotePolicyTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackReportingCoordinatorTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackReportingTargetTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackReportOriginTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackRoadmapTest",
+          "tests": 17,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackRuntimeCadenceTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackRuntimeContentTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackSourceSwitchCoordinatorTest",
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackStateFanoutTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackTrackRestoreTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackTransportStateTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackTruthTest",
+          "tests": 13,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.PlayerArtworkTransformTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.PlayerAudioSourceHintsTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.PlayerBackendExtensionsTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.PlayerBatteryStatusTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.PlayerControlFormattingDolbyTest",
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.PlayerControlFormattingTest",
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.PlayerControlSnapshotTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.PlayerDragGesturesTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.PlayerEngineFactoryPolicyTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.PlayerLaunchRegistryTest",
+          "tests": 11,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.PlayerMicroMotionTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.PlayerMotionPhysicsTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.PlayerSeriesLaunchTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.PlayerSkipCoordinatorTest",
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.PlayerStoreTest",
+          "tests": 23,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.PlayerVersionMarshallingTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.PlexPlaybackRouteTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.ProResPlaybackTruthTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.RemoteCastPlaybackTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.RemoteDiscAuthRetryTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.RemoteDiscBlockSourceTest",
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.ResumeNoticeTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.SeekFeedbackTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.ServerTranscodeFallbackPolicyTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.ServerTranscodeFallbackTruthTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.SkipTimeInputTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.StartupTransferEvidenceTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.SubtitleAppearanceTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.SubtitleBitmapCanvasTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.SubtitleLibraryPolicyTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.SystemVolumeMathTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.TrickplayRegionTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.UhdBluRayPlaybackTruthTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.UhdBluRayServerStreamTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.VersionFallbackTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.VideoCacheKeyTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.WatchChatDanmakuOverlayTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.WatchPlaybackPolicyTest",
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.WatchPlaylistPlaybackRequestTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.WatchTogetherStatusTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.profile.AccountInviteUiContractTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.profile.AccountSessionsUiContractTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.profile.DownloadTrackGeometryTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.profile.ProfileSettingsLogicTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.profile.ServerBackupPayloadTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.search.AggregatedSearchRankingTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.search.SearchResultsHandoffTest",
+          "tests": 16,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.search.SearchStoreTest",
+          "tests": 12,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.servers.PlexLoginFormTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.servers.ServerConnectionPermissionTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.servers.ServerListPolicyTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.servers.ServerManagementControllerTest",
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.servers.ServerRefreshStateTest",
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.servers.ServersStoreTest",
+          "tests": 18,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.servers.ServerStatsRefreshTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.tv.focus.FocusRepositoryTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.tv.focus.FocusRestorePolicyTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.tv.focus.FocusScopeStateMachineTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.tv.focus.RemoteKeyIntentTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.tv.integration.CastConnectLoadMapperTest",
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.tv.integration.ContinueWatchingPolicyTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.tv.integration.EngageContinueWatchingPublisherTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.tv.integration.TvContinueWatchingWorkTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.tv.integration.TvPlaybackDeepLinkTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.tv.player.TvLocalPlaybackPolicyTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.tv.player.TvMediaSessionAdapterTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.tv.player.TvPlayerChromeControllerTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.tv.player.TvRemoteInputControllerTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.update.AutomaticUpdateCheckGateTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.update.UpdateCheckPolicyTest",
+          "tests": 15,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.update.UpdateDownloadBoundaryTest",
+          "tests": 11,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.update.UpdateManifestPolicyTest",
+          "tests": 10,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.update.UpdatePackageIdentityTest",
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.update.UpdateRestoreTrustTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.update.UpdateResumePolicyTest",
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0
+        }
+      ],
+      "report": "audit\\playback-optimization-20260920\\unit-reports\\phoneShared\\index.html",
+      "result_sha256": "9c90d069d3da2e9523e1e6667ba4c4c4e03515f8a4f6bcb85bde136abaa04b2e"
+    },
+    "tvShared": {
+      "totals": {
+        "tests": 63,
+        "failures": 0,
+        "skipped": 0
+      },
+      "suites": [
+        {
+          "name": "com.yfuse.tv.focus.FocusRepositoryTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.tv.focus.FocusRestorePolicyTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.tv.focus.FocusScopeStateMachineTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.tv.focus.RemoteKeyIntentTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.tv.integration.CastConnectLoadMapperTest",
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.tv.integration.ContinueWatchingPolicyTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.tv.integration.EngageContinueWatchingPublisherTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.tv.integration.TvContinueWatchingWorkTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.tv.integration.TvPlaybackDeepLinkTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.tv.player.TvLocalPlaybackPolicyTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.tv.player.TvMediaSessionAdapterTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.tv.player.TvPlayerChromeControllerTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.tv.player.TvRemoteInputControllerTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.tv.ui.TvServerBackupFilesTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.tv.ui.TvSettingsSearchTest",
+          "tests": 9,
+          "failures": 0,
+          "skipped": 0
+        }
+      ],
+      "report": "audit\\playback-optimization-20260920\\unit-reports\\tvShared\\index.html",
+      "result_sha256": "3c7cf60d92438895079da819dd707603284f66f4facddbb76868fdced208f999"
+    }
+  },
+  "compile": [
+    "phoneShared",
+    "tvShared",
+    "composeApp debug",
+    "tvApp debug"
+  ],
+  "lint": [
+    "composeApp debug",
+    "tvApp debug",
+    "design system usage"
+  ],
+  "format": "passed",
+  "concurrent_source_changes": {
+    "test": [],
+    "lint": []
+  },
+  "native": {
+    "compiled_source_sha256": {
+      "ycore_demux_jni.cpp": "0ccfb46eb515259465212568af29521970842ba9baa01cbf4c5a6b61948626b2",
+      "ycore_tone_map.h": "7a6e50fa676b87348f02f4ab6678dd601ae00f78a49e2bdbaf3799afa109662a",
+      "ycore_disc_uri.h": "7b479e151dfb76017c332c2cde6f046de5c2d472b0b00d5e3d211e974a4e4633",
+      "ycore_overlay_plane.h": "60a36bc6dcca68d39cf45156ac0d5119fecd4b8f9b95e00c6466b5cc34dfd82e"
+    },
+    "static_dependency_sha256": {
+      ".native-build\\ycore-arm64-prefix\\lib\\libass.a": "eab53498342df9712142ed52cb99f63b95a50529fb72e77d054b74702927c732",
+      ".native-build\\ycore-arm64-prefix\\lib\\libharfbuzz.a": "232c432dd93120cd7a883e0594e8d0df86df1452a4ea41df51f0dd0940bea186",
+      ".native-build\\ycore-arm64-prefix\\lib\\libfreetype.a": "dc0ec19ccbc144a82905c85dcd739735f0498c43acc95e419d89bd9ea7f55a4a",
+      ".native-build\\ycore-arm64-prefix\\lib\\libfribidi.a": "92418274700be370cf0ea484c086911183e82e69033825967c259e20c00be507",
+      ".native-build\\ycore-arm64-prefix\\lib\\libunibreak.a": "d0566e8e2fc58fd55e894d75355f01b3881a1319b8a8648be7ac002a26b860ec",
+      ".native-build\\libbluray-prefix\\lib\\libbluray.a": "fcae80d51c0a8615815d3e49d9f560e149bb2980b4cf0c3c2b5dd1bcef682a2a"
+    },
+    "ffmpeg_revision": "b79d4c4c0a160fc46988e98505af6039a53ad53e",
+    "ffmpeg_archive_sha256": "f7c63be8f824f8f4766ea9c375fb3d5c290d9924dfa8e6db343dbd6026dd0bbd",
+    "carrier_sha256": "db5f9f2f81d42457e2c6dfa84c6645ee4e140473c8a862a85699aaa02522c75a",
+    "gpu_companion_sha256": "8ff27ee0d58fcc553d6ea26818daeaf4d42caa323aeb52f2b3d172039a42562e",
+    "demux_sha256": "3b2259a80ae22d15af89191621e69b91f705cf9ec7fe25d30589d8b55f242594",
+    "aar_sha256": "d84ff4a99e13957f168a64e65aaf263ccfcd4082ea8bb317563b23609814572b",
+    "validation": [
+      "current source compiled",
+      "--no-undefined linked",
+      "required JNI methods present",
+      "16KiB LOAD alignment for all libraries",
+      "pinned shared dependencies identical",
+      "GPU bytes unchanged",
+      "embedded provenance equals sidecar"
+    ],
+    "device_validation": "not run"
+  },
+  "device": "Not run; user requested no phone operations. No test or application installed.",
+  "performance": "Not measured on a device; no numerical speedup claim.",
+  "source_sha256": {
+    "composeApp/build.gradle.kts": "abfe0aa754af05538653578e6b0d9ebbd5a19bd69bc903a414d9c22b0fecb541",
+    "composeApp/gradle.lockfile": "11add2070bbc8e56ccfb76c6129d07aa2a0ba55f8a673a2a6d764bb576bdb8df",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidAdaptiveCore2YPlayer.kt": "06b17a3f09e7f62ec22d3c8290245514076f1f8dcfea61c87ea3da6fcfc49203",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidCore2MediaProbe.kt": "8e9c6049a44c661572fd2eef59776d555f045725ff5dc8616bf8febf432f646a",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidCurrentItemPreparation.kt": "77818766f9d873b6b62d29313126bbd74749b1cac8506a72e13257d02e775e60",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidDemuxAnalysisPolicy.kt": "a58d37585f013d97bd9c72aef743cad3f9ecce195e3ba0cfbd4c31b369794e3c",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidEnhancedMediaProbe.kt": "5ec9694fb15955c23136af67de456ba5f55e073f0127073148aff87db287da7e",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidFfmpegDemuxer.kt": "86aa100b1f3a0d548dbba0bad1adabb5c19d043d379c900c8d0a5061c6fdfeb9",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidMetadataProbeStage.kt": "1250f4e5f45da644acf6b4269687b2e1c28f7195742c78623af9dd6773976b40",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidNextItemPreparation.kt": "8ad391dd908883a75854f6c36def9cf07815498a5fe23287d62ff36dff0a54b1",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidPlaybackProbeFacts.kt": "4855ca92601596b5e91e95ac8e98f195024de91c89dfbdb9f4e2ddd34550bb0a",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/FfmpegNativeBridge.kt": "73e96c54ee98aa69027487d121a1880e5bbd3d7ba4131b398224d8f99425b2b9",
+    "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/AndroidPlaybackHttpProxy.kt": "6a11944721a42ea9912a30ed7b83830d2ac6f282eb72bb134a7803604819d7fb",
+    "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/ExoVideoEngine.kt": "8bde2b5e3f9bf341459fc69c71406abe5acde78839998cadd35d3ad2c1b31fc2",
+    "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlaybackHttpDataSource.kt": "046f3bab60bd3cbeda4f7fb747e910819893f7f8a09e8c671ea94e4dca949efb",
+    "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlaybackPreloader.android.kt": "364fe34bdabb33f730632e31f0bb23f0f8414ac1ac2943d92809f3a7e41bb9e2",
+    "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerRoot.kt": "2ee49b25f22a980780794e191d9900f55c580594f256530d0edd9a13039cf19c",
+    "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/YCorePlayerRuntime.android.kt": "b5aea9b3c4a6d731bd0912d90d017722af53434ec9dab5c54fdd63b59a41e785",
+    "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidDemuxAnalysisPolicyTest.kt": "98aee2d0372969c814cb911d9055a47ff999e3cb408ab58a18f9e9d4987e7a05",
+    "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidMetadataProbeStageTest.kt": "8244045d36b05f2c4c4b6ada888e29dc8b61665ed6f770fb8bcc6323ea4a7c7d",
+    "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidPlaybackProbeFactsTest.kt": "182871f386b32b3af8b9a98092da03cd3077735bfd3cbf0e17972ee1d4300376",
+    "composeApp/src/androidUnitTest/kotlin/com/yfuse/feature/player/AndroidPlaybackHttpProxyTest.kt": "319846c1e87b654269d4d60337f25d584555bcf1bd04623318832781299d1ae4",
+    "composeApp/src/commonMain/kotlin/com/yfuse/core/data/EmbyDetailService.kt": "57201a10bc738245ab2fe97288aacce973c7b5b13c2bfc5d89bf13b2ff027bad",
+    "composeApp/src/commonMain/kotlin/com/yfuse/core/data/EmbyRepository.kt": "61cf9eea2c383ff8f9c981bc1d4c9bec12af593db2791d885848ee26f7b56670",
+    "composeApp/src/commonMain/kotlin/com/yfuse/core/data/PlaybackMetadataCache.kt": "0ccf360ee9ecfccf82580eb1dad58baf7198acc2e3225dbaa4b7764453a17429",
+    "composeApp/src/commonMain/kotlin/com/yfuse/core/data/PlexMediaServerAdapter.kt": "8f204cd2ede470f744d26b0665f8eba987a70fd1ecd9c13ad6d8cf029b174943",
+    "composeApp/src/commonMain/kotlin/com/yfuse/core/playback/PlaybackMediaProbeService.kt": "da465573abea90999de8276de6b5ad326f497c65472f3aa631a62b42c62c83b2",
+    "composeApp/src/commonMain/kotlin/com/yfuse/core2/demux/YDemuxer.kt": "5c02823c0843fb0d4c1734f9b3408cd82e6883d5d401d0df5ab1d8750318d344",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailComponent.kt": "90b87b893c03d2c6251528e3bb8fafc3cb58a778bddc62eb88f552c70d98e4ef",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailExecutor.kt": "7c73ec6ea41529625eff1143d8a1f9741a0de61ab664999f44c79b208e539f39",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/BackgroundPlaybackProbePolicy.kt": "dc9ddc354d42977247b2af66db6058a706ff828c866cda8be85b2a77d60674a9",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlaybackLaunchTiming.kt": "652f15892fa959ea64770e422bc417477429f5c95b32bfa2bcec959e7fb7d67c",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlaybackPreload.kt": "82e2bc2507e2cfe255726b058f8375dcb11868f5dde37c85a769d56bd856c240",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerComponent.kt": "f2b0698467f72f2b2f8bd6d31a19fa32626d378be90f8b1476a7502d62aa4b66",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerStore.kt": "2a2b9e118da82effb69b26c28bec85d6724f01ad9bf8fa31a2ca9ff38d32e1f6",
+    "composeApp/src/commonTest/kotlin/com/yfuse/core/data/PlaybackMetadataCacheTest.kt": "1ef9893e8b48d9796f5182e0e28184c77214add5e36a6ad38f3ae225dfe9ee7f",
+    "composeApp/src/commonTest/kotlin/com/yfuse/feature/player/BackgroundPlaybackProbePolicyTest.kt": "7a3bafc31b5f60abe3c4c9a90bd4142a4576ab5b60cef2c3925385b85305d6ef",
+    "composeApp/src/commonTest/kotlin/com/yfuse/feature/player/PlaybackLaunchTimingTest.kt": "1836013b59606af9e59dfea8c50ab092e4b92e94cf5c5f9f2b5a222e8c04df5a",
+    "composeApp/src/commonTest/kotlin/com/yfuse/feature/player/PlayerStoreTest.kt": "1d1f51429918f499c03eeafb8365ddd86aeb4a1f26f1d363e11590a7522108e8",
+    "docs/PLAYBACK_OPTIMIZATION_20260920.md": "844b13b50079669106378985c68ebe0f90bd0f1d8cda9827f52ccccb57c79c3e",
+    "gradle/libs.versions.toml": "7977513abb9d004f984c30da836551f47489109c125b092d7ea9d02b74470a53",
+    "macrobenchmark/gradle.lockfile": "92e2b16a63d3eac2ed76a59167b0ca13a5eda58d94dff7c0486c3d6ef4a6974c",
+    "phoneShared/build.gradle.kts": "957b5f88c4058b11d0157604f5072764581dd7567f391443663359ec536ecc8d",
+    "phoneShared/gradle.lockfile": "12687c3ef64adf4245548b32ee10708f7535332314456d9bf62d774282fb0a84",
+    "scripts/native/ycore_demux_jni.cpp": "0ccfb46eb515259465212568af29521970842ba9baa01cbf4c5a6b61948626b2",
+    "tvApp/build.gradle.kts": "4e3be71d17b62f70ddc0d075d261b2711f380d99a20b173057012c08570dca10",
+    "tvApp/gradle.lockfile": "c39ed0107a8a78adcabf876da72c94790032f489a7e29a48b93e62e9e910723d",
+    "tvShared/build.gradle.kts": "545f554aaabf47b7d2344d974aa30a97f95a7aab4994979d4744fc7cec7f2005",
+    "tvShared/gradle.lockfile": "697e9fc74adec672682b95f8169bfba5ec3431841a632c583be980c9f777df51"
+  }
+}

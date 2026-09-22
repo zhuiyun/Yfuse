@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.network.YBufferControllerTest" tests="16" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:44:00.487Z" hostname="DESKTOP-HM2J0FM" time="0.002">
+  <properties/>
+  <testcase name="manual remote target overrides automatic network policy" classname="com.yfuse.core2.network.YBufferControllerTest" time="0.001"/>
+  <testcase name="a full variable bitrate queue cannot deadlock rebuffer recovery" classname="com.yfuse.core2.network.YBufferControllerTest" time="0.001"/>
+  <testcase name="local input never waits for the buffer gate" classname="com.yfuse.core2.network.YBufferControllerTest" time="0.0"/>
+  <testcase name="manual remote target still respects the memory budget" classname="com.yfuse.core2.network.YBufferControllerTest" time="0.0"/>
+  <testcase name="keeps local playback latency low" classname="com.yfuse.core2.network.YBufferControllerTest" time="0.0"/>
+  <testcase name="healthy playback decays starvation history while pauses do not" classname="com.yfuse.core2.network.YBufferControllerTest" time="0.0"/>
+  <testcase name="caps high bitrate remux buffering by memory budget" classname="com.yfuse.core2.network.YBufferControllerTest" time="0.0"/>
+  <testcase name="short remote input opens gate at end of input" classname="com.yfuse.core2.network.YBufferControllerTest" time="0.0"/>
+  <testcase name="grows remote target under throughput pressure" classname="com.yfuse.core2.network.YBufferControllerTest" time="0.0"/>
+  <testcase name="long rebuffer wait drops extra reserve but still requires base buffer" classname="com.yfuse.core2.network.YBufferControllerTest" time="0.0"/>
+  <testcase name="double speed accounts for network consumption and media time" classname="com.yfuse.core2.network.YBufferControllerTest" time="0.0"/>
+  <testcase name="repeated starvation increases recovery reserve without delaying startup or deadlocking a full queue" classname="com.yfuse.core2.network.YBufferControllerTest" time="0.0"/>
+  <testcase name="remote startup opens before the rebuffer watermark" classname="com.yfuse.core2.network.YBufferControllerTest" time="0.0"/>
+  <testcase name="five minutes stays on disk and does not delay the first frame" classname="com.yfuse.core2.network.YBufferControllerTest" time="0.0"/>
+  <testcase name="adaptive resume watermark updates without resetting a healthy gate" classname="com.yfuse.core2.network.YBufferControllerTest" time="0.0"/>
+  <testcase name="remote starvation pauses until buffer is rebuilt" classname="com.yfuse.core2.network.YBufferControllerTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.NativeRemoteBluRayPreflightTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:15.831Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="raw_disc_url_contains_session_identity_but_no_server_token" classname="com.yfuse.feature.player.NativeRemoteBluRayPreflightTest" time="0.001"/>
+  <testcase name="blank_session_is_omitted_and_invalid_base_url_is_rejected" classname="com.yfuse.feature.player.NativeRemoteBluRayPreflightTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

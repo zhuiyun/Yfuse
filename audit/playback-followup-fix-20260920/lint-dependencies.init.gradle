@@ -1,0 +1,18 @@
+settingsEvaluated { settings ->
+    settings.dependencyResolutionManagement.repositories.exclusiveContent {
+        forRepository {
+            settings.dependencyResolutionManagement.repositories.maven {
+                url = new File('D:/Demo/Yfuse/audit/playback-followup-fix-20260920/maven').toURI()
+            }
+        }
+        filter {
+            includeVersion('com.google.protobuf', 'protobuf-bom', '4.28.3')
+            includeVersion('com.google.protobuf', 'protobuf-java', '4.28.3')
+            includeVersion('com.google.protobuf', 'protobuf-parent', '4.28.3')
+            includeVersion('org.apache', 'apache', '35')
+            includeVersion('org.apache.commons', 'commons-lang3', '3.18.0')
+            includeVersion('org.apache.commons', 'commons-parent', '85')
+            includeVersion('org.junit', 'junit-bom', '5.13.1')
+        }
+    }
+}

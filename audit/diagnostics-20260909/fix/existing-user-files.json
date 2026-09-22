@@ -1,0 +1,206 @@
+[
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvDetailScreen.kt",
+    "sha256": "F8FCBAD71CE8C5072C0370C1C1EBEB58A0267D3A66080BF993420E4C42485858"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvHomeScreen.kt",
+    "sha256": "8F9E89A5C5F97D64DFADB15DBD9F3D78D6382981ECD9F5334CACBFB2508A06FE"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvLibraryScreens.kt",
+    "sha256": "10F477BE9074127DCAAE51D8D9B38AF1E6D7AABE3871AF1D86B86FE07203D32C"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvSearchScreen.kt",
+    "sha256": "22B4B6EFFC94AF4569D87663ECE582DA107321EA5F03A47A2B8A2CE99AFEDE88"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvServersSettingsScreens.kt",
+    "sha256": "D3008F6B1DCBAF8CC62573B72A11CE28A1E84E7E5DFF402EC0A800BCE29D9463"
+  },
+  {
+    "path": "harmonyApp/BRANCH_AUDIT.md",
+    "sha256": "F8A9865531969DBE65CEA219670E87795285420A22D672EAF3A1BB87539E9002"
+  },
+  {
+    "path": "harmonyApp/PORT_STATUS.md",
+    "sha256": "4EFB8020F29B1513F89DFA347577BBC886D3D1346390411EA74B5E28E36359A0"
+  },
+  {
+    "path": "harmonyApp/entry/src/main/cangjie/cjpm.toml",
+    "sha256": "114992845C186A1057C4D05784E6EA3D1478258B49AC044D80798C31D696DB6C"
+  },
+  {
+    "path": "harmonyApp/entry/src/main/cangjie/src/app/navigation.cj",
+    "sha256": "F5FE0242EB6DA3CAB1F83CC8312AA3EB3216A641658527BD6B809DB3C04738FB"
+  },
+  {
+    "path": "harmonyApp/entry/src/main/cangjie/src/app/screen_states.cj",
+    "sha256": "692CDD7A3F1E4EC70B108C682D165B55BE5D9DF4E884B982233BDC0F72E2F772"
+  },
+  {
+    "path": "harmonyApp/entry/src/main/cangjie/src/data/models.cj",
+    "sha256": "F07550C3A58F83D90D9F5AC0C7C4C6A91186C427D977BFC9BE222B1A70FACAD7"
+  },
+  {
+    "path": "harmonyApp/entry/src/main/cangjie/src/network/endpoint_policy.cj",
+    "sha256": "F46A1E34B86936DB42ECC4A9A025AEA44184D9FBD673D2FB7FCAF237E9FAE376"
+  },
+  {
+    "path": "harmonyApp/entry/src/main/cangjie/src/offline/downloads.cj",
+    "sha256": "05D35B4BA0F190CF6064C6F470BD43A17FC2FB4A00D29791E5DAAB31F13CFE51"
+  },
+  {
+    "path": "harmonyApp/entry/src/main/cangjie/src/player/diagnostics.cj",
+    "sha256": "6D76DED4692B0B24C461C2CCFF66076BB9FC9438BBBF5E77C2E7AFF6895FD3BB"
+  },
+  {
+    "path": "harmonyApp/entry/src/main/cangjie/src/player/playback_policy.cj",
+    "sha256": "B8B29D23AF1BA28AC00C642E7CD7257EC48675E0495E673799047084AAD4F991"
+  },
+  {
+    "path": "harmonyApp/entry/src/main/cangjie/src/player/playback_tools.cj",
+    "sha256": "9CEB4C93BFCDB2160402AD3A63038B93BD8ECF7A51ED53236F94A9DD31C4360C"
+  },
+  {
+    "path": "harmonyApp/entry/src/main/cangjie/src/player/subtitles.cj",
+    "sha256": "0820BD16A59250918ACD2CE03DE93A205456CC1F248815CAF38A2C88C6BF033A"
+  },
+  {
+    "path": "harmonyApp/entry/src/main/cangjie/src/player/yplayer.cj",
+    "sha256": "17EE8B00DCB0A031CBE7A83B7B7E12C93149FBA68A33C2D19DD686C3EE598D23"
+  },
+  {
+    "path": "harmonyApp/entry/src/main/cangjie/src/provider/aggregate_search.cj",
+    "sha256": "23873DA8719BE2446AA5FBBDB8B930097F3AA94F063AEEEA9DAF70456994FE8E"
+  },
+  {
+    "path": "harmonyApp/entry/src/main/cangjie/src/provider/json_helpers.cj",
+    "sha256": "988C0B54FC1773A0EE2CD9A7EC6E42E526F7A0EF5C9E98BB354D51F7663C3CD4"
+  },
+  {
+    "path": "harmonyApp/entry/src/main/cangjie/src/provider/provider_api.cj",
+    "sha256": "0CF3B3209345010A875C0D04018A62BDFBB7C2B52D9D490A844AD23C8B1122CD"
+  },
+  {
+    "path": "harmonyApp/entry/src/main/cangjie/src/provider/provider_codec.cj",
+    "sha256": "5C457D5EC566CD14E988AA615FA77E51699FA5AA8BF934B3336570987DA572BD"
+  },
+  {
+    "path": "harmonyApp/entry/src/main/cangjie/src/provider/server_onboarding.cj",
+    "sha256": "7290B7DA1B6A36E14328C2B1570FC703EE3846A043D3E00BBC1A40DD75DC88FD"
+  },
+  {
+    "path": "harmonyApp/entry/src/main/cangjie/src/provider/tmdb_repository.cj",
+    "sha256": "C74AC893430026DA42C0F2357D64241B616D3B95BF22EBE4C04C8D12A102F4D4"
+  },
+  {
+    "path": "harmonyApp/entry/src/main/cangjie/src/storage/registry_codec.cj",
+    "sha256": "3E5C7898E7E4937A51A172FB357E0625D9FA3FF3DB35CE7070D881407DEF2A95"
+  },
+  {
+    "path": "harmonyApp/entry/src/main/cangjie/src/storage/server_registry.cj",
+    "sha256": "14E3A8E7CAD1440B2642A5EB9F5513BCAFE1BDE6EA019734EFAE3ECF16EAF21A"
+  },
+  {
+    "path": "harmonyApp/entry/src/main/cangjie/src/support/diagnostics_export.cj",
+    "sha256": "E88D7B8A8E55FCE141E10510E9FD5B734207D5F3233517B0CFAF5D303BDCE737"
+  },
+  {
+    "path": "harmonyApp/entry/src/main/cangjie/src/sync/encrypted_sync.cj",
+    "sha256": "8D90441C7440B9B47C588C21E03B76DFC73326ED9BF4182DD4D6FB07EB82D2D0"
+  },
+  {
+    "path": "harmonyApp/entry/src/main/cangjie/src/watch/danmaku.cj",
+    "sha256": "9A716404B47717956D552AAA2E98EDFD60E6A72F75923E4D18CA46A81D11143A"
+  },
+  {
+    "path": "parity/capability-gates.json",
+    "sha256": "5E51AB10EAA24F8F397B87BCA1C51A0039BF95ECAF40F6D8F791C4F6CBEA62B0"
+  },
+  {
+    "path": "parity/implementation-coverage.json",
+    "sha256": "6D7CCD28B3062672D2E3398AB56CF87DA72B3A63EFF0553C76A43F55C0B6A9D8"
+  },
+  {
+    "path": "scripts/harmony-release-gate.py",
+    "sha256": "066D0D3B506B370872DA0ADF464EB327406B26E87EEFAA188083CB87726C5659"
+  },
+  {
+    "path": "scripts/verify-harmony-port.py",
+    "sha256": "1851454FE6ED7EC621C0D2DF214408A5DF0F9DC24AAFE941B0DA175BCC86257A"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvAccountScreens.kt",
+    "sha256": "C6E532331C40E7492F966D22F917DAD27D71E893ACF03CCEFA074E493040498A"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvAppearanceScreens.kt",
+    "sha256": "8DD7FD2B5798908C7D35B2706B8BB568EDA08B5AF5FEF92786E8E448A106A8F3"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvDanmakuWatchScreens.kt",
+    "sha256": "C011774D0F38463100F6C680A7C73F01811B0BBE6A34B75FBDAA9BBC0CE47211"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvDataDiagnosticsScreen.kt",
+    "sha256": "C9F9B1410BA6CE86631F479473C2D56BAEEDB34CECE68A1A794D72D366CF4694"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvDetailMoreActions.kt",
+    "sha256": "FF8BF4CF6A71EA82921608B560E11E5FFDA34274DAEB38299ACD1AE1E071881A"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvDownloadsScreen.kt",
+    "sha256": "AB4C019115129B68F8A43A2B5F40B10888D17981B083EBD2F8B5C6CEE48AE7FF"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvMediaDiscoverySettingsScreen.kt",
+    "sha256": "768EC0097492623319302CD1933B204F2D4D637385627DE0185FB0B7C874E10C"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvPermissionHealthScreen.kt",
+    "sha256": "797F8A4B886DE54B00C7BC588481BCF9AEA19FB06468B71119780D3FA93372F5"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvPlaybackSettingsScreens.kt",
+    "sha256": "F6D46CA9788AB3BE6C89B0918E49168BD36B6FA2C836BF0C1E8780F6033E7D08"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvServerBackupScreen.kt",
+    "sha256": "F5883885F49482A4A65F5CBC46DFA2481DB69A617BD92C36826394575907C6B2"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvSettingsScaffold.kt",
+    "sha256": "48A7129820295EDC3A2AD6911254C00C0BA0C23A7F21F2B2C3C9B59183C1046C"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvSettingsScreen.kt",
+    "sha256": "3A7CD0F287DD0AF2F5C7E267CD53B07BEA02E37743BB5732E4D93B3B1EFF1FDF"
+  },
+  {
+    "path": "composeApp/src/androidUnitTest/kotlin/com/yfuse/tv/ui/TvSettingsSearchTest.kt",
+    "sha256": "9C7A1C20F1EC1DC9058343B838324B28230382C9B029720A0BF48F3A6BCA0752"
+  },
+  {
+    "path": "harmonyApp/entry/src/test/cangjie/app/app_test.cj",
+    "sha256": "D778714A860736E44175FA42291B629738C53A306E6CB662A2BB8FA1EFD6CE6D"
+  },
+  {
+    "path": "harmonyApp/entry/src/test/cangjie/player/player_test.cj",
+    "sha256": "A71B48A839B87EC2316F2E437E231D5B03F5B0FCB583531E3255D331E4C2EA8B"
+  },
+  {
+    "path": "harmonyApp/entry/src/test/cangjie/player/ycore_link_stubs.cj",
+    "sha256": "1D39CE1B93CF7B364419861F9C9356DA361CB066AC4EAD4C916125CC3ED7D53A"
+  },
+  {
+    "path": "harmonyApp/entry/src/test/cangjie/watch/watch_test.cj",
+    "sha256": "2398CA7AC5B73F8566E148E309F0182E493734E157721D8544E2FA97C3E87BAC"
+  },
+  {
+    "path": "scripts/verify-cangjie-host.py",
+    "sha256": "018C0EC2DA9214B6F5D87AF25858DEB64D6567F2FB6E324017BDF5F63DAB2CFD"
+  }
+]

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.NativePlaybackFailureTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:15.828Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="token_and_forbidden_messages_are_treated_as_auth_failures_without_a_status_code" classname="com.yfuse.feature.player.NativePlaybackFailureTest" time="0.001"/>
+  <testcase name="a_known_terminal_exception_uses_its_fallback_message" classname="com.yfuse.feature.player.NativePlaybackFailureTest" time="0.0"/>
+  <testcase name="nativeTlsFailuresAreTransportFailuresInsteadOfUnknownEngineFailures" classname="com.yfuse.feature.player.NativePlaybackFailureTest" time="0.0"/>
+  <testcase name="mediacodec_copy_without_a_decoder_surface_does_not_interrupt_successful_gpu_playback" classname="com.yfuse.feature.player.NativePlaybackFailureTest" time="0.0"/>
+  <testcase name="http_auth_failures_block_engine_and_version_rotation" classname="com.yfuse.feature.player.NativePlaybackFailureTest" time="0.0"/>
+  <testcase name="fatal_audio_output_failure_changes_engine_as_an_audio_sink_failure" classname="com.yfuse.feature.player.NativePlaybackFailureTest" time="0.0"/>
+  <testcase name="decoder_and_demuxer_errors_stay_on_the_stream_fallback_ladder" classname="com.yfuse.feature.player.NativePlaybackFailureTest" time="0.0"/>
+  <testcase name="fatal_render_failure_changes_engine_but_does_not_block_it" classname="com.yfuse.feature.player.NativePlaybackFailureTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

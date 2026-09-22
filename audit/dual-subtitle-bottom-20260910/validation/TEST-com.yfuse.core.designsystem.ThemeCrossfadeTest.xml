@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.designsystem.ThemeCrossfadeTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-10T01:31:12.270Z" hostname="DESKTOP-HM2J0FM" time="0.008">
+  <properties/>
+  <testcase name="midway_the_paint_is_between_but_the_policy_is_already_the_destination" classname="com.yfuse.core.designsystem.ThemeCrossfadeTest" time="0.007"/>
+  <testcase name="ends_of_the_crossfade_are_the_source_and_destination_sets" classname="com.yfuse.core.designsystem.ThemeCrossfadeTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

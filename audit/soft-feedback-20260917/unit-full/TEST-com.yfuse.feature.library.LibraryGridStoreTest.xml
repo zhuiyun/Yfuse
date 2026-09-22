@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.library.LibraryGridStoreTest" tests="17" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:15.345Z" hostname="DESKTOP-HM2J0FM" time="0.092">
+  <properties/>
+  <testcase name="playlist_removal_commits_the_optimistic_local_change" classname="com.yfuse.feature.library.LibraryGridStoreTest" time="0.023"/>
+  <testcase name="an_entirely_duplicated_page_advances_the_server_offset" classname="com.yfuse.feature.library.LibraryGridStoreTest" time="0.007"/>
+  <testcase name="playlist_grid_keeps_first_entry_order_deduplicates_media_and_ignores_sort_intents" classname="com.yfuse.feature.library.LibraryGridStoreTest" time="0.002"/>
+  <testcase name="failed_filter_change_never_displays_items_from_the_previous_criteria" classname="com.yfuse.feature.library.LibraryGridStoreTest" time="0.005"/>
+  <testcase name="a_failed_page_keeps_what_is_already_loaded" classname="com.yfuse.feature.library.LibraryGridStoreTest" time="0.004"/>
+  <testcase name="load_more_appends_the_next_page_and_stops_at_the_total" classname="com.yfuse.feature.library.LibraryGridStoreTest" time="0.005"/>
+  <testcase name="watch_later_grid_deduplicates_repeated_media_ids" classname="com.yfuse.feature.library.LibraryGridStoreTest" time="0.003"/>
+  <testcase name="media_spec_filter_reloads_with_server_side_4k_parameters" classname="com.yfuse.feature.library.LibraryGridStoreTest" time="0.003"/>
+  <testcase name="container_directory_pages_and_deduplicates_by_container_identity" classname="com.yfuse.feature.library.LibraryGridStoreTest" time="0.004"/>
+  <testcase name="favorites_grid_deduplicates_repeated_media_ids" classname="com.yfuse.feature.library.LibraryGridStoreTest" time="0.003"/>
+  <testcase name="changing_the_sort_reloads_from_the_first_page" classname="com.yfuse.feature.library.LibraryGridStoreTest" time="0.004"/>
+  <testcase name="genres_fill_the_filter_row_and_a_selection_narrows_the_query" classname="com.yfuse.feature.library.LibraryGridStoreTest" time="0.003"/>
+  <testcase name="failed_container_removal_rolls_the_item_back_in_place" classname="com.yfuse.feature.library.LibraryGridStoreTest" time="0.005"/>
+  <testcase name="retry_recovers_genres_after_the_initial_facet_request_fails" classname="com.yfuse.feature.library.LibraryGridStoreTest" time="0.007"/>
+  <testcase name="grid_keeps_the_origin_server_after_default_server_switches" classname="com.yfuse.feature.library.LibraryGridStoreTest" time="0.005"/>
+  <testcase name="changing_sort_keeps_the_existing_grid_until_the_replacement_page_arrives" classname="com.yfuse.feature.library.LibraryGridStoreTest" time="0.004"/>
+  <testcase name="a_repeated_item_is_merged_rather_than_duplicated" classname="com.yfuse.feature.library.LibraryGridStoreTest" time="0.005"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

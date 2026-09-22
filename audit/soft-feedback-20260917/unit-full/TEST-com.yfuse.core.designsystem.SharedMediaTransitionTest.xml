@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.designsystem.SharedMediaTransitionTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:04.646Z" hostname="DESKTOP-HM2J0FM" time="0.0">
+  <properties/>
+  <testcase name="only_the_matching_forward_transition_can_clear_the_active_artwork" classname="com.yfuse.core.designsystem.SharedMediaTransitionTest" time="0.0"/>
+  <testcase name="a_pop_suppresses_the_overlay_until_another_forward_tap" classname="com.yfuse.core.designsystem.SharedMediaTransitionTest" time="0.0"/>
+  <testcase name="a_new_forward_tap_replaces_a_stale_transition_key" classname="com.yfuse.core.designsystem.SharedMediaTransitionTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

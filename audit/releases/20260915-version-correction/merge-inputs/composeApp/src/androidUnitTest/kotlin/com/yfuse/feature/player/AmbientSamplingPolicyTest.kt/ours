@@ -1,0 +1,136 @@
+package com.yfuse.feature.player
+
+import androidx.compose.ui.unit.IntSize
+import com.yfuse.core.designsystem.AmbientInset
+import com.yfuse.core.designsystem.ambientLightFromPixels
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
+
+class AmbientSamplingPolicyTest {
+    @Test
+    fun hdr_surface_uses_platform_tone_mapping_on_android_14_and_newer() {
+        val hdrOutputs =
+            listOf(
+                PlaybackDynamicRangeOutputMode.DolbyVisionMediaCodec,
+                PlaybackDynamicRangeOutputMode.Hdr10BaseLayer,
+            )
+        for (output in hdrOutputs) {
+            assertFalse(ambientOutputSupportsLiveSampling(output, 33))
+            assertTrue(ambientOutputSupportsLiveSampling(output, 34))
+            assertTrue(ambientOutputSupportsLiveSampling(output, 36))
+        }
+    }
+
+    @Test
+    fun sdr_and_backend_tone_mapped_outputs_remain_available_on_older_android() {
+        assertTrue(ambientOutputSupportsLiveSampling(PlaybackDynamicRangeOutputMode.Unknown, 28))
+        assertTrue(ambientOutputSupportsLiveSampling(PlaybackDynamicRangeOutputMode.HdrToSdrToneMapped, 28))
+    }
+
+    @Test
+    fun stable_picture_slows_down_and_a_cut_restores_fast_sampling() {
+        val policy = AmbientSamplingPolicy()
+        policy.succeeded(changed = true)
+        assertEquals(500L, policy.intervalMs)
+        repeat(4) { policy.succeeded(changed = false) }
+        assertEquals(1_000L, policy.intervalMs)
+        repeat(6) { policy.succeeded(changed = false) }
+        assertEquals(2_000L, policy.intervalMs)
+        policy.succeeded(changed = true)
+        assertEquals(500L, policy.intervalMs)
+    }
+
+    @Test
+    fun persistent_failure_backs_off_and_success_recovers() {
+        val policy = AmbientSamplingPolicy()
+        assertFalse(policy.failed())
+        assertFalse(policy.failed())
+        assertTrue(policy.failed())
+        assertEquals(2_000L, policy.intervalMs)
+        policy.failed()
+        assertEquals(5_000L, policy.intervalMs)
+        policy.failed()
+        assertEquals(10_000L, policy.intervalMs)
+        repeat(20) { policy.failed() }
+        assertEquals(30_000L, policy.intervalMs)
+        policy.succeeded(changed = true)
+        assertEquals(500L, policy.intervalMs)
+        assertFalse(policy.failed())
+    }
+
+    @Test
+    fun seeking_and_source_resets_cannot_bypass_the_request_limit() {
+        val policy = AmbientSamplingPolicy()
+        assertEquals(0L, policy.waitMs(100L))
+        policy.started(1_000L)
+        for (now in 1_001L..1_499L) {
+            policy.reset()
+            assertEquals(1_500L - now, policy.waitMs(now, urgent = true))
+        }
+        assertEquals(0L, policy.waitMs(1_500L, urgent = true))
+    }
+
+    @Test
+    fun user_action_shortens_backoff_but_still_respects_the_minimum_interval() {
+        val policy = AmbientSamplingPolicy()
+        policy.started(1_000L)
+        repeat(6) { policy.failed() }
+        assertEquals(29_800L, policy.waitMs(1_200L))
+        assertEquals(300L, policy.waitMs(1_200L, urgent = true))
+        assertEquals(0L, policy.waitMs(40_000L))
+    }
+
+    @Test
+    fun only_black_bars_wider_than_the_picture_guard_need_live_colour() {
+        val container = IntSize(1920, 1080)
+        assertTrue(ambientLightHasVisibleBars(container, IntSize(1920, 800), 1))
+        assertTrue(ambientLightHasVisibleBars(container, IntSize(1440, 1080), 1))
+        assertFalse(ambientLightHasVisibleBars(container, container, 1))
+        assertFalse(ambientLightHasVisibleBars(container, IntSize(2592, 1080), 1))
+        assertFalse(ambientLightHasVisibleBars(container, IntSize(1920, 1078), 1))
+        assertFalse(ambientLightHasVisibleBars(IntSize.Zero, IntSize(1920, 800), 1))
+        assertFalse(ambientLightHasVisibleBars(container, IntSize.Zero, 1))
+    }
+
+    @Test
+    fun encoded_bars_keep_light_visible_after_the_controls_hide_on_a_full_frame_surface() {
+        val size = IntSize(96, 54)
+        val pixels =
+            IntArray(size.width * size.height) { index ->
+                if (index / size.width in 8 until 46) 0xFFC06020.toInt() else 0xFF000000.toInt()
+            }
+        val sampled = ambientLightFromPixels(pixels, size.width, size.height)
+        val container = IntSize(1920, 1080)
+        assertFalse(ambientLightHasVisibleBars(container, container, 1))
+        assertTrue(ambientLightHasVisibleBars(container, container, 1, sampled.inset))
+    }
+
+    @Test
+    fun bars_outside_the_cropped_viewport_do_not_request_fast_sampling() {
+        val container = IntSize(1920, 1080)
+        val picture = IntSize(1920, 1440)
+        assertFalse(ambientLightHasVisibleBars(container, picture, 1, AmbientInset(top = 0.1f, bottom = 0.1f)))
+        assertTrue(ambientLightHasVisibleBars(container, picture, 1, AmbientInset(top = 0.2f, bottom = 0.2f)))
+        assertFalse(ambientLightHasVisibleBars(IntSize.Zero, picture, 1, AmbientInset(top = 0.2f)))
+    }
+
+    @Test
+    fun hidden_controls_probe_slowly_but_discovered_bars_restore_normal_sampling() {
+        val policy = AmbientSamplingPolicy()
+        policy.started(1_000L)
+        policy.succeeded(changed = true)
+        assertEquals(1_500L, policy.waitMs(1_500L, minimumIntervalMs = AMBIENT_LIGHT_DISCOVERY_MS))
+        assertEquals(1_500L, policy.waitMs(1_500L, urgent = true, minimumIntervalMs = AMBIENT_LIGHT_DISCOVERY_MS))
+        assertEquals(0L, policy.waitMs(1_500L))
+    }
+
+    @Test
+    fun discovery_probes_preserve_failure_backoff() {
+        val policy = AmbientSamplingPolicy()
+        policy.started(1_000L)
+        repeat(6) { policy.failed() }
+        assertEquals(29_500L, policy.waitMs(1_500L, minimumIntervalMs = AMBIENT_LIGHT_DISCOVERY_MS))
+    }
+}

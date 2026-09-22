@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.network.ServerEndpointPolicyTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-09-18T01:44:02.340Z" hostname="DESKTOP-HM2J0FM" time="0.008">
+  <properties/>
+  <testcase name="httpIsAllowedOnEveryHostWithoutConfirmation" classname="com.yfuse.core.network.ServerEndpointPolicyTest" time="0.003"/>
+  <testcase name="endpointRejectsCredentialsQueryFragmentAndInvalidPort" classname="com.yfuse.core.network.ServerEndpointPolicyTest" time="0.002"/>
+  <testcase name="retiredHostCheckMatchesTheParsedHostOnly" classname="com.yfuse.core.network.ServerEndpointPolicyTest" time="0.003"/>
+  <testcase name="embyHttpsIsAllowedForPublicAndLocalHosts" classname="com.yfuse.core.network.ServerEndpointPolicyTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

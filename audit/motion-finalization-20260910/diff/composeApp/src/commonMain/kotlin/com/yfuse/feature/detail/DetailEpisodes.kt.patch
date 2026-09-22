@@ -1,0 +1,27 @@
+--- before/composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailEpisodes.kt
++++ after/composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailEpisodes.kt
+@@ -22,7 +22,6 @@
+ import androidx.compose.foundation.layout.size
+ import androidx.compose.foundation.layout.width
+ import androidx.compose.foundation.lazy.LazyRow
+-import androidx.compose.foundation.lazy.itemsIndexed
+ import androidx.compose.foundation.lazy.rememberLazyListState
+ import androidx.compose.foundation.rememberScrollState
+ import androidx.compose.foundation.shape.CircleShape
+@@ -68,6 +67,7 @@
+ import com.yfuse.core.designsystem.Shadows
+ import com.yfuse.core.designsystem.backdropBlur
+ import com.yfuse.core.designsystem.liquidGlass
++import com.yfuse.core.designsystem.motionItemsIndexed
+ import com.yfuse.core.designsystem.pressable
+ import com.yfuse.core.designsystem.shadow
+ import com.yfuse.core.designsystem.solidGlass
+@@ -463,7 +463,7 @@
+                         bottom = 0.dp,
+                     ),
+             ) {
+-                itemsIndexed(
++                motionItemsIndexed(
+                     episodes,
+                     key = { index, episode -> "ep-${episode.id}-$index" },
+                 ) { _, episode ->

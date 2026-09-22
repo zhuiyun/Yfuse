@@ -1,0 +1,27 @@
+--- before/composeApp/src/commonMain/kotlin/com/yfuse/feature/home/TmdbRowPage.kt
++++ after/composeApp/src/commonMain/kotlin/com/yfuse/feature/home/TmdbRowPage.kt
+@@ -16,7 +16,6 @@
+ import androidx.compose.foundation.layout.statusBarsPadding
+ import androidx.compose.foundation.lazy.grid.GridCells
+ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+-import androidx.compose.foundation.lazy.grid.items
+ import androidx.compose.foundation.shape.CircleShape
+ import androidx.compose.material3.Icon
+ import androidx.compose.material3.Text
+@@ -31,6 +30,7 @@
+ import com.yfuse.core.designsystem.CaptionedPoster
+ import com.yfuse.core.designsystem.Dimens
+ import com.yfuse.core.designsystem.LocalPalette
++import com.yfuse.core.designsystem.motionItems
+ import com.yfuse.core.designsystem.pressable
+ import com.yfuse.core.designsystem.solidGlass
+ import com.yfuse.core.designsystem.touchTarget
+@@ -115,7 +115,7 @@
+                     horizontalArrangement = Arrangement.spacedBy(12.dp),
+                     verticalArrangement = Arrangement.spacedBy(16.dp),
+                 ) {
+-                    items(items, key = { "${it.mediaType}:${it.id}" }) { item ->
++                    motionItems(items, key = { "${it.mediaType}:${it.id}" }) { item ->
+                         CaptionedPoster(
+                             url = TmdbImages.poster(item.posterPath),
+                             fallbackUrls =

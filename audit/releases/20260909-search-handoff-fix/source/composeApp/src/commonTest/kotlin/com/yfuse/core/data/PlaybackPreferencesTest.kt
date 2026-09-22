@@ -1,0 +1,280 @@
+package com.yfuse.core.data
+
+import com.russhwolf.settings.MapSettings
+import com.yfuse.core.model.PlayerEngine
+import com.yfuse.core.playback.PlaybackEngineSelection
+import com.yfuse.core.playback.PlaybackFailureRecord
+import com.yfuse.core.playback.PlaybackOptimizationMode
+import com.yfuse.core.playback.PlaybackPerformanceRecord
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
+
+class PlaybackPreferencesTest {
+    @Test
+    fun smart_source_defaults_on_and_persists_off() {
+        val settings = MapSettings()
+        val first = PlaybackPreferences(settings)
+
+        assertTrue(first.smartCrossServerSource.value)
+        first.setSmartCrossServerSource(false)
+
+        assertFalse(PlaybackPreferences(settings).smartCrossServerSource.value)
+    }
+
+    @Test
+    fun playback_output_preferences_default_off_and_persist() {
+        val settings = MapSettings()
+        val first = PlaybackPreferences(settings)
+
+        assertEquals(PlaybackFrameRateMatch.Disabled, first.frameRateMatch.value)
+        assertEquals(PlaybackAudioPassthrough.Disabled, first.audioPassthrough.value)
+
+        first.setFrameRateMatch(PlaybackFrameRateMatch.Always)
+        first.setAudioPassthrough(PlaybackAudioPassthrough.Compatible)
+
+        val restored = PlaybackPreferences(settings)
+        assertEquals(PlaybackFrameRateMatch.Always, restored.frameRateMatch.value)
+        assertEquals(PlaybackAudioPassthrough.Compatible, restored.audioPassthrough.value)
+    }
+
+    @Test
+    fun ycore_buffer_duration_defaults_to_auto_and_persists() {
+        val settings = MapSettings()
+        val first = PlaybackPreferences(settings)
+
+        assertEquals(YCoreBufferDuration.Auto, first.yCoreBufferDuration.value)
+        first.setYCoreBufferDuration(YCoreBufferDuration.Seconds30)
+
+        assertEquals(
+            YCoreBufferDuration.Seconds30,
+            PlaybackPreferences(settings).yCoreBufferDuration.value,
+        )
+    }
+
+    @Test
+    fun media_version_preference_defaults_to_hdr_and_persists() {
+        val settings = MapSettings()
+        val first = PlaybackPreferences(settings)
+
+        assertEquals(MediaVersionPreference.HdrFirst, first.mediaVersionPreference.value)
+        first.setMediaVersionPreference(MediaVersionPreference.DolbyVisionFirst)
+
+        assertEquals(
+            MediaVersionPreference.DolbyVisionFirst,
+            PlaybackPreferences(settings).mediaVersionPreference.value,
+        )
+    }
+
+    @Test
+    fun ycore_optimization_mode_defaults_balanced_and_persists() {
+        val settings = MapSettings()
+        val first = PlaybackPreferences(settings)
+
+        assertEquals(PlaybackOptimizationMode.Balanced, first.optimizationMode.value)
+        first.setOptimizationMode(PlaybackOptimizationMode.PowerSaver)
+
+        assertEquals(
+            PlaybackOptimizationMode.PowerSaver,
+            PlaybackPreferences(settings).optimizationMode.value,
+        )
+    }
+
+    @Test
+    fun ycore_engine_selection_defaults_to_auto_and_persists_a_lock() {
+        val settings = MapSettings()
+        val first = PlaybackPreferences(settings)
+
+        assertEquals(PlaybackEngineSelection.Auto, first.engineSelection.value)
+        first.setEngineSelection(PlaybackEngineSelection.LockMpv)
+
+        assertEquals(
+            PlaybackEngineSelection.LockMpv,
+            PlaybackPreferences(settings).engineSelection.value,
+        )
+    }
+
+    @Test
+    fun ycore2_defaults_on_and_persists_opt_out() {
+        val settings = MapSettings()
+        val first = PlaybackPreferences(settings)
+
+        assertTrue(first.core2TrialEnabled.value)
+        first.setCore2TrialEnabled(false)
+
+        assertFalse(PlaybackPreferences(settings).core2TrialEnabled.value)
+    }
+
+    @Test
+    fun ycore_native_only_defaults_off_and_cannot_outlive_the_core2_switch() {
+        val settings = MapSettings()
+        val first = PlaybackPreferences(settings)
+
+        assertFalse(first.core2NativeOnlyEnabled.value)
+        first.setCore2NativeOnlyEnabled(true)
+        assertTrue(PlaybackPreferences(settings).core2NativeOnlyEnabled.value)
+
+        first.setCore2TrialEnabled(false)
+        val restored = PlaybackPreferences(settings)
+        assertFalse(restored.core2TrialEnabled.value)
+        assertFalse(restored.core2NativeOnlyEnabled.value)
+    }
+
+    @Test
+    fun ycore_native_only_requires_automatic_engine_selection() {
+        val settings = MapSettings()
+        val preferences = PlaybackPreferences(settings)
+
+        preferences.setCore2NativeOnlyEnabled(true)
+        assertTrue(preferences.core2NativeOnlyEnabled.value)
+
+        preferences.setEngineSelection(PlaybackEngineSelection.LockMpv)
+        assertFalse(preferences.core2NativeOnlyEnabled.value)
+
+        preferences.setCore2NativeOnlyEnabled(true)
+        assertFalse(preferences.core2NativeOnlyEnabled.value)
+        assertFalse(PlaybackPreferences(settings).core2NativeOnlyEnabled.value)
+    }
+
+    @Test
+    fun stale_native_only_value_is_cleared_when_a_locked_engine_is_restored() {
+        val settings = MapSettings()
+        settings.putString("player.ycore.engineSelection", PlaybackEngineSelection.LockMpv.name)
+        settings.putBoolean("player.ycore2.trialEnabled", true)
+        settings.putBoolean("player.ycore2.nativeOnlyEnabled", true)
+
+        val restored = PlaybackPreferences(settings)
+
+        assertFalse(restored.core2NativeOnlyEnabled.value)
+        restored.setEngineSelection(PlaybackEngineSelection.Auto)
+        assertFalse(PlaybackPreferences(settings).core2NativeOnlyEnabled.value)
+    }
+
+    @Test
+    fun ycore_device_quirks_are_bounded_and_persist_without_media_identity() {
+        val settings = MapSettings()
+        val first = PlaybackPreferences(settings)
+        val records =
+            List(MAX_PLAYBACK_FAILURE_RECORDS + 1) { index ->
+                PlaybackFailureRecord(
+                    signature = "MKV|HEVC|$index",
+                    engine = PlayerEngine.Exo,
+                    count = 2,
+                    lastFailureEpochMs = 1_000L + index,
+                )
+            }
+
+        first.storePlaybackFailureRecords(records)
+        val restored = PlaybackPreferences(settings).playbackFailureRecords()
+
+        assertEquals(MAX_PLAYBACK_FAILURE_RECORDS, restored.size)
+        assertEquals("MKV|HEVC|1", restored.first().signature)
+        assertEquals("MKV|HEVC|$MAX_PLAYBACK_FAILURE_RECORDS", restored.last().signature)
+        assertTrue(restored.none { it.signature.contains("http", ignoreCase = true) })
+    }
+
+    @Test
+    fun ycore_performance_baselines_are_bounded_and_private() {
+        val settings = MapSettings()
+        val first = PlaybackPreferences(settings)
+        val records =
+            List(MAX_PLAYBACK_PERFORMANCE_RECORDS + 1) { index ->
+                PlaybackPerformanceRecord(
+                    signature = "MKV|HEVC|$index",
+                    engine = PlayerEngine.Exo,
+                    sessions = 3,
+                    averageStartupMs = 1_200L,
+                    averageRebufferEventsPerMinute = 0.5f,
+                    averageDroppedFramesPerMinute = 1f,
+                    lastObservedEpochMs = 1_000L + index,
+                )
+            }
+
+        first.storePlaybackPerformanceRecords(records)
+        val restored = PlaybackPreferences(settings).playbackPerformanceRecords()
+
+        assertEquals(MAX_PLAYBACK_PERFORMANCE_RECORDS, restored.size)
+        assertEquals("MKV|HEVC|1", restored.first().signature)
+        assertTrue(restored.none { it.signature.contains("http", ignoreCase = true) })
+    }
+
+    @Test
+    fun series_playback_is_server_scoped_persistent_and_normalized() {
+        val settings = MapSettings()
+        val preferences = PlaybackPreferences(settings)
+        preferences.updateSeriesPlayback("server-a", "series-1") {
+            SeriesPlaybackPreference(
+                audio = RememberedPlaybackTrack(" zho ", " 国语 ", " eac3 "),
+                primarySubtitlesOff = false,
+                primarySubtitle = RememberedPlaybackTrack("zho", "简体", "srt"),
+                secondarySubtitle = RememberedPlaybackTrack("eng", "English", "ass"),
+                audioDelayMs = 25_000L,
+                audioEnhancement = "Unknown",
+                subtitleOffsetMs = 90_000L,
+                subtitleScale = 4f,
+                subtitleBrightness = 0.1f,
+                subtitlePosition = 0.1f,
+                subtitleStylePreset = "Unknown",
+                subtitleTextColorArgb = -1L,
+                subtitleBackgroundColorArgb = 0x1FFFFFFFFL,
+                subtitleOutlineColorArgb = -2L,
+                subtitleOutlineWidth = 99f,
+                speed = 8f,
+                aspectMode = "not-a-mode",
+            )
+        }
+
+        val restored = PlaybackPreferences(settings).rememberedSeriesPlayback("server-a", "series-1")
+        assertEquals(RememberedPlaybackTrack("zho", "国语", "eac3"), restored?.audio)
+        assertEquals(10_000L, restored?.audioDelayMs)
+        assertEquals("Off", restored?.audioEnhancement)
+        assertEquals(60_000L, restored?.subtitleOffsetMs)
+        assertEquals(1.8f, restored?.subtitleScale)
+        assertEquals(0.35f, restored?.subtitleBrightness)
+        assertEquals(0.60f, restored?.subtitlePosition)
+        assertEquals("Standard", restored?.subtitleStylePreset)
+        assertEquals(0xFFFFFFFFL, restored?.subtitleTextColorArgb)
+        assertEquals(0xFFFFFFFFL, restored?.subtitleBackgroundColorArgb)
+        assertEquals(0xFFFFFFFEL, restored?.subtitleOutlineColorArgb)
+        assertEquals(6f, restored?.subtitleOutlineWidth)
+        assertEquals(4f, restored?.speed)
+        assertEquals("Fit", restored?.aspectMode)
+        assertNull(PlaybackPreferences(settings).rememberedSeriesPlayback("server-b", "series-1"))
+        assertNull(PlaybackPreferences(settings).rememberedSeriesPlayback("server-a", ""))
+    }
+
+    @Test
+    fun a_film_keeps_its_choices_under_its_own_id_and_never_leaks_into_a_series() {
+        val settings = MapSettings()
+        val preferences = PlaybackPreferences(settings)
+
+        preferences.updateSeriesPlayback("server-a", seriesId = null, itemId = "film-7") { current ->
+            current.copy(audioDelayMs = 250L)
+        }
+
+        assertEquals(250L, preferences.rememberedSeriesPlayback("server-a", null, "film-7")?.audioDelayMs)
+        assertNull(preferences.rememberedSeriesPlayback("server-a", "film-7"))
+        assertNull(preferences.rememberedSeriesPlayback("server-a", null, null))
+    }
+
+    @Test
+    fun series_playback_memory_is_bounded_and_evicts_the_oldest_choice() {
+        val preferences = PlaybackPreferences(MapSettings())
+        repeat(MAX_SERIES_PLAYBACK_PREFERENCES + 1) { index ->
+            preferences.updateSeriesPlayback("server", "series-$index") { current ->
+                current.copy(speed = 1f + index / 100f)
+            }
+        }
+
+        assertEquals(MAX_SERIES_PLAYBACK_PREFERENCES, preferences.rememberedSeriesPlaybackCount())
+        assertNull(preferences.rememberedSeriesPlayback("server", "series-0"))
+        assertEquals(
+            1f + MAX_SERIES_PLAYBACK_PREFERENCES / 100f,
+            preferences
+                .rememberedSeriesPlayback("server", "series-$MAX_SERIES_PLAYBACK_PREFERENCES")
+                ?.speed,
+        )
+    }
+}

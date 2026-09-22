@@ -1,0 +1,352 @@
+--- before/composeApp/src/commonMain/kotlin/com/yfuse/feature/calendar/CalendarScreen.kt
++++ after/composeApp/src/commonMain/kotlin/com/yfuse/feature/calendar/CalendarScreen.kt
+@@ -20,7 +20,6 @@
+ import androidx.compose.foundation.layout.width
+ import androidx.compose.foundation.lazy.LazyColumn
+ import androidx.compose.foundation.lazy.LazyRow
+-import androidx.compose.foundation.lazy.items
+ import androidx.compose.foundation.lazy.rememberLazyListState
+ import androidx.compose.foundation.selection.selectableGroup
+ import androidx.compose.foundation.shape.CircleShape
+@@ -66,11 +65,13 @@
+ import com.yfuse.core.designsystem.Motion
+ import com.yfuse.core.designsystem.PageHint
+ import com.yfuse.core.designsystem.SkeletonBlock
++import com.yfuse.core.designsystem.SkeletonHandoff
+ import com.yfuse.core.designsystem.StatusBarIconStyle
+ import com.yfuse.core.designsystem.animateRotationAsState
+ import com.yfuse.core.designsystem.contentHandoff
+ import com.yfuse.core.designsystem.contentPhase
+-import com.yfuse.core.designsystem.motionAwareItem
++import com.yfuse.core.designsystem.motionItem
++import com.yfuse.core.designsystem.motionItems
+ import com.yfuse.core.designsystem.pressable
+ import com.yfuse.core.designsystem.rememberDisclosureProgress
+ import com.yfuse.core.designsystem.rememberSegmentIndicator
+@@ -269,7 +270,7 @@
+                         contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
+                         horizontalArrangement = Arrangement.spacedBy(8.dp),
+                     ) {
+-                        items(CalendarFilter.entries) { filter ->
++                        motionItems(CalendarFilter.entries) { filter ->
+                             val active = filter == state.filter
+                             Text(
+                                 filter.label,
+@@ -297,39 +298,42 @@
+                     Spacer(Modifier.height(8.dp))
+                 }
+ 
+-                when {
+-                    state.loading && days.isEmpty() ->
+-                        CalendarLoadingContent()
+-
+-                    state.error != null && days.isEmpty() ->
+-                        ErrorState(
+-                            message = state.error!!,
+-                            onRetry = { component.store.accept(CalendarIntent.Refresh) },
+-                            modifier = Modifier.align(Alignment.CenterHorizontally),
+-                        )
+-
+-                    state.filteredToNothing ->
+-                        PageHint(
+-                            "这段时间「${state.filter.label}」没有更新",
+-                            Modifier.align(Alignment.CenterHorizontally),
+-                        )
+-
+-                    days.isEmpty() ->
+-                        PageHint(
+-                            "这段时间没有查到在播剧集",
+-                            Modifier.align(Alignment.CenterHorizontally),
+-                        )
+-
+-                    else ->
+-                        AdaptiveCalendarResults(
+-                            days = days,
+-                            today = state.today,
+-                            filter = state.filter,
+-                            weeklyStats = weeklyStats,
+-                            reduceMotion = reduceMotion,
+-                            bottomContentInset = bottomContentInset,
+-                            onOpen = { entry -> dialogEntry = entry },
+-                        )
++                SkeletonHandoff(
++                    loading = state.loading && days.isEmpty(),
++                    modifier = Modifier.fillMaxSize(),
++                    skeleton = { CalendarLoadingContent() },
++                ) {
++                    when {
++                        state.error != null && days.isEmpty() ->
++                            ErrorState(
++                                message = state.error!!,
++                                onRetry = { component.store.accept(CalendarIntent.Refresh) },
++                                modifier = Modifier.align(Alignment.Center),
++                            )
++
++                        state.filteredToNothing ->
++                            PageHint(
++                                "这段时间「${state.filter.label}」没有更新",
++                                Modifier.align(Alignment.Center),
++                            )
++
++                        days.isEmpty() ->
++                            PageHint(
++                                "这段时间没有查到在播剧集",
++                                Modifier.align(Alignment.Center),
++                            )
++
++                        else ->
++                            AdaptiveCalendarResults(
++                                days = days,
++                                today = state.today,
++                                filter = state.filter,
++                                weeklyStats = weeklyStats,
++                                reduceMotion = reduceMotion,
++                                bottomContentInset = bottomContentInset,
++                                onOpen = { entry -> dialogEntry = entry },
++                            )
++                    }
+                 }
+             } else {
+                 CalendarAuxiliaryPane(
+@@ -567,7 +571,7 @@
+         timelineDays.isNotEmpty() && expandedDates.size == timelineDays.size
+ 
+     LaunchedEffect(filter, today, initialWeekIndex) {
+-        runCatching { listState.scrollToItem(initialWeekIndex + 1) }
++        runCatching { listState.scrollToItem(initialWeekIndex * 2 + 1) }
+     }
+ 
+     LazyColumn(
+@@ -581,7 +585,7 @@
+         state = listState,
+         contentPadding = PaddingValues(bottom = bottomContentInset),
+     ) {
+-        item(key = "expand-all-content", contentType = "calendar-expand-all") {
++        motionItem(key = "expand-all-content", contentType = "calendar-expand-all") {
+             Row(
+                 Modifier
+                     .fillMaxWidth()
+@@ -620,54 +624,47 @@
+         timelineDays.forEach { day ->
+             val expanded = day.date in expandedDates
+             val displayEntries = displayEntriesByDate[day.date].orEmpty()
+-            item(key = "day-header:${day.date}", contentType = "calendar-day-header") {
++            motionItem(key = "day-header:${day.date}", contentType = "calendar-day-header") {
+                 CalendarDayHeader(
+                     day = day,
+                     today = today,
+                     expanded = expanded,
+                     showCount = displayEntries.size,
+                     onToggle = {
+-                        expandedDates =
+-                            if (expanded) {
+-                                expandedDates - day.date
+-                            } else {
+-                                expandedDates + day.date
+-                            }
++                        expandedDates = if (expanded) expandedDates - day.date else expandedDates + day.date
+                     },
+                 )
+             }
+-            if (expanded) {
+-                if (displayEntries.isEmpty()) {
+-                    item(key = "day-empty:${day.date}", contentType = "calendar-day-empty") {
++            motionItem(key = "day-content:${day.date}", contentType = "calendar-day-content") {
++                val disclosure = rememberDisclosureProgress(expanded)
++                DisclosureContent(expanded = expanded, progress = disclosure) {
++                    if (displayEntries.isEmpty()) {
+                         EmptyCalendarDay(
+                             expanded = true,
+                             onToggle = { expandedDates = expandedDates - day.date },
+                             modifier = Modifier.fillMaxWidth().heightIn(min = 58.dp),
+                         )
+-                    }
+-                } else {
+-                    items(
+-                        items = displayEntries,
+-                        key = { display -> "${day.date}:${display.entry.episode.mediaKey}" },
+-                        contentType = { "calendar-entry" },
+-                    ) { display ->
+-                        Column(motionAwareItem()) {
+-                            AccordionCalendarEntry(
+-                                display = display,
+-                                weekStats = weeklyStats[display.entry.episode.showTmdbId],
+-                                expanded = true,
+-                                extraCount = 0,
+-                                showChevron = false,
+-                                onToggle = { expandedDates = expandedDates - day.date },
+-                                onOpen = { onOpen(display.entry) },
+-                            )
+-                            Box(
+-                                Modifier
+-                                    .fillMaxWidth()
+-                                    .padding(horizontal = 12.dp)
+-                                    .height(1.dp)
+-                                    .background(palette.border),
+-                            )
++                    } else {
++                        displayEntries.forEach { display ->
++                            androidx.compose.runtime.key(display.entry.episode.mediaKey) {
++                                AccordionCalendarEntry(
++                                    display = display,
++                                    weekStats = weeklyStats[display.entry.episode.showTmdbId],
++                                    expanded = true,
++                                    extraCount = 0,
++                                    showChevron = false,
++                                    onToggle = { expandedDates = expandedDates - day.date },
++                                    onOpen = { onOpen(display.entry) },
++                                )
++                                Box(
++                                    Modifier
++                                        .fillMaxWidth()
++                                        .padding(
++                                            horizontal = 12.dp,
++                                        ).height(1.dp)
++                                        .background(palette.border),
++                                )
++                            }
+                         }
+                     }
+                 }
+@@ -686,7 +683,7 @@
+ ) {
+     val palette = LocalPalette.current
+     val accent = LocalAccentColors.current
+-    val rotation = animateRotationAsState(if (expanded) 180f else 0f)
++    val rotation = animateRotationAsState(if (expanded) 90f else 0f)
+     val isToday = day.isToday(today)
+     Row(
+         Modifier
+@@ -744,7 +741,7 @@
+             color = if (showCount > 0) palette.sub else palette.sub2,
+         )
+         Icon(
+-            AppIcons.ChevronDown,
++            AppIcons.ChevronRight,
+             contentDescription = if (expanded) "收起" else "展开",
+             tint = if (expanded) accent.accent else palette.sub2,
+             modifier = Modifier.size(16.dp).graphicsLayer { rotationZ = rotation.value },
+@@ -1032,7 +1029,7 @@
+                         contentPadding = PaddingValues(bottom = bottomContentInset),
+                         verticalArrangement = Arrangement.spacedBy(7.dp),
+                     ) {
+-                        items(
++                        motionItems(
+                             coalesceCalendarEntries(day.entries),
+                             key = { it.entry.episode.mediaKey },
+                         ) { display ->
+@@ -1199,7 +1196,7 @@
+             ),
+         verticalArrangement = Arrangement.spacedBy(10.dp),
+     ) {
+-        item {
++        motionItem {
+             Row(
+                 Modifier
+                     .fillMaxWidth()
+@@ -1254,7 +1251,7 @@
+             }
+         }
+         actionMessage?.let { message ->
+-            item {
++            motionItem {
+                 Text(
+                     message,
+                     style = AppTypography.caption.medium,
+@@ -1263,7 +1260,7 @@
+                 )
+             }
+         }
+-        items(followedSeries, key = FollowedSeries::tmdbId) { series ->
++        motionItems(followedSeries, key = FollowedSeries::tmdbId) { series ->
+             var resolvedPosters by remember(
+                 series.serverId,
+                 series.seriesItemId,
+@@ -1487,7 +1484,7 @@
+         verticalArrangement = Arrangement.spacedBy(10.dp),
+     ) {
+         if (enriching || enrichmentError != null) {
+-            item {
++            motionItem {
+                 Text(
+                     if (enriching) "正在读取片源画质…" else enrichmentError.orEmpty(),
+                     style = AppTypography.caption.medium,
+@@ -1496,7 +1493,7 @@
+                 )
+             }
+         }
+-        items(summaries, key = { it.entry.episode.showTmdbId }) { summary ->
++        motionItems(summaries, key = { it.entry.episode.showTmdbId }) { summary ->
+             Row(
+                 Modifier
+                     .fillMaxWidth()
+@@ -1571,11 +1568,11 @@
+             ),
+         verticalArrangement = Arrangement.spacedBy(12.dp),
+     ) {
+-        item {
++        motionItem {
+             Text("内容类型", style = AppTypography.body.strong, color = palette.text)
+             Spacer(Modifier.height(7.dp))
+             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+-                items(CalendarContentFilter.entries) { content ->
++                motionItems(CalendarContentFilter.entries) { content ->
+                     val active = state.contentFilter == content
+                     Text(
+                         content.label,
+@@ -1599,11 +1596,11 @@
+                 }
+             }
+         }
+-        item {
++        motionItem {
+             Text("播出平台", style = AppTypography.body.strong, color = palette.text)
+             Spacer(Modifier.height(7.dp))
+             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+-                item {
++                motionItem {
+                     val active = state.platform == null
+                     Text(
+                         "全部平台",
+@@ -1625,7 +1622,7 @@
+                                 ).padding(horizontal = 13.dp, vertical = 7.dp),
+                     )
+                 }
+-                items(state.availablePlatforms) { platform ->
++                motionItems(state.availablePlatforms) { platform ->
+                     val active = state.platform == platform
+                     Text(
+                         platform,
+@@ -1649,28 +1646,28 @@
+                 }
+             }
+         }
+-        item {
++        motionItem {
+             CalendarSettingsAction(
+                 title = "导出 ICS 日历",
+                 description = "导入系统日历或其他日历应用",
+                 onClick = onExportCalendar,
+             )
+         }
+-        item {
++        motionItem {
+             CalendarSettingsAction(
+                 title = "导出诊断",
+                 description = "包含排期版本、缓存与媒体库状态",
+                 onClick = onExportDiagnostics,
+             )
+         }
+-        item {
++        motionItem {
+             CalendarSettingsAction(
+                 title = "立即刷新全部状态",
+                 description = "绕过排期和媒体库身份缓存",
+                 onClick = { component.store.accept(CalendarIntent.Refresh) },
+             )
+         }
+-        item {
++        motionItem {
+             Text(
+                 "平台和内容筛选会同时作用于“日历”页；提醒的具体模式和提前量可在“追剧”页或剧集详情中调整。",
+                 style = AppTypography.caption.regular,

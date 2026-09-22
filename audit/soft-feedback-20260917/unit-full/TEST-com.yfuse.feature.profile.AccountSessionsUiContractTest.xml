@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.profile.AccountSessionsUiContractTest" tests="1" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:16.239Z" hostname="DESKTOP-HM2J0FM" time="0.002">
+  <properties/>
+  <testcase name="sessions_are_deduplicated_by_credential_id_without_merging_same_name_devices" classname="com.yfuse.feature.profile.AccountSessionsUiContractTest" time="0.002"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

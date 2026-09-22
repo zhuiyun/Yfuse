@@ -1,0 +1,24 @@
+// Keep this verification's reports separate from other tasks using the checkout.
+allprojects {
+    tasks.withType(Test).configureEach {
+        def resultRoot = rootProject.layout.projectDirectory.dir("audit/playback-followup-fix-20260920/isolated-results/${project.name}/${name}")
+        binaryResultsDirectory.set(resultRoot.dir('binary'))
+        reports.junitXml.required.set(true)
+        reports.junitXml.outputLocation.set(resultRoot.dir('xml'))
+        reports.html.required.set(true)
+        reports.html.outputLocation.set(resultRoot.dir('html'))
+        outputs.upToDateWhen { false }
+        outputs.cacheIf { false }
+    }
+}
+
+gradle.projectsEvaluated {
+    ['phoneShared', 'tvShared'].each { moduleName ->
+        def moduleProject = rootProject.project(":${moduleName}")
+        moduleProject.tasks.register('playbackVerificationReport', TestReport) {
+            mustRunAfter(":${moduleName}:testAndroidHostTest")
+            destinationDirectory.set(rootProject.layout.projectDirectory.dir("audit/playback-followup-fix-20260920/unit-reports/${moduleName}"))
+            testResults.from(rootProject.file("audit/playback-followup-fix-20260920/isolated-results/${moduleName}/testAndroidHostTest/binary"))
+        }
+    }
+}

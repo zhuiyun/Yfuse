@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.adaptive.YAdaptiveReopenCompatibilityTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:08.575Z" hostname="DESKTOP-HM2J0FM" time="0.002">
+  <properties/>
+  <testcase name="hls_reopen_keeps_timing_and_encryption_while_allowing_a_new_map" classname="com.yfuse.core2.adaptive.YAdaptiveReopenCompatibilityTest" time="0.002"/>
+  <testcase name="different_dash_init_is_reopen_eligible_but_still_not_seamless" classname="com.yfuse.core2.adaptive.YAdaptiveReopenCompatibilityTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

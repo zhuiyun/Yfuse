@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.tv.integration.CastConnectLoadMapperTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-09-15T04:26:39.126Z" hostname="DESKTOP-HM2J0FM" time="0.036">
+  <properties/>
+  <testcase name="intentClassifierRecognizesOfficialActionsAndOnlyValidYfuseLinks" classname="com.yfuse.tv.integration.CastConnectLoadMapperTest" time="0.012"/>
+  <testcase name="explicitLoadPositionOverridesDeepLinkAndUnassignedNormalizesToZero" classname="com.yfuse.tv.integration.CastConnectLoadMapperTest" time="0.003"/>
+  <testcase name="hostResolverRejectsUnknownLaneAndMismatchedDecodedRoute" classname="com.yfuse.tv.integration.CastConnectLoadMapperTest" time="0.002"/>
+  <testcase name="deepLinkEntityWinsAndKeepsItsResumePointWhenLoadUsesDefaultZero" classname="com.yfuse.tv.integration.CastConnectLoadMapperTest" time="0.011"/>
+  <testcase name="directMediaAcceptsOnlyBoundedHttpUrlsWithoutUserInfoOrFragments" classname="com.yfuse.tv.integration.CastConnectLoadMapperTest" time="0.0"/>
+  <testcase name="hostResolverCreatesRedactedTransientDirectActionWithoutTranscode" classname="com.yfuse.tv.integration.CastConnectLoadMapperTest" time="0.005"/>
+  <testcase name="hostResolverMapsDeepLinkThroughCurrentServerRegistry" classname="com.yfuse.tv.integration.CastConnectLoadMapperTest" time="0.002"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

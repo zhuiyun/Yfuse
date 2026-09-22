@@ -1,0 +1,5 @@
+[
+  "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerRoot.kt",
+  "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlaybackSourceSwitchCoordinator.kt",
+  "composeApp/src/commonTest/kotlin/com/yfuse/feature/player/PlaybackSourceSwitchCoordinatorTest.kt"
+]

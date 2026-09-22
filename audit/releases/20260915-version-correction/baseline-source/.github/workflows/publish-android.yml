@@ -1,0 +1,1112 @@
+name: Publish Android update
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - version.properties
+  workflow_dispatch:
+    inputs:
+      version_code:
+        description: Android versionCode (must be greater than the published version)
+        required: true
+        type: string
+      version_name:
+        description: Public version name (numeric major.minor.patch, for example 0.2.01)
+        required: true
+        type: string
+      release_notes:
+        description: Release notes shown by the in-app updater
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: android-production-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    # Explicit artifact-only version bumps must not deploy the production updater.
+    if: github.event_name != 'push' || !contains(github.event.head_commit.message, '[artifact only]')
+    name: Build, sign, and publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    environment:
+      name: production
+    env:
+      VERSION_CODE: ${{ inputs.version_code }}
+      VERSION_NAME: ${{ inputs.version_name }}
+      RELEASE_NOTES: ${{ inputs.release_notes }}
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      TMDB_TOKEN: ${{ secrets.TMDB_TOKEN }}
+      # Optional Ed25519 private key (PEM) for signed manifests and the public key embedded in APKs.
+      UPDATE_MANIFEST_SIGNING_KEY: ${{ secrets.UPDATE_MANIFEST_SIGNING_KEY }}
+      # Public certificate fingerprint pinned from the currently published APK.
+      # Changing this requires an explicit signing-key migration.
+      EXPECTED_ANDROID_CERT_SHA256: 373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84
+      DEPLOY_SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
+      DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+      DEPLOY_HOST: ${{ vars.DEPLOY_HOST || '47.112.219.60' }}
+      DEPLOY_USER: ${{ vars.DEPLOY_USER || 'yfuse-deploy' }}
+      DEPLOY_PORT: ${{ vars.DEPLOY_PORT || '22' }}
+      DEPLOY_REMOTE_DIR: ${{ vars.DEPLOY_REMOTE_DIR || '/srv/yfuse-update/yfuse' }}
+      # Fixed compatibility origin used by already-installed HTTP-only clients.
+      LEGACY_UPDATE_BASE_URL: http://47.112.219.60/yfuse
+      UPDATE_BASE_URL: ${{ vars.UPDATE_BASE_URL || 'https://47.112.219.60/yfuse' }}
+      WATCH_BASE_URL: ${{ vars.WATCH_BASE_URL || 'https://47.112.219.60' }}
+      # The v6 server must land first and continue accepting authenticated v5 clients.
+      EXPECTED_WATCH_PROTOCOL: "6"
+      EXPECTED_WATCH_MIN_PROTOCOL: "5"
+      # Keep enough headroom for native player updates without allowing silent APK bloat.
+      APK_SIZE_BUDGET_BYTES: "30000000"
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Require green Android quality gates on this commit
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Editing version.properties starts this workflow and the quality gates at the same
+          # time. Production signing waits for the gates to finish and refuses a red commit.
+          for attempt in $(seq 1 90); do
+            run="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow quality-gates-v2.yml --commit "$GITHUB_SHA" --limit 1 --json status,conclusion --jq '.[0] // empty')"
+            status="$(jq -r '.status // "missing"' <<<"${run:-null}")"
+            conclusion="$(jq -r '.conclusion // ""' <<<"${run:-null}")"
+            if [[ "$status" == "completed" ]]; then
+              [[ "$conclusion" == "success" ]] || { echo "::error::Android quality gates for $GITHUB_SHA concluded '$conclusion'"; exit 1; }
+              echo "Android quality gates passed for $GITHUB_SHA"
+              exit 0
+            fi
+            echo "quality gates for $GITHUB_SHA: ${status} (attempt $attempt)"
+            sleep 30
+          done
+          echo "::error::Android quality gates for $GITHUB_SHA did not finish in time"
+          exit 1
+      - name: Resolve automatic release request
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 scripts/release_metadata.py --format github-env >> "$GITHUB_ENV"
+
+      - name: Validate release request
+        shell: bash
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$GITHUB_REF_NAME" != "$DEFAULT_BRANCH" ]]; then
+            echo "::error::Production releases must run from $DEFAULT_BRANCH"
+            exit 1
+          fi
+
+          if [[ ! "$VERSION_CODE" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::version_code must be a positive integer"
+            exit 1
+          fi
+          if [[ ! "$VERSION_NAME" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::version_name must use numeric major.minor.patch format"
+            exit 1
+          fi
+          if [[ -z "${RELEASE_NOTES//[[:space:]]/}" ]]; then
+            echo "::error::release notes must not be empty"
+            exit 1
+          fi
+
+          required_secrets=(
+            ANDROID_KEYSTORE_BASE64
+            ANDROID_KEYSTORE_PASSWORD
+            ANDROID_KEY_ALIAS
+            ANDROID_KEY_PASSWORD
+            TMDB_TOKEN
+            DEPLOY_SSH_PRIVATE_KEY
+            DEPLOY_KNOWN_HOSTS
+          )
+          for secret_name in "${required_secrets[@]}"; do
+            if [[ -z "${!secret_name:-}" ]]; then
+              echo "::error::Missing production secret: $secret_name"
+              exit 1
+            fi
+          done
+
+          if [[ ! "$DEPLOY_HOST" =~ ^[A-Za-z0-9.-]+$ ]]; then
+            echo "::error::DEPLOY_HOST contains unsupported characters"
+            exit 1
+          fi
+          if [[ ! "$DEPLOY_USER" =~ ^[A-Za-z0-9._-]+$ ]]; then
+            echo "::error::DEPLOY_USER contains unsupported characters"
+            exit 1
+          fi
+          if [[ ! "$DEPLOY_PORT" =~ ^[0-9]{1,5}$ ]] ||
+            (( DEPLOY_PORT < 1 || DEPLOY_PORT > 65535 )); then
+            echo "::error::DEPLOY_PORT must be a valid TCP port"
+            exit 1
+          fi
+          if [[ ! "$DEPLOY_REMOTE_DIR" =~ ^/srv/yfuse-update(/[A-Za-z0-9._-]+)+$ ]]; then
+            echo "::error::DEPLOY_REMOTE_DIR must stay inside /srv/yfuse-update"
+            exit 1
+          fi
+          if [[ "$DEPLOY_REMOTE_DIR" =~ (^|/)\.\.?(/|$) ]]; then
+            echo "::error::DEPLOY_REMOTE_DIR must not contain . or .. path segments"
+            exit 1
+          fi
+          if [[ ! "$UPDATE_BASE_URL" =~ ^https://[^[:space:]]+$ ]]; then
+            echo "::error::UPDATE_BASE_URL must be an HTTPS URL"
+            exit 1
+          fi
+          if [[ ! "$WATCH_BASE_URL" =~ ^https://[^[:space:]]+$ ]]; then
+            echo "::error::WATCH_BASE_URL must be an HTTPS URL"
+            exit 1
+          fi
+
+          normalized_update_url="${UPDATE_BASE_URL%/}"
+          normalized_watch_url="${WATCH_BASE_URL%/}"
+          echo "UPDATE_BASE_URL=$normalized_update_url" >> "$GITHUB_ENV"
+          echo "WATCH_BASE_URL=$normalized_watch_url" >> "$GITHUB_ENV"
+
+      - name: Verify watch server protocol
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          protocol_payload="$(
+            curl -fsSL --retry 3 \
+              --proto '=https' \
+              --proto-redir '=https' \
+              "$WATCH_BASE_URL/watch/version"
+          )"
+          actual_protocol="$(jq -r '.protocolVersion // empty' <<<"$protocol_payload")"
+          actual_min_protocol="$(jq -r '.minProtocolVersion // empty' <<<"$protocol_payload")"
+          if [[ "$actual_protocol" != "$EXPECTED_WATCH_PROTOCOL" ||
+            "$actual_min_protocol" != "$EXPECTED_WATCH_MIN_PROTOCOL" ]]; then
+            echo "::error::Watch server protocol range is ${actual_min_protocol:-missing}..${actual_protocol:-missing}; expected $EXPECTED_WATCH_MIN_PROTOCOL..$EXPECTED_WATCH_PROTOCOL. Deploy the compatible watch server before publishing the app."
+            exit 1
+          fi
+
+      - name: Reject duplicate or older version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p build
+          v2_status="$(
+            curl -sS --connect-timeout 10 \
+              --proto '=https' \
+              --proto-redir '=https' \
+              --output build/current-update-v2.json \
+              --write-out '%{http_code}' \
+              "$UPDATE_BASE_URL/update-v2.json" || true
+          )"
+
+          current_manifest=""
+          current_manifest_source=""
+          if [[ "$v2_status" == "200" ]]; then
+            current_manifest="$(<build/current-update-v2.json)"
+            current_manifest_source="$UPDATE_BASE_URL/update-v2.json"
+          elif [[ "$v2_status" == "404" ]]; then
+            echo "::notice::update-v2.json is not published yet; checking the legacy manifest"
+            if current_manifest="$(
+              curl -fsSL --connect-timeout 10 \
+                --proto '=http' \
+                --proto-redir '=http' \
+                "$LEGACY_UPDATE_BASE_URL/update.json"
+            )"; then
+              current_manifest_source="$LEGACY_UPDATE_BASE_URL/update.json"
+            else
+              current_manifest=""
+              echo "::warning::Neither update-v2.json nor the legacy update.json is available; treating this as the first release"
+            fi
+          else
+            echo "::error::Unable to check update-v2.json (HTTP status ${v2_status:-unknown})"
+            exit 1
+          fi
+
+          if [[ -n "$current_manifest" ]]; then
+            current_version="$(jq -r '.versionCode // 0' <<<"$current_manifest")"
+            if [[ "$current_version" =~ ^[0-9]+$ ]] && (( VERSION_CODE <= current_version )); then
+              echo "::error::version_code $VERSION_CODE is not newer than published version $current_version from $current_manifest_source"
+              exit 1
+            fi
+          fi
+
+      - name: Set up Java
+        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Install Android build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          android_sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          sdkmanager="$android_sdk/cmdline-tools/latest/bin/sdkmanager"
+          if [[ ! -x "$sdkmanager" ]]; then
+            sdkmanager="$(
+              find "$android_sdk/cmdline-tools" \
+                -type f \
+                -name sdkmanager \
+                -print \
+                -quit
+            )"
+          fi
+          if [[ ! -x "$sdkmanager" ]]; then
+            echo "::error::Unable to locate sdkmanager below $android_sdk"
+            exit 1
+          fi
+
+          yes | "$sdkmanager" --licenses >/dev/null 2>&1 || true
+          "$sdkmanager" \
+            "platforms;android-36" \
+            "ndk;29.0.14206865" \
+            "cmake;3.22.1"
+
+      - name: Download player engines
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v 7z >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y p7zip-full
+          fi
+          chmod +x gradlew scripts/fetch-engines.sh
+          scripts/fetch-engines.sh
+          test -f composeApp/libs/libmpv-release.aar
+          test -f composeApp/libs/mdk-sdk/lib/cmake/FindMDK.cmake
+
+      - name: Build and install current YCore runtime
+        uses: ./.github/actions/build-current-ycore
+
+      - name: Configure release signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p signing
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > signing/yfuse-release.jks
+          chmod 600 signing/yfuse-release.jks
+          {
+            printf 'storeFile=signing/yfuse-release.jks\n'
+            printf 'storePassword=%s\n' "$ANDROID_KEYSTORE_PASSWORD"
+            printf 'keyAlias=%s\n' "$ANDROID_KEY_ALIAS"
+            printf 'keyPassword=%s\n' "$ANDROID_KEY_PASSWORD"
+          } > keystore.properties
+          chmod 600 keystore.properties
+
+      - name: Configure app services
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'tmdb.token=%s\n' "$TMDB_TOKEN" > local.properties
+          chmod 600 local.properties
+
+      - name: Verify configured keystore certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          configured_cert="$(
+            keytool -list -v \
+              -keystore signing/yfuse-release.jks \
+              -storepass "$ANDROID_KEYSTORE_PASSWORD" \
+              -alias "$ANDROID_KEY_ALIAS" |
+              sed -n 's/^[[:space:]]*SHA256: //p' |
+              head -n 1 |
+              tr -d ':[:space:]' |
+              tr '[:upper:]' '[:lower:]'
+          )"
+          expected_cert="$(
+            tr -d ':[:space:]' <<<"$EXPECTED_ANDROID_CERT_SHA256" |
+              tr '[:upper:]' '[:lower:]'
+          )"
+          if [[ -z "$configured_cert" || "$configured_cert" != "$expected_cert" ]]; then
+            echo "::error::Configured keystore certificate mismatch: actual=${configured_cert:-missing}, expected=$expected_cert"
+            exit 1
+          fi
+
+      - name: Run unit tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew \
+            :composeApp:testDebugUnitTest \
+            :composeApp:verifyDesignSystemUsage \
+            :watchTogetherProtocol:jvmTest \
+            :watchTogetherServer:test \
+            --no-daemon
+
+      - name: Run Android lint
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :composeApp:lintDebug --no-daemon
+
+      - name: Reject new ktlint violations
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew ktlintCheck --no-daemon
+
+      - name: Resolve with committed dependency locks
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew \
+            :composeApp:dependencies \
+            :mdkAndroid:dependencies \
+            :watchTogetherProtocol:dependencies \
+            :watchTogetherServer:dependencies \
+            --no-daemon >/dev/null
+          git diff --exit-code -- '**/gradle.lockfile' settings-gradle.lockfile
+
+      - name: Configure verified update-manifest public key
+        shell: bash
+        env:
+          UPDATE_MANIFEST_SIGNING_KEY: ${{ secrets.UPDATE_MANIFEST_SIGNING_KEY }}
+          YFUSE_UPDATE_MANIFEST_PUBLIC_KEY: ${{ vars.YFUSE_UPDATE_MANIFEST_PUBLIC_KEY }}
+        run: |
+          set -euo pipefail
+          pinned="$(sed -n 's/^yfuse\.updateManifestPublicKey=//p' gradle.properties | tr -d '[:space:]')"
+          configured="${YFUSE_UPDATE_MANIFEST_PUBLIC_KEY:-}"
+          if [[ -n "$pinned" && -n "$configured" && "$pinned" != "$configured" ]]; then
+            echo '::error::Configured update public key does not match the pinned key'
+            exit 1
+          fi
+          public_key="${pinned:-$configured}"
+          if [[ -n "${UPDATE_MANIFEST_SIGNING_KEY:-}" ]]; then
+            derived="$(printf '%s\n' "$UPDATE_MANIFEST_SIGNING_KEY" | openssl pkey -pubout -outform DER | base64 -w0)"
+            if [[ -n "$public_key" && "$public_key" != "$derived" ]]; then
+              echo '::error::Update signing key does not match the configured public key'
+              exit 1
+            fi
+            public_key="$derived"
+          fi
+          if [[ -z "$public_key" ]]; then
+            echo '::notice::No update-manifest public key configured; continuing with standard APK verification'
+            exit 0
+          fi
+          if [[ -z "${UPDATE_MANIFEST_SIGNING_KEY:-}" ]]; then
+            echo '::error::A configured update-manifest public key needs its matching private signing key when publishing; otherwise pinned clients cannot accept the update'
+            exit 1
+          fi
+          if [[ ! "$public_key" =~ ^MCowBQYDK2VwAyEA[A-Za-z0-9+/]{43}=$ ]]; then
+            echo '::error::Configured update-manifest public key must be valid Ed25519'
+            exit 1
+          fi
+          printf '%s' "$public_key" | base64 --decode | openssl pkey -pubin -inform DER -noout >/dev/null
+          printf 'YFUSE_UPDATE_MANIFEST_PUBLIC_KEY=%s\n' "$public_key" >> "$GITHUB_ENV"
+
+      - name: Build signed release APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :composeApp:assembleRelease \
+            -PyfuseVersionCode="$VERSION_CODE" \
+            -PyfuseVersionName="$VERSION_NAME" \
+            -PconfirmMdkDistributionRights=true \
+            --no-daemon
+
+      - name: Verify release build did not mutate version metadata
+        run: git diff --exit-code -- version.properties
+
+      - name: Verify APK metadata and signing certificate
+        id: apk
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          apk="composeApp/build/outputs/apk/release/composeApp-release.apk"
+          metadata="composeApp/build/outputs/apk/release/output-metadata.json"
+          test -f "$apk"
+          test -f "$metadata"
+
+          actual_version_code="$(jq -r '.elements[0].versionCode' "$metadata")"
+          actual_version_name="$(jq -r '.elements[0].versionName' "$metadata")"
+          [[ "$actual_version_code" == "$VERSION_CODE" ]]
+          [[ "$actual_version_name" == "$VERSION_NAME" ]]
+
+          apksigner="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          zipalign="$(find "$ANDROID_HOME/build-tools" -type f -name zipalign | sort -V | tail -n 1)"
+          aapt="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
+          test -x "$apksigner"
+          test -x "$zipalign"
+          test -x "$aapt"
+          signer_output="$("$apksigner" verify --verbose --print-certs "$apk")"
+          "$zipalign" -c -v 4 "$apk"
+          badging="$("$aapt" dump badging "$apk")"
+          grep -Fq "package: name='com.yfuse'" <<<"$badging"
+          grep -Fq "versionCode='$VERSION_CODE'" <<<"$badging"
+          grep -Fq "versionName='$VERSION_NAME'" <<<"$badging"
+          receiver_id="$(awk -F= '$1 == "yfuseCastReceiverApplicationId" { print $2 }' gradle.properties)"
+          [[ "$receiver_id" == "E9107559" ]]
+          dex_dir="$(mktemp -d)"
+          unzip -qq "$apk" 'classes*.dex' -d "$dex_dir"
+          if ! strings "$dex_dir"/classes*.dex | grep -F "$receiver_id" >/dev/null; then
+            echo "::error::Release APK does not contain the configured Cast receiver application ID"
+            exit 1
+          fi
+          expected_cert="$(
+            tr -d ':[:space:]' <<<"$EXPECTED_ANDROID_CERT_SHA256" |
+              tr '[:upper:]' '[:lower:]'
+          )"
+          normalized_signer_output="$(
+            tr -d ':[:space:]' <<<"$signer_output" |
+              tr '[:upper:]' '[:lower:]'
+          )"
+          if [[ "$normalized_signer_output" != *"$expected_cert"* ]]; then
+            echo "::error::APK signing certificate does not match the pinned production certificate"
+            printf '%s\n' "$signer_output"
+            exit 1
+          fi
+
+          apk_sha256="$(sha256sum "$apk" | awk '{print $1}')"
+          apk_size="$(stat -c '%s' "$apk")"
+          if (( apk_size > APK_SIZE_BUDGET_BYTES )); then
+            echo "::error::Release APK is $apk_size bytes; budget is $APK_SIZE_BUDGET_BYTES bytes"
+            exit 1
+          fi
+          apk_file_name="Yfuse-${actual_version_code}-${actual_version_name}.apk"
+          {
+            echo "path=$apk"
+            echo "sha256=$apk_sha256"
+            echo "size=$apk_size"
+            echo "version_name=$actual_version_name"
+            echo "file_name=$apk_file_name"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create update package
+        shell: bash
+        env:
+          APK_PATH: ${{ steps.apk.outputs.path }}
+          APK_SHA256: ${{ steps.apk.outputs.sha256 }}
+          APK_SIZE: ${{ steps.apk.outputs.size }}
+          VERSION_NAME: ${{ steps.apk.outputs.version_name }}
+          APK_FILE_NAME: ${{ steps.apk.outputs.file_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p build/update
+          cp "$APK_PATH" "build/update/$APK_FILE_NAME"
+
+          create_manifest() {
+            local apk_url="$1"
+            local output="$2"
+            jq -n \
+              --argjson versionCode "$VERSION_CODE" \
+              --arg versionName "$VERSION_NAME" \
+              --arg apkUrl "$apk_url" \
+              --arg sha256 "$APK_SHA256" \
+              --argjson size "$APK_SIZE" \
+              --arg notes "$RELEASE_NOTES" \
+              '{
+                versionCode: $versionCode,
+                versionName: $versionName,
+                apkUrl: $apkUrl,
+                sha256: $sha256,
+                size: $size,
+                notes: $notes
+              }' > "$output"
+          }
+
+          create_manifest \
+            "$LEGACY_UPDATE_BASE_URL/$APK_FILE_NAME" \
+            build/update/update.json
+          create_manifest \
+            "$UPDATE_BASE_URL/$APK_FILE_NAME" \
+            build/update/update-v2.json
+
+          # Manifest signatures are optional; APK signatures and hashes are always verified.
+          if [[ -n "${UPDATE_MANIFEST_SIGNING_KEY:-}" ]]; then
+            # Sign every field that decides what gets installed. The payload layout mirrors
+            # UpdateManifest.signedPayload() in the app: change both or neither.
+            umask 077
+            key_file="$(mktemp)"
+            trap 'rm -f "$key_file"' EXIT
+            printf '%s\n' "$UPDATE_MANIFEST_SIGNING_KEY" > "$key_file"
+            sign_manifest() {
+              local file="$1"
+              local payload
+              payload="$(mktemp)"
+              jq -j '[.versionCode, .versionName, .apkUrl, .sha256, .size, .notes] | map(tostring) | join("\n")' \
+                "$file" > "$payload"
+              local signature
+              signature="$(openssl pkeyutl -sign -inkey "$key_file" -rawin -in "$payload" | base64 -w0)"
+              rm -f "$payload"
+              jq --arg signature "$signature" '. + {signature: $signature}' "$file" > "$file.signed"
+              mv "$file.signed" "$file"
+            }
+            sign_manifest build/update/update.json
+            sign_manifest build/update/update-v2.json
+            rm -f "$key_file"
+            trap - EXIT
+            jq -e '.signature | type == "string" and length > 0' build/update/update.json >/dev/null
+            jq -e '.signature | type == "string" and length > 0' build/update/update-v2.json >/dev/null
+          else
+            echo '::notice::No update-manifest signing key configured; publishing standard update manifests'
+          fi
+
+          jq -e \
+            --arg apkUrl "$LEGACY_UPDATE_BASE_URL/$APK_FILE_NAME" \
+            --arg sha256 "$APK_SHA256" \
+            --argjson size "$APK_SIZE" \
+            '.apkUrl == $apkUrl and .sha256 == $sha256 and .size == $size' \
+            build/update/update.json >/dev/null
+          jq -e \
+            --arg apkUrl "$UPDATE_BASE_URL/$APK_FILE_NAME" \
+            --arg sha256 "$APK_SHA256" \
+            --argjson size "$APK_SIZE" \
+            '.apkUrl == $apkUrl and .sha256 == $sha256 and .size == $size' \
+            build/update/update-v2.json >/dev/null
+
+      - name: Save release artifact
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: Yfuse-${{ steps.apk.outputs.version_name }}
+          path: build/update/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+      - name: Configure pinned SSH host
+        shell: bash
+        run: |
+          set -euo pipefail
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' "$DEPLOY_SSH_PRIVATE_KEY" > "$HOME/.ssh/id_deploy"
+          known_hosts_source="$HOME/.ssh/known_hosts.source"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$known_hosts_source"
+
+          # The production SSH daemon previously listened on 443. Its host key was
+          # independently verified to be identical on 22, so migrate only that exact
+          # legacy host token while preserving the pinned key bytes. Never use
+          # ssh-keyscan here: deployment must not learn trust from the live network.
+          if [[ "$DEPLOY_HOST" == "47.112.219.60" && "$DEPLOY_PORT" == "22" ]] &&
+            grep -qE '^\[47\.112\.219\.60\]:443[[:space:]]+' "$known_hosts_source"; then
+            sed -E \
+              's/^\[47\.112\.219\.60\]:443[[:space:]]+/47.112.219.60 /' \
+              "$known_hosts_source" > "$HOME/.ssh/known_hosts"
+            echo "::notice::Reused the verified deployment host key for the SSH port 22 migration"
+          else
+            cp "$known_hosts_source" "$HOME/.ssh/known_hosts"
+          fi
+
+          rm -f "$known_hosts_source"
+          chmod 600 "$HOME/.ssh/id_deploy" "$HOME/.ssh/known_hosts"
+
+      - name: Publish update atomically
+        id: activate
+        shell: bash
+        env:
+          APK_FILE_NAME: ${{ steps.apk.outputs.file_name }}
+          EXPECTED_SHA256: ${{ steps.apk.outputs.sha256 }}
+          EXPECTED_SIZE: ${{ steps.apk.outputs.size }}
+        run: |
+          set -euo pipefail
+
+          ssh_options=(
+            -i "$HOME/.ssh/id_deploy"
+            -o "Port=$DEPLOY_PORT"
+            -o BatchMode=yes
+            -o IdentitiesOnly=yes
+            -o StrictHostKeyChecking=yes
+            -o ConnectTimeout=15
+          )
+          target="$DEPLOY_USER@$DEPLOY_HOST"
+          remote_prefix="/tmp/yfuse-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          remote_apk="$remote_prefix.apk"
+          remote_legacy_manifest="$remote_prefix-v1.json"
+          remote_v2_manifest="$remote_prefix-v2.json"
+          rollback_token="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          legacy_manifest_sha="$(sha256sum build/update/update.json | awk '{print $1}')"
+          v2_manifest_sha="$(sha256sum build/update/update-v2.json | awk '{print $1}')"
+
+          cleanup_uploads_on_error() {
+            local status="$?"
+            trap - EXIT
+            if (( status != 0 )); then
+              set +e
+              printf '%s\n' \
+                'set -euo pipefail' \
+                'for path in "$@"; do' \
+                '  [[ "$path" =~ ^/tmp/yfuse-[1-9][0-9]*-[1-9][0-9]*(\.apk|-v[12]\.json)$ ]]' \
+                '  rm -f -- "$path"' \
+                'done' |
+                ssh "${ssh_options[@]}" "$target" bash -s -- \
+                  "$remote_apk" "$remote_legacy_manifest" "$remote_v2_manifest" \
+                  >/dev/null 2>&1
+            fi
+            exit "$status"
+          }
+          trap cleanup_uploads_on_error EXIT
+
+          scp "${ssh_options[@]}" "build/update/$APK_FILE_NAME" "$target:$remote_apk"
+          scp "${ssh_options[@]}" build/update/update.json "$target:$remote_legacy_manifest"
+          scp "${ssh_options[@]}" build/update/update-v2.json "$target:$remote_v2_manifest"
+
+          ssh "${ssh_options[@]}" "$target" bash -s -- \
+            "$DEPLOY_REMOTE_DIR" \
+            "$remote_apk" \
+            "$remote_legacy_manifest" \
+            "$remote_v2_manifest" \
+            "$APK_FILE_NAME" \
+            "$EXPECTED_SHA256" \
+            "$EXPECTED_SIZE" \
+            "$legacy_manifest_sha" \
+            "$v2_manifest_sha" \
+            "$rollback_token" <<'REMOTE_SCRIPT'
+          set -euo pipefail
+          remote_dir="$1"
+          apk_tmp="$2"
+          legacy_manifest_tmp="$3"
+          v2_manifest_tmp="$4"
+          apk_file_name="$5"
+          expected_sha="$6"
+          expected_size="$7"
+          legacy_manifest_sha="$8"
+          v2_manifest_sha="$9"
+          rollback_token="${10}"
+
+          apk_final="$remote_dir/$apk_file_name"
+          apk_next="$remote_dir/.$apk_file_name.next-$rollback_token"
+          legacy_manifest="$remote_dir/update.json"
+          v2_manifest="$remote_dir/update-v2.json"
+          legacy_manifest_next="$remote_dir/.update.json.next-$rollback_token"
+          v2_manifest_next="$remote_dir/.update-v2.json.next-$rollback_token"
+          backup_legacy="$remote_dir/.rollback-$rollback_token-update.json"
+          backup_v2="$remote_dir/.rollback-$rollback_token-update-v2.json"
+          had_legacy="$remote_dir/.rollback-$rollback_token-had-update.json"
+          had_v2="$remote_dir/.rollback-$rollback_token-had-update-v2.json"
+          missing_legacy="$remote_dir/.rollback-$rollback_token-missing-update.json"
+          missing_v2="$remote_dir/.rollback-$rollback_token-missing-update-v2.json"
+          created_apk="$remote_dir/.rollback-$rollback_token-created-apk"
+          switched=0
+
+          cleanup_staging() {
+            rm -f -- \
+              "$apk_tmp" \
+              "$legacy_manifest_tmp" \
+              "$v2_manifest_tmp" \
+              "$apk_next" \
+              "$legacy_manifest_next" \
+              "$v2_manifest_next"
+          }
+
+          cleanup_rollback() {
+            rm -f -- \
+              "$backup_legacy" "$backup_v2" \
+              "$had_legacy" "$had_v2" \
+              "$missing_legacy" "$missing_v2" \
+              "$created_apk"
+          }
+
+          restore_one() {
+            local canonical="$1"
+            local backup="$2"
+            local had_marker="$3"
+            local missing_marker="$4"
+            local restore_next="$canonical.rollback-$rollback_token"
+            if [[ -f "$had_marker" ]]; then
+              test -s "$backup"
+              install -m 0644 "$backup" "$restore_next"
+              mv -fT "$restore_next" "$canonical"
+            elif [[ -f "$missing_marker" ]]; then
+              rm -f -- "$canonical"
+            else
+              echo "Missing rollback state for $canonical" >&2
+              return 1
+            fi
+          }
+
+          restore_manifests() {
+            local restore_status=0
+            restore_one \
+              "$legacy_manifest" "$backup_legacy" "$had_legacy" "$missing_legacy" || \
+              restore_status=1
+            restore_one \
+              "$v2_manifest" "$backup_v2" "$had_v2" "$missing_v2" || \
+              restore_status=1
+            return "$restore_status"
+          }
+
+          on_exit() {
+            local status="$?"
+            local restored=0
+            trap - EXIT
+            set +e
+            if (( status != 0 && switched == 1 )); then
+              if restore_manifests; then
+                restored=1
+              else
+                echo "Automatic manifest rollback failed; preserving rollback files" >&2
+              fi
+            fi
+            if (( status != 0 && (switched == 0 || restored == 1) )); then
+              if [[ -f "$created_apk" ]]; then
+                rm -f -- "$apk_final"
+              fi
+              cleanup_rollback
+            fi
+            cleanup_staging
+            exit "$status"
+          }
+          trap on_exit EXIT
+
+          case "$remote_dir" in
+            /srv/yfuse-update/*) ;;
+            *) echo "Unsafe remote directory" >&2; exit 2 ;;
+          esac
+          [[ "$remote_dir" =~ ^/srv/yfuse-update(/[A-Za-z0-9._-]+)+$ ]]
+          [[ ! "$remote_dir" =~ (^|/)\.\.?(/|$) ]]
+          [[ "$apk_file_name" =~ ^Yfuse-[1-9][0-9]*-[0-9]+\.[0-9]+\.[0-9]+\.apk$ ]]
+          [[ "$expected_sha" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$expected_size" =~ ^[1-9][0-9]*$ ]]
+          [[ "$legacy_manifest_sha" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$v2_manifest_sha" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$rollback_token" =~ ^[1-9][0-9]*-[1-9][0-9]*$ ]]
+
+          test -d "$remote_dir"
+          test -w "$remote_dir"
+          test -s "$apk_tmp"
+          test -s "$legacy_manifest_tmp"
+          test -s "$v2_manifest_tmp"
+          [[ "$(sha256sum "$apk_tmp" | awk '{print $1}')" == "$expected_sha" ]]
+          [[ "$(stat -c '%s' "$apk_tmp")" == "$expected_size" ]]
+          [[ "$(sha256sum "$legacy_manifest_tmp" | awk '{print $1}')" == "$legacy_manifest_sha" ]]
+          [[ "$(sha256sum "$v2_manifest_tmp" | awk '{print $1}')" == "$v2_manifest_sha" ]]
+
+          cleanup_rollback
+          install -m 0644 "$apk_tmp" "$apk_next"
+          [[ "$(sha256sum "$apk_next" | awk '{print $1}')" == "$expected_sha" ]]
+          [[ "$(stat -c '%s' "$apk_next")" == "$expected_size" ]]
+          if [[ -e "$apk_final" ]]; then
+            [[ "$(sha256sum "$apk_final" | awk '{print $1}')" == "$expected_sha" ]] || {
+              echo "Immutable APK name already exists with different content" >&2
+              exit 3
+            }
+            [[ "$(stat -c '%s' "$apk_final")" == "$expected_size" ]]
+            rm -f -- "$apk_next"
+          else
+            # A hard link creates the immutable public name atomically and refuses to overwrite.
+            : > "$created_apk"
+            ln "$apk_next" "$apk_final"
+            rm -f -- "$apk_next"
+          fi
+
+          if [[ -e "$legacy_manifest" ]]; then
+            cp -p -- "$legacy_manifest" "$backup_legacy"
+            : > "$had_legacy"
+          else
+            : > "$missing_legacy"
+          fi
+          if [[ -e "$v2_manifest" ]]; then
+            cp -p -- "$v2_manifest" "$backup_v2"
+            : > "$had_v2"
+          else
+            : > "$missing_v2"
+          fi
+
+          install -m 0644 "$legacy_manifest_tmp" "$legacy_manifest_next"
+          install -m 0644 "$v2_manifest_tmp" "$v2_manifest_next"
+          [[ "$(sha256sum "$legacy_manifest_next" | awk '{print $1}')" == "$legacy_manifest_sha" ]]
+          [[ "$(sha256sum "$v2_manifest_next" | awk '{print $1}')" == "$v2_manifest_sha" ]]
+
+          # APK activation is complete before either canonical manifest changes. Each
+          # manifest rename is atomic; any partial switch is restored by the EXIT trap.
+          switched=1
+          mv -fT "$legacy_manifest_next" "$legacy_manifest"
+          mv -fT "$v2_manifest_next" "$v2_manifest"
+          [[ "$(sha256sum "$legacy_manifest" | awk '{print $1}')" == "$legacy_manifest_sha" ]]
+          [[ "$(sha256sum "$v2_manifest" | awk '{print $1}')" == "$v2_manifest_sha" ]]
+          REMOTE_SCRIPT
+
+          trap - EXIT
+          echo "rollback_token=$rollback_token" >> "$GITHUB_OUTPUT"
+
+      - name: Verify server and public download
+        shell: bash
+        env:
+          EXPECTED_SHA256: ${{ steps.apk.outputs.sha256 }}
+          EXPECTED_SIZE: ${{ steps.apk.outputs.size }}
+          APK_FILE_NAME: ${{ steps.apk.outputs.file_name }}
+        run: |
+          set -euo pipefail
+
+          ssh_options=(
+            -i "$HOME/.ssh/id_deploy"
+            -o "Port=$DEPLOY_PORT"
+            -o BatchMode=yes
+            -o IdentitiesOnly=yes
+            -o StrictHostKeyChecking=yes
+            -o ConnectTimeout=15
+          )
+          target="$DEPLOY_USER@$DEPLOY_HOST"
+          remote_details="$(
+            ssh "${ssh_options[@]}" "$target" bash -s -- \
+              "$DEPLOY_REMOTE_DIR" "$APK_FILE_NAME" <<'REMOTE_SCRIPT'
+          set -euo pipefail
+          remote_dir="$1"
+          apk_file_name="$2"
+          case "$remote_dir" in
+            /srv/yfuse-update/*) ;;
+            *) exit 2 ;;
+          esac
+          [[ "$remote_dir" =~ ^/srv/yfuse-update(/[A-Za-z0-9._-]+)+$ ]]
+          [[ ! "$remote_dir" =~ (^|/)\.\.?(/|$) ]]
+          sha256sum "$remote_dir/$apk_file_name"
+          stat -c '%s' "$remote_dir/$apk_file_name"
+          REMOTE_SCRIPT
+          )"
+          remote_sha="$(sed -n '1s/[[:space:]].*$//p' <<<"$remote_details")"
+          remote_size="$(sed -n '2p' <<<"$remote_details")"
+          [[ "$remote_sha" == "$EXPECTED_SHA256" ]]
+          [[ "$remote_size" == "$EXPECTED_SIZE" ]]
+
+          curl -fL --retry 3 \
+            --proto '=https' \
+            --proto-redir '=https' \
+            "$UPDATE_BASE_URL/$APK_FILE_NAME" \
+            -o build/update/Yfuse-public.apk
+          public_sha="$(sha256sum build/update/Yfuse-public.apk | awk '{print $1}')"
+          [[ "$public_sha" == "$EXPECTED_SHA256" ]]
+          [[ "$(stat -c '%s' build/update/Yfuse-public.apk)" == "$EXPECTED_SIZE" ]]
+
+          verify_manifest() {
+            local label="$1"
+            local payload="$2"
+            local expected_apk_url="$3"
+
+            [[ "$(jq -r '.versionCode' <<<"$payload")" == "$VERSION_CODE" ]] || {
+              echo "::error::$label has an unexpected versionCode"
+              return 1
+            }
+            [[ "$(jq -r '.sha256' <<<"$payload")" == "$EXPECTED_SHA256" ]] || {
+              echo "::error::$label has an unexpected APK SHA-256"
+              return 1
+            }
+            [[ "$(jq -r '.size' <<<"$payload")" == "$EXPECTED_SIZE" ]] || {
+              echo "::error::$label has an unexpected APK size"
+              return 1
+            }
+            [[ "$(jq -r '.apkUrl' <<<"$payload")" == "$expected_apk_url" ]] || {
+              echo "::error::$label has an unexpected apkUrl"
+              return 1
+            }
+          }
+
+          remote_legacy_manifest="$(
+            ssh "${ssh_options[@]}" "$target" \
+              cat "$DEPLOY_REMOTE_DIR/update.json"
+          )"
+          remote_v2_manifest="$(
+            ssh "${ssh_options[@]}" "$target" \
+              cat "$DEPLOY_REMOTE_DIR/update-v2.json"
+          )"
+          verify_manifest \
+            "remote update.json" \
+            "$remote_legacy_manifest" \
+            "$LEGACY_UPDATE_BASE_URL/$APK_FILE_NAME"
+          verify_manifest \
+            "remote update-v2.json" \
+            "$remote_v2_manifest" \
+            "$UPDATE_BASE_URL/$APK_FILE_NAME"
+
+          public_legacy_manifest="$(
+            curl -fsSL --retry 3 \
+              --proto '=http' \
+              --proto-redir '=http' \
+              "$LEGACY_UPDATE_BASE_URL/update.json"
+          )"
+          public_v2_manifest="$(
+            curl -fsSL --retry 3 \
+              --proto '=https' \
+              --proto-redir '=https' \
+              "$UPDATE_BASE_URL/update-v2.json"
+          )"
+          verify_manifest \
+            "public legacy update.json" \
+            "$public_legacy_manifest" \
+            "$LEGACY_UPDATE_BASE_URL/$APK_FILE_NAME"
+          verify_manifest \
+            "public update-v2.json" \
+            "$public_v2_manifest" \
+            "$UPDATE_BASE_URL/$APK_FILE_NAME"
+
+          curl -fL --retry 3 \
+            --proto '=http' \
+            --proto-redir '=http' \
+            "$LEGACY_UPDATE_BASE_URL/$APK_FILE_NAME" \
+            -o build/update/Yfuse-public-legacy.apk
+          legacy_public_sha="$(
+            sha256sum build/update/Yfuse-public-legacy.apk | awk '{print $1}'
+          )"
+          [[ "$legacy_public_sha" == "$EXPECTED_SHA256" ]]
+          [[ "$(stat -c '%s' build/update/Yfuse-public-legacy.apk)" == "$EXPECTED_SIZE" ]]
+
+      - name: Finalize release and retain three APK versions
+        shell: bash
+        env:
+          APK_FILE_NAME: ${{ steps.apk.outputs.file_name }}
+          EXPECTED_SHA256: ${{ steps.apk.outputs.sha256 }}
+          ROLLBACK_TOKEN: ${{ steps.activate.outputs.rollback_token }}
+        run: |
+          set -euo pipefail
+
+          ssh_options=(
+            -i "$HOME/.ssh/id_deploy"
+            -o "Port=$DEPLOY_PORT"
+            -o BatchMode=yes
+            -o IdentitiesOnly=yes
+            -o StrictHostKeyChecking=yes
+            -o ConnectTimeout=15
+          )
+          target="$DEPLOY_USER@$DEPLOY_HOST"
+          ssh "${ssh_options[@]}" "$target" bash -s -- \
+            "$DEPLOY_REMOTE_DIR" "$APK_FILE_NAME" "$ROLLBACK_TOKEN" <<'REMOTE_SCRIPT'
+          set -euo pipefail
+          remote_dir="$1"
+          current_apk="$2"
+          rollback_token="$3"
+          case "$remote_dir" in
+            /srv/yfuse-update/*) ;;
+            *) exit 2 ;;
+          esac
+          [[ "$remote_dir" =~ ^/srv/yfuse-update(/[A-Za-z0-9._-]+)+$ ]]
+          [[ ! "$remote_dir" =~ (^|/)\.\.?(/|$) ]]
+          [[ "$current_apk" =~ ^Yfuse-[1-9][0-9]*-[0-9]+\.[0-9]+\.[0-9]+\.apk$ ]]
+          [[ "$rollback_token" =~ ^[1-9][0-9]*-[1-9][0-9]*$ ]]
+          test -s "$remote_dir/$current_apk"
+
+          mapfile -t release_apks < <(
+            find "$remote_dir" -maxdepth 1 -type f -name 'Yfuse-*.apk' \
+              -printf '%T@|%p\n' | sort -t '|' -k1,1nr | cut -d '|' -f2-
+          )
+          older_retained=0
+          for apk_path in "${release_apks[@]}"; do
+            apk_name="${apk_path##*/}"
+            if [[ "$apk_name" != "Yfuse-latest.apk" && \
+              ! "$apk_name" =~ ^Yfuse-[1-9][0-9]*-[0-9]+\.[0-9]+\.[0-9]+\.apk$ ]]; then
+              continue
+            fi
+            [[ "$apk_name" == "$current_apk" ]] && continue
+            (( older_retained += 1 ))
+            if (( older_retained > 2 )); then
+              rm -f -- "$apk_path"
+            fi
+          done
+
+          rm -f -- \
+            "$remote_dir/.rollback-$rollback_token-update.json" \
+            "$remote_dir/.rollback-$rollback_token-update-v2.json" \
+            "$remote_dir/.rollback-$rollback_token-had-update.json" \
+            "$remote_dir/.rollback-$rollback_token-had-update-v2.json" \
+            "$remote_dir/.rollback-$rollback_token-missing-update.json" \
+            "$remote_dir/.rollback-$rollback_token-missing-update-v2.json" \
+            "$remote_dir/.rollback-$rollback_token-created-apk"
+          REMOTE_SCRIPT
+
+          {
+            echo "## Android update published"
+            echo
+            echo "- Version: \`$VERSION_NAME ($VERSION_CODE)\`"
+            echo "- APK: $UPDATE_BASE_URL/$APK_FILE_NAME"
+            echo "- Legacy manifest: $LEGACY_UPDATE_BASE_URL/update.json"
+            echo "- HTTPS manifest: $UPDATE_BASE_URL/update-v2.json"
+            echo "- SHA-256: \`$EXPECTED_SHA256\`"
+            echo "- Retention: current plus two previous immutable APKs"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Roll back manifests after a failed activation
+        if: ${{ failure() && steps.activate.outcome == 'success' }}
+        shell: bash
+        env:
+          APK_FILE_NAME: ${{ steps.apk.outputs.file_name }}
+          ROLLBACK_TOKEN: ${{ steps.activate.outputs.rollback_token }}
+        run: |
+          set -euo pipefail
+
+          ssh_options=(
+            -i "$HOME/.ssh/id_deploy"
+            -o "Port=$DEPLOY_PORT"
+            -o BatchMode=yes
+            -o IdentitiesOnly=yes
+            -o StrictHostKeyChecking=yes
+            -o ConnectTimeout=15
+          )
+          target="$DEPLOY_USER@$DEPLOY_HOST"
+          ssh "${ssh_options[@]}" "$target" bash -s -- \
+            "$DEPLOY_REMOTE_DIR" "$APK_FILE_NAME" "$ROLLBACK_TOKEN" <<'REMOTE_SCRIPT'
+          set -euo pipefail
+          remote_dir="$1"
+          failed_apk="$2"
+          rollback_token="$3"
+          case "$remote_dir" in
+            /srv/yfuse-update/*) ;;
+            *) exit 2 ;;
+          esac
+          [[ "$remote_dir" =~ ^/srv/yfuse-update(/[A-Za-z0-9._-]+)+$ ]]
+          [[ ! "$remote_dir" =~ (^|/)\.\.?(/|$) ]]
+          [[ "$failed_apk" =~ ^Yfuse-[1-9][0-9]*-[0-9]+\.[0-9]+\.[0-9]+\.apk$ ]]
+          [[ "$rollback_token" =~ ^[1-9][0-9]*-[1-9][0-9]*$ ]]
+
+          restore_one() {
+            local canonical="$1"
+            local backup="$2"
+            local had_marker="$3"
+            local missing_marker="$4"
+            local restore_next="$canonical.rollback-$rollback_token"
+            if [[ -f "$had_marker" ]]; then
+              test -s "$backup"
+              install -m 0644 "$backup" "$restore_next"
+              mv -fT "$restore_next" "$canonical"
+            elif [[ -f "$missing_marker" ]]; then
+              rm -f -- "$canonical"
+            else
+              echo "Missing rollback state for $canonical" >&2
+              return 1
+            fi
+          }
+
+          restore_status=0
+          restore_one \
+            "$remote_dir/update.json" \
+            "$remote_dir/.rollback-$rollback_token-update.json" \
+            "$remote_dir/.rollback-$rollback_token-had-update.json" \
+            "$remote_dir/.rollback-$rollback_token-missing-update.json" || \
+            restore_status=1
+          restore_one \
+            "$remote_dir/update-v2.json" \
+            "$remote_dir/.rollback-$rollback_token-update-v2.json" \
+            "$remote_dir/.rollback-$rollback_token-had-update-v2.json" \
+            "$remote_dir/.rollback-$rollback_token-missing-update-v2.json" || \
+            restore_status=1
+          (( restore_status == 0 )) || exit 4
+
+          if [[ -f "$remote_dir/.rollback-$rollback_token-created-apk" ]]; then
+            rm -f -- "$remote_dir/$failed_apk"
+          fi
+          rm -f -- \
+            "$remote_dir/.rollback-$rollback_token-update.json" \
+            "$remote_dir/.rollback-$rollback_token-update-v2.json" \
+            "$remote_dir/.rollback-$rollback_token-had-update.json" \
+            "$remote_dir/.rollback-$rollback_token-had-update-v2.json" \
+            "$remote_dir/.rollback-$rollback_token-missing-update.json" \
+            "$remote_dir/.rollback-$rollback_token-missing-update-v2.json" \
+            "$remote_dir/.rollback-$rollback_token-created-apk"
+          REMOTE_SCRIPT
+
+          echo "::warning::Public verification failed; canonical manifests were rolled back"

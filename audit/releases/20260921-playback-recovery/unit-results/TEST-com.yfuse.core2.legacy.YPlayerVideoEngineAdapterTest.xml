@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.legacy.YPlayerVideoEngineAdapterTest" tests="12" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:44:00.480Z" hostname="DESKTOP-HM2J0FM" time="0.004">
+  <properties/>
+  <testcase name="Legacy UI controls are forwarded into YPlayer" classname="com.yfuse.core2.legacy.YPlayerVideoEngineAdapterTest" time="0.001"/>
+  <testcase name="typed decoder identities replace an obsolete combined label" classname="com.yfuse.core2.legacy.YPlayerVideoEngineAdapterTest" time="0.001"/>
+  <testcase name="audio only diagnostics never invent a video decoder" classname="com.yfuse.core2.legacy.YPlayerVideoEngineAdapterTest" time="0.0"/>
+  <testcase name="position_ticks_reuse_track_lists_but_selection_changes_are_published" classname="com.yfuse.core2.legacy.YPlayerVideoEngineAdapterTest" time="0.0"/>
+  <testcase name="a single untyped decoder with both tracks is ambiguous" classname="com.yfuse.core2.legacy.YPlayerVideoEngineAdapterTest" time="0.0"/>
+  <testcase name="secondary subtitle controls reach the native product player" classname="com.yfuse.core2.legacy.YPlayerVideoEngineAdapterTest" time="0.001"/>
+  <testcase name="product player binding unwraps the native Core2 player" classname="com.yfuse.core2.legacy.YPlayerVideoEngineAdapterTest" time="0.0"/>
+  <testcase name="an audio decoder before Surface attachment is never video evidence" classname="com.yfuse.core2.legacy.YPlayerVideoEngineAdapterTest" time="0.0"/>
+  <testcase name="Core2 presentation controls are acknowledged without a false MPV fallback" classname="com.yfuse.core2.legacy.YPlayerVideoEngineAdapterTest" time="0.0"/>
+  <testcase name="Core2 state keeps machine failure and verified output evidence in Legacy UI" classname="com.yfuse.core2.legacy.YPlayerVideoEngineAdapterTest" time="0.0"/>
+  <testcase name="handover pauses and detaches the outgoing Core2 output" classname="com.yfuse.core2.legacy.YPlayerVideoEngineAdapterTest" time="0.001"/>
+  <testcase name="authorization failure blocks automatic retry chain without becoming decoder penalty" classname="com.yfuse.core2.legacy.YPlayerVideoEngineAdapterTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

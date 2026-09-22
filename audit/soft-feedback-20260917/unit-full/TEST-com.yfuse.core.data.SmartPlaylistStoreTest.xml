@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.data.SmartPlaylistStoreTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:04.158Z" hostname="DESKTOP-HM2J0FM" time="0.003">
+  <properties/>
+  <testcase name="cap_allows_updates_but_rejects_extra_rules" classname="com.yfuse.core.data.SmartPlaylistStoreTest" time="0.003"/>
+  <testcase name="malformed_storage_is_not_overwritten_by_save_or_delete" classname="com.yfuse.core.data.SmartPlaylistStoreTest" time="0.0"/>
+  <testcase name="rules_restore_and_unpin_without_losing_filters" classname="com.yfuse.core.data.SmartPlaylistStoreTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

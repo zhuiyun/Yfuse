@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.DiscNavigationBackendTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:15.756Z" hostname="DESKTOP-HM2J0FM" time="0.003">
+  <properties/>
+  <testcase name="outgoing_engine_cannot_clear_a_newer_active_navigation_binding" classname="com.yfuse.feature.player.DiscNavigationBackendTest" time="0.002"/>
+  <testcase name="menu_commands_are_routed_only_when_a_real_runtime_reports_an_active_menu" classname="com.yfuse.feature.player.DiscNavigationBackendTest" time="0.0"/>
+  <testcase name="asynchronous_provider_changes_publish_a_compose_safe_revision" classname="com.yfuse.feature.player.DiscNavigationBackendTest" time="0.0"/>
+  <testcase name="engine_adapter_keeps_navigation_optional_and_separate_from_video_lifecycle" classname="com.yfuse.feature.player.DiscNavigationBackendTest" time="0.0"/>
+  <testcase name="composite_backend_keeps_title_control_on_engine_and_menu_angle_control_on_native_runtime" classname="com.yfuse.feature.player.DiscNavigationBackendTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

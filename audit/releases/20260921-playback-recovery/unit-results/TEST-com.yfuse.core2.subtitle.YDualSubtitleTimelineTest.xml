@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.subtitle.YDualSubtitleTimelineTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:44:00.604Z" hostname="DESKTOP-HM2J0FM" time="0.0">
+  <properties/>
+  <testcase name="seek_into_a_long_sidecar_cue_and_seek_back_restore_both_timelines" classname="com.yfuse.core2.subtitle.YDualSubtitleTimelineTest" time="0.0"/>
+  <testcase name="each_channel_applies_its_delay_to_the_same_media_position" classname="com.yfuse.core2.subtitle.YDualSubtitleTimelineTest" time="0.0"/>
+  <testcase name="clearing_one_channel_does_not_clear_the_other_and_end_time_is_exclusive" classname="com.yfuse.core2.subtitle.YDualSubtitleTimelineTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

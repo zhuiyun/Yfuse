@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.PlaybackBackgroundFlushTest" tests="1" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:15.853Z" hostname="DESKTOP-HM2J0FM" time="0.006">
+  <properties/>
+  <testcase name="backgroundFlushesLatestSampleBeforePeriodicThreshold" classname="com.yfuse.feature.player.PlaybackBackgroundFlushTest" time="0.006"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

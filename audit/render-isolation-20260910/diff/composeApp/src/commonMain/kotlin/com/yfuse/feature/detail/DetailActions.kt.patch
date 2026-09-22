@@ -1,0 +1,20 @@
+--- composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailActions.kt (before turn)
++++ composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailActions.kt
+@@ -15,8 +15,6 @@
+ import androidx.compose.foundation.layout.size
+ import androidx.compose.foundation.layout.width
+ import androidx.compose.foundation.shape.CircleShape
+-import androidx.compose.material3.Icon
+-import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
+@@ -37,6 +35,8 @@
+ import com.yfuse.core.designsystem.pressable
+ import com.yfuse.core.designsystem.shadow
+ import com.yfuse.core.designsystem.waitingPulse
++import com.yfuse.core.designsystem.ThemeIcon as Icon
++import com.yfuse.core.designsystem.ThemeText as Text
+ 
+ private const val EmbyTicksPerSecond = 10_000_000L
+ 

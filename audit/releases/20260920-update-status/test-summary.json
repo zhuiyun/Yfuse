@@ -1,0 +1,17 @@
+{
+  "updateRegressionTests": {
+    "tests": 58,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "fullSuiteRerun": false,
+  "changedInputsFromPreviousRelease": [
+    "composeApp/src/androidMain/kotlin/com/yfuse/feature/profile/AppUpdateTools.android.kt",
+    "composeApp/src/androidMain/kotlin/com/yfuse/update/AppUpdateManager.kt",
+    "composeApp/src/androidUnitTest/kotlin/com/yfuse/update/UpdateCheckPolicyTest.kt",
+    "release-notes.txt",
+    "version.properties"
+  ],
+  "deviceTested": false
+}

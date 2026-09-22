@@ -1,0 +1,20 @@
+--- composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/PageStates.kt (before turn)
++++ composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/PageStates.kt
+@@ -12,8 +12,6 @@
+ import androidx.compose.foundation.layout.padding
+ import androidx.compose.foundation.layout.size
+ import androidx.compose.foundation.layout.width
+-import androidx.compose.material3.Icon
+-import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.CompositionLocalProvider
+ import androidx.compose.runtime.DisposableEffect
+@@ -43,6 +41,8 @@
+ import kotlinx.coroutines.flow.first
+ import kotlin.math.PI
+ import kotlin.math.cos
++import com.yfuse.core.designsystem.ThemeIcon as Icon
++import com.yfuse.core.designsystem.ThemeText as Text
+ 
+ @Composable
+ fun ErrorState(

@@ -1,0 +1,21 @@
+--- composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileScreen.kt (before turn)
++++ composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileScreen.kt
+@@ -29,9 +29,7 @@
+ import androidx.compose.foundation.selection.selectableGroup
+ import androidx.compose.foundation.selection.toggleable
+ import androidx.compose.foundation.shape.CircleShape
+-import androidx.compose.material3.Icon
+ import androidx.compose.material3.Slider
+-import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.LaunchedEffect
+ import androidx.compose.runtime.collectAsState
+@@ -118,6 +116,8 @@
+ import com.yfuse.feature.player.PlayerLauncher
+ import com.yfuse.feature.player.PlayerMediaItem
+ import kotlinx.coroutines.launch
++import com.yfuse.core.designsystem.ThemeIcon as Icon
++import com.yfuse.core.designsystem.ThemeText as Text
+ import com.yfuse.core.designsystem.flatGlass as glass
+ 
+ /** Which option sheet is open. Theme and glass style are answered in place on the root page. */

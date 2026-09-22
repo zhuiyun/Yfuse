@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.PlayerStoreTest" tests="23" skipped="0" failures="0" errors="0" timestamp="2026-09-21T06:15:41.461Z" hostname="DESKTOP-HM2J0FM" time="0.529">
+  <properties/>
+  <testcase name="episode_loads_series_queue_and_resume_position" classname="com.yfuse.feature.player.PlayerStoreTest" time="0.317"/>
+  <testcase name="server_cannot_replace_a_linear_dolby_source_with_transcode" classname="com.yfuse.feature.player.PlayerStoreTest" time="0.004"/>
+  <testcase name="scrub_position_is_clamped_to_media_duration" classname="com.yfuse.feature.player.PlayerStoreTest" time="0.0"/>
+  <testcase name="switching_version_moves_urls_and_the_reporting_session_together" classname="com.yfuse.feature.player.PlayerStoreTest" time="0.001"/>
+  <testcase name="switching_physical_version_drops_revision_specific_trickplay_tiles" classname="com.yfuse.feature.player.PlayerStoreTest" time="0.0"/>
+  <testcase name="current_episode_is_ready_before_the_catalog_and_keeps_its_negotiated_session" classname="com.yfuse.feature.player.PlayerStoreTest" time="0.021"/>
+  <testcase name="reopening_a_version_rotates_the_session_in_every_url" classname="com.yfuse.feature.player.PlayerStoreTest" time="0.0"/>
+  <testcase name="playback_info_cannot_erase_iso_metadata_or_route_it_to_direct_stream" classname="com.yfuse.feature.player.PlayerStoreTest" time="0.024"/>
+  <testcase name="sibling_episode_transcodes_use_its_real_media_source_id" classname="com.yfuse.feature.player.PlayerStoreTest" time="0.012"/>
+  <testcase name="optional_backup_server_does_not_hold_the_primary_source_ready" classname="com.yfuse.feature.player.PlayerStoreTest" time="0.018"/>
+  <testcase name="next_episode_uses_hdr_preference_instead_of_media_source_order" classname="com.yfuse.feature.player.PlayerStoreTest" time="0.013"/>
+  <testcase name="display_metadata_does_not_change_playback_sources" classname="com.yfuse.feature.player.PlayerStoreTest" time="0.001"/>
+  <testcase name="retry_after_initial_load_failure_enters_loading_and_recovers" classname="com.yfuse.feature.player.PlayerStoreTest" time="0.008"/>
+  <testcase name="a_declared_iso_ignores_a_raw_looking_negotiated_direct_stream_url" classname="com.yfuse.feature.player.PlayerStoreTest" time="0.001"/>
+  <testcase name="a_newly_published_episode_is_reported_as_an_append" classname="com.yfuse.feature.player.PlayerStoreTest" time="0.0"/>
+  <testcase name="selected_source_id_survives_a_single_playback_info_source_that_omits_its_id" classname="com.yfuse.feature.player.PlayerStoreTest" time="0.007"/>
+  <testcase name="anything_other_than_an_append_is_not_absorbable" classname="com.yfuse.feature.player.PlayerStoreTest" time="0.0"/>
+  <testcase name="playback_info_cannot_silently_replace_the_selected_physical_source" classname="com.yfuse.feature.player.PlayerStoreTest" time="0.001"/>
+  <testcase name="queue_load_timeout_replaces_the_spinner_with_a_retryable_error" classname="com.yfuse.feature.player.PlayerStoreTest" time="0.066"/>
+  <testcase name="a_different_play_session_for_the_same_file_is_not_a_source_change" classname="com.yfuse.feature.player.PlayerStoreTest" time="0.0"/>
+  <testcase name="smart_failover_candidates_are_resolved_bounded_and_non_recursive" classname="com.yfuse.feature.player.PlayerStoreTest" time="0.022"/>
+  <testcase name="episode_metadata_waits_until_current_playback_negotiation_completes" classname="com.yfuse.feature.player.PlayerStoreTest" time="0.009"/>
+  <testcase name="source_or_queue_order_change_requires_engine_refresh" classname="com.yfuse.feature.player.PlayerStoreTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[SLF4J(W): No SLF4J providers were found.
+SLF4J(W): Defaulting to no-operation (NOP) logger implementation
+SLF4J(W): See https://www.slf4j.org/codes.html#noProviders for further details.
+]]></system-err>
+</testsuite>

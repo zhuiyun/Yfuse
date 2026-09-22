@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.playback.PlaybackDiscPolicyTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:06.608Z" hostname="DESKTOP-HM2J0FM" time="0.002">
+  <properties/>
+  <testcase name="local_iso_without_server_uses_native_ffmpeg_path" classname="com.yfuse.core.playback.PlaybackDiscPolicyTest" time="0.002"/>
+  <testcase name="bdmv_entry_path_is_normalized_to_the_disc_root_case_insensitively" classname="com.yfuse.core.playback.PlaybackDiscPolicyTest" time="0.0"/>
+  <testcase name="bdmv_is_detected_from_container_or_label" classname="com.yfuse.core.playback.PlaybackDiscPolicyTest" time="0.0"/>
+  <testcase name="remote_iso_prefers_server_main_feature_parsing_when_no_linear_stream_exists" classname="com.yfuse.core.playback.PlaybackDiscPolicyTest" time="0.0"/>
+  <testcase name="server_resolved_bluray_main_feature_preserves_original_streams" classname="com.yfuse.core.playback.PlaybackDiscPolicyTest" time="0.0"/>
+  <testcase name="generic_iso_requires_positive_bluray_evidence_before_libbluray_routing" classname="com.yfuse.core.playback.PlaybackDiscPolicyTest" time="0.0"/>
+  <testcase name="iso_directory_descriptors_identify_dvd_and_bluray_images" classname="com.yfuse.core.playback.PlaybackDiscPolicyTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

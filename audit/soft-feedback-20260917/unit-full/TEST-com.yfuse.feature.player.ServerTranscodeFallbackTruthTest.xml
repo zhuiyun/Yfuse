@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.ServerTranscodeFallbackTruthTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:16.212Z" hostname="DESKTOP-HM2J0FM" time="0.0">
+  <properties/>
+  <testcase name="an_explicit_transcode_play_method_is_server_evidence" classname="com.yfuse.feature.player.ServerTranscodeFallbackTruthTest" time="0.0"/>
+  <testcase name="server_approved_transcode_with_a_concrete_url_remains_available" classname="com.yfuse.feature.player.ServerTranscodeFallbackTruthTest" time="0.0"/>
+  <testcase name="generated_urls_are_not_automatic_fallback_when_server_rejected_transcoding" classname="com.yfuse.feature.player.ServerTranscodeFallbackTruthTest" time="0.0"/>
+  <testcase name="approval_without_a_url_cannot_start_a_fallback" classname="com.yfuse.feature.player.ServerTranscodeFallbackTruthTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.AndroidEnhancedAudioSelectionTest" tests="11" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:09.465Z" hostname="DESKTOP-HM2J0FM" time="0.002">
+  <properties/>
+  <testcase name="softwarePreferenceStillForcesPcmWhenExtensionIsAvailable" classname="com.yfuse.core2.android.AndroidEnhancedAudioSelectionTest" time="0.002"/>
+  <testcase name="nativePcmDecoderRemainsPreferredWhenAvailable" classname="com.yfuse.core2.android.AndroidEnhancedAudioSelectionTest" time="0.0"/>
+  <testcase name="firstPlatformPlayableTrackKeepsPriorityOverSoftwareCandidate" classname="com.yfuse.core2.android.AndroidEnhancedAudioSelectionTest" time="0.0"/>
+  <testcase name="explicitPassthroughPlanRemainsPassthrough" classname="com.yfuse.core2.android.AndroidEnhancedAudioSelectionTest" time="0.0"/>
+  <testcase name="jocCarrierUsesExistingEac3PcmDecoderWithoutClaimingPassthrough" classname="com.yfuse.core2.android.AndroidEnhancedAudioSelectionTest" time="0.0"/>
+  <testcase name="internalEnhancedRecoveryDoesNotRequirePreflightSoftwareAudioFlag" classname="com.yfuse.core2.android.AndroidEnhancedAudioSelectionTest" time="0.0"/>
+  <testcase name="pcmPlanCanUseDecoderWhenDeviceAlsoAdvertisesPassthrough" classname="com.yfuse.core2.android.AndroidEnhancedAudioSelectionTest" time="0.0"/>
+  <testcase name="unavailableSoftwareExtensionDoesNotInventADecoder" classname="com.yfuse.core2.android.AndroidEnhancedAudioSelectionTest" time="0.0"/>
+  <testcase name="hiddenEac3AfterFailedProbeUsesBundledSoftwareAudioWithoutChangingDolbyVideo" classname="com.yfuse.core2.android.AndroidEnhancedAudioSelectionTest" time="0.0"/>
+  <testcase name="videoOnlyOrDataTracksDoNotInventAudio" classname="com.yfuse.core2.android.AndroidEnhancedAudioSelectionTest" time="0.0"/>
+  <testcase name="incompletePlanDoesNotSilentlyEnablePassthrough" classname="com.yfuse.core2.android.AndroidEnhancedAudioSelectionTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.AndroidYCoreBlockCacheTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:43:59.885Z" hostname="DESKTOP-HM2J0FM" time="0.106">
+  <properties/>
+  <testcase name="deferred_corruption_cleanup_never_deletes_a_new_valid_commit" classname="com.yfuse.core2.android.AndroidYCoreBlockCacheTest" time="0.023"/>
+  <testcase name="a_block_written_under_a_different_stride_is_refused" classname="com.yfuse.core2.android.AndroidYCoreBlockCacheTest" time="0.016"/>
+  <testcase name="incremental_eviction_retains_recently_read_blocks_and_does_not_rewrite_unchanged_length" classname="com.yfuse.core2.android.AndroidYCoreBlockCacheTest" time="0.027"/>
+  <testcase name="directory_key_is_stable_and_contains_no_provider_identity" classname="com.yfuse.core2.android.AndroidYCoreBlockCacheTest" time="0.0"/>
+  <testcase name="blocks_from_a_superseded_cache_format_are_discarded" classname="com.yfuse.core2.android.AndroidYCoreBlockCacheTest" time="0.008"/>
+  <testcase name="corrupted_block_is_rejected_and_removed" classname="com.yfuse.core2.android.AndroidYCoreBlockCacheTest" time="0.013"/>
+  <testcase name="externally_removed_cache_blocks_are_not_reported_as_buffered" classname="com.yfuse.core2.android.AndroidYCoreBlockCacheTest" time="0.016"/>
+  <testcase name="background_queue_is_bounded_deduplicates_and_releases_capacity_after_failure" classname="com.yfuse.core2.android.AndroidYCoreBlockCacheTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

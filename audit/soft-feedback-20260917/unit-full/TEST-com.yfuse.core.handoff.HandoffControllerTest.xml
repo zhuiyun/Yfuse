@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.handoff.HandoffControllerTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:04.717Z" hostname="DESKTOP-HM2J0FM" time="0.031">
+  <properties/>
+  <testcase name="reconnectClearsConnectionErrorWithoutErasingTransferFailure" classname="com.yfuse.core.handoff.HandoffControllerTest" time="0.02"/>
+  <testcase name="rejectedRequestNeverPausesAndProfileChangeCancels" classname="com.yfuse.core.handoff.HandoffControllerTest" time="0.004"/>
+  <testcase name="sourcePausesOnlyAfterReadyAndCommitsLatestPosition" classname="com.yfuse.core.handoff.HandoffControllerTest" time="0.002"/>
+  <testcase name="receiverFailureResumesPausedSource" classname="com.yfuse.core.handoff.HandoffControllerTest" time="0.002"/>
+  <testcase name="failedReceiverPreparationReleasesResourcesWithoutStarting" classname="com.yfuse.core.handoff.HandoffControllerTest" time="0.002"/>
+  <testcase name="nullSnapshotAfterPausingStillResumesSource" classname="com.yfuse.core.handoff.HandoffControllerTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

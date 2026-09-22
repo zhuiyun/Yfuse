@@ -1,0 +1,289 @@
+{
+  "verifiedAtUtc": "2026-09-09T10:43:57.935940+00:00",
+  "apk": "Yfuse-1.0.49-signed-arm64.apk",
+  "applicationId": "com.yfuse",
+  "versionName": "1.0.49",
+  "versionCode": 211,
+  "packageProfile": "full",
+  "bytes": 27958098,
+  "sha256": "c3fa94ce1e3f2545478919ff9121f4f08f47446b5d954b00c3d1be54a195cfdc",
+  "certificateSha256": "373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84",
+  "signatureSchemeV2": "verified",
+  "abi": "arm64-v8a",
+  "alignment": "zipalign verification passed; see alignment.txt for the caller's check",
+  "nativeLibraryCount": 20,
+  "nativeLibraries": [
+    {
+      "path": "lib/arm64-v8a/libandroidx.graphics.path.so",
+      "bytes": 10096,
+      "sha256": "41e9a793c43a0f4fddb19e33f346bace464f30f888ba7b9eaf96294ea115bfb6"
+    },
+    {
+      "path": "lib/arm64-v8a/libass.so",
+      "bytes": 1345872,
+      "sha256": "e55c83c3d9bcb7d1bfd62d1ba3aa3c0e9bc796861dd9cf145e73a75017075266"
+    },
+    {
+      "path": "lib/arm64-v8a/libavcodec.so",
+      "bytes": 12044032,
+      "sha256": "2440fc79482e7ab4e40ba2f3e9fb7ba10f196935b39566c636e866e0dcdeb42c"
+    },
+    {
+      "path": "lib/arm64-v8a/libavdevice.so",
+      "bytes": 9096,
+      "sha256": "c67959777c8137a98825e7e63bfd8e555090781c66b34c9d0053e54869110c08"
+    },
+    {
+      "path": "lib/arm64-v8a/libavfilter.so",
+      "bytes": 138240,
+      "sha256": "d9736182d803c460569b4fae9fb0d588a6e02f71f213ec000641521a07cf7d28"
+    },
+    {
+      "path": "lib/arm64-v8a/libavformat.so",
+      "bytes": 3032992,
+      "sha256": "ee3fb014d6d12ff54e658fc1ae70dfcaae55d0259a34b46e4fc3cb2a41f773dc"
+    },
+    {
+      "path": "lib/arm64-v8a/libavutil.so",
+      "bytes": 741944,
+      "sha256": "2d2ab7b3071f9e4643f67ba65170f7290d821aa80e8b14dfcc356a15c493c47a"
+    },
+    {
+      "path": "lib/arm64-v8a/libc++_shared.so",
+      "bytes": 1374336,
+      "sha256": "c4c2fe5cbcb1fba0003a31fc7ab29a9bb12df6cc187ec45a806462540e83d93b"
+    },
+    {
+      "path": "lib/arm64-v8a/libdav1d.so",
+      "bytes": 612472,
+      "sha256": "290bbf17d72e0b50edfcc974b2dc7fa6d7106b82dbca3e68df8351a55bcd287b"
+    },
+    {
+      "path": "lib/arm64-v8a/libffmpeg.so",
+      "bytes": 8003848,
+      "sha256": "7942b55e7950c32e0fcd5532f0af2435e43e22491a75e7609b2b63210104f371"
+    },
+    {
+      "path": "lib/arm64-v8a/libimage_processing_util_jni.so",
+      "bytes": 32528,
+      "sha256": "0292b063fafccf734472cbb59588e756c2dbca907c72021ba6fbf126385508a2"
+    },
+    {
+      "path": "lib/arm64-v8a/libmdk.so",
+      "bytes": 2072000,
+      "sha256": "1ae87eae1c5633238ac69acc2bba7c44b2c974c8f32c21ac35778376f77ce575"
+    },
+    {
+      "path": "lib/arm64-v8a/libmpv.so",
+      "bytes": 6946680,
+      "sha256": "d06566edd8dd09c7419f61f9888d2f29e5e186ff578f8a984f1c968cab7baee6"
+    },
+    {
+      "path": "lib/arm64-v8a/libplayer.so",
+      "bytes": 20288,
+      "sha256": "2a5b828f3da71049c7603d6432fce50af7ca2286c33e70028bbcf466ead09005"
+    },
+    {
+      "path": "lib/arm64-v8a/libsurface_util_jni.so",
+      "bytes": 4896,
+      "sha256": "a5c9d1928ea92ec7a94dff8cf666e7739cd734198b9f0ae1d4e28ea3c86516ba"
+    },
+    {
+      "path": "lib/arm64-v8a/libswresample.so",
+      "bytes": 97768,
+      "sha256": "59a2c9dbd713db7e4a17949b85334873745bf0183a2686300068093fe5b57ee0"
+    },
+    {
+      "path": "lib/arm64-v8a/libswscale.so",
+      "bytes": 1247552,
+      "sha256": "48782396b8c8993a7bb72990b87cd460e57f65d3e69c26c9e04031b0ef9f43e8"
+    },
+    {
+      "path": "lib/arm64-v8a/libycore_demux.so",
+      "bytes": 2771064,
+      "sha256": "0f35da80cecfc50072d1087ca580dd43021771bba00feffdd8e2f8515655fafe"
+    },
+    {
+      "path": "lib/arm64-v8a/libycore_gpu.so",
+      "bytes": 101888,
+      "sha256": "941028d1295223402926cf416098966ead500559daa1d992461f90243079c4d2"
+    },
+    {
+      "path": "lib/arm64-v8a/libyfuse-mdk-jni.so",
+      "bytes": 1190976,
+      "sha256": "93f5212840e6579128f5483365bd0d86ad442faa02717f59120a820ca3699f48"
+    }
+  ],
+  "ycoreSource": "composeApp/libs/ycore-native.aar",
+  "ycoreSourceSha256": "979230ac598cf6cbda8a62427163b12eb5500c0530f89b5cceef4c506b0ffc0e",
+  "ycoreByteIdentityChecks": [
+    {
+      "sourcePath": "jni/arm64-v8a/libavcodec.so",
+      "apkPath": "lib/arm64-v8a/libavcodec.so",
+      "sha256": "2440fc79482e7ab4e40ba2f3e9fb7ba10f196935b39566c636e866e0dcdeb42c",
+      "byteIdentical": true
+    },
+    {
+      "sourcePath": "jni/arm64-v8a/libavformat.so",
+      "apkPath": "lib/arm64-v8a/libavformat.so",
+      "sha256": "ee3fb014d6d12ff54e658fc1ae70dfcaae55d0259a34b46e4fc3cb2a41f773dc",
+      "byteIdentical": true
+    },
+    {
+      "sourcePath": "jni/arm64-v8a/libavutil.so",
+      "apkPath": "lib/arm64-v8a/libavutil.so",
+      "sha256": "2d2ab7b3071f9e4643f67ba65170f7290d821aa80e8b14dfcc356a15c493c47a",
+      "byteIdentical": true
+    },
+    {
+      "sourcePath": "jni/arm64-v8a/libc++_shared.so",
+      "apkPath": "lib/arm64-v8a/libc++_shared.so",
+      "sha256": "c4c2fe5cbcb1fba0003a31fc7ab29a9bb12df6cc187ec45a806462540e83d93b",
+      "byteIdentical": true
+    },
+    {
+      "sourcePath": "jni/arm64-v8a/libswresample.so",
+      "apkPath": "lib/arm64-v8a/libswresample.so",
+      "sha256": "59a2c9dbd713db7e4a17949b85334873745bf0183a2686300068093fe5b57ee0",
+      "byteIdentical": true
+    },
+    {
+      "sourcePath": "jni/arm64-v8a/libswscale.so",
+      "apkPath": "lib/arm64-v8a/libswscale.so",
+      "sha256": "48782396b8c8993a7bb72990b87cd460e57f65d3e69c26c9e04031b0ef9f43e8",
+      "byteIdentical": true
+    },
+    {
+      "sourcePath": "jni/arm64-v8a/libycore_demux.so",
+      "apkPath": "lib/arm64-v8a/libycore_demux.so",
+      "sha256": "0f35da80cecfc50072d1087ca580dd43021771bba00feffdd8e2f8515655fafe",
+      "byteIdentical": true
+    },
+    {
+      "sourcePath": "jni/arm64-v8a/libycore_gpu.so",
+      "apkPath": "lib/arm64-v8a/libycore_gpu.so",
+      "sha256": "941028d1295223402926cf416098966ead500559daa1d992461f90243079c4d2",
+      "byteIdentical": true
+    }
+  ],
+  "unitTestTask": ":composeApp:testReleaseUnitTest",
+  "unitTests": [
+    {
+      "name": "com.yfuse.feature.search.SearchResultsHandoffTest",
+      "tests": 11,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "xml": "TEST-com.yfuse.feature.search.SearchResultsHandoffTest.xml",
+      "sha256": "58404a71b83e35bfd9f479270f289ff77cbca8fcfc81d17fab2fe1034ec51690"
+    },
+    {
+      "name": "com.yfuse.app.RootTabMotionTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "xml": "TEST-com.yfuse.app.RootTabMotionTest.xml",
+      "sha256": "3afeffb639d88ae45ad74d2cba0618728747cc37a324793cd34d62e56b23790b"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.AmbientLightTest",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "xml": "TEST-com.yfuse.core.designsystem.AmbientLightTest.xml",
+      "sha256": "4fadeaa080e81a50a5fd658503eb1f6d49f87aa41fc68042d16d1c2c9b3e349e"
+    },
+    {
+      "name": "com.yfuse.core.data.PlaybackPreferencesTest",
+      "tests": 16,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "xml": "TEST-com.yfuse.core.data.PlaybackPreferencesTest.xml",
+      "sha256": "dba06a9d1283c1a3a62ddcbbbb56f4e05f72655339ef543581c663aec17bb7cb"
+    },
+    {
+      "name": "com.yfuse.feature.player.AmbientCopyTest",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "xml": "TEST-com.yfuse.feature.player.AmbientCopyTest.xml",
+      "sha256": "3a9c3dacbf43341a9340d56febf8c3bb2081b0b3b6886f9b483e81ba88558761"
+    },
+    {
+      "name": "com.yfuse.feature.player.Core2SurfaceTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "xml": "TEST-com.yfuse.feature.player.Core2SurfaceTest.xml",
+      "sha256": "c222cef303ad8bbf73e2f2d12040d886c9e08dc320c154be116599a2f7ee9b4f"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.LoadingMotionTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "xml": "TEST-com.yfuse.core.designsystem.LoadingMotionTest.xml",
+      "sha256": "acf264cb8aee8102b1330d134aa6c4f062f211c28b015cd999d02eea4d45491b"
+    },
+    {
+      "name": "com.yfuse.core.data.ThemePreferencesTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "xml": "TEST-com.yfuse.core.data.ThemePreferencesTest.xml",
+      "sha256": "26c3832a81b9513b6a8c6848caff30e2bab88c31d5c3d76edd9b48ca4ea11b68"
+    }
+  ],
+  "unitTestTotal": 59,
+  "deviceTests": 0,
+  "deviceTestStatus": "Not run for this build; earlier device tests are not counted as this build's results",
+  "visualChecks": "No device or screenshot verification performed for this build",
+  "sourceSnapshot": {
+    "description": "Frozen Kotlin snapshot; live workspace edits after capture are excluded",
+    "path": "audit/releases/20260909-ambient-light/source/composeApp/src",
+    "manifest": "source-hashes.json",
+    "manifestSha256": "1aecdb2b851c031607c7545a05a15e6b84b8dafb814d24f8f2614e6cb2095c64",
+    "verifiedFiles": 1247,
+    "kotlinFiles": 1207,
+    "initScript": "frozen-mobile-sources.init.gradle",
+    "initScriptSha256": "c3bf811c969be6a38b06333a149f287c727672497605320e11c910f8bf7e72bf",
+    "tvBaselinePath": "audit/diagnostics-20260909/fix/tv-baseline/composeApp/src/androidMain/kotlin",
+    "scope": "Mobile Kotlin uses the frozen snapshot; TV UI uses the recorded baseline and TV UI tests are excluded"
+  },
+  "tvBaseline": "805af51c81247e87de6e1a0ee10101b97c64e990",
+  "versionSource": "Gradle overrides yfuseVersionName=1.0.49 and yfuseVersionCode=211",
+  "testScope": "Ambient sampling cancellation and crop geometry, ambient color extraction, playback preferences, surface geometry, search and navigation motion from the frozen Kotlin snapshot",
+  "evidence": {
+    "build.log": {
+      "path": "build.log",
+      "sha256": "047b1079a146ae8c12024bdbd134dd5ee0795677a5f0ed07840073f9bddce95c"
+    },
+    "badging.txt": {
+      "path": "badging.txt",
+      "sha256": "c28734222a5d99e8422c5749632cd2885b9b247bcc85a659bd570030d188fe19"
+    },
+    "signature.txt": {
+      "path": "signature.txt",
+      "sha256": "5049879b315c85cf1299d9881010bce1010d326a262a61d7e6da506bb2d92771"
+    },
+    "alignment.txt": {
+      "path": "alignment.txt",
+      "sha256": "c0adc495321b6eb913dcdd207edc0c1fd908ce6b8f101f2dbd2d0280ac094a1f"
+    },
+    "build-release.ps1": {
+      "path": "build-release.ps1",
+      "sha256": "cbe7442bcb51f4e7f8c7577a61ed41d3fdf9de7f3460f98430b05f1f8f204072"
+    },
+    "frozen-mobile-sources.init.gradle": {
+      "path": "frozen-mobile-sources.init.gradle",
+      "sha256": "c3bf811c969be6a38b06333a149f287c727672497605320e11c910f8bf7e72bf"
+    }
+  }
+}

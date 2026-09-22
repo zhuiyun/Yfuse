@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.drm.YDrmRenewalPolicyTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:44:00.457Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="media drm event forces key renewal without status fields" classname="com.yfuse.core2.drm.YDrmRenewalPolicyTest" time="0.0"/>
+  <testcase name="expiring license or playback window renews before zero" classname="com.yfuse.core2.drm.YDrmRenewalPolicyTest" time="0.001"/>
+  <testcase name="healthy or non-numeric status does not churn the license server" classname="com.yfuse.core2.drm.YDrmRenewalPolicyTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

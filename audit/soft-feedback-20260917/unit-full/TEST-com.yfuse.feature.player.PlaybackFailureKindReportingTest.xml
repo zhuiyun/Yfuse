@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.PlaybackFailureKindReportingTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:15.864Z" hostname="DESKTOP-HM2J0FM" time="0.0">
+  <properties/>
+  <testcase name="an_unrecognised_code_stays_unknown_rather_than_guessing" classname="com.yfuse.feature.player.PlaybackFailureKindReportingTest" time="0.0"/>
+  <testcase name="the_message_classifier_cannot_read_the_messages_the_engines_emit" classname="com.yfuse.feature.player.PlaybackFailureKindReportingTest" time="0.0"/>
+  <testcase name="a_network_failure_read_as_unknown_would_blame_the_backend" classname="com.yfuse.feature.player.PlaybackFailureKindReportingTest" time="0.0"/>
+  <testcase name="media3_error_codes_map_to_the_category_media3_already_decided" classname="com.yfuse.feature.player.PlaybackFailureKindReportingTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

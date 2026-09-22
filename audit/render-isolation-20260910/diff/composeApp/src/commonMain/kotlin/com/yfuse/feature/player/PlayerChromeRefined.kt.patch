@@ -1,0 +1,58 @@
+--- composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerChromeRefined.kt (before turn)
++++ composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerChromeRefined.kt
+@@ -31,8 +31,6 @@
+ import androidx.compose.foundation.layout.width
+ import androidx.compose.foundation.layout.widthIn
+ import androidx.compose.foundation.shape.CircleShape
+-import androidx.compose.material3.Icon
+-import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.LaunchedEffect
+ import androidx.compose.runtime.State
+@@ -90,6 +88,8 @@
+ import com.yfuse.core.designsystem.glass
+ import com.yfuse.core.designsystem.rememberAnimatedArtworkAccent
+ import kotlin.math.abs
++import com.yfuse.core.designsystem.ThemeIcon as Icon
++import com.yfuse.core.designsystem.ThemeText as Text
+ 
+ /**
+  * Player top chrome after the control hierarchy was simplified.
+@@ -171,6 +171,7 @@
+             verticalAlignment = Alignment.CenterVertically,
+         ) {
+             PlayerClock()
++            PlayerBatteryStatus()
+             Spacer(Modifier.width(6.dp))
+             if (watchConnected) {
+                 CircleControl(
+@@ -284,7 +285,7 @@
+             horizontalArrangement = Arrangement.spacedBy(10.dp),
+         ) {
+             Box(Modifier.height(44.dp), contentAlignment = Alignment.Center) {
+-                RefinedTimeText(shownPosition)
++                RefinedTimeText(shownPosition.coerceAtLeast(0L) / 1_000L)
+             }
+             Column(Modifier.weight(1f)) {
+                 val preview = trickplay
+@@ -355,7 +356,7 @@
+                 )
+             }
+             Box(Modifier.height(44.dp), contentAlignment = Alignment.Center) {
+-                RefinedTimeText(state.durationMs)
++                RefinedTimeText(state.durationMs.coerceAtLeast(0L) / 1_000L)
+             }
+         }
+ 
+@@ -490,9 +491,9 @@
+ }
+ 
+ @Composable
+-private fun RefinedTimeText(timeMs: Long) {
++private fun RefinedTimeText(seconds: Long) {
+     Text(
+-        formatTime(timeMs.coerceAtLeast(0L)),
++        formatTime(seconds * 1_000L),
+         style = AppTypography.caption.regular,
+         color = PlayerTokens.timeTextLandscape,
+         maxLines = 1,

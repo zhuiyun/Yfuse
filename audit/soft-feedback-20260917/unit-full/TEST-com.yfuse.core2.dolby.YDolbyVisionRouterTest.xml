@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.dolby.YDolbyVisionRouterTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:13.303Z" hostname="DESKTOP-HM2J0FM" time="0.002">
+  <properties/>
+  <testcase name="P7 exact decoder still prefers compatible base when Dolby display output is unavailable" classname="com.yfuse.core2.dolby.YDolbyVisionRouterTest" time="0.001"/>
+  <testcase name="P7 falls back only to its HDR10 base layer without claiming Dolby composition" classname="com.yfuse.core2.dolby.YDolbyVisionRouterTest" time="0.0"/>
+  <testcase name="P5 exact decoder can hand decoded frames to Vulkan without claiming native Dolby output" classname="com.yfuse.core2.dolby.YDolbyVisionRouterTest" time="0.001"/>
+  <testcase name="P7 compatible HDR10 base can be presented by Vulkan on an SDR display" classname="com.yfuse.core2.dolby.YDolbyVisionRouterTest" time="0.0"/>
+  <testcase name="P10 matches AV1 Dolby decoder and never an HEVC Dolby decoder" classname="com.yfuse.core2.dolby.YDolbyVisionRouterTest" time="0.0"/>
+  <testcase name="P7 native playback still cannot claim FEL without independent output evidence" classname="com.yfuse.core2.dolby.YDolbyVisionRouterTest" time="0.0"/>
+  <testcase name="P8 point 1 uses HDR10 compatible base when native P8 is unavailable" classname="com.yfuse.core2.dolby.YDolbyVisionRouterTest" time="0.0"/>
+  <testcase name="P8 native route requires exact P8 declaration" classname="com.yfuse.core2.dolby.YDolbyVisionRouterTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

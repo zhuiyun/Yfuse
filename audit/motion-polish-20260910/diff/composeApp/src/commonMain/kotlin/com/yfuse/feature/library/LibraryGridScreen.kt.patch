@@ -1,0 +1,33 @@
+--- composeApp/src/commonMain/kotlin/com/yfuse/feature/library/LibraryGridScreen.kt (before turn)
++++ composeApp/src/commonMain/kotlin/com/yfuse/feature/library/LibraryGridScreen.kt
+@@ -46,6 +46,7 @@
+ import com.yfuse.core.designsystem.GlassShapes
+ import com.yfuse.core.designsystem.LocalAccentColors
+ import com.yfuse.core.designsystem.LocalPalette
++import com.yfuse.core.designsystem.MotionSwap
+ import com.yfuse.core.designsystem.OverlayButtonRow
+ import com.yfuse.core.designsystem.OverlayButtonTone
+ import com.yfuse.core.designsystem.OverlayHeader
+@@ -164,13 +165,15 @@
+                 )
+                 // The server's total, not the loaded count: paging means those differ, and
+                 // a number that climbed as the user scrolled was reporting the wrong thing.
+-                Text(
+-                    "${state.totalCount.coerceAtLeast(
+-                        state.loadedCount,
+-                    )} ${if (state.directoryKind != null) "个" else "部"}",
+-                    style = AppTypography.caption.medium,
+-                    color = palette.sub2,
+-                )
++                MotionSwap(
++                    state.totalCount.coerceAtLeast(state.loadedCount) to state.directoryKind,
++                ) { (count, directory) ->
++                    Text(
++                        "$count ${if (directory != null) "个" else "部"}",
++                        style = AppTypography.caption.medium,
++                        color = palette.sub2,
++                    )
++                }
+                 if (state.sortable) {
+                     Row(
+                         Modifier

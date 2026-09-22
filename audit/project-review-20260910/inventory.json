@@ -1,0 +1,97 @@
+{
+  "sourceFiles": 1328,
+  "sourceLines": 285939,
+  "testFiles": 523,
+  "largestProductionFiles": [
+    {
+      "file": "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerRoot.kt",
+      "lines": 3452,
+      "test": false
+    },
+    {
+      "file": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidNativeDirectYPlayer.kt",
+      "lines": 3206,
+      "test": false
+    },
+    {
+      "file": "watchTogetherServer/src/main/kotlin/com/yfuse/watch/CalendarIngestion.kt",
+      "lines": 2879,
+      "test": false
+    },
+    {
+      "file": "watchTogetherServer/src/main/kotlin/com/yfuse/watch/Application.kt",
+      "lines": 2302,
+      "test": false
+    },
+    {
+      "file": "composeApp/src/commonMain/kotlin/com/yfuse/feature/servers/ServersTabScreen.kt",
+      "lines": 2195,
+      "test": false
+    },
+    {
+      "file": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidAdaptiveCore2YPlayer.kt",
+      "lines": 2164,
+      "test": false
+    },
+    {
+      "file": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidEnhancedPlaybackSession.kt",
+      "lines": 2154,
+      "test": false
+    },
+    {
+      "file": "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/MpvVideoEngine.kt",
+      "lines": 2139,
+      "test": false
+    },
+    {
+      "file": "composeApp/src/androidMain/kotlin/com/yfuse/update/AppUpdateManager.kt",
+      "lines": 2132,
+      "test": false
+    },
+    {
+      "file": "composeApp/src/commonMain/kotlin/com/yfuse/feature/calendar/CalendarScreen.kt",
+      "lines": 2034,
+      "test": false
+    },
+    {
+      "file": "composeApp/src/androidMain/kotlin/com/yfuse/core/offline/OfflineMedia.android.kt",
+      "lines": 2021,
+      "test": false
+    },
+    {
+      "file": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidYCoreHttpProxy.kt",
+      "lines": 2004,
+      "test": false
+    },
+    {
+      "file": "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/ExoVideoEngine.kt",
+      "lines": 1975,
+      "test": false
+    },
+    {
+      "file": "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerActivity.kt",
+      "lines": 1792,
+      "test": false
+    },
+    {
+      "file": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileScreen.kt",
+      "lines": 1697,
+      "test": false
+    },
+    {
+      "file": "watchTogetherServer/src/main/kotlin/com/yfuse/watch/account/AccountStore.kt",
+      "lines": 1692,
+      "test": false
+    },
+    {
+      "file": "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerStore.kt",
+      "lines": 1635,
+      "test": false
+    },
+    {
+      "file": "composeApp/src/commonMain/kotlin/com/yfuse/core/data/AiringCalendarRepository.kt",
+      "lines": 1623,
+      "test": false
+    }
+  ]
+}

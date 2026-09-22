@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.data.AiringCalendarTest" tests="13" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:02.037Z" hostname="DESKTOP-HM2J0FM" time="0.017">
+  <properties/>
+  <testcase name="an_aired_episode_the_server_lacks_is_the_gap_worth_showing" classname="com.yfuse.core.data.AiringCalendarTest" time="0.0"/>
+  <testcase name="an_episode_on_the_server_is_available_or_watched" classname="com.yfuse.core.data.AiringCalendarTest" time="0.001"/>
+  <testcase name="active_library_selection_includes_next_up_favourites_and_recent_series" classname="com.yfuse.core.data.AiringCalendarTest" time="0.001"/>
+  <testcase name="in_progress_source_wins_over_an_already_watched_copy" classname="com.yfuse.core.data.AiringCalendarTest" time="0.0"/>
+  <testcase name="a_partially_watched_episode_is_in_progress" classname="com.yfuse.core.data.AiringCalendarTest" time="0.0"/>
+  <testcase name="unrelated_discovery_rows_do_not_inflate_the_missing_count" classname="com.yfuse.core.data.AiringCalendarTest" time="0.001"/>
+  <testcase name="a_future_episode_already_on_the_server_still_reads_as_available" classname="com.yfuse.core.data.AiringCalendarTest" time="0.0"/>
+  <testcase name="media_key_matches_the_coordinate_emby_lookup_resolves" classname="com.yfuse.core.data.AiringCalendarTest" time="0.003"/>
+  <testcase name="official_noon_release_does_not_turn_missing_at_midnight" classname="com.yfuse.core.data.AiringCalendarTest" time="0.006"/>
+  <testcase name="a_future_episode_is_not_missing_merely_because_nobody_has_it" classname="com.yfuse.core.data.AiringCalendarTest" time="0.0"/>
+  <testcase name="automatic_recent_selection_excludes_old_rows_but_keeps_next_up_and_favourites" classname="com.yfuse.core.data.AiringCalendarTest" time="0.0"/>
+  <testcase name="detail_preview_uses_the_known_series_and_episode_without_provider_lookup" classname="com.yfuse.core.data.AiringCalendarTest" time="0.004"/>
+  <testcase name="a_known_series_lookup_failure_beats_an_unrelated_server_miss" classname="com.yfuse.core.data.AiringCalendarTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

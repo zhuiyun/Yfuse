@@ -1,0 +1,27 @@
+--- before/composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerActivityMotion.android.kt
++++ after/composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerActivityMotion.android.kt
+@@ -21,8 +21,8 @@
+ 
+ /** Window animations include SurfaceView layers; no bitmap capture or delayed player release. */
+ @Suppress("DEPRECATION")
+-internal fun Activity.configurePlayerWindowMotion() {
+-    val moving = playerWindowMotionEnabled()
++internal fun Activity.configurePlayerWindowMotion(sharedArtwork: Boolean = false) {
++    val moving = !sharedArtwork && playerWindowMotionEnabled()
+     if (Build.VERSION.SDK_INT >= 34) {
+         overrideActivityTransition(
+             Activity.OVERRIDE_TRANSITION_OPEN,
+@@ -40,8 +40,11 @@
+ }
+ 
+ @Suppress("DEPRECATION")
+-internal fun Activity.finishPlayerWindowMotion(wasPictureInPicture: Boolean) {
+-    val moving = !wasPictureInPicture && playerWindowMotionEnabled()
++internal fun Activity.finishPlayerWindowMotion(
++    wasPictureInPicture: Boolean,
++    sharedArtwork: Boolean = false,
++) {
++    val moving = !sharedArtwork && !wasPictureInPicture && playerWindowMotionEnabled()
+     if (Build.VERSION.SDK_INT < 34) {
+         overridePendingTransition(if (moving) R.anim.player_hold_exit else 0, if (moving) R.anim.player_exit else 0)
+     } else {

@@ -1,0 +1,19 @@
+{
+  "sourceCommit": "8dc1e5b22fbd74f014670bf07c1773891f719191",
+  "sourceTree": "2db1d65fe316120f8a452ce39af04b455446c9e6",
+  "demuxSourceSha256": "559f134528273aa1dfb6f07c8209ebe39be988fa1ea6753f3849fb37bf475d4a",
+  "libraries": {
+    "libavcodec.so": "2440fc79482e7ab4e40ba2f3e9fb7ba10f196935b39566c636e866e0dcdeb42c",
+    "libavdevice.so": "c67959777c8137a98825e7e63bfd8e555090781c66b34c9d0053e54869110c08",
+    "libavfilter.so": "d9736182d803c460569b4fae9fb0d588a6e02f71f213ec000641521a07cf7d28",
+    "libavformat.so": "ee3fb014d6d12ff54e658fc1ae70dfcaae55d0259a34b46e4fc3cb2a41f773dc",
+    "libavutil.so": "2d2ab7b3071f9e4643f67ba65170f7290d821aa80e8b14dfcc356a15c493c47a",
+    "libc++_shared.so": "c4c2fe5cbcb1fba0003a31fc7ab29a9bb12df6cc187ec45a806462540e83d93b",
+    "libmpv.so": "d06566edd8dd09c7419f61f9888d2f29e5e186ff578f8a984f1c968cab7baee6",
+    "libplayer.so": "2a5b828f3da71049c7603d6432fce50af7ca2286c33e70028bbcf466ead09005",
+    "libswresample.so": "59a2c9dbd713db7e4a17949b85334873745bf0183a2686300068093fe5b57ee0",
+    "libswscale.so": "48782396b8c8993a7bb72990b87cd460e57f65d3e69c26c9e04031b0ef9f43e8",
+    "libycore_demux.so": "18798aa7b206607be2e418321c0fc7d96c064ad31e430e43c3fae069c31407ab",
+    "libycore_gpu.so": "4ea9a8ad54d15cc642dd952df2b65ad1f8d04aed179436d54ac1379f7a3ff01d"
+  }
+}

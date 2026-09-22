@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.data.EmbyPathContractTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-20T04:16:49.604Z" hostname="DESKTOP-HM2J0FM" time="0.4">
+  <properties/>
+  <testcase name="remote_subtitle_item_and_provider_ids_do_not_change_the_download_endpoint" classname="com.yfuse.core.data.EmbyPathContractTest" time="0.315"/>
+  <testcase name="media_and_artwork_builders_preserve_the_same_path_segment_contract" classname="com.yfuse.core.data.EmbyPathContractTest" time="0.025"/>
+  <testcase name="detail_series_and_user_mutations_keep_ids_inside_one_segment" classname="com.yfuse.core.data.EmbyPathContractTest" time="0.055"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[SLF4J(W): No SLF4J providers were found.
+SLF4J(W): Defaulting to no-operation (NOP) logger implementation
+SLF4J(W): See https://www.slf4j.org/codes.html#noProviders for further details.
+]]></system-err>
+</testsuite>

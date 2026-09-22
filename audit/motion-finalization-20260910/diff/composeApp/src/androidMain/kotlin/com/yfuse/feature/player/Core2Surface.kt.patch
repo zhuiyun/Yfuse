@@ -1,0 +1,175 @@
+--- before/composeApp/src/androidMain/kotlin/com/yfuse/feature/player/Core2Surface.kt
++++ after/composeApp/src/androidMain/kotlin/com/yfuse/feature/player/Core2Surface.kt
+@@ -267,7 +267,6 @@
+         }
+     }
+     val assBitmaps by assRenderer.bitmaps.collectAsState()
+-    if (activeCues.isEmpty()) return
+     val activeText = activeCues.mapNotNull { cue -> cue.payload as? YSubtitlePayload.Text }
+     val activeBitmaps =
+         activeCues.mapNotNull { cue -> cue.payload as? YSubtitlePayload.BitmapArgb } +
+@@ -318,7 +317,7 @@
+                     bitmapContent()
+                 }
+             }
+-            if (activeText.isNotEmpty()) {
++            run {
+                 Core2SubtitleText(
+                     activeText,
+                     core2SubtitleAlignment(authored = 2, secondary = secondary, dual = dual),
+@@ -332,31 +331,33 @@
+     } else {
+         Box(modifier) {
+             bitmapContent()
+-            activeText
+-                .groupBy { core2SubtitleAlignment(it.style.alignment, secondary, dual) }
+-                .forEach { (alignmentCode, payloads) ->
+-                    Core2SubtitleText(
+-                        payloads,
+-                        alignmentCode,
+-                        scale,
+-                        brightness,
+-                        appearance,
+-                        Modifier
+-                            .align(alignmentCode.toComposeAlignment())
+-                            .fillMaxWidth(0.92f)
+-                            .padding(horizontal = 12.dp)
+-                            .then(
+-                                when {
+-                                    alignmentCode <= 3 ->
+-                                        Modifier.padding(
+-                                            bottom = viewport.height * (1f - position.coerceIn(0.60f, 0.96f)),
+-                                        )
+-                                    alignmentCode >= 7 -> Modifier.padding(top = viewport.height * 0.05f)
+-                                    else -> Modifier
+-                                },
+-                            ),
+-                    )
+-                }
++            val groupedText = activeText.groupBy { core2SubtitleAlignment(it.style.alignment, secondary, dual) }
++            val alignments = remember { mutableSetOf<Int>() }
++            alignments.addAll(groupedText.keys)
++            alignments.forEach { alignmentCode ->
++                val payloads = groupedText[alignmentCode].orEmpty()
++                Core2SubtitleText(
++                    payloads,
++                    alignmentCode,
++                    scale,
++                    brightness,
++                    appearance,
++                    Modifier
++                        .align(alignmentCode.toComposeAlignment())
++                        .fillMaxWidth(0.92f)
++                        .padding(horizontal = 12.dp)
++                        .then(
++                            when {
++                                alignmentCode <= 3 ->
++                                    Modifier.padding(
++                                        bottom = viewport.height * (1f - position.coerceIn(0.60f, 0.96f)),
++                                    )
++                                alignmentCode >= 7 -> Modifier.padding(top = viewport.height * 0.05f)
++                                else -> Modifier
++                            },
++                        ),
++                )
++            }
+         }
+     }
+ }
+@@ -382,50 +383,52 @@
+     appearance: SubtitleAppearance,
+     modifier: Modifier,
+ ) {
+-    Column(modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+-        payloads.forEach { payload ->
+-            val cueStyle = payload.style
+-            val authoredColor = cueStyle.primaryColorArgb?.let(::Color) ?: Color.White
+-            val useAuthoredColor = appearance == SubtitleAppearance()
+-            val requestedColor = Color(appearance.textColorArgb.toULong())
+-            val backgroundColor = Color(appearance.backgroundColorArgb.toULong())
+-            val outlineColor = Color(appearance.outlineColorArgb.toULong())
+-            val textScale = scale.coerceIn(0.6f, 1.8f)
+-            val authoredSize = cueStyle.fontSizePoints?.coerceIn(10f, 64f) ?: 22f
+-            Text(
+-                text = payload.plainText,
+-                color =
+-                    (if (useAuthoredColor) authoredColor else requestedColor).copy(
+-                        alpha =
+-                            (if (useAuthoredColor) authoredColor.alpha else requestedColor.alpha) *
+-                                brightness.coerceIn(0.35f, 1f),
+-                    ),
+-                fontSize = (authoredSize * textScale).sp,
+-                lineHeight = (authoredSize * 1.23f * textScale).sp,
+-                textAlign = alignmentCode.toTextAlign(),
+-                fontWeight = if (cueStyle.bold) FontWeight.Bold else FontWeight.Normal,
+-                fontStyle = if (cueStyle.italic) FontStyle.Italic else FontStyle.Normal,
+-                textDecoration = if (cueStyle.underline) TextDecoration.Underline else TextDecoration.None,
+-                style =
+-                    androidx.compose.ui.text.TextStyle(
+-                        background = backgroundColor,
+-                        shadow =
+-                            Shadow(
+-                                color = outlineColor,
+-                                offset = Offset(0f, cueStyle.shadow ?: 2f),
+-                                blurRadius =
+-                                    if (appearance.outlineWidth <= 0f) {
+-                                        0f
+-                                    } else {
+-                                        maxOf(
+-                                            2f,
+-                                            maxOf(cueStyle.outline ?: 0f, appearance.outlineWidth) * 2.5f,
+-                                        )
+-                                    },
+-                            ),
+-                    ),
+-                modifier = Modifier.fillMaxWidth(),
+-            )
++    SubtitleHandoff(payloads, modifier) { visiblePayloads ->
++        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
++            visiblePayloads.forEach { payload ->
++                val cueStyle = payload.style
++                val authoredColor = cueStyle.primaryColorArgb?.let(::Color) ?: Color.White
++                val useAuthoredColor = appearance == SubtitleAppearance()
++                val requestedColor = Color(appearance.textColorArgb.toULong())
++                val backgroundColor = Color(appearance.backgroundColorArgb.toULong())
++                val outlineColor = Color(appearance.outlineColorArgb.toULong())
++                val textScale = scale.coerceIn(0.6f, 1.8f)
++                val authoredSize = cueStyle.fontSizePoints?.coerceIn(10f, 64f) ?: 22f
++                Text(
++                    text = payload.plainText,
++                    color =
++                        (if (useAuthoredColor) authoredColor else requestedColor).copy(
++                            alpha =
++                                (if (useAuthoredColor) authoredColor.alpha else requestedColor.alpha) *
++                                    brightness.coerceIn(0.35f, 1f),
++                        ),
++                    fontSize = (authoredSize * textScale).sp,
++                    lineHeight = (authoredSize * 1.23f * textScale).sp,
++                    textAlign = alignmentCode.toTextAlign(),
++                    fontWeight = if (cueStyle.bold) FontWeight.Bold else FontWeight.Normal,
++                    fontStyle = if (cueStyle.italic) FontStyle.Italic else FontStyle.Normal,
++                    textDecoration = if (cueStyle.underline) TextDecoration.Underline else TextDecoration.None,
++                    style =
++                        androidx.compose.ui.text.TextStyle(
++                            background = backgroundColor,
++                            shadow =
++                                Shadow(
++                                    color = outlineColor,
++                                    offset = Offset(0f, cueStyle.shadow ?: 2f),
++                                    blurRadius =
++                                        if (appearance.outlineWidth <= 0f) {
++                                            0f
++                                        } else {
++                                            maxOf(
++                                                2f,
++                                                maxOf(cueStyle.outline ?: 0f, appearance.outlineWidth) * 2.5f,
++                                            )
++                                        },
++                                ),
++                        ),
++                    modifier = Modifier.fillMaxWidth(),
++                )
++            }
+         }
+     }
+ }

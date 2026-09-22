@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.bitstream.YCodecConfigurationTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:13.292Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="av1C exposes profile level bit depth and config OBUs" classname="com.yfuse.core2.bitstream.YCodecConfigurationTest" time="0.0"/>
+  <testcase name="truncated configuration records fail closed" classname="com.yfuse.core2.bitstream.YCodecConfigurationTest" time="0.001"/>
+  <testcase name="avcC exposes length width and separate SPS PPS CSD" classname="com.yfuse.core2.bitstream.YCodecConfigurationTest" time="0.0"/>
+  <testcase name="hvcC collects only VPS SPS PPS and preserves length field width" classname="com.yfuse.core2.bitstream.YCodecConfigurationTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

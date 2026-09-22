@@ -1,0 +1,55 @@
+[Unit]
+Description=Yfuse Ktor update and watch-together backend
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=yfuse
+Group=yfuse
+WorkingDirectory=/srv/yfuse-update
+Environment=PORT=8080
+Environment=UPDATE_ROOT=/srv/yfuse-update/yfuse
+Environment=ACCOUNT_DB_PATH=/var/lib/yfuse/account.db
+Environment=CALENDAR_DB_PATH=/var/lib/yfuse/calendar.db
+Environment=ACCOUNT_REGISTRATION_ENABLED=false
+Environment=ACCOUNT_MAX_USERS=100
+Environment=ACCOUNT_INVITE_ISSUER_USERNAMES=zhuiyun
+Environment=ACCOUNT_ISSUED_INVITE_TTL_HOURS=24
+Environment=MIGRATION_RELAY_DB_PATH=/var/lib/yfuse/migration-relay.db
+EnvironmentFile=/etc/yfuse-watch/environment
+Environment=WATCH_TRUST_PROXY_HEADERS=true
+Environment="JAVA_OPTS=-Xms32m -Xmx256m"
+ExecStart=/opt/yfuse-watch/current/bin/watchTogetherServer
+ExecStartPost=/usr/bin/curl --fail --silent --show-error --retry 30 --retry-connrefused --retry-delay 1 --retry-max-time 30 --connect-timeout 1 http://127.0.0.1:8080/health
+Restart=on-failure
+RestartSec=3
+TimeoutStartSec=45
+TimeoutStopSec=30
+SuccessExitStatus=143
+LimitNOFILE=16384
+TasksMax=256
+MemoryHigh=384M
+MemoryMax=448M
+NoNewPrivileges=true
+CapabilityBoundingSet=
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadOnlyPaths=/srv/yfuse-update /opt/yfuse-watch
+StateDirectory=yfuse
+StateDirectoryMode=0700
+ReadWritePaths=/var/lib/yfuse
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

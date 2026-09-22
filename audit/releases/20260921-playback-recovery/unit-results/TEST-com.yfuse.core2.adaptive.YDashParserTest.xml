@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.adaptive.YDashParserTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:43:53.343Z" hostname="DESKTOP-HM2J0FM" time="0.014">
+  <properties/>
+  <testcase name="static_mpd_inherits_templates_and_preserves_content_protection" classname="com.yfuse.core2.adaptive.YDashParserTest" time="0.001"/>
+  <testcase name="dynamic_mpd_parses_timeline_and_representation_base_url" classname="com.yfuse.core2.adaptive.YDashParserTest" time="0.001"/>
+  <testcase name="playback_mpd_keeps_only_selected_clear_representations_and_local_urls" classname="com.yfuse.core2.adaptive.YDashParserTest" time="0.002"/>
+  <testcase name="selects_and_preserves_the_Dolby_Vision_Atmos_family" classname="com.yfuse.core2.adaptive.YDashParserTest" time="0.001"/>
+  <testcase name="playback_mpd_keeps_distinct_audio_languages_and_text_tracks" classname="com.yfuse.core2.adaptive.YDashParserTest" time="0.002"/>
+  <testcase name="playback_mpd_requires_drm_opt_in_and_preserves_dynamic_live_window" classname="com.yfuse.core2.adaptive.YDashParserTest" time="0.006"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

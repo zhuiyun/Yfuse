@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.model.DolbyVisionUnknownProfileTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:05.142Z" hostname="DESKTOP-HM2J0FM" time="0.0">
+  <properties/>
+  <testcase name="unknown_dolby_profile_with_explicit_compatible_base_layer_can_use_base_decoder" classname="com.yfuse.core.model.DolbyVisionUnknownProfileTest" time="0.0"/>
+  <testcase name="unknown_dolby_profile_without_base_layer_evidence_requires_dolby_decoder" classname="com.yfuse.core.model.DolbyVisionUnknownProfileTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,10 @@
+--- before/composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/Poster.kt
++++ after/composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/Poster.kt
+@@ -294,6 +294,7 @@
+             modifier =
+                 Modifier
+                     .sharedMediaArtwork(sharedTransitionKey)
++                    .playerArtworkSource(sharedTransitionKey, candidates)
+                     .fillMaxSize(),
+             alphaOnly = true,
+             revealDurationMillis = POSTER_FADE_DURATION_MS,

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.cast.CastStateMachineTest" tests="9" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:02.011Z" hostname="DESKTOP-HM2J0FM" time="0.005">
+  <properties/>
+  <testcase name="invalid_or_missing_url_is_rejected_without_a_load_attempt" classname="com.yfuse.core.cast.CastStateMachineTest" time="0.0"/>
+  <testcase name="receiver_state_transitions_only_become_active_after_confirmation" classname="com.yfuse.core.cast.CastStateMachineTest" time="0.003"/>
+  <testcase name="command_failure_preserves_last_confirmed_transport_intent" classname="com.yfuse.core.cast.CastStateMachineTest" time="0.0"/>
+  <testcase name="dlna_time_and_cast_start_position_are_bounded_and_precise" classname="com.yfuse.core.cast.CastStateMachineTest" time="0.0"/>
+  <testcase name="unconfirmed_remote_position_uses_local_fallback_on_disconnect" classname="com.yfuse.core.cast.CastStateMachineTest" time="0.001"/>
+  <testcase name="explicit_stop_never_triggers_disconnect_recovery" classname="com.yfuse.core.cast.CastStateMachineTest" time="0.0"/>
+  <testcase name="unexpected_disconnect_recovers_from_last_confirmed_remote_position" classname="com.yfuse.core.cast.CastStateMachineTest" time="0.0"/>
+  <testcase name="receiver_evidence_is_revision_scoped_and_cleared_between_loads" classname="com.yfuse.core.cast.CastStateMachineTest" time="0.001"/>
+  <testcase name="receiver_queue_and_track_state_are_revision_local" classname="com.yfuse.core.cast.CastStateMachineTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.sync.WatchRoomResumeStoreTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:07.458Z" hostname="DESKTOP-HM2J0FM" time="0.002">
+  <properties/>
+  <testcase name="write_failures_and_a_missing_store_are_silent" classname="com.yfuse.core.sync.WatchRoomResumeStoreTest" time="0.002"/>
+  <testcase name="clearing_forgets_the_capabilities" classname="com.yfuse.core.sync.WatchRoomResumeStoreTest" time="0.0"/>
+  <testcase name="a_welcomed_room_survives_a_fresh_store_instance" classname="com.yfuse.core.sync.WatchRoomResumeStoreTest" time="0.0"/>
+  <testcase name="malformed_or_unreadable_entries_read_as_nothing_saved" classname="com.yfuse.core.sync.WatchRoomResumeStoreTest" time="0.0"/>
+  <testcase name="entries_with_invalid_capabilities_are_refused_and_dropped" classname="com.yfuse.core.sync.WatchRoomResumeStoreTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

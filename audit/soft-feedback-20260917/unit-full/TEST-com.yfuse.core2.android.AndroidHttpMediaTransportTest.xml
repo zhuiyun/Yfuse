@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.AndroidHttpMediaTransportTest" tests="15" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:09.778Z" hostname="DESKTOP-HM2J0FM" time="0.252">
+  <properties/>
+  <testcase name="close also unblocks a stalled body read" classname="com.yfuse.core2.android.AndroidHttpMediaTransportTest" time="0.006"/>
+  <testcase name="YCore proxy transport follows media redirects and preserves byte ranges" classname="com.yfuse.core2.android.AndroidHttpMediaTransportTest" time="0.005"/>
+  <testcase name="WebDAV uses the same range safe transport without following redirects" classname="com.yfuse.core2.android.AndroidHttpMediaTransportTest" time="0.004"/>
+  <testcase name="close cancels a request still waiting for headers and the transport can reopen" classname="com.yfuse.core2.android.AndroidHttpMediaTransportTest" time="0.111"/>
+  <testcase name="FFmpeg enhanced WebDAV source keeps authorization after scheme normalization" classname="com.yfuse.core2.android.AndroidHttpMediaTransportTest" time="0.001"/>
+  <testcase name="opens strict byte range and reads response incrementally" classname="com.yfuse.core2.android.AndroidHttpMediaTransportTest" time="0.018"/>
+  <testcase name="expired cached media route refreshes through the authenticated origin" classname="com.yfuse.core2.android.AndroidHttpMediaTransportTest" time="0.034"/>
+  <testcase name="resolved cross origin media route is reused by later byte ranges" classname="com.yfuse.core2.android.AndroidHttpMediaTransportTest" time="0.007"/>
+  <testcase name="redirectable media transport strips provider credentials across origins" classname="com.yfuse.core2.android.AndroidHttpMediaTransportTest" time="0.006"/>
+  <testcase name="FFmpeg enhanced source never replaces explicit authorization" classname="com.yfuse.core2.android.AndroidHttpMediaTransportTest" time="0.0"/>
+  <testcase name="range 416 exposes total length for exact EOF handling" classname="com.yfuse.core2.android.AndroidHttpMediaTransportTest" time="0.018"/>
+  <testcase name="native media transport follows secure to cleartext redirect without leaking credentials" classname="com.yfuse.core2.android.AndroidHttpMediaTransportTest" time="0.029"/>
+  <testcase name="normal range close preserves connection reuse for chunked bodies" classname="com.yfuse.core2.android.AndroidHttpMediaTransportTest" time="0.005"/>
+  <testcase name="WebDAV credentials become basic authorization without overriding an explicit header" classname="com.yfuse.core2.android.AndroidHttpMediaTransportTest" time="0.004"/>
+  <testcase name="redirectable media transport keeps provider credentials on the same origin" classname="com.yfuse.core2.android.AndroidHttpMediaTransportTest" time="0.004"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

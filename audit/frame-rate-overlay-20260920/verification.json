@@ -1,0 +1,61 @@
+{
+  "verifiedAt": "2026-09-20T07:29:43.846033+00:00",
+  "tests": {
+    "phoneShared": {
+      "tests": 2871,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "tvShared": {
+      "tests": 63,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "regressionSuites": {
+    "com.yfuse.core2.render.YRenderedFrameRateSamplerTest": {
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidVideoOutputEpochTest": {
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.feature.player.PlayerFrameRateReadoutTest": {
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.feature.player.PlaybackRuntimeContentTest": {
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.feature.player.RemoteCastPlaybackTest": {
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "unchangedSourceInputs": 1541,
+  "compile": [
+    "phone Debug Kotlin",
+    "TV Debug Kotlin"
+  ],
+  "lint": [
+    "phone Debug",
+    "TV Debug",
+    "design-system usage"
+  ],
+  "packaging": "Paused by user; no APK containing this feature built or delivered",
+  "deviceValidation": false
+}

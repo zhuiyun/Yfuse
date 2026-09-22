@@ -1,0 +1,9 @@
+{
+  "packageName": "com.yfuse",
+  "versionCode": "226",
+  "versionName": "1.0.64",
+  "certificateSha256": "373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84",
+  "commit": "8dc1e5b22fbd74f014670bf07c1773891f719191",
+  "runtime": "full",
+  "nativeBuiltFromSource": true
+}

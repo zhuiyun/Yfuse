@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.offline.OfflineEnqueueBatchTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:05.671Z" hostname="DESKTOP-HM2J0FM" time="0.002">
+  <properties/>
+  <testcase name="duplicate_ids_use_last_selection_without_incrementing_revision_twice" classname="com.yfuse.core.offline.OfflineEnqueueBatchTest" time="0.002"/>
+  <testcase name="a_season_preserves_unrelated_rows_and_gives_every_episode_one_revision" classname="com.yfuse.core.offline.OfflineEnqueueBatchTest" time="0.0"/>
+  <testcase name="requeue_keeps_verified_partial_but_a_variant_change_resets_its_bytes_and_storage" classname="com.yfuse.core.offline.OfflineEnqueueBatchTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

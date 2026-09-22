@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.hdr.YHdrMetadataTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:44:00.465Z" hostname="DESKTOP-HM2J0FM" time="0.0">
+  <properties/>
+  <testcase name="encodes CTA static descriptor in little endian field order" classname="com.yfuse.core2.hdr.YHdrMetadataTest" time="0.0"/>
+  <testcase name="rejects values outside CTA unsigned short range" classname="com.yfuse.core2.hdr.YHdrMetadataTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

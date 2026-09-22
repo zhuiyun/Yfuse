@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.designsystem.PosterRatingTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:04.645Z" hostname="DESKTOP-HM2J0FM" time="0.0">
+  <properties/>
+  <testcase name="formatsValidScoresToOneDecimalPlace" classname="com.yfuse.core.designsystem.PosterRatingTest" time="0.0"/>
+  <testcase name="hidesMissingOrInvalidScores" classname="com.yfuse.core.designsystem.PosterRatingTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

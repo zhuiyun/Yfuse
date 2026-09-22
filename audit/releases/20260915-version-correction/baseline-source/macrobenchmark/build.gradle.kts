@@ -1,0 +1,52 @@
+plugins {
+    alias(libs.plugins.android.test)
+    alias(libs.plugins.kotlin.android)
+}
+
+kotlin { jvmToolchain(17) }
+
+android {
+    namespace = "com.yfuse.macrobenchmark"
+    compileSdk = 36
+
+    defaultConfig {
+        minSdk = 28
+        targetSdk = 36
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField(
+            "String",
+            "TARGET_PACKAGE",
+            "\"${providers.gradleProperty("yfuseApplicationId").getOrElse("com.yfuse")}.benchmark\"",
+        )
+    }
+
+    buildFeatures { buildConfig = true }
+
+    targetProjectPath = ":composeApp"
+    experimentalProperties["android.experimental.self-instrumenting"] = true
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    buildTypes {
+        create("benchmark") {
+            isDebuggable = true
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += listOf("release")
+        }
+        create("profile") {
+            isDebuggable = true
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += listOf("release")
+        }
+    }
+}
+
+dependencies {
+    implementation(libs.androidx.benchmark.macro.junit4)
+    implementation(libs.androidx.test.junit)
+    implementation(libs.androidx.test.runner)
+    implementation(libs.androidx.test.uiautomator)
+}

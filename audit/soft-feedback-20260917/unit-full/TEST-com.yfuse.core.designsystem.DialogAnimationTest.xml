@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.designsystem.DialogAnimationTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:04.592Z" hostname="DESKTOP-HM2J0FM" time="0.008">
+  <properties/>
+  <testcase name="layer_and_mask_share_geometry_without_stale_frames_when_exit_reverses" classname="com.yfuse.core.designsystem.DialogAnimationTest" time="0.001"/>
+  <testcase name="each_choice_survives_preferences_recreation_and_retired_names_fall_back_to_lift" classname="com.yfuse.core.designsystem.DialogAnimationTest" time="0.001"/>
+  <testcase name="only_the_five_shipped_styles_remain" classname="com.yfuse.core.designsystem.DialogAnimationTest" time="0.0"/>
+  <testcase name="staged_progress_is_clamped_and_reaches_one" classname="com.yfuse.core.designsystem.DialogAnimationTest" time="0.0"/>
+  <testcase name="every_style_finishes_at_identity_and_keeps_geometry_in_bounds" classname="com.yfuse.core.designsystem.DialogAnimationTest" time="0.006"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

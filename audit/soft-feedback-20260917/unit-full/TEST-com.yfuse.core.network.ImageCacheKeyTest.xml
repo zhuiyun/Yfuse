@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.network.ImageCacheKeyTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:05.553Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="removes_a_token_only_query_without_leaving_a_question_mark" classname="com.yfuse.core.network.ImageCacheKeyTest" time="0.0"/>
+  <testcase name="removes_api_key_without_changing_other_url_parts" classname="com.yfuse.core.network.ImageCacheKeyTest" time="0.0"/>
+  <testcase name="token_rotation_keeps_the_cache_namespace" classname="com.yfuse.core.network.ImageCacheKeyTest" time="0.0"/>
+  <testcase name="media_cache_key_removes_all_supported_credential_names" classname="com.yfuse.core.network.ImageCacheKeyTest" time="0.001"/>
+  <testcase name="plex_token_is_account_scoped_and_never_persisted_in_the_cache_key" classname="com.yfuse.core.network.ImageCacheKeyTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

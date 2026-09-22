@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.handoff.HandoffControllerTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-09-18T01:44:01.734Z" hostname="DESKTOP-HM2J0FM" time="0.069">
+  <properties/>
+  <testcase name="reconnectClearsConnectionErrorWithoutErasingTransferFailure" classname="com.yfuse.core.handoff.HandoffControllerTest" time="0.037"/>
+  <testcase name="rejectedRequestNeverPausesAndProfileChangeCancels" classname="com.yfuse.core.handoff.HandoffControllerTest" time="0.005"/>
+  <testcase name="missing_service_keeps_the_account_signed_in_and_recovery_clears_the_connection_error" classname="com.yfuse.core.handoff.HandoffControllerTest" time="0.004"/>
+  <testcase name="sourcePausesOnlyAfterReadyAndCommitsLatestPosition" classname="com.yfuse.core.handoff.HandoffControllerTest" time="0.003"/>
+  <testcase name="login_is_visible_while_heartbeat_waits_and_sign_out_cancels_the_pending_connection" classname="com.yfuse.core.handoff.HandoffControllerTest" time="0.004"/>
+  <testcase name="receiverFailureResumesPausedSource" classname="com.yfuse.core.handoff.HandoffControllerTest" time="0.005"/>
+  <testcase name="failedReceiverPreparationReleasesResourcesWithoutStarting" classname="com.yfuse.core.handoff.HandoffControllerTest" time="0.006"/>
+  <testcase name="nullSnapshotAfterPausingStillResumesSource" classname="com.yfuse.core.handoff.HandoffControllerTest" time="0.004"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

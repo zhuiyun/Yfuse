@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.AndroidYCoreProxyCloseTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:44:00.008Z" hostname="DESKTOP-HM2J0FM" time="0.121">
+  <properties/>
+  <testcase name="denial_after_headers_is_retained_instead_of_becoming_clean_eof" classname="com.yfuse.core2.android.AndroidYCoreProxyCloseTest" time="0.014"/>
+  <testcase name="denied_sequential_and_range_requests_keep_the_upstream_status_and_source_identity" classname="com.yfuse.core2.android.AndroidYCoreProxyCloseTest" time="0.03"/>
+  <testcase name="shutdown_closes_a_client_which_has_not_finished_sending_headers" classname="com.yfuse.core2.android.AndroidYCoreProxyCloseTest" time="0.003"/>
+  <testcase name="unregister_and_registration_racing_shutdown_leave_no_uncancelled_registration" classname="com.yfuse.core2.android.AndroidYCoreProxyCloseTest" time="0.0"/>
+  <testcase name="sequential_and_range_shutdown_cancel_upstream_without_waiting_for_slow_cleanup" classname="com.yfuse.core2.android.AndroidYCoreProxyCloseTest" time="0.048"/>
+  <testcase name="transport_can_reopen_for_range_retry_but_never_open_after_proxy_shutdown" classname="com.yfuse.core2.android.AndroidYCoreProxyCloseTest" time="0.002"/>
+  <testcase name="shutdown_cancels_manifest_waiter_even_while_the_worker_is_still_cleaning_up" classname="com.yfuse.core2.android.AndroidYCoreProxyCloseTest" time="0.018"/>
+  <testcase name="retrying_a_source_does_not_inherit_its_previous_denial" classname="com.yfuse.core2.android.AndroidYCoreProxyCloseTest" time="0.005"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,25 @@
+// Freeze the mobile Kotlin sources while other workspace tasks continue editing.
+// Preserve the same TV baseline used by the preceding signed mobile packages.
+gradle.afterProject { project, state ->
+    if (project.path == ':composeApp') {
+        def root = project.rootProject.projectDir.toPath()
+        def original = root.resolve('composeApp/src')
+        def frozen = root.resolve('audit/releases/20260909-search-handoff-fix/source/composeApp/src')
+        def sourceSets = project.extensions.getByName('kotlin').sourceSets
+        sourceSets.each { sourceSet ->
+            sourceSet.kotlin.setSrcDirs(sourceSet.kotlin.srcDirs.collect { directory ->
+                def path = directory.toPath()
+                path.startsWith(original) ? frozen.resolve(original.relativize(path)).toFile() : directory
+            })
+        }
+        def frozenTvMain = frozen.resolve('androidMain/kotlin/com/yfuse/tv/ui')
+        def frozenTvTests = frozen.resolve('androidUnitTest/kotlin/com/yfuse/tv/ui')
+        sourceSets.getByName('androidMain').kotlin {
+            exclude { entry -> entry.file.toPath().startsWith(frozenTvMain) }
+            srcDir(root.resolve('audit/diagnostics-20260909/fix/tv-baseline/composeApp/src/androidMain/kotlin').toFile())
+        }
+        sourceSets.getByName('androidUnitTest').kotlin {
+            exclude { entry -> entry.file.toPath().startsWith(frozenTvTests) }
+        }
+    }
+}

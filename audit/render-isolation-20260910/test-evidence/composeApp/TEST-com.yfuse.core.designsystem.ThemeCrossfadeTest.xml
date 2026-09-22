@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.designsystem.ThemeCrossfadeTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-10T10:37:04.940Z" hostname="DESKTOP-HM2J0FM" time="0.008">
+  <properties/>
+  <testcase name="theme_frames_change_paint_without_republishing_palette_or_recomposing_reader" classname="com.yfuse.core.designsystem.ThemeCrossfadeTest" time="0.005"/>
+  <testcase name="ordinary_artwork_colour_changes_do_not_start_a_second_theme_animation" classname="com.yfuse.core.designsystem.ThemeCrossfadeTest" time="0.003"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

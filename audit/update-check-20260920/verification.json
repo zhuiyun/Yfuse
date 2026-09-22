@@ -1,0 +1,74 @@
+{
+  "counts": {
+    "tests": 57,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "suites": [
+    {
+      "name": "com.yfuse.update.AutomaticUpdateCheckGateTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-09-20T09:32:45.431Z"
+    },
+    {
+      "name": "com.yfuse.update.UpdateCheckPolicyTest",
+      "tests": "15",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-09-20T09:32:45.467Z"
+    },
+    {
+      "name": "com.yfuse.update.UpdateDownloadBoundaryTest",
+      "tests": "11",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-09-20T09:32:45.505Z"
+    },
+    {
+      "name": "com.yfuse.update.UpdateManifestPolicyTest",
+      "tests": "10",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-09-20T09:32:45.587Z"
+    },
+    {
+      "name": "com.yfuse.update.UpdatePackageIdentityTest",
+      "tests": "8",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-09-20T09:32:45.601Z"
+    },
+    {
+      "name": "com.yfuse.update.UpdateRestoreTrustTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-09-20T09:32:45.605Z"
+    },
+    {
+      "name": "com.yfuse.update.UpdateResumePolicyTest",
+      "tests": "8",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-09-20T09:32:45.612Z"
+    }
+  ],
+  "androidDebugKotlinCompilation": "passed",
+  "changedFilesKtlint": "passed",
+  "apkBuilt": false,
+  "sourceSha256": {
+    "composeApp/src/androidMain/kotlin/com/yfuse/update/AppUpdateManager.kt": "a6ba224a02d69faa4004d2b502481a7d4f68d5758431b19549f28580de3ea612",
+    "composeApp/src/androidUnitTest/kotlin/com/yfuse/update/UpdateManifestPolicyTest.kt": "3ee0efaac9f21fb83e7bc204f0cd5db24f74de704a3def15c2a8e4f1ffd5ca65",
+    "composeApp/src/androidUnitTest/kotlin/com/yfuse/update/UpdateCheckPolicyTest.kt": "0810c630a7d59f9fe5da9de6d8c7fd5b6cf5ebbd54c9dd7cc2d52ab5fee24bff"
+  }
+}

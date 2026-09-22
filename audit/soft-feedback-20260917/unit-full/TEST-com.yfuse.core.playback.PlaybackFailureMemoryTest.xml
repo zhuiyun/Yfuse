@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.playback.PlaybackFailureMemoryTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:06.620Z" hostname="DESKTOP-HM2J0FM" time="0.005">
+  <properties/>
+  <testcase name="persisted_quirks_restore_and_expire_after_the_cooling_period" classname="com.yfuse.core.playback.PlaybackFailureMemoryTest" time="0.004"/>
+  <testcase name="repeated_decoder_failure_is_scoped_to_one_capability_signature" classname="com.yfuse.core.playback.PlaybackFailureMemoryTest" time="0.0"/>
+  <testcase name="network_failures_never_blacklist_a_player_engine" classname="com.yfuse.core.playback.PlaybackFailureMemoryTest" time="0.0"/>
+  <testcase name="learned_failures_can_be_cleared_without_recreating_memory" classname="com.yfuse.core.playback.PlaybackFailureMemoryTest" time="0.001"/>
+  <testcase name="failure_classifier_separates_transport_from_backend_failures" classname="com.yfuse.core.playback.PlaybackFailureMemoryTest" time="0.0"/>
+  <testcase name="memory_evicts_old_signatures_instead_of_growing_without_bound" classname="com.yfuse.core.playback.PlaybackFailureMemoryTest" time="0.0"/>
+  <testcase name="confirmed_playback_clears_a_transient_device_quirk" classname="com.yfuse.core.playback.PlaybackFailureMemoryTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

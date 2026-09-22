@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.MpvOutputStateTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:15.825Z" hostname="DESKTOP-HM2J0FM" time="0.0">
+  <properties/>
+  <testcase name="audio_is_rendering_only_after_android_output_is_established" classname="com.yfuse.feature.player.MpvOutputStateTest" time="0.0"/>
+  <testcase name="active_decoder_reports_hardware_or_ffmpeg_from_mpv_evidence" classname="com.yfuse.feature.player.MpvOutputStateTest" time="0.0"/>
+  <testcase name="mpv_pixel_formats_report_output_bit_depth_without_claiming_unknown_formats" classname="com.yfuse.feature.player.MpvOutputStateTest" time="0.0"/>
+  <testcase name="scale_modes_use_supported_mpv_properties" classname="com.yfuse.feature.player.MpvOutputStateTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

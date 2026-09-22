@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.sync.CloudSyncSnapshotTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:07.399Z" hostname="DESKTOP-HM2J0FM" time="0.006">
+  <properties/>
+  <testcase name="v1_snapshot_without_server_sync_settings_keeps_legacy_true_defaults" classname="com.yfuse.core.sync.CloudSyncSnapshotTest" time="0.0"/>
+  <testcase name="explicit_empty_skip_domain_still_clears_boundaries" classname="com.yfuse.core.sync.CloudSyncSnapshotTest" time="0.002"/>
+  <testcase name="calendar_follows_and_reminders_round_trip_in_encrypted_snapshot" classname="com.yfuse.core.sync.CloudSyncSnapshotTest" time="0.0"/>
+  <testcase name="invalid_cloud_user_agent_is_rejected_before_local_settings_change" classname="com.yfuse.core.sync.CloudSyncSnapshotTest" time="0.001"/>
+  <testcase name="legacy_snapshot_without_skip_domain_does_not_clear_local_boundaries" classname="com.yfuse.core.sync.CloudSyncSnapshotTest" time="0.0"/>
+  <testcase name="custom_user_agent_and_complete_danmaku_configuration_round_trip" classname="com.yfuse.core.sync.CloudSyncSnapshotTest" time="0.0"/>
+  <testcase name="legacy_v1_snapshot_defaults_to_stock_user_agent" classname="com.yfuse.core.sync.CloudSyncSnapshotTest" time="0.001"/>
+  <testcase name="server_sync_settings_capture_apply_and_persist_without_runtime_state" classname="com.yfuse.core.sync.CloudSyncSnapshotTest" time="0.002"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.data.EmbyRepositoryTest" tests="71" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:02.391Z" hostname="DESKTOP-HM2J0FM" time="0.443">
+  <properties/>
+  <testcase name="user_library_snapshot_rejects_partial_data_when_a_later_page_fails" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.026"/>
+  <testcase name="libraryItems_totalCount_never_undercounts_what_is_already_loaded" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.022"/>
+  <testcase name="user_library_snapshot_fails_when_the_very_first_page_fails" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.005"/>
+  <testcase name="compareSources_retries_server_errors_up_to_success" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.015"/>
+  <testcase name="findByTmdbId_uses_provider_id_and_media_type" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.002"/>
+  <testcase name="addItemToMediaContainer_uses_each_official_write_endpoint" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.004"/>
+  <testcase name="search_recovers_full_cjk_title_from_suffix_index_match" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.011"/>
+  <testcase name="homeContent_keeps_content_when_item_counts_are_unavailable" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.017"/>
+  <testcase name="authenticate_success_returns_server_with_name" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.006"/>
+  <testcase name="emby_thumbnail_set_exposes_exact_authenticated_seek_frames" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.012"/>
+  <testcase name="resolvePlayTarget_series_falls_back_to_first_episode" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.006"/>
+  <testcase name="explicit_client_block_is_access_denied_not_an_expired_login" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.004"/>
+  <testcase name="a_server_that_ignores_start_index_does_not_loop_forever" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.005"/>
+  <testcase name="cloudflare_forbidden_is_an_access_block_not_an_authentication_failure" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.004"/>
+  <testcase name="compareSources_does_not_retry_forbidden" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.004"/>
+  <testcase name="playback_info_posts_device_profile_and_parses_negotiated_source" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.01"/>
+  <testcase name="emby_forbidden_is_an_authentication_failure" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.003"/>
+  <testcase name="resolvePlayTarget_movie_plays_itself_from_resume_position" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.002"/>
+  <testcase name="compareSources_does_not_retry_a_proxy_that_cannot_reach_its_origin" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.003"/>
+  <testcase name="stopping_an_already_gone_transcode_is_idempotent_success" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.005"/>
+  <testcase name="libraries_network_failure_maps_to_network_error" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.003"/>
+  <testcase name="episode_detail_falls_back_to_series_backdrop_and_cast" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.009"/>
+  <testcase name="mediaContainersPage_pushes_kind_and_paging_to_the_server" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.004"/>
+  <testcase name="localOnlyHomeNeverRequestsEmbysResumeShelf" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.009"/>
+  <testcase name="homeContent_aggregates_resume_latest_and_featured" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.011"/>
+  <testcase name="authenticate_401_returns_unauthorized" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.003"/>
+  <testcase name="a_snapshot_that_hits_the_page_budget_is_not_authoritative" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.0"/>
+  <testcase name="removeItemFromMediaContainer_uses_media_id_for_boxset_and_entry_id_for_playlist" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.004"/>
+  <testcase name="addItemToMediaContainer_reports_server_permission_failure" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.002"/>
+  <testcase name="compareSources_gives_up_on_a_server_that_never_answers" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.005"/>
+  <testcase name="localOnlySeriesResolutionNeverUsesEmbysNextUpOrRemoteResume" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.004"/>
+  <testcase name="libraryItems_missing_total_on_a_full_first_page_keeps_paging_open" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.004"/>
+  <testcase name="relevance_ranking_promotes_exact_then_prefix_matches_without_reordering_ties" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.001"/>
+  <testcase name="itemDetail_parses_full_detail" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.003"/>
+  <testcase name="libraryGenres_reports_failure_when_the_facet_endpoint_is_unavailable" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.003"/>
+  <testcase name="jellyfin_trickplay_uses_the_active_media_source_layout" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.005"/>
+  <testcase name="compareSources_keeps_found_resource_when_stream_metadata_is_unavailable" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.005"/>
+  <testcase name="compareSources_resolves_series_to_a_playable_episode" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.004"/>
+  <testcase name="mediaContainers_queries_real_boxsets_and_playlists" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.004"/>
+  <testcase name="watchLaterMembershipAndRemovalUsePlaylistEntryIds" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.008"/>
+  <testcase name="resolvePlayTarget_series_uses_local_resumed_episode" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.003"/>
+  <testcase name="libraryItems_watchLater_missing_total_on_a_full_first_page_keeps_paging_open" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.006"/>
+  <testcase name="mediaContainerItems_boxset_uses_parentId_and_server_sort" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.004"/>
+  <testcase name="playback_events_post_to_emby_session_endpoints" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.006"/>
+  <testcase name="libraries_parses_items" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.003"/>
+  <testcase name="libraryItems_pushes_sort_genre_and_paging_to_the_server" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.003"/>
+  <testcase name="favoriteOnlySnapshotNeverQueriesOrAdoptsServerProgress" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.003"/>
+  <testcase name="resolvePlayTargetWithEpisodes_reuses_the_scanned_series_directory" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.003"/>
+  <testcase name="libraryItems_favorites_uses_user_favorite_filter" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.004"/>
+  <testcase name="playback_info_uses_current_device_and_audio_route_capabilities" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.003"/>
+  <testcase name="compareSources_fetches_media_details_when_search_result_omits_them" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.005"/>
+  <testcase name="libraryItems_parses_movies" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.003"/>
+  <testcase name="user_library_snapshot_pages_until_the_server_total_is_reached" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.032"/>
+  <testcase name="compareSources_uses_each_movies_best_media_source" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.011"/>
+  <testcase name="episode_query_can_be_scoped_to_one_season" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.005"/>
+  <testcase name="stopping_a_transcode_names_the_device_and_play_session" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.005"/>
+  <testcase name="seasons_and_episodes_parse" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.02"/>
+  <testcase name="compareSources_uses_requested_episode_and_its_best_media_source" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.009"/>
+  <testcase name="libraryGenres_parses_names" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.003"/>
+  <testcase name="localOnlyRepositoryHardStopsEveryEmbyProgressWrite" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.003"/>
+  <testcase name="libraryItems_watchLater_reads_the_account_playlist" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.003"/>
+  <testcase name="search_sends_term_and_parses_results" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.003"/>
+  <testcase name="libraryItems_pushes_4k_dolby_vision_and_bluray_filters_to_the_server" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.007"/>
+  <testcase name="mediaContainerItems_playlist_preserves_server_order_and_entry_ids" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.006"/>
+  <testcase name="user_library_snapshot_tolerates_an_overlapping_page_and_deduplicates_state" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.007"/>
+  <testcase name="playlist_removal_fails_closed_without_PlaylistItemId" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.001"/>
+  <testcase name="compareSources_does_not_offer_a_server_missing_the_requested_episode" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.003"/>
+  <testcase name="playback_info_keeps_bundled_truehd_decode_when_passthrough_is_disabled" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.004"/>
+  <testcase name="compareSources_retries_io_failures_up_to_success" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.006"/>
+  <testcase name="a_server_repeating_the_first_non_empty_page_fails_instead_of_syncing_a_partial_snapshot" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.005"/>
+  <testcase name="libraries_404_maps_to_not_found" classname="com.yfuse.core.data.EmbyRepositoryTest" time="0.003"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

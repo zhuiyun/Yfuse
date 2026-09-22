@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.strategy.YTunnelPolicyTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:44:00.603Z" hostname="DESKTOP-HM2J0FM" time="0.0">
+  <properties/>
+  <testcase name="software audio fallback disqualifies tunnel" classname="com.yfuse.core2.strategy.YTunnelPolicyTest" time="0.0"/>
+  <testcase name="video-only media never enters audio-clocked tunnel" classname="com.yfuse.core2.strategy.YTunnelPolicyTest" time="0.0"/>
+  <testcase name="enhanced demux stays outside Phase 4 tunnel route" classname="com.yfuse.core2.strategy.YTunnelPolicyTest" time="0.0"/>
+  <testcase name="tunnel requires video audio surface and native audio" classname="com.yfuse.core2.strategy.YTunnelPolicyTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

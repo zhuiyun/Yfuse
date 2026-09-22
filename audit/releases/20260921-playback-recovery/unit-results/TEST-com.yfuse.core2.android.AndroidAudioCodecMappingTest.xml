@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.AndroidAudioCodecMappingTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:43:54.203Z" hostname="DESKTOP-HM2J0FM" time="0.002">
+  <properties/>
+  <testcase name="multi_track_scalar_metadata_never_supplies_another_tracks_missing_geometry" classname="com.yfuse.core2.android.AndroidAudioCodecMappingTest" time="0.001"/>
+  <testcase name="dts x is reachable from its mime type" classname="com.yfuse.core2.android.AndroidAudioCodecMappingTest" time="0.0"/>
+  <testcase name="missing extractor audio geometry uses server hints before safe defaults" classname="com.yfuse.core2.android.AndroidAudioCodecMappingTest" time="0.0"/>
+  <testcase name="unmapped audio stays null so the decoder capability set is not widened" classname="com.yfuse.core2.android.AndroidAudioCodecMappingTest" time="0.0"/>
+  <testcase name="known audio mime types keep their identity" classname="com.yfuse.core2.android.AndroidAudioCodecMappingTest" time="0.0"/>
+  <testcase name="extractor audio geometry remains authoritative" classname="com.yfuse.core2.android.AndroidAudioCodecMappingTest" time="0.0"/>
+  <testcase name="codec parameters and casing do not hide a supported codec" classname="com.yfuse.core2.android.AndroidAudioCodecMappingTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

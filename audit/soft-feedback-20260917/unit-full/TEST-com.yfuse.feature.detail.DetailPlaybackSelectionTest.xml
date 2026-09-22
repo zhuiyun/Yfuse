@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.detail.DetailPlaybackSelectionTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:13.584Z" hostname="DESKTOP-HM2J0FM" time="0.009">
+  <properties/>
+  <testcase name="stale_player_selection_from_another_title_cannot_switch_this_detail" classname="com.yfuse.feature.detail.DetailPlaybackSelectionTest" time="0.009"/>
+  <testcase name="cross_server_selection_stays_pending_until_sources_arrive" classname="com.yfuse.feature.detail.DetailPlaybackSelectionTest" time="0.0"/>
+  <testcase name="same_server_selection_waits_for_playable_target_and_is_one_shot" classname="com.yfuse.feature.detail.DetailPlaybackSelectionTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

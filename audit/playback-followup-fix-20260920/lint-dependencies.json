@@ -1,0 +1,56 @@
+[
+  {
+    "path": "com/google/protobuf/protobuf-java/4.28.3/protobuf-java-4.28.3.pom",
+    "sha256": "f70bea74bd0b5325c2d2fc4d58d86163744019738d1ca436e067d733c5f7c125",
+    "published_sha1": "3475fd8808b62feddccd9704a0530203efcb40d2",
+    "url": "https://repo.maven.apache.org/maven2/com/google/protobuf/protobuf-java/4.28.3/protobuf-java-4.28.3.pom"
+  },
+  {
+    "path": "com/google/protobuf/protobuf-java/4.28.3/protobuf-java-4.28.3.jar",
+    "sha256": "ba02977c0fef8b40af9f85fe69af362d8e13f2685b49a9752750b18da726157e",
+    "published_sha1": "625a6534f0baef7e34a4a0e84b94ea0012385760",
+    "url": "https://repo.maven.apache.org/maven2/com/google/protobuf/protobuf-java/4.28.3/protobuf-java-4.28.3.jar"
+  },
+  {
+    "path": "org/apache/commons/commons-lang3/3.18.0/commons-lang3-3.18.0.pom",
+    "sha256": "aa254b373b6f6d46bc9dca86331b072a8ab86eb25ea9921fd439618392e98a16",
+    "published_sha1": "03e931ac2bbab520654e06ac5ca7088098886bb3",
+    "url": "https://repo.maven.apache.org/maven2/org/apache/commons/commons-lang3/3.18.0/commons-lang3-3.18.0.pom"
+  },
+  {
+    "path": "org/apache/commons/commons-lang3/3.18.0/commons-lang3-3.18.0.jar",
+    "sha256": "4eeeae8d20c078abb64b015ec158add383ac581571cddc45c68f0c9ae0230720",
+    "published_sha1": "fb14946f0e39748a6571de0635acbe44e7885491",
+    "url": "https://repo.maven.apache.org/maven2/org/apache/commons/commons-lang3/3.18.0/commons-lang3-3.18.0.jar"
+  },
+  {
+    "path": "org/junit/junit-bom/5.13.1/junit-bom-5.13.1.pom",
+    "sha256": "fa68451ea830572ed43ffe51d75b6a05f7a5e665a602a51f49d6be02063a65f3",
+    "published_sha1": "4a2b7185be9155ef83499f1da0ef2f15e0f4fffd",
+    "url": "https://repo.maven.apache.org/maven2/org/junit/junit-bom/5.13.1/junit-bom-5.13.1.pom"
+  },
+  {
+    "path": "com/google/protobuf/protobuf-bom/4.28.3/protobuf-bom-4.28.3.pom",
+    "sha256": "be3baa9b418864b5ed7d39c3beb3141d83fa78d124554eaa92083243dcbfb27a",
+    "published_sha1": "375aff193f0da29243b737a50aecb36e6dbe0cce",
+    "url": "https://repo.maven.apache.org/maven2/com/google/protobuf/protobuf-bom/4.28.3/protobuf-bom-4.28.3.pom"
+  },
+  {
+    "path": "com/google/protobuf/protobuf-parent/4.28.3/protobuf-parent-4.28.3.pom",
+    "sha256": "5364cdc058b2e5a212af6dfc1894299070dd434026a15827bbe313774489f403",
+    "published_sha1": "7cff07b948592e4012be233f0cddba2d7409bb24",
+    "url": "https://repo.maven.apache.org/maven2/com/google/protobuf/protobuf-parent/4.28.3/protobuf-parent-4.28.3.pom"
+  },
+  {
+    "path": "org/apache/commons/commons-parent/85/commons-parent-85.pom",
+    "sha256": "d189ff2c0027e96bb65d31e6f227ed2af966169b36af1e973dd5ba08926dc7b5",
+    "published_sha1": "cc8d9a1242954f0245843e625e2a7497a2f95037",
+    "url": "https://repo.maven.apache.org/maven2/org/apache/commons/commons-parent/85/commons-parent-85.pom"
+  },
+  {
+    "path": "org/apache/apache/35/apache-35.pom",
+    "sha256": "ea297dcd114136e8b8e8b630230d52a76c2fc69f6c5db25d672b1857000728b8",
+    "published_sha1": "0a20c027145b2ee59e77ef7dee4881d4ab0a8e07",
+    "url": "https://repo.maven.apache.org/maven2/org/apache/apache/35/apache-35.pom"
+  }
+]

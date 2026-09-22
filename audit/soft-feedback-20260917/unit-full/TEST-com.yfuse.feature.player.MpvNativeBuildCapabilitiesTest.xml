@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.MpvNativeBuildCapabilitiesTest" tests="10" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:15.817Z" hostname="DESKTOP-HM2J0FM" time="0.007">
+  <properties/>
+  <testcase name="only_the_complete_pinned_native_identity_satisfies_the_artifact_gate" classname="com.yfuse.feature.player.MpvNativeBuildCapabilitiesTest" time="0.0"/>
+  <testcase name="missing_binary_engine_is_terminal_but_does_not_poison_backend_failure_memory" classname="com.yfuse.feature.player.MpvNativeBuildCapabilitiesTest" time="0.001"/>
+  <testcase name="custom_libbluray_binary_removes_the_gate_and_generic_iso_is_not_misclassified" classname="com.yfuse.feature.player.MpvNativeBuildCapabilitiesTest" time="0.001"/>
+  <testcase name="custom_aar_marker_is_read_without_a_compile_time_dependency" classname="com.yfuse.feature.player.MpvNativeBuildCapabilitiesTest" time="0.003"/>
+  <testcase name="known_local_bluray_is_rejected_when_binary_has_no_libbluray" classname="com.yfuse.feature.player.MpvNativeBuildCapabilitiesTest" time="0.001"/>
+  <testcase name="remote_bluray_is_not_blocked_by_the_local_binary_gate" classname="com.yfuse.feature.player.MpvNativeBuildCapabilitiesTest" time="0.0"/>
+  <testcase name="marker_absence_stays_unknown_and_never_guesses_blu_ray_support" classname="com.yfuse.feature.player.MpvNativeBuildCapabilitiesTest" time="0.0"/>
+  <testcase name="older_custom_marker_without_new_fields_stays_conservative" classname="com.yfuse.feature.player.MpvNativeBuildCapabilitiesTest" time="0.001"/>
+  <testcase name="content_uri_bluray_iso_requires_the_random_block_bridge" classname="com.yfuse.feature.player.MpvNativeBuildCapabilitiesTest" time="0.0"/>
+  <testcase name="saf_bdmv_tree_requires_the_bd_open_files_bridge_not_just_libbluray" classname="com.yfuse.feature.player.MpvNativeBuildCapabilitiesTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

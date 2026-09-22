@@ -1,0 +1,229 @@
+#!/usr/bin/env bash
+# Fetches and verifies the native player-engine binaries in composeApp/libs/.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+LIBS="$ROOT/composeApp/libs"
+CHECKSUMS="$ROOT/scripts/engine-checksums.sha256"
+
+MPV_FILE="libmpv-release.aar"
+MDK_FILE="mdk-sdk-android.7z"
+MPV_RELEASE_TAG="native-mpv-b955aa2-yfuse-dolby1-arm64-20260824"
+MPV_URL="https://github.com/zhuiyun/Yfuse/releases/download/$MPV_RELEASE_TAG/$MPV_FILE"
+# The repository is private. Browser release URLs intentionally return 404 to unauthenticated
+# callers, including CI curl invocations. Pin the exact verified release asset and use GitHub's
+# authenticated asset API whenever workflow or checkout credentials are available.
+MPV_ASSET_API_URL="https://api.github.com/repos/zhuiyun/Yfuse/releases/assets/527260538"
+MDK_URL="https://github.com/wang-bin/mdk-sdk/releases/download/v0.37.0/$MDK_FILE"
+MPV_CUSTOM_SHA="$LIBS/libmpv-release.aar.sha256"
+MPV_CUSTOM_SOURCES="$LIBS/libmpv-release.sources.txt"
+MPV_PINNED_SOURCES="$ROOT/scripts/yfuse-mpv-sources.txt"
+MPV_VERIFIER="$ROOT/scripts/verify-yfuse-mpv-dolby-aar.sh"
+
+die() {
+  printf 'error: %s\n' "$*" >&2
+  exit 1
+}
+
+checksum_for() {
+  local name="$1"
+  local checksum
+  checksum="$(awk -v file="$name" '$2 == file { print $1 }' "$CHECKSUMS")"
+  [[ "$checksum" =~ ^[0-9a-fA-F]{64}$ ]] ||
+    die "missing or invalid SHA-256 for $name in $CHECKSUMS"
+  printf '%s\n' "${checksum,,}"
+}
+
+sha256_of() {
+  local file="$1"
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$file" | awk '{ print tolower($1) }'
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$file" | awk '{ print tolower($1) }'
+  else
+    die "sha256sum or shasum is required"
+  fi
+}
+
+verify_file() {
+  local file="$1"
+  local expected="$2"
+  local actual
+  actual="$(sha256_of "$file")"
+  [[ "$actual" == "$expected" ]] ||
+    die "SHA-256 mismatch for $(basename "$file"): expected $expected, got $actual"
+}
+
+download_file() {
+  local url="$1"
+  local destination="$2"
+  curl \
+    --fail \
+    --location \
+    --proto '=https' \
+    --proto-redir '=https' \
+    --retry 5 \
+    --retry-all-errors \
+    --retry-delay 2 \
+    --connect-timeout 20 \
+    --output "$destination" \
+    "$url"
+}
+
+github_download_token() {
+  if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+    printf '%s' "$GITHUB_TOKEN"
+    return
+  fi
+  if [[ -n "${GH_TOKEN:-}" ]]; then
+    printf '%s' "$GH_TOKEN"
+    return
+  fi
+  if command -v gh >/dev/null 2>&1; then
+    gh auth token 2>/dev/null || true
+  fi
+}
+
+github_authorization_header() {
+  local token
+  token="$(github_download_token)"
+  if [[ -n "$token" ]]; then
+    printf 'Authorization: Bearer %s' "$token"
+    return
+  fi
+  # actions/checkout persists its read token as an http extraheader in a git config included for
+  # this worktree. Reuse that exact header instead of requiring every workflow to duplicate the
+  # token into an environment variable.
+  git config --get http.https://github.com/.extraheader 2>/dev/null || true
+}
+
+download_private_github_asset() {
+  local url="$1"
+  local destination="$2"
+  local authorization
+  authorization="$(github_authorization_header)"
+  [[ -n "$authorization" ]] || return 1
+  curl \
+    --fail \
+    --location \
+    --proto '=https' \
+    --proto-redir '=https' \
+    --retry 5 \
+    --retry-all-errors \
+    --retry-delay 2 \
+    --connect-timeout 20 \
+    --header "Accept: application/octet-stream" \
+    --header "$authorization" \
+    --header "X-GitHub-Api-Version: 2022-11-28" \
+    --output "$destination" \
+    "$url"
+}
+
+fetch_verified() {
+  local name="$1"
+  local url="$2"
+  local expected="$3"
+  local destination="$LIBS/$name"
+  local temporary
+
+  if [[ -f "$destination" ]]; then
+    verify_file "$destination" "$expected"
+    printf '==> %s already verified\n' "$name"
+    return
+  fi
+
+  temporary="$(mktemp "$LIBS/.${name}.download.XXXXXX")"
+  trap 'rm -f "${temporary:-}"' RETURN
+  printf '==> downloading %s\n' "$name"
+  download_file "$url" "$temporary"
+  verify_file "$temporary" "$expected"
+  mv -f "$temporary" "$destination"
+  trap - RETURN
+}
+
+install_custom_mpv_sidecars() {
+  local expected="$1"
+  [[ -r "$MPV_PINNED_SOURCES" ]] || die "pinned Yfuse mpv source manifest is missing"
+  [[ -x "$MPV_VERIFIER" ]] || chmod +x "$MPV_VERIFIER"
+  printf '%s  %s\n' "$expected" "$MPV_FILE" >"$MPV_CUSTOM_SHA"
+  cp -f "$MPV_PINNED_SOURCES" "$MPV_CUSTOM_SOURCES"
+  "$MPV_VERIFIER" "$LIBS/$MPV_FILE" "$MPV_CUSTOM_SHA" "$MPV_CUSTOM_SOURCES"
+}
+
+fetch_mpv() {
+  local destination="$LIBS/$MPV_FILE"
+  local custom_expected
+  local actual=""
+  local temporary=""
+
+  custom_expected="$(checksum_for "$MPV_FILE")"
+
+  if [[ -f "$destination" ]]; then
+    actual="$(sha256_of "$destination")"
+    if [[ "$actual" == "$custom_expected" ]]; then
+      install_custom_mpv_sidecars "$custom_expected"
+      printf '==> %s Yfuse build already verified\n' "$MPV_FILE"
+      return
+    fi
+    printf 'warning: removing non-Yfuse %s before refetch\n' "$MPV_FILE" >&2
+    rm -f "$destination" "$MPV_CUSTOM_SHA" "$MPV_CUSTOM_SOURCES"
+  fi
+
+  temporary="$(mktemp "$LIBS/.${MPV_FILE}.download.XXXXXX")"
+  trap 'rm -f "${temporary:-}"' RETURN
+  printf '==> downloading required Yfuse %s\n' "$MPV_FILE"
+  if ! download_private_github_asset "$MPV_ASSET_API_URL" "$temporary"; then
+    download_file "$MPV_URL" "$temporary" || {
+      rm -f "$temporary"
+      trap - RETURN
+      die "required Yfuse mpv artifact is unavailable; refusing a stock fallback because it would remove native Blu-ray/YCore capabilities"
+    }
+  fi
+  verify_file "$temporary" "$custom_expected"
+  mv -f "$temporary" "$destination"
+  trap - RETURN
+  install_custom_mpv_sidecars "$custom_expected"
+  printf '==> installed verified Yfuse custom mpv\n'
+}
+
+extract_mdk() {
+  local archive="$LIBS/$MDK_FILE"
+  local seven_zip=""
+  local staging
+  local previous=""
+
+  if command -v 7z >/dev/null 2>&1; then
+    seven_zip="$(command -v 7z)"
+  elif [[ -x "/c/Program Files/7-Zip/7z.exe" ]]; then
+    seven_zip="/c/Program Files/7-Zip/7z.exe"
+  else
+    die "7z is required to extract $MDK_FILE"
+  fi
+
+  staging="$(mktemp -d "$LIBS/.mdk-sdk.extract.XXXXXX")"
+  trap 'rm -rf "${staging:-}"' RETURN
+  "$seven_zip" x -y "-o$staging" "$archive" >/dev/null
+  [[ -f "$staging/mdk-sdk/lib/cmake/FindMDK.cmake" ]] ||
+    die "the verified MDK archive does not contain the expected SDK layout"
+  if [[ -d "$LIBS/mdk-sdk" ]]; then
+    previous="$(mktemp -d "$LIBS/.mdk-sdk.previous.XXXXXX")"
+    rmdir "$previous"
+    mv "$LIBS/mdk-sdk" "$previous"
+  fi
+  if ! mv "$staging/mdk-sdk" "$LIBS/mdk-sdk"; then
+    [[ -z "$previous" || ! -d "$previous" ]] || mv "$previous" "$LIBS/mdk-sdk"
+    die "failed to install the verified MDK SDK"
+  fi
+  [[ -z "$previous" || ! -d "$previous" ]] || rm -rf "$previous"
+  rm -rf "$staging"
+  trap - RETURN
+}
+
+[[ -r "$CHECKSUMS" ]] || die "checksum manifest not found: $CHECKSUMS"
+mkdir -p "$LIBS"
+
+fetch_mpv
+fetch_verified "$MDK_FILE" "$MDK_URL" "$(checksum_for "$MDK_FILE")"
+extract_mdk
+
+printf 'done: verified native engines in %s\n' "$LIBS"

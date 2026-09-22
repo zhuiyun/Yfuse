@@ -1,0 +1,11 @@
+<?xml version='1.0' encoding='UTF-8' ?>
+<testsuite name="com.yfuse.app.LiquidTabGestureInstrumentedTest" tests="3" failures="0" errors="0" skipped="0" time="10.771" timestamp="2026-09-09T06:32:07" hostname="localhost">
+  <properties>
+    <property name="device" value="SM-G973U - 9" />
+    <property name="flavor" value="" />
+    <property name="project" value=":composeApp" />
+  </properties>
+  <testcase name="drag_commits_once_on_release_cancel_rolls_back_and_switch_restores_taps" classname="com.yfuse.app.LiquidTabGestureInstrumentedTest" time="4.368" />
+  <testcase name="disclosure_reverses_one_body_without_remeasuring_it_and_policy_changes_snap_to_the_target" classname="com.yfuse.core.designsystem.SearchDisclosureMotionInstrumentedTest" time="2.425" />
+  <testcase name="search_handoff_keeps_one_content_tree_and_layer_frames_do_not_recompose_it" classname="com.yfuse.core.designsystem.SearchDisclosureMotionInstrumentedTest" time="2.251" />
+</testsuite>

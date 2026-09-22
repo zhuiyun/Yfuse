@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.data.ServerHealthRefreshResultTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:03.301Z" hostname="DESKTOP-HM2J0FM" time="0.011">
+  <properties/>
+  <testcase name="cancelling_a_probe_preserves_cancellation_and_does_not_record_an_offline_failure" classname="com.yfuse.core.data.ServerHealthRefreshResultTest" time="0.006"/>
+  <testcase name="concurrent_periodic_success_cannot_replace_an_explicit_rounds_actual_failure" classname="com.yfuse.core.data.ServerHealthRefreshResultTest" time="0.005"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

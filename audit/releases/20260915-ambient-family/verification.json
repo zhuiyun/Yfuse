@@ -1,0 +1,806 @@
+{
+  "verifiedAtUtc": "2026-09-15T04:38:56.704618+00:00",
+  "apk": "Yfuse-1.0.56-218-full-arm64-signed.apk",
+  "applicationId": "com.yfuse",
+  "versionName": "1.0.56",
+  "versionCode": 218,
+  "previousVersionName": "1.0.55",
+  "previousVersionCode": 217,
+  "previousSha256": "75ced00b33ccd36fa5a14fd08fcd3fb449bc8aa799f9c4fa82e6f2017563cad6",
+  "projectMetadataMatches": true,
+  "releaseNotesMatch": true,
+  "packageProfile": "full",
+  "abi": "arm64-v8a",
+  "bytes": 30334088,
+  "sha256": "51b37f9009d84f3e9dee468011a67dee10b06417b37ef05d6e027e22e2527e47",
+  "certificateSha256": "373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84",
+  "signatureVerified": true,
+  "signatureV2": true,
+  "debuggable": false,
+  "alignmentVerified": true,
+  "zip16KbAlignmentVerified": true,
+  "elf16KbAlignmentVerified": true,
+  "zipCrcVerified": true,
+  "nativeLibraries": [
+    {
+      "path": "lib/arm64-v8a/libandroidx.graphics.path.so",
+      "bytes": 10096,
+      "sha256": "41e9a793c43a0f4fddb19e33f346bace464f30f888ba7b9eaf96294ea115bfb6",
+      "elf": {
+        "class": 64,
+        "machine": "AArch64",
+        "byteOrder": "little",
+        "minimumLoadAlignmentBytes": 16384,
+        "loadSegments": [
+          {
+            "index": 1,
+            "offset": 0,
+            "virtualAddress": 0,
+            "fileBytes": 7232,
+            "memoryBytes": 7232,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 2,
+            "offset": 7232,
+            "virtualAddress": 23616,
+            "fileBytes": 912,
+            "memoryBytes": 912,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 3,
+            "offset": 8144,
+            "virtualAddress": 40912,
+            "fileBytes": 0,
+            "memoryBytes": 16,
+            "alignmentBytes": 16384
+          }
+        ],
+        "alignment16KbVerified": true
+      }
+    },
+    {
+      "path": "lib/arm64-v8a/libass.so",
+      "bytes": 1345872,
+      "sha256": "e55c83c3d9bcb7d1bfd62d1ba3aa3c0e9bc796861dd9cf145e73a75017075266",
+      "elf": {
+        "class": 64,
+        "machine": "AArch64",
+        "byteOrder": "little",
+        "minimumLoadAlignmentBytes": 16384,
+        "loadSegments": [
+          {
+            "index": 1,
+            "offset": 0,
+            "virtualAddress": 0,
+            "fileBytes": 1314160,
+            "memoryBytes": 1314160,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 2,
+            "offset": 1314160,
+            "virtualAddress": 1330544,
+            "fileBytes": 27672,
+            "memoryBytes": 29328,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 3,
+            "offset": 1341832,
+            "virtualAddress": 1374600,
+            "fileBytes": 2128,
+            "memoryBytes": 2936,
+            "alignmentBytes": 16384
+          }
+        ],
+        "alignment16KbVerified": true
+      }
+    },
+    {
+      "path": "lib/arm64-v8a/libavcodec.so",
+      "bytes": 12044032,
+      "sha256": "2440fc79482e7ab4e40ba2f3e9fb7ba10f196935b39566c636e866e0dcdeb42c",
+      "elf": {
+        "class": 64,
+        "machine": "AArch64",
+        "byteOrder": "little",
+        "minimumLoadAlignmentBytes": 16384,
+        "loadSegments": [
+          {
+            "index": 1,
+            "offset": 0,
+            "virtualAddress": 0,
+            "fileBytes": 11758960,
+            "memoryBytes": 11758960,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 2,
+            "offset": 11758960,
+            "virtualAddress": 11775344,
+            "fileBytes": 278688,
+            "memoryBytes": 279184,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 3,
+            "offset": 12037648,
+            "virtualAddress": 12070416,
+            "fileBytes": 4128,
+            "memoryBytes": 6041712,
+            "alignmentBytes": 16384
+          }
+        ],
+        "alignment16KbVerified": true
+      }
+    },
+    {
+      "path": "lib/arm64-v8a/libavdevice.so",
+      "bytes": 9096,
+      "sha256": "c67959777c8137a98825e7e63bfd8e555090781c66b34c9d0053e54869110c08",
+      "elf": {
+        "class": 64,
+        "machine": "AArch64",
+        "byteOrder": "little",
+        "minimumLoadAlignmentBytes": 16384,
+        "loadSegments": [
+          {
+            "index": 1,
+            "offset": 0,
+            "virtualAddress": 0,
+            "fileBytes": 6512,
+            "memoryBytes": 6512,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 2,
+            "offset": 6512,
+            "virtualAddress": 22896,
+            "fileBytes": 616,
+            "memoryBytes": 1680,
+            "alignmentBytes": 16384
+          }
+        ],
+        "alignment16KbVerified": true
+      }
+    },
+    {
+      "path": "lib/arm64-v8a/libavfilter.so",
+      "bytes": 138240,
+      "sha256": "d9736182d803c460569b4fae9fb0d588a6e02f71f213ec000641521a07cf7d28",
+      "elf": {
+        "class": 64,
+        "machine": "AArch64",
+        "byteOrder": "little",
+        "minimumLoadAlignmentBytes": 16384,
+        "loadSegments": [
+          {
+            "index": 1,
+            "offset": 0,
+            "virtualAddress": 0,
+            "fileBytes": 128560,
+            "memoryBytes": 128560,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 2,
+            "offset": 128560,
+            "virtualAddress": 144944,
+            "fileBytes": 7640,
+            "memoryBytes": 10704,
+            "alignmentBytes": 16384
+          }
+        ],
+        "alignment16KbVerified": true
+      }
+    },
+    {
+      "path": "lib/arm64-v8a/libavformat.so",
+      "bytes": 3032992,
+      "sha256": "ee3fb014d6d12ff54e658fc1ae70dfcaae55d0259a34b46e4fc3cb2a41f773dc",
+      "elf": {
+        "class": 64,
+        "machine": "AArch64",
+        "byteOrder": "little",
+        "minimumLoadAlignmentBytes": 16384,
+        "loadSegments": [
+          {
+            "index": 1,
+            "offset": 0,
+            "virtualAddress": 0,
+            "fileBytes": 2849600,
+            "memoryBytes": 2849600,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 2,
+            "offset": 2849600,
+            "virtualAddress": 2865984,
+            "fileBytes": 180320,
+            "memoryBytes": 181440,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 3,
+            "offset": 3029920,
+            "virtualAddress": 3062688,
+            "fileBytes": 820,
+            "memoryBytes": 13088,
+            "alignmentBytes": 16384
+          }
+        ],
+        "alignment16KbVerified": true
+      }
+    },
+    {
+      "path": "lib/arm64-v8a/libavutil.so",
+      "bytes": 741944,
+      "sha256": "2d2ab7b3071f9e4643f67ba65170f7290d821aa80e8b14dfcc356a15c493c47a",
+      "elf": {
+        "class": 64,
+        "machine": "AArch64",
+        "byteOrder": "little",
+        "minimumLoadAlignmentBytes": 16384,
+        "loadSegments": [
+          {
+            "index": 1,
+            "offset": 0,
+            "virtualAddress": 0,
+            "fileBytes": 666112,
+            "memoryBytes": 666112,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 2,
+            "offset": 666112,
+            "virtualAddress": 682496,
+            "fileBytes": 73536,
+            "memoryBytes": 75264,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 3,
+            "offset": 739648,
+            "virtualAddress": 772416,
+            "fileBytes": 40,
+            "memoryBytes": 1108952,
+            "alignmentBytes": 16384
+          }
+        ],
+        "alignment16KbVerified": true
+      }
+    },
+    {
+      "path": "lib/arm64-v8a/libc++_shared.so",
+      "bytes": 1374336,
+      "sha256": "c4c2fe5cbcb1fba0003a31fc7ab29a9bb12df6cc187ec45a806462540e83d93b",
+      "elf": {
+        "class": 64,
+        "machine": "AArch64",
+        "byteOrder": "little",
+        "minimumLoadAlignmentBytes": 16384,
+        "loadSegments": [
+          {
+            "index": 1,
+            "offset": 0,
+            "virtualAddress": 0,
+            "fileBytes": 1329912,
+            "memoryBytes": 1329912,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 2,
+            "offset": 1329912,
+            "virtualAddress": 1346296,
+            "fileBytes": 41104,
+            "memoryBytes": 42248,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 3,
+            "offset": 1371016,
+            "virtualAddress": 1403784,
+            "fileBytes": 568,
+            "memoryBytes": 32192,
+            "alignmentBytes": 16384
+          }
+        ],
+        "alignment16KbVerified": true
+      }
+    },
+    {
+      "path": "lib/arm64-v8a/libdav1d.so",
+      "bytes": 612472,
+      "sha256": "290bbf17d72e0b50edfcc974b2dc7fa6d7106b82dbca3e68df8351a55bcd287b",
+      "elf": {
+        "class": 64,
+        "machine": "AArch64",
+        "byteOrder": "little",
+        "minimumLoadAlignmentBytes": 16384,
+        "loadSegments": [
+          {
+            "index": 1,
+            "offset": 0,
+            "virtualAddress": 0,
+            "fileBytes": 605504,
+            "memoryBytes": 605504,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 2,
+            "offset": 605504,
+            "virtualAddress": 621888,
+            "fileBytes": 5032,
+            "memoryBytes": 8896,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 3,
+            "offset": 610536,
+            "virtualAddress": 643304,
+            "fileBytes": 24,
+            "memoryBytes": 233512,
+            "alignmentBytes": 16384
+          }
+        ],
+        "alignment16KbVerified": true
+      }
+    },
+    {
+      "path": "lib/arm64-v8a/libffmpeg.so",
+      "bytes": 8003848,
+      "sha256": "7942b55e7950c32e0fcd5532f0af2435e43e22491a75e7609b2b63210104f371",
+      "elf": {
+        "class": 64,
+        "machine": "AArch64",
+        "byteOrder": "little",
+        "minimumLoadAlignmentBytes": 16384,
+        "loadSegments": [
+          {
+            "index": 1,
+            "offset": 0,
+            "virtualAddress": 0,
+            "fileBytes": 7515152,
+            "memoryBytes": 7515152,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 2,
+            "offset": 7515152,
+            "virtualAddress": 7531536,
+            "fileBytes": 483016,
+            "memoryBytes": 484336,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 3,
+            "offset": 7998168,
+            "virtualAddress": 8030936,
+            "fileBytes": 3768,
+            "memoryBytes": 4551020,
+            "alignmentBytes": 16384
+          }
+        ],
+        "alignment16KbVerified": true
+      }
+    },
+    {
+      "path": "lib/arm64-v8a/libimage_processing_util_jni.so",
+      "bytes": 32528,
+      "sha256": "0292b063fafccf734472cbb59588e756c2dbca907c72021ba6fbf126385508a2",
+      "elf": {
+        "class": 64,
+        "machine": "AArch64",
+        "byteOrder": "little",
+        "minimumLoadAlignmentBytes": 16384,
+        "loadSegments": [
+          {
+            "index": 1,
+            "offset": 0,
+            "virtualAddress": 0,
+            "fileBytes": 29472,
+            "memoryBytes": 29472,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 2,
+            "offset": 29472,
+            "virtualAddress": 45856,
+            "fileBytes": 992,
+            "memoryBytes": 3296,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 3,
+            "offset": 30464,
+            "virtualAddress": 63232,
+            "fileBytes": 0,
+            "memoryBytes": 4,
+            "alignmentBytes": 16384
+          }
+        ],
+        "alignment16KbVerified": true
+      }
+    },
+    {
+      "path": "lib/arm64-v8a/libmdk.so",
+      "bytes": 2072000,
+      "sha256": "1ae87eae1c5633238ac69acc2bba7c44b2c974c8f32c21ac35778376f77ce575",
+      "elf": {
+        "class": 64,
+        "machine": "AArch64",
+        "byteOrder": "little",
+        "minimumLoadAlignmentBytes": 16384,
+        "loadSegments": [
+          {
+            "index": 1,
+            "offset": 0,
+            "virtualAddress": 0,
+            "fileBytes": 2018576,
+            "memoryBytes": 2018576,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 2,
+            "offset": 2018576,
+            "virtualAddress": 2034960,
+            "fileBytes": 49848,
+            "memoryBytes": 49904,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 3,
+            "offset": 2068424,
+            "virtualAddress": 2101192,
+            "fileBytes": 624,
+            "memoryBytes": 26592,
+            "alignmentBytes": 16384
+          }
+        ],
+        "alignment16KbVerified": true
+      }
+    },
+    {
+      "path": "lib/arm64-v8a/libmpv.so",
+      "bytes": 6946680,
+      "sha256": "d06566edd8dd09c7419f61f9888d2f29e5e186ff578f8a984f1c968cab7baee6",
+      "elf": {
+        "class": 64,
+        "machine": "AArch64",
+        "byteOrder": "little",
+        "minimumLoadAlignmentBytes": 16384,
+        "loadSegments": [
+          {
+            "index": 1,
+            "offset": 0,
+            "virtualAddress": 0,
+            "fileBytes": 6566176,
+            "memoryBytes": 6566176,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 2,
+            "offset": 6566176,
+            "virtualAddress": 6582560,
+            "fileBytes": 355584,
+            "memoryBytes": 356064,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 3,
+            "offset": 6921760,
+            "virtualAddress": 6954528,
+            "fileBytes": 22744,
+            "memoryBytes": 29920,
+            "alignmentBytes": 16384
+          }
+        ],
+        "alignment16KbVerified": true
+      }
+    },
+    {
+      "path": "lib/arm64-v8a/libplayer.so",
+      "bytes": 20288,
+      "sha256": "2a5b828f3da71049c7603d6432fce50af7ca2286c33e70028bbcf466ead09005",
+      "elf": {
+        "class": 64,
+        "machine": "AArch64",
+        "byteOrder": "little",
+        "minimumLoadAlignmentBytes": 16384,
+        "loadSegments": [
+          {
+            "index": 1,
+            "offset": 0,
+            "virtualAddress": 0,
+            "fileBytes": 17232,
+            "memoryBytes": 17232,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 2,
+            "offset": 17232,
+            "virtualAddress": 33616,
+            "fileBytes": 944,
+            "memoryBytes": 3248,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 3,
+            "offset": 18176,
+            "virtualAddress": 50944,
+            "fileBytes": 0,
+            "memoryBytes": 120,
+            "alignmentBytes": 16384
+          }
+        ],
+        "alignment16KbVerified": true
+      }
+    },
+    {
+      "path": "lib/arm64-v8a/libsurface_util_jni.so",
+      "bytes": 4896,
+      "sha256": "a5c9d1928ea92ec7a94dff8cf666e7739cd734198b9f0ae1d4e28ea3c86516ba",
+      "elf": {
+        "class": 64,
+        "machine": "AArch64",
+        "byteOrder": "little",
+        "minimumLoadAlignmentBytes": 16384,
+        "loadSegments": [
+          {
+            "index": 1,
+            "offset": 0,
+            "virtualAddress": 0,
+            "fileBytes": 2480,
+            "memoryBytes": 2480,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 2,
+            "offset": 2480,
+            "virtualAddress": 18864,
+            "fileBytes": 568,
+            "memoryBytes": 1616,
+            "alignmentBytes": 16384
+          }
+        ],
+        "alignment16KbVerified": true
+      }
+    },
+    {
+      "path": "lib/arm64-v8a/libswresample.so",
+      "bytes": 97768,
+      "sha256": "59a2c9dbd713db7e4a17949b85334873745bf0183a2686300068093fe5b57ee0",
+      "elf": {
+        "class": 64,
+        "machine": "AArch64",
+        "byteOrder": "little",
+        "minimumLoadAlignmentBytes": 16384,
+        "loadSegments": [
+          {
+            "index": 1,
+            "offset": 0,
+            "virtualAddress": 0,
+            "fileBytes": 88544,
+            "memoryBytes": 88544,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 2,
+            "offset": 88544,
+            "virtualAddress": 104928,
+            "fileBytes": 7184,
+            "memoryBytes": 9760,
+            "alignmentBytes": 16384
+          }
+        ],
+        "alignment16KbVerified": true
+      }
+    },
+    {
+      "path": "lib/arm64-v8a/libswscale.so",
+      "bytes": 1247552,
+      "sha256": "48782396b8c8993a7bb72990b87cd460e57f65d3e69c26c9e04031b0ef9f43e8",
+      "elf": {
+        "class": 64,
+        "machine": "AArch64",
+        "byteOrder": "little",
+        "minimumLoadAlignmentBytes": 16384,
+        "loadSegments": [
+          {
+            "index": 1,
+            "offset": 0,
+            "virtualAddress": 0,
+            "fileBytes": 1195584,
+            "memoryBytes": 1195584,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 2,
+            "offset": 1195584,
+            "virtualAddress": 1211968,
+            "fileBytes": 49784,
+            "memoryBytes": 53696,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 3,
+            "offset": 1245368,
+            "virtualAddress": 1278136,
+            "fileBytes": 0,
+            "memoryBytes": 278856,
+            "alignmentBytes": 16384
+          }
+        ],
+        "alignment16KbVerified": true
+      }
+    },
+    {
+      "path": "lib/arm64-v8a/libycore_demux.so",
+      "bytes": 2771064,
+      "sha256": "0f35da80cecfc50072d1087ca580dd43021771bba00feffdd8e2f8515655fafe",
+      "elf": {
+        "class": 64,
+        "machine": "AArch64",
+        "byteOrder": "little",
+        "minimumLoadAlignmentBytes": 16384,
+        "loadSegments": [
+          {
+            "index": 1,
+            "offset": 0,
+            "virtualAddress": 0,
+            "fileBytes": 2728464,
+            "memoryBytes": 2728464,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 2,
+            "offset": 2728464,
+            "virtualAddress": 2744848,
+            "fileBytes": 38096,
+            "memoryBytes": 40432,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 3,
+            "offset": 2766560,
+            "virtualAddress": 2799328,
+            "fileBytes": 2088,
+            "memoryBytes": 5400,
+            "alignmentBytes": 16384
+          }
+        ],
+        "alignment16KbVerified": true
+      }
+    },
+    {
+      "path": "lib/arm64-v8a/libycore_gpu.so",
+      "bytes": 101888,
+      "sha256": "941028d1295223402926cf416098966ead500559daa1d992461f90243079c4d2",
+      "elf": {
+        "class": 64,
+        "machine": "AArch64",
+        "byteOrder": "little",
+        "minimumLoadAlignmentBytes": 16384,
+        "loadSegments": [
+          {
+            "index": 1,
+            "offset": 0,
+            "virtualAddress": 0,
+            "fileBytes": 97536,
+            "memoryBytes": 97536,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 2,
+            "offset": 97536,
+            "virtualAddress": 113920,
+            "fileBytes": 1896,
+            "memoryBytes": 4864,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 3,
+            "offset": 99432,
+            "virtualAddress": 132200,
+            "fileBytes": 40,
+            "memoryBytes": 2184,
+            "alignmentBytes": 16384
+          }
+        ],
+        "alignment16KbVerified": true
+      }
+    },
+    {
+      "path": "lib/arm64-v8a/libyfuse-mdk-jni.so",
+      "bytes": 1190976,
+      "sha256": "93f5212840e6579128f5483365bd0d86ad442faa02717f59120a820ca3699f48",
+      "elf": {
+        "class": 64,
+        "machine": "AArch64",
+        "byteOrder": "little",
+        "minimumLoadAlignmentBytes": 16384,
+        "loadSegments": [
+          {
+            "index": 1,
+            "offset": 0,
+            "virtualAddress": 0,
+            "fileBytes": 83200,
+            "memoryBytes": 83200,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 2,
+            "offset": 83200,
+            "virtualAddress": 99584,
+            "fileBytes": 1592,
+            "memoryBytes": 15104,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 3,
+            "offset": 84792,
+            "virtualAddress": 117560,
+            "fileBytes": 40,
+            "memoryBytes": 2176,
+            "alignmentBytes": 16384
+          }
+        ],
+        "alignment16KbVerified": true
+      }
+    }
+  ],
+  "ycoreByteIdentityChecks": [
+    {
+      "source": "jni/arm64-v8a/libavcodec.so",
+      "sha256": "2440fc79482e7ab4e40ba2f3e9fb7ba10f196935b39566c636e866e0dcdeb42c",
+      "byteIdentical": true
+    },
+    {
+      "source": "jni/arm64-v8a/libavformat.so",
+      "sha256": "ee3fb014d6d12ff54e658fc1ae70dfcaae55d0259a34b46e4fc3cb2a41f773dc",
+      "byteIdentical": true
+    },
+    {
+      "source": "jni/arm64-v8a/libavutil.so",
+      "sha256": "2d2ab7b3071f9e4643f67ba65170f7290d821aa80e8b14dfcc356a15c493c47a",
+      "byteIdentical": true
+    },
+    {
+      "source": "jni/arm64-v8a/libc++_shared.so",
+      "sha256": "c4c2fe5cbcb1fba0003a31fc7ab29a9bb12df6cc187ec45a806462540e83d93b",
+      "byteIdentical": true
+    },
+    {
+      "source": "jni/arm64-v8a/libswresample.so",
+      "sha256": "59a2c9dbd713db7e4a17949b85334873745bf0183a2686300068093fe5b57ee0",
+      "byteIdentical": true
+    },
+    {
+      "source": "jni/arm64-v8a/libswscale.so",
+      "sha256": "48782396b8c8993a7bb72990b87cd460e57f65d3e69c26c9e04031b0ef9f43e8",
+      "byteIdentical": true
+    },
+    {
+      "source": "jni/arm64-v8a/libycore_demux.so",
+      "sha256": "0f35da80cecfc50072d1087ca580dd43021771bba00feffdd8e2f8515655fafe",
+      "byteIdentical": true
+    },
+    {
+      "source": "jni/arm64-v8a/libycore_gpu.so",
+      "sha256": "941028d1295223402926cf416098966ead500559daa1d992461f90243079c4d2",
+      "byteIdentical": true
+    }
+  ],
+  "sourceFileCount": 1491,
+  "tests": {
+    "composeApp": 2576,
+    "tvApp": 63,
+    "failures": 0,
+    "newAmbientRegressions": 8
+  },
+  "playbackTested": false,
+  "installed": false,
+  "published": false
+}

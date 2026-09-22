@@ -1,0 +1,20 @@
+[
+  "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerRoot.kt",
+  "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerWatchSyncEffects.kt",
+  "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlaybackSourceSwitchCoordinator.kt",
+  "composeApp/src/commonTest/kotlin/com/yfuse/feature/player/PlaybackSourceSwitchCoordinatorTest.kt",
+  "composeApp/src/commonTest/kotlin/com/yfuse/core/data/EmbyPathContractTest.kt",
+  "composeApp/src/commonMain/kotlin/com/yfuse/core/data/EmbyBrowseService.kt",
+  "composeApp/src/commonMain/kotlin/com/yfuse/core/data/EmbyDetailService.kt",
+  "composeApp/src/commonMain/kotlin/com/yfuse/core/data/EmbyHomeService.kt",
+  "composeApp/src/commonMain/kotlin/com/yfuse/core/data/EmbyLibraryService.kt",
+  "composeApp/src/commonMain/kotlin/com/yfuse/core/data/EmbyLookupService.kt",
+  "composeApp/src/commonMain/kotlin/com/yfuse/core/data/EmbyPlaybackService.kt",
+  "composeApp/src/commonMain/kotlin/com/yfuse/core/data/EmbySearchService.kt",
+  "composeApp/src/commonMain/kotlin/com/yfuse/core/data/EmbySourceService.kt",
+  "composeApp/src/commonMain/kotlin/com/yfuse/core/data/EmbySubtitleService.kt",
+  "composeApp/src/commonMain/kotlin/com/yfuse/core/data/EmbyUserDataService.kt",
+  "composeApp/src/commonMain/kotlin/com/yfuse/core/network/EmbyImages.kt",
+  "composeApp/src/commonMain/kotlin/com/yfuse/core/network/EmbyStream.kt",
+  "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvAccountScreens.kt"
+]

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.designsystem.DelightDialogMotionTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-09-22T01:21:16.708Z" hostname="DESKTOP-HM2J0FM" time="0.006">
+  <properties/>
+  <testcase name="decorations_make_one_finite_pulse_and_disappear_before_reading_rest" classname="com.yfuse.core.designsystem.DelightDialogMotionTest" time="0.002"/>
+  <testcase name="masks_have_no_remaining_corners_teeth_or_seams_before_final_bypass" classname="com.yfuse.core.designsystem.DelightDialogMotionTest" time="0.002"/>
+  <testcase name="new_styles_finish_before_the_endpoint_without_distorting_text" classname="com.yfuse.core.designsystem.DelightDialogMotionTest" time="0.0"/>
+  <testcase name="each_object_has_a_distinct_motion_and_reveal_instead_of_only_a_new_label" classname="com.yfuse.core.designsystem.DelightDialogMotionTest" time="0.001"/>
+  <testcase name="masks_grow_within_portrait_landscape_and_tiny_panels" classname="com.yfuse.core.designsystem.DelightDialogMotionTest" time="0.001"/>
+  <testcase name="reduced_motion_endpoint_is_the_full_undecorated_card" classname="com.yfuse.core.designsystem.DelightDialogMotionTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

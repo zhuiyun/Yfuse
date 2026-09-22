@@ -1,0 +1,5 @@
+// Preserve other tasks' outputs and retain a dedicated verification result for this change.
+gradle.beforeProject { project ->
+    def name = project.path == ':' ? 'root' : project.path.substring(1).replace(':', '/')
+    project.layout.buildDirectory.set(new File(project.rootDir, ".gradle-tmp/kernel-fixes-build/${name}/build"))
+}

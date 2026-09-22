@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.playback.PlaybackRuntimeFaultDetectorTest" tests="30" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:06.682Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="healthy_playback_reports_nothing" classname="com.yfuse.core.playback.PlaybackRuntimeFaultDetectorTest" time="0.0"/>
+  <testcase name="stalled_audio_only_playback_is_reported" classname="com.yfuse.core.playback.PlaybackRuntimeFaultDetectorTest" time="0.0"/>
+  <testcase name="a_missing_first_frame_is_reported_after_the_startup_budget" classname="com.yfuse.core.playback.PlaybackRuntimeFaultDetectorTest" time="0.0"/>
+  <testcase name="remote_startup_starvation_is_network_not_decoder_failure" classname="com.yfuse.core.playback.PlaybackRuntimeFaultDetectorTest" time="0.0"/>
+  <testcase name="the_grace_window_restarts_after_output_recovers" classname="com.yfuse.core.playback.PlaybackRuntimeFaultDetectorTest" time="0.0"/>
+  <testcase name="a_stalled_position_is_reported_only_once_the_stall_budget_passes" classname="com.yfuse.core.playback.PlaybackRuntimeFaultDetectorTest" time="0.0"/>
+  <testcase name="a_paused_or_ended_session_never_reports" classname="com.yfuse.core.playback.PlaybackRuntimeFaultDetectorTest" time="0.0"/>
+  <testcase name="recovered_remote_starvation_does_not_hide_a_decoder_startup_failure" classname="com.yfuse.core.playback.PlaybackRuntimeFaultDetectorTest" time="0.0"/>
+  <testcase name="only_the_first_fault_of_a_binding_is_reported" classname="com.yfuse.core.playback.PlaybackRuntimeFaultDetectorTest" time="0.0"/>
+  <testcase name="a_synthetic_clock_does_not_count_as_first_frame_evidence" classname="com.yfuse.core.playback.PlaybackRuntimeFaultDetectorTest" time="0.0"/>
+  <testcase name="progress_without_verifiable_audio_is_reported" classname="com.yfuse.core.playback.PlaybackRuntimeFaultDetectorTest" time="0.0"/>
+  <testcase name="synthetic_startup_clock_does_not_reset_confirmed_network_starvation" classname="com.yfuse.core.playback.PlaybackRuntimeFaultDetectorTest" time="0.0"/>
+  <testcase name="a_first_frame_that_arrives_cancels_the_startup_clock" classname="com.yfuse.core.playback.PlaybackRuntimeFaultDetectorTest" time="0.001"/>
+  <testcase name="unverifiable_backend_still_reports_a_stalled_position" classname="com.yfuse.core.playback.PlaybackRuntimeFaultDetectorTest" time="0.0"/>
+  <testcase name="video_that_disappears_after_verified_output_is_reported_after_the_grace_window" classname="com.yfuse.core.playback.PlaybackRuntimeFaultDetectorTest" time="0.0"/>
+  <testcase name="buffering_and_pause_suppress_reporting_and_clear_the_clocks" classname="com.yfuse.core.playback.PlaybackRuntimeFaultDetectorTest" time="0.0"/>
+  <testcase name="arriving_input_resets_the_empty_source_window_and_decoder_backpressure_is_not_network_starvation" classname="com.yfuse.core.playback.PlaybackRuntimeFaultDetectorTest" time="0.0"/>
+  <testcase name="buffered_packets_do_not_trigger_the_short_empty_network_budget" classname="com.yfuse.core.playback.PlaybackRuntimeFaultDetectorTest" time="0.0"/>
+  <testcase name="verified_playback_progress_starts_a_fresh_network_starvation_window" classname="com.yfuse.core.playback.PlaybackRuntimeFaultDetectorTest" time="0.0"/>
+  <testcase name="a_large_remote_source_recovers_on_confirmed_empty_input_without_waiting_for_the_hard_ceiling" classname="com.yfuse.core.playback.PlaybackRuntimeFaultDetectorTest" time="0.0"/>
+  <testcase name="progress_while_buffering_restarts_the_long_buffer_clock" classname="com.yfuse.core.playback.PlaybackRuntimeFaultDetectorTest" time="0.0"/>
+  <testcase name="content_without_video_is_never_judged_on_missing_video" classname="com.yfuse.core.playback.PlaybackRuntimeFaultDetectorTest" time="0.0"/>
+  <testcase name="continuous_initial_buffering_still_times_out_and_enters_fallback" classname="com.yfuse.core.playback.PlaybackRuntimeFaultDetectorTest" time="0.0"/>
+  <testcase name="position_stall_is_not_armed_before_verified_output" classname="com.yfuse.core.playback.PlaybackRuntimeFaultDetectorTest" time="0.0"/>
+  <testcase name="requested_but_paused_playback_never_becomes_a_position_stall" classname="com.yfuse.core.playback.PlaybackRuntimeFaultDetectorTest" time="0.0"/>
+  <testcase name="an_existing_error_is_left_to_the_backend" classname="com.yfuse.core.playback.PlaybackRuntimeFaultDetectorTest" time="0.0"/>
+  <testcase name="synthetic_progress_before_first_frame_remains_on_the_startup_budget" classname="com.yfuse.core.playback.PlaybackRuntimeFaultDetectorTest" time="0.0"/>
+  <testcase name="a_backward_seek_restarts_the_stall_clock" classname="com.yfuse.core.playback.PlaybackRuntimeFaultDetectorTest" time="0.0"/>
+  <testcase name="startup_timeout_does_not_require_a_backend_to_identify_the_output_format" classname="com.yfuse.core.playback.PlaybackRuntimeFaultDetectorTest" time="0.0"/>
+  <testcase name="a_settled_stream_that_buffers_without_progress_eventually_recovers" classname="com.yfuse.core.playback.PlaybackRuntimeFaultDetectorTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

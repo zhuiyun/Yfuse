@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.data.PlexIdentityIsolationTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:03.125Z" hostname="DESKTOP-HM2J0FM" time="0.05">
+  <properties/>
+  <testcase name="initialCloudConnectionRequiresAnActiveSubjectInsteadOfTheServerOwnerLabel" classname="com.yfuse.core.data.PlexIdentityIsolationTest" time="0.003"/>
+  <testcase name="manualLanTokensRemainOfflineAndNeverShareAnOwnerDerivedIdentity" classname="com.yfuse.core.data.PlexIdentityIsolationTest" time="0.005"/>
+  <testcase name="verifiedHomeSubjectsKeepChildLinksAwayFromReplacedAdultCredentials" classname="com.yfuse.core.data.PlexIdentityIsolationTest" time="0.037"/>
+  <testcase name="homeSwitchRejectsMissingOrDifferentResponseSubjectsAndTokens" classname="com.yfuse.core.data.PlexIdentityIsolationTest" time="0.005"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

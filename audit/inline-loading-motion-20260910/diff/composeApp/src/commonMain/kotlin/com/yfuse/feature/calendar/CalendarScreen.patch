@@ -1,0 +1,26 @@
+--- composeApp/src/commonMain/kotlin/com/yfuse/feature/calendar/CalendarScreen.kt
++++ composeApp/src/commonMain/kotlin/com/yfuse/feature/calendar/CalendarScreen.kt
+@@ -59,11 +59,11 @@
+ import com.yfuse.core.designsystem.ErrorState
+ import com.yfuse.core.designsystem.FallbackImage
+ import com.yfuse.core.designsystem.GlassShapes
++import com.yfuse.core.designsystem.InlineLoadingContent
+ import com.yfuse.core.designsystem.LocalAccentColors
+ import com.yfuse.core.designsystem.LocalAccessibilityOptions
+ import com.yfuse.core.designsystem.LocalPalette
+ import com.yfuse.core.designsystem.Motion
+-import com.yfuse.core.designsystem.OrbProgress
+ import com.yfuse.core.designsystem.PageHint
+ import com.yfuse.core.designsystem.SkeletonBlock
+ import com.yfuse.core.designsystem.StatusBarIconStyle
+@@ -197,9 +197,7 @@
+                         .solidGlass(CircleShape, palette.card2, palette.border),
+                     contentAlignment = Alignment.Center,
+                 ) {
+-                    if (state.loading) {
+-                        OrbProgress(size = 15.dp, color = accent.accent)
+-                    } else {
++                    InlineLoadingContent(loading = state.loading, slotSize = 15.dp, color = accent.accent) {
+                         Icon(
+                             AppIcons.Refresh,
+                             contentDescription = "刷新",

@@ -1,0 +1,20 @@
+--- composeApp/src/commonMain/kotlin/com/yfuse/feature/library/LibraryGridScreen.kt (before turn)
++++ composeApp/src/commonMain/kotlin/com/yfuse/feature/library/LibraryGridScreen.kt
+@@ -15,8 +15,6 @@
+ import androidx.compose.foundation.lazy.grid.GridCells
+ import androidx.compose.foundation.lazy.grid.GridItemSpan
+ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+-import androidx.compose.material3.Icon
+-import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.LaunchedEffect
+ import androidx.compose.runtime.collectAsState
+@@ -69,6 +67,8 @@
+ import com.yfuse.core.model.MediaContainerKind
+ import com.yfuse.core.model.MediaItem
+ import com.yfuse.core.network.EmbyImages
++import com.yfuse.core.designsystem.ThemeIcon as Icon
++import com.yfuse.core.designsystem.ThemeText as Text
+ 
+ /**
+  * 「查看更多」 grid.

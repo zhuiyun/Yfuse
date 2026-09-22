@@ -1,0 +1,232 @@
+--- before/composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailScreen.kt
++++ after/composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailScreen.kt
+@@ -50,15 +50,15 @@
+ import com.yfuse.core.designsystem.MediaSharedElementKey
+ import com.yfuse.core.designsystem.OrbProgress
+ import com.yfuse.core.designsystem.OrbProgressDefaults
++import com.yfuse.core.designsystem.SkeletonHandoff
+ import com.yfuse.core.designsystem.StatusBarIconStyle
+ import com.yfuse.core.designsystem.WindowWidthTier
+ import com.yfuse.core.designsystem.backdropSource
+-import com.yfuse.core.designsystem.contentHandoff
+-import com.yfuse.core.designsystem.contentPhase
+ import com.yfuse.core.designsystem.liftOverHero
++import com.yfuse.core.designsystem.motionItem
++import com.yfuse.core.designsystem.playerArtworkOnClick
+ import com.yfuse.core.designsystem.rememberAnimatedArtworkAccent
+ import com.yfuse.core.designsystem.rememberAnimatedColorState
+-import com.yfuse.core.designsystem.rememberArrivalReveal
+ import com.yfuse.core.designsystem.rememberArtworkPageColor
+ import com.yfuse.core.designsystem.rememberBackdropState
+ import com.yfuse.core.designsystem.rememberRetainedArtworkPageColor
+@@ -444,25 +444,18 @@
+                 val barSolid by remember(topBarProgress) { derivedStateOf { topBarProgress.value > 0.5f } }
+                 // The skeleton's replacement rises into place in order: artwork, then the
+                 // title sheet, then the synopsis. Already-loaded pages compose at rest.
+-                val arrival = rememberArrivalReveal(arrived = detail != null)
+ 
+                 StatusBarIconStyle(darkIcons = !pagePalette.isDark && (detail == null || barSolid))
+ 
+                 // The only opaque ground on the page. Hero, sheet and tail all reveal this exact colour.
+                 Box(Modifier.fillMaxSize().background(detailSurface))
+ 
+-                Box(
+-                    Modifier.fillMaxSize().contentHandoff(
+-                        contentPhase(
+-                            detail == null && state.error == null,
+-                            detail != null,
+-                            state.error != null,
+-                        ),
+-                    ),
++                SkeletonHandoff(
++                    loading = detail == null && state.error == null,
++                    modifier = Modifier.fillMaxSize(),
++                    skeleton = { DetailSkeleton(heroHeight) },
+                 ) {
+                     when {
+-                        detail == null && state.error == null -> DetailSkeleton(heroHeight)
+-
+                         detail == null ->
+                             ErrorState(
+                                 message = state.error ?: "加载失败",
+@@ -481,8 +474,8 @@
+                                 state = listState,
+                                 contentPadding = PaddingValues(bottom = Dimens.contentBottom),
+                             ) {
+-                                item(key = "hero") {
+-                                    Box(arrival.hero()) {
++                                motionItem(key = "hero") {
++                                    Box {
+                                         Hero(
+                                             urls = heroUrls,
+                                             title = displayTitle,
+@@ -496,14 +489,13 @@
+                                     }
+                                 }
+ 
+-                                item(key = "sheet") {
++                                motionItem(key = "sheet") {
+                                     Column(
+                                         Modifier
+                                             .fillMaxWidth()
+                                             .liftOverHero(captionLift)
+                                             .padding(horizontal = Dimens.pageHorizontal)
+-                                            .padding(top = SheetGap)
+-                                            .then(arrival.item(1)),
++                                            .padding(top = SheetGap),
+                                         verticalArrangement = Arrangement.spacedBy(SheetGap),
+                                     ) {
+                                         AnimatedColorContent(detailAccentState) { detailAccent ->
+@@ -538,10 +530,14 @@
+                                                 watchLater = state.watchLater,
+                                                 watchLaterMutating = state.watchLaterMutating,
+                                                 canPlayFromStart = state.playPositionTicks > 0L,
+-                                                onPlay = { component.store.accept(DetailIntent.Play) },
+-                                                onPlayFromStart = {
+-                                                    component.store.accept(DetailIntent.PlayFromStart)
+-                                                },
++                                                onPlay =
++                                                    playerArtworkOnClick(
++                                                        sharedHeroKey,
++                                                    ) { component.store.accept(DetailIntent.Play) },
++                                                onPlayFromStart =
++                                                    playerArtworkOnClick(sharedHeroKey) {
++                                                        component.store.accept(DetailIntent.PlayFromStart)
++                                                    },
+                                                 onFavorite = {
+                                                     component.store.accept(DetailIntent.ToggleFavorite)
+                                                 },
+@@ -555,14 +551,14 @@
+ 
+                                 val overview = detail.overview
+                                 if (!overview.isNullOrBlank()) {
+-                                    item(key = "overview") {
++                                    motionItem(key = "overview") {
+                                         AnimatedColorContent(detailAccentState) { detailAccent ->
+                                             OverviewSection(
+                                                 text = overview,
+                                                 expanded = overviewExpanded,
+                                                 onToggle = { overviewExpanded = !overviewExpanded },
+                                                 accent = detailAccent,
+-                                                modifier = Modifier.sectionPadding().then(arrival.item(2)),
++                                                modifier = Modifier.sectionPadding(),
+                                             )
+                                         }
+                                     }
+@@ -572,7 +568,7 @@
+                                 // rail here avoids making a series viewer cross file metadata, artwork and
+                                 // external links before they can choose what to watch.
+                                 if (state.episodes.isNotEmpty()) {
+-                                    item(key = "episodes") {
++                                    motionItem(key = "episodes") {
+                                         AnimatedColorContent(detailAccentState) { detailAccent ->
+                                             EpisodeSection(
+                                                 baseUrl = playBaseUrl,
+@@ -595,6 +591,9 @@
+                                                     component.store.accept(DetailIntent.OpenProgressManager)
+                                                 },
+                                                 onPlayEpisode = { episode ->
++                                                    com.yfuse.core.designsystem.PlayerArtworkOrigins.begin(
++                                                        sharedHeroKey,
++                                                    )
+                                                     component.store.accept(
+                                                         DetailIntent.SelectEpisode(
+                                                             episode.id,
+@@ -609,7 +608,7 @@
+                                 }
+ 
+                                 if (playableVersions.isNotEmpty()) {
+-                                    item(key = "versions") {
++                                    motionItem(key = "versions") {
+                                         AnimatedColorContent(detailAccentState) { detailAccent ->
+                                             VersionSection(
+                                                 versions = playableVersions,
+@@ -634,7 +633,7 @@
+                                             playableVersion.subtitleTracks.isNotEmpty()
+                                     )
+                                 ) {
+-                                    item(key = "tracks") {
++                                    motionItem(key = "tracks") {
+                                         AnimatedColorContent(detailAccentState) { detailAccent ->
+                                             TrackSection(
+                                                 version = playableVersion,
+@@ -654,7 +653,7 @@
+                                 }
+ 
+                                 if (comparableSources.any { it.reachable && it.source != null && it.itemId != null }) {
+-                                    item(key = "sources") {
++                                    motionItem(key = "sources") {
+                                         AnimatedColorContent(detailAccentState) { detailAccent ->
+                                             SourceSection(
+                                                 sources = comparableSources,
+@@ -672,7 +671,7 @@
+                                 }
+ 
+                                 if (detail.genres.isNotEmpty()) {
+-                                    item(key = "genres") {
++                                    motionItem(key = "genres") {
+                                         GenreSection(
+                                             detail.genres,
+                                             Modifier.sectionPadding(),
+@@ -682,7 +681,7 @@
+                                 }
+ 
+                                 if (detail.backdropTags.isNotEmpty()) {
+-                                    item(key = "artwork") {
++                                    motionItem(key = "artwork") {
+                                         ArtworkSection(
+                                             // Whichever item owns the artwork — the episode's own, or the
+                                             // show's when the episode has none. The index addresses that
+@@ -697,13 +696,13 @@
+                                 }
+ 
+                                 if (externalLinks(detail.providerIds).isNotEmpty()) {
+-                                    item(key = "links") {
++                                    motionItem(key = "links") {
+                                         ExternalLinksSection(detail.providerIds, Modifier.sectionPadding())
+                                     }
+                                 }
+ 
+                                 if (detail.people.isNotEmpty()) {
+-                                    item(key = "cast") {
++                                    motionItem(key = "cast") {
+                                         CastRow(
+                                             baseUrl = baseUrl,
+                                             accessToken = accessToken,
+@@ -715,7 +714,7 @@
+                                 }
+ 
+                                 if (state.related.isNotEmpty()) {
+-                                    item(key = "related") {
++                                    motionItem(key = "related") {
+                                         AnimatedColorContent(detailAccentState) { detailAccent ->
+                                             RelatedSection(
+                                                 baseUrl = baseUrl,
+@@ -735,7 +734,7 @@
+                                 // bitrate, size — which is what someone comes back for, not what they came
+                                 // for. Everything above it is about the title itself.
+                                 if (selectedVersion != null) {
+-                                    item(key = "mediaInfo") {
++                                    motionItem(key = "mediaInfo") {
+                                         MediaInfoSection(
+                                             version = selectedVersion,
+                                             dateCreated = state.playTarget?.dateCreated,
+@@ -758,7 +757,7 @@
+                         showMore = detail != null,
+                         solid = barSolid,
+                         onBack = component.onBack,
+-                        onPlay = { component.store.accept(DetailIntent.Play) },
++                        onPlay = playerArtworkOnClick(sharedHeroKey) { component.store.accept(DetailIntent.Play) },
+                         onMore = { moreSheetOpen = true },
+                     )
+                 }
+@@ -992,6 +991,9 @@
+                         accent = detailAccent,
+                         currentEpisodeId = state.selectedEpisodeId,
+                         onPlayEpisode = { episode ->
++                            com.yfuse.core.designsystem.PlayerArtworkOrigins.begin(
++                                sharedHeroKey,
++                            )
+                             if (state.selectedEpisodeId == episode.id) allEpisodesOpen = false
+                             component.store.accept(
+                                 DetailIntent.SelectEpisode(

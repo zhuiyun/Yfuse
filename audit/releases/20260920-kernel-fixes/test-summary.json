@@ -1,0 +1,93 @@
+{
+  "evidence": "audit/frame-rate-overlay-20260920/verification.json",
+  "verifiedAt": "2026-09-20T07:29:43.846033+00:00",
+  "sourceInputsCompared": 1541,
+  "onlyUntestedInputChanges": [],
+  "phone": {
+    "tests": 2871,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "tv": {
+    "tests": 63,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "requiredRegressionSuites": {
+    "com.yfuse.core2.render.YRenderedFrameRateSamplerTest": {
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidVideoOutputEpochTest": {
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.feature.player.PlayerFrameRateReadoutTest": {
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.feature.player.PlaybackRuntimeContentTest": {
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.feature.player.RemoteCastPlaybackTest": {
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "lint": [
+    "phone Debug",
+    "TV Debug",
+    "design-system usage"
+  ],
+  "native": {
+    "compiled_source_sha256": {
+      "ycore_demux_jni.cpp": "3be885d7a22826a5d9b191cc45c2136f8d74582d2d64bbcf6db82f56042ad628",
+      "ycore_demux_interrupt.h": "8e6706cea146b6340080e1f88314c0530ddf154a52b15345b782871a4105f3f7",
+      "ycore_disc_uri.h": "7b479e151dfb76017c332c2cde6f046de5c2d472b0b00d5e3d211e974a4e4633",
+      "ycore_extradata_budget.h": "5615a1f284dcb001b91779ccaebde2db900f5bb2ac0a59fc38ac5b57a3c32db2",
+      "ycore_ffmpeg_compat.h": "3b22ade76ed9fa5733303f725fb679a507ef47f194b7b799e610f8b20489d9d5",
+      "ycore_gpu_capability.h": "bd9937a3776cd4c7e48242aafaeb3685658a1f1cdc503d7065fd3c1bcc13dfa8",
+      "ycore_overlay_plane.h": "60a36bc6dcca68d39cf45156ac0d5119fecd4b8f9b95e00c6466b5cc34dfd82e",
+      "ycore_tone_map.h": "7a6e50fa676b87348f02f4ab6678dd601ae00f78a49e2bdbaf3799afa109662a"
+    },
+    "static_dependency_sha256": {
+      ".native-build\\ycore-arm64-prefix\\lib\\libass.a": "eab53498342df9712142ed52cb99f63b95a50529fb72e77d054b74702927c732",
+      ".native-build\\ycore-arm64-prefix\\lib\\libharfbuzz.a": "232c432dd93120cd7a883e0594e8d0df86df1452a4ea41df51f0dd0940bea186",
+      ".native-build\\ycore-arm64-prefix\\lib\\libfreetype.a": "dc0ec19ccbc144a82905c85dcd739735f0498c43acc95e419d89bd9ea7f55a4a",
+      ".native-build\\ycore-arm64-prefix\\lib\\libfribidi.a": "92418274700be370cf0ea484c086911183e82e69033825967c259e20c00be507",
+      ".native-build\\ycore-arm64-prefix\\lib\\libunibreak.a": "d0566e8e2fc58fd55e894d75355f01b3881a1319b8a8648be7ac002a26b860ec",
+      ".native-build\\libbluray-prefix\\lib\\libbluray.a": "fcae80d51c0a8615815d3e49d9f560e149bb2980b4cf0c3c2b5dd1bcef682a2a"
+    },
+    "ffmpeg_revision": "b79d4c4c0a160fc46988e98505af6039a53ad53e",
+    "ffmpeg_archive_sha256": "f7c63be8f824f8f4766ea9c375fb3d5c290d9924dfa8e6db343dbd6026dd0bbd",
+    "carrier_sha256": "db5f9f2f81d42457e2c6dfa84c6645ee4e140473c8a862a85699aaa02522c75a",
+    "gpu_companion_sha256": "8ff27ee0d58fcc553d6ea26818daeaf4d42caa323aeb52f2b3d172039a42562e",
+    "demux_sha256": "b41fe7b1a45dc1610a4f932c510dd22f65956a7207c6e20d66112fae12677d34",
+    "aar_sha256": "17bca3e04999a3d30726f6f534c37ba561337a2c2e150a0b150c8431e9db796b",
+    "validation": [
+      "current source compiled",
+      "--no-undefined linked",
+      "required JNI methods present",
+      "16KiB LOAD alignment for all libraries",
+      "pinned shared dependencies identical",
+      "GPU bytes unchanged",
+      "embedded provenance equals sidecar"
+    ],
+    "device_validation": "not run"
+  },
+  "devicePlaybackTested": false,
+  "instrumentationTests": "Not executed; earlier kernel validation compiled instrumentation sources before the FPS addition"
+}

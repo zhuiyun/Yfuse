@@ -1,0 +1,18 @@
+--- composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerResumeNotice.kt (before turn)
++++ composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerResumeNotice.kt
+@@ -3,7 +3,6 @@
+ import androidx.compose.foundation.layout.Arrangement
+ import androidx.compose.foundation.layout.Row
+ import androidx.compose.foundation.layout.padding
+-import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.LaunchedEffect
+ import androidx.compose.runtime.getValue
+@@ -23,6 +22,7 @@
+ import com.yfuse.core.designsystem.touchTarget
+ import kotlinx.coroutines.delay
+ import kotlinx.coroutines.flow.first
++import com.yfuse.core.designsystem.ThemeText as Text
+ 
+ internal const val RESUME_NOTICE_MS = 3_000L
+ 

@@ -1,0 +1,18 @@
+--- composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailDialogs.kt (before turn)
++++ composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailDialogs.kt
+@@ -8,7 +8,6 @@
+ import androidx.compose.foundation.layout.width
+ import androidx.compose.foundation.lazy.LazyColumn
+ import androidx.compose.foundation.lazy.LazyRow
+-import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.getValue
+ import androidx.compose.runtime.mutableStateOf
+@@ -37,6 +36,7 @@
+ import com.yfuse.core.offline.estimateOfflineDownloadBytes
+ import com.yfuse.core.util.daysBetweenIso
+ import com.yfuse.feature.profile.formatDownloadBytes
++import com.yfuse.core.designsystem.ThemeText as Text
+ 
+ internal fun reminderModeLabel(
+     mode: CalendarReminderMode,

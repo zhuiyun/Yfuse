@@ -1,0 +1,15 @@
+composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/OrbProgress.kt
+composeApp/src/commonMain/kotlin/com/yfuse/feature/library/LibraryHomeScreen.kt
+composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerRoot.kt
+composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerControls.kt
+composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerChromeRefined.kt
+composeApp/src/androidMain/kotlin/com/yfuse/feature/player/Core2Surface.kt
+composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/ThemeCrossfade.kt
+composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/Theme.kt
+composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/DominantColor.kt
+composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailScreen.kt
+composeApp/src/commonMain/kotlin/com/yfuse/feature/home/TmdbInfoScreen.kt
+composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/Glass.kt
+composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailHero.kt
+composeApp/src/commonTest/kotlin/com/yfuse/core/designsystem/AnimatedColorStateTest.kt
+composeApp/src/commonTest/kotlin/com/yfuse/core/designsystem/ThemeCrossfadeStateTest.kt

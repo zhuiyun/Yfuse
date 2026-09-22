@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.playback.PlaybackAdaptiveManifestTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:06.593Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="recognizes_hls_and_dash_with_query_parameters" classname="com.yfuse.core.playback.PlaybackAdaptiveManifestTest" time="0.001"/>
+  <testcase name="progressive_media_is_not_treated_as_adaptive" classname="com.yfuse.core.playback.PlaybackAdaptiveManifestTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

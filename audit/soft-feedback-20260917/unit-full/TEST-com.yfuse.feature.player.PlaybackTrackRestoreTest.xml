@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.PlaybackTrackRestoreTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:15.983Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="same_language_tracks_with_engine_labels_restore_by_ordinal_then_first" classname="com.yfuse.feature.player.PlaybackTrackRestoreTest" time="0.001"/>
+  <testcase name="ambiguous_codec_without_language_or_matching_label_is_not_restored" classname="com.yfuse.feature.player.PlaybackTrackRestoreTest" time="0.0"/>
+  <testcase name="track_ids_may_change_but_language_and_label_restore_the_same_track" classname="com.yfuse.feature.player.PlaybackTrackRestoreTest" time="0.0"/>
+  <testcase name="persisted_track_identity_round_trips_without_engine_local_id" classname="com.yfuse.feature.player.PlaybackTrackRestoreTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

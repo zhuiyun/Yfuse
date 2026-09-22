@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.servers.ServersStoreTest" tests="18" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:16.375Z" hostname="DESKTOP-HM2J0FM" time="0.05">
+  <properties/>
+  <testcase name="existing_registry_servers_reflected_in_state" classname="com.yfuse.feature.servers.ServersStoreTest" time="0.011"/>
+  <testcase name="httpCanSubmitWithoutRiskConfirmation" classname="com.yfuse.feature.servers.ServersStoreTest" time="0.004"/>
+  <testcase name="address_without_scheme_keeps_selected_protocol_and_explicit_port" classname="com.yfuse.feature.servers.ServersStoreTest" time="0.001"/>
+  <testcase name="quick_connect_persists_only_the_authenticated_server_returned_by_gateway" classname="com.yfuse.feature.servers.ServersStoreTest" time="0.006"/>
+  <testcase name="host_without_scheme_defaults_to_https" classname="com.yfuse.feature.servers.ServersStoreTest" time="0.001"/>
+  <testcase name="submit_uses_custom_server_name" classname="com.yfuse.feature.servers.ServersStoreTest" time="0.005"/>
+  <testcase name="submit_failure_sets_form_error" classname="com.yfuse.feature.servers.ServersStoreTest" time="0.002"/>
+  <testcase name="address_with_https_and_explicit_port_overrides_both_fields" classname="com.yfuse.feature.servers.ServersStoreTest" time="0.001"/>
+  <testcase name="complete_url_paste_splits_scheme_host_port_and_base_path" classname="com.yfuse.feature.servers.ServersStoreTest" time="0.001"/>
+  <testcase name="editing_display_name_keeps_session_and_does_not_reauthenticate" classname="com.yfuse.feature.servers.ServersStoreTest" time="0.002"/>
+  <testcase name="submit_adds_http_server_without_confirmation_and_emits_label" classname="com.yfuse.feature.servers.ServersStoreTest" time="0.004"/>
+  <testcase name="editing_connection_reauthenticates_and_keeps_the_custom_name" classname="com.yfuse.feature.servers.ServersStoreTest" time="0.004"/>
+  <testcase name="unsupported_quick_connect_is_reported_without_persisting_a_server" classname="com.yfuse.feature.servers.ServersStoreTest" time="0.002"/>
+  <testcase name="invalid_port_cannot_submit_or_start_quick_connect" classname="com.yfuse.feature.servers.ServersStoreTest" time="0.001"/>
+  <testcase name="publicHttpCanSubmitWithoutRiskConfirmation" classname="com.yfuse.feature.servers.ServersStoreTest" time="0.001"/>
+  <testcase name="denied_local_network_permission_surfaces_an_actionable_scan_error" classname="com.yfuse.feature.servers.ServersStoreTest" time="0.001"/>
+  <testcase name="protocol_switch_updates_the_default_port" classname="com.yfuse.feature.servers.ServersStoreTest" time="0.001"/>
+  <testcase name="address_with_http_scheme_updates_protocol_and_avoids_duplicate_scheme" classname="com.yfuse.feature.servers.ServersStoreTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

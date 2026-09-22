@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.StartupTransferEvidenceTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-20T01:56:37.112Z" hostname="DESKTOP-HM2J0FM" time="0.003">
+  <properties/>
+  <testcase name="network_estimate_decays_during_silence_and_expires_without_new_bytes" classname="com.yfuse.feature.player.StartupTransferEvidenceTest" time="0.001"/>
+  <testcase name="resetting_for_a_new_item_discards_all_transfer_evidence" classname="com.yfuse.feature.player.StartupTransferEvidenceTest" time="0.001"/>
+  <testcase name="cache_reads_do_not_refresh_stalled_network_evidence" classname="com.yfuse.feature.player.StartupTransferEvidenceTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

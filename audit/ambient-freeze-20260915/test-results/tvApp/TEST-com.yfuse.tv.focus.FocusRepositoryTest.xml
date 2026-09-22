@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.tv.focus.FocusRepositoryTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-09-15T04:26:39.049Z" hostname="DESKTOP-HM2J0FM" time="0.025">
+  <properties/>
+  <testcase name="limitsRememberedSectionsWithoutDroppingCurrentAnchor" classname="com.yfuse.tv.focus.FocusRepositoryTest" time="0.019"/>
+  <testcase name="evictsLeastRecentlyUsedContext" classname="com.yfuse.tv.focus.FocusRepositoryTest" time="0.0"/>
+  <testcase name="recordsLastItemGloballyAndPerSection" classname="com.yfuse.tv.focus.FocusRepositoryTest" time="0.0"/>
+  <testcase name="separatesServersAndProfilesAndCanRemoveOneServer" classname="com.yfuse.tv.focus.FocusRepositoryTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

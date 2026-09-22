@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.PlaybackKeepAliveServiceTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:15.866Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="stop_after_foreground_start_can_stop_service_immediately" classname="com.yfuse.feature.player.PlaybackKeepAliveServiceTest" time="0.001"/>
+  <testcase name="a_new_start_cancels_a_pending_stop_from_an_engine_handover" classname="com.yfuse.feature.player.PlaybackKeepAliveServiceTest" time="0.0"/>
+  <testcase name="stop_before_service_creation_is_deferred_until_foreground_start" classname="com.yfuse.feature.player.PlaybackKeepAliveServiceTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

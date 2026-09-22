@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.network.EmbyImagesTest" tests="9" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:05.474Z" hostname="DESKTOP-HM2J0FM" time="0.002">
+  <properties/>
+  <testcase name="a_blank_token_is_left_off_entirely" classname="com.yfuse.core.network.EmbyImagesTest" time="0.001"/>
+  <testcase name="every_builder_carries_the_session_token" classname="com.yfuse.core.network.EmbyImagesTest" time="0.0"/>
+  <testcase name="plex_artwork_tag_uses_photo_transcode_and_plex_token" classname="com.yfuse.core.network.EmbyImagesTest" time="0.0"/>
+  <testcase name="a_missing_tag_still_produces_a_url" classname="com.yfuse.core.network.EmbyImagesTest" time="0.0"/>
+  <testcase name="the_encoding_is_part_of_the_cached_identity" classname="com.yfuse.core.network.EmbyImagesTest" time="0.001"/>
+  <testcase name="an_item_without_a_backdrop_has_no_backdrop_url" classname="com.yfuse.core.network.EmbyImagesTest" time="0.0"/>
+  <testcase name="the_backdrop_index_addresses_the_image_and_the_tag_cache_busts_it" classname="com.yfuse.core.network.EmbyImagesTest" time="0.0"/>
+  <testcase name="a_missing_server_or_item_produces_nothing" classname="com.yfuse.core.network.EmbyImagesTest" time="0.0"/>
+  <testcase name="every_builder_asks_for_the_compact_encoding" classname="com.yfuse.core.network.EmbyImagesTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

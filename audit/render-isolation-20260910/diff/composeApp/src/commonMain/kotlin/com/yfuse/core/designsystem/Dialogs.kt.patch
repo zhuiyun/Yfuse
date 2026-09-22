@@ -1,0 +1,20 @@
+--- composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/Dialogs.kt (before turn)
++++ composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/Dialogs.kt
+@@ -30,8 +30,6 @@
+ import androidx.compose.foundation.rememberScrollState
+ import androidx.compose.foundation.shape.CircleShape
+ import androidx.compose.foundation.verticalScroll
+-import androidx.compose.material3.Icon
+-import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.CompositionLocalProvider
+ import androidx.compose.runtime.DisposableEffect
+@@ -64,6 +62,8 @@
+ import androidx.compose.ui.window.DialogProperties
+ import kotlin.math.abs
+ import kotlin.math.roundToInt
++import com.yfuse.core.designsystem.ThemeIcon as Icon
++import com.yfuse.core.designsystem.ThemeText as Text
+ 
+ private val ScrimColor = Color(0xFF0A0E16)
+ private val OverlayShape = GlassShapes.sheet

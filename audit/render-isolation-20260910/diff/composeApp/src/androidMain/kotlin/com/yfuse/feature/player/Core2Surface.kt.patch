@@ -1,0 +1,102 @@
+--- composeApp/src/androidMain/kotlin/com/yfuse/feature/player/Core2Surface.kt (before turn)
++++ composeApp/src/androidMain/kotlin/com/yfuse/feature/player/Core2Surface.kt
+@@ -2,10 +2,8 @@
+ 
+ import android.annotation.SuppressLint
+ import android.content.Context
+-import android.graphics.Bitmap
+ import android.view.SurfaceHolder
+ import android.view.SurfaceView
+-import androidx.compose.foundation.Image
+ import androidx.compose.foundation.background
+ import androidx.compose.foundation.layout.Arrangement
+ import androidx.compose.foundation.layout.Box
+@@ -17,7 +15,6 @@
+ import androidx.compose.foundation.layout.offset
+ import androidx.compose.foundation.layout.padding
+ import androidx.compose.foundation.layout.requiredSize
+-import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.DisposableEffect
+ import androidx.compose.runtime.LaunchedEffect
+@@ -33,8 +30,6 @@
+ import androidx.compose.ui.geometry.Offset
+ import androidx.compose.ui.graphics.Color
+ import androidx.compose.ui.graphics.Shadow
+-import androidx.compose.ui.graphics.asImageBitmap
+-import androidx.compose.ui.graphics.graphicsLayer
+ import androidx.compose.ui.layout.onSizeChanged
+ import androidx.compose.ui.platform.LocalDensity
+ import androidx.compose.ui.text.font.FontStyle
+@@ -55,6 +50,7 @@
+ import com.yfuse.core2.subtitle.YSubtitlePayload
+ import com.yfuse.core2.subtitle.YSubtitleTimeline
+ import kotlin.math.roundToInt
++import com.yfuse.core.designsystem.ThemeText as Text
+ 
+ /**
+  * SurfaceView host for YCore 2.0.
+@@ -266,57 +262,16 @@
+             while (true) withFrameNanos { submit(clock.positionAt(it)) }
+         }
+     }
+-    val assBitmaps by assRenderer.bitmaps.collectAsState()
+-    val activeText = activeCues.mapNotNull { cue -> cue.payload as? YSubtitlePayload.Text }
+-    val activeBitmaps =
+-        activeCues.mapNotNull { cue -> cue.payload as? YSubtitlePayload.BitmapArgb } +
+-            if (activeCues.any { it.payload is YSubtitlePayload.AssEvent }) assBitmaps else emptyList()
+-
+-    val bitmapScale = scale.coerceIn(0.6f, 1.8f)
+-    val bitmapBounds = core2SubtitleBitmapBounds(activeBitmaps, bitmapScale)
++    val activeText = remember(activeCues) { activeCues.mapNotNull { it.payload as? YSubtitlePayload.Text } }
++    val bitmapPayloads = remember(activeCues) { activeCues.mapNotNull { it.payload as? YSubtitlePayload.BitmapArgb } }
++    val hasAss = activeCues.any { it.payload is YSubtitlePayload.AssEvent }
++    val bitmapFrames = rememberSubtitleBitmapFrames(assRenderer, bitmapPayloads, hasAss)
+     val bitmapContent: @Composable () -> Unit = {
+-        activeBitmaps.forEach { payload ->
+-            val bitmap =
+-                remember(payload) {
+-                    Bitmap
+-                        .createBitmap(payload.pixels, payload.width, payload.height, Bitmap.Config.ARGB_8888)
+-                        .asImageBitmap()
+-                }
+-            val scaledWidth = payload.width * bitmapScale
+-            val scaledHeight = payload.height * bitmapScale
+-            val x = payload.x - (scaledWidth - payload.width) / 2f
+-            val authoredY = (payload.y - (scaledHeight - payload.height) / 2f) / payload.canvasHeight
+-            // Translate the entire scaled display set together; ASS/PGS rectangles keep their
+-            // relative positions, including outlines and independently rendered glyphs.
+-            val y =
+-                if (dual) {
+-                    authoredY - bitmapBounds.first
+-                } else {
+-                    authoredY + position.coerceIn(0.60f, 0.96f) - DEFAULT_SUBTITLE_POSITION
+-                }
+-            Image(
+-                bitmap = bitmap,
+-                contentDescription = null,
+-                modifier =
+-                    Modifier
+-                        .offset(
+-                            x = viewport.width * (x / payload.canvasWidth),
+-                            y = viewport.height * y,
+-                        ).requiredSize(
+-                            width = viewport.width * (scaledWidth / payload.canvasWidth),
+-                            height = viewport.height * (scaledHeight / payload.canvasHeight),
+-                        ).background(Color(appearance.backgroundColorArgb.toULong()))
+-                        .graphicsLayer(alpha = brightness.coerceIn(0.35f, 1f)),
+-            )
+-        }
++        SubtitleBitmapCanvas(bitmapFrames, scale, dual, viewport, position, brightness, appearance)
+     }
+     if (dual) {
+         Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+-            if (activeBitmaps.isNotEmpty()) {
+-                Box(Modifier.fillMaxWidth().height(viewport.height * (bitmapBounds.second - bitmapBounds.first))) {
+-                    bitmapContent()
+-                }
+-            }
++            bitmapContent()
+             run {
+                 Core2SubtitleText(
+                     activeText,

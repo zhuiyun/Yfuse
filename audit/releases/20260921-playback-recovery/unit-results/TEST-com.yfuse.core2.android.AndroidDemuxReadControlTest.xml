@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.AndroidDemuxReadControlTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:43:54.571Z" hostname="DESKTOP-HM2J0FM" time="0.555">
+  <properties/>
+  <testcase name="cleanup retains native ownership while a timed out read ignores cancellation" classname="com.yfuse.core2.android.AndroidDemuxReadControlTest" time="0.261"/>
+  <testcase name="an intentionally interrupted old read is not published as terminal failure" classname="com.yfuse.core2.android.AndroidDemuxReadControlTest" time="0.015"/>
+  <testcase name="seek interrupts blocked read then continues on the same demux owner" classname="com.yfuse.core2.android.AndroidDemuxReadControlTest" time="0.016"/>
+  <testcase name="expired queued seek never runs after a blocked reader finally returns" classname="com.yfuse.core2.android.AndroidDemuxReadControlTest" time="0.261"/>
+  <testcase name="permanent cancellation cannot be cleared by a pending seek" classname="com.yfuse.core2.android.AndroidDemuxReadControlTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

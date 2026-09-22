@@ -1,0 +1,12 @@
+/node_modules
+/oh_modules
+/local.properties
+/.idea
+**/build
+/.hvigor
+**/.cxx
+**/.test
+**/cj_res
+**/*.cj.macrocall
+**/ability_*_entry.cj
+**/module_*_entry.cj

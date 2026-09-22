@@ -1,0 +1,42 @@
+[
+  {
+    "entry": "jni/arm64-v8a/libavcodec.so",
+    "sha256": "2440fc79482e7ab4e40ba2f3e9fb7ba10f196935b39566c636e866e0dcdeb42c",
+    "packagedIdentically": true
+  },
+  {
+    "entry": "jni/arm64-v8a/libavformat.so",
+    "sha256": "ee3fb014d6d12ff54e658fc1ae70dfcaae55d0259a34b46e4fc3cb2a41f773dc",
+    "packagedIdentically": true
+  },
+  {
+    "entry": "jni/arm64-v8a/libavutil.so",
+    "sha256": "2d2ab7b3071f9e4643f67ba65170f7290d821aa80e8b14dfcc356a15c493c47a",
+    "packagedIdentically": true
+  },
+  {
+    "entry": "jni/arm64-v8a/libc++_shared.so",
+    "sha256": "c4c2fe5cbcb1fba0003a31fc7ab29a9bb12df6cc187ec45a806462540e83d93b",
+    "packagedIdentically": true
+  },
+  {
+    "entry": "jni/arm64-v8a/libswresample.so",
+    "sha256": "59a2c9dbd713db7e4a17949b85334873745bf0183a2686300068093fe5b57ee0",
+    "packagedIdentically": true
+  },
+  {
+    "entry": "jni/arm64-v8a/libswscale.so",
+    "sha256": "48782396b8c8993a7bb72990b87cd460e57f65d3e69c26c9e04031b0ef9f43e8",
+    "packagedIdentically": true
+  },
+  {
+    "entry": "jni/arm64-v8a/libycore_demux.so",
+    "sha256": "0f35da80cecfc50072d1087ca580dd43021771bba00feffdd8e2f8515655fafe",
+    "packagedIdentically": true
+  },
+  {
+    "entry": "jni/arm64-v8a/libycore_gpu.so",
+    "sha256": "941028d1295223402926cf416098966ead500559daa1d992461f90243079c4d2",
+    "packagedIdentically": true
+  }
+]

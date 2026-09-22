@@ -1,0 +1,14 @@
+{
+  "versionName": "1.0.74",
+  "versionCode": 236,
+  "apkSha256": "097ef573cd1f9211346be8f40ad14892678a5ca82a0800da44ea5cf643e5e03c",
+  "bytes": 29212566,
+  "sourceApk": "D:/Demo/Yfuse/artifacts/releases/kernel-fixes-1.0.74-236/Yfuse-1.0.74-236-full-arm64-signed.apk",
+  "target": "https://47.112.219.60/yfuse/Yfuse-236-1.0.74.apk",
+  "publisherSourceSha256": "aae3b5c47a6811606d6c5cf0984711241b3b7db3d7088d6ee848c6787d175a22",
+  "publisherAdaptations": [
+    "Use audited APK and isolated audit stage",
+    "Retain historical APKs",
+    "Reject concurrent manifest changes observed before activation"
+  ]
+}

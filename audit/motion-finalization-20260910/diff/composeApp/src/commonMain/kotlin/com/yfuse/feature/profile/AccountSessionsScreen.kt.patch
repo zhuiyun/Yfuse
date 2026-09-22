@@ -1,0 +1,93 @@
+--- before/composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/AccountSessionsScreen.kt
++++ after/composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/AccountSessionsScreen.kt
+@@ -52,6 +52,7 @@
+ import com.yfuse.core.designsystem.YfButtonTone
+ import com.yfuse.core.designsystem.formDivider
+ import com.yfuse.core.designsystem.liquidGlass
++import com.yfuse.core.designsystem.motionItem
+ import com.yfuse.core.designsystem.pressable
+ import com.yfuse.core.designsystem.touchTarget
+ import kotlinx.coroutines.launch
+@@ -202,7 +203,7 @@
+             ),
+         verticalArrangement = Arrangement.spacedBy(14.dp),
+     ) {
+-        item {
++        motionItem {
+             SessionsHeader(
+                 count = uniqueSessions.size,
+                 loading = loading,
+@@ -213,12 +214,12 @@
+         }
+ 
+         if (loading && !loadedOnce) {
+-            item {
++            motionItem {
+                 SessionSurface { LoadingLine("正在读取登录设备…") }
+             }
+         } else {
+             error?.let { message ->
+-                item {
++                motionItem {
+                     SessionSurface {
+                         Text("加载失败", style = AppTypography.body.strong, color = palette.error)
+                         Spacer(Modifier.height(5.dp))
+@@ -233,8 +234,8 @@
+                 }
+             }
+ 
+-            item { SessionSectionLabel("当前设备", currentSession?.let { "保持登录" }) }
+-            item {
++            motionItem { SessionSectionLabel("当前设备", currentSession?.let { "保持登录" }) }
++            motionItem {
+                 if (currentSession == null) {
+                     SessionSurface {
+                         Text("未找到当前会话", style = AppTypography.body.strong, color = palette.text)
+@@ -248,9 +249,9 @@
+                 }
+             }
+ 
+-            item { SessionSectionLabel("其他设备", "${otherSessions.size} 个") }
++            motionItem { SessionSectionLabel("其他设备", "${otherSessions.size} 个") }
+             if (otherSessions.isEmpty()) {
+-                item {
++                motionItem {
+                     SessionSurface {
+                         Text("没有其他登录设备", style = AppTypography.body.medium, color = palette.text)
+                         Spacer(Modifier.height(4.dp))
+@@ -258,7 +259,7 @@
+                     }
+                 }
+             } else {
+-                item {
++                motionItem {
+                     SessionSurface {
+                         otherSessions.forEachIndexed { index, session ->
+                             if (index > 0) SessionDivider()
+@@ -273,7 +274,7 @@
+                 }
+             }
+ 
+-            item {
++            motionItem {
+                 BulkSessionActions(
+                     hasOtherSessions = otherSessions.isNotEmpty(),
+                     busy = bulkBusy,
+@@ -303,7 +304,7 @@
+             ),
+         verticalArrangement = Arrangement.spacedBy(14.dp),
+     ) {
+-        item {
++        motionItem {
+             SessionsHeader(
+                 count = 0,
+                 loading = accountState == AccountState.Restoring,
+@@ -312,7 +313,7 @@
+                 onRefresh = {},
+             )
+         }
+-        item {
++        motionItem {
+             SessionSurface {
+                 when (accountState) {
+                     AccountState.Restoring -> LoadingLine("正在恢复账号…")

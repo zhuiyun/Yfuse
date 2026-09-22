@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Enlarge and optically center the supplied artwork inside the circular launcher mask. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:drawable="@drawable/yfuse_aurora_dark"
+        android:left="2dp"
+        android:top="4.75dp"
+        android:right="3dp"
+        android:bottom="0.25dp" />
+</layer-list>

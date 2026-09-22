@@ -1,0 +1,82 @@
+{
+  "workflowRunId": 34701134934,
+  "artifactId": 10299938547,
+  "artifactZipSha256": "07d8eeedfa3a8feb3e4f6945105cd0f771ab29f9e918d3f7a2028bd90ba93f81",
+  "sourceCommit": "8dc1e5b22fbd74f014670bf07c1773891f719191",
+  "sourceTree": "2db1d65fe316120f8a452ce39af04b455446c9e6",
+  "demuxSourceSha256": "559f134528273aa1dfb6f07c8209ebe39be988fa1ea6753f3849fb37bf475d4a",
+  "baselineInputs": {
+    "scripts/build-current-ycore-native.sh": "e2c34a0a8beeb486e5a30b902db5e806261efa8eb678c48401d81258ec744506",
+    "scripts/build-ycore-demux.sh": "f51d126639fc89a61c9f5731da62176dea006fd86413135f514017f108808689",
+    "scripts/build-ycore-native.sh": "1caebbd853bbbcf9ca26867fab5e53b818585b679600002ce812230ac4eb554a",
+    "scripts/build-yfuse-mpv-bluray.sh": "29f07ebd934d053a3f4423912fe676cbf94a6b3c38e961cf2945062edae6755d",
+    "scripts/build-yfuse-mpv-dolby.sh": "92fce19a1f9c62d845affbb2614424cc1c0b950d7351e473ead588a5d9536cf4",
+    "scripts/engine-checksums.sha256": "914ae6e75de5b21e439d1b90c17a5fa63acd2b268f67f6fffe4b859d384b813d",
+    "scripts/install-ycore-native.sh": "8a2bd30a72e93ab2c055bbf1d2122ef59a19e8571c9e34b7fe91735daa593f7b",
+    "scripts/install-yfuse-mpv-bluray.sh": "c400b49ad3432c1bd58443384333bdb671d31fa88045581a973ff82a254054ab",
+    "scripts/native/patch_yfuse_bluray_angle.py": "d23a0511ffabc0986d51fc993fc7a07a240936b87edc4ea92f69d7c2b8adbb3c",
+    "scripts/native/patch_yfuse_dolby_fel.py": "f8b9de94e6f99af6aa61919170082ddb511ef02b200417f5f478b787a4e371c9",
+    "scripts/native/patch_yfuse_dolby_jni.py": "eb1a9df9a5063022f6bab3b59a7cd9837a1248f4ffb85bd1937c176aea6ae390",
+    "scripts/native/patch_yfuse_gpu_next.py": "43c8131c6b9f6cf49ac8bc0a4caa55d21e2350270053508e6af88fc22213b208",
+    "scripts/native/patch_yfuse_mpv_dolby_build.py": "a8eb5a93d6faf450e83239d43c5b8da893fa947a4583ff7092a02cc8e8a55eec",
+    "scripts/native/shaders/ycore_fullscreen.vert": "b644cdc7ffdeaa4d0339ad80ade35271853f3ded64554f6610d64bd49ddfd3a0",
+    "scripts/native/shaders/ycore_video.frag": "99249aa5d69ac53d0b9afe5398b4c6cca0cb62cab95c8e6b0771d24b2ea9ba36",
+    "scripts/native/stream_yfuse_bdmv.c": "51e02da512f96d987984a455121bb0a6e5c6a22843100b6e0ed41f8ad245941d",
+    "scripts/native/stream_yfuse_bluray.c": "9f632787032296297d403107994484f312da200da7b466c1ef84fafb35565286",
+    "scripts/native/ycore_demux_jni.cpp": "559f134528273aa1dfb6f07c8209ebe39be988fa1ea6753f3849fb37bf475d4a",
+    "scripts/native/ycore_disc_uri.h": "7b479e151dfb76017c332c2cde6f046de5c2d472b0b00d5e3d211e974a4e4633",
+    "scripts/native/ycore_disc_uri_test.cpp": "ce57370f199965e9ec786acb62242581b840ecd2c628812cb32002a013f793da",
+    "scripts/native/ycore_ffmpeg_compat.h": "3b22ade76ed9fa5733303f725fb679a507ef47f194b7b799e610f8b20489d9d5",
+    "scripts/native/ycore_gpu_capability.h": "bd9937a3776cd4c7e48242aafaeb3685658a1f1cdc503d7065fd3c1bcc13dfa8",
+    "scripts/native/ycore_gpu_capability_test.cpp": "5377bcd27f38581321ba246e9d288d8392e9f249353461b5245a031d2c7915e7",
+    "scripts/native/ycore_overlay_plane.h": "60a36bc6dcca68d39cf45156ac0d5119fecd4b8f9b95e00c6466b5cc34dfd82e",
+    "scripts/native/ycore_overlay_plane_test.cpp": "a8b344fa07493966295aec66456bb2d33378251afc381c1bd1db420acd87580f",
+    "scripts/native/ycore_tone_map.h": "7a6e50fa676b87348f02f4ab6678dd601ae00f78a49e2bdbaf3799afa109662a",
+    "scripts/native/ycore_tone_map_test.cpp": "eb9fd48096849ad833e66a1b83a75a76de5d92ff011c1f1d8fcf9a0c5fb2d6a0",
+    "scripts/native/ycore_vulkan_jni.cpp": "385a25854bacc08aa5f0791305c8528a0e8bab81fcbf4b1123a6f39bb195a71e",
+    "scripts/native/ycore_vulkan_renderer.cpp": "91e8989bd812c4fb581850fb5c4b821bde1c6bb4eda3c62d8f58e3fd56fed53d",
+    "scripts/package-ycore-native-aar.py": "e601e2df0884da37a806a9ba1705a0526d7e9a76be01ae6c0ddd78ca399e1a47",
+    "scripts/verify-ycore-native.sh": "cb3949bdee5b892f5c8ef626c090ea17ae7a26fba29a996e20a5673ae475f24b",
+    "scripts/verify-yfuse-mpv-bluray-aar.sh": "ca0876538b1f3f21ff7f91acf5ae355bf85f8ebb839d147c8083216b040b1843",
+    "scripts/verify-yfuse-mpv-dolby-aar.sh": "8c90b7405b1270f85f1b47f7708f5129b02bebdf58d032f7ad52dc1fd76cfded",
+    "scripts/yfuse-mpv-sources.txt": "803a22ba17ea22e564fa71eeca415fbf5b75fcf6baa2574ced1054be50e2e12c"
+  },
+  "installerLineEndings": {
+    "scripts/install-ycore-native.sh": {
+      "baselineSha256": "8a2bd30a72e93ab2c055bbf1d2122ef59a19e8571c9e34b7fe91735daa593f7b",
+      "workingSha256": "9ac5b9696e379b879ff24e348624bc1686368dfa242221a5b5459df5eb825d9b",
+      "difference": "CRLF versus LF only; Git Bash igncr enabled, script unchanged"
+    }
+  },
+  "aarSha256": {
+    "libmpv-yfuse-bluray.aar": "b165133792bdc184503d1c73d753b7712a68a28f8109217b193bb501b8ea0c3d",
+    "ycore-native.aar": "c78976de5c06bf637bc452b2acbfb8c8375822f4b14e1ecf41bd7893d33ce5a7",
+    "ycore-gpu.aar": "8ff27ee0d58fcc553d6ea26818daeaf4d42caa323aeb52f2b3d172039a42562e"
+  },
+  "libraries": {
+    "libavcodec.so": "2440fc79482e7ab4e40ba2f3e9fb7ba10f196935b39566c636e866e0dcdeb42c",
+    "libavdevice.so": "c67959777c8137a98825e7e63bfd8e555090781c66b34c9d0053e54869110c08",
+    "libavfilter.so": "d9736182d803c460569b4fae9fb0d588a6e02f71f213ec000641521a07cf7d28",
+    "libavformat.so": "ee3fb014d6d12ff54e658fc1ae70dfcaae55d0259a34b46e4fc3cb2a41f773dc",
+    "libavutil.so": "2d2ab7b3071f9e4643f67ba65170f7290d821aa80e8b14dfcc356a15c493c47a",
+    "libc++_shared.so": "c4c2fe5cbcb1fba0003a31fc7ab29a9bb12df6cc187ec45a806462540e83d93b",
+    "libmpv.so": "d06566edd8dd09c7419f61f9888d2f29e5e186ff578f8a984f1c968cab7baee6",
+    "libplayer.so": "2a5b828f3da71049c7603d6432fce50af7ca2286c33e70028bbcf466ead09005",
+    "libswresample.so": "59a2c9dbd713db7e4a17949b85334873745bf0183a2686300068093fe5b57ee0",
+    "libswscale.so": "48782396b8c8993a7bb72990b87cd460e57f65d3e69c26c9e04031b0ef9f43e8",
+    "libycore_demux.so": "18798aa7b206607be2e418321c0fc7d96c064ad31e430e43c3fae069c31407ab",
+    "libycore_gpu.so": "4ea9a8ad54d15cc642dd952df2b65ad1f8d04aed179436d54ac1379f7a3ff01d"
+  },
+  "matchesDelivered226Libraries": true,
+  "previousInstalledSha256": {
+    "libmpv-release.aar": "074121c3fbbfd32fad74b14400c0a4c2678235f5dc818f9e4a79699ee77f3ecb",
+    "libmpv-release.aar.sha256": "cc36a4128ab8e399d501b5f3bd31530e01f8f239fd4f57f9d58668ec09ba3598",
+    "libmpv-release.sources.txt": "803a22ba17ea22e564fa71eeca415fbf5b75fcf6baa2574ced1054be50e2e12c",
+    "ycore-native.aar": "979230ac598cf6cbda8a62427163b12eb5500c0530f89b5cceef4c506b0ffc0e",
+    "ycore-native.aar.sha256": "224db07c7eec835ec392c644edb8cb28833808ced62e4351dcf31d352727fdf6",
+    "ycore-native.sources.txt": "3eddbbc22874e3ef8c401a64f4c833a84b693a93bcb8a799e243a0ba9d928a05",
+    "ycore-gpu.aar": "2cf5533c9d984ca72faa429e787cbab6b168c01941c7cbb4b533d4ff5da4863a",
+    "ycore-gpu.aar.sha256": "43d54927e2e9fa3b4eb8b034d9fc05b51885f5c34b646eea2b8138d8acc548be",
+    "ycore-gpu.sources.txt": "bd4e7ad0ca45ef726f432d1d13e73d9b0fc1fb5691fd2368e645dd5b703a0aa6"
+  }
+}

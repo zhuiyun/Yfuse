@@ -1,0 +1,18 @@
+--- composeApp/src/commonMain/kotlin/com/yfuse/feature/player/DanmakuOverlay.kt (before turn)
++++ composeApp/src/commonMain/kotlin/com/yfuse/feature/player/DanmakuOverlay.kt
+@@ -6,7 +6,6 @@
+ import androidx.compose.foundation.layout.fillMaxSize
+ import androidx.compose.foundation.layout.fillMaxWidth
+ import androidx.compose.foundation.layout.offset
+-import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.LaunchedEffect
+ import androidx.compose.runtime.collectAsState
+@@ -44,6 +43,7 @@
+ import kotlinx.coroutines.flow.update
+ import kotlinx.coroutines.isActive
+ import kotlin.math.max
++import com.yfuse.core.designsystem.ThemeText as Text
+ 
+ private const val MAX_CACHED_DANMAKU_ENTRIES = 2_048
+ private const val FIXED_DURATION_MS = 4_000L

@@ -1,0 +1,16 @@
+{
+  "PlaySessionId": "session-a",
+  "MediaSources": [
+    {
+      "Id": "source-a",
+      "Name": "4K HEVC HDR",
+      "Container": "mkv",
+      "Bitrate": 42000000,
+      "SupportsDirectPlay": true,
+      "MediaStreams": [
+        {"Type": "Video", "IsDefault": true, "Codec": "hevc", "Profile": "Main 10", "Width": 3840, "Height": 2160, "RealFrameRate": 23.976, "VideoRangeType": "HDR10"},
+        {"Type": "Audio", "IsDefault": true, "Codec": "eac3", "Profile": "EAC3 ATMOS"}
+      ]
+    }
+  ]
+}

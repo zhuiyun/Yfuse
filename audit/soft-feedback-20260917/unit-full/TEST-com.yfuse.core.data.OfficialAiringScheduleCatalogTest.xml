@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.data.OfficialAiringScheduleCatalogTest" tests="9" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:03.021Z" hostname="DESKTOP-HM2J0FM" time="0.005">
+  <properties/>
+  <testcase name="a_slashless_fixed_zone_is_a_valid_broadcast_zone" classname="com.yfuse.core.data.OfficialAiringScheduleCatalogTest" time="0.002"/>
+  <testcase name="a_row_this_build_cannot_read_is_skipped_without_rejecting_the_publication" classname="com.yfuse.core.data.OfficialAiringScheduleCatalogTest" time="0.001"/>
+  <testcase name="official_coordinate_replaces_tmdb_date" classname="com.yfuse.core.data.OfficialAiringScheduleCatalogTest" time="0.0"/>
+  <testcase name="double_digit_revisions_are_newer_than_single_digit_revisions" classname="com.yfuse.core.data.OfficialAiringScheduleCatalogTest" time="0.001"/>
+  <testcase name="an_undecorated_official_row_reuses_another_row_poster_from_the_same_show" classname="com.yfuse.core.data.OfficialAiringScheduleCatalogTest" time="0.0"/>
+  <testcase name="homepage_merge_prioritizes_tracked_rows_without_dropping_official_titles" classname="com.yfuse.core.data.OfficialAiringScheduleCatalogTest" time="0.0"/>
+  <testcase name="live_action_schedule_matches_the_revised_official_member_calendar" classname="com.yfuse.core.data.OfficialAiringScheduleCatalogTest" time="0.001"/>
+  <testcase name="animation_with_a_similar_name_is_not_matched" classname="com.yfuse.core.data.OfficialAiringScheduleCatalogTest" time="0.0"/>
+  <testcase name="homepage_merge_keeps_distinct_official_titles_while_tmdb_identity_is_pending" classname="com.yfuse.core.data.OfficialAiringScheduleCatalogTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

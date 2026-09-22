@@ -1,0 +1,152 @@
+Yfuse playback diagnostic
+app.version=1.0.43 (205)
+session.origin=current-process
+session.observedAtEpochMs=1788878619977
+engine.selected=YCore2Native
+engine.actual=YCore 2.0
+engine.binding=YCore2Native
+route=PlatformDirect
+fallback.chain=YCore2Native
+fallback.reason=
+video.decoder=c2.mtk.hevc.decoder
+video.codec=video/hevc
+audio.decoder=c2.android.aac.decoder
+dynamicRange.input=HDR10/PQ
+dynamicRange.output=HDR10/PQ
+dynamicRange.mode=Unknown
+video.readiness=Rendering
+audio.readiness=Rendering
+audio.mode=Pcm
+audio.passthrough=false
+audio.immersiveCarrier=false
+audio.spatializedPcm=false
+audio.headTracker=false
+audio.pcm=true
+dropped.frames=55
+dropped.measured=true
+buffer.events=0
+rebuffer.total.ms=0
+rebuffer.longest.ms=0
+buffered.ms=0
+audio.underruns=0
+source.queue.bytes=24416606
+source.buffered.ms=106746
+source.starvations=0
+codec.resets=0
+av.offset.ms=unavailable
+av.measurement=等待音视频时钟样本
+surface.rebuilds=0
+render.api=MediaCodecSurface
+render.detail=Surface + AudioTrack
+output.evidence.generation=7
+output.evidence.reset=Seek
+mpv.rpu.rendered=false
+mpv.fel.composed=false
+mpv.evidence.generation=0
+
+session.timeline:
+at=1788878233532 positionMs=20822 item=0 state=buffering engine=YCore2Native video=Waiting audio=Waiting bufferEvents=0 recovery=0/0 surfaceRebuilds=0
+at=1788878233746 positionMs=20619 item=0 state=playing engine=YCore2Native video=Rendering audio=Waiting bufferEvents=0 recovery=0/0 surfaceRebuilds=0
+at=1788878233956 positionMs=20822 item=0 state=playing engine=YCore2Native video=Rendering audio=Rendering bufferEvents=0 recovery=0/0 surfaceRebuilds=0
+at=1788878246859 positionMs=33679 item=0 state=buffering engine=YCore2Native video=Waiting audio=Waiting bufferEvents=1 recovery=0/0 surfaceRebuilds=0
+at=1788878247260 positionMs=34006 item=0 state=playing engine=YCore2Native video=Rendering audio=Rendering bufferEvents=1 recovery=0/0 surfaceRebuilds=0
+at=1788878255365 positionMs=42059 item=0 state=buffering engine=YCore2Native video=Waiting audio=Waiting bufferEvents=2 recovery=0/0 surfaceRebuilds=0
+at=1788878255583 positionMs=42219 item=0 state=buffering engine=YCore2Native video=Waiting audio=Waiting bufferEvents=2 recovery=0/0 surfaceRebuilds=0
+at=1788878255809 positionMs=42432 item=0 state=playing engine=YCore2Native video=Rendering audio=Rendering bufferEvents=2 recovery=0/0 surfaceRebuilds=0
+at=1788878273910 positionMs=60438 item=0 state=paused engine=YCore2Native video=Rendering audio=Rendering bufferEvents=2 recovery=0/0 surfaceRebuilds=0
+at=1788878304801 positionMs=0 item=0 state=buffering engine=YCore2Native video=Waiting audio=Waiting bufferEvents=0 recovery=0/0 surfaceRebuilds=0
+at=1788878308737 positionMs=4 item=0 state=buffering engine=YCore2Native video=Waiting audio=Rendering bufferEvents=0 recovery=0/0 surfaceRebuilds=0
+at=1788878308756 positionMs=4 item=0 state=playing engine=YCore2Native video=Rendering audio=Rendering bufferEvents=0 recovery=0/0 surfaceRebuilds=0
+at=1788878320097 positionMs=94016 item=0 state=buffering engine=YCore2Native video=Rendering audio=Rendering bufferEvents=0 recovery=0/0 surfaceRebuilds=0
+at=1788878321799 positionMs=94016 item=0 state=buffering engine=YCore2Native video=Waiting audio=Waiting bufferEvents=0 recovery=0/0 surfaceRebuilds=0
+at=1788878321832 positionMs=94016 item=0 state=buffering engine=YCore2Native video=Waiting audio=Rendering bufferEvents=0 recovery=0/0 surfaceRebuilds=0
+at=1788878321932 positionMs=94016 item=0 state=playing engine=YCore2Native video=Rendering audio=Rendering bufferEvents=0 recovery=0/0 surfaceRebuilds=0
+at=1788878365636 positionMs=165848 item=0 state=buffering engine=YCore2Native video=Rendering audio=Rendering bufferEvents=0 recovery=0/0 surfaceRebuilds=0
+at=1788878365721 positionMs=165848 item=0 state=buffering engine=YCore2Native video=Waiting audio=Waiting bufferEvents=0 recovery=0/0 surfaceRebuilds=0
+at=1788878365759 positionMs=165848 item=0 state=buffering engine=YCore2Native video=Waiting audio=Rendering bufferEvents=0 recovery=0/0 surfaceRebuilds=0
+at=1788878365884 positionMs=165848 item=0 state=playing engine=YCore2Native video=Rendering audio=Rendering bufferEvents=0 recovery=0/0 surfaceRebuilds=0
+at=1788878366930 positionMs=169741 item=0 state=buffering engine=YCore2Native video=Rendering audio=Rendering bufferEvents=0 recovery=0/0 surfaceRebuilds=0
+at=1788878366976 positionMs=169742 item=0 state=playing engine=YCore2Native video=Waiting audio=Waiting bufferEvents=0 recovery=0/0 surfaceRebuilds=0
+at=1788878366994 positionMs=169742 item=0 state=playing engine=YCore2Native video=Waiting audio=Rendering bufferEvents=0 recovery=0/0 surfaceRebuilds=0
+at=1788878367091 positionMs=169742 item=0 state=playing engine=YCore2Native video=Rendering audio=Rendering bufferEvents=0 recovery=0/0 surfaceRebuilds=0
+at=1788878367240 positionMs=172741 item=0 state=buffering engine=YCore2Native video=Rendering audio=Rendering bufferEvents=0 recovery=0/0 surfaceRebuilds=0
+at=1788878367305 positionMs=172741 item=0 state=playing engine=YCore2Native video=Waiting audio=Waiting bufferEvents=0 recovery=0/0 surfaceRebuilds=0
+at=1788878367338 positionMs=172741 item=0 state=playing engine=YCore2Native video=Waiting audio=Rendering bufferEvents=0 recovery=0/0 surfaceRebuilds=0
+at=1788878367375 positionMs=172741 item=0 state=playing engine=YCore2Native video=Rendering audio=Rendering bufferEvents=0 recovery=0/0 surfaceRebuilds=0
+at=1788878367542 positionMs=175741 item=0 state=buffering engine=YCore2Native video=Rendering audio=Rendering bufferEvents=0 recovery=0/0 surfaceRebuilds=0
+at=1788878367588 positionMs=175741 item=0 state=buffering engine=YCore2Native video=Waiting audio=Waiting bufferEvents=0 recovery=0/0 surfaceRebuilds=0
+at=1788878367620 positionMs=175741 item=0 state=buffering engine=YCore2Native video=Waiting audio=Rendering bufferEvents=0 recovery=0/0 surfaceRebuilds=0
+at=1788878367753 positionMs=175741 item=0 state=playing engine=YCore2Native video=Rendering audio=Rendering bufferEvents=0 recovery=0/0 surfaceRebuilds=0
+at=1788878369114 positionMs=179981 item=0 state=buffering engine=YCore2Native video=Rendering audio=Rendering bufferEvents=0 recovery=0/0 surfaceRebuilds=0
+at=1788878369161 positionMs=179981 item=0 state=buffering engine=YCore2Native video=Waiting audio=Waiting bufferEvents=0 recovery=0/0 surfaceRebuilds=0
+at=1788878369194 positionMs=180008 item=0 state=playing engine=YCore2Native video=Waiting audio=Rendering bufferEvents=0 recovery=0/0 surfaceRebuilds=0
+at=1788878369325 positionMs=180008 item=0 state=playing engine=YCore2Native video=Rendering audio=Rendering bufferEvents=0 recovery=0/0 surfaceRebuilds=0
+at=1788878369426 positionMs=182981 item=0 state=buffering engine=YCore2Native video=Rendering audio=Rendering bufferEvents=0 recovery=0/0 surfaceRebuilds=0
+at=1788878369458 positionMs=182981 item=0 state=playing engine=YCore2Native video=Waiting audio=Waiting bufferEvents=0 recovery=0/0 surfaceRebuilds=0
+at=1788878369510 positionMs=182981 item=0 state=playing engine=YCore2Native video=Waiting audio=Rendering bufferEvents=0 recovery=0/0 surfaceRebuilds=0
+at=1788878369541 positionMs=182981 item=0 state=playing engine=YCore2Native video=Rendering audio=Rendering bufferEvents=0 recovery=0/0 surfaceRebuilds=0
+at=1788878369732 positionMs=185981 item=0 state=buffering engine=YCore2Native video=Rendering audio=Rendering bufferEvents=0 recovery=0/0 surfaceRebuilds=0
+at=1788878369790 positionMs=185981 item=0 state=buffering engine=YCore2Native video=Waiting audio=Waiting bufferEvents=0 recovery=0/0 surfaceRebuilds=0
+at=1788878369839 positionMs=185981 item=0 state=buffering engine=YCore2Native video=Waiting audio=Rendering bufferEvents=0 recovery=0/0 surfaceRebuilds=0
+at=1788878369939 positionMs=185981 item=0 state=playing engine=YCore2Native video=Rendering audio=Rendering bufferEvents=0 recovery=0/0 surfaceRebuilds=0
+at=1788878370028 positionMs=188981 item=0 state=buffering engine=YCore2Native video=Rendering audio=Rendering bufferEvents=0 recovery=0/0 surfaceRebuilds=0
+at=1788878370055 positionMs=188981 item=0 state=buffering engine=YCore2Native video=Waiting audio=Waiting bufferEvents=0 recovery=0/0 surfaceRebuilds=0
+at=1788878370070 positionMs=188981 item=0 state=buffering engine=YCore2Native video=Waiting audio=Rendering bufferEvents=0 recovery=0/0 surfaceRebuilds=0
+at=1788878370105 positionMs=188981 item=0 state=playing engine=YCore2Native video=Rendering audio=Rendering bufferEvents=0 recovery=0/0 surfaceRebuilds=0
+at=1788878371783 positionMs=190635 item=0 state=paused engine=YCore2Native video=Rendering audio=Rendering bufferEvents=0 recovery=0/0 surfaceRebuilds=0
+at=1788878390409 positionMs=0 item=0 state=buffering engine=YCore2Native video=Waiting audio=Waiting bufferEvents=0 recovery=0/0 surfaceRebuilds=0
+at=1788878400269 positionMs=170 item=0 state=playing engine=YCore2Native video=Rendering audio=Waiting bufferEvents=0 recovery=0/0 surfaceRebuilds=0
+at=1788878400466 positionMs=213 item=0 state=playing engine=YCore2Native video=Rendering audio=Rendering bufferEvents=0 recovery=0/0 surfaceRebuilds=0
+at=1788878438472 positionMs=38186 item=0 state=buffering engine=YCore2Native video=Waiting audio=Waiting bufferEvents=1 recovery=0/0 surfaceRebuilds=0
+at=1788878439101 positionMs=38190 item=0 state=buffering engine=YCore2Native video=Waiting audio=Waiting bufferEvents=1 recovery=0/0 surfaceRebuilds=0
+at=1788878439499 positionMs=38391 item=0 state=buffering engine=YCore2Native video=Waiting audio=Waiting bufferEvents=1 recovery=0/0 surfaceRebuilds=0
+at=1788878442594 positionMs=38391 item=0 state=buffering engine=YCore2Native video=Waiting audio=Waiting bufferEvents=1 recovery=0/0 surfaceRebuilds=0
+at=1788878442796 positionMs=38391 item=0 state=buffering engine=YCore2Native video=Rendering audio=Waiting bufferEvents=1 recovery=0/0 surfaceRebuilds=0
+at=1788878445458 positionMs=38243 item=0 state=playing engine=YCore2Native video=Rendering audio=Waiting bufferEvents=1 recovery=0/0 surfaceRebuilds=0
+at=1788878445660 positionMs=38328 item=0 state=playing engine=YCore2Native video=Rendering audio=Rendering bufferEvents=1 recovery=0/0 surfaceRebuilds=0
+at=1788878448334 positionMs=43184 item=0 state=buffering engine=YCore2Native video=Rendering audio=Rendering bufferEvents=1 recovery=0/0 surfaceRebuilds=0
+at=1788878448388 positionMs=43184 item=0 state=buffering engine=YCore2Native video=Waiting audio=Waiting bufferEvents=1 recovery=0/0 surfaceRebuilds=0
+at=1788878448591 positionMs=43338 item=0 state=buffering engine=YCore2Native video=Waiting audio=Waiting bufferEvents=1 recovery=0/0 surfaceRebuilds=0
+at=1788878448668 positionMs=46184 item=0 state=buffering engine=YCore2Native video=Waiting audio=Waiting bufferEvents=1 recovery=0/0 surfaceRebuilds=0
+at=1788878451540 positionMs=46328 item=0 state=playing engine=YCore2Native video=Rendering audio=Waiting bufferEvents=1 recovery=0/0 surfaceRebuilds=0
+at=1788878451738 positionMs=46371 item=0 state=playing engine=YCore2Native video=Rendering audio=Rendering bufferEvents=1 recovery=0/0 surfaceRebuilds=0
+at=1788878455854 positionMs=49298 item=0 state=playing engine=YCore2Native video=Rendering audio=Waiting bufferEvents=1 recovery=0/0 surfaceRebuilds=0
+at=1788878456269 positionMs=49505 item=0 state=buffering engine=YCore2Native video=Rendering audio=Waiting bufferEvents=2 recovery=0/0 surfaceRebuilds=0
+at=1788878488370 positionMs=49505 item=0 state=buffering engine=YCore2Native video=Waiting audio=Waiting bufferEvents=2 recovery=0/1 surfaceRebuilds=0
+at=1788878488392 positionMs=49505 item=0 state=buffering engine=YCore2Native video=Waiting audio=Waiting bufferEvents=0 recovery=0/1 surfaceRebuilds=0
+at=1788878488664 positionMs=49505 item=0 state=error engine=YCore2Native video=Waiting audio=Waiting bufferEvents=0 recovery=0/1 surfaceRebuilds=0
+at=1788878491977 positionMs=49505 item=0 state=error engine=YCore2Native video=Released audio=Released bufferEvents=0 recovery=0/1 surfaceRebuilds=0
+at=1788878572944 positionMs=49505 item=0 state=buffering engine=YCore2Native video=Waiting audio=Waiting bufferEvents=0 recovery=0/0 surfaceRebuilds=0
+at=1788878579950 positionMs=49579 item=0 state=buffering engine=YCore2Native video=Waiting audio=Rendering bufferEvents=0 recovery=0/0 surfaceRebuilds=0
+at=1788878580679 positionMs=50090 item=0 state=playing engine=YCore2Native video=Rendering audio=Rendering bufferEvents=0 recovery=0/0 surfaceRebuilds=0
+at=1788878580709 positionMs=50090 item=0 state=buffering engine=YCore2Native video=Rendering audio=Rendering bufferEvents=0 recovery=0/0 surfaceRebuilds=0
+at=1788878581113 positionMs=50090 item=0 state=buffering engine=YCore2Native video=Waiting audio=Waiting bufferEvents=0 recovery=0/0 surfaceRebuilds=0
+at=1788878581178 positionMs=50090 item=0 state=buffering engine=YCore2Native video=Waiting audio=Rendering bufferEvents=0 recovery=0/0 surfaceRebuilds=0
+at=1788878581291 positionMs=49749 item=0 state=playing engine=YCore2Native video=Waiting audio=Rendering bufferEvents=0 recovery=0/0 surfaceRebuilds=0
+at=1788878581921 positionMs=50218 item=0 state=playing engine=YCore2Native video=Rendering audio=Rendering bufferEvents=0 recovery=0/0 surfaceRebuilds=0
+at=1788878620104 positionMs=88234 item=0 state=paused engine=YCore2Native video=Rendering audio=Rendering bufferEvents=0 recovery=0/0 surfaceRebuilds=0
+
+remotePolicy.revision=0
+remotePolicy.expiresAtEpochMs=0
+remotePolicy.disabled=
+nativeCrash.Mpv.count=0
+nativeCrash.Mdk.count=0
+nativeCrash.YCoreDemux.count=0
+nativeCrash.YCoreGpu.count=0
+native.mpv.core.revision=b955aa28f3dc93dc6b21485a0d5b7feb8e6dc10f
+native.mpv.android.revision=fcf6745703dc1265bca88f12fee8fc355ddf251e
+native.ffmpeg.revision=b79d4c4c0a160fc46988e98505af6039a53ad53e
+native.libplacebo.revision=22ee762e8e0890fc54068beb670310f0edce7263
+native.libbluray.revision=7d94f2660af5bfc16015291a03539329135c18f1
+native.libudfread.revision=139a2194525f2745b98a98e4d8fa627d07440176
+native.mdk.compile.version=0.37.0
+native.ycore.gpu.packaged=true
+native.package.profile=full
+native.ycore.demux.loaded=true
+native.ycore.demux.openFailureDetail=available
+native.ycore.demux.handleContract=registry
+native.libmdk.so.sha256=1ae87eae1c5633238ac69acc2bba7c44b2c974c8f32c21ac35778376f77ce575
+native.libmpv.so.sha256=d06566edd8dd09c7419f61f9888d2f29e5e186ff578f8a984f1c968cab7baee6
+native.libycore_demux.so.sha256=3183aacc1f75e21dda76e9c713857b048633b90616933ae17f30fc15fd34b542
+native.libycore_gpu.so.sha256=941028d1295223402926cf416098966ead500559daa1d992461f90243079c4d2
+native.libyfuse-mdk-jni.so.sha256=29d0f559c1d4ac4c9ac29a386d27a7538357ef1a305246aff4d8ab70535a3757

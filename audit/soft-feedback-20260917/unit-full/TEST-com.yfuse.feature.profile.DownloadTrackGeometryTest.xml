@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.profile.DownloadTrackGeometryTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:16.241Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="spring_overshoot_and_completion_never_draw_outside_the_track" classname="com.yfuse.feature.profile.DownloadTrackGeometryTest" time="0.001"/>
+  <testcase name="rtl_mirrors_start_alignment_and_preserves_nested_pixel_rounding" classname="com.yfuse.feature.profile.DownloadTrackGeometryTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

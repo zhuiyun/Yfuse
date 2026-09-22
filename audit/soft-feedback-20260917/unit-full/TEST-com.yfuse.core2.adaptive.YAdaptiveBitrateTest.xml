@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.adaptive.YAdaptiveBitrateTest" tests="9" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:08.565Z" hostname="DESKTOP-HM2J0FM" time="0.009">
+  <properties/>
+  <testcase name="hls_alignment_keeps_only_decoder_and_timeline_compatible_segments" classname="com.yfuse.core2.adaptive.YAdaptiveBitrateTest" time="0.003"/>
+  <testcase name="low_buffer_never_steps_above_what_the_bandwidth_budget_allows" classname="com.yfuse.core2.adaptive.YAdaptiveBitrateTest" time="0.001"/>
+  <testcase name="selector_downshifts_immediately_but_requires_buffer_for_upgrade" classname="com.yfuse.core2.adaptive.YAdaptiveBitrateTest" time="0.0"/>
+  <testcase name="low_buffer_steps_down_one_rendition_instead_of_dropping_to_the_floor" classname="com.yfuse.core2.adaptive.YAdaptiveBitrateTest" time="0.0"/>
+  <testcase name="estimator_smooths_samples_without_accepting_zero_duration" classname="com.yfuse.core2.adaptive.YAdaptiveBitrateTest" time="0.0"/>
+  <testcase name="device_resolution_and_metered_budget_bound_the_selection" classname="com.yfuse.core2.adaptive.YAdaptiveBitrateTest" time="0.0"/>
+  <testcase name="dash_switching_ladder_excludes_different_init_codec_and_timeline" classname="com.yfuse.core2.adaptive.YAdaptiveBitrateTest" time="0.003"/>
+  <testcase name="hls_alignment_rejects_range_or_encryption_changes" classname="com.yfuse.core2.adaptive.YAdaptiveBitrateTest" time="0.001"/>
+  <testcase name="hls_alignment_never_switches_between_dolby_profiles_or_compatibility_brands" classname="com.yfuse.core2.adaptive.YAdaptiveBitrateTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

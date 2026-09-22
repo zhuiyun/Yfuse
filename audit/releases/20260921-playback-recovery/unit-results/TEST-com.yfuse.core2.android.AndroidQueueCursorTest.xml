@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.AndroidQueueCursorTest" tests="1" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:43:57.930Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="inserting_history_and_reordering_the_catalog_keep_the_same_active_media" classname="com.yfuse.core2.android.AndroidQueueCursorTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,44 @@
+--- composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerChromeRefined.kt (before turn)
++++ composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerChromeRefined.kt
+@@ -3,6 +3,7 @@
+ import androidx.compose.animation.AnimatedVisibility
+ import androidx.compose.animation.EnterTransition
+ import androidx.compose.animation.ExitTransition
++import androidx.compose.animation.core.Animatable
+ import androidx.compose.animation.core.animateFloatAsState
+ import androidx.compose.animation.core.tween
+ import androidx.compose.animation.expandVertically
+@@ -33,6 +34,7 @@
+ import androidx.compose.material3.Icon
+ import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
++import androidx.compose.runtime.LaunchedEffect
+ import androidx.compose.runtime.State
+ import androidx.compose.runtime.getValue
+ import androidx.compose.runtime.mutableFloatStateOf
+@@ -80,6 +82,7 @@
+ import com.yfuse.core.designsystem.HapticSignal
+ import com.yfuse.core.designsystem.LocalAccessibilityOptions
+ import com.yfuse.core.designsystem.LocalHaptics
++import com.yfuse.core.designsystem.LocalRouteVisible
+ import com.yfuse.core.designsystem.Motion
+ import com.yfuse.core.designsystem.PlayerTokens
+ import com.yfuse.core.designsystem.ambientSeekAccent
+@@ -646,7 +649,16 @@
+     ) {
+         // Both rails keep fixed geometry; progress invalidates paint, not child measurement.
+         val played = rememberUpdatedState(shownFraction)
+-        val buffered = rememberUpdatedState(bufferedFraction)
++        val buffered = remember(durationMs) { Animatable(bufferedFraction.coerceIn(0f, 1f)) }
++        val moving = !reduceMotion && LocalRouteVisible.current
++        LaunchedEffect(bufferedFraction, durationMs, moving) {
++            val target = bufferedFraction.coerceIn(0f, 1f)
++            if (!moving || target < buffered.value) {
++                buffered.snapTo(target)
++            } else {
++                buffered.animateTo(target, tween(Motion.STANDARD, easing = Motion.Curve))
++            }
++        }
+         Box(
+             Modifier
+                 .fillMaxWidth()

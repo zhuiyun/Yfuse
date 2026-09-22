@@ -1,0 +1,5 @@
+// Keep verification outputs separate from other tasks building the same checkout.
+gradle.beforeProject { project ->
+    def name = project.path == ':' ? 'root' : project.path.substring(1).replace(':', '/')
+    project.layout.buildDirectory.set(new File(project.rootDir, ".gradle-tmp/health-build/${name}/build"))
+}

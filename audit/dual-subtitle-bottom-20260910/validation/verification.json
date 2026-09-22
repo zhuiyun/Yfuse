@@ -1,0 +1,93 @@
+{
+  "Result": "BUILD SUCCESSFUL",
+  "Tests": 75.0,
+  "Suites": [
+    {
+      "Suite": "com.yfuse.app.RootTabMotionTest",
+      "Tests": 6,
+      "Failures": 0,
+      "Errors": 0,
+      "Skipped": 0
+    },
+    {
+      "Suite": "com.yfuse.core.data.PlaybackPreferencesTest",
+      "Tests": 16,
+      "Failures": 0,
+      "Errors": 0,
+      "Skipped": 0
+    },
+    {
+      "Suite": "com.yfuse.core.data.ThemePreferencesTest",
+      "Tests": 2,
+      "Failures": 0,
+      "Errors": 0,
+      "Skipped": 0
+    },
+    {
+      "Suite": "com.yfuse.core.designsystem.AmbientLightTest",
+      "Tests": 8,
+      "Failures": 0,
+      "Errors": 0,
+      "Skipped": 0
+    },
+    {
+      "Suite": "com.yfuse.core.designsystem.AmbientLightTransitionTest",
+      "Tests": 4,
+      "Failures": 0,
+      "Errors": 0,
+      "Skipped": 0
+    },
+    {
+      "Suite": "com.yfuse.core.designsystem.LoadingMotionTest",
+      "Tests": 4,
+      "Failures": 0,
+      "Errors": 0,
+      "Skipped": 0
+    },
+    {
+      "Suite": "com.yfuse.core.designsystem.ThemeCrossfadeTest",
+      "Tests": 2,
+      "Failures": 0,
+      "Errors": 0,
+      "Skipped": 0
+    },
+    {
+      "Suite": "com.yfuse.feature.player.AmbientCopyTest",
+      "Tests": 10,
+      "Failures": 0,
+      "Errors": 0,
+      "Skipped": 0
+    },
+    {
+      "Suite": "com.yfuse.feature.player.AmbientSamplingPolicyTest",
+      "Tests": 5,
+      "Failures": 0,
+      "Errors": 0,
+      "Skipped": 0
+    },
+    {
+      "Suite": "com.yfuse.feature.player.Core2SurfaceTest",
+      "Tests": 7,
+      "Failures": 0,
+      "Errors": 0,
+      "Skipped": 0
+    },
+    {
+      "Suite": "com.yfuse.feature.search.SearchResultsHandoffTest",
+      "Tests": 11,
+      "Failures": 0,
+      "Errors": 0,
+      "Skipped": 0
+    }
+  ],
+  "Sources": [
+    {
+      "Path": "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/Core2Surface.kt",
+      "SHA256": "97EDF9144CBC9C3707B6B22D8A0475F69D34CD61A2666FAAEB43357F35F6B5A8"
+    },
+    {
+      "Path": "composeApp/src/androidUnitTest/kotlin/com/yfuse/feature/player/Core2SurfaceTest.kt",
+      "SHA256": "8465DDA646EF0B1D04C1E93F86158E7CE17B7A35149C30BE4D93B8C947462275"
+    }
+  ]
+}

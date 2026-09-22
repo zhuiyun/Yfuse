@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.WatchTogetherStatusTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:16.232Z" hostname="DESKTOP-HM2J0FM" time="0.002">
+  <properties/>
+  <testcase name="participant_quality_combines_latency_drift_and_buffering" classname="com.yfuse.feature.player.WatchTogetherStatusTest" time="0.001"/>
+  <testcase name="shared_controller_is_not_locked_out_of_playback" classname="com.yfuse.feature.player.WatchTogetherStatusTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

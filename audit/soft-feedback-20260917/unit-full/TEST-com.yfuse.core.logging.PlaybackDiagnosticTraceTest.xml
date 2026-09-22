@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.logging.PlaybackDiagnosticTraceTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:04.931Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="startup_stages_can_be_joined_after_diagnostic_redaction_without_exposing_the_session" classname="com.yfuse.core.logging.PlaybackDiagnosticTraceTest" time="0.0"/>
+  <testcase name="unknown_sessions_do_not_share_a_fabricated_trace" classname="com.yfuse.core.logging.PlaybackDiagnosticTraceTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

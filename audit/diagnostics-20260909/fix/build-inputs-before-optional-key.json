@@ -1,0 +1,278 @@
+[
+  {
+    "path": ".github/workflows/repackage-android-signed.yml",
+    "sha256": "E888CE146941359E5ADCFE88C207F989D231B2660F4946AFA2A1DCA1190A8DF6"
+  },
+  {
+    "path": ".github/workflows/sign-android-branch.yml",
+    "sha256": "E36DA2EF81B6507479C5134AE6F86255E397D0D47321B8D40682A790DDA814AC"
+  },
+  {
+    "path": ".github/workflows/subtitle-regex-hotfix.yml",
+    "sha256": "9EE0B5992F269E6DC7931E272916311AA53F89AFF96469FBC49914BD517993EF"
+  },
+  {
+    "path": ".github/workflows/tv-release.yml",
+    "sha256": "ED0F9A3DB7D9EF8ACD50D5926ED72882F3B197C5F28EC5A530895BAC4FD7FFC8"
+  },
+  {
+    "path": ".github/workflows/ycore-audio-repair.yml",
+    "sha256": "F048576BD3B66C247D758E056C06F9ACC8F4D9FE25CB645059AB17213D448262"
+  },
+  {
+    "path": "composeApp/build.gradle.kts",
+    "sha256": "92E9395903F58776B4B23303A146D09C38D55306D8F21732D00D41FE7B256A19"
+  },
+  {
+    "path": "composeApp/libs/ycore-native.aar",
+    "sha256": "979230AC598CF6CBDA8A62427163B12EB5500C0530F89B5CCEEF4C506B0FFC0E"
+  },
+  {
+    "path": "composeApp/libs/ycore-native.aar.sha256",
+    "sha256": "224DB07C7EEC835EC392C644EDB8CB28833808CED62E4351DCF31D352727FDF6"
+  },
+  {
+    "path": "composeApp/libs/ycore-native.sources.txt",
+    "sha256": "3EDDBBC22874E3EF8C401A64F4C833A84B693A93BCB8A799E243A0BA9D928A05"
+  },
+  {
+    "path": "composeApp/src/androidInstrumentedTest/kotlin/com/yfuse/core2/android/AndroidPgsDisplaySetInstrumentedTest.kt",
+    "sha256": "3B7E6E119469AB6D34B5C2DE2872E567AEB54C548C6B99F95DB3334BFB61F733"
+  },
+  {
+    "path": "composeApp/src/androidInstrumentedTest/kotlin/com/yfuse/core2/android/FfmpegNativeBridgeContractInstrumentedTest.kt",
+    "sha256": "05B98D2221818E7DA4815AEE1A6EEA9EC58A9FA9EC3B20BF8355F20BD70C724C"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/core/logging/DiagnosticLogStore.android.kt",
+    "sha256": "CAAE3AF8CEAF1A0ADD9EBE6E4A9FDF50A7C623C4718EA88ED22825A8B18D0648"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/core/performance/AppJankMonitor.android.kt",
+    "sha256": "BA61BB7B2D2AB5CAB93D35C3645B7B81C6FE05C4B5775E42C465174D437044ED"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/core/playback/AndroidBlockingMediaProbeLane.kt",
+    "sha256": "317B33AAF371F0BCC4E3E7A5446BDFF141C95A9A225B4558134C4C06CE96B5F3"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidAdaptiveCore2YPlayer.kt",
+    "sha256": "1403559B205883600D23A0E963B06BB7C5F217594FFAA4A9B0A038C8F9E41650"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidAdaptivePresentationState.kt",
+    "sha256": "1EB5F1D421EE87FCE388B2891307EFB5E067E5460963C633D0B6D4DF844A04F6"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidAssSubtitleRenderer.kt",
+    "sha256": "7DF932299533BF94E8A286385B2C8C2817BCDBDDAD9ABDFE54364DAE93537BE0"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidBoundedProbe.kt",
+    "sha256": "D1156BA4C7E7F3D225E0801ED58EA18F0915E5FFAD1CB6CDDE5286DA34FCCBD1"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidCodecConfigurationProbe.kt",
+    "sha256": "FBF12D410691A0E72F706BC14784A8BECD04F441508E613579DE133F39C74AF6"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidCodecSampleProbe.kt",
+    "sha256": "DA75F4B54A43C4FD80504ACE1AEC79A45630D316648A09AD271B58A0A30B6838"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidCore2MediaProbe.kt",
+    "sha256": "0EE1E3379F2B702599595E26444408B27B0031E0A9BA770DA4A52A39D108B207"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidDemuxReadAheadNode.kt",
+    "sha256": "D80FCAAA1A5F3AB32116EA65B059AEBEE616479B1445ECDB129B2B1B79D87D73"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidEnhancedMediaProbe.kt",
+    "sha256": "D1C02E5FD4720E8B92661BB60810F24AC38859293045E159BD67D1CD5C69E134"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidEnhancedPlaybackSession.kt",
+    "sha256": "5930063F084CABF834E0B726B75C874363501AC66897E4689F0EB9991553DC8B"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidExternalSubtitleLoader.kt",
+    "sha256": "B11BE82BBB4360B0E91F03DE2F50B5DBEFE46B1F9C261CEA8EAA7B3AE404559F"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidFfmpegDemuxer.kt",
+    "sha256": "1600C92429AA6D48023B8BD93C271E777285D15F6C57DDD5F3D5F4B6D66A9C11"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidMediaCodecVideoNode.kt",
+    "sha256": "1261E6F503563F29492AEAE9B2955886943014A002098F653202D1E163497376"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidMediaExtractorDemuxNode.kt",
+    "sha256": "D878CFEBAFCD3A255D959791318E81B4BF514BFFF0ED82B45FB36B6F2AFB4F9D"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidNativeDirectYPlayer.kt",
+    "sha256": "C7AE5DB634ADCEC1AB6010A44C6C5AD2CE4788C3DCDCEE88842D99103EA1F274"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidNativeEnhancedYPlayer.kt",
+    "sha256": "1ABDC450DEE4DB198F5A1C38111C597D42A38502E0BDCE8E8B757CF3000FC418"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidNativeTunnelYPlayer.kt",
+    "sha256": "F5C2A9C6C40034397B58E8974A2A771273C3C9BB955E2BF2037363AC71F665AB"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidPreparedEnhancedDemux.kt",
+    "sha256": "7316397142AE275C37439239921794D9D5C7B5C04517E5F355D980CBEE818295"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidPreparedExtractorSlot.kt",
+    "sha256": "862E9BA8A3F1D22887D2E18A1CE9DB7193E2EE70B5163031E34C92A9CDA42D98"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidProbeBudget.kt",
+    "sha256": "3A7C2F3D82B695CE88691ADA9583D8963FC927E57F9A5390E881BDEFF24B7FF6"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidProbeBudgetCoroutines.kt",
+    "sha256": "627ABB9857DD1548E62491F34DCB4239F6C952A1F5E5130043AEC5F83C27EB76"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidSerializedPlayerRelease.kt",
+    "sha256": "1593025042499C79B565A42D86801A70DB0CC272E4D489139CC6F39F2F165686"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidTransportMediaDataSource.kt",
+    "sha256": "9797791DE2127B403C72AE19DA9DFE4900100A9A28C8F0C7F7088F95A76129BA"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidYCoreHttpProxy.kt",
+    "sha256": "9084F037948C4EC5611A1377B856ABFFF5ABE661E403D7F1458908E5EA640979"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/FfmpegNativeBridge.kt",
+    "sha256": "7B412B4CF79FFD3E92DB28F39A8DA203735328852258275586B0AB8A0A080C36"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlaybackDiagnosticReportRegistry.kt",
+    "sha256": "90DD1C5E2CB358EB657DF9AF6620562BB96349560EF16CACC5616393270A5DAD"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerRoot.kt",
+    "sha256": "2809940A590C328F7E8CCD92D869700209B40055CE03C5C05F2655427E4D88E8"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/update/AppUpdateManager.kt",
+    "sha256": "6905992A43392624A8C9A50D600DC2D56FDF7292B70D014D1B8432F476D38B83"
+  },
+  {
+    "path": "composeApp/src/androidUnitTest/kotlin/com/yfuse/core/performance/JankFrameWindowTest.kt",
+    "sha256": "FECFDBF13915A665B54C7D3E5E65CCEC22E71EDB4346B79D515489A9279EA8E2"
+  },
+  {
+    "path": "composeApp/src/androidUnitTest/kotlin/com/yfuse/core/playback/AndroidBlockingMediaProbeLaneTest.kt",
+    "sha256": "DAD98CA58ABB2F76BE7E635995C4519DFE14ED668E43B2FF1EC46CEED03E4D58"
+  },
+  {
+    "path": "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidAdaptiveCore2RecoveryPlanTest.kt",
+    "sha256": "25A3A7C9466E6AFDFC9CF45FDFF9DB4EA2E8AED51577FC15E98B90ACD4DE37FB"
+  },
+  {
+    "path": "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidAdaptivePresentationStateTest.kt",
+    "sha256": "05F7246BCCB4B3DD6EEC030EBC60C8249D1C358BB831DED2951307C38997ACE8"
+  },
+  {
+    "path": "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidAssSubtitleRendererTest.kt",
+    "sha256": "DBEF5B9C431F5F2DB6519C8BF3D81DFCBDDD7607886B3CA21953B15229683D8C"
+  },
+  {
+    "path": "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidBoundedProbeTest.kt",
+    "sha256": "17416A97AAA172682D3DB97D6AEAA8F2389A72D78C34CB9E6276588CD3D4F63D"
+  },
+  {
+    "path": "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidDemuxReadAheadNodeTest.kt",
+    "sha256": "DD5A6B496D54F27A02EE07E65FE77015406BB98E13250463EE507EDE8A7052DF"
+  },
+  {
+    "path": "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidExternalSubtitleCancellationTest.kt",
+    "sha256": "0A7249F70D9A8EDFA771A18C686760213627B4FAD08E0628CB6437CC91EA9ABF"
+  },
+  {
+    "path": "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidFfmpegDemuxerMappingTest.kt",
+    "sha256": "F60A2CF74F9AFA0227A65D84C591A49CF52AC3DB81A2A0B88F2B94CA918911D2"
+  },
+  {
+    "path": "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidMediaCodecVideoNodePolicyTest.kt",
+    "sha256": "4A4254A21EEEECBDEA4D8A8FF938D39CDBCC028BA9FF17FDCEEC1B05A5067461"
+  },
+  {
+    "path": "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidProbeBudgetTest.kt",
+    "sha256": "21E859EC9DA7C7944D5268C2ED9B878B36F7157A02D3CDA40080C31B26EC095E"
+  },
+  {
+    "path": "composeApp/src/androidUnitTest/kotlin/com/yfuse/feature/player/PlaybackReportOriginTest.kt",
+    "sha256": "52887AE6808C08ED6B10545CFA6FDCC86FD8B22CD743C289714711B0168E6FFA"
+  },
+  {
+    "path": "composeApp/src/androidUnitTest/kotlin/com/yfuse/update/UpdateCheckPolicyTest.kt",
+    "sha256": "94E769436262FFD73FF516797C57BC13E69665CD6E61B38F2287AB1D30CEA0E7"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/data/AiringCalendarRepository.kt",
+    "sha256": "52D37A27AD7E5BD7DE288D84BC7D66B5BD35C99C1F8652D284717FC256EA8D51"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core2/demux/YDemuxer.kt",
+    "sha256": "C628C06671F94363E479B4C92CCDC8B3A9745F58521666B5E6095B50AD15AA69"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core2/subtitle/YEmbeddedTextSubtitleQueue.kt",
+    "sha256": "B3714BDDFD20C43DE8A3973F97DFC097E9E40CCFBAE11AB0A1E6E825C0E05F75"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core2/subtitle/YSubtitle.kt",
+    "sha256": "1ADD59AC175E442F2EDED18E749601B92F1185E9F16A067D9FD498FDEC871BEE"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core2/subtitle/YSubtitleCueBuffer.kt",
+    "sha256": "30872CD3CAE353166FDE0D4B6187AC501B984B5F5429187C7ADA90EB9D6BC8CE"
+  },
+  {
+    "path": "composeApp/src/commonTest/kotlin/com/yfuse/core/data/SeriesCalendarLoadingTest.kt",
+    "sha256": "B72C2DBBD947401A04429C18CF5198A83659B8499376BB20793C713CE0200E32"
+  },
+  {
+    "path": "composeApp/src/commonTest/kotlin/com/yfuse/core2/subtitle/YEmbeddedTextSubtitleQueueTest.kt",
+    "sha256": "CEF0CB44241E2762C8585E5214A4017DEA14918CE713C4C2ABC83BDAF359BCDD"
+  },
+  {
+    "path": "composeApp/src/commonTest/kotlin/com/yfuse/core2/subtitle/YSubtitleCueBufferTest.kt",
+    "sha256": "22ECE35B5DAE9BBF8A10155DFA563799237D7824D8A91E9E59E14E566E2D1E15"
+  },
+  {
+    "path": "docs/android-release.md",
+    "sha256": "F7A3768BCD9EA6CD6A5890A85E4EF55FF2387A90C5C2305C9B0837B1A269BDE7"
+  },
+  {
+    "path": "gradle.properties",
+    "sha256": "E71873316018FE06505D9CB60BF4985F1FE99BED58F196F405ED2222753BEE70"
+  },
+  {
+    "path": "scripts/build-ycore-demux.sh",
+    "sha256": "F51D126639FC89A61C9F5731DA62176DEA006FD86413135F514017F108808689"
+  },
+  {
+    "path": "scripts/native/ycore_demux_jni.cpp",
+    "sha256": "530C0D972BAB938DEA2233AC0FF606D777E8707A5A3B84155911834AC1CDA65F"
+  },
+  {
+    "path": "scripts/tests/test_update_manifest_key.py",
+    "sha256": "B7B38838E24BC048B3498ACC4E5EB262C78664BE7098C8D641935809E1120DE2"
+  },
+  {
+    "path": "scripts/verify-ycore-native.sh",
+    "sha256": "CB3949BDEE5B892F5C8EF626C090EA17AE7A26FBA29A996E20A5673AE475F24B"
+  }
+]

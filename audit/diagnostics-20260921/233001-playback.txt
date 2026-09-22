@@ -1,0 +1,159 @@
+Yfuse playback diagnostic
+app.version=1.0.74 (236)
+app.build.revision=1bbf5f12f05e43ef4b6e84ef837766ee92a31bfc
+app.version.scope=exporting-package
+session.origin=current-process
+session.observedAtEpochMs=1789918176097
+session.metadata=2
+session.appVersion=1.0.74 (236)
+session.appBuild=1bbf5f12f05e43ef4b6e84ef837766ee92a31bfc
+session.process=6a41c1ed
+subtitle.selection=primary[off-or-unavailable],secondary[off-or-unavailable]
+engine.selected=YCore2Native
+engine.actual=YCore 2.0
+engine.binding=YCore2Native
+route=PlatformDirect
+fallback.chain=YCore2Native
+fallback.reason=
+video.decoder=unknown
+video.codec=未知
+audio.decoder=unknown
+dynamicRange.input=
+dynamicRange.output=unknown
+dynamicRange.mode=Unknown
+video.readiness=Waiting
+audio.readiness=Waiting
+audio.mode=Unknown
+audio.passthrough=false
+audio.immersiveCarrier=false
+audio.spatializedPcm=false
+audio.headTracker=false
+audio.pcm=false
+dropped.frames=0
+dropped.measured=false
+buffer.events=0
+rebuffer.total.ms=0
+rebuffer.longest.ms=0
+buffered.ms=0
+audio.underruns=0
+source.queue.bytes=0
+source.buffered.ms=0
+source.starvations=0
+codec.resets=0
+av.offset.ms=unavailable
+av.measurement=等待音视频时钟样本
+surface.rebuilds=0
+render.api=MediaCodecSurface
+render.detail=SurfaceView / AudioTrack
+output.evidence.generation=4
+output.evidence.reset=SourceChanged
+mpv.rpu.rendered=false
+mpv.fel.composed=false
+mpv.evidence.generation=0
+
+session.timeline:
+timelineVersion=2 appVersion=1.0.55_217 appBuild=2fbcf426135133e7be6d6d847da327671e19665b process=dc69ffa4 at=1789139641067 positionMs=311660 item=20 state=buffering engine=YCore2Native video=Waiting audio=Waiting bufferEvents=0 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.55_217 appBuild=2fbcf426135133e7be6d6d847da327671e19665b process=dc69ffa4 at=1789139669893 positionMs=311660 item=0 state=error engine=YCore2Native video=Waiting audio=Waiting bufferEvents=0 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.55_217 appBuild=2fbcf426135133e7be6d6d847da327671e19665b process=dc69ffa4 at=1789139669896 positionMs=311660 item=20 state=error engine=YCore2Native video=Waiting audio=Waiting bufferEvents=0 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.55_217 appBuild=2fbcf426135133e7be6d6d847da327671e19665b process=dc69ffa4 at=1789139672734 positionMs=311660 item=20 state=buffering engine=YCore2Native video=Waiting audio=Waiting bufferEvents=0 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.55_217 appBuild=2fbcf426135133e7be6d6d847da327671e19665b process=dc69ffa4 at=1789139712328 positionMs=311660 item=20 state=buffering engine=YCore2Native video=Waiting audio=Rendering bufferEvents=0 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.55_217 appBuild=2fbcf426135133e7be6d6d847da327671e19665b process=dc69ffa4 at=1789139712391 positionMs=311660 item=20 state=playing engine=YCore2Native video=Rendering audio=Rendering bufferEvents=0 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.55_217 appBuild=2fbcf426135133e7be6d6d847da327671e19665b process=dc69ffa4 at=1789139715328 positionMs=314604 item=20 state=buffering engine=YCore2Native video=Rendering audio=Rendering bufferEvents=1 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.55_217 appBuild=2fbcf426135133e7be6d6d847da327671e19665b process=dc69ffa4 at=1789139742405 positionMs=314676 item=20 state=buffering engine=YCore2Native video=Waiting audio=Waiting bufferEvents=1 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.55_217 appBuild=2fbcf426135133e7be6d6d847da327671e19665b process=dc69ffa4 at=1789139742411 positionMs=314676 item=20 state=buffering engine=YCore2Native video=Waiting audio=Rendering bufferEvents=1 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.55_217 appBuild=2fbcf426135133e7be6d6d847da327671e19665b process=dc69ffa4 at=1789139742441 positionMs=314676 item=20 state=playing engine=YCore2Native video=Rendering audio=Rendering bufferEvents=1 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.55_217 appBuild=2fbcf426135133e7be6d6d847da327671e19665b process=dc69ffa4 at=1789139751353 positionMs=323427 item=20 state=buffering engine=YCore2Native video=Rendering audio=Rendering bufferEvents=2 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.55_217 appBuild=2fbcf426135133e7be6d6d847da327671e19665b process=dc69ffa4 at=1789139821981 positionMs=323592 item=20 state=buffering engine=YCore2Native video=Waiting audio=Rendering bufferEvents=2 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.55_217 appBuild=2fbcf426135133e7be6d6d847da327671e19665b process=dc69ffa4 at=1789139822006 positionMs=323592 item=20 state=playing engine=YCore2Native video=Rendering audio=Rendering bufferEvents=2 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.55_217 appBuild=2fbcf426135133e7be6d6d847da327671e19665b process=dc69ffa4 at=1789139828016 positionMs=329423 item=20 state=buffering engine=YCore2Native video=Rendering audio=Rendering bufferEvents=3 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.55_217 appBuild=2fbcf426135133e7be6d6d847da327671e19665b process=dc69ffa4 at=1789139851743 positionMs=329537 item=20 state=paused engine=YCore2Native video=Rendering audio=Rendering bufferEvents=3 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.55_217 appBuild=2fbcf426135133e7be6d6d847da327671e19665b process=dc69ffa4 at=1789139851756 positionMs=329537 item=20 state=paused engine=YCore2Native video=Waiting audio=Waiting bufferEvents=3 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.55_217 appBuild=2fbcf426135133e7be6d6d847da327671e19665b process=dc69ffa4 at=1789139858199 positionMs=329537 item=20 state=buffering engine=YCore2Native video=Waiting audio=Waiting bufferEvents=3 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.55_217 appBuild=2fbcf426135133e7be6d6d847da327671e19665b process=dc69ffa4 at=1789139858216 positionMs=329537 item=20 state=playing engine=YCore2Native video=Waiting audio=Waiting bufferEvents=3 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.55_217 appBuild=2fbcf426135133e7be6d6d847da327671e19665b process=dc69ffa4 at=1789139858226 positionMs=329550 item=20 state=playing engine=YCore2Native video=Waiting audio=Rendering bufferEvents=3 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.55_217 appBuild=2fbcf426135133e7be6d6d847da327671e19665b process=dc69ffa4 at=1789139858235 positionMs=329550 item=0 state=error engine=YCore2Native video=Waiting audio=Waiting bufferEvents=3 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.55_217 appBuild=2fbcf426135133e7be6d6d847da327671e19665b process=dc69ffa4 at=1789139858238 positionMs=329550 item=20 state=buffering engine=YCore2Native video=Waiting audio=Waiting bufferEvents=3 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.55_217 appBuild=2fbcf426135133e7be6d6d847da327671e19665b process=dc69ffa4 at=1789139869815 positionMs=329550 item=20 state=buffering engine=YCore2Native video=Waiting audio=Rendering bufferEvents=3 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.55_217 appBuild=2fbcf426135133e7be6d6d847da327671e19665b process=dc69ffa4 at=1789139870058 positionMs=329641 item=20 state=playing engine=YCore2Native video=Rendering audio=Rendering bufferEvents=3 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.55_217 appBuild=2fbcf426135133e7be6d6d847da327671e19665b process=dc69ffa4 at=1789139871385 positionMs=330911 item=20 state=buffering engine=YCore2Native video=Rendering audio=Rendering bufferEvents=4 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.55_217 appBuild=2fbcf426135133e7be6d6d847da327671e19665b process=dc69ffa4 at=1789139922919 positionMs=330977 item=20 state=buffering engine=YCore2Native video=Waiting audio=Waiting bufferEvents=4 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.55_217 appBuild=2fbcf426135133e7be6d6d847da327671e19665b process=dc69ffa4 at=1789139922922 positionMs=330977 item=20 state=buffering engine=YCore2Native video=Waiting audio=Rendering bufferEvents=4 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.55_217 appBuild=2fbcf426135133e7be6d6d847da327671e19665b process=dc69ffa4 at=1789139922946 positionMs=330977 item=20 state=playing engine=YCore2Native video=Rendering audio=Rendering bufferEvents=4 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.55_217 appBuild=2fbcf426135133e7be6d6d847da327671e19665b process=dc69ffa4 at=1789139928961 positionMs=336808 item=20 state=buffering engine=YCore2Native video=Rendering audio=Rendering bufferEvents=5 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.55_217 appBuild=2fbcf426135133e7be6d6d847da327671e19665b process=dc69ffa4 at=1789139953021 positionMs=336945 item=20 state=playing engine=YCore2Native video=Rendering audio=Rendering bufferEvents=5 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.55_217 appBuild=2fbcf426135133e7be6d6d847da327671e19665b process=dc69ffa4 at=1789139953052 positionMs=336945 item=20 state=playing engine=YCore2Native video=Waiting audio=Waiting bufferEvents=5 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.55_217 appBuild=2fbcf426135133e7be6d6d847da327671e19665b process=dc69ffa4 at=1789139953059 positionMs=336945 item=20 state=buffering engine=YCore2Native video=Waiting audio=Waiting bufferEvents=5 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.55_217 appBuild=2fbcf426135133e7be6d6d847da327671e19665b process=dc69ffa4 at=1789139986786 positionMs=336945 item=20 state=error engine=YCore2Native video=Waiting audio=Waiting bufferEvents=5 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.55_217 appBuild=2fbcf426135133e7be6d6d847da327671e19665b process=dc69ffa4 at=1789139991347 positionMs=341519 item=20 state=error engine=YCore2Native video=Waiting audio=Waiting bufferEvents=5 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.55_217 appBuild=2fbcf426135133e7be6d6d847da327671e19665b process=dc69ffa4 at=1789386822886 positionMs=341519 item=20 state=buffering engine=YCore2Native video=Waiting audio=Waiting bufferEvents=0 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.55_217 appBuild=2fbcf426135133e7be6d6d847da327671e19665b process=dc69ffa4 at=1789386848839 positionMs=341519 item=20 state=buffering engine=YCore2Native video=Waiting audio=Rendering bufferEvents=0 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.55_217 appBuild=2fbcf426135133e7be6d6d847da327671e19665b process=dc69ffa4 at=1789386849217 positionMs=341673 item=20 state=playing engine=YCore2Native video=Rendering audio=Rendering bufferEvents=0 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.55_217 appBuild=2fbcf426135133e7be6d6d847da327671e19665b process=dc69ffa4 at=1789386850391 positionMs=342869 item=20 state=buffering engine=YCore2Native video=Rendering audio=Rendering bufferEvents=1 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.55_217 appBuild=2fbcf426135133e7be6d6d847da327671e19665b process=dc69ffa4 at=1789386850908 positionMs=342935 item=20 state=buffering engine=YCore2Native video=Waiting audio=Rendering bufferEvents=1 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.55_217 appBuild=2fbcf426135133e7be6d6d847da327671e19665b process=dc69ffa4 at=1789386850930 positionMs=342935 item=20 state=playing engine=YCore2Native video=Rendering audio=Rendering bufferEvents=1 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.55_217 appBuild=2fbcf426135133e7be6d6d847da327671e19665b process=dc69ffa4 at=1789386855488 positionMs=347366 item=20 state=buffering engine=YCore2Native video=Rendering audio=Rendering bufferEvents=2 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.55_217 appBuild=2fbcf426135133e7be6d6d847da327671e19665b process=dc69ffa4 at=1789386857398 positionMs=347393 item=20 state=buffering engine=YCore2Native video=Waiting audio=Rendering bufferEvents=2 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.55_217 appBuild=2fbcf426135133e7be6d6d847da327671e19665b process=dc69ffa4 at=1789386857432 positionMs=347393 item=20 state=playing engine=YCore2Native video=Rendering audio=Rendering bufferEvents=2 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.55_217 appBuild=2fbcf426135133e7be6d6d847da327671e19665b process=dc69ffa4 at=1789386864906 positionMs=354704 item=20 state=buffering engine=YCore2Native video=Rendering audio=Rendering bufferEvents=3 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.55_217 appBuild=2fbcf426135133e7be6d6d847da327671e19665b process=dc69ffa4 at=1789386866445 positionMs=354824 item=20 state=buffering engine=YCore2Native video=Waiting audio=Rendering bufferEvents=3 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.55_217 appBuild=2fbcf426135133e7be6d6d847da327671e19665b process=dc69ffa4 at=1789386866466 positionMs=354824 item=20 state=playing engine=YCore2Native video=Rendering audio=Rendering bufferEvents=3 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.55_217 appBuild=2fbcf426135133e7be6d6d847da327671e19665b process=dc69ffa4 at=1789387073099 positionMs=561295 item=20 state=buffering engine=YCore2Native video=Rendering audio=Rendering bufferEvents=4 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.55_217 appBuild=2fbcf426135133e7be6d6d847da327671e19665b process=dc69ffa4 at=1789387083245 positionMs=561388 item=20 state=buffering engine=YCore2Native video=Waiting audio=Waiting bufferEvents=4 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.55_217 appBuild=2fbcf426135133e7be6d6d847da327671e19665b process=dc69ffa4 at=1789387083249 positionMs=561388 item=20 state=buffering engine=YCore2Native video=Waiting audio=Rendering bufferEvents=4 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.55_217 appBuild=2fbcf426135133e7be6d6d847da327671e19665b process=dc69ffa4 at=1789387083263 positionMs=561427 item=20 state=playing engine=YCore2Native video=Waiting audio=Rendering bufferEvents=4 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.55_217 appBuild=2fbcf426135133e7be6d6d847da327671e19665b process=dc69ffa4 at=1789387083282 positionMs=561427 item=20 state=playing engine=YCore2Native video=Rendering audio=Rendering bufferEvents=4 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.55_217 appBuild=2fbcf426135133e7be6d6d847da327671e19665b process=dc69ffa4 at=1789387087760 positionMs=565699 item=20 state=buffering engine=YCore2Native video=Rendering audio=Rendering bufferEvents=5 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.55_217 appBuild=2fbcf426135133e7be6d6d847da327671e19665b process=dc69ffa4 at=1789387090536 positionMs=565846 item=20 state=buffering engine=YCore2Native video=Waiting audio=Waiting bufferEvents=5 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.55_217 appBuild=2fbcf426135133e7be6d6d847da327671e19665b process=dc69ffa4 at=1789387090540 positionMs=565846 item=20 state=buffering engine=YCore2Native video=Waiting audio=Rendering bufferEvents=5 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.55_217 appBuild=2fbcf426135133e7be6d6d847da327671e19665b process=dc69ffa4 at=1789387090568 positionMs=565846 item=20 state=playing engine=YCore2Native video=Rendering audio=Rendering bufferEvents=5 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.55_217 appBuild=2fbcf426135133e7be6d6d847da327671e19665b process=dc69ffa4 at=1789387882647 positionMs=1357757 item=20 state=buffering engine=YCore2Native video=Rendering audio=Rendering bufferEvents=6 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.55_217 appBuild=2fbcf426135133e7be6d6d847da327671e19665b process=dc69ffa4 at=1789387894437 positionMs=1357926 item=20 state=buffering engine=YCore2Native video=Waiting audio=Waiting bufferEvents=6 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.55_217 appBuild=2fbcf426135133e7be6d6d847da327671e19665b process=dc69ffa4 at=1789387894440 positionMs=1357926 item=20 state=buffering engine=YCore2Native video=Waiting audio=Rendering bufferEvents=6 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.55_217 appBuild=2fbcf426135133e7be6d6d847da327671e19665b process=dc69ffa4 at=1789387894469 positionMs=1357926 item=20 state=playing engine=YCore2Native video=Rendering audio=Rendering bufferEvents=6 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.55_217 appBuild=2fbcf426135133e7be6d6d847da327671e19665b process=dc69ffa4 at=1789387900481 positionMs=1363757 item=20 state=buffering engine=YCore2Native video=Rendering audio=Rendering bufferEvents=7 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.55_217 appBuild=2fbcf426135133e7be6d6d847da327671e19665b process=dc69ffa4 at=1789387921668 positionMs=1363846 item=20 state=paused engine=YCore2Native video=Rendering audio=Rendering bufferEvents=7 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.74_236 appBuild=1bbf5f12f05e43ef4b6e84ef837766ee92a31bfc process=6a41c1ed at=1789918065305 positionMs=1386332 item=20 state=buffering engine=YCore2Native video=Waiting audio=Waiting bufferEvents=0 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.74_236 appBuild=1bbf5f12f05e43ef4b6e84ef837766ee92a31bfc process=6a41c1ed at=1789918065374 positionMs=1386332 item=20 state=buffering engine=YCore2Native video=Waiting audio=Waiting bufferEvents=0 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.74_236 appBuild=1bbf5f12f05e43ef4b6e84ef837766ee92a31bfc process=6a41c1ed at=1789918072152 positionMs=1386332 item=0 state=error engine=YCore2Native video=Waiting audio=Waiting bufferEvents=0 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.74_236 appBuild=1bbf5f12f05e43ef4b6e84ef837766ee92a31bfc process=6a41c1ed at=1789918072158 positionMs=1386332 item=20 state=buffering engine=YCore2Native video=Waiting audio=Waiting bufferEvents=0 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.74_236 appBuild=1bbf5f12f05e43ef4b6e84ef837766ee92a31bfc process=6a41c1ed at=1789918072356 positionMs=1386332 item=0 state=error engine=YCore2Native video=Waiting audio=Waiting bufferEvents=0 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.74_236 appBuild=1bbf5f12f05e43ef4b6e84ef837766ee92a31bfc process=6a41c1ed at=1789918072362 positionMs=1386332 item=20 state=buffering engine=YCore2Native video=Waiting audio=Waiting bufferEvents=0 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.74_236 appBuild=1bbf5f12f05e43ef4b6e84ef837766ee92a31bfc process=6a41c1ed at=1789918072969 positionMs=1386332 item=20 state=error engine=YCore2Native video=Waiting audio=Waiting bufferEvents=0 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.74_236 appBuild=1bbf5f12f05e43ef4b6e84ef837766ee92a31bfc process=6a41c1ed at=1789918079736 positionMs=1386332 item=20 state=paused engine=YCore2Native video=Waiting audio=Waiting bufferEvents=0 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.74_236 appBuild=1bbf5f12f05e43ef4b6e84ef837766ee92a31bfc process=6a41c1ed at=1789918080453 positionMs=1386332 item=0 state=error engine=YCore2Native video=Waiting audio=Waiting bufferEvents=0 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.74_236 appBuild=1bbf5f12f05e43ef4b6e84ef837766ee92a31bfc process=6a41c1ed at=1789918080460 positionMs=1386332 item=20 state=paused engine=YCore2Native video=Waiting audio=Waiting bufferEvents=0 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.74_236 appBuild=1bbf5f12f05e43ef4b6e84ef837766ee92a31bfc process=6a41c1ed at=1789918080740 positionMs=1386332 item=0 state=error engine=YCore2Native video=Waiting audio=Waiting bufferEvents=0 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.74_236 appBuild=1bbf5f12f05e43ef4b6e84ef837766ee92a31bfc process=6a41c1ed at=1789918080744 positionMs=1386332 item=20 state=paused engine=YCore2Native video=Waiting audio=Waiting bufferEvents=0 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.74_236 appBuild=1bbf5f12f05e43ef4b6e84ef837766ee92a31bfc process=6a41c1ed at=1789918080950 positionMs=1386332 item=20 state=error engine=YCore2Native video=Waiting audio=Waiting bufferEvents=0 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.74_236 appBuild=1bbf5f12f05e43ef4b6e84ef837766ee92a31bfc process=6a41c1ed at=1789918169156 positionMs=240235 item=0 state=buffering engine=YCore2Native video=Waiting audio=Waiting bufferEvents=0 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.74_236 appBuild=1bbf5f12f05e43ef4b6e84ef837766ee92a31bfc process=6a41c1ed at=1789918169212 positionMs=240235 item=0 state=buffering engine=YCore2Native video=Waiting audio=Waiting bufferEvents=0 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.74_236 appBuild=1bbf5f12f05e43ef4b6e84ef837766ee92a31bfc process=6a41c1ed at=1789918175876 positionMs=240235 item=0 state=error engine=YCore2Native video=Waiting audio=Waiting bufferEvents=0 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.74_236 appBuild=1bbf5f12f05e43ef4b6e84ef837766ee92a31bfc process=6a41c1ed at=1789918175886 positionMs=240235 item=0 state=buffering engine=YCore2Native video=Waiting audio=Waiting bufferEvents=0 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.74_236 appBuild=1bbf5f12f05e43ef4b6e84ef837766ee92a31bfc process=6a41c1ed at=1789918176085 positionMs=240235 item=0 state=error engine=YCore2Native video=Waiting audio=Waiting bufferEvents=0 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.74_236 appBuild=1bbf5f12f05e43ef4b6e84ef837766ee92a31bfc process=6a41c1ed at=1789918176094 positionMs=240235 item=0 state=buffering engine=YCore2Native video=Waiting audio=Waiting bufferEvents=0 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+timelineVersion=2 appVersion=1.0.74_236 appBuild=1bbf5f12f05e43ef4b6e84ef837766ee92a31bfc process=6a41c1ed at=1789918176285 positionMs=240235 item=0 state=error engine=YCore2Native video=Waiting audio=Waiting bufferEvents=0 recovery=0/0 surfaceRebuilds=0 subtitles=primary[off-or-unavailable],secondary[off-or-unavailable]
+
+remotePolicy.revision=0
+remotePolicy.expiresAtEpochMs=0
+remotePolicy.disabled=
+nativeCrash.Mpv.count=0
+nativeCrash.Mdk.count=0
+nativeCrash.YCoreDemux.count=0
+nativeCrash.YCoreGpu.count=0
+native.mpv.core.revision=b955aa28f3dc93dc6b21485a0d5b7feb8e6dc10f
+native.mpv.android.revision=fcf6745703dc1265bca88f12fee8fc355ddf251e
+native.ffmpeg.revision=b79d4c4c0a160fc46988e98505af6039a53ad53e
+native.libplacebo.revision=22ee762e8e0890fc54068beb670310f0edce7263
+native.libbluray.revision=7d94f2660af5bfc16015291a03539329135c18f1
+native.libudfread.revision=139a2194525f2745b98a98e4d8fa627d07440176
+native.mdk.compile.version=0.37.0
+native.ycore.gpu.packaged=true
+native.package.profile=full
+native.ycore.demux.loaded=true
+native.ycore.demux.openFailureDetail=available
+native.ycore.demux.handleContract=registry
+native.libmdk.so.sha256=1ae87eae1c5633238ac69acc2bba7c44b2c974c8f32c21ac35778376f77ce575
+native.libmpv.so.sha256=d06566edd8dd09c7419f61f9888d2f29e5e186ff578f8a984f1c968cab7baee6
+native.libycore_demux.so.sha256=b41fe7b1a45dc1610a4f932c510dd22f65956a7207c6e20d66112fae12677d34
+native.libycore_gpu.so.sha256=4ea9a8ad54d15cc642dd952df2b65ad1f8d04aed179436d54ac1379f7a3ff01d
+native.libyfuse-mdk-jni.so.sha256=2c69160dfdb6090eb772fe9ba4a9022e5c382c76c0955d79390fa5a943702040

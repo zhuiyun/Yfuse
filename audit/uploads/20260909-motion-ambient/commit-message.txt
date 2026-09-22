@@ -1,0 +1,7 @@
+Add ambient player lighting and refine UI motion
+
+Add frame-edge lighting with per-request PixelCopy ownership, lifecycle-aware sampling, explicit crop geometry and a playback setting.
+
+Refine search handoff ordering, shared loading indicators, navigation motion, theme transitions and playback feedback.
+
+Validation: staged mobile Kotlin snapshot compiles; 61 release unit tests pass across 9 suites; design-system checks pass.

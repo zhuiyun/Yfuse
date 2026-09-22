@@ -1,0 +1,11 @@
+[
+  "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidDemuxReadControl.kt",
+  "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidFfmpegDemuxer.kt",
+  "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/FfmpegNativeBridge.kt",
+  "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidDemuxReadAheadNode.kt",
+  "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidEnhancedPlaybackSession.kt",
+  "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/YCoreDiscBlockSource.kt",
+  "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidYCoreBluRaySource.kt",
+  "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidDemuxReadControlTest.kt",
+  "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidNativeEnhancedYPlayer.kt"
+]

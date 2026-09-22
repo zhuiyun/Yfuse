@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.PlaybackOutputCapabilitiesTest" tests="9" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:15.870Z" hostname="DESKTOP-HM2J0FM" time="0.003">
+  <properties/>
+  <testcase name="mpv_inactive_status_uses_decoder_when_output_format_is_missing" classname="com.yfuse.feature.player.PlaybackOutputCapabilitiesTest" time="0.0"/>
+  <testcase name="android_11_exposes_only_the_seamless_frame_rate_strategy" classname="com.yfuse.feature.player.PlaybackOutputCapabilitiesTest" time="0.001"/>
+  <testcase name="android_12_exposes_explicit_non_seamless_matching_for_exo_and_mpv" classname="com.yfuse.feature.player.PlaybackOutputCapabilitiesTest" time="0.0"/>
+  <testcase name="surface_plan_keeps_requested_rate_and_strategy_truth" classname="com.yfuse.feature.player.PlaybackOutputCapabilitiesTest" time="0.001"/>
+  <testcase name="mpv_does_not_report_active_until_output_proves_spdif" classname="com.yfuse.feature.player.PlaybackOutputCapabilitiesTest" time="0.0"/>
+  <testcase name="mpv_spdif_is_limited_to_formats_supported_by_the_active_route" classname="com.yfuse.feature.player.PlaybackOutputCapabilitiesTest" time="0.0"/>
+  <testcase name="surface_plan_rejects_old_platforms_bad_rates_and_android_11_always_mode" classname="com.yfuse.feature.player.PlaybackOutputCapabilitiesTest" time="0.0"/>
+  <testcase name="persisted_modes_fail_closed" classname="com.yfuse.feature.player.PlaybackOutputCapabilitiesTest" time="0.0"/>
+  <testcase name="mdk_exposes_surface_frame_rate_but_not_unverified_audio_passthrough" classname="com.yfuse.feature.player.PlaybackOutputCapabilitiesTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

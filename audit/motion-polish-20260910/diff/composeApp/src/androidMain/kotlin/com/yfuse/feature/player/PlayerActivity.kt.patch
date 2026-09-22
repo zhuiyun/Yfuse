@@ -1,0 +1,107 @@
+--- composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerActivity.kt (before turn)
++++ composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerActivity.kt
+@@ -5,6 +5,7 @@
+ import android.app.NotificationManager
+ import android.app.PendingIntent
+ import android.app.PictureInPictureParams
++import android.app.PictureInPictureUiState
+ import android.app.RemoteAction
+ import android.content.BroadcastReceiver
+ import android.content.Context
+@@ -27,6 +28,7 @@
+ import androidx.activity.ComponentActivity
+ import androidx.activity.compose.setContent
+ import androidx.activity.viewModels
++import androidx.annotation.RequiresApi
+ import androidx.compose.runtime.collectAsState
+ import androidx.compose.runtime.getValue
+ import androidx.core.content.ContextCompat
+@@ -924,20 +926,21 @@
+ 
+     override fun onUserLeaveHint() {
+         super.onUserLeaveHint()
+-        if (
+-            Build.VERSION.SDK_INT < Build.VERSION_CODES.S &&
+-            activeState.playing &&
+-            !isFinishing &&
+-            !stopRequested
+-        ) {
+-            enterPictureInPictureMode(
+-                PictureInPictureParams
+-                    .Builder()
+-                    .setAspectRatio(activePictureInPictureAspectRatio())
+-                    .setActions(pictureInPictureActions())
+-                    .apply { videoBounds?.let(::setSourceRectHint) }
+-                    .build(),
+-            )
++        if (activeState.playing && !isFinishing && !stopRequested) {
++            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
++                // Auto-enter is already configured; remove controls before Android captures the transition.
++                pictureInPicture.value = true
++            } else {
++                enterPlayerPictureInPicture()
++            }
++        }
++    }
++
++    @RequiresApi(Build.VERSION_CODES.S)
++    override fun onPictureInPictureUiStateChanged(pipState: PictureInPictureUiState) {
++        super.onPictureInPictureUiStateChanged(pipState)
++        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM && pipState.isTransitioningToPip) {
++            pictureInPicture.value = true
+         }
+     }
+ 
+@@ -954,7 +957,10 @@
+         super.onWindowFocusChanged(hasFocus)
+         // Only an expanded player regains a focused full-size window. Closing
+         // PiP never does, so keep the marker for onStop to release playback.
+-        if (hasFocus && !isInPictureInPictureMode) pipWasVisible = false
++        if (hasFocus && !isInPictureInPictureMode) {
++            pipWasVisible = false
++            pictureInPicture.value = false
++        }
+     }
+ 
+     override fun onStop() {
+@@ -1069,14 +1075,24 @@
+ 
+     private fun enterPlayerPictureInPicture() {
+         if (isFinishing || stopRequested || isInPictureInPictureMode) return
+-        enterPictureInPictureMode(
+-            PictureInPictureParams
+-                .Builder()
+-                .setAspectRatio(activePictureInPictureAspectRatio())
+-                .setActions(pictureInPictureActions())
+-                .apply { videoBounds?.let(::setSourceRectHint) }
+-                .build(),
+-        )
++        val previousVisibility = pictureInPicture.value
++        pictureInPicture.value = true
++        var entered = false
++        try {
++            entered =
++                enterPictureInPictureMode(
++                    PictureInPictureParams
++                        .Builder()
++                        .setAspectRatio(activePictureInPictureAspectRatio())
++                        .setActions(pictureInPictureActions())
++                        .apply {
++                            videoBounds?.let(::setSourceRectHint)
++                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) setSeamlessResizeEnabled(true)
++                        }.build(),
++                )
++        } finally {
++            if (!entered) pictureInPicture.value = previousVisibility
++        }
+     }
+ 
+     private fun stopPlaybackAndFinish() {
+@@ -1483,6 +1499,7 @@
+                     videoBounds?.let(::setSourceRectHint)
+                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                         setAutoEnterEnabled(activeState.playing)
++                        setSeamlessResizeEnabled(true)
+                     }
+                 }.build()
+         setPictureInPictureParams(params)

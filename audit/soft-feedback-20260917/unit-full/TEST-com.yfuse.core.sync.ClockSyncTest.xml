@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.sync.ClockSyncTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:07.397Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="server_now_is_unknown_until_a_pong_is_recorded" classname="com.yfuse.core.sync.ClockSyncTest" time="0.001"/>
+  <testcase name="server_now_follows_the_recorded_server_clock" classname="com.yfuse.core.sync.ClockSyncTest" time="0.0"/>
+  <testcase name="unknown_ping_ids_and_reset_leave_the_clock_unknown" classname="com.yfuse.core.sync.ClockSyncTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

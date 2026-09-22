@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.AndroidAudioTrackRenderNodePolicyTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:09.141Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="stereo pcm keeps two seconds of decoded audio" classname="com.yfuse.core2.android.AndroidAudioTrackRenderNodePolicyTest" time="0.0"/>
+  <testcase name="startup threshold does not require filling the two second buffer" classname="com.yfuse.core2.android.AndroidAudioTrackRenderNodePolicyTest" time="0.0"/>
+  <testcase name="known layouts map to their platform mask" classname="com.yfuse.core2.android.AndroidAudioTrackRenderNodePolicyTest" time="0.001"/>
+  <testcase name="large multichannel target is bounded" classname="com.yfuse.core2.android.AndroidAudioTrackRenderNodePolicyTest" time="0.0"/>
+  <testcase name="height layouts are refused below api 32" classname="com.yfuse.core2.android.AndroidAudioTrackRenderNodePolicyTest" time="0.0"/>
+  <testcase name="unmapped channel counts fail closed instead of narrowing to stereo" classname="com.yfuse.core2.android.AndroidAudioTrackRenderNodePolicyTest" time="0.0"/>
+  <testcase name="minimum platform buffer remains authoritative" classname="com.yfuse.core2.android.AndroidAudioTrackRenderNodePolicyTest" time="0.0"/>
+  <testcase name="startup threshold is bounded by the actual device allocation" classname="com.yfuse.core2.android.AndroidAudioTrackRenderNodePolicyTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

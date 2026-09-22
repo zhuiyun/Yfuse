@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.search.SearchResultsHandoffTest" tests="16" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:16.257Z" hostname="DESKTOP-HM2J0FM" time="0.003">
+  <properties/>
+  <testcase name="a_fresh_phase_forgets_the_page_and_an_in_place_change_does_not" classname="com.yfuse.feature.search.SearchResultsHandoffTest" time="0.001"/>
+  <testcase name="hidden_and_reduced_motion_completions_are_consumed_without_a_return_animation" classname="com.yfuse.feature.search.SearchResultsHandoffTest" time="0.0"/>
+  <testcase name="rows_seen_before_any_batch_are_settled_and_never_enter_later" classname="com.yfuse.feature.search.SearchResultsHandoffTest" time="0.0"/>
+  <testcase name="result_and_filter_changes_add_rows_without_replaying_the_landing" classname="com.yfuse.feature.search.SearchResultsHandoffTest" time="0.002"/>
+  <testcase name="only_a_landing_from_the_skeleton_sweeps_the_page" classname="com.yfuse.feature.search.SearchResultsHandoffTest" time="0.0"/>
+  <testcase name="filtering_to_no_visible_items_changes_phase_without_changing_stored_results" classname="com.yfuse.feature.search.SearchResultsHandoffTest" time="0.0"/>
+  <testcase name="message_batches_fade_together_without_lift" classname="com.yfuse.feature.search.SearchResultsHandoffTest" time="0.0"/>
+  <testcase name="restored_content_does_not_reenter_and_clearing_does_not_hide_the_search_field" classname="com.yfuse.feature.search.SearchResultsHandoffTest" time="0.0"/>
+  <testcase name="incremental_server_results_do_not_fade_an_existing_card_back_out" classname="com.yfuse.feature.search.SearchResultsHandoffTest" time="0.0"/>
+  <testcase name="empty_and_error_retry_paths_reveal_the_replacement_once" classname="com.yfuse.feature.search.SearchResultsHandoffTest" time="0.0"/>
+  <testcase name="first_result_is_visible_before_the_later_rows_begin_to_enter" classname="com.yfuse.feature.search.SearchResultsHandoffTest" time="0.0"/>
+  <testcase name="typing_and_transport_flags_do_not_change_presentation_identity" classname="com.yfuse.feature.search.SearchResultsHandoffTest" time="0.0"/>
+  <testcase name="rows_keep_their_slot_when_results_reorder_and_later_pages_do_not_enter" classname="com.yfuse.feature.search.SearchResultsHandoffTest" time="0.0"/>
+  <testcase name="phase_only_calls_need_a_presentation_key_to_identify_in_place_changes" classname="com.yfuse.feature.search.SearchResultsHandoffTest" time="0.0"/>
+  <testcase name="first_search_reveals_only_when_content_or_a_terminal_message_arrives" classname="com.yfuse.feature.search.SearchResultsHandoffTest" time="0.0"/>
+  <testcase name="later_visible_rows_keep_the_full_fifty_five_millisecond_step_and_the_row_duration" classname="com.yfuse.feature.search.SearchResultsHandoffTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

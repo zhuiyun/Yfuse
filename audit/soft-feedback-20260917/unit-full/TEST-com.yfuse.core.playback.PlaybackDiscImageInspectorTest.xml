@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.playback.PlaybackDiscImageInspectorTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:06.600Z" hostname="DESKTOP-HM2J0FM" time="0.002">
+  <properties/>
+  <testcase name="scanning_stops_as_soon_as_the_layout_is_known" classname="com.yfuse.core.playback.PlaybackDiscImageInspectorTest" time="0.002"/>
+  <testcase name="utf16_directory_names_identify_a_bluray_image" classname="com.yfuse.core.playback.PlaybackDiscImageInspectorTest" time="0.0"/>
+  <testcase name="a_name_split_across_two_reads_is_still_found" classname="com.yfuse.core.playback.PlaybackDiscImageInspectorTest" time="0.0"/>
+  <testcase name="ascii_directory_names_identify_dvd_and_bluray" classname="com.yfuse.core.playback.PlaybackDiscImageInspectorTest" time="0.0"/>
+  <testcase name="matching_ignores_case" classname="com.yfuse.core.playback.PlaybackDiscImageInspectorTest" time="0.0"/>
+  <testcase name="a_hybrid_image_is_read_as_bluray" classname="com.yfuse.core.playback.PlaybackDiscImageInspectorTest" time="0.0"/>
+  <testcase name="an_ordinary_image_stays_an_iso" classname="com.yfuse.core.playback.PlaybackDiscImageInspectorTest" time="0.0"/>
+  <testcase name="only_the_declared_length_of_a_chunk_is_matched" classname="com.yfuse.core.playback.PlaybackDiscImageInspectorTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,77 @@
+[
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/core/designsystem/Backdrop.android.kt",
+    "previous": "3b9e6f03b89492ebdca7585f66cbdb0e95491315a64a88d007aa2a4f8f9aff6e",
+    "current": "ec3a0ad41401f618574e385547b2b390a0b79d14860f73ff72fb793da3725c12"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/Backdrop.kt",
+    "previous": "6a9391e23752d511152889b3caa81a5c9635a74c20c0768a9fe324e3370b33cc",
+    "current": "ccc4bfaf2bdb392bdb95c6a5f3de62de735a8a56485df082bad4318c27d919a7"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/Dialogs.kt",
+    "previous": "3c15514677ec097a8d2ee58ff1abc509c05428af310faed1fe53f36ab2d1d6de",
+    "current": "1953af882088c91dcb463ef3b36d274cdd7b4cfe93b41d2991ba577cb97d4dc2"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/GlassAdjustment.kt",
+    "previous": null,
+    "current": "6702b7bb184fd2a90cf47d5d382a58b4414e0ecf1ac6ad90a777bcc429f36588"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/GlassMaterial.kt",
+    "previous": "665dca9983f250bb7394bd8fa90b25207565f798adbdcbbcf909477e1178a4b4",
+    "current": "82631baadccf7a8dee67ff9401646611cb24645f947fd4da9c55fe26ff32d58e"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/GlassMaterialFinish.kt",
+    "previous": null,
+    "current": "d84ebdccb1941272d255204ed1b808eb6ae17d6bb80140d20510a8d0d1d5df6d"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/GlassMaterialPreset.kt",
+    "previous": null,
+    "current": "daa8ad9bfe85a78c40d9dfa1fa5850987dc08ae070e54121c794982c2dc81d1a"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/GlassMaterialPreview.kt",
+    "previous": "459d21dac5a3e73eb9efa61e546f4b1f095743e0d495954c2e3aa34db613f828",
+    "current": "6ae29ff818c5c031c48f98012397e72ad9a622dec590f72c060e6a4bbdf41ab6"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/ModalGlass.kt",
+    "previous": "26e2eafca487b6faf16ae4927655893f2a65199e7d8ac425ecf608082362f66d",
+    "current": "1b82bb7518224f23020061e59bc4f0058fc1fdefe3d730c787943cf99b362088"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/GlassMaterialSettingsScreen.kt",
+    "previous": "273a711932d1e22757f63033aadaae5ee2b4b50c64108cca04c4a515861e3ac2",
+    "current": "07e8e1552af9c5bbd186982a84e607eb531ebc3969cadf2fd1db7396a0137450"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileScreen.kt",
+    "previous": "8e50be8cc39a4b5256d9e53107dd87414ffb5606bc5c608d7da07907a19b8cfc",
+    "current": "cb388ae646ac042d53343e69a6650081cd8505c95c94a5413ecaafe9723a9042"
+  },
+  {
+    "path": "composeApp/src/commonTest/kotlin/com/yfuse/core/data/ThemePreferencesTest.kt",
+    "previous": "036f4edc7671fa305bd7c1bd3a3ed406ac1327864c6398950144af4e7fca0f0f",
+    "current": "c1f0e489ef731e964a7b8cfcd24f880f9adde6b806b9b75d9f2124cfff653df3"
+  },
+  {
+    "path": "composeApp/src/commonTest/kotlin/com/yfuse/core/designsystem/GlassMaterialTest.kt",
+    "previous": "b31d8fb4b9b42e86ec4089e62390ec5a52b566153e92995fb1ee261653375632",
+    "current": "1f1748d0950ad8ba230a36c85863de8865628d92eef1b5684dce031ffe4b900d"
+  },
+  {
+    "path": "release-notes.txt",
+    "previous": "b57e835327ff59c5db49e0573c9c0f2bbff254f2565b90c1ffa7c93d77b54a12",
+    "current": "bb8955d3842a6227be41d291cd6a00ebc79ff3e92c67d2db7b90386ca473abb1"
+  },
+  {
+    "path": "version.properties",
+    "previous": "3d8958d5eea8d933a8c3ed2358ee29e8f11705cfb6c83232f0a5f8d1c9dd11ad",
+    "current": "078afe09672738bb15f2379fe62152bc2111caf189bf21bf7b97726a01f742d7"
+  }
+]

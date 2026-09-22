@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.AndroidMediaCodecVideoNodePolicyTest" tests="24" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:10.051Z" hostname="DESKTOP-HM2J0FM" time="0.007">
+  <properties/>
+  <testcase name="audioMaxInputSizeScalesWithChannelsInsideItsBounds" classname="com.yfuse.core2.android.AndroidMediaCodecVideoNodePolicyTest" time="0.001"/>
+  <testcase name="dolbyVisionSkipsUnavailableRetryVariants" classname="com.yfuse.core2.android.AndroidMediaCodecVideoNodePolicyTest" time="0.001"/>
+  <testcase name="emptyTailSeekMovesBackByOneSecond" classname="com.yfuse.core2.android.AndroidMediaCodecVideoNodePolicyTest" time="0.0"/>
+  <testcase name="lateFirstFrameRendersImmediatelyInsteadOfLeavingTheSurfaceBlank" classname="com.yfuse.core2.android.AndroidMediaCodecVideoNodePolicyTest" time="0.0"/>
+  <testcase name="smallAndOversizedVideoInputsStayWithinBounds" classname="com.yfuse.core2.android.AndroidMediaCodecVideoNodePolicyTest" time="0.0"/>
+  <testcase name="slightlyLateFrameRendersImmediatelyWithinAllowance" classname="com.yfuse.core2.android.AndroidMediaCodecVideoNodePolicyTest" time="0.0"/>
+  <testcase name="emptyTailSeekStopsAtTheRetryLimitOrAtTheStart" classname="com.yfuse.core2.android.AndroidMediaCodecVideoNodePolicyTest" time="0.001"/>
+  <testcase name="unknownVideoCodecGetsTheMoreGenerousAllowance" classname="com.yfuse.core2.android.AndroidMediaCodecVideoNodePolicyTest" time="0.0"/>
+  <testcase name="dolbyVisionRetriesOptionalMetadataOnAndroid10AndNewer" classname="com.yfuse.core2.android.AndroidMediaCodecVideoNodePolicyTest" time="0.0"/>
+  <testcase name="dolbyCandidatesPreferPlannedThenExactFormatThenAdvertisedProfile" classname="com.yfuse.core2.android.AndroidMediaCodecVideoNodePolicyTest" time="0.0"/>
+  <testcase name="plannedDecoderNameWinsOverMimeSelection" classname="com.yfuse.core2.android.AndroidMediaCodecVideoNodePolicyTest" time="0.0"/>
+  <testcase name="unknownVideoGeometryLeavesThePlatformDefaultInPlace" classname="com.yfuse.core2.android.AndroidMediaCodecVideoNodePolicyTest" time="0.0"/>
+  <testcase name="avcMaxInputSizeAllowsLargerAccessUnits" classname="com.yfuse.core2.android.AndroidMediaCodecVideoNodePolicyTest" time="0.0"/>
+  <testcase name="frameAheadOfMasterIsHeld" classname="com.yfuse.core2.android.AndroidMediaCodecVideoNodePolicyTest" time="0.0"/>
+  <testcase name="genericDecoderConfigureFailureRetainsMimeAndAttemptedDecoder" classname="com.yfuse.core2.android.AndroidMediaCodecVideoNodePolicyTest" time="0.003"/>
+  <testcase name="dolbyVisionKeepsExactFormatWhenMetadataCannotBeRemoved" classname="com.yfuse.core2.android.AndroidMediaCodecVideoNodePolicyTest" time="0.0"/>
+  <testcase name="dolbyCandidatesRemoveBlankAndDuplicateAliases" classname="com.yfuse.core2.android.AndroidMediaCodecVideoNodePolicyTest" time="0.0"/>
+  <testcase name="hevcMaxInputSizeUsesTheStricterCompressionRatio" classname="com.yfuse.core2.android.AndroidMediaCodecVideoNodePolicyTest" time="0.0"/>
+  <testcase name="missingPlannedNameFallsBackToMimeSelection" classname="com.yfuse.core2.android.AndroidMediaCodecVideoNodePolicyTest" time="0.0"/>
+  <testcase name="adaptiveDecoderIsSurfaceCapableEvenWhenLegacyOmxOmitsSurfaceColorFormat" classname="com.yfuse.core2.android.AndroidMediaCodecVideoNodePolicyTest" time="0.0"/>
+  <testcase name="frameTooLateForMasterIsDropped" classname="com.yfuse.core2.android.AndroidMediaCodecVideoNodePolicyTest" time="0.0"/>
+  <testcase name="emptyTailSeekClampsTheRetryToTheStart" classname="com.yfuse.core2.android.AndroidMediaCodecVideoNodePolicyTest" time="0.001"/>
+  <testcase name="exactFormatFailureRetainsOnlyStructuredCodecEvidence" classname="com.yfuse.core2.android.AndroidMediaCodecVideoNodePolicyTest" time="0.0"/>
+  <testcase name="lateFramesCanDropAfterTheFirstFrameWasRendered" classname="com.yfuse.core2.android.AndroidMediaCodecVideoNodePolicyTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

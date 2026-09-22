@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.model.DolbyVisionTest" tests="12" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:05.140Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="all_dolby_codec_tag_families_are_recognised_as_dolby" classname="com.yfuse.core.model.DolbyVisionTest" time="0.0"/>
+  <testcase name="nothing_about_dolby_applies_to_a_file_that_is_not_dolby" classname="com.yfuse.core.model.DolbyVisionTest" time="0.0"/>
+  <testcase name="a_server_declaring_no_compatible_base_layer_is_believed" classname="com.yfuse.core.model.DolbyVisionTest" time="0.0"/>
+  <testcase name="the_servers_own_field_wins_over_the_codec_tag" classname="com.yfuse.core.model.DolbyVisionTest" time="0.0"/>
+  <testcase name="the_profile_is_read_from_the_codec_tag_when_the_server_does_not_report_it" classname="com.yfuse.core.model.DolbyVisionTest" time="0.0"/>
+  <testcase name="unknown_dolby_profile_fails_safe_until_a_compatible_base_layer_is_proven" classname="com.yfuse.core.model.DolbyVisionTest" time="0.0"/>
+  <testcase name="a_reported_profile_is_dolby_even_when_every_other_field_says_hdr10" classname="com.yfuse.core.model.DolbyVisionTest" time="0.0"/>
+  <testcase name="single_layer_profile_eight_does_not_require_enhancement_validation" classname="com.yfuse.core.model.DolbyVisionTest" time="0.0"/>
+  <testcase name="the_range_label_names_the_profile_because_it_decides_playability" classname="com.yfuse.core.model.DolbyVisionTest" time="0.0"/>
+  <testcase name="a_stream_with_no_base_layer_never_falls_back_to_plain_hevc" classname="com.yfuse.core.model.DolbyVisionTest" time="0.0"/>
+  <testcase name="profile_five_needs_a_dolby_decoder_and_profile_eight_does_not" classname="com.yfuse.core.model.DolbyVisionTest" time="0.0"/>
+  <testcase name="profile_seven_enhancement_layer_is_recorded_without_claiming_fel" classname="com.yfuse.core.model.DolbyVisionTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.AndroidCore2ProbeTruthMergeTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:43:54.402Z" hostname="DESKTOP-HM2J0FM" time="0.002">
+  <properties/>
+  <testcase name="enhancedAudioTruthPreservesSuccessfulPlatformDemux" classname="com.yfuse.core2.android.AndroidCore2ProbeTruthMergeTest" time="0.0"/>
+  <testcase name="platformMissedAudioKeepsVideoCapabilityButForcesEnhancedAudioDemux" classname="com.yfuse.core2.android.AndroidCore2ProbeTruthMergeTest" time="0.0"/>
+  <testcase name="missingDeclaredAudioBypassesInconclusivePlatformRetry" classname="com.yfuse.core2.android.AndroidCore2ProbeTruthMergeTest" time="0.0"/>
+  <testcase name="cronetIsSkippedOnAffectedAndroidNineRuntime" classname="com.yfuse.core2.android.AndroidCore2ProbeTruthMergeTest" time="0.001"/>
+  <testcase name="standaloneEnhancedProbeDoesNotInventPlatformDemux" classname="com.yfuse.core2.android.AndroidCore2ProbeTruthMergeTest" time="0.0"/>
+  <testcase name="missingPlatformAudioRequiresEnhancedTruthProbe" classname="com.yfuse.core2.android.AndroidCore2ProbeTruthMergeTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

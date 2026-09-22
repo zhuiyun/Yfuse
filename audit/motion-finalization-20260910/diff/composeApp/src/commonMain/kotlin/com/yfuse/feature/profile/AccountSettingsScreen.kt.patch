@@ -1,0 +1,71 @@
+--- before/composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/AccountSettingsScreen.kt
++++ after/composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/AccountSettingsScreen.kt
+@@ -19,7 +19,6 @@
+ import androidx.compose.foundation.layout.width
+ import androidx.compose.foundation.lazy.LazyColumn
+ import androidx.compose.foundation.lazy.LazyRow
+-import androidx.compose.foundation.lazy.items
+ import androidx.compose.foundation.selection.selectableGroup
+ import androidx.compose.foundation.shape.RoundedCornerShape
+ import androidx.compose.foundation.text.KeyboardOptions
+@@ -81,6 +80,8 @@
+ import com.yfuse.core.designsystem.YfFormField
+ import com.yfuse.core.designsystem.YfInlineLinkButton
+ import com.yfuse.core.designsystem.liquidGlass
++import com.yfuse.core.designsystem.motionItem
++import com.yfuse.core.designsystem.motionItems
+ import com.yfuse.core.designsystem.overlayAction
+ import com.yfuse.core.designsystem.pressable
+ import com.yfuse.core.designsystem.rememberDisclosureProgress
+@@ -110,10 +111,10 @@
+             ),
+         verticalArrangement = Arrangement.spacedBy(14.dp),
+     ) {
+-        item { AccountHeader(onBack) }
++        motionItem { AccountHeader(onBack) }
+         when (val current = state) {
+             AccountState.Restoring ->
+-                item {
++                motionItem {
+                     AccountCard {
+                         Row(
+                             modifier = Modifier.fillMaxWidth().padding(vertical = 18.dp),
+@@ -128,7 +129,7 @@
+                 }
+ 
+             is AccountState.RestoreFailed ->
+-                item {
++                motionItem {
+                     AccountCard {
+                         Text("暂时无法恢复账号", style = AppTypography.body.strong, color = palette.text)
+                         Spacer(Modifier.height(6.dp))
+@@ -142,17 +143,17 @@
+                 }
+ 
+             AccountState.SignedOut ->
+-                item {
++                motionItem {
+                     SignedOutAccountCard(account)
+                 }
+ 
+             is AccountState.SignedIn ->
+-                item {
++                motionItem {
+                     SignedInAccountCard(account, current, onOpenSessions)
+                 }
+         }
+ 
+-        item { EncryptionInfoCard() }
++        motionItem { EncryptionInfoCard() }
+     }
+ }
+ 
+@@ -1257,7 +1258,7 @@
+         modifier = Modifier.selectableGroup(),
+         horizontalArrangement = Arrangement.spacedBy(12.dp),
+     ) {
+-        items(WatchTogetherPreferences.AVATAR_COUNT) { id ->
++        motionItems(WatchTogetherPreferences.AVATAR_COUNT) { id ->
+             // WatchAvatar carries its own selected ring, so there is no glass layer here.
+             WatchAvatar(
+                 avatarId = id,

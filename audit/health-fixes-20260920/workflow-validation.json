@@ -1,0 +1,9 @@
+{
+  "yamlParsed": [
+    ".github/workflows/codeql.yml",
+    ".github/workflows/quality-gates-v2.yml",
+    ".github/dependabot.yml"
+  ],
+  "codeqlShellStepsSyntaxPassed": 2,
+  "remoteExecution": false
+}

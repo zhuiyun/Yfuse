@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.designsystem.MotionAccessibilityPolicyTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:04.631Z" hostname="DESKTOP-HM2J0FM" time="0.002">
+  <properties/>
+  <testcase name="overlays_leave_faster_and_reduce_motion_is_instant" classname="com.yfuse.core.designsystem.MotionAccessibilityPolicyTest" time="0.0"/>
+  <testcase name="dense_posters_use_a_short_fade_and_fallbacks_keep_identity" classname="com.yfuse.core.designsystem.MotionAccessibilityPolicyTest" time="0.001"/>
+  <testcase name="reduce_motion_removes_geometry_but_keeps_the_focus_ring" classname="com.yfuse.core.designsystem.MotionAccessibilityPolicyTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.data.PlaybackEventOutboxTest" tests="11" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:03.033Z" hostname="DESKTOP-HM2J0FM" time="0.014">
+  <properties/>
+  <testcase name="terminal_loss_survives_restart_and_acknowledgement_preserves_new_losses" classname="com.yfuse.core.data.PlaybackEventOutboxTest" time="0.004"/>
+  <testcase name="retry_backoff_is_exponential_but_has_a_hard_ceiling" classname="com.yfuse.core.data.PlaybackEventOutboxTest" time="0.0"/>
+  <testcase name="capacity_compaction_evicts_progress_before_a_stopped_event" classname="com.yfuse.core.data.PlaybackEventOutboxTest" time="0.0"/>
+  <testcase name="persisted_events_replay_in_order_after_process_recreation" classname="com.yfuse.core.data.PlaybackEventOutboxTest" time="0.002"/>
+  <testcase name="flushing_one_server_never_sends_another_servers_events" classname="com.yfuse.core.data.PlaybackEventOutboxTest" time="0.001"/>
+  <testcase name="evicting_replaceable_progress_does_not_report_lost_terminal_events" classname="com.yfuse.core.data.PlaybackEventOutboxTest" time="0.0"/>
+  <testcase name="a_slow_server_does_not_block_or_acknowledge_another_server" classname="com.yfuse.core.data.PlaybackEventOutboxTest" time="0.002"/>
+  <testcase name="unauthorized_and_forbidden_wait_for_explicit_reauthentication" classname="com.yfuse.core.data.PlaybackEventOutboxTest" time="0.002"/>
+  <testcase name="progress_snapshots_merge_without_reordering_the_session" classname="com.yfuse.core.data.PlaybackEventOutboxTest" time="0.001"/>
+  <testcase name="transient_failure_backs_off_then_continues_from_the_same_head" classname="com.yfuse.core.data.PlaybackEventOutboxTest" time="0.001"/>
+  <testcase name="stopped_is_terminal_and_late_callbacks_cannot_resurrect_it" classname="com.yfuse.core.data.PlaybackEventOutboxTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

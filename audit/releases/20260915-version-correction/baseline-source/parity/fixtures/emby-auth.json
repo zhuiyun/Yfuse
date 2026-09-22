@@ -1,0 +1,6 @@
+{
+  "AccessToken": "fixture-token-never-log",
+  "ServerId": "server-a",
+  "ServerName": "Living Room",
+  "User": {"Id": "user-a", "Name": "Alice"}
+}

@@ -1,0 +1,1059 @@
+package com.yfuse.feature.player
+
+import com.arkivanov.mvikotlin.extensions.coroutines.states
+import com.arkivanov.mvikotlin.main.store.DefaultStoreFactory
+import com.yfuse.core.data.MediaVersionPreference
+import com.yfuse.core.data.PlaybackFailoverPlan
+import com.yfuse.core.data.PlaybackFailoverRequest
+import com.yfuse.core.model.MediaVersion
+import com.yfuse.core.model.PlaybackMethod
+import com.yfuse.core.model.SavedServer
+import com.yfuse.core.model.VideoStreamInfo
+import com.yfuse.feature.json
+import com.yfuse.feature.testRegistry
+import com.yfuse.feature.testRepo
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withTimeout
+import java.util.concurrent.atomic.AtomicInteger
+import kotlin.test.AfterTest
+import kotlin.test.BeforeTest
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
+
+class PlayerStoreTest {
+    @Test
+    fun current_episode_is_ready_before_the_catalog_and_keeps_its_negotiated_session() =
+        runBlocking {
+            withTimeout(5_000L) {
+                // PlaybackInfo uses Dispatchers.Default. A virtual clock could time out before
+                // that real worker resumes; the unresolved catalog gate proves the startup order.
+                val releaseCatalog = CompletableDeferred<Unit>()
+                val registry =
+                    testRegistry().apply {
+                        addOrUpdate(SavedServer("id", "http://host:8096", "server", "u1", "user", "tok"))
+                    }
+                val repo =
+                    testRepo { request ->
+                        when {
+                            request.url.encodedPath.endsWith("/PlaybackInfo") ->
+                                json(
+                                    """
+                                    {"MediaSources":[{"Id":"source-e2","Container":"mkv","Path":"/series/e2.mkv",
+                                    "Size":123456789,"SupportsDirectPlay":true,"MediaStreams":[
+                                    {"Type":"Video","Codec":"h264","Width":1920,"Height":1080},
+                                    {"Type":"Audio","Codec":"aac","Channels":2,"SampleRate":48000}]}],
+                                    "PlaySessionId":"selected-session"}
+                                    """.trimIndent(),
+                                )
+                            request.url.encodedPath.contains("/Shows/s1/Episodes") -> {
+                                releaseCatalog.await()
+                                json(
+                                    """{"Items":[{"Id":"e1","Name":"Earlier","Type":"Episode","IndexNumber":1},{"Id":"e2","Name":"Current","Type":"Episode","IndexNumber":2,"ParentIndexNumber":1},{"Id":"e3","Name":"Next","Type":"Episode","IndexNumber":3}]}""",
+                                )
+                            }
+                            request.url.encodedPath.endsWith("/Items/s1") -> {
+                                releaseCatalog.await()
+                                json("""{"Id":"s1","Name":"Series","Type":"Series","ProviderIds":{"Tmdb":"123"}}""")
+                            }
+                            else ->
+                                json(
+                                    """{"Id":"e2","Name":"Current","Type":"Episode","SeriesId":"s1"}""",
+                                )
+                        }
+                    }
+                val store = PlayerStoreFactory(DefaultStoreFactory(), repo, registry, "e2", 900_000_000L).create()
+                try {
+                    val ready = store.states.first { !it.loading }
+                    assertNull(ready.error)
+                    assertEquals(listOf("e2"), ready.items.map { it.id })
+                    assertTrue(ready.enrichmentPending)
+                    assertNull(ready.items.single().seasonNumber)
+                    assertNull(ready.items.single().episodeNumber)
+                    assertEquals("selected-session", ready.items.single().playSessionId)
+                    assertEquals("source-e2", ready.items.single().versionId)
+                    assertEquals(90_000L, ready.startPositionMs)
+                    releaseCatalog.complete(Unit)
+                    val complete = store.states.first { !it.loading && !it.enrichmentPending }
+                    assertEquals(listOf("e1", "e2", "e3"), complete.items.map { it.id })
+                    assertEquals(1, complete.startIndex)
+                    assertEquals(1, complete.items[1].seasonNumber)
+                    assertEquals(2, complete.items[1].episodeNumber)
+                    assertEquals("Series", complete.items[1].seriesName)
+                    assertEquals("selected-session", complete.items[1].playSessionId)
+                    assertEquals(ready.items.single().url, complete.items[1].url)
+                    assertEquals(ready.items.single().playSessionId, complete.items[1].playSessionId)
+                    assertEquals(90_000L, complete.startPositionMs)
+                } finally {
+                    releaseCatalog.complete(Unit)
+                    store.dispose()
+                }
+            }
+        }
+
+    @Test
+    fun optional_backup_server_does_not_hold_the_primary_source_ready() =
+        runTest {
+            val releaseBackup = CompletableDeferred<Unit>()
+            val registry =
+                testRegistry().apply {
+                    addOrUpdate(SavedServer("primary", "http://primary", "primary", "u1", "user", "tok"))
+                    addOrUpdate(SavedServer("backup", "http://backup", "backup", "u1", "user", "tok"))
+                }
+            val failover =
+                PlaybackFailoverRequest().apply {
+                    set(PlaybackFailoverPlan("movie", "tmdb:603", listOf("backup")))
+                }
+            val repo =
+                testRepo(dispatcher = UnconfinedTestDispatcher(testScheduler)) { request ->
+                    if (request.url.host == "backup") releaseBackup.await()
+                    when {
+                        request.url.encodedPath.endsWith("/PlaybackInfo") -> json("""{"MediaSources":[]}""")
+                        request.url.parameters["AnyProviderIdEquals"] != null -> json("""{"Items":[]}""")
+                        else -> json("""{"Id":"movie","Name":"Movie","Type":"Movie","ProviderIds":{"Tmdb":"603"}}""")
+                    }
+                }
+            val store =
+                PlayerStoreFactory(
+                    DefaultStoreFactory(),
+                    repo,
+                    registry,
+                    "movie",
+                    0L,
+                    serverId = "primary",
+                    failoverRequest = failover,
+                ).create()
+            try {
+                val ready = store.states.first { !it.loading }
+                assertEquals("primary", ready.items.single().serverId)
+                assertTrue(ready.enrichmentPending)
+                releaseBackup.complete(Unit)
+                assertEquals(
+                    ready.items.single().url,
+                    store.states
+                        .first { !it.enrichmentPending }
+                        .items
+                        .single()
+                        .url,
+                )
+            } finally {
+                releaseBackup.complete(Unit)
+                store.dispose()
+            }
+        }
+
+    @Test
+    fun episode_metadata_waits_until_current_playback_negotiation_completes() =
+        runBlocking {
+            val seriesRequested = CompletableDeferred<Unit>()
+            val episodesRequested = CompletableDeferred<Unit>()
+            var negotiationCompleted = false
+            val registry =
+                testRegistry().apply {
+                    addOrUpdate(SavedServer("id", "http://host:8096", "server", "u1", "user", "tok"))
+                }
+            val repo =
+                testRepo { request ->
+                    when {
+                        request.url.encodedPath.endsWith("/PlaybackInfo") -> {
+                            assertFalse(seriesRequested.isCompleted)
+                            assertFalse(episodesRequested.isCompleted)
+                            negotiationCompleted = true
+                            json("""{"MediaSources":[],"PlaySessionId":"session"}""")
+                        }
+                        request.url.encodedPath.contains("/Shows/s1/Episodes") -> {
+                            assertTrue(negotiationCompleted)
+                            episodesRequested.complete(Unit)
+                            json("""{"Items":[{"Id":"e1","Name":"第1集","Type":"Episode","IndexNumber":1}]}""")
+                        }
+                        request.url.encodedPath.endsWith("/Items/s1") -> {
+                            assertTrue(negotiationCompleted)
+                            seriesRequested.complete(Unit)
+                            json("""{"Id":"s1","Name":"剧集","Type":"Series"}""")
+                        }
+                        else -> json("""{"Id":"e1","Name":"第1集","Type":"Episode","SeriesId":"s1"}""")
+                    }
+                }
+            val store =
+                PlayerStoreFactory(
+                    DefaultStoreFactory(),
+                    repo,
+                    registry,
+                    itemId = "e1",
+                    startPositionTicks = 0L,
+                ).create()
+            try {
+                val state = withTimeout(5_000L) { store.states.first { !it.loading && !it.enrichmentPending } }
+                assertNull(state.error)
+                assertTrue(negotiationCompleted)
+                assertEquals("e1", state.items.first().id)
+            } finally {
+                store.dispose()
+            }
+        }
+
+    @BeforeTest
+    fun setUp() = Dispatchers.setMain(UnconfinedTestDispatcher())
+
+    @AfterTest
+    fun tearDown() = Dispatchers.resetMain()
+
+    @Test
+    fun queue_load_timeout_replaces_the_spinner_with_a_retryable_error() =
+        runTest {
+            val registry =
+                testRegistry().apply {
+                    addOrUpdate(SavedServer("id", "http://host:8096", "server", "u1", "user", "tok"))
+                }
+            val store =
+                PlayerStoreFactory(
+                    DefaultStoreFactory(),
+                    testRepo(dispatcher = UnconfinedTestDispatcher(testScheduler)) { awaitCancellation() },
+                    registry,
+                    itemId = "movie",
+                    startPositionTicks = 0L,
+                    queueLoadTimeoutMs = 50L,
+                ).create()
+
+            val state = store.states.first { !it.loading && !it.enrichmentPending }
+
+            assertEquals("播放准备超时，请检查服务器连接后重试", state.error)
+            assertTrue(state.items.isEmpty())
+            store.dispose()
+        }
+
+    @Test
+    fun retry_after_initial_load_failure_enters_loading_and_recovers() =
+        runBlocking {
+            val registry = testRegistry()
+            val allowSuccessfulLoad = CompletableDeferred<Unit>()
+            val successfulLoadStarted = CompletableDeferred<Unit>()
+            val requestCount = AtomicInteger()
+            val repo =
+                testRepo { request ->
+                    requestCount.incrementAndGet()
+                    successfulLoadStarted.complete(Unit)
+                    allowSuccessfulLoad.await()
+                    when {
+                        request.url.encodedPath.endsWith("/PlaybackInfo") ->
+                            json("""{"MediaSources":[],"PlaySessionId":"session-retry"}""")
+                        request.url.encodedPath.endsWith("/Items/movie") ->
+                            json("""{"Id":"movie","Name":"恢复播放","Type":"Movie"}""")
+                        else -> json("{}")
+                    }
+                }
+            val store =
+                PlayerStoreFactory(
+                    DefaultStoreFactory(),
+                    repo,
+                    registry,
+                    itemId = "movie",
+                    startPositionTicks = 12_340_000L,
+                ).create()
+
+            val failed = store.states.first { !it.loading && !it.enrichmentPending }
+            assertEquals("没有可用的服务器", failed.error)
+            assertTrue(failed.items.isEmpty())
+            assertEquals(0, requestCount.get(), "A missing server should fail before making HTTP calls")
+
+            registry.addOrUpdate(
+                SavedServer("id", "http://host:8096", "server", "u1", "user", "tok"),
+            )
+            store.accept(PlayerIntent.Retry)
+
+            // Loading is dispatched before the request coroutine reaches the mock engine. Wait for
+            // the observable request boundary so this assertion is independent of dispatcher speed.
+            successfulLoadStarted.await()
+            val retrying = store.state
+            assertNull(retrying.error)
+            assertTrue(retrying.items.isEmpty())
+            assertEquals(1, requestCount.get(), "Retry should start exactly one queue rebuild")
+
+            // A second press while the first retry is in flight must not start a parallel load.
+            store.accept(PlayerIntent.Retry)
+            assertEquals(1, requestCount.get())
+
+            allowSuccessfulLoad.complete(Unit)
+            val recovered = store.states.first { !it.loading && !it.enrichmentPending && it.error == null }
+
+            assertEquals(listOf("movie"), recovered.items.map { it.id })
+            assertEquals("恢复播放", recovered.items.single().title)
+            assertEquals(1_234L, recovered.startPositionMs)
+            assertTrue(requestCount.get() >= 2)
+            store.dispose()
+        }
+
+    @Test
+    fun episode_loads_series_queue_and_resume_position() =
+        runBlocking {
+            // Negotiation resumes from Dispatchers.Default. Keep its catalog deadline on real time.
+            val registry =
+                testRegistry().apply {
+                    addOrUpdate(SavedServer("id", "http://host:8096", "server", "u1", "user", "tok"))
+                }
+            val repo =
+                testRepo { request ->
+                    when {
+                        request.url.encodedPath.endsWith("/PlaybackInfo") ->
+                            json("""{"MediaSources":[],"PlaySessionId":"session-e2"}""")
+                        request.url.encodedPath.contains("/Shows/s1/Episodes") ->
+                            json(
+                                """{"Items":[{"Id":"e1","Name":"开场","Type":"Episode",""" +
+                                    """"IndexNumber":1,"ParentIndexNumber":2},""" +
+                                    """{"Id":"e2","Name":"转折","Type":"Episode","IndexNumber":2,"ParentIndexNumber":2}]}""",
+                            )
+                        request.url.encodedPath.endsWith("/Items/s1") ->
+                            json(
+                                """{"Id":"s1","Name":"某剧","Type":"Series",""" +
+                                    """"ImageTags":{"Primary":"series-poster"}}""",
+                            )
+                        else ->
+                            json(
+                                """{"Id":"e2","Name":"转折","Type":"Episode","SeriesId":"s1","SeriesName":"某剧"}""",
+                            )
+                    }
+                }
+            val store =
+                PlayerStoreFactory(
+                    DefaultStoreFactory(),
+                    repo,
+                    registry,
+                    itemId = "e2",
+                    startPositionTicks = 25_000_000L,
+                ).create()
+
+            val state = withTimeout(5_000L) { store.states.first { !it.loading && !it.enrichmentPending } }
+
+            assertEquals(listOf("e1", "e2"), state.items.map { it.id })
+            assertEquals(listOf(2, 2), state.items.map { it.seasonNumber })
+            assertEquals(listOf(1, 2), state.items.map { it.episodeNumber })
+            assertTrue(
+                state.items.all {
+                    it.posterUrl ==
+                        "http://host:8096/Items/s1/Images/Primary?tag=series-poster&" +
+                        "maxHeight=360&quality=85&format=webp&api_key=tok&ApiKey=tok"
+                },
+            )
+            assertEquals(1, state.startIndex)
+            assertEquals(2_500L, state.startPositionMs)
+            store.dispose()
+        }
+
+    @Test
+    fun smart_failover_candidates_are_resolved_bounded_and_non_recursive() =
+        runBlocking {
+            val registry =
+                testRegistry().apply {
+                    addOrUpdate(SavedServer("primary", "http://primary", "primary", "u1", "user", "tok"))
+                    (1..4).forEach { index ->
+                        addOrUpdate(
+                            SavedServer(
+                                "fallback-$index",
+                                "http://fallback-$index",
+                                "fallback-$index",
+                                "u1",
+                                "user",
+                                "tok",
+                            ),
+                        )
+                    }
+                }
+            val repo =
+                testRepo { request ->
+                    val host = request.url.host
+                    val suffix = host.substringAfterLast('-').takeIf { host.startsWith("fallback-") }
+                    when {
+                        request.url.encodedPath.endsWith("/PlaybackInfo") ->
+                            json(
+                                """{"MediaSources":[{"Id":"source-${suffix ?: "primary"}"}],""" +
+                                    """"PlaySessionId":"session-${suffix ?: "primary"}"}""",
+                            )
+                        request.url.encodedPath.contains("/Users/u1/Items") &&
+                            request.url.parameters["AnyProviderIdEquals"] != null ->
+                            json(
+                                """{"Items":[{"Id":"movie-${suffix ?: "primary"}","Name":"电影",""" +
+                                    """"Type":"Movie","ProviderIds":{"Tmdb":"603"}}]}""",
+                            )
+                        request.url.encodedPath.endsWith("/Items/movie") ->
+                            json(
+                                """{"Id":"movie","Name":"电影","Type":"Movie",""" +
+                                    """"ProviderIds":{"Tmdb":"603"}}""",
+                            )
+                        request.url.encodedPath.contains("/Items/movie-") ->
+                            json(
+                                """{"Id":"movie-$suffix","Name":"电影-$suffix","Type":"Movie",""" +
+                                    """"ProviderIds":{"Tmdb":"603"},"MediaSources":[{"Id":"source-$suffix"}]}""",
+                            )
+                        else -> json("{}")
+                    }
+                }
+            val request =
+                PlaybackFailoverRequest().apply {
+                    set(
+                        PlaybackFailoverPlan(
+                            itemId = "movie",
+                            mediaKey = "tmdb:603",
+                            fallbackServerIds =
+                                listOf(
+                                    "fallback-1",
+                                    "fallback-2",
+                                    "fallback-2",
+                                    "fallback-3",
+                                    "fallback-4",
+                                ),
+                        ),
+                    )
+                }
+            val store =
+                PlayerStoreFactory(
+                    DefaultStoreFactory(),
+                    repo,
+                    registry,
+                    itemId = "movie",
+                    startPositionTicks = 0L,
+                    serverId = "primary",
+                    failoverRequest = request,
+                ).create()
+
+            val item =
+                store.states
+                    .first { !it.loading && !it.enrichmentPending }
+                    .items
+                    .single()
+
+            assertEquals(
+                listOf("fallback-1", "fallback-2", "fallback-3"),
+                item.serverFallbacks.map { it.serverId },
+            )
+            assertTrue(item.serverFallbacks.all { it.serverFallbacks.isEmpty() })
+            assertEquals("fallback-2", item.nextServerFallback(setOf("primary", "fallback-1"))?.serverId)
+            assertNull(
+                item.nextServerFallback(
+                    setOf("primary", "fallback-1", "fallback-2", "fallback-3"),
+                ),
+            )
+            store.dispose()
+        }
+
+    @Test
+    fun sibling_episode_transcodes_use_its_real_media_source_id() =
+        runBlocking {
+            val registry =
+                testRegistry().apply {
+                    addOrUpdate(SavedServer("id", "http://host:8096", "server", "u1", "user", "tok"))
+                }
+            val repo =
+                testRepo { request ->
+                    when {
+                        request.url.encodedPath.endsWith("/PlaybackInfo") ->
+                            json(
+                                """{"MediaSources":[],"PlaySessionId":"session-e1"}""",
+                            )
+                        request.url.encodedPath.contains("/Shows/s1/Episodes") ->
+                            json(
+                                """
+                                {"Items":[
+                                    {"Id":"e1","Name":"一","Type":"Episode","IndexNumber":1,"ParentIndexNumber":1,
+                                     "MediaSources":[{"Id":"source-e1","Container":"mkv","MediaStreams":[{"Type":"Video","Width":1920,"Height":1080}]}]},
+                                    {"Id":"e2","Name":"二","Type":"Episode","IndexNumber":2,"ParentIndexNumber":1,
+                                     "MediaSources":[{"Id":"source-e2","Container":"mkv","MediaStreams":[{"Type":"Video","Width":3840,"Height":2160}]}]}
+                                ]}
+                                """.trimIndent(),
+                            )
+                        request.url.encodedPath.endsWith("/Items/e1") ->
+                            json(
+                                """{"Id":"e1","Name":"一","Type":"Episode","SeriesId":"s1","SeriesName":"剧",
+                       "MediaSources":[{"Id":"source-e1","Container":"mkv","MediaStreams":[{"Type":"Video","Width":1920,"Height":1080}]}]}""",
+                            )
+                        else -> json("""{"Id":"s1","Name":"剧","Type":"Series"}""")
+                    }
+                }
+            val store =
+                PlayerStoreFactory(
+                    DefaultStoreFactory(),
+                    repo,
+                    registry,
+                    itemId = "e1",
+                    startPositionTicks = 0L,
+                ).create()
+
+            val state = withTimeout(5_000L) { store.states.first { !it.loading && !it.enrichmentPending } }
+            val sibling = state.items.single { it.id == "e2" }
+
+            assertTrue("MediaSourceId=source-e2" in sibling.transcodeUrl, sibling.transcodeUrl)
+            assertTrue(
+                "MediaSourceId=source-e2" in sibling.fallbackTranscodeUrl,
+                sibling.fallbackTranscodeUrl,
+            )
+            assertFalse("MediaSourceId=e2&" in sibling.transcodeUrl, sibling.transcodeUrl)
+            assertEquals("source-e2", sibling.versionId)
+            store.dispose()
+        }
+
+    @Test
+    fun next_episode_uses_hdr_preference_instead_of_media_source_order() =
+        runBlocking {
+            val registry =
+                testRegistry().apply {
+                    addOrUpdate(SavedServer("id", "http://host:8096", "server", "u1", "user", "tok"))
+                }
+            val repo =
+                testRepo { request ->
+                    when {
+                        request.url.encodedPath.endsWith("/PlaybackInfo") ->
+                            json("""{"MediaSources":[],"PlaySessionId":"session-e1"}""")
+                        request.url.encodedPath.contains("/Shows/s1/Episodes") ->
+                            json(
+                                """
+                                {
+                                  "Items":[
+                                    {
+                                      "Id":"e1",
+                                      "Name":"一",
+                                      "Type":"Episode",
+                                      "IndexNumber":1,
+                                      "ParentIndexNumber":1,
+                                      "MediaSources":[{
+                                        "Id":"e1-hdr",
+                                        "Container":"mkv",
+                                        "MediaStreams":[{
+                                          "Type":"Video",
+                                          "Width":3840,
+                                          "Height":2160,
+                                          "VideoRange":"HDR10"
+                                        }]
+                                      }]
+                                    },
+                                    {
+                                      "Id":"e2",
+                                      "Name":"二",
+                                      "Type":"Episode",
+                                      "IndexNumber":2,
+                                      "ParentIndexNumber":1,
+                                      "MediaSources":[
+                                        {
+                                          "Id":"e2-dolby",
+                                          "Container":"mkv",
+                                          "MediaStreams":[{
+                                            "Type":"Video",
+                                            "Width":3840,
+                                            "Height":2160,
+                                            "VideoRange":"DOVI",
+                                            "DvProfile":5
+                                          }]
+                                        },
+                                        {
+                                          "Id":"e2-hdr",
+                                          "Container":"mkv",
+                                          "MediaStreams":[{
+                                            "Type":"Video",
+                                            "Width":3840,
+                                            "Height":2160,
+                                            "VideoRange":"HDR10"
+                                          }]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                                """.trimIndent(),
+                            )
+                        request.url.encodedPath.endsWith("/Items/e1") ->
+                            json(
+                                """
+                                {
+                                  "Id":"e1",
+                                  "Name":"一",
+                                  "Type":"Episode",
+                                  "SeriesId":"s1",
+                                  "SeriesName":"剧",
+                                  "MediaSources":[{
+                                    "Id":"e1-hdr",
+                                    "Container":"mkv",
+                                    "MediaStreams":[{
+                                      "Type":"Video",
+                                      "Width":3840,
+                                      "Height":2160,
+                                      "VideoRange":"HDR10"
+                                    }]
+                                  }]
+                                }
+                                """.trimIndent(),
+                            )
+                        else -> json("""{"Id":"s1","Name":"剧","Type":"Series"}""")
+                    }
+                }
+            val store =
+                PlayerStoreFactory(
+                    DefaultStoreFactory(),
+                    repo,
+                    registry,
+                    itemId = "e1",
+                    startPositionTicks = 0L,
+                    mediaVersionPreference = MediaVersionPreference.HdrFirst,
+                ).create()
+
+            val next =
+                withTimeout(5_000L) { store.states.first { !it.loading && !it.enrichmentPending } }
+                    .items
+                    .single { it.id == "e2" }
+
+            assertEquals("e2-hdr", next.versionId)
+            assertTrue("MediaSourceId=e2-hdr" in next.url, next.url)
+            assertFalse("MediaSourceId=e2-dolby" in next.url, next.url)
+            store.dispose()
+        }
+
+    @Test
+    fun selected_source_id_survives_a_single_playback_info_source_that_omits_its_id() =
+        runTest {
+            val registry =
+                testRegistry().apply {
+                    addOrUpdate(SavedServer("id", "http://host:8096", "server", "u1", "user", "tok"))
+                }
+            val repo =
+                testRepo(dispatcher = UnconfinedTestDispatcher(testScheduler)) { request ->
+                    when {
+                        request.url.encodedPath.endsWith("/PlaybackInfo") ->
+                            json(
+                                """
+                                {
+                                  "MediaSources":[{
+                                    "Container":"mov",
+                                    "Size":195738044172,
+                                    "SupportsDirectPlay":true,
+                                    "SupportsTranscoding":false
+                                  }],
+                                  "PlaySessionId":"session-182"
+                                }
+                                """.trimIndent(),
+                            )
+                        request.url.encodedPath.endsWith("/Items/movie") ->
+                            json(
+                                """
+                                {
+                                  "Id":"movie",
+                                  "Name":"超大母版",
+                                  "Type":"Movie",
+                                  "MediaSources":[
+                                    {"Id":"source-40","Container":"mkv","Size":40825518261},
+                                    {"Id":"source-182","Container":"mov","Size":195738044172}
+                                  ]
+                                }
+                                """.trimIndent(),
+                            )
+                        else -> json("{}")
+                    }
+                }
+            val store =
+                PlayerStoreFactory(
+                    DefaultStoreFactory(),
+                    repo,
+                    registry,
+                    itemId = "movie",
+                    startPositionTicks = 0L,
+                    mediaSourceId = "source-182",
+                ).create()
+
+            val state = store.states.first { !it.loading && !it.enrichmentPending }
+            val item = state.items.single()
+
+            assertNull(state.error)
+            assertEquals("source-182", item.versionId)
+            assertEquals(195_738_044_172L, item.activeVersion?.sourceSizeBytes)
+            assertTrue("MediaSourceId=source-182" in item.url, item.url)
+            assertFalse("MediaSourceId=source-40" in item.url, item.url)
+            store.dispose()
+        }
+
+    @Test
+    fun playback_info_cannot_silently_replace_the_selected_physical_source() {
+        val mismatch =
+            playbackSourceMismatch(
+                requestedMediaSourceId = "source-182",
+                detailVersions =
+                    listOf(
+                        MediaVersion(
+                            id = "source-182",
+                            name = "182 GB",
+                            container = "mov",
+                            sizeBytes = 195_738_044_172L,
+                            bitrateBps = null,
+                            videoCodec = null,
+                            videoHeight = null,
+                            videoRange = null,
+                        ),
+                    ),
+                negotiatedVersions =
+                    listOf(
+                        MediaVersion(
+                            id = "source-40",
+                            name = "40 GB",
+                            container = "mkv",
+                            sizeBytes = 40_825_518_261L,
+                            bitrateBps = null,
+                            videoCodec = null,
+                            videoHeight = null,
+                            videoRange = null,
+                        ),
+                    ),
+            )
+
+        assertEquals(195_738_044_172L, mismatch?.expectedSizeBytes)
+        assertEquals(40_825_518_261L, mismatch?.returnedSizeBytes)
+    }
+
+    @Test
+    fun playback_info_cannot_erase_iso_metadata_or_route_it_to_direct_stream() =
+        runTest {
+            val registry =
+                testRegistry().apply {
+                    addOrUpdate(SavedServer("id", "http://host:8096", "server", "u1", "user", "tok"))
+                }
+            val repo =
+                testRepo(dispatcher = UnconfinedTestDispatcher(testScheduler)) { request ->
+                    when {
+                        request.url.encodedPath.endsWith("/PlaybackInfo") ->
+                            json(
+                                """
+                                {
+                                  "MediaSources":[{
+                                    "Id":"disc-source",
+                                    "SupportsDirectPlay":false,
+                                    "SupportsDirectStream":true,
+                                    "SupportsTranscoding":true,
+                                    "DirectStreamUrl":"/Videos/movie/stream?static=true"
+                                  }],
+                                  "PlaySessionId":"session-disc"
+                                }
+                                """.trimIndent(),
+                            )
+                        else ->
+                            json(
+                                """
+                                {
+                                  "Id":"movie",
+                                  "Name":"原盘电影",
+                                  "Type":"Movie",
+                                  "MediaSources":[{
+                                    "Id":"disc-source",
+                                    "Container":"iso",
+                                    "VideoType":"Iso",
+                                    "Path":"/media/movie.iso",
+                                    "Size":193273528320
+                                  }]
+                                }
+                                """.trimIndent(),
+                            )
+                    }
+                }
+            val store =
+                PlayerStoreFactory(
+                    DefaultStoreFactory(),
+                    repo,
+                    registry,
+                    itemId = "movie",
+                    startPositionTicks = 0L,
+                ).create()
+
+            val item =
+                store.states
+                    .first { !it.loading && !it.enrichmentPending }
+                    .items
+                    .single()
+
+            assertTrue(item.activeVersion?.discSource == true)
+            assertEquals(PlaybackMethod.Transcode, item.playMethod)
+            assertTrue("/Videos/movie/master.m3u8" in item.url, item.url)
+            assertFalse("static=true" in item.url, item.url)
+            assertFalse(item.canPreloadSource)
+            store.dispose()
+        }
+
+    @Test
+    fun a_declared_iso_ignores_a_raw_looking_negotiated_direct_stream_url() {
+        val version =
+            MediaVersion(
+                id = "disc-source",
+                name = "ISO",
+                container = "iso",
+                sizeBytes = 193_273_528_320L,
+                bitrateBps = null,
+                videoCodec = null,
+                videoHeight = null,
+                videoRange = null,
+                videoType = "Iso",
+                supportsDirectPlay = false,
+                supportsDirectStream = true,
+                supportsTranscoding = true,
+                directStreamUrl = "/Videos/movie/stream?static=true",
+            )
+
+        val selected =
+            listOf(version)
+                .toPlayerMediaVersions(
+                    baseUrl = "http://host:8096",
+                    itemId = "movie",
+                    token = "tok",
+                    negotiatedPlaySessionId = "session-disc",
+                ).single()
+
+        assertTrue(selected.discSource)
+        assertEquals(PlaybackMethod.Transcode, selected.playMethod)
+        assertTrue("/Videos/movie/master.m3u8" in selected.url, selected.url)
+        assertFalse("static=true" in selected.url, selected.url)
+    }
+
+    @Test
+    fun server_cannot_replace_a_linear_dolby_source_with_transcode() {
+        val version =
+            MediaVersion(
+                id = "dolby-source",
+                name = "Dolby Vision",
+                container = "mkv",
+                sizeBytes = 5_140_000_000L,
+                bitrateBps = 42_000_000,
+                videoCodec = "hevc",
+                videoHeight = 2_160,
+                videoRange = "DOVI",
+                video =
+                    VideoStreamInfo(
+                        codec = "hevc",
+                        width = 3_840,
+                        height = 2_160,
+                        bitDepth = 10,
+                        dolbyProfile = 7,
+                        dolbyBaseLayerCompatibility = 1,
+                        dolbyRpuPresent = true,
+                        dolbyEnhancementLayerPresent = true,
+                        dolbyBaseLayerPresent = true,
+                    ),
+                supportsDirectPlay = false,
+                supportsDirectStream = false,
+                supportsTranscoding = true,
+                transcodingUrl = "/Videos/movie/master.m3u8",
+            )
+
+        val selected =
+            listOf(version)
+                .toPlayerMediaVersions(
+                    baseUrl = "http://host:8096",
+                    itemId = "movie",
+                    token = "tok",
+                    negotiatedPlaySessionId = "session-dolby",
+                ).single()
+
+        assertTrue(selected.dolbyVision)
+        assertEquals(7, selected.dolbyProfile)
+        assertEquals(true, selected.sourceDolbyRpuPresent)
+        assertEquals(true, selected.sourceDolbyEnhancementLayerPresent)
+        assertEquals(true, selected.sourceDolbyBaseLayerPresent)
+        assertEquals(1, selected.sourceDolbyBaseLayerCompatibility)
+        assertEquals(PlaybackMethod.DirectPlay, selected.playMethod)
+        assertTrue("/Videos/movie/stream" in selected.url, selected.url)
+        assertFalse("master.m3u8" in selected.url, selected.url)
+    }
+
+    @Test
+    fun display_metadata_does_not_change_playback_sources() {
+        val original =
+            listOf(
+                PlayerMediaItem(
+                    id = "e1",
+                    url = "direct/e1",
+                    transcodeUrl = "hls/e1",
+                    fallbackTranscodeUrl = "progressive/e1",
+                    title = "旧标题",
+                    progress = 0.1f,
+                ),
+            )
+        val refreshed =
+            original.map {
+                it.copy(title = "新标题", stillUrl = "still/e1", progress = 0.7f)
+            }
+
+        assertTrue(original.hasSamePlaybackSourcesAs(refreshed))
+    }
+
+    @Test
+    fun source_or_queue_order_change_requires_engine_refresh() {
+        val first = PlayerMediaItem("e1", "direct/e1", "hls/e1", "第一集")
+        val second = PlayerMediaItem("e2", "direct/e2", "hls/e2", "第二集")
+
+        assertFalse(listOf(first, second).hasSamePlaybackSourcesAs(listOf(second, first)))
+        assertFalse(
+            listOf(first).hasSamePlaybackSourcesAs(
+                listOf(first.copy(url = "direct/e1-new")),
+            ),
+        )
+    }
+
+    /**
+     * A play session is minted per queue build, so the same file can be addressed through two
+     * different session ids. That is not a source change and must not restart the engine.
+     */
+    @Test
+    fun a_different_play_session_for_the_same_file_is_not_a_source_change() {
+        val original =
+            listOf(
+                PlayerMediaItem(
+                    id = "e1",
+                    url = "direct/e1?PlaySessionId=yfuse-aaa&DeviceId=d",
+                    transcodeUrl = "hls/e1?PlaySessionId=yfuse-aaa",
+                    fallbackTranscodeUrl = "progressive/e1?PlaySessionId=yfuse-aaa",
+                    title = "第一集",
+                    playSessionId = "yfuse-aaa",
+                ),
+            )
+        val rebuilt =
+            listOf(
+                original.single().copy(
+                    url = "direct/e1?PlaySessionId=yfuse-bbb&DeviceId=d",
+                    transcodeUrl = "hls/e1?PlaySessionId=yfuse-bbb",
+                    fallbackTranscodeUrl = "progressive/e1?PlaySessionId=yfuse-bbb",
+                    playSessionId = "yfuse-bbb",
+                ),
+            )
+
+        assertTrue(original.hasSamePlaybackSourcesAs(rebuilt))
+    }
+
+    @Test
+    fun switching_version_moves_urls_and_the_reporting_session_together() {
+        val alternate =
+            PlayerMediaVersion(
+                id = "alternate",
+                label = "1080p",
+                detail = "",
+                url = "direct/alternate",
+                transcodeUrl = "hls/alternate",
+                fallbackTranscodeUrl = "progressive/alternate",
+                playSessionId = "session-alternate",
+            )
+        val item =
+            PlayerMediaItem(
+                id = "movie",
+                url = "direct/original",
+                transcodeUrl = "hls/original",
+                fallbackTranscodeUrl = "progressive/original",
+                title = "电影",
+                versions = listOf(alternate),
+                playSessionId = "session-original",
+            )
+
+        val switched = item.withVersion("alternate")
+
+        assertEquals("direct/alternate", switched.url)
+        assertEquals("hls/alternate", switched.transcodeUrl)
+        assertEquals("progressive/alternate", switched.fallbackTranscodeUrl)
+        assertEquals("session-alternate", switched.playSessionId)
+    }
+
+    @Test
+    fun switching_physical_version_drops_revision_specific_trickplay_tiles() {
+        val original =
+            PlayerMediaVersion(
+                id = "original",
+                label = "4K",
+                detail = "",
+                url = "direct/original",
+                transcodeUrl = "hls/original",
+                fallbackTranscodeUrl = "progressive/original",
+            )
+        val alternate =
+            original.copy(
+                id = "alternate",
+                label = "1080p",
+                url = "direct/alternate",
+            )
+        val item =
+            PlayerMediaItem(
+                id = "episode",
+                url = original.url,
+                transcodeUrl = original.transcodeUrl,
+                title = "第一集",
+                versions = listOf(original, alternate),
+                versionId = original.id,
+                trickplay =
+                    TrickplayStoryboard("tiles/original/{index}.jpg", 320, 180, 10, 10, 10_000L, 100),
+            )
+
+        assertNull(item.withVersion(alternate).trickplay)
+        assertEquals(item.trickplay, item.withVersion(original).trickplay)
+    }
+
+    @Test
+    fun reopening_a_version_rotates_the_session_in_every_url() {
+        val original =
+            PlayerMediaVersion(
+                id = "source-a",
+                label = "4K",
+                detail = "",
+                url = "http://host/Videos/movie/stream?MediaSourceId=source-a&PlaySessionId=old-a",
+                transcodeUrl =
+                    "http://host/Videos/movie/master.m3u8?PlaySessionId=old-a&MediaSourceId=source-a",
+                fallbackTranscodeUrl =
+                    "http://host/Videos/movie/stream.mp4?MediaSourceId=source-a&PlaySessionId=old-a",
+                playSessionId = "old-a",
+            )
+
+        val refreshed = original.withFreshPlaySession()
+
+        assertTrue(refreshed.playSessionId.isNotBlank())
+        assertFalse(refreshed.playSessionId == original.playSessionId)
+        listOf(refreshed.url, refreshed.transcodeUrl, refreshed.fallbackTranscodeUrl)
+            .forEach { url ->
+                assertTrue("PlaySessionId=${refreshed.playSessionId}" in url, url)
+                assertFalse("PlaySessionId=old-a" in url, url)
+                assertTrue("MediaSourceId=source-a" in url, url)
+            }
+    }
+
+    @Test
+    fun a_newly_published_episode_is_reported_as_an_append() {
+        val first = PlayerMediaItem("e1", "direct/e1", "hls/e1", "第一集")
+        val second = PlayerMediaItem("e2", "direct/e2", "hls/e2", "第二集")
+        val third = PlayerMediaItem("e3", "direct/e3", "hls/e3", "第三集")
+
+        assertEquals(
+            listOf(third),
+            listOf(first, second).appendedBy(listOf(first, second, third)),
+        )
+    }
+
+    @Test
+    fun anything_other_than_an_append_is_not_absorbable() {
+        val first = PlayerMediaItem("e1", "direct/e1", "hls/e1", "第一集")
+        val second = PlayerMediaItem("e2", "direct/e2", "hls/e2", "第二集")
+        val third = PlayerMediaItem("e3", "direct/e3", "hls/e3", "第三集")
+
+        // Unchanged, shorter, reordered, and an entry replaced under the same position all
+        // leave the engine's positional playlist wrong; only a tail extension does not.
+        assertNull(listOf(first, second).appendedBy(listOf(first, second)))
+        assertNull(listOf(first, second).appendedBy(listOf(first)))
+        assertNull(listOf(first, second).appendedBy(listOf(second, first, third)))
+        assertNull(
+            listOf(first, second).appendedBy(
+                listOf(first, second.copy(url = "direct/e2-new"), third),
+            ),
+        )
+    }
+
+    @Test
+    fun scrub_position_is_clamped_to_media_duration() {
+        assertEquals(0L, scrubPositionMs(-0.5f, 100_000L))
+        assertEquals(25_000L, scrubPositionMs(0.25f, 100_000L))
+        assertEquals(100_000L, scrubPositionMs(1.5f, 100_000L))
+        assertEquals(0L, scrubPositionMs(0.5f, -1L))
+    }
+}

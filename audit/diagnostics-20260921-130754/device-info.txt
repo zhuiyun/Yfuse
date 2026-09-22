@@ -1,0 +1,20 @@
+Yfuse diagnostic package
+exportedAt=2026-09-21T05:07:58.061170Z
+appVersion=1.0.77 (239)
+buildRevision=f627bd04cb0fe307cae0a228abb586f32fc4bb05
+processSession=84e2e85d
+appVersionScope=exporting package; historical events retain their original sessions
+applicationId=com.yfuse
+android=17 (API 37)
+device=OPPO PLG110
+abis=arm64-v8a
+locale=zh-CN
+timeZone=Asia/Shanghai
+logFiles=2
+logEntries=580
+logBytes=739030
+logDroppedEntries=0
+logWriteFailures=0
+format=JSON Lines; one JSON object per line
+retention=7 days, at most 8 files / 5 MiB
+privacy=Tokens, credentials, server hosts and user identifiers are redacted.

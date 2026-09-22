@@ -1,0 +1,11 @@
+--- composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerControlSnapshot.kt (before turn)
++++ composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerControlSnapshot.kt
+@@ -12,7 +12,7 @@
+     remember(playback) {
+         derivedStateOf {
+             val value = playback.value
+-            value.copy(positionMs = if (value.positionMs > 0L) 1L else 0L, bufferedPositionMs = 0L)
++            value.runtimeProjection()
+         }
+     }
+ 

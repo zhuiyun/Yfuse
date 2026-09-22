@@ -1,0 +1,530 @@
+--- composeApp\src\androidMain\kotlin\com\yfuse\core2\android\AndroidAdaptiveCore2YPlayer.kt
++++ composeApp\src\androidMain\kotlin\com\yfuse\core2\android\AndroidAdaptiveCore2YPlayer.kt
+@@ -62,9 +62,9 @@
+ import kotlinx.coroutines.flow.map
+ import kotlinx.coroutines.flow.update
+ import kotlinx.coroutines.launch
+-import kotlinx.coroutines.runInterruptible
+ import java.util.concurrent.atomic.AtomicBoolean
+ import java.util.concurrent.atomic.AtomicLong
++import java.util.concurrent.atomic.AtomicReference
+ 
+ /**
+  * Per-item Core2 router. It never assumes one queue shares one codec/HDR/audio route.
+@@ -260,6 +260,22 @@
+         return true
+     }
+ 
++    private val nextPreparationBoundary = AtomicReference<NextItemPreparationBoundary?>(null)
++    private val nextPreparationRevision = AtomicLong()
++
++    override fun setNextItemPreparation(
++        itemId: String,
++        transitionPositionMs: Long?,
++        enabled: Boolean,
++    ) {
++        if (released) return
++        val next = NextItemPreparationBoundary(itemId, transitionPositionMs?.takeIf { it > 0L }, enabled)
++        if (nextPreparationBoundary.getAndSet(next) != next) {
++            nextPreparationRevision.incrementAndGet()
++            commands.trySend(Command.PreparationBoundaryChanged)
++        }
++    }
++
+     override fun selectItem(index: Int) {
+         if (released || index !in queueItems.indices) return
+         invalidateProbe("superseded")
+@@ -462,8 +478,22 @@
+         /** The media and probe behind the child being started, recorded once the child renders. */
+         var pendingVerifiedRoute: Pair<YMediaItem, YCore2ProbeResult.Success>? = null
+         var finalizeChildLearning: (() -> Unit)? = null
++        val videoHandoff = AndroidVideoDecoderHandoff()
+         var nextItemPreloadJob: Job? = null
+         var preloadedNextRoute: PreloadedNextRoute? = null
++        var nextPreloadRetryAfterMs = 0L
++        var handoffStartedNs: Long? = null
++        var handoffItemId: String? = null
++        var handoffVideoLogged = false
++        var handoffAudioLogged = false
++
++        fun discardNextPreparation() {
++            nextPreparationRevision.incrementAndGet()
++            nextItemPreloadJob?.cancel()
++            nextItemPreloadJob = null
++            preloadedNextRoute?.sources?.close()
++            preloadedNextRoute = null
++        }
+         val adaptiveFeedbackGeneration = AtomicLong(0L)
+         val sameRouteRecoveryAttempts = mutableMapOf<RouteRecoveryKey, Int>()
+         val codecResetCounts = mutableMapOf<Int, Int>()
+@@ -534,76 +564,113 @@
+         fun scheduleNextItemPreload(fromIndex: Int) {
+             if (!request.autoNext || fromIndex != currentIndex) return
+             val preloadChild = child ?: return
++            val currentItem = queueItems.getOrNull(fromIndex) ?: return
+             val nextIndex = fromIndex + 1
+             val item = queueItems.getOrNull(nextIndex) ?: return
+-            if (item.disc != null || item.drmConfiguration != null) return
++            val hint = nextPreparationBoundary.get()?.takeIf { it.itemId == currentItem.id }
++            if (hint?.enabled == false || !nextItemSourceEligible(item)) return
++            val nowMs = System.nanoTime() / 1_000_000L
+             val forcePowerSaver = currentThermalStatus() >= SEVERE_THERMAL_STATUS
+             val preferTunnel =
+                 item.allExternalSubtitles.isEmpty() &&
++                    audioDelayMs == 0L &&
+                     kotlin.math.abs(speed - 1f) <= TUNNEL_SPEED_EPSILON
+-            if (
+-                preloadedNextRoute?.matches(
+-                    index = nextIndex,
+-                    item = item,
+-                    preferTunnel = preferTunnel,
+-                    allowAudioPassthrough = allowAudioPassthrough,
+-                    forcePowerSaver = forcePowerSaver,
+-                ) == true ||
+-                nextItemPreloadJob?.isActive == true
++            if (nextItemPreloadJob?.isActive == true ||
++                nowMs < nextPreloadRetryAfterMs ||
++                preloadedNextRoute?.matches(nextIndex, item, preferTunnel, allowAudioPassthrough, forcePowerSaver) ==
++                true
+             ) {
+                 return
+             }
++            preloadedNextRoute?.sources?.close()
++            preloadedNextRoute = null
++            nextPreloadRetryAfterMs = nowMs + 10_000L
++            val preparationRevision = nextPreparationRevision.get()
+             nextItemPreloadJob =
+                 scope.launch(Dispatchers.IO) {
+-                    // Probing the next episode right after the first frame competes with the
+-                    // current item's read-ahead for the same link; wait for steady playback first.
+-                    val ready =
+-                        awaitCore2NextItemPreloadWindow {
+-                            activeChild?.takeIf { it === preloadChild }?.state?.value
+-                        }
+-                    if (!ready) return@launch
+-                    runCatching {
+-                        AndroidProbeBudget().use { budget ->
+-                            runInterruptible {
+-                                routeEvaluator.evaluate(
+-                                    item = item,
+-                                    preferTunnel = preferTunnel,
+-                                    allowAudioPassthrough = allowAudioPassthrough,
+-                                    forcePowerSaver = forcePowerSaver,
+-                                    prepareSourceForPlayback = false,
++                    val sources = AndroidNextItemSources()
++                    var transferred = false
++                    val preloadEvaluator = routeEvaluator.newPreparationEvaluator()
++                    val preloadPassthrough = allowAudioPassthrough
++
++                    fun snapshot(): YPlayerState? = activeChild?.takeIf { it === preloadChild }?.state?.value
++
++                    fun boundary(): Long? =
++                        nextPreparationBoundary.get()?.takeIf { it.itemId == currentItem.id }?.positionMs
++
++                    fun allowed(): Boolean =
++                        !released &&
++                            activeChild === preloadChild &&
++                            nextPreparationRevision.get() == preparationRevision &&
++                            nextPreparationBoundary.get()?.takeIf { it.itemId == currentItem.id }?.enabled != false &&
++                            currentThermalStatus() < SEVERE_THERMAL_STATUS &&
++                            nextItemNetworkAllowed(context)
++
++                    fun healthy(): Boolean = allowed() && snapshot()?.let(::nextItemPlaybackHealthy) == true
++                    try {
++                        if (!awaitNextItemBoundary(
++                                90_000L,
++                                ::boundary,
++                                ::snapshot,
++                                ::allowed,
++                                stableMs = 5_000L,
++                            )
++                        ) {
++                            return@launch
++                        }
++                        speculativeNextItemWork(
++                            ::healthy,
++                        ) { budget -> warmNextItemBytes(context.cacheDir, item, budget) }
++                        // Sources have a 30s lease. Open them only close to credits/natural end.
++                        if (!awaitNextItemBoundary(20_000L, ::boundary, ::snapshot, ::allowed)) return@launch
++                        val decision =
++                            speculativeNextItemWork({
++                                healthy() &&
++                                    (snapshot()?.let { nextItemRemainingMs(it, boundary()) } ?: Long.MAX_VALUE) <=
++                                    25_000L
++                            }) { budget ->
++                                preloadEvaluator.evaluate(
++                                    item,
++                                    preferTunnel,
++                                    preloadPassthrough,
++                                    forcePowerSaver,
++                                    prepareSourceForPlayback = true,
+                                     budget = budget,
+                                 )
+-                            }
+-                        }
+-                    }.onSuccess { decision ->
++                            } ?: return@launch
+                         currentCoroutineContext().ensureActive()
+-                        if (activeChild !== preloadChild) return@launch
+-                        if (decision != null) {
+-                            commands.trySend(
+-                                Command.NextItemPreloaded(
+-                                    fromChild = preloadChild,
+-                                    route =
+-                                        PreloadedNextRoute(
+-                                            index = nextIndex,
+-                                            itemId = item.id,
+-                                            itemUri = item.uri,
+-                                            preferTunnel = preferTunnel,
+-                                            allowAudioPassthrough = allowAudioPassthrough,
+-                                            forcePowerSaver = forcePowerSaver,
+-                                            decision = decision,
+-                                        ),
+-                                ),
++                        if (!healthy()) return@launch
++                        preloadEvaluator.takePreparedExtractor(item)?.let { sources.extractor.offer(item, it) }
++                        preloadEvaluator.takePreparedEnhancedDemux(item)?.let { sources.enhanced.offer(item, it) }
++                        val route =
++                            PreloadedNextRoute(
++                                nextIndex,
++                                item,
++                                preferTunnel,
++                                preloadPassthrough,
++                                forcePowerSaver,
++                                decision,
++                                sources,
+                             )
+-                        }
+-                    }.onFailure { error ->
+-                        if (error is CancellationException) throw error
++                        transferred =
++                            commands
++                                .trySend(
++                                    Command.NextItemPreloaded(preloadChild, route, preparationRevision),
++                                ).isSuccess
++                    } catch (cancelled: CancellationException) {
++                        throw cancelled
++                    } catch (error: Exception) {
+                         AppLog.warning(
+                             category = "player.core2",
+                             event = "next_item_preload_failed",
+-                            message = "YCore next-item route and decoder preheat failed; normal open remains available",
++                            message = "Optional next-item preparation stopped; normal open remains available",
+                             throwable = error,
+                             attributes = mapOf("itemIndex" to nextIndex.toString()),
+                         )
++                    } finally {
++                        preloadEvaluator.closePreparedExtractor()
++                        preloadEvaluator.closePreparedEnhancedDemux()
++                        if (!transferred) sources.close()
+                     }
+                 }
+         }
+@@ -823,8 +890,16 @@
+                             forcePowerSaver = forcePowerSaver,
+                         )
+                 }
++            if (warmedRoute == null) videoHandoff.close()
+             if (warmedRoute != null) {
+                 preloadedNextRoute = null
++                val adopted = routeEvaluator.adoptPreparedSources(item, warmedRoute.sources)
++                AppLog.info(
++                    category = "player.core2",
++                    event = "next_item_source_adopted",
++                    message = "Next-item prepared source ownership resolved",
++                    attributes = mapOf("adopted" to adopted.toString(), "itemIndex" to currentIndex.toString()),
++                )
+                 AppLog.info(
+                     category = "player.core2",
+                     event = "next_item_preload_reused",
+@@ -861,6 +936,7 @@
+             currentCoroutineContext().ensureActive()
+             budget.ensureActive()
+             if (forceSoftwareFallback) {
++                videoHandoff.close()
+                 routeEvaluator.closePreparedExtractor()
+                 return createInternalSoftwareRoute(item, singleRequest, decision)
+                     ?: fallbackRouteFactory?.create(
+@@ -871,6 +947,7 @@
+                     )
+             }
+             if (forceEnhancedFallback) {
++                videoHandoff.close()
+                 routeEvaluator.closePreparedExtractor()
+                 return createInternalEnhancedRoute(item, singleRequest, decision)
+                     ?: createInternalSoftwareRoute(item, singleRequest, decision)
+@@ -917,6 +994,12 @@
+             if (!bypassLearnedRouteMemory && failureLedger.isBlocked(decision.toFailureKey())) return null
+             val plan = decision.plan
+             if (!decision.nativeDirectExecutable) routeEvaluator.closePreparedExtractor()
++            if (!decision.nativeDirectExecutable ||
++                decision.probe.playbackRequest.video.hdrType != YHdrType.Sdr ||
++                decision.plan.audioPath != YAudioOutputPath.DecodePcm
++            ) {
++                videoHandoff.close()
++            }
+             AppLog.info(
+                 category = "player.core2",
+                 event = "route_selected",
+@@ -972,6 +1055,12 @@
+                         runtimeCapabilityKey = decision.runtimeCapabilityKey(),
+                         plannedAudioOutputPath = decision.plan.audioPath,
+                         preparedExtractor = routeEvaluator::takePreparedExtractor,
++                        videoHandoff =
++                            videoHandoff.takeIf {
++                                item.drmConfiguration == null &&
++                                    decision.probe.playbackRequest.video.hdrType == YHdrType.Sdr &&
++                                    decision.plan.audioPath == YAudioOutputPath.DecodePcm
++                            },
+                         preferredRemoteBufferTargetUs = preferredRemoteBufferTargetUs,
+                         frameRateSwitchMode = frameRateSwitchMode,
+                         plannedDolbyVisionConfig = decision.probe.dolbyVisionConfig,
+@@ -1090,7 +1179,6 @@
+             var successRecorded = false
+             var learningRecorded = false
+             var recoveryQueued = false
+-            var nextItemPreloadRequested = false
+             val networkRecoveryWindow = AndroidNetworkRecoveryWindow()
+             val learningStartPositionMs = next.currentPositionMs() + (attachedTarget?.presentationOffsetMs ?: 0L)
+             val learningStartBatteryPermille = currentBatteryPermille()
+@@ -1229,10 +1317,10 @@
+                         ) {
+                             sameRouteRecoveryAttempts.remove(prematureEndRecoveryKey)
+                         }
+-                        if (reportedChildState.buffering && nextItemPreloadJob?.isActive == true) {
+-                            nextItemPreloadJob?.cancel()
+-                            nextItemPreloadJob = null
+-                            nextItemPreloadRequested = false
++                        if ((nextItemPreloadJob != null || preloadedNextRoute != null) &&
++                            (reportedChildState.buffering || !nextItemNetworkAllowed(context))
++                        ) {
++                            discardNextPreparation()
+                         }
+                         val transientNetworkFailure =
+                             reportedChildState.phase == YPlaybackPhase.Failed &&
+@@ -1335,12 +1423,10 @@
+                             }
+                         }
+                         if (
+-                            !nextItemPreloadRequested &&
+                             !childState.buffering &&
+                             childState.playing &&
+                             childState.phase == YPlaybackPhase.Ready
+                         ) {
+-                            nextItemPreloadRequested = true
+                             scheduleNextItemPreload(childIndex())
+                         }
+                         if (
+@@ -1418,6 +1504,26 @@
+                         ) {
+                             commands.trySend(Command.AudioRouteChanged)
+                         }
++                        handoffStartedNs?.takeIf { handoffItemId == childItemId }?.let { started ->
++                            val video = childState.diagnostics.videoOutputVerified
++                            val audio = childState.diagnostics.audioOutputVerified
++                            if ((!handoffVideoLogged && video) || (!handoffAudioLogged && audio)) {
++                                AppLog.info(
++                                    category = "player.core2",
++                                    event = "next_item_output_ready",
++                                    message = "Output confirmed after item selection",
++                                    attributes =
++                                        mapOf(
++                                            "elapsedMs" to ((System.nanoTime() - started) / 1_000_000L).toString(),
++                                            "video" to video.toString(),
++                                            "audio" to audio.toString(),
++                                            "itemIndex" to currentIndex.toString(),
++                                        ),
++                                )
++                                handoffVideoLogged = handoffVideoLogged || video
++                                handoffAudioLogged = handoffAudioLogged || audio
++                            }
++                        }
+                         if (
+                             childState.phase == YPlaybackPhase.Ended &&
+                             !learningRecorded
+@@ -1458,6 +1564,9 @@
+                     buffering = requestedPlay,
+                     positionMs = positionMs.coerceAtLeast(0L),
+                     currentIndex = currentIndex,
++                    bufferedPositionMs = positionMs.coerceAtLeast(0L),
++                    subtitleCues = emptyList(),
++                    secondarySubtitleCues = emptyList(),
+                     error = null,
+                     errorCategory = null,
+                     diagnostics =
+@@ -1495,6 +1604,7 @@
+                             if (active == null) rebuild(pendingPositionMs) else active.play()
+                         }
+                         Command.Pause -> {
++                            discardNextPreparation()
+                             requestedPlay = false
+                             child?.pause()
+                         }
+@@ -1502,6 +1612,8 @@
+                             seekCommandQueued.set(false)
+                             val positionMs = pendingSeekMs.getAndSet(NO_PENDING_SEEK_MS)
+                             if (positionMs >= 0L) {
++                                discardNextPreparation()
++                                nextPreloadRetryAfterMs = 0L
+                                 val seekFeedbackGeneration = adaptiveFeedbackGeneration.incrementAndGet()
+                                 adaptiveFeedbackSink?.updatePlaybackFeedback(
+                                     YAdaptivePlaybackFeedback(
+@@ -1601,7 +1713,24 @@
+                             if (selectedIndex < 0) continue
+                             nextItemPreloadJob?.cancel()
+                             nextItemPreloadJob = null
+-                            if (preloadedNextRoute?.index != selectedIndex) preloadedNextRoute = null
++                            if (preloadedNextRoute?.index != selectedIndex) {
++                                preloadedNextRoute?.sources?.close()
++                                preloadedNextRoute = null
++                            }
++                            val preparedDecision = preloadedNextRoute?.decision
++                            if (selectedIndex == currentIndex + 1 &&
++                                preparedDecision?.nativeDirectExecutable == true &&
++                                preparedDecision.probe.playbackRequest.video.hdrType == YHdrType.Sdr &&
++                                preparedDecision.plan.audioPath == YAudioOutputPath.DecodePcm
++                            ) {
++                                (child as? AndroidNativeDirectYPlayer)?.prepareVideoHandoff()
++                            } else {
++                                videoHandoff.close()
++                            }
++                            handoffItemId = command.itemId
++                            handoffStartedNs = System.nanoTime()
++                            handoffVideoLogged = false
++                            handoffAudioLogged = false
+                             pendingPositionMs = 0L
+                             currentIndex = selectedIndex
+                             sameRouteRecoveryAttempts.keys.removeAll { it.itemIndex == currentIndex }
+@@ -1612,9 +1741,8 @@
+                             rebuild(0L)
+                         }
+                         Command.QueueUpdated -> {
+-                            nextItemPreloadJob?.cancel()
+-                            nextItemPreloadJob = null
+-                            preloadedNextRoute = null
++                            discardNextPreparation()
++                            nextPreloadRetryAfterMs = 0L
+                             sameRouteRecoveryAttempts.clear()
+                             codecResetCounts.clear()
+                             mutableState.updateState {
+@@ -1635,24 +1763,31 @@
+                                 scheduleNextItemPreload(currentIndex)
+                             }
+                         }
++                        Command.PreparationBoundaryChanged -> {
++                            discardNextPreparation()
++                            nextPreloadRetryAfterMs = 0L
++                            scheduleNextItemPreload(currentIndex)
++                        }
+                         is Command.NextItemPreloaded -> {
+-                            if (child !== command.fromChild) continue
++                            val item = queueItems.getOrNull(command.route.index)
++                            if (command.revision != nextPreparationRevision.get() ||
++                                child !== command.fromChild ||
++                                item == null ||
++                                command.route.index != currentIndex + 1 ||
++                                !command.route.sourceItem.matchesPreparedSource(item)
++                            ) {
++                                command.route.sources.close()
++                                continue
++                            }
+                             nextItemPreloadJob = null
+-                            val item = queueItems.getOrNull(command.route.index)
+-                            if (
+-                                command.route.index == currentIndex + 1 &&
+-                                item != null &&
+-                                command.route.itemId == item.id &&
+-                                command.route.itemUri == item.uri
+-                            ) {
+-                                preloadedNextRoute = command.route
+-                                AppLog.info(
+-                                    category = "player.core2",
+-                                    event = "next_item_preloaded",
+-                                    message = "YCore warmed next-item source metadata and decoder configuration",
+-                                    attributes = mapOf("itemIndex" to command.route.index.toString()),
+-                                )
+-                            }
++                            preloadedNextRoute?.sources?.close()
++                            preloadedNextRoute = command.route
++                            AppLog.info(
++                                category = "player.core2",
++                                event = "next_item_preloaded",
++                                message = "YCore next-item route and expiring media sources prepared",
++                                attributes = mapOf("itemIndex" to command.route.index.toString()),
++                            )
+                         }
+                         Command.AudioRouteChanged -> {
+                             audioRouteChangeQueued.set(false)
+@@ -1677,6 +1812,7 @@
+                             }
+                         }
+                         Command.ThermalPressure -> {
++                            discardNextPreparation()
+                             val activeRoute =
+                                 child
+                                     ?.state
+@@ -1842,12 +1978,17 @@
+             }
+         } finally {
+             probes.invalidate("released")
+-            nextItemPreloadJob?.cancel()
++            discardNextPreparation()
++            while (true) {
++                val pending = commands.tryReceive().getOrNull() ?: break
++                if (pending is Command.NextItemPreloaded) pending.route.sources.close()
++            }
+             try {
+                 stopChild(waitForRelease = false)
+             } finally {
+                 routeEvaluator.closePreparedExtractor()
+                 routeEvaluator.closePreparedEnhancedDemux()
++                videoHandoff.close()
+             }
+         }
+     }
+@@ -1875,6 +2016,8 @@
+ 
+         data object QueueUpdated : Command
+ 
++        data object PreparationBoundaryChanged : Command
++
+         data object AudioRouteChanged : Command
+ 
+         data object ThermalPressure : Command
+@@ -1882,6 +2025,7 @@
+         data class NextItemPreloaded(
+             val fromChild: YPlayer,
+             val route: PreloadedNextRoute,
++            val revision: Long,
+         ) : Command
+ 
+         data object SeekPending : Command
+@@ -1941,12 +2085,13 @@
+ 
+     private data class PreloadedNextRoute(
+         val index: Int,
+-        val itemId: String,
+-        val itemUri: String,
++        val sourceItem: YMediaItem,
+         val preferTunnel: Boolean,
+         val allowAudioPassthrough: Boolean,
+         val forcePowerSaver: Boolean,
+         val decision: YCore2RouteDecision,
++        val sources: AndroidNextItemSources,
++        val preparedAtNs: Long = System.nanoTime(),
+     ) {
+         fun matches(
+             index: Int,
+@@ -1956,8 +2101,10 @@
+             forcePowerSaver: Boolean,
+         ): Boolean =
+             this.index == index &&
+-                itemId == item.id &&
+-                itemUri == item.uri &&
++                System.nanoTime() - preparedAtNs < 30_000_000_000L &&
++                sourceItem.matchesPreparedSource(item) &&
++                sourceItem.sourceHints == item.sourceHints &&
++                sourceItem.allExternalSubtitles == item.allExternalSubtitles &&
+                 this.preferTunnel == preferTunnel &&
+                 this.allowAudioPassthrough == allowAudioPassthrough &&
+                 this.forcePowerSaver == forcePowerSaver

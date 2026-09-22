@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.PlaybackEngineBindingLabelTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:15.862Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="native_only_keeps_its_label_before_the_engine_reports_itself" classname="com.yfuse.feature.player.PlaybackEngineBindingLabelTest" time="0.0"/>
+  <testcase name="a_core2_binding_is_labelled_natively_even_when_another_engine_was_selected" classname="com.yfuse.feature.player.PlaybackEngineBindingLabelTest" time="0.001"/>
+  <testcase name="another_engine_keeps_the_name_it_reports" classname="com.yfuse.feature.player.PlaybackEngineBindingLabelTest" time="0.0"/>
+  <testcase name="an_engine_that_has_not_reported_yet_falls_back_to_the_selection" classname="com.yfuse.feature.player.PlaybackEngineBindingLabelTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

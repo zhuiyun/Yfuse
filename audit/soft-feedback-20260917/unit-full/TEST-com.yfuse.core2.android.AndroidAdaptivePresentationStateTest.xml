@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.AndroidAdaptivePresentationStateTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:08.797Z" hostname="DESKTOP-HM2J0FM" time="0.005">
+  <properties/>
+  <testcase name="open ended bitmap cues do not overflow when translated" classname="com.yfuse.core2.android.AndroidAdaptivePresentationStateTest" time="0.003"/>
+  <testcase name="unknown presentation duration uses period end and ordinary sources retain state" classname="com.yfuse.core2.android.AndroidAdaptivePresentationStateTest" time="0.0"/>
+  <testcase name="second period maps local progress and buffering to whole title" classname="com.yfuse.core2.android.AndroidAdaptivePresentationStateTest" time="0.0"/>
+  <testcase name="whole-title sidecar text and ASS keep their presentation clock in either channel" classname="com.yfuse.core2.android.AndroidAdaptivePresentationStateTest" time="0.002"/>
+  <testcase name="both subtitle channels follow the global period clock and preserve authored ASS time" classname="com.yfuse.core2.android.AndroidAdaptivePresentationStateTest" time="0.0"/>
+  <testcase name="subtitle presentation translation is idempotent" classname="com.yfuse.core2.android.AndroidAdaptivePresentationStateTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

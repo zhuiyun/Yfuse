@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.data.PlexMediaServerAdapterTest" tests="12" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:03.176Z" hostname="DESKTOP-HM2J0FM" time="0.058">
+  <properties/>
+  <testcase name="libraries_detail_and_playback_translate_plex_metadata_into_shared_models" classname="com.yfuse.core.data.PlexMediaServerAdapterTest" time="0.013"/>
+  <testcase name="local_collection_and_playlist_writes_follow_official_plex_contract" classname="com.yfuse.core.data.PlexMediaServerAdapterTest" time="0.009"/>
+  <testcase name="progress_reporting_uses_plex_timeline_and_millisecond_position" classname="com.yfuse.core.data.PlexMediaServerAdapterTest" time="0.002"/>
+  <testcase name="token_authentication_verifies_identity_without_putting_token_in_api_url" classname="com.yfuse.core.data.PlexMediaServerAdapterTest" time="0.003"/>
+  <testcase name="saved_rule_filters_type_and_played_and_keeps_server_sort_order" classname="com.yfuse.core.data.PlexMediaServerAdapterTest" time="0.004"/>
+  <testcase name="collections_playlists_and_container_items_use_local_plex_routes" classname="com.yfuse.core.data.PlexMediaServerAdapterTest" time="0.007"/>
+  <testcase name="playlist_contents_preserve_plex_row_identity_for_exact_removal" classname="com.yfuse.core.data.PlexMediaServerAdapterTest" time="0.002"/>
+  <testcase name="smart_plex_playlist_is_read_only_and_never_receives_a_uri_write" classname="com.yfuse.core.data.PlexMediaServerAdapterTest" time="0.002"/>
+  <testcase name="authenticated_media_url_rejects_cross_origin_paths" classname="com.yfuse.core.data.PlexMediaServerAdapterTest" time="0.0"/>
+  <testcase name="bif_index_metadata_exposes_authenticated_timestamp_storyboard" classname="com.yfuse.core.data.PlexMediaServerAdapterTest" time="0.003"/>
+  <testcase name="people_search_and_person_items_map_plex_hubs_and_actor_filter" classname="com.yfuse.core.data.PlexMediaServerAdapterTest" time="0.009"/>
+  <testcase name="user_snapshot_reads_plex_resume_position_for_local_progress_seeding" classname="com.yfuse.core.data.PlexMediaServerAdapterTest" time="0.004"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

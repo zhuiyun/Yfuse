@@ -1,0 +1,240 @@
+--- before/composeApp/src/commonMain/kotlin/com/yfuse/feature/servers/ServersTabScreen.kt
++++ after/composeApp/src/commonMain/kotlin/com/yfuse/feature/servers/ServersTabScreen.kt
+@@ -24,7 +24,6 @@
+ import androidx.compose.foundation.lazy.grid.GridCells
+ import androidx.compose.foundation.lazy.grid.GridItemSpan
+ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+-import androidx.compose.foundation.lazy.grid.items
+ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+ import androidx.compose.foundation.shape.CircleShape
+ import androidx.compose.foundation.text.KeyboardOptions
+@@ -90,11 +89,13 @@
+ import com.yfuse.core.designsystem.OverlayHeader
+ import com.yfuse.core.designsystem.OverlayOptionRow
+ import com.yfuse.core.designsystem.OverlayOptionSpacing
++import com.yfuse.core.designsystem.PageLoadingSkeleton
+ import com.yfuse.core.designsystem.RefreshThresholdHaptics
+ import com.yfuse.core.designsystem.ScrollToTopOnReselect
+ import com.yfuse.core.designsystem.Semantic
+ import com.yfuse.core.designsystem.ServerIconTints
+ import com.yfuse.core.designsystem.Shadows
++import com.yfuse.core.designsystem.SkeletonHandoff
+ import com.yfuse.core.designsystem.StatusBarIconStyle
+ import com.yfuse.core.designsystem.TabBarInset
+ import com.yfuse.core.designsystem.YfFormField
+@@ -102,7 +103,8 @@
+ import com.yfuse.core.designsystem.flatGlass
+ import com.yfuse.core.designsystem.glass
+ import com.yfuse.core.designsystem.liquidGlass
+-import com.yfuse.core.designsystem.motionAwareItem
++import com.yfuse.core.designsystem.motionItem
++import com.yfuse.core.designsystem.motionItems
+ import com.yfuse.core.designsystem.overlayAction
+ import com.yfuse.core.designsystem.pressable
+ import com.yfuse.core.designsystem.serverTintColor
+@@ -219,104 +221,114 @@
+             state = pullState,
+             modifier = Modifier.fillMaxSize(),
+         ) {
+-            LazyVerticalGrid(
+-                // 列表 is one column of the same card, not a second card design: everything
+-                // the grid card shows is worth showing in a row too, and two implementations
+-                // of the same thing drift apart on the next change to either.
+-                columns =
+-                    if (layout == ServerLayout.List) {
+-                        GridCells.Fixed(1)
+-                    } else {
+-                        GridCells.Adaptive(ServerCardMinWidth)
+-                    },
+-                state = gridState,
+-                modifier =
+-                    Modifier.fillMaxSize().statusBarsPadding().contentHandoff(
+-                        layout to visibleServers.isEmpty(),
+-                    ),
+-                contentPadding =
+-                    PaddingValues(
+-                        start = Dimens.pageHorizontal,
+-                        end = Dimens.pageHorizontal,
+-                        top = Dimens.contentTop,
+-                        bottom = TabBarInset,
+-                    ),
+-                // The cards carry their own shadow, so the air between them has to be
+-                // wider than the shadow or the grid reads as one slab of tiles.
+-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+-                verticalArrangement = Arrangement.spacedBy(12.dp),
++            SkeletonHandoff(
++                loading = !state.initialized,
++                modifier = Modifier.fillMaxSize(),
++                skeleton = { PageLoadingSkeleton() },
+             ) {
+-                item(key = "header", span = { GridItemSpan(maxLineSpan) }) {
+-                    ServersHeader(
+-                        onAdd = { component.store.accept(ServersIntent.OpenAddDialog) },
+-                        refreshing = refreshing,
+-                        refreshFeedback = refreshFeedback,
+-                        onRefreshAll = requestRefresh,
+-                        layout = layout,
+-                        onLayout = component::setLayout,
+-                        filter = listFilter,
+-                        onFilter = { filterVisible = true },
+-                    )
+-                }
+-
+-                currentServer?.let { server ->
+-                    item(key = server.id, contentType = "current-server", span = { GridItemSpan(maxLineSpan) }) {
+-                        CurrentServerHero(
++                LazyVerticalGrid(
++                    // 列表 is one column of the same card, not a second card design: everything
++                    // the grid card shows is worth showing in a row too, and two implementations
++                    // of the same thing drift apart on the next change to either.
++                    columns =
++                        if (layout == ServerLayout.List) {
++                            GridCells.Fixed(1)
++                        } else {
++                            GridCells.Adaptive(ServerCardMinWidth)
++                        },
++                    state = gridState,
++                    modifier =
++                        Modifier.fillMaxSize().statusBarsPadding().contentHandoff(
++                            layout to visibleServers.isEmpty(),
++                        ),
++                    contentPadding =
++                        PaddingValues(
++                            start = Dimens.pageHorizontal,
++                            end = Dimens.pageHorizontal,
++                            top = Dimens.contentTop,
++                            bottom = TabBarInset,
++                        ),
++                    // The cards carry their own shadow, so the air between them has to be
++                    // wider than the shadow or the grid reads as one slab of tiles.
++                    horizontalArrangement = Arrangement.spacedBy(12.dp),
++                    verticalArrangement = Arrangement.spacedBy(12.dp),
++                ) {
++                    motionItem(key = "header", span = { GridItemSpan(maxLineSpan) }) {
++                        ServersHeader(
++                            onAdd = { component.store.accept(ServersIntent.OpenAddDialog) },
++                            refreshing = refreshing,
++                            refreshFeedback = refreshFeedback,
++                            onRefreshAll = requestRefresh,
++                            layout = layout,
++                            onLayout = component::setLayout,
++                            filter = listFilter,
++                            onFilter = { filterVisible = true },
++                        )
++                    }
++
++                    currentServer?.let { server ->
++                        motionItem(
++                            key = server.id,
++                            contentType = "current-server",
++                            span = { GridItemSpan(maxLineSpan) },
++                        ) {
++                            CurrentServerHero(
++                                server = server,
++                                health = health[server.id],
++                                stats = serverStats[server.id],
++                                serverCount = state.servers.size,
++                                onlineCount = onlineServerCount,
++                                onOpen = { component.onOpenLibrary() },
++                                onMore = { actionsFor = server },
++                                modifier = Modifier,
++                            )
++                        }
++                    }
++
++                    if (state.servers.isNotEmpty()) {
++                        motionItem(key = "other-servers", span = { GridItemSpan(maxLineSpan) }) {
++                            OtherServersHeader(count = otherVisibleServers.size)
++                        }
++                    }
++
++                    if (state.servers.isEmpty()) {
++                        motionItem(key = "empty", span = { GridItemSpan(maxLineSpan) }) {
++                            EmptyServers(
++                                onAdd = { component.store.accept(ServersIntent.OpenAddDialog) },
++                            )
++                        }
++                    }
++
++                    if (state.servers.isNotEmpty() && otherVisibleServers.isEmpty()) {
++                        motionItem(key = "filtered-empty", span = { GridItemSpan(maxLineSpan) }) {
++                            Text(
++                                if (state.servers.size == 1) {
++                                    "还没有其他服务器"
++                                } else {
++                                    "没有其他符合当前筛选的服务器"
++                                },
++                                style = AppTypography.body.medium,
++                                color = palette.sub2,
++                                modifier = Modifier.padding(bottom = 24.dp),
++                            )
++                        }
++                    }
++
++                    motionItems(otherVisibleServers, key = { it.id }, contentType = { "server-card" }) { server ->
++                        ServerCard(
+                             server = server,
++                            isCurrent = false,
+                             health = health[server.id],
+                             stats = serverStats[server.id],
+-                            serverCount = state.servers.size,
+-                            onlineCount = onlineServerCount,
+-                            onOpen = { component.onOpenLibrary() },
++                            lastWatchedLabel = formatWatchedAgo(lastWatched[server.id], nowEpochMs),
++                            onClick = {
++                                component.store.accept(ServersIntent.SelectDefault(server.id))
++                                component.onOpenLibrary()
++                            },
+                             onMore = { actionsFor = server },
+-                            modifier = motionAwareItem(),
++                            modifier = Modifier,
+                         )
+                     }
+-                }
+-
+-                if (state.servers.isNotEmpty()) {
+-                    item(key = "other-servers", span = { GridItemSpan(maxLineSpan) }) {
+-                        OtherServersHeader(count = otherVisibleServers.size)
+-                    }
+-                }
+-
+-                if (state.servers.isEmpty()) {
+-                    item(key = "empty", span = { GridItemSpan(maxLineSpan) }) {
+-                        EmptyServers(
+-                            onAdd = { component.store.accept(ServersIntent.OpenAddDialog) },
+-                        )
+-                    }
+-                }
+-
+-                if (state.servers.isNotEmpty() && otherVisibleServers.isEmpty()) {
+-                    item(key = "filtered-empty", span = { GridItemSpan(maxLineSpan) }) {
+-                        Text(
+-                            if (state.servers.size == 1) {
+-                                "还没有其他服务器"
+-                            } else {
+-                                "没有其他符合当前筛选的服务器"
+-                            },
+-                            style = AppTypography.body.medium,
+-                            color = palette.sub2,
+-                            modifier = Modifier.padding(bottom = 24.dp),
+-                        )
+-                    }
+-                }
+-
+-                items(otherVisibleServers, key = { it.id }, contentType = { "server-card" }) { server ->
+-                    ServerCard(
+-                        server = server,
+-                        isCurrent = false,
+-                        health = health[server.id],
+-                        stats = serverStats[server.id],
+-                        lastWatchedLabel = formatWatchedAgo(lastWatched[server.id], nowEpochMs),
+-                        onClick = {
+-                            component.store.accept(ServersIntent.SelectDefault(server.id))
+-                            component.onOpenLibrary()
+-                        },
+-                        onMore = { actionsFor = server },
+-                        modifier = motionAwareItem(),
+-                    )
+                 }
+             }
+         }

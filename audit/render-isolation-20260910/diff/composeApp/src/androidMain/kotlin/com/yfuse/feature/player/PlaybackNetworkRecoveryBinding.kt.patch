@@ -1,0 +1,23 @@
+--- composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlaybackNetworkRecoveryBinding.kt (before turn)
++++ composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlaybackNetworkRecoveryBinding.kt
+@@ -2,6 +2,7 @@
+ 
+ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.LaunchedEffect
++import androidx.compose.runtime.State
+ import androidx.compose.runtime.getValue
+ import androidx.compose.runtime.mutableIntStateOf
+ import androidx.compose.runtime.mutableStateOf
+@@ -26,10 +27,11 @@
+     playbackNetworkClass: PlaybackNetworkClass,
+     engine: VideoEngine,
+     player: YPlayer,
+-    localState: PlaybackState,
++    localPlayback: State<PlaybackState>,
+     castAuthoritative: Boolean,
+     attachedEngineLabel: String,
+ ) {
++    val localState = localPlayback.value
+     LaunchedEffect(
+         recovery.controller,
+         playbackNetworkClass,

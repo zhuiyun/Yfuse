@@ -1,0 +1,40 @@
+{
+  "apk": "Yfuse-1.0.47-signed-arm64.apk",
+  "versionName": "1.0.47",
+  "versionCode": 209,
+  "bytes": 27939202,
+  "sha256": "f50e6d08a53369a24ae6e9714a265d0a21ee8af7cf6182ecb4018f56b851a8e7",
+  "certificateSha256": "373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84",
+  "abi": "arm64-v8a",
+  "alignment": "16 KB verified",
+  "nativeLibraries": [
+    "jni/arm64-v8a/libavcodec.so",
+    "jni/arm64-v8a/libavformat.so",
+    "jni/arm64-v8a/libavutil.so",
+    "jni/arm64-v8a/libc++_shared.so",
+    "jni/arm64-v8a/libswresample.so",
+    "jni/arm64-v8a/libswscale.so",
+    "jni/arm64-v8a/libycore_demux.so",
+    "jni/arm64-v8a/libycore_gpu.so"
+  ],
+  "unitTests": [
+    {
+      "name": "com.yfuse.app.RootTabMotionTest",
+      "tests": 6
+    },
+    {
+      "name": "com.yfuse.feature.search.SearchResultsHandoffTest",
+      "tests": 8
+    },
+    {
+      "name": "com.yfuse.core.data.ThemePreferencesTest",
+      "tests": 2
+    }
+  ],
+  "deviceTests": 3,
+  "device": "Samsung SM-G973U / Android 9",
+  "deviceTestLimitations": "First run passed all 3 search tests. Extra unchanged Tab test could not inject input into another foreground app; subsequent search repeat had zero-size window while another app was foreground. Repeated attempts stopped; both raw logs retained.",
+  "visualChecks": "PixelCopy on actual SearchField: light/dark, visible waiting movement, retained-result refresh, disabled/reduced-motion fallback",
+  "tvBaseline": "805af51c81247e87de6e1a0ee10101b97c64e990",
+  "versionSource": "Build overrides; repository release metadata unchanged"
+}

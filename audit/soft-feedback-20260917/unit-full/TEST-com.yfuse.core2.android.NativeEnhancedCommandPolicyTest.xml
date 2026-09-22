@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.NativeEnhancedCommandPolicyTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:13.057Z" hostname="DESKTOP-HM2J0FM" time="0.003">
+  <properties/>
+  <testcase name="consecutive_scrub_and_speed_commands_keep_only_the_latest_value" classname="com.yfuse.core2.android.NativeEnhancedCommandPolicyTest" time="0.001"/>
+  <testcase name="seek_remains_a_barrier_between_subtitle_selections" classname="com.yfuse.core2.android.NativeEnhancedCommandPolicyTest" time="0.001"/>
+  <testcase name="local_and_loopback_sources_do_not_reenter_the_proxy" classname="com.yfuse.core2.android.NativeEnhancedCommandPolicyTest" time="0.0"/>
+  <testcase name="primary_and_secondary_selections_survive_the_same_worker_batch" classname="com.yfuse.core2.android.NativeEnhancedCommandPolicyTest" time="0.0"/>
+  <testcase name="enhanced_remote_files_use_the_transport_proxy" classname="com.yfuse.core2.android.NativeEnhancedCommandPolicyTest" time="0.0"/>
+  <testcase name="playback_barrier_preserves_seek_order" classname="com.yfuse.core2.android.NativeEnhancedCommandPolicyTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

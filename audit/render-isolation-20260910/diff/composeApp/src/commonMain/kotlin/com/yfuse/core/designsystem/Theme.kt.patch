@@ -1,0 +1,56 @@
+--- composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/Theme.kt (before turn)
++++ composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/Theme.kt
+@@ -6,7 +6,6 @@
+ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.CompositionLocalProvider
+ import androidx.compose.runtime.Immutable
+-import androidx.compose.runtime.State
+ import androidx.compose.runtime.compositionLocalOf
+ import androidx.compose.runtime.remember
+ import androidx.compose.runtime.staticCompositionLocalOf
+@@ -298,11 +297,7 @@
+ ) {
+     val targetPalette = if (dark) DarkPalette else LightPalette
+     val targetAccent = remember(dark, accent) { resolveAccentColors(accent, dark) }
+-    val animatedColors =
+-        rememberThemeCrossfade(
+-            target = ThemeColors(targetPalette, targetAccent),
+-            reduceMotion = accessibility.reduceMotion,
+-        )
++    val colors = remember(targetPalette, targetAccent) { ThemeColors(targetPalette, targetAccent) }
+     val density = LocalDensity.current
+     val adjustedDensity =
+         if (accessibility.largeText) {
+@@ -317,23 +312,24 @@
+         LocalDensity provides adjustedDensity,
+         LocalHaptics provides rememberHaptics(),
+     ) {
+-        AnimatedThemeColors(dark, animatedColors) { DialogBackdropHost(content) }
+-    }
+-}
+-
+-/** Animation reads live below density/accessibility/glass providers and notify colour readers only. */
++        TargetThemeColors(dark, colors) { DialogBackdropHost(content) }
++    }
++}
++
++/** Publish targets once. Finite colour motion is owned by the consuming text/material node. */
+ @Composable
+-private fun AnimatedThemeColors(
++private fun TargetThemeColors(
+     dark: Boolean,
+-    colors: State<ThemeColors>,
++    colors: ThemeColors,
+     content: @Composable () -> Unit,
+ ) {
+-    val shown = colors.value
++    val shown = colors
+     val scheme =
+         remember(dark, shown.accent) {
+             if (dark) darkScheme(shown.accent) else lightScheme(shown.accent)
+         }
+     CompositionLocalProvider(
++        LocalThemeColorTarget provides colors,
+         LocalPalette provides shown.palette,
+         LocalAccentColors provides shown.accent,
+     ) {

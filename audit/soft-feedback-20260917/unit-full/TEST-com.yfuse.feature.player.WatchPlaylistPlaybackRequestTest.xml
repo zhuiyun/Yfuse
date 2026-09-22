@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.WatchPlaylistPlaybackRequestTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:16.231Z" hostname="DESKTOP-HM2J0FM" time="0.0">
+  <properties/>
+  <testcase name="newer_request_replaces_unconsumed_request" classname="com.yfuse.feature.player.WatchPlaylistPlaybackRequestTest" time="0.0"/>
+  <testcase name="request_is_consumed_once" classname="com.yfuse.feature.player.WatchPlaylistPlaybackRequestTest" time="0.0"/>
+  <testcase name="blank_request_is_ignored" classname="com.yfuse.feature.player.WatchPlaylistPlaybackRequestTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

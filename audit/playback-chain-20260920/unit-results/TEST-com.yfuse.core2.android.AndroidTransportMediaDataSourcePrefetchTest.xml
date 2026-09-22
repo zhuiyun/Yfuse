@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.AndroidTransportMediaDataSourcePrefetchTest" tests="16" skipped="0" failures="0" errors="0" timestamp="2026-09-20T01:56:35.132Z" hostname="DESKTOP-HM2J0FM" time="0.735">
+  <properties/>
+  <testcase name="prefetch stops at the known end of the source" classname="com.yfuse.core2.android.AndroidTransportMediaDataSourcePrefetchTest" time="0.002"/>
+  <testcase name="sequential read starts the following range before the extractor requests it" classname="com.yfuse.core2.android.AndroidTransportMediaDataSourcePrefetchTest" time="0.033"/>
+  <testcase name="moving and nearly complete ranges survive the old fixed promotion deadline" classname="com.yfuse.core2.android.AndroidTransportMediaDataSourcePrefetchTest" time="0.0"/>
+  <testcase name="a previously known size also starts the container tail probe" classname="com.yfuse.core2.android.AndroidTransportMediaDataSourcePrefetchTest" time="0.003"/>
+  <testcase name="a synchronous range wait exposes buffering state to the playback clock" classname="com.yfuse.core2.android.AndroidTransportMediaDataSourcePrefetchTest" time="0.002"/>
+  <testcase name="prefetch concurrency follows link capacity and remaining playback time" classname="com.yfuse.core2.android.AndroidTransportMediaDataSourcePrefetchTest" time="0.0"/>
+  <testcase name="remote media keeps a bounded twenty second prefetch window" classname="com.yfuse.core2.android.AndroidTransportMediaDataSourcePrefetchTest" time="0.0"/>
+  <testcase name="short body without range end metadata cannot masquerade as EOF" classname="com.yfuse.core2.android.AndroidTransportMediaDataSourcePrefetchTest" time="0.421"/>
+  <testcase name="server bitrate sizes prefetch before extractor opens and missing track bitrate cannot erase it" classname="com.yfuse.core2.android.AndroidTransportMediaDataSourcePrefetchTest" time="0.002"/>
+  <testcase name="random extractor seek closes cancelled range prefetch transports" classname="com.yfuse.core2.android.AndroidTransportMediaDataSourcePrefetchTest" time="0.003"/>
+  <testcase name="foreground timeout cancels blocking body read and remains a network failure" classname="com.yfuse.core2.android.AndroidTransportMediaDataSourcePrefetchTest" time="0.258"/>
+  <testcase name="random access forwards credentials to every transport request" classname="com.yfuse.core2.android.AndroidTransportMediaDataSourcePrefetchTest" time="0.003"/>
+  <testcase name="size probe overlaps the final container index range" classname="com.yfuse.core2.android.AndroidTransportMediaDataSourcePrefetchTest" time="0.002"/>
+  <testcase name="foreground range promotes only queued speculative work" classname="com.yfuse.core2.android.AndroidTransportMediaDataSourcePrefetchTest" time="0.0"/>
+  <testcase name="queued foreground promotion is included in qoe diagnostics" classname="com.yfuse.core2.android.AndroidTransportMediaDataSourcePrefetchTest" time="0.002"/>
+  <testcase name="blocked foreground read is observable while the range is still in flight" classname="com.yfuse.core2.android.AndroidTransportMediaDataSourcePrefetchTest" time="0.002"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

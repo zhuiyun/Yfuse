@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.playback.PlaybackReleaseValidationTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:06.676Z" hostname="DESKTOP-HM2J0FM" time="0.003">
+  <properties/>
+  <testcase name="complete_evidence_passes_and_reports_startup_percentiles" classname="com.yfuse.core.playback.PlaybackReleaseValidationTest" time="0.003"/>
+  <testcase name="threshold_violations_fail_the_corresponding_gates" classname="com.yfuse.core.playback.PlaybackReleaseValidationTest" time="0.0"/>
+  <testcase name="missing_measurements_cannot_be_release_ready" classname="com.yfuse.core.playback.PlaybackReleaseValidationTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

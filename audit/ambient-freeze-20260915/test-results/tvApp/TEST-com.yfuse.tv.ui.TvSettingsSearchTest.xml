@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.tv.ui.TvSettingsSearchTest" tests="9" skipped="0" failures="0" errors="0" timestamp="2026-09-15T04:26:39.331Z" hostname="DESKTOP-HM2J0FM" time="0.006">
+  <properties/>
+  <testcase name="the settings root is never a search result" classname="com.yfuse.tv.ui.TvSettingsSearchTest" time="0.004"/>
+  <testcase name="keywords find pages whose title does not contain the word" classname="com.yfuse.tv.ui.TvSettingsSearchTest" time="0.001"/>
+  <testcase name="matching ignores case for latin keywords" classname="com.yfuse.tv.ui.TvSettingsSearchTest" time="0.0"/>
+  <testcase name="an unrelated query returns nothing rather than everything" classname="com.yfuse.tv.ui.TvSettingsSearchTest" time="0.0"/>
+  <testcase name="a blank query matches nothing" classname="com.yfuse.tv.ui.TvSettingsSearchTest" time="0.0"/>
+  <testcase name="personal features are discoverable with everyday terms" classname="com.yfuse.tv.ui.TvSettingsSearchTest" time="0.001"/>
+  <testcase name="a title match finds its page" classname="com.yfuse.tv.ui.TvSettingsSearchTest" time="0.0"/>
+  <testcase name="unimplemented resource integration is not searchable" classname="com.yfuse.tv.ui.TvSettingsSearchTest" time="0.0"/>
+  <testcase name="every page except the root is reachable by at least one query" classname="com.yfuse.tv.ui.TvSettingsSearchTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

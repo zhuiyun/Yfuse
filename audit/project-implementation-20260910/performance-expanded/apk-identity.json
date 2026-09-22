@@ -1,0 +1,8 @@
+{
+  "test_instrumentation_runner": "androidx.test.runner.AndroidJUnitRunner",
+  "test_instrumentation_target": "com.yfuse.macrobenchmark",
+  "package": "com.yfuse.benchmark",
+  "test_package": "com.yfuse.macrobenchmark",
+  "apk_sha256": "9a6f8c97f55eb1491e053ba2adc70945917af87939f2bea98a9842374919f043",
+  "test_apk_sha256": "585a9db33447925b1a2aa4153b6269eccd755e17e367ad6e0c96b1a3b245d84b"
+}

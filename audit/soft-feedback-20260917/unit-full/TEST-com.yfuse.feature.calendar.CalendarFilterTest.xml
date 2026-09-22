@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.calendar.CalendarFilterTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:13.548Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="waiting_to_watch_excludes_files_that_are_not_in_the_library" classname="com.yfuse.feature.calendar.CalendarFilterTest" time="0.001"/>
+  <testcase name="waiting_for_library_contains_only_tracked_gaps" classname="com.yfuse.feature.calendar.CalendarFilterTest" time="0.0"/>
+  <testcase name="upcoming_contains_only_unaired_rows" classname="com.yfuse.feature.calendar.CalendarFilterTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

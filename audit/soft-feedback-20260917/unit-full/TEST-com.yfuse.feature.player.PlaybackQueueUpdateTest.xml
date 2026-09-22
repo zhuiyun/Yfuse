@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.PlaybackQueueUpdateTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:15.922Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="recovery_flags_follow_media_identity_when_catalog_order_changes" classname="com.yfuse.feature.player.PlaybackQueueUpdateTest" time="0.0"/>
+  <testcase name="catalog_enrichment_preserves_active_session_with_history_inserted_before_it" classname="com.yfuse.feature.player.PlaybackQueueUpdateTest" time="0.001"/>
+  <testcase name="a_changed_source_or_session_is_not_mistaken_for_metadata_enrichment" classname="com.yfuse.feature.player.PlaybackQueueUpdateTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

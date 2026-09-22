@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.sync.playback.PlaybackSyncStoreTest" tests="19" skipped="0" failures="0" errors="0" timestamp="2026-09-20T04:16:51.936Z" hostname="DESKTOP-HM2J0FM" time="0.055">
+  <properties/>
+  <testcase name="manualUnwatchedThenStartedCreatesFreshGeneration" classname="com.yfuse.core.sync.playback.PlaybackSyncStoreTest" time="0.001"/>
+  <testcase name="explicitRestartKeepsItsGenerationWhenPlayerStarts" classname="com.yfuse.core.sync.playback.PlaybackSyncStoreTest" time="0.001"/>
+  <testcase name="serverProgressReplacesACleanLocalRecordButNeverAnUnsentOne" classname="com.yfuse.core.sync.playback.PlaybackSyncStoreTest" time="0.002"/>
+  <testcase name="cooledServerStaysDurableWhileHealthyTargetsAdvance" classname="com.yfuse.core.sync.playback.PlaybackSyncStoreTest" time="0.001"/>
+  <testcase name="equivalentAliasRemoteDoesNotCauseUploadPingPong" classname="com.yfuse.core.sync.playback.PlaybackSyncStoreTest" time="0.004"/>
+  <testcase name="sameAccountKeepsOfflineMutationsButDifferentAccountResetsPartition" classname="com.yfuse.core.sync.playback.PlaybackSyncStoreTest" time="0.0"/>
+  <testcase name="invalidLocalDocumentsResetCloudCursorForFullRecovery" classname="com.yfuse.core.sync.playback.PlaybackSyncStoreTest" time="0.001"/>
+  <testcase name="serverLocalEmbyIdsNeverMergeAcrossServers" classname="com.yfuse.core.sync.playback.PlaybackSyncStoreTest" time="0.001"/>
+  <testcase name="a_missing_entity_rebase_survives_restart_without_losing_the_local_mutation" classname="com.yfuse.core.sync.playback.PlaybackSyncStoreTest" time="0.001"/>
+  <testcase name="startupServerProgressNeverOverwritesExistingLocalState" classname="com.yfuse.core.sync.playback.PlaybackSyncStoreTest" time="0.0"/>
+  <testcase name="startupServerProgressSeedsOnlyMissingItemsWithoutCreatingUpload" classname="com.yfuse.core.sync.playback.PlaybackSyncStoreTest" time="0.001"/>
+  <testcase name="serverCooldownCoversEveryQueuedTitleAndSurvivesRestart" classname="com.yfuse.core.sync.playback.PlaybackSyncStoreTest" time="0.02"/>
+  <testcase name="a_late_missing_response_cannot_reset_a_newer_cloud_cursor_or_local_mutation" classname="com.yfuse.core.sync.playback.PlaybackSyncStoreTest" time="0.001"/>
+  <testcase name="replacingProgressAfterRestartKeepsTheNewPositionAndTheServerCooldown" classname="com.yfuse.core.sync.playback.PlaybackSyncStoreTest" time="0.001"/>
+  <testcase name="aDifferentTitleInheritsThePersistedServerCooldownWithoutDelayingHealthyServers" classname="com.yfuse.core.sync.playback.PlaybackSyncStoreTest" time="0.001"/>
+  <testcase name="matchedAliasKeepsExistingCanonicalMediaKey" classname="com.yfuse.core.sync.playback.PlaybackSyncStoreTest" time="0.0"/>
+  <testcase name="serverApplyQueueSurvivesRestartAndAdvancesOneServerAtATime" classname="com.yfuse.core.sync.playback.PlaybackSyncStoreTest" time="0.001"/>
+  <testcase name="uploadAcknowledgementDoesNotAdvancePullCheckpoint" classname="com.yfuse.core.sync.playback.PlaybackSyncStoreTest" time="0.0"/>
+  <testcase name="serverBatchPersistsOncePreservesLocalMutationsAndRejectsChangedScope" classname="com.yfuse.core.sync.playback.PlaybackSyncStoreTest" time="0.016"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

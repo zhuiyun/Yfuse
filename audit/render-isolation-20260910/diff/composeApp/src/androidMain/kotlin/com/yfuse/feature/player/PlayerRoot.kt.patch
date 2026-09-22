@@ -1,0 +1,569 @@
+--- composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerRoot.kt (before turn)
++++ composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerRoot.kt
+@@ -15,8 +15,8 @@
+ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.DisposableEffect
+ import androidx.compose.runtime.LaunchedEffect
+-import androidx.compose.runtime.SideEffect
+ import androidx.compose.runtime.collectAsState
++import androidx.compose.runtime.derivedStateOf
+ import androidx.compose.runtime.getValue
+ import androidx.compose.runtime.key
+ import androidx.compose.runtime.mutableFloatStateOf
+@@ -27,6 +27,7 @@
+ import androidx.compose.runtime.rememberCoroutineScope
+ import androidx.compose.runtime.rememberUpdatedState
+ import androidx.compose.runtime.setValue
++import androidx.compose.runtime.snapshotFlow
+ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.graphics.Color
+ import androidx.compose.ui.layout.boundsInWindow
+@@ -562,29 +563,7 @@
+         }
+     }
+ 
+-    PlaybackRuntimeContent(owner = engine, source = presentationState) { reportedLocalState ->
+-        var timelineMemory by remember { mutableStateOf(PlaybackTimelineMemory()) }
+-        val timelineItem = items.getOrNull(reportedLocalState.currentIndex)
+-        val timelineResolution =
+-            stabilizePlaybackTimeline(
+-                memory = timelineMemory,
+-                media =
+-                    timelineItem?.let { item ->
+-                        PlaybackTimelineIdentity(
+-                            queueIndex = reportedLocalState.currentIndex,
+-                            serverId = item.serverId,
+-                            itemId = item.id,
+-                        )
+-                    },
+-                reported = reportedLocalState,
+-            )
+-        val localState = timelineResolution.state
+-        // The reporting collector below reads this through snapshot state. A plain capture of
+-        // `localState` would freeze at the value of the composition that launched the effect,
+-        // and the flow would only re-emit when the cast state changed — which is exactly what
+-        // happened once the collector stopped restarting on every position tick.
+-        val latestLocalState by rememberUpdatedState(localState)
+-        SideEffect { timelineMemory = timelineResolution.memory }
++    PlaybackRuntimeContent(owner = engine, source = presentationState, items = items) { localState, liveLocalState ->
+         LaunchedEffect(
+             engine,
+             localState.error,
+@@ -722,7 +701,8 @@
+             )
+         }
+         val castManager = remember { GlobalContext.get().get<CastManager>() }
+-        val castState by castManager.state.collectAsState()
++        val liveCastState = castManager.state.collectAsState()
++        val castState by remember(liveCastState) { derivedStateOf { liveCastState.value.copy(positionMs = 0L) } }
+         var pendingSeek by remember { mutableStateOf(SeekMergeState()) }
+         LaunchedEffect(pendingSeek.sequence) {
+             val request = pendingSeek
+@@ -763,18 +743,12 @@
+             } else {
+                 localCastItem?.playMethod?.label ?: PlaybackMethod.DirectPlay.label
+             }
+-        val baseState =
+-            if (castAuthoritative) {
+-                localState.withRemoteCast(castState, castPlayMethod)
+-            } else {
+-                localState
+-            }
+         BindPlaybackNetworkRecovery(
+             networkRecovery,
+             playbackNetworkClass,
+             engine,
+             player,
+-            localState,
++            liveLocalState,
+             castAuthoritative,
+             attachedEngineLabel,
+         )
+@@ -818,8 +792,8 @@
+             dolbyVisionRuntime,
+             allowAudioPassthrough,
+         )
+-        val runtimeAssessment =
+-            rememberYCoreRuntimeAssessment(
++        val runtimeAssessmentState =
++            rememberYCoreRuntimeAssessmentState(
+                 player = player,
+                 engineKind = kind,
+                 probe = activeProbe,
+@@ -829,10 +803,26 @@
+                 runtimeEnvironment = runtimeEnvironment,
+                 castAuthoritative = castAuthoritative,
+                 state = localState,
++                stateSource = liveLocalState,
+                 networkRecoveryAttempts = networkRecovery.attempts,
+                 networkRecoverySuccesses = networkRecovery.successes,
+                 sessionRevision = runtimeSessionGeneration,
+             )
++        val runtimeAssessment by remember(runtimeAssessmentState) {
++            derivedStateOf {
++                val current = runtimeAssessmentState.value
++                current.copy(
++                    health =
++                        current.health.copy(
++                            observedPlaybackMs = 0L,
++                            droppedFrames = current.health.droppedFrames / 10 * 10,
++                            droppedFramesPerMinute = 0f,
++                        ),
++                    power = current.power.copy(measuredMilliwatts = null),
++                    reportHealth = false,
++                )
++            }
++        }
+         LaunchedEffect(activeProbe.probeDepth, activeProbe.capabilitySignature) {
+             if (castAuthoritative) return@LaunchedEffect
+             // Pure YCore is fail-closed: an unsupported local path is reported to the user and must
+@@ -890,26 +880,46 @@
+                 engineGeneration++
+             }
+         }
+-        val state =
+-            baseState.copy(
+-                diagnostics =
+-                    baseState.diagnostics.copy(
+-                        deviceOutputCapabilities = deviceCapabilityLabel,
+-                        plannedRenderPath = activePlan.renderPath.name,
+-                        planningReason = activePlan.reason ?: resolvedOptimization.reason,
+-                        playbackHealth =
+-                            runtimeAssessment.runtimeFault?.reason
+-                                ?: runtimeAssessment.health.diagnosticLabel,
+-                        powerProfile = runtimeAssessment.power.diagnosticLabel,
+-                        resourcePressure = runtimeEnvironment.diagnosticLabel,
+-                        mediaProbe = activeProbeResult.diagnosticLabel,
+-                        performanceBaseline =
+-                            performanceMemory.diagnosticLabel(activeProbe.capabilitySignature),
+-                        startupTimeMs = runtimeAssessment.health.startupTimeMs ?: 0L,
+-                        networkRecoveryAttempts = networkRecovery.attempts,
+-                        networkRecoverySuccesses = networkRecovery.successes,
+-                    ),
+-            )
++        val metadataSource =
++            rememberUpdatedState<(PlaybackState) -> PlaybackState> { base ->
++                val assessment = runtimeAssessmentState.value
++                base.copy(
++                    diagnostics =
++                        base.diagnostics.copy(
++                            deviceOutputCapabilities = deviceCapabilityLabel,
++                            plannedRenderPath = activePlan.renderPath.name,
++                            planningReason = activePlan.reason ?: resolvedOptimization.reason,
++                            playbackHealth =
++                                assessment.runtimeFault?.reason
++                                    ?: assessment.health.diagnosticLabel,
++                            powerProfile = assessment.power.diagnosticLabel,
++                            resourcePressure = runtimeEnvironment.diagnosticLabel,
++                            mediaProbe = activeProbeResult.diagnosticLabel,
++                            performanceBaseline =
++                                performanceMemory.diagnosticLabel(activeProbe.capabilitySignature),
++                            startupTimeMs = assessment.health.startupTimeMs ?: 0L,
++                            networkRecoveryAttempts = networkRecovery.attempts,
++                            networkRecoverySuccesses = networkRecovery.successes,
++                        ),
++                )
++            }
++        val livePlayback =
++            remember(liveLocalState, liveCastState, castAuthoritative, castPlayMethod) {
++                derivedStateOf {
++                    val local = liveLocalState.value
++                    val base =
++                        if (castAuthoritative) {
++                            local.withRemoteCast(
++                                liveCastState.value,
++                                castPlayMethod,
++                            )
++                        } else {
++                            local
++                        }
++                    metadataSource.value(base)
++                }
++            }
++        val state by remember(livePlayback) { derivedStateOf { livePlayback.value.runtimeProjection() } }
+         val hdrPresentation =
+             state.diagnostics.dolbyVisionOutput ||
+                 state.diagnostics.dynamicRange.contains("hdr", ignoreCase = true) ||
+@@ -977,20 +987,15 @@
+             }
+             pauseForSleepTimer("睡眠定时已到，播放已暂停")
+         }
+-        LaunchedEffect(
+-            sleepTimerOption,
+-            sleepTimerEndIndex,
+-            localState.currentIndex,
+-            localState.positionMs,
+-            localState.durationMs,
+-        ) {
+-            if (
+-                sleepTimerOption == SleepTimerOption.EndOfEpisode &&
+-                sleepTimerEndIndex == localState.currentIndex &&
+-                localState.durationMs > 0L &&
+-                localState.durationMs - localState.positionMs <= END_OF_EPISODE_ARM_WINDOW_MS
+-            ) {
+-                sleepTimerArmedItemReachedEnd = true
++        LaunchedEffect(sleepTimerOption, sleepTimerEndIndex, liveLocalState) {
++            snapshotFlow { liveLocalState.value }.collect { current ->
++                if (sleepTimerOption == SleepTimerOption.EndOfEpisode &&
++                    sleepTimerEndIndex == current.currentIndex &&
++                    current.durationMs > 0L &&
++                    current.remainingMs <= END_OF_EPISODE_ARM_WINDOW_MS
++                ) {
++                    sleepTimerArmedItemReachedEnd = true
++                }
+             }
+         }
+         LaunchedEffect(
+@@ -1020,8 +1025,8 @@
+         LaunchedEffect(castState.sessionRevision, castState.termination) {
+             val decision =
+                 castRecoveryDecision(
+-                    state = castState,
+-                    fallbackPositionMs = localState.positionMs,
++                    state = liveCastState.value,
++                    fallbackPositionMs = liveLocalState.value.positionMs,
+                 ) ?: return@LaunchedEffect
+             if (completedCastHandoffRevision == castState.sessionRevision) return@LaunchedEffect
+             player.seekTo(decision.positionMs)
+@@ -1040,7 +1045,8 @@
+         val watchChatPreview by watchTogetherPreferences.chatPreviewEnabled.collectAsState()
+         val watchChatDanmaku by watchTogetherPreferences.chatDanmakuEnabled.collectAsState()
+         val currentItem = activeItems.getOrNull(state.currentIndex)
+-        val bookmarkBinding = rememberPlaybackBookmarkBinding(playbackPreferences, currentItem, state.positionMs)
++        val bookmarkBinding =
++            rememberPlaybackBookmarkBinding(playbackPreferences, currentItem) { livePlayback.value.positionMs }
+         val activeDolbyVersion =
+             currentItem
+                 ?.activeVersion
+@@ -1114,10 +1120,11 @@
+             runtimeAssessment.runtimeFault?.kind,
+             runtimeEnvironment.pressure,
+         ) {
++            val assessment = runtimeAssessmentState.value
+             val version = activeDolbyVersion ?: return@LaunchedEffect
+             if (
+-                !runtimeAssessment.health.evaluationReady &&
+-                runtimeAssessment.runtimeFault == null &&
++                !assessment.health.evaluationReady &&
++                assessment.runtimeFault == null &&
+                 runtimeEnvironment.pressure.name == "Normal"
+             ) {
+                 return@LaunchedEffect
+@@ -1136,32 +1143,32 @@
+                                     ?: if (version.dolbyVision) "unknown" else "not-dolby-vision"
+                             ),
+                         "health" to
+-                            if (runtimeAssessment.runtimeFault !=
++                            if (assessment.runtimeFault !=
+                                 null
+                             ) {
+                                 "Fault"
+                             } else {
+-                                runtimeAssessment.health.grade.name
++                                assessment.health.grade.name
+                             },
+-                        "decodeHealth" to runtimeAssessment.health.grade.name,
++                        "decodeHealth" to assessment.health.grade.name,
+                         "startupTimeMs" to
+-                            (runtimeAssessment.health.startupTimeMs?.toString() ?: "pending"),
+-                        "observedPlaybackMs" to runtimeAssessment.health.observedPlaybackMs.toString(),
+-                        "rebufferEvents" to runtimeAssessment.health.rebufferEvents.toString(),
+-                        "droppedFrames" to runtimeAssessment.health.droppedFrames.toString(),
++                            (assessment.health.startupTimeMs?.toString() ?: "pending"),
++                        "observedPlaybackMs" to assessment.health.observedPlaybackMs.toString(),
++                        "rebufferEvents" to assessment.health.rebufferEvents.toString(),
++                        "droppedFrames" to assessment.health.droppedFrames.toString(),
+                         "droppedFramesPerMinute" to
+-                            runtimeAssessment.health.droppedFramesPerMinute.toString(),
++                            assessment.health.droppedFramesPerMinute.toString(),
+                         "resourcePressure" to runtimeEnvironment.pressure.name,
+                         "batteryPowerMilliwatts" to
+                             (runtimeEnvironment.batteryPowerMilliwatts?.toString() ?: "unknown"),
+-                        "runtimeFault" to (runtimeAssessment.runtimeFault?.kind?.name ?: "none"),
++                        "runtimeFault" to (assessment.runtimeFault?.kind?.name ?: "none"),
+                     ),
+             )
+         }
+         val danmaku =
+             rememberPlayerDanmakuController(
+                 currentItem = currentItem,
+-                positionMs = state.positionMs,
++                positionMs = { livePlayback.value.positionMs },
+                 preferences = danmakuPreferences,
+                 repository = danmakuRepository,
+             )
+@@ -1446,7 +1453,7 @@
+         val skip =
+             rememberPlayerSkipController(
+                 currentItem = currentItem,
+-                playbackState = state,
++                playback = livePlayback,
+                 preferences = skipSegmentPreferences,
+                 playbackGate = playbackGate,
+                 watchGuest = watchState.connected && !watchState.canControl,
+@@ -1507,14 +1514,14 @@
+         PlayerWatchSyncEffects(
+             items = items,
+             player = player,
+-            playbackState = rememberUpdatedState(state),
++            playbackState = livePlayback,
+             watchState = watchState,
+             castAuthoritative = castAuthoritative,
+             watchTogether = watchTogether,
+             playbackGate = playbackGate,
+             onRemotePlayRequested = onRemotePlayRequested,
+         )
+-        val latestState by rememberUpdatedState(state)
++        val latestState by livePlayback
+         val latestActiveItems by rememberUpdatedState(activeItems)
+ 
+         fun capturePlaybackHandover() {
+@@ -1568,10 +1575,10 @@
+             castManager,
+             activeItems,
+             playbackSink,
+-            rememberUpdatedState(localState),
+-            rememberUpdatedState(castState),
++            liveLocalState,
++            liveCastState,
+             rememberUpdatedState(completedCastHandoffRevision),
+-            rememberUpdatedState(state),
++            livePlayback,
+             playbackGate,
+             onPlaybackState,
+         )
+@@ -1588,7 +1595,7 @@
+         var enginesTried by remember(state.currentIndex, currentItem?.serverId, currentItem?.versionId) {
+             mutableStateOf(setOf(kind))
+         }
+-        BindPlaybackDiagnostics(rememberUpdatedState(state), kind, enginesTried, core2NativeOnlyActive)
++        BindPlaybackDiagnostics(livePlayback, kind, enginesTried, core2NativeOnlyActive)
+         var serversTried by remember(state.currentIndex) {
+             mutableStateOf(setOfNotNull(currentItem?.serverId))
+         }
+@@ -2418,73 +2425,75 @@
+                 modifier = Modifier.fillMaxSize(),
+             )
+ 
+-            PlaybackContinuityOverlay(
+-                artworkUrls = listOf(currentItem?.stillUrl, currentItem?.posterUrl),
+-                title = currentItem?.title.orEmpty(),
+-                visible =
+-                    artworkMorph?.visible != true &&
+-                        currentItem != null &&
+-                        state.error == null &&
+-                        !state.ended &&
+-                        !(
+-                            state.diagnostics.effectiveAudioReadiness == PlaybackOutputReadiness.Rendering &&
+-                                state.videoHeight <= 0 &&
+-                                currentItem.activeVersion?.sourceVideoCodec.isNullOrBlank()
+-                        ) &&
+-                        state.diagnostics.effectiveVideoReadiness != PlaybackOutputReadiness.Rendering,
+-                message =
+-                    when {
+-                        networkRecovery.pending -> "网络已恢复，正在续播"
+-                        state.currentIndex != startIndex && state.positionMs < 3_000L -> "正在衔接下一集"
+-                        else -> "正在准备画面"
+-                    },
+-                modifier = Modifier.fillMaxSize(),
+-            )
+-            PlayerArtworkMorph(
+-                state = artworkMorph,
+-                ready =
+-                    state.error != null ||
+-                        state.diagnostics.effectiveVideoReadiness == PlaybackOutputReadiness.Rendering,
+-                inPictureInPicture = inPictureInPicture,
+-                aspectRatio =
+-                    if (scaleMode == VideoScaleMode.Fit && state.videoHeight > 0) {
+-                        state.diagnostics.videoWidth.toFloat() / state.videoHeight
+-                    } else {
+-                        null
+-                    },
+-            )
+-            val sourceBufferMs =
+-                maxOf(
+-                    state.diagnostics.bufferedDurationMs,
+-                    state.diagnostics.sourceBufferedMs,
++            PlaybackTimelineContent(livePlayback) { state ->
++                PlaybackContinuityOverlay(
++                    artworkUrls = listOf(currentItem?.stillUrl, currentItem?.posterUrl),
++                    title = currentItem?.title.orEmpty(),
++                    visible =
++                        artworkMorph?.visible != true &&
++                            currentItem != null &&
++                            state.error == null &&
++                            !state.ended &&
++                            !(
++                                state.diagnostics.effectiveAudioReadiness == PlaybackOutputReadiness.Rendering &&
++                                    state.videoHeight <= 0 &&
++                                    currentItem.activeVersion?.sourceVideoCodec.isNullOrBlank()
++                            ) &&
++                            state.diagnostics.effectiveVideoReadiness != PlaybackOutputReadiness.Rendering,
++                    message =
++                        when {
++                            networkRecovery.pending -> "网络已恢复，正在续播"
++                            state.currentIndex != startIndex && state.positionMs < 3_000L -> "正在衔接下一集"
++                            else -> "正在准备画面"
++                        },
++                    modifier = Modifier.fillMaxSize(),
+                 )
+-            PlaybackStatusChip(
+-                visible =
+-                    state.diagnostics.effectiveVideoReadiness == PlaybackOutputReadiness.Rendering &&
+-                        (state.buffering || networkRecovery.pending),
+-                message =
+-                    when {
+-                        networkRecovery.pending -> "网络已恢复，正在续播"
+-                        state.diagnostics.networkBitsPerSecond > 0L &&
+-                            state.diagnostics.bitrateBitsPerSecond > 0L &&
+-                            state.diagnostics.networkBitsPerSecond < state.diagnostics.bitrateBitsPerSecond ->
+-                            "网络速度不足 · 已缓冲 ${sourceBufferMs / 1_000} 秒"
+-                        else -> "正在重新缓冲 · 已缓冲 ${sourceBufferMs / 1_000} 秒"
+-                    },
+-                modifier = Modifier.align(androidx.compose.ui.Alignment.TopCenter).padding(top = 68.dp),
+-            )
+-
+-            if (!inPictureInPicture && danmaku.enabled && danmaku.visibleComments.isNotEmpty()) {
+-                DanmakuOverlay(
+-                    comments = danmaku.visibleComments,
+-                    positionMs = state.positionMs,
+-                    playing = state.playing && !state.buffering,
+-                    playbackRate = state.speed,
+-                    displayArea = danmaku.displayArea,
+-                    fontSize = danmaku.fontSize,
+-                    speed = danmaku.speed,
+-                    opacity = danmaku.opacity,
++                PlayerArtworkMorph(
++                    state = artworkMorph,
++                    ready =
++                        state.error != null ||
++                            state.diagnostics.effectiveVideoReadiness == PlaybackOutputReadiness.Rendering,
++                    inPictureInPicture = inPictureInPicture,
++                    aspectRatio =
++                        if (scaleMode == VideoScaleMode.Fit && state.videoHeight > 0) {
++                            state.diagnostics.videoWidth.toFloat() / state.videoHeight
++                        } else {
++                            null
++                        },
+                 )
++                val sourceBufferMs =
++                    maxOf(
++                        state.diagnostics.bufferedDurationMs,
++                        state.diagnostics.sourceBufferedMs,
++                    )
++                PlaybackStatusChip(
++                    visible =
++                        state.diagnostics.effectiveVideoReadiness == PlaybackOutputReadiness.Rendering &&
++                            (state.buffering || networkRecovery.pending),
++                    message =
++                        when {
++                            networkRecovery.pending -> "网络已恢复，正在续播"
++                            state.diagnostics.networkBitsPerSecond > 0L &&
++                                state.diagnostics.bitrateBitsPerSecond > 0L &&
++                                state.diagnostics.networkBitsPerSecond < state.diagnostics.bitrateBitsPerSecond ->
++                                "网络速度不足 · 已缓冲 ${sourceBufferMs / 1_000} 秒"
++                            else -> "正在重新缓冲 · 已缓冲 ${sourceBufferMs / 1_000} 秒"
++                        },
++                    modifier = Modifier.align(androidx.compose.ui.Alignment.TopCenter).padding(top = 68.dp),
++                )
++
++                if (!inPictureInPicture && danmaku.enabled && danmaku.visibleComments.isNotEmpty()) {
++                    DanmakuOverlay(
++                        comments = danmaku.visibleComments,
++                        positionMs = state.positionMs,
++                        playing = state.playing && !state.buffering,
++                        playbackRate = state.speed,
++                        displayArea = danmaku.displayArea,
++                        fontSize = danmaku.fontSize,
++                        speed = danmaku.speed,
++                        opacity = danmaku.opacity,
++                    )
++                }
+             }
+ 
+             AnimatedVisibility(
+@@ -2493,7 +2502,7 @@
+                 exit = ExitTransition.None,
+             ) {
+                 PlayerControls(
+-                    playback = rememberUpdatedState(state),
++                    playback = livePlayback,
+                     bookmarks = bookmarkBinding.first,
+                     bookmarkActions = bookmarkBinding.second,
+                     episodes = remember(activeItems) { activeItems.toEpisodeCards() },
+@@ -2528,7 +2537,7 @@
+                     onRetry = {
+                         val deviceId = castState.activeDeviceId
+                         if (castState.hasActiveSession && deviceId != null) {
+-                            scope.launch { loadCastItem(deviceId, state.currentIndex, state.positionMs) }
++                            scope.launch { loadCastItem(deviceId, state.currentIndex, livePlayback.value.positionMs) }
+                         } else {
+                             playbackGate.retry()
+                         }
+@@ -2554,7 +2563,7 @@
+                                         context = context,
+                                         mediaUrl = mediaUrl,
+                                         title = item.title,
+-                                        positionMs = state.positionMs,
++                                        positionMs = livePlayback.value.positionMs,
+                                         headers = handoverHeaders,
+                                     )
+                                 ) {
+@@ -2673,7 +2682,7 @@
+                                 rememberSeriesPlayback { remembered -> remembered.copy(audioDelayMs = it) }
+                             },
+                             onAutoSync = {
+-                                state.diagnostics.avSyncOffsetMs?.let { measured ->
++                                livePlayback.value.diagnostics.avSyncOffsetMs?.let { measured ->
+                                     val corrected =
+                                         calibratedAudioDelayMs(audioControls.delayMs, measured)
+                                     audioControls = audioControls.copy(delayMs = corrected)
+@@ -3142,20 +3151,21 @@
+                         castState.activeDevice?.let {
+                             "${it.name} · ${castState.status.label}"
+                         },
+-                    castPosition =
+-                        castState.activeDevice?.let {
+-                            if (!castState.positionConfirmed) {
++                    castPositionSource = {
++                        liveCastState.value.activeDevice?.let {
++                            if (!liveCastState.value.positionConfirmed) {
+                                 "等待接收端确认"
+                             } else {
+                                 buildString {
+-                                    append(formatDlnaTime(castState.positionMs))
+-                                    if (castState.durationMs > 0L) {
++                                    append(formatDlnaTime(liveCastState.value.positionMs))
++                                    if (liveCastState.value.durationMs > 0L) {
+                                         append(" / ")
+-                                        append(formatDlnaTime(castState.durationMs))
++                                        append(formatDlnaTime(liveCastState.value.durationMs))
+                                     }
+                                 }
+                             }
+-                        },
++                        }
++                    },
+                     castCapabilities =
+                         castState.activeDevice?.let {
+                             val capabilities = castState.capabilities
+@@ -3171,16 +3181,16 @@
+                     onCastTo = { deviceId ->
+                         val item = activeItems.getOrNull(state.currentIndex) ?: return@PlayerControls
+                         scope.launch {
+-                            loadCastItem(deviceId, state.currentIndex, state.positionMs)
++                            loadCastItem(deviceId, state.currentIndex, livePlayback.value.positionMs)
+                         }
+                     },
+                     onStopCast = {
+                         scope.launch {
+                             val handoffPosition =
+                                 if (castState.positionConfirmed) {
+-                                    castState.positionMs
++                                    liveCastState.value.positionMs
+                                 } else {
+-                                    localState.positionMs
++                                    liveLocalState.value.positionMs
+                                 }
+                             val resumeLocally = castState.lastRemoteWasPlaying
+                             if (castManager.stop()) {

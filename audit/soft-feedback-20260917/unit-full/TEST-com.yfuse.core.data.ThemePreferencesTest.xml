@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.data.ThemePreferencesTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:04.170Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="library_carousel_defaults_to_original_layout_and_remembers_explicit_choice" classname="com.yfuse.core.data.ThemePreferencesTest" time="0.0"/>
+  <testcase name="retired_variant_keys_are_scrubbed_and_retired_dialog_names_fall_back" classname="com.yfuse.core.data.ThemePreferencesTest" time="0.0"/>
+  <testcase name="pulse_sweep_can_be_disabled_and_restored_independently_of_reduced_motion" classname="com.yfuse.core.data.ThemePreferencesTest" time="0.0"/>
+  <testcase name="player_preferences_survive_recreation" classname="com.yfuse.core.data.ThemePreferencesTest" time="0.001"/>
+  <testcase name="theme_defaults_to_dark_and_particle_light_keeps_its_level" classname="com.yfuse.core.data.ThemePreferencesTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

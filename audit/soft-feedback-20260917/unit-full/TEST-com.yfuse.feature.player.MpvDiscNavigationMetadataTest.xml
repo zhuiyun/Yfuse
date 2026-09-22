@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.MpvDiscNavigationMetadataTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:15.808Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="edition_and_chapter_lists_keep_names_ids_playlists_defaults_and_times" classname="com.yfuse.feature.player.MpvDiscNavigationMetadataTest" time="0.001"/>
+  <testcase name="missing_rich_lists_fall_back_to_legacy_counts" classname="com.yfuse.feature.player.MpvDiscNavigationMetadataTest" time="0.0"/>
+  <testcase name="invalid_times_and_indices_are_safely_bounded" classname="com.yfuse.feature.player.MpvDiscNavigationMetadataTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,20 @@
+--- composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/SeriesAiringCalendarSheet.kt (before turn)
++++ composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/SeriesAiringCalendarSheet.kt
+@@ -19,8 +19,6 @@
+ import androidx.compose.foundation.lazy.LazyColumn
+ import androidx.compose.foundation.lazy.LazyRow
+ import androidx.compose.foundation.shape.CircleShape
+-import androidx.compose.material3.Icon
+-import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.LaunchedEffect
+ import androidx.compose.runtime.getValue
+@@ -71,6 +69,8 @@
+ import com.yfuse.core.util.daysBetweenIso
+ import com.yfuse.core.util.isoWeekdayLabel
+ import kotlin.math.abs
++import com.yfuse.core.designsystem.ThemeIcon as Icon
++import com.yfuse.core.designsystem.ThemeText as Text
+ 
+ private val SeriesCalendarHeroHeight = 148.dp
+ private val SeriesCalendarFallbackArtwork = Color(0xFFDAD4E8)

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.AndroidMediaExtractorReadAheadNodeTest" tests="21" skipped="0" failures="0" errors="0" timestamp="2026-09-22T01:21:16.899Z" hostname="DESKTOP-HM2J0FM" time="0.451">
+  <properties/>
+  <testcase name="live throughput reports a measured zero while the extractor owner is blocked" classname="com.yfuse.core2.android.AndroidMediaExtractorReadAheadNodeTest" time="0.018"/>
+  <testcase name="startup starvation is not counted as a rebuffer" classname="com.yfuse.core2.android.AndroidMediaExtractorReadAheadNodeTest" time="0.001"/>
+  <testcase name="prepared extractor handoff rejects changed authorization and can only be consumed once" classname="com.yfuse.core2.android.AndroidMediaExtractorReadAheadNodeTest" time="0.006"/>
+  <testcase name="release stops the owner and clears the queue" classname="com.yfuse.core2.android.AndroidMediaExtractorReadAheadNodeTest" time="0.015"/>
+  <testcase name="a deeper plan buys more read-ahead" classname="com.yfuse.core2.android.AndroidMediaExtractorReadAheadNodeTest" time="0.025"/>
+  <testcase name="release cancels a blocked read before waiting for extractor ownership" classname="com.yfuse.core2.android.AndroidMediaExtractorReadAheadNodeTest" time="0.004"/>
+  <testcase name="seek cancels blocked old read and resumes without publishing stale samples or failure" classname="com.yfuse.core2.android.AndroidMediaExtractorReadAheadNodeTest" time="0.008"/>
+  <testcase name="the staging buffer is allocated once, not once per fill" classname="com.yfuse.core2.android.AndroidMediaExtractorReadAheadNodeTest" time="0.078"/>
+  <testcase name="sample held by caller before seek cannot reenter new queue" classname="com.yfuse.core2.android.AndroidMediaExtractorReadAheadNodeTest" time="0.016"/>
+  <testcase name="end of input is reported only after the queue drains" classname="com.yfuse.core2.android.AndroidMediaExtractorReadAheadNodeTest" time="0.015"/>
+  <testcase name="a returned sample is delivered again before the rest" classname="com.yfuse.core2.android.AndroidMediaExtractorReadAheadNodeTest" time="0.014"/>
+  <testcase name="fills up to the configured watermark and stops" classname="com.yfuse.core2.android.AndroidMediaExtractorReadAheadNodeTest" time="0.018"/>
+  <testcase name="prepared extractor is adopted without reopening and released by its new owner" classname="com.yfuse.core2.android.AndroidMediaExtractorReadAheadNodeTest" time="0.013"/>
+  <testcase name="resume startup waits for metadata and seek before reading any samples" classname="com.yfuse.core2.android.AndroidMediaExtractorReadAheadNodeTest" time="0.016"/>
+  <testcase name="seek drops everything the old position had queued" classname="com.yfuse.core2.android.AndroidMediaExtractorReadAheadNodeTest" time="0.032"/>
+  <testcase name="the byte ceiling bounds the queue independently of the time target" classname="com.yfuse.core2.android.AndroidMediaExtractorReadAheadNodeTest" time="0.08"/>
+  <testcase name="missing audio does not count video span as playable buffer and memory cap still releases gate" classname="com.yfuse.core2.android.AndroidMediaExtractorReadAheadNodeTest" time="0.024"/>
+  <testcase name="sparse subtitle track does not prevent audio video buffer readiness" classname="com.yfuse.core2.android.AndroidMediaExtractorReadAheadNodeTest" time="0.012"/>
+  <testcase name="deferred startup at zero starts filling without requiring a seek" classname="com.yfuse.core2.android.AndroidMediaExtractorReadAheadNodeTest" time="0.015"/>
+  <testcase name="buffer bounds retain duplicate and reordered timestamps across poll return and seek" classname="com.yfuse.core2.android.AndroidMediaExtractorReadAheadNodeTest" time="0.022"/>
+  <testcase name="an excluded track still yields samples of the other track" classname="com.yfuse.core2.android.AndroidMediaExtractorReadAheadNodeTest" time="0.015"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

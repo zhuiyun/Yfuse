@@ -1,0 +1,36 @@
+--- before/composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailSections.kt
++++ after/composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailSections.kt
+@@ -16,7 +16,6 @@
+ import androidx.compose.foundation.layout.size
+ import androidx.compose.foundation.layout.width
+ import androidx.compose.foundation.lazy.LazyRow
+-import androidx.compose.foundation.lazy.itemsIndexed
+ import androidx.compose.foundation.shape.CircleShape
+ import androidx.compose.material3.Icon
+ import androidx.compose.material3.Text
+@@ -47,6 +46,7 @@
+ import com.yfuse.core.designsystem.Motion
+ import com.yfuse.core.designsystem.Poster
+ import com.yfuse.core.designsystem.liquidGlass
++import com.yfuse.core.designsystem.motionItemsIndexed
+ import com.yfuse.core.designsystem.pressable
+ import com.yfuse.core.designsystem.shadow
+ import com.yfuse.core.model.Person
+@@ -121,7 +121,7 @@
+             horizontalArrangement = Arrangement.spacedBy(10.dp),
+             contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
+         ) {
+-            itemsIndexed(tags, key = { _, tag -> tag }) { index, tag ->
++            motionItemsIndexed(tags, key = { _, tag -> tag }) { index, tag ->
+                 FallbackImage(
+                     urls =
+                         listOf(
+@@ -292,7 +292,7 @@
+             horizontalArrangement = Arrangement.spacedBy(14.dp),
+             contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
+         ) {
+-            itemsIndexed(
++            motionItemsIndexed(
+                 people.take(20),
+                 key = { index, person -> "person-${person.id}-$index" },
+             ) { _, person ->

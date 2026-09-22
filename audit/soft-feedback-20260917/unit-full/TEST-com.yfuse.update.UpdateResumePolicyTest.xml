@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.update.UpdateResumePolicyTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:16.560Z" hostname="DESKTOP-HM2J0FM" time="0.017">
+  <properties/>
+  <testcase name="a_partial_file_that_no_longer_matches_the_resume_offset_is_refused" classname="com.yfuse.update.UpdateResumePolicyTest" time="0.003"/>
+  <testcase name="a_paused_transfer_stops_at_a_chunk_boundary_and_keeps_what_it_wrote" classname="com.yfuse.update.UpdateResumePolicyTest" time="0.007"/>
+  <testcase name="appending_requires_a_partial_response_that_proves_the_package_is_unchanged" classname="com.yfuse.update.UpdateResumePolicyTest" time="0.0"/>
+  <testcase name="only_the_exact_remaining_window_continues_a_partial_file" classname="com.yfuse.update.UpdateResumePolicyTest" time="0.0"/>
+  <testcase name="a_range_response_is_measured_against_the_remaining_bytes" classname="com.yfuse.update.UpdateResumePolicyTest" time="0.0"/>
+  <testcase name="a_resumed_download_appends_to_the_bytes_already_on_disk" classname="com.yfuse.update.UpdateResumePolicyTest" time="0.004"/>
+  <testcase name="a_resume_offset_outside_the_package_is_rejected" classname="com.yfuse.update.UpdateResumePolicyTest" time="0.003"/>
+  <testcase name="progress_is_reported_against_the_whole_package" classname="com.yfuse.update.UpdateResumePolicyTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

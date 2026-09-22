@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.playback.PlaybackDeviceCapabilitiesAndroidTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:06.598Z" hostname="DESKTOP-HM2J0FM" time="0.002">
+  <properties/>
+  <testcase name="ten_bit_hevc_requires_a_main10_decoder_profile" classname="com.yfuse.core.playback.PlaybackDeviceCapabilitiesAndroidTest" time="0.001"/>
+  <testcase name="ordinary_hevc_main10_does_not_claim_hdr10_but_can_carry_hlg" classname="com.yfuse.core.playback.PlaybackDeviceCapabilitiesAndroidTest" time="0.0"/>
+  <testcase name="dolby_decoder_must_advertise_at_least_one_profile" classname="com.yfuse.core.playback.PlaybackDeviceCapabilitiesAndroidTest" time="0.001"/>
+  <testcase name="explicit_hevc_hdr10_plus_profile_includes_hdr10_compatibility" classname="com.yfuse.core.playback.PlaybackDeviceCapabilitiesAndroidTest" time="0.0"/>
+  <testcase name="refresh_rate_only_display_callbacks_do_not_invalidate_hdr_capabilities" classname="com.yfuse.core.playback.PlaybackDeviceCapabilitiesAndroidTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

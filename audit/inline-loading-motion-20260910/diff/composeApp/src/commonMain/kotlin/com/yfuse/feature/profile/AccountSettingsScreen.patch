@@ -1,0 +1,67 @@
+--- composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/AccountSettingsScreen.kt
++++ composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/AccountSettingsScreen.kt
+@@ -69,6 +69,7 @@
+ import com.yfuse.core.designsystem.GlassDialog
+ import com.yfuse.core.designsystem.GlassShapes
+ import com.yfuse.core.designsystem.HapticSignal
++import com.yfuse.core.designsystem.InlineLoadingContent
+ import com.yfuse.core.designsystem.LocalAccentColors
+ import com.yfuse.core.designsystem.LocalPalette
+ import com.yfuse.core.designsystem.OrbProgress
+@@ -487,7 +488,7 @@
+             AccountActionRow(
+                 title = "注册邀请",
+                 supporting = "生成一次性邀请码，明文仅显示一次",
+-                trailingLabel = if (inviteBusy) null else "生成",
++                trailingLabel = "生成",
+                 loading = inviteBusy,
+                 enabled = !busy && !state.syncing && !inviteBusy,
+                 showChevron = false,
+@@ -1125,24 +1126,29 @@
+             }
+         }
+         Spacer(Modifier.width(10.dp))
+-        if (loading) {
+-            OrbProgress(size = 16.dp, color = if (destructive) palette.error else accent.accent)
+-        } else {
+-            trailingLabel?.let {
+-                Text(
+-                    text = it,
+-                    style = AppTypography.caption.strong,
+-                    color = if (destructive) palette.error else accent.accent,
+-                )
+-                Spacer(Modifier.width(6.dp))
+-            }
+-            if (showChevron) {
+-                Icon(
+-                    imageVector = AppIcons.ChevronRight,
+-                    contentDescription = null,
+-                    tint = if (destructive) palette.error.copy(alpha = alpha) else palette.sub2.copy(alpha = alpha),
+-                    modifier = Modifier.size(17.dp),
+-                )
++        InlineLoadingContent(
++            loading = loading,
++            slotSize = 17.dp,
++            orbSize = 16.dp,
++            color = if (destructive) palette.error else accent.accent,
++        ) {
++            Row(verticalAlignment = Alignment.CenterVertically) {
++                trailingLabel?.let {
++                    Text(
++                        text = it,
++                        style = AppTypography.caption.strong,
++                        color = if (destructive) palette.error else accent.accent,
++                    )
++                    Spacer(Modifier.width(6.dp))
++                }
++                if (showChevron) {
++                    Icon(
++                        imageVector = AppIcons.ChevronRight,
++                        contentDescription = null,
++                        tint = if (destructive) palette.error.copy(alpha = alpha) else palette.sub2.copy(alpha = alpha),
++                        modifier = Modifier.size(17.dp),
++                    )
++                }
+             }
+         }
+     }

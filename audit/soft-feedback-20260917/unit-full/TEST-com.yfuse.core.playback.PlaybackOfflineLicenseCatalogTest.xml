@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.playback.PlaybackOfflineLicenseCatalogTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:06.632Z" hostname="DESKTOP-HM2J0FM" time="0.006">
+  <properties/>
+  <testcase name="expiry_and_renewal_states_follow_persisted_deadlines" classname="com.yfuse.core.playback.PlaybackOfflineLicenseCatalogTest" time="0.004"/>
+  <testcase name="key_set_is_kept_out_of_plain_settings_and_can_be_restored" classname="com.yfuse.core.playback.PlaybackOfflineLicenseCatalogTest" time="0.0"/>
+  <testcase name="removal_deletes_both_catalog_and_encrypted_key" classname="com.yfuse.core.playback.PlaybackOfflineLicenseCatalogTest" time="0.0"/>
+  <testcase name="failed_removal_metadata_write_keeps_the_catalog_and_encrypted_key" classname="com.yfuse.core.playback.PlaybackOfflineLicenseCatalogTest" time="0.001"/>
+  <testcase name="failed_metadata_write_restores_the_previous_encrypted_key" classname="com.yfuse.core.playback.PlaybackOfflineLicenseCatalogTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

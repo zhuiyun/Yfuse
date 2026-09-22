@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.data.SeriesCalendarLoadingTest" tests="11" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:03.235Z" hostname="DESKTOP-HM2J0FM" time="0.065">
+  <properties/>
+  <testcase name="cancelling_calendar_storage_stops_the_load_instead_of_reporting_a_write_failure" classname="com.yfuse.core.data.SeriesCalendarLoadingTest" time="0.015"/>
+  <testcase name="an_external_timeout_without_library_or_cached_dates_is_a_retryable_failure" classname="com.yfuse.core.data.SeriesCalendarLoadingTest" time="0.003"/>
+  <testcase name="a_real_binding_write_failure_keeps_resolved_calendar_rows_available" classname="com.yfuse.core.data.SeriesCalendarLoadingTest" time="0.003"/>
+  <testcase name="all_calendar_entry_points_only_request_the_server_schedule_feed" classname="com.yfuse.core.data.SeriesCalendarLoadingTest" time="0.009"/>
+  <testcase name="server_episodes_without_dates_do_not_get_invented_broadcast_dates" classname="com.yfuse.core.data.SeriesCalendarLoadingTest" time="0.0"/>
+  <testcase name="global_calendar_resolves_inventory_before_a_stalled_publication_refresh" classname="com.yfuse.core.data.SeriesCalendarLoadingTest" time="0.007"/>
+  <testcase name="fast_server_reports_playable_while_another_server_and_schedule_refresh_are_still_pending" classname="com.yfuse.core.data.SeriesCalendarLoadingTest" time="0.01"/>
+  <testcase name="a_partial_detail_season_does_not_mark_other_seasons_missing" classname="com.yfuse.core.data.SeriesCalendarLoadingTest" time="0.0"/>
+  <testcase name="known_library_episode_is_visible_before_stalled_external_schedules_finish" classname="com.yfuse.core.data.SeriesCalendarLoadingTest" time="0.005"/>
+  <testcase name="tracked_series_reads_its_own_episodes_before_external_requests_or_catalog_scans" classname="com.yfuse.core.data.SeriesCalendarLoadingTest" time="0.008"/>
+  <testcase name="tracking_artwork_uses_the_plex_poster_path_and_current_server_token" classname="com.yfuse.core.data.SeriesCalendarLoadingTest" time="0.005"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

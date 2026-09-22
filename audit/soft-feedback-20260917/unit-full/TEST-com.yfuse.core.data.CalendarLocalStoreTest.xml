@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.data.CalendarLocalStoreTest" tests="1" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:02.117Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="snapshot_is_fresh_only_when_schedule_and_resources_are_both_current" classname="com.yfuse.core.data.CalendarLocalStoreTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

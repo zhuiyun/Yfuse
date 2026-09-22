@@ -1,0 +1,9 @@
+{
+  "name": "entry",
+  "version": "1.0.0",
+  "description": "Yfuse Cangjie entry module",
+  "main": "",
+  "author": "Yfuse",
+  "license": "All Rights Reserved",
+  "dependencies": {}
+}

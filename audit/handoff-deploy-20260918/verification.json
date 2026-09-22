@@ -1,0 +1,20 @@
+{
+  "gitSha": "2eff84853c06c492dd1f1431adbebada1b0a53c6",
+  "health": "ok",
+  "publicHandoff": 401,
+  "publicHeartbeat": 401,
+  "publicPlaintext": 426,
+  "service": "active/running",
+  "nRestarts": 0,
+  "release": "/opt/yfuse-watch/releases/20260918-011144-2eff8485-handoff",
+  "previous": "/opt/yfuse-watch/releases/20260908-091122-9d565adf",
+  "backup": "/var/lib/yfuse/backups/pre-handoff-20260918-011144",
+  "verifiedDatabases": [
+    "account.db",
+    "calendar-ocr-cache.db",
+    "calendar.db",
+    "migration-relay.db",
+    "qoe.db"
+  ],
+  "realDeviceTransferTested": false
+}

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.calendar.CalendarStateTest" tests="13" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:13.565Z" hostname="DESKTOP-HM2J0FM" time="0.004">
+  <properties/>
+  <testcase name="the_list_opens_on_today_rather_than_a_week_ago" classname="com.yfuse.feature.calendar.CalendarStateTest" time="0.003"/>
+  <testcase name="a_today_with_no_broadcasts_lands_on_the_next_day_that_has_one" classname="com.yfuse.feature.calendar.CalendarStateTest" time="0.0"/>
+  <testcase name="an_enrichment_timeout_keeps_an_available_preview_without_an_error_page" classname="com.yfuse.feature.calendar.CalendarStateTest" time="0.0"/>
+  <testcase name="a_window_entirely_in_the_past_lands_on_its_last_day" classname="com.yfuse.feature.calendar.CalendarStateTest" time="0.0"/>
+  <testcase name="a_later_unresolved_preview_does_not_replace_resolved_inventory" classname="com.yfuse.feature.calendar.CalendarStateTest" time="0.0"/>
+  <testcase name="single_series_refresh_replaces_only_that_series" classname="com.yfuse.feature.calendar.CalendarStateTest" time="0.001"/>
+  <testcase name="platform_and_content_filters_are_applied_together" classname="com.yfuse.feature.calendar.CalendarStateTest" time="0.0"/>
+  <testcase name="mine_keeps_only_shows_the_library_holds" classname="com.yfuse.feature.calendar.CalendarStateTest" time="0.0"/>
+  <testcase name="a_missing_episode_still_opens_the_show_it_belongs_to" classname="com.yfuse.feature.calendar.CalendarStateTest" time="0.0"/>
+  <testcase name="a_schedule_preview_stops_the_blocking_loading_state" classname="com.yfuse.feature.calendar.CalendarStateTest" time="0.0"/>
+  <testcase name="a_filter_that_empties_a_day_drops_the_day" classname="com.yfuse.feature.calendar.CalendarStateTest" time="0.0"/>
+  <testcase name="filtering_everything_away_is_told_apart_from_having_no_schedule" classname="com.yfuse.feature.calendar.CalendarStateTest" time="0.0"/>
+  <testcase name="a_load_failure_is_still_visible_when_no_schedule_is_available" classname="com.yfuse.feature.calendar.CalendarStateTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

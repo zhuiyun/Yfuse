@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.data.AiringCalendarMergeTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:02.030Z" hostname="DESKTOP-HM2J0FM" time="0.005">
+  <properties/>
+  <testcase name="failed_identified_server_prevents_false_missing_across_servers" classname="com.yfuse.core.data.AiringCalendarMergeTest" time="0.004"/>
+  <testcase name="progress_and_quality_follow_the_source_selected_for_opening" classname="com.yfuse.core.data.AiringCalendarMergeTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

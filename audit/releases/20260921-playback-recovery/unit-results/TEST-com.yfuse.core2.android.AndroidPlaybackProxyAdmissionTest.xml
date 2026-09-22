@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.AndroidPlaybackProxyAdmissionTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:43:56.652Z" hostname="DESKTOP-HM2J0FM" time="0.241">
+  <properties/>
+  <testcase name="both_proxy_engines_disconnect_incomplete_headers_at_the_total_deadline" classname="com.yfuse.core2.android.AndroidPlaybackProxyAdmissionTest" time="0.23"/>
+  <testcase name="both_proxy_engines_enforce_instance_and_shared_process_admission" classname="com.yfuse.core2.android.AndroidPlaybackProxyAdmissionTest" time="0.011"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.data.DanmakuTest" tests="35" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:02.121Z" hostname="DESKTOP-HM2J0FM" time="0.043">
+  <properties/>
+  <testcase name="the_same_line_far_apart_stays_two_comments" classname="com.yfuse.core.data.DanmakuTest" time="0.001"/>
+  <testcase name="thinning_keeps_the_whole_timeline_instead_of_only_the_opening" classname="com.yfuse.core.data.DanmakuTest" time="0.0"/>
+  <testcase name="thinning_leaves_a_list_within_budget_untouched" classname="com.yfuse.core.data.DanmakuTest" time="0.001"/>
+  <testcase name="blocked_words_survive_recreation_and_ignore_duplicates" classname="com.yfuse.core.data.DanmakuTest" time="0.0"/>
+  <testcase name="parses_dplayer_and_common_json" classname="com.yfuse.core.data.DanmakuTest" time="0.014"/>
+  <testcase name="a_film_is_keyed_on_its_title_and_anything_nameless_on_its_id" classname="com.yfuse.core.data.DanmakuTest" time="0.0"/>
+  <testcase name="resolves_and_encodes_media_placeholders" classname="com.yfuse.core.data.DanmakuTest" time="0.002"/>
+  <testcase name="the_single_stored_link_becomes_the_first_source" classname="com.yfuse.core.data.DanmakuTest" time="0.0"/>
+  <testcase name="applying_snapshot_repairs_active_source_and_drops_deleted_source_bindings" classname="com.yfuse.core.data.DanmakuTest" time="0.0"/>
+  <testcase name="a_server_address_is_searchable_and_a_template_is_not" classname="com.yfuse.core.data.DanmakuTest" time="0.001"/>
+  <testcase name="a_deleted_active_source_hands_off_rather_than_leaving_nothing_selected" classname="com.yfuse.core.data.DanmakuTest" time="0.0"/>
+  <testcase name="a_different_episode_is_a_different_key" classname="com.yfuse.core.data.DanmakuTest" time="0.002"/>
+  <testcase name="snapshot_import_limits_display_text_and_normalizes_blocked_words" classname="com.yfuse.core.data.DanmakuTest" time="0.0"/>
+  <testcase name="an_episode_match_is_keyed_on_the_show_so_it_survives_changing_servers" classname="com.yfuse.core.data.DanmakuTest" time="0.0"/>
+  <testcase name="a_stale_active_id_still_resolves_to_a_usable_source" classname="com.yfuse.core.data.DanmakuTest" time="0.0"/>
+  <testcase name="bounded_response_reader_rejects_the_first_excess_byte" classname="com.yfuse.core.data.DanmakuTest" time="0.001"/>
+  <testcase name="sync_snapshot_serializes_and_round_trips_every_account_owned_value" classname="com.yfuse.core.data.DanmakuTest" time="0.001"/>
+  <testcase name="an_automatic_match_takes_the_episode_being_played" classname="com.yfuse.core.data.DanmakuTest" time="0.002"/>
+  <testcase name="applying_empty_snapshot_clears_sources_without_reviving_legacy_link" classname="com.yfuse.core.data.DanmakuTest" time="0.0"/>
+  <testcase name="blocked_words_match_anywhere_in_the_line_and_ignore_case" classname="com.yfuse.core.data.DanmakuTest" time="0.0"/>
+  <testcase name="parses_a_search_response" classname="com.yfuse.core.data.DanmakuTest" time="0.001"/>
+  <testcase name="recent_searches_are_newest_first_deduplicated_and_capped" classname="com.yfuse.core.data.DanmakuTest" time="0.0"/>
+  <testcase name="valid_empty_comments_are_not_confused_with_error_responses" classname="com.yfuse.core.data.DanmakuTest" time="0.0"/>
+  <testcase name="invalid_snapshot_validation_and_apply_are_side_effect_free" classname="com.yfuse.core.data.DanmakuTest" time="0.0"/>
+  <testcase name="oversized_snapshot_is_rejected" classname="com.yfuse.core.data.DanmakuTest" time="0.0"/>
+  <testcase name="response_limit_is_applied_after_gzip_decompression" classname="com.yfuse.core.data.DanmakuTest" time="0.009"/>
+  <testcase name="parses_dandanplay_comments" classname="com.yfuse.core.data.DanmakuTest" time="0.001"/>
+  <testcase name="repeated_lines_collapse_into_one_with_a_count" classname="com.yfuse.core.data.DanmakuTest" time="0.0"/>
+  <testcase name="parses_bilibili_xml" classname="com.yfuse.core.data.DanmakuTest" time="0.003"/>
+  <testcase name="the_first_source_added_is_the_one_in_use" classname="com.yfuse.core.data.DanmakuTest" time="0.0"/>
+  <testcase name="a_server_root_is_found_whether_or_not_the_api_path_was_pasted" classname="com.yfuse.core.data.DanmakuTest" time="0.0"/>
+  <testcase name="deleting_a_source_drops_the_matches_that_named_it" classname="com.yfuse.core.data.DanmakuTest" time="0.0"/>
+  <testcase name="parses_an_episode_list_nested_under_bangumi" classname="com.yfuse.core.data.DanmakuTest" time="0.0"/>
+  <testcase name="preferences_survive_recreation" classname="com.yfuse.core.data.DanmakuTest" time="0.0"/>
+  <testcase name="bounded_response_reader_accepts_the_exact_limit" classname="com.yfuse.core.data.DanmakuTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

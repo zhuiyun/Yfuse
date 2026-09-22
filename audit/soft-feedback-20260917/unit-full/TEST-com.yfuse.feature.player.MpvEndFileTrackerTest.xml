@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.MpvEndFileTrackerTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:15.812Z" hostname="DESKTOP-HM2J0FM" time="0.0">
+  <properties/>
+  <testcase name="rapid_replacements_reserve_an_end_for_each_superseded_load" classname="com.yfuse.feature.player.MpvEndFileTrackerTest" time="0.0"/>
+  <testcase name="stop_then_progressive_load_does_not_reserve_a_second_phantom_end" classname="com.yfuse.feature.player.MpvEndFileTrackerTest" time="0.0"/>
+  <testcase name="active_file_replacement_consumes_one_end_before_a_real_failure" classname="com.yfuse.feature.player.MpvEndFileTrackerTest" time="0.0"/>
+  <testcase name="failed_commands_roll_back_their_expected_end" classname="com.yfuse.feature.player.MpvEndFileTrackerTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

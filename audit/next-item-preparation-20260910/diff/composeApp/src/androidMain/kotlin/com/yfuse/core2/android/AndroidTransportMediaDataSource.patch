@@ -1,0 +1,44 @@
+--- composeApp\src\androidMain\kotlin\com\yfuse\core2\android\AndroidTransportMediaDataSource.kt
++++ composeApp\src\androidMain\kotlin\com\yfuse\core2\android\AndroidTransportMediaDataSource.kt
+@@ -51,6 +51,8 @@
+     private val onBlockingReadStateChanged: ((Boolean) -> Unit)? = null,
+     blockSizeOverride: Int? = null,
+     private val rangeReadBudgetMs: Long = 30_000L,
++    /** Only bounded background warmers opt in; playback keeps non-blocking cache admission. */
++    private val persistReadBlocks: Boolean = false,
+     memoryLeaseOverride: PlaybackMemoryLease? = null,
+     private val allowsSpeculativeWork: () -> Boolean = { AndroidPlaybackMemoryBudget.allowsSpeculativeWork },
+     private val refreshMemoryPressure: () -> Unit = AndroidPlaybackMemoryBudget::refreshPressure,
+@@ -420,7 +422,13 @@
+             if (completeBlock) {
+                 cache(blockIndex, loaded.bytes)
+                 if (loaded.bytes.isNotEmpty() && !loaded.fromDiskCache) {
+-                    diskCache?.enqueueWriteBlock(blockIndex, loaded.bytes, knownSize.takeIf { it >= 0L })
++                    diskCache?.let { persistent ->
++                        if (persistReadBlocks) {
++                            persistent.writeBlock(blockIndex, loaded.bytes, knownSize.takeIf { it >= 0L })
++                        } else {
++                            persistent.enqueueWriteBlock(blockIndex, loaded.bytes, knownSize.takeIf { it >= 0L })
++                        }
++                    }
+                 }
+             } else if (loaded.bytes.isNotEmpty()) {
+                 // A startup slice is addressed by its real offset and is never a persistent block.
+@@ -1077,6 +1085,9 @@
+         return knownSize
+     }
+ 
++    /** Optional warmers await their bounded writes; normal playback never blocks on this. */
++    fun awaitCacheWrites(timeoutMs: Long): Boolean = diskCache?.awaitPendingWrites(timeoutMs) ?: true
++
+     /**
+      * Not `@Synchronized` on purpose. [readAt] holds this instance's monitor for the whole of a
+      * blocking range fetch, so a synchronized close would wait for a stalled origin before it
+@@ -1084,6 +1095,7 @@
+      * Shutdown is therefore signalled and the sockets are closed first; the monitor is only taken
+      * afterwards, to drop the cached blocks once the reader has unwound.
+      */
++
+     override fun close() {
+         if (!resourcesClosed.compareAndSet(false, true)) return
+         closed = true

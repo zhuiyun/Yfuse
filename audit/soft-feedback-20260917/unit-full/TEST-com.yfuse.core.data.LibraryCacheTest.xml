@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.data.LibraryCacheTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:02.920Z" hostname="DESKTOP-HM2J0FM" time="0.034">
+  <properties/>
+  <testcase name="empty_content_clears_the_entry_rather_than_storing_nothing" classname="com.yfuse.core.data.LibraryCacheTest" time="0.002"/>
+  <testcase name="unreadable_content_is_discarded_instead_of_failing_every_launch" classname="com.yfuse.core.data.LibraryCacheTest" time="0.001"/>
+  <testcase name="separated_cache_opens_lazily_and_does_not_write_general_preferences" classname="com.yfuse.core.data.LibraryCacheTest" time="0.008"/>
+  <testcase name="round_trips_content_per_server" classname="com.yfuse.core.data.LibraryCacheTest" time="0.001"/>
+  <testcase name="legacyRawContentRemainsReadableWithUnknownFreshness" classname="com.yfuse.core.data.LibraryCacheTest" time="0.001"/>
+  <testcase name="malformedV2EnvelopeDoesNotFallBackToAnEmptyLegacyShape" classname="com.yfuse.core.data.LibraryCacheTest" time="0.001"/>
+  <testcase name="pre_container_cache_shape_uses_empty_container_defaults" classname="com.yfuse.core.data.LibraryCacheTest" time="0.0"/>
+  <testcase name="trims_rows_so_the_stored_blob_stays_small" classname="com.yfuse.core.data.LibraryCacheTest" time="0.02"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

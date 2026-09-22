@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.detail.MediaQualitySortingTest" tests="11" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:15.082Z" hostname="DESKTOP-HM2J0FM" time="0.002">
+  <properties/>
+  <testcase name="server_sort_uses_raw_resolution_instead_of_label_or_size" classname="com.yfuse.feature.detail.MediaQualitySortingTest" time="0.0"/>
+  <testcase name="selected_version_is_restated_before_visible_sources_are_ranked" classname="com.yfuse.feature.detail.MediaQualitySortingTest" time="0.0"/>
+  <testcase name="version_uses_bitrate_then_range_and_audio_quality_to_break_resolution_ties" classname="com.yfuse.feature.detail.MediaQualitySortingTest" time="0.001"/>
+  <testcase name="server_sort_is_deterministic_and_puts_unavailable_entries_last" classname="com.yfuse.feature.detail.MediaQualitySortingTest" time="0.0"/>
+  <testcase name="lossless_audio_detection_does_not_mistake_adpcm_for_pcm" classname="com.yfuse.feature.detail.MediaQualitySortingTest" time="0.0"/>
+  <testcase name="resolved_copy_replaces_failed_search_without_duplicating_server" classname="com.yfuse.feature.detail.MediaQualitySortingTest" time="0.0"/>
+  <testcase name="version_size_is_the_fallback_when_stream_quality_is_missing" classname="com.yfuse.feature.detail.MediaQualitySortingTest" time="0.0"/>
+  <testcase name="source_mapping_keeps_raw_video_and_audio_quality" classname="com.yfuse.feature.detail.MediaQualitySortingTest" time="0.0"/>
+  <testcase name="version_resolution_beats_file_size" classname="com.yfuse.feature.detail.MediaQualitySortingTest" time="0.0"/>
+  <testcase name="resolved_copy_remains_comparable_when_discovery_omits_current_server" classname="com.yfuse.feature.detail.MediaQualitySortingTest" time="0.001"/>
+  <testcase name="selected_version_restates_all_structured_source_facts" classname="com.yfuse.feature.detail.MediaQualitySortingTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

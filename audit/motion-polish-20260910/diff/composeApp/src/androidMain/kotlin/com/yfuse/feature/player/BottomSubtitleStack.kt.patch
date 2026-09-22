@@ -1,0 +1,37 @@
+--- composeApp/src/androidMain/kotlin/com/yfuse/feature/player/BottomSubtitleStack.kt (before turn)
++++ composeApp/src/androidMain/kotlin/com/yfuse/feature/player/BottomSubtitleStack.kt
+@@ -93,20 +93,22 @@
+     scale: Float,
+     appearance: SubtitleAppearance,
+ ) {
+-    if (cues.isEmpty()) return
+-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+-        cues.forEach { cue ->
+-            cue.bitmap?.let { bitmap ->
+-                BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+-                    val fraction = cue.size.takeIf { it > 0f && it <= 1f } ?: 0.8f
+-                    Image(
+-                        bitmap.asImageBitmap(),
+-                        contentDescription = null,
+-                        modifier = Modifier.width(maxWidth * (fraction * scale).coerceIn(0.01f, 1f)),
+-                    )
++    // Keep the empty target in the handoff so the previous line can finish its QUICK exit.
++    SubtitleHandoff(cues) { visibleCues ->
++        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
++            visibleCues.forEach { cue ->
++                cue.bitmap?.let { bitmap ->
++                    BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
++                        val fraction = cue.size.takeIf { it > 0f && it <= 1f } ?: 0.8f
++                        Image(
++                            bitmap.asImageBitmap(),
++                            contentDescription = null,
++                            modifier = Modifier.width(maxWidth * (fraction * scale).coerceIn(0.01f, 1f)),
++                        )
++                    }
+                 }
++                cue.text?.let { BottomSubtitleText(it, scale, appearance) }
+             }
+-            cue.text?.let { BottomSubtitleText(it, scale, appearance) }
+         }
+     }
+ }

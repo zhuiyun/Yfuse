@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.PlaybackProbeCompletionGateTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-20T01:56:36.582Z" hostname="DESKTOP-HM2J0FM" time="0.01">
+  <properties/>
+  <testcase name="a_busy_or_timed_out_lane_can_be_retried_and_a_new_source_gets_a_fresh_probe" classname="com.yfuse.feature.player.PlaybackProbeCompletionGateTest" time="0.005"/>
+  <testcase name="buffering_cancellation_leaves_the_same_item_eligible_after_playback_settles" classname="com.yfuse.feature.player.PlaybackProbeCompletionGateTest" time="0.005"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

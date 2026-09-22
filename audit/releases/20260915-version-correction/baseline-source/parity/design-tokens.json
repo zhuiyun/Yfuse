@@ -1,0 +1,94 @@
+{
+  "schemaVersion": 1,
+  "source": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/Tokens.kt",
+  "colors": {
+    "brand": {
+      "primary": "#3D64C9",
+      "primaryGradientTop": "#8FB2E8",
+      "primaryGradientBottom": "#5B7FD1",
+      "online": "#4FB56A",
+      "offline": "#C2C9D3",
+      "danger": "#C9584A",
+      "imdb": "#F5C518",
+      "douban": "#2F9E5E"
+    },
+    "light": {
+      "background": "#F3F5F8",
+      "text": "#151A22",
+      "sub": "#5F6876",
+      "sub2": "#666E7C",
+      "body": "#5A6472",
+      "hint": "#686F7D",
+      "error": "#B3261E",
+      "errorContainer": "#F9E3E0",
+      "onErrorContainer": "#410E0B"
+    },
+    "dark": {
+      "background": "#080D17",
+      "text": "#EEF0F3",
+      "sub": "#9AA4B4",
+      "sub2": "#9199A8",
+      "body": "#B7BFCB",
+      "hint": "#767E8C",
+      "error": "#FFB4AB",
+      "errorContainer": "#35171A",
+      "onErrorContainer": "#FFDAD6"
+    },
+    "player": {
+      "backgroundTop": "#2C3B57",
+      "backgroundBottom": "#0C1018",
+      "playFill": "#F0FFFFFF",
+      "onPlay": "#141A26",
+      "progressAccentFallback": "#6F9FEA",
+      "progressStart": "#7FA2E8",
+      "progressEnd": "#A7C0F2",
+      "nextUpRing": "#7FA2E8",
+      "nextUpCore": "#151A26"
+    }
+  },
+  "alpha": {
+    "lightCard": 0.62,
+    "lightGlass": 0.54,
+    "lightGlassStrong": 0.72,
+    "darkCard": 0.62,
+    "darkGlass": 0.58,
+    "darkGlassStrong": 0.76,
+    "playerPanel": 0.45,
+    "playerDrawer": 0.75,
+    "playerChip": 0.14,
+    "playerHairline": 0.18
+  },
+  "metricsVp": {
+    "pageHorizontal": 18,
+    "contentTop": 20,
+    "contentBottom": 122,
+    "cardGap": 14,
+    "sectionGap": 22,
+    "radiusSmall": 10,
+    "radiusMedium": 16,
+    "radiusLarge": 26,
+    "tabBarHeight": 56,
+    "tabBarInset": 14,
+    "hairline": 1,
+    "livingPosterLeadingInset": 18,
+    "livingPosterTrailingPeek": 58,
+    "livingPosterPageSpacing": 12,
+    "livingPosterIndicatorBottom": 16
+  },
+  "motion": {
+    "curve": [0.32, 0.72, 0.0, 1.0],
+    "quickMs": 120,
+    "standardMs": 180,
+    "emphasizedMs": 280,
+    "ambientMs": 500
+  },
+  "artworkSurface": {
+    "lightMinimumLuminance": 0.24,
+    "darkMinimumLuminance": 0.035,
+    "darkMaximumLuminance": 0.20,
+    "lightMinimumSaturation": 0.14,
+    "darkMinimumSaturation": 0.10,
+    "neutralSaturationGuard": 0.012,
+    "scope": "Only the opaque page color revealed by the artwork bottom dissolve is adjusted. Never alter the full artwork bitmap."
+  }
+}

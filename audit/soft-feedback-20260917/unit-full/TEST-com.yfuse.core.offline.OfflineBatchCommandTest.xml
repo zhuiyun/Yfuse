@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.offline.OfflineBatchCommandTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:05.603Z" hostname="DESKTOP-HM2J0FM" time="0.024">
+  <properties/>
+  <testcase name="a_full_queue_rejects_the_entire_selection_with_feedback_and_a_failed_index_applies_nothing" classname="com.yfuse.core.offline.OfflineBatchCommandTest" time="0.012"/>
+  <testcase name="accepted_selection_is_snapshotted_and_a_failed_item_does_not_discard_later_deletions" classname="com.yfuse.core.offline.OfflineBatchCommandTest" time="0.006"/>
+  <testcase name="pause_resume_and_remove_selections_larger_than_capacity_each_use_one_fifo_slot" classname="com.yfuse.core.offline.OfflineBatchCommandTest" time="0.006"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

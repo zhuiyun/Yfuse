@@ -1,0 +1,14 @@
+[
+  {
+    "Path": "D:\\Demo\\Yfuse\\composeApp\\src\\commonMain\\kotlin\\com\\yfuse\\feature\\search\\SearchResultsHandoff.kt",
+    "Hash": "1121A4C9E0F37E1C604027667E70C12D67CBBD3326348CB04BDE381BA941BA4D"
+  },
+  {
+    "Path": "D:\\Demo\\Yfuse\\composeApp\\src\\commonMain\\kotlin\\com\\yfuse\\core\\designsystem\\PulseSweep.kt",
+    "Hash": "EC65B6AC6A82909128FDA5037423DBAC67E9649A16D749FF1D750E18F75AFB73"
+  },
+  {
+    "Path": "D:\\Demo\\Yfuse\\composeApp\\src\\commonTest\\kotlin\\com\\yfuse\\feature\\search\\SearchResultsHandoffTest.kt",
+    "Hash": "A02E432608279B608DBCC7DDFAA40484C85B8309DDE7963DFB9CE8E44DFF9297"
+  }
+]

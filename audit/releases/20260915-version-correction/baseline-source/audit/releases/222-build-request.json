@@ -1,0 +1,21 @@
+{
+  "status": "signing-requested",
+  "versionName": "1.0.60",
+  "versionCode": 222,
+  "packageName": "com.yfuse",
+  "previousVerifiedApk": {
+    "versionName": "1.0.59",
+    "versionCode": 221,
+    "runId": 34687699793,
+    "artifactId": 10296461509,
+    "sha256": "b4b959fbbdc6f390949c2aa67f2b91249d1663a5d6c866910c36dbefb56bc4e4",
+    "certificateSha256": "373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84"
+  },
+  "fixCommit": "66fb9e5e",
+  "workflow": ".github/workflows/sign-android-branch.yml",
+  "signingBranch": "codex/ycore-sign-20260830",
+  "productionPublishing": false,
+  "httpPlaybackAllowed": true,
+  "localTargetedTestsPassed": 8,
+  "deviceAnimationValidation": "pending"
+}

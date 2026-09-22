@@ -1,0 +1,18 @@
+--- composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/Toast.kt (before turn)
++++ composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/Toast.kt
+@@ -16,7 +16,6 @@
+ import androidx.compose.foundation.layout.BoxScope
+ import androidx.compose.foundation.layout.Column
+ import androidx.compose.foundation.layout.padding
+-import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.LaunchedEffect
+ import androidx.compose.runtime.getValue
+@@ -41,6 +40,7 @@
+ import androidx.compose.ui.unit.dp
+ import kotlinx.coroutines.delay
+ import kotlin.math.abs
++import com.yfuse.core.designsystem.ThemeText as Text
+ 
+ private const val TOAST_MS = 2_600L
+ private const val MAX_TOASTS = 3

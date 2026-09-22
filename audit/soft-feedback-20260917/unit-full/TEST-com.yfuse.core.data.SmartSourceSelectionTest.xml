@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.data.SmartSourceSelectionTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:04.163Z" hostname="DESKTOP-HM2J0FM" time="0.006">
+  <properties/>
+  <testcase name="metered_network_can_prefer_efficient_1080_over_extreme_bitrate_4k" classname="com.yfuse.core.data.SmartSourceSelectionTest" time="0.002"/>
+  <testcase name="a_degraded_server_is_still_playable_and_does_not_justify_switching" classname="com.yfuse.core.data.SmartSourceSelectionTest" time="0.0"/>
+  <testcase name="degraded_reachable_source_beats_unmeasured_source" classname="com.yfuse.core.data.SmartSourceSelectionTest" time="0.0"/>
+  <testcase name="an_unusable_source_is_not_playable" classname="com.yfuse.core.data.SmartSourceSelectionTest" time="0.0"/>
+  <testcase name="failover_plan_is_ranked_distinct_and_hard_bounded" classname="com.yfuse.core.data.SmartSourceSelectionTest" time="0.002"/>
+  <testcase name="provider_identity_groups_server_copies_into_one_card" classname="com.yfuse.core.data.SmartSourceSelectionTest" time="0.002"/>
+  <testcase name="healthy_low_latency_source_beats_offline_4k" classname="com.yfuse.core.data.SmartSourceSelectionTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

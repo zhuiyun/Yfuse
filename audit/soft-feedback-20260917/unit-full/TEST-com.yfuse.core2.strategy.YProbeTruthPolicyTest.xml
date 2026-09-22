@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.strategy.YProbeTruthPolicyTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:13.421Z" hostname="DESKTOP-HM2J0FM" time="0.0">
+  <properties/>
+  <testcase name="unresolved_dynamic_range_and_transport_streams_still_request_ffmpeg_truth" classname="com.yfuse.core2.strategy.YProbeTruthPolicyTest" time="0.0"/>
+  <testcase name="unknown_audio_and_risky_container_metadata_request_ffmpeg_truth" classname="com.yfuse.core2.strategy.YProbeTruthPolicyTest" time="0.0"/>
+  <testcase name="settled_matroska_hevc_metadata_does_not_request_ffmpeg_truth" classname="com.yfuse.core2.strategy.YProbeTruthPolicyTest" time="0.0"/>
+  <testcase name="enhanced_audio_replaces_only_absent_or_unknown_platform_audio" classname="com.yfuse.core2.strategy.YProbeTruthPolicyTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

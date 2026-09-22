@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.AndroidDemuxReadAheadNodeTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:09.343Z" hostname="DESKTOP-HM2J0FM" time="0.118">
+  <properties/>
+  <testcase name="blocking_demux_reads_run_off_the_codec_pump_thread" classname="com.yfuse.core2.android.AndroidDemuxReadAheadNodeTest" time="0.015"/>
+  <testcase name="prepared_demux_adoption_never_repeats_open" classname="com.yfuse.core2.android.AndroidDemuxReadAheadNodeTest" time="0.016"/>
+  <testcase name="seek_discards_prefetched_samples_before_refilling" classname="com.yfuse.core2.android.AndroidDemuxReadAheadNodeTest" time="0.034"/>
+  <testcase name="subtitle_result_is_ready_without_waiting_for_the_next_blocking_network_read" classname="com.yfuse.core2.android.AndroidDemuxReadAheadNodeTest" time="0.003"/>
+  <testcase name="backpressured_video_does_not_hide_audio_or_reorder_video_packets" classname="com.yfuse.core2.android.AndroidDemuxReadAheadNodeTest" time="0.013"/>
+  <testcase name="future_subtitle_memory_pressure_does_not_hold_av_packets_behind_the_shared_queue" classname="com.yfuse.core2.android.AndroidDemuxReadAheadNodeTest" time="0.037"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

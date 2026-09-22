@@ -1,0 +1,36 @@
+--- before/composeApp/src/commonMain/kotlin/com/yfuse/feature/player/EpisodeStrip.kt
++++ after/composeApp/src/commonMain/kotlin/com/yfuse/feature/player/EpisodeStrip.kt
+@@ -13,7 +13,6 @@
+ import androidx.compose.foundation.layout.size
+ import androidx.compose.foundation.layout.width
+ import androidx.compose.foundation.lazy.LazyRow
+-import androidx.compose.foundation.lazy.itemsIndexed
+ import androidx.compose.foundation.lazy.rememberLazyListState
+ import androidx.compose.material3.Icon
+ import androidx.compose.material3.Text
+@@ -32,6 +31,7 @@
+ import com.yfuse.core.designsystem.LocalAccessibilityOptions
+ import com.yfuse.core.designsystem.PlayerTokens
+ import com.yfuse.core.designsystem.cssLinearGradient
++import com.yfuse.core.designsystem.motionItemsIndexed
+ import com.yfuse.core.designsystem.rememberAccentColorsForSurface
+ 
+ /** One card in the strip. A projection of [PlayerMediaItem], so the strip needs nothing else. */
+@@ -121,7 +121,7 @@
+             contentPadding = PaddingValues(horizontal = 22.dp),
+             horizontalArrangement = Arrangement.spacedBy(10.dp),
+         ) {
+-            itemsIndexed(
++            motionItemsIndexed(
+                 items = episodes,
+                 key = { index, episode -> episode.watchKey.ifBlank { "episode-$index" } },
+             ) { index, episode ->
+@@ -129,7 +129,7 @@
+                     episode = episode,
+                     current = index == currentIndex,
+                     onClick = { onSelect(index) },
+-                    modifier = if (reduceMotion) Modifier else Modifier.animateItem(),
++                    modifier = Modifier,
+                 )
+             }
+         }

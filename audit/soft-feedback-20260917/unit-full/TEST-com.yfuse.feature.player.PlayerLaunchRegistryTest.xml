@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.PlayerLaunchRegistryTest" tests="11" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:16.013Z" hostname="DESKTOP-HM2J0FM" time="0.011">
+  <properties/>
+  <testcase name="launch_request_defaults_to_starting_playback_for_existing_callers" classname="com.yfuse.feature.player.PlayerLaunchRegistryTest" time="0.0"/>
+  <testcase name="registry_expires_old_entries_and_evicts_the_oldest_at_capacity" classname="com.yfuse.feature.player.PlayerLaunchRegistryTest" time="0.002"/>
+  <testcase name="retained_activity_request_survives_after_the_one_shot_token_is_gone" classname="com.yfuse.feature.player.PlayerLaunchRegistryTest" time="0.001"/>
+  <testcase name="simultaneous_consumers_cannot_both_take_the_same_queue" classname="com.yfuse.feature.player.PlayerLaunchRegistryTest" time="0.002"/>
+  <testcase name="missing_or_expired_registry_entry_fails_closed_with_only_bounded_identity" classname="com.yfuse.feature.player.PlayerLaunchRegistryTest" time="0.002"/>
+  <testcase name="discarded_launch_is_unavailable" classname="com.yfuse.feature.player.PlayerLaunchRegistryTest" time="0.0"/>
+  <testcase name="scheduled_token_only_expiry_removes_the_last_orphan_without_another_store_call" classname="com.yfuse.feature.player.PlayerLaunchRegistryTest" time="0.001"/>
+  <testcase name="explicitly_paused_launch_survives_registry_and_pure_resolution" classname="com.yfuse.feature.player.PlayerLaunchRegistryTest" time="0.001"/>
+  <testcase name="queue_of_235_items_stays_out_of_the_bounded_intent_payload" classname="com.yfuse.feature.player.PlayerLaunchRegistryTest" time="0.001"/>
+  <testcase name="fresh_replacement_bypasses_the_retained_request_and_consumes_its_token_once" classname="com.yfuse.feature.player.PlayerLaunchRegistryTest" time="0.0"/>
+  <testcase name="registered_queue_is_consumed_exactly_once_and_kept_complete" classname="com.yfuse.feature.player.PlayerLaunchRegistryTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.subtitle.YSubtitleClockAnchorTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:44:00.608Z" hostname="DESKTOP-HM2J0FM" time="0.0">
+  <properties/>
+  <testcase name="observed_positions_advance_with_speed_and_freeze_when_publication_stalls" classname="com.yfuse.core2.subtitle.YSubtitleClockAnchorTest" time="0.0"/>
+  <testcase name="pause_buffering_and_seek_rebase_the_clock_without_old_animation_drift" classname="com.yfuse.core2.subtitle.YSubtitleClockAnchorTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

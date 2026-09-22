@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.AndroidSurfacePlaybackCompletionTest" tests="9" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:43:58.642Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="reset_discards_the_old_surface_deadline_before_a_new_seek_or_surface" classname="com.yfuse.core2.android.AndroidSurfacePlaybackCompletionTest" time="0.001"/>
+  <testcase name="a_negative_monotonic_clock_origin_is_not_mistaken_for_an_unreleased_frame" classname="com.yfuse.core2.android.AndroidSurfacePlaybackCompletionTest" time="0.0"/>
+  <testcase name="decoder_eos_still_waits_for_audio_output_to_drain" classname="com.yfuse.core2.android.AndroidSurfacePlaybackCompletionTest" time="0.0"/>
+  <testcase name="an_empty_video_tail_has_no_artificial_render_deadline" classname="com.yfuse.core2.android.AndroidSurfacePlaybackCompletionTest" time="0.0"/>
+  <testcase name="missing_callback_does_not_block_eos_or_turn_submission_into_verified_output" classname="com.yfuse.core2.android.AndroidSurfacePlaybackCompletionTest" time="0.0"/>
+  <testcase name="immediate_release_has_no_additional_callback_timeout" classname="com.yfuse.core2.android.AndroidSurfacePlaybackCompletionTest" time="0.0"/>
+  <testcase name="a_pending_paused_preview_prevents_completion_even_after_both_outputs_end" classname="com.yfuse.core2.android.AndroidSurfacePlaybackCompletionTest" time="0.0"/>
+  <testcase name="a_passed_release_deadline_never_substitutes_for_real_decoder_eos" classname="com.yfuse.core2.android.AndroidSurfacePlaybackCompletionTest" time="0.0"/>
+  <testcase name="output_reordering_cannot_shorten_the_latest_scheduled_surface_deadline" classname="com.yfuse.core2.android.AndroidSurfacePlaybackCompletionTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.AndroidProbeBudgetTest" tests="9" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:10.721Z" hostname="DESKTOP-HM2J0FM" time="0.228">
+  <properties/>
+  <testcase name="exit interrupts actual source and rejects a late vendor result before reentry" classname="com.yfuse.core2.android.AndroidProbeBudgetTest" time="0.002"/>
+  <testcase name="release timeout stays a barrier across retries until old codec owner finishes" classname="com.yfuse.core2.android.AndroidProbeBudgetTest" time="0.001"/>
+  <testcase name="completed preparation does not later cancel adopted playback resources" classname="com.yfuse.core2.android.AndroidProbeBudgetTest" time="0.0"/>
+  <testcase name="deadline cancels suspended manifest discovery without cancelling router" classname="com.yfuse.core2.android.AndroidProbeBudgetTest" time="0.042"/>
+  <testcase name="deadline cancels a blocked source without waiting for its normal timeout" classname="com.yfuse.core2.android.AndroidProbeBudgetTest" time="0.069"/>
+  <testcase name="invalidating old generation cannot cancel or complete a concurrently begun generation" classname="com.yfuse.core2.android.AndroidProbeBudgetTest" time="0.001"/>
+  <testcase name="deadline closes a real stalled network socket" classname="com.yfuse.core2.android.AndroidProbeBudgetTest" time="0.112"/>
+  <testcase name="blocked platform owner does not suppress an independent enhanced probe" classname="com.yfuse.core2.android.AndroidProbeBudgetTest" time="0.001"/>
+  <testcase name="platform enhanced and recovery candidates spend one deadline" classname="com.yfuse.core2.android.AndroidProbeBudgetTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.AndroidPlaybackHttpProxyTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:15.600Z" hostname="DESKTOP-HM2J0FM" time="0.132">
+  <properties/>
+  <testcase name="onlyWebMediaUsesPlatformTransportBridge" classname="com.yfuse.feature.player.AndroidPlaybackHttpProxyTest" time="0.0"/>
+  <testcase name="singleByteRangesAreParsedWithoutAcceptingAmbiguousRequests" classname="com.yfuse.feature.player.AndroidPlaybackHttpProxyTest" time="0.001"/>
+  <testcase name="close_does_not_wait_for_an_upstream_that_has_not_sent_response_headers" classname="com.yfuse.feature.player.AndroidPlaybackHttpProxyTest" time="0.115"/>
+  <testcase name="upstream_error_status_is_preserved_when_the_proxy_has_not_been_closed" classname="com.yfuse.feature.player.AndroidPlaybackHttpProxyTest" time="0.006"/>
+  <testcase name="rewritten_manifest_segments_are_served_by_the_same_live_proxy" classname="com.yfuse.feature.player.AndroidPlaybackHttpProxyTest" time="0.005"/>
+  <testcase name="close_disconnects_an_incomplete_stream_after_real_response_bytes" classname="com.yfuse.feature.player.AndroidPlaybackHttpProxyTest" time="0.004"/>
+  <testcase name="hlsVariantsSegmentsAndKeysStayOnThePlatformTransportBridge" classname="com.yfuse.feature.player.AndroidPlaybackHttpProxyTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

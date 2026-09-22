@@ -1,0 +1,37 @@
+--- before/composeApp/src/commonMain/kotlin/com/yfuse/feature/servers/ServersScreen.kt
++++ after/composeApp/src/commonMain/kotlin/com/yfuse/feature/servers/ServersScreen.kt
+@@ -63,6 +63,7 @@
+ import com.yfuse.core.designsystem.StatusBarIconStyle
+ import com.yfuse.core.designsystem.formDivider
+ import com.yfuse.core.designsystem.glass
++import com.yfuse.core.designsystem.motionItem
+ import com.yfuse.core.designsystem.pressable
+ import com.yfuse.core.designsystem.semanticPrimaryButtonShadow
+ import com.yfuse.core.designsystem.shadow
+@@ -110,7 +111,7 @@
+             contentPadding = PaddingValues(top = Dimens.contentTop, bottom = 118.dp),
+             verticalArrangement = Arrangement.spacedBy(20.dp),
+         ) {
+-            item {
++            motionItem {
+                 // Back chevron + title, `gap:12px`, title `800 19px`.
+                 Row(
+                     Modifier.fillMaxWidth().padding(horizontal = Dimens.pageHorizontal),
+@@ -136,7 +137,7 @@
+                 }
+             }
+ 
+-            item {
++            motionItem {
+                 Column(Modifier.padding(horizontal = Dimens.pageHorizontal)) {
+                     Text(
+                         "手动输入地址",
+@@ -269,7 +270,7 @@
+                 }
+             }
+ 
+-            item {
++            motionItem {
+                 Text(
+                     "支持 Emby / Jellyfin / Plex · 登录后即可浏览媒体库",
+                     style = AppTypography.caption.regular.copy(lineHeight = 17.6.sp),

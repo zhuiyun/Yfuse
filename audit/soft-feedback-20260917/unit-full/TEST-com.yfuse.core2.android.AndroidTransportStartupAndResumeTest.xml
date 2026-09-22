@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.AndroidTransportStartupAndResumeTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:12.372Z" hostname="DESKTOP-HM2J0FM" time="0.468">
+  <properties/>
+  <testcase name="changed entity after a partial response cannot splice different versions" classname="com.yfuse.core2.android.AndroidTransportStartupAndResumeTest" time="0.104"/>
+  <testcase name="cold seek after reading the header bypasses an unfinished full block prefetch" classname="com.yfuse.core2.android.AndroidTransportStartupAndResumeTest" time="0.012"/>
+  <testcase name="unknown length probe returns without downloading the full first block" classname="com.yfuse.core2.android.AndroidTransportStartupAndResumeTest" time="0.007"/>
+  <testcase name="first cold read at a resume position does not download preceding block bytes" classname="com.yfuse.core2.android.AndroidTransportStartupAndResumeTest" time="0.003"/>
+  <testcase name="retry resumes only remaining bytes under the same strong entity tag" classname="com.yfuse.core2.android.AndroidTransportStartupAndResumeTest" time="0.111"/>
+  <testcase name="retry without a strong validator restarts the entire block" classname="com.yfuse.core2.android.AndroidTransportStartupAndResumeTest" time="0.213"/>
+  <testcase name="metadata reads beyond the first slice do not wait for a full speculative block" classname="com.yfuse.core2.android.AndroidTransportStartupAndResumeTest" time="0.018"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

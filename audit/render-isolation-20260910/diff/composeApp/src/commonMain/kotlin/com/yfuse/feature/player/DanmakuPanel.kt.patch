@@ -1,0 +1,20 @@
+--- composeApp/src/commonMain/kotlin/com/yfuse/feature/player/DanmakuPanel.kt (before turn)
++++ composeApp/src/commonMain/kotlin/com/yfuse/feature/player/DanmakuPanel.kt
+@@ -16,8 +16,6 @@
+ import androidx.compose.foundation.text.BasicTextField
+ import androidx.compose.foundation.text.KeyboardActions
+ import androidx.compose.foundation.text.KeyboardOptions
+-import androidx.compose.material3.Icon
+-import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.LaunchedEffect
+ import androidx.compose.runtime.getValue
+@@ -50,6 +48,8 @@
+ import com.yfuse.core.designsystem.OverlayHeader
+ import com.yfuse.core.designsystem.glass
+ import com.yfuse.core.designsystem.motionItems
++import com.yfuse.core.designsystem.ThemeIcon as Icon
++import com.yfuse.core.designsystem.ThemeText as Text
+ 
+ /**
+  * Everything the 弹幕 tab and 搜索弹幕 sheet read, in one bundle.

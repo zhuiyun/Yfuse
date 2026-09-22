@@ -1,0 +1,114 @@
+[
+  {
+    "module": "composeApp",
+    "apk": "D:\\Demo\\Yfuse\\composeApp\\build\\outputs\\apk\\release\\composeApp-release.apk",
+    "bytes": 27838818,
+    "sha256": "1042c2d2a78cfafc3c267421f6323e2c441ff7344e981684e922b3a6905b7966",
+    "nativeLibraries": [
+      {
+        "path": "lib/arm64-v8a/libandroidx.graphics.path.so",
+        "sha256": "41e9a793c43a0f4fddb19e33f346bace464f30f888ba7b9eaf96294ea115bfb6"
+      },
+      {
+        "path": "lib/arm64-v8a/libass.so",
+        "sha256": "e55c83c3d9bcb7d1bfd62d1ba3aa3c0e9bc796861dd9cf145e73a75017075266"
+      },
+      {
+        "path": "lib/arm64-v8a/libavcodec.so",
+        "sha256": "2440fc79482e7ab4e40ba2f3e9fb7ba10f196935b39566c636e866e0dcdeb42c"
+      },
+      {
+        "path": "lib/arm64-v8a/libavdevice.so",
+        "sha256": "c67959777c8137a98825e7e63bfd8e555090781c66b34c9d0053e54869110c08"
+      },
+      {
+        "path": "lib/arm64-v8a/libavfilter.so",
+        "sha256": "d9736182d803c460569b4fae9fb0d588a6e02f71f213ec000641521a07cf7d28"
+      },
+      {
+        "path": "lib/arm64-v8a/libavformat.so",
+        "sha256": "ee3fb014d6d12ff54e658fc1ae70dfcaae55d0259a34b46e4fc3cb2a41f773dc"
+      },
+      {
+        "path": "lib/arm64-v8a/libavutil.so",
+        "sha256": "2d2ab7b3071f9e4643f67ba65170f7290d821aa80e8b14dfcc356a15c493c47a"
+      },
+      {
+        "path": "lib/arm64-v8a/libc++_shared.so",
+        "sha256": "c4c2fe5cbcb1fba0003a31fc7ab29a9bb12df6cc187ec45a806462540e83d93b"
+      },
+      {
+        "path": "lib/arm64-v8a/libdav1d.so",
+        "sha256": "290bbf17d72e0b50edfcc974b2dc7fa6d7106b82dbca3e68df8351a55bcd287b"
+      },
+      {
+        "path": "lib/arm64-v8a/libffmpeg.so",
+        "sha256": "7942b55e7950c32e0fcd5532f0af2435e43e22491a75e7609b2b63210104f371"
+      },
+      {
+        "path": "lib/arm64-v8a/libimage_processing_util_jni.so",
+        "sha256": "0292b063fafccf734472cbb59588e756c2dbca907c72021ba6fbf126385508a2"
+      },
+      {
+        "path": "lib/arm64-v8a/libmdk.so",
+        "sha256": "1ae87eae1c5633238ac69acc2bba7c44b2c974c8f32c21ac35778376f77ce575"
+      },
+      {
+        "path": "lib/arm64-v8a/libmpv.so",
+        "sha256": "d06566edd8dd09c7419f61f9888d2f29e5e186ff578f8a984f1c968cab7baee6"
+      },
+      {
+        "path": "lib/arm64-v8a/libplayer.so",
+        "sha256": "2a5b828f3da71049c7603d6432fce50af7ca2286c33e70028bbcf466ead09005"
+      },
+      {
+        "path": "lib/arm64-v8a/libsurface_util_jni.so",
+        "sha256": "a5c9d1928ea92ec7a94dff8cf666e7739cd734198b9f0ae1d4e28ea3c86516ba"
+      },
+      {
+        "path": "lib/arm64-v8a/libswresample.so",
+        "sha256": "59a2c9dbd713db7e4a17949b85334873745bf0183a2686300068093fe5b57ee0"
+      },
+      {
+        "path": "lib/arm64-v8a/libswscale.so",
+        "sha256": "48782396b8c8993a7bb72990b87cd460e57f65d3e69c26c9e04031b0ef9f43e8"
+      },
+      {
+        "path": "lib/arm64-v8a/libycore_demux.so",
+        "sha256": "abc44a913dc71fe7a6b1baf03d9f22e8a8109cb59d9191aec7caa29a87c36de9"
+      },
+      {
+        "path": "lib/arm64-v8a/libycore_gpu.so",
+        "sha256": "941028d1295223402926cf416098966ead500559daa1d992461f90243079c4d2"
+      },
+      {
+        "path": "lib/arm64-v8a/libyfuse-mdk-jni.so",
+        "sha256": "93f5212840e6579128f5483365bd0d86ad442faa02717f59120a820ca3699f48"
+      }
+    ]
+  },
+  {
+    "module": "tvApp",
+    "apk": "D:\\Demo\\Yfuse\\tvApp\\build\\outputs\\apk\\release\\tvApp-release.apk",
+    "bytes": 6591354,
+    "sha256": "02a4afd88630308df64245c296a9b35256b0e0c48a052e0e2f0541a2592d554f",
+    "nativeLibraries": [
+      {
+        "path": "lib/arm64-v8a/libandroidx.graphics.path.so",
+        "sha256": "41e9a793c43a0f4fddb19e33f346bace464f30f888ba7b9eaf96294ea115bfb6"
+      },
+      {
+        "path": "lib/armeabi-v7a/libandroidx.graphics.path.so",
+        "sha256": "41399eba6fc2a60f6f14642375c1824f3cf25eb8fec7397d753730a3ceda3e2b"
+      },
+      {
+        "path": "lib/x86/libandroidx.graphics.path.so",
+        "sha256": "eb0570b41fd3bff25d8204a967c03bd7550719e768b791f680cc40cbe35f29af"
+      },
+      {
+        "path": "lib/x86_64/libandroidx.graphics.path.so",
+        "sha256": "4e56c996f13670e70082658de7880c4020eabf4f25e43387f88ed78a713fc9f0"
+      }
+    ]
+  }
+]

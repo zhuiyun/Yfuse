@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.playback.PlaybackBufferPolicyTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:06.595Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="every_profile_has_valid_load_control_ordering" classname="com.yfuse.core.playback.PlaybackBufferPolicyTest" time="0.0"/>
+  <testcase name="power_saver_does_not_keep_a_back_buffer_or_quality_sized_memory_target" classname="com.yfuse.core.playback.PlaybackBufferPolicyTest" time="0.0"/>
+  <testcase name="mpv_profiles_follow_the_same_power_and_quality_intent" classname="com.yfuse.core.playback.PlaybackBufferPolicyTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

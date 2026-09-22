@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.data.EmbyDetailServiceTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:02.196Z" hostname="DESKTOP-HM2J0FM" time="0.026">
+  <properties/>
+  <testcase name="item_detail_requests_the_media_information_fields_for_one_item" classname="com.yfuse.core.data.EmbyDetailServiceTest" time="0.006"/>
+  <testcase name="a_missing_item_maps_to_the_not_found_domain_error" classname="com.yfuse.core.data.EmbyDetailServiceTest" time="0.003"/>
+  <testcase name="an_episode_without_its_own_cast_borrows_the_series_cast" classname="com.yfuse.core.data.EmbyDetailServiceTest" time="0.009"/>
+  <testcase name="episodes_are_scoped_to_the_season_and_only_ask_for_media_sources_on_request" classname="com.yfuse.core.data.EmbyDetailServiceTest" time="0.002"/>
+  <testcase name="seasons_fall_back_to_a_numbered_name_when_the_server_omits_one" classname="com.yfuse.core.data.EmbyDetailServiceTest" time="0.005"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

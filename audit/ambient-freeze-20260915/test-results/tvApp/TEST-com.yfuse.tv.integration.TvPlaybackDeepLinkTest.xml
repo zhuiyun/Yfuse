@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.tv.integration.TvPlaybackDeepLinkTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-09-15T04:26:39.268Z" hostname="DESKTOP-HM2J0FM" time="0.005">
+  <properties/>
+  <testcase name="decoderRejectsExtraOrDuplicateQueryFieldsAndMalformedEscapes" classname="com.yfuse.tv.integration.TvPlaybackDeepLinkTest" time="0.0"/>
+  <testcase name="resolverRejectsAmbiguousOrWrongProfileLanes" classname="com.yfuse.tv.integration.TvPlaybackDeepLinkTest" time="0.001"/>
+  <testcase name="artworkSanitizerDropsCredentialsAndUnknownQueryParameters" classname="com.yfuse.tv.integration.TvPlaybackDeepLinkTest" time="0.001"/>
+  <testcase name="roundTripKeepsOnlyOpaqueLaneAndEncodedItem" classname="com.yfuse.tv.integration.TvPlaybackDeepLinkTest" time="0.001"/>
+  <testcase name="resolverAcceptsPreviousServerIdentityButReturnsCurrentAuthenticatedIdentity" classname="com.yfuse.tv.integration.TvPlaybackDeepLinkTest" time="0.001"/>
+  <testcase name="equalItemIdsRemainIsolatedByProviderServerAndProfile" classname="com.yfuse.tv.integration.TvPlaybackDeepLinkTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

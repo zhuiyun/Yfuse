@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.TrickplayRegionTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:16.221Z" hostname="DESKTOP-HM2J0FM" time="0.0">
+  <properties/>
+  <testcase name="only_requested_cell_is_decoded_including_last_partial_pixel" classname="com.yfuse.feature.player.TrickplayRegionTest" time="0.0"/>
+  <testcase name="malformed_grid_and_out_of_range_cells_are_rejected" classname="com.yfuse.feature.player.TrickplayRegionTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

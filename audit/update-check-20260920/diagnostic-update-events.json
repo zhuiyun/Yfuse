@@ -1,0 +1,237 @@
+[
+  {
+    "timestamp": "2026-09-20T01:03:41.063821Z",
+    "session": "7cc563bb",
+    "level": "INFO",
+    "event": "check_started",
+    "attributes": {
+      "automatic": "true",
+      "currentversionname": "1.0.73",
+      "currentversioncode": "235",
+      "thread": "main"
+    }
+  },
+  {
+    "timestamp": "2026-09-20T01:03:41.399395Z",
+    "session": "7cc563bb",
+    "level": "WARNING",
+    "event": "manifest_rejected",
+    "attributes": {
+      "verdict": "RejectedNoKey",
+      "thread": "DefaultDispatcher-worker-7"
+    }
+  },
+  {
+    "timestamp": "2026-09-20T01:03:41.402294Z",
+    "session": "7cc563bb",
+    "level": "WARNING",
+    "event": "check_failed",
+    "attributes": {
+      "thread": "main"
+    }
+  },
+  {
+    "timestamp": "2026-09-20T09:21:05.334782Z",
+    "session": "7cc563bb",
+    "level": "INFO",
+    "event": "check_started",
+    "attributes": {
+      "automatic": "true",
+      "currentversionname": "1.0.73",
+      "currentversioncode": "235",
+      "thread": "main"
+    }
+  },
+  {
+    "timestamp": "2026-09-20T09:21:15.581364Z",
+    "session": "7cc563bb",
+    "level": "WARNING",
+    "event": "manifest_rejected",
+    "attributes": {
+      "verdict": "RejectedNoKey",
+      "thread": "DefaultDispatcher-worker-3"
+    }
+  },
+  {
+    "timestamp": "2026-09-20T09:21:15.582791Z",
+    "session": "7cc563bb",
+    "level": "WARNING",
+    "event": "check_failed",
+    "attributes": {
+      "thread": "main"
+    }
+  },
+  {
+    "timestamp": "2026-09-20T09:21:17.768756Z",
+    "session": "7cc563bb",
+    "level": "INFO",
+    "event": "check_started",
+    "attributes": {
+      "automatic": "false",
+      "currentversionname": "1.0.73",
+      "currentversioncode": "235",
+      "thread": "main"
+    }
+  },
+  {
+    "timestamp": "2026-09-20T09:21:20.888536Z",
+    "session": "7cc563bb",
+    "level": "WARNING",
+    "event": "manifest_rejected",
+    "attributes": {
+      "verdict": "RejectedNoKey",
+      "thread": "DefaultDispatcher-worker-9"
+    }
+  },
+  {
+    "timestamp": "2026-09-20T09:21:20.890326Z",
+    "session": "7cc563bb",
+    "level": "WARNING",
+    "event": "check_failed",
+    "attributes": {
+      "thread": "main"
+    }
+  },
+  {
+    "timestamp": "2026-09-20T09:21:23.613907Z",
+    "session": "e3d1ad08",
+    "level": "INFO",
+    "event": "check_started",
+    "attributes": {
+      "automatic": "true",
+      "currentversionname": "1.0.73",
+      "currentversioncode": "235",
+      "thread": "main"
+    }
+  },
+  {
+    "timestamp": "2026-09-20T09:21:23.876946Z",
+    "session": "e3d1ad08",
+    "level": "WARNING",
+    "event": "manifest_rejected",
+    "attributes": {
+      "verdict": "RejectedNoKey",
+      "thread": "DefaultDispatcher-worker-4"
+    }
+  },
+  {
+    "timestamp": "2026-09-20T09:21:23.879827Z",
+    "session": "e3d1ad08",
+    "level": "WARNING",
+    "event": "check_failed",
+    "attributes": {
+      "thread": "main"
+    }
+  },
+  {
+    "timestamp": "2026-09-20T09:22:58.055907Z",
+    "session": "e3d1ad08",
+    "level": "INFO",
+    "event": "automatic_check_skipped",
+    "attributes": {
+      "thread": "main"
+    }
+  },
+  {
+    "timestamp": "2026-09-20T09:23:00.830693Z",
+    "session": "e3d1ad08",
+    "level": "INFO",
+    "event": "check_started",
+    "attributes": {
+      "automatic": "false",
+      "currentversionname": "1.0.73",
+      "currentversioncode": "235",
+      "thread": "main"
+    }
+  },
+  {
+    "timestamp": "2026-09-20T09:23:01.130019Z",
+    "session": "e3d1ad08",
+    "level": "WARNING",
+    "event": "manifest_rejected",
+    "attributes": {
+      "verdict": "RejectedNoKey",
+      "thread": "DefaultDispatcher-worker-5"
+    }
+  },
+  {
+    "timestamp": "2026-09-20T09:23:01.131156Z",
+    "session": "e3d1ad08",
+    "level": "WARNING",
+    "event": "check_failed",
+    "attributes": {
+      "thread": "main"
+    }
+  },
+  {
+    "timestamp": "2026-09-20T09:23:03.522897Z",
+    "session": "63e1a615",
+    "level": "INFO",
+    "event": "check_started",
+    "attributes": {
+      "automatic": "true",
+      "currentversionname": "1.0.73",
+      "currentversioncode": "235",
+      "thread": "main"
+    }
+  },
+  {
+    "timestamp": "2026-09-20T09:23:03.731866Z",
+    "session": "63e1a615",
+    "level": "WARNING",
+    "event": "manifest_rejected",
+    "attributes": {
+      "verdict": "RejectedNoKey",
+      "thread": "DefaultDispatcher-worker-1"
+    }
+  },
+  {
+    "timestamp": "2026-09-20T09:23:03.754640Z",
+    "session": "63e1a615",
+    "level": "WARNING",
+    "event": "check_failed",
+    "attributes": {
+      "thread": "main"
+    }
+  },
+  {
+    "timestamp": "2026-09-20T09:25:54.695826Z",
+    "session": "1803bfae",
+    "level": "INFO",
+    "event": "check_started",
+    "attributes": {
+      "automatic": "true",
+      "currentversionname": "1.0.73",
+      "currentversioncode": "235",
+      "thread": "main"
+    }
+  },
+  {
+    "timestamp": "2026-09-20T09:25:55.068726Z",
+    "session": "1803bfae",
+    "level": "WARNING",
+    "event": "manifest_rejected",
+    "attributes": {
+      "verdict": "RejectedNoKey",
+      "thread": "DefaultDispatcher-worker-2"
+    }
+  },
+  {
+    "timestamp": "2026-09-20T09:25:55.074565Z",
+    "session": "1803bfae",
+    "level": "WARNING",
+    "event": "check_failed",
+    "attributes": {
+      "thread": "main"
+    }
+  },
+  {
+    "timestamp": "2026-09-20T09:26:05.906094Z",
+    "session": "1803bfae",
+    "level": "INFO",
+    "event": "automatic_check_skipped",
+    "attributes": {
+      "thread": "main"
+    }
+  }
+]

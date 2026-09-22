@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.update.UpdatePackageIdentityTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-09-20T10:44:29.774Z" hostname="DESKTOP-HM2J0FM" time="0.002">
+  <properties/>
+  <testcase name="matching_package_and_signer_with_the_exact_new_version_is_accepted" classname="com.yfuse.update.UpdatePackageIdentityTest" time="0.001"/>
+  <testcase name="long_android_version_codes_are_not_truncated_to_the_manifest_integer" classname="com.yfuse.update.UpdatePackageIdentityTest" time="0.0"/>
+  <testcase name="another_app_signed_with_the_same_key_is_rejected" classname="com.yfuse.update.UpdatePackageIdentityTest" time="0.0"/>
+  <testcase name="an_apk_version_different_from_the_manifest_is_rejected" classname="com.yfuse.update.UpdatePackageIdentityTest" time="0.0"/>
+  <testcase name="equal_or_older_versions_are_rejected_even_when_the_manifest_matches" classname="com.yfuse.update.UpdatePackageIdentityTest" time="0.0"/>
+  <testcase name="a_different_or_additional_archive_signer_is_rejected" classname="com.yfuse.update.UpdatePackageIdentityTest" time="0.0"/>
+  <testcase name="unreadable_archive_or_missing_signing_metadata_is_rejected" classname="com.yfuse.update.UpdatePackageIdentityTest" time="0.001"/>
+  <testcase name="an_installed_signer_history_keeps_the_existing_certificate_policy" classname="com.yfuse.update.UpdatePackageIdentityTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

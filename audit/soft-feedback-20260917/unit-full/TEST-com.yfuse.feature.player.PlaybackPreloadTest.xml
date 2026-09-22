@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.PlaybackPreloadTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:15.875Z" hostname="DESKTOP-HM2J0FM" time="0.005">
+  <properties/>
+  <testcase name="final_queue_item_has_nothing_to_preload" classname="com.yfuse.feature.player.PlaybackPreloadTest" time="0.002"/>
+  <testcase name="next_episode_is_preloaded_only_inside_the_final_90_seconds" classname="com.yfuse.feature.player.PlaybackPreloadTest" time="0.001"/>
+  <testcase name="a_transcoded_disc_is_never_preloaded" classname="com.yfuse.feature.player.PlaybackPreloadTest" time="0.001"/>
+  <testcase name="prepared_queue_can_be_claimed_by_only_one_player_launch" classname="com.yfuse.feature.player.PlaybackPreloadTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

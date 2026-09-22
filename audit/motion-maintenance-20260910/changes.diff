@@ -1,0 +1,921 @@
+--- before/composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/DecorativePhase.kt
++++ composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/DecorativePhase.kt
+@@ -0,0 +1,31 @@
++package com.yfuse.core.designsystem
++
++import androidx.compose.animation.core.LinearEasing
++import androidx.compose.animation.core.RepeatMode
++import androidx.compose.animation.core.animateFloat
++import androidx.compose.animation.core.infiniteRepeatable
++import androidx.compose.animation.core.rememberInfiniteTransition
++import androidx.compose.animation.core.tween
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.State
++import androidx.compose.runtime.rememberUpdatedState
++
++/** A decorative clock exists only while its route, feature and accessibility policy allow it. */
++@Composable
++internal fun rememberDecorativePhase(
++    enabled: Boolean = true,
++    periodMillis: Int,
++    rest: Float = 0f,
++    repeatMode: RepeatMode = RepeatMode.Restart,
++    label: String,
++): State<Float> =
++    if (enabled && LocalRouteVisible.current && !LocalAccessibilityOptions.current.reduceMotion) {
++        rememberInfiniteTransition(label = label).animateFloat(
++            initialValue = 0f,
++            targetValue = 1f,
++            animationSpec = infiniteRepeatable(tween(periodMillis, easing = LinearEasing), repeatMode),
++            label = label + "Phase",
++        )
++    } else {
++        rememberUpdatedState(rest)
++    }
+--- before/composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailLoading.kt
++++ composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailLoading.kt
+@@ -1,11 +1,6 @@
+ package com.yfuse.feature.detail
+ 
+-import androidx.compose.animation.core.LinearEasing
+ import androidx.compose.animation.core.RepeatMode
+-import androidx.compose.animation.core.animateFloat
+-import androidx.compose.animation.core.infiniteRepeatable
+-import androidx.compose.animation.core.rememberInfiniteTransition
+-import androidx.compose.animation.core.tween
+ import androidx.compose.foundation.layout.Arrangement
+ import androidx.compose.foundation.layout.Box
+ import androidx.compose.foundation.layout.Column
+@@ -16,7 +11,6 @@
+ import androidx.compose.foundation.layout.padding
+ import androidx.compose.foundation.layout.width
+ import androidx.compose.runtime.Composable
+-import androidx.compose.runtime.getValue
+ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.draw.drawBehind
+ import androidx.compose.ui.geometry.Offset
+@@ -27,10 +21,11 @@
+ import com.yfuse.core.designsystem.Dimens
+ import com.yfuse.core.designsystem.GlassShapes
+ import com.yfuse.core.designsystem.LocalAccentColors
+-import com.yfuse.core.designsystem.LocalAccessibilityOptions
+ import com.yfuse.core.designsystem.LocalPalette
++import com.yfuse.core.designsystem.Motion
+ import com.yfuse.core.designsystem.SKELETON_PHASE_STEP_MS
+ import com.yfuse.core.designsystem.SkeletonBlock
++import com.yfuse.core.designsystem.rememberDecorativePhase
+ import com.yfuse.core.designsystem.skeletonFill
+ import com.yfuse.core.designsystem.skeletonSweep
+ 
+@@ -125,18 +120,17 @@
+ private fun Modifier.heroBloom(): Modifier {
+     val palette = LocalPalette.current
+     val accent = LocalAccentColors.current.accent
+-    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+-    val transition = rememberInfiniteTransition(label = "detailBloom")
+-    val animatedDrift by transition.animateFloat(
+-        initialValue = 0f,
+-        targetValue = 1f,
+-        animationSpec = infiniteRepeatable(tween(BLOOM_DRIFT_MS, easing = LinearEasing), RepeatMode.Reverse),
+-        label = "detailBloomDrift",
+-    )
+-    val drift = if (reduceMotion) 0.5f else animatedDrift
++    val phase =
++        rememberDecorativePhase(
++            periodMillis = Motion.DETAIL_LOADING_BLOOM,
++            rest = 0.5f,
++            repeatMode = RepeatMode.Reverse,
++            label = "detailBloom",
++        )
+     val strength = if (palette.isDark) 1f else 0.6f
+     val fill = skeletonFill()
+     return drawBehind {
++        val drift = phase.value
+         drawRect(fill)
+         val w = size.width
+         val h = size.height
+@@ -173,4 +167,3 @@
+ 
+ private val BloomRose = Color(0xFFE5A4EE)
+ private val BloomAmber = Color(0xFFD9852F)
+-private const val BLOOM_DRIFT_MS = 6_000
+--- before/composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/DownloadsScreen.kt
++++ composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/DownloadsScreen.kt
+@@ -1,10 +1,6 @@
+ package com.yfuse.feature.profile
+ 
+-import androidx.compose.animation.core.LinearEasing
+-import androidx.compose.animation.core.animateFloat
+ import androidx.compose.animation.core.animateFloatAsState
+-import androidx.compose.animation.core.infiniteRepeatable
+-import androidx.compose.animation.core.rememberInfiniteTransition
+ import androidx.compose.animation.core.tween
+ import androidx.compose.foundation.background
+ import androidx.compose.foundation.layout.Arrangement
+@@ -64,6 +60,7 @@
+ import com.yfuse.core.designsystem.glass
+ import com.yfuse.core.designsystem.motionAwareItem
+ import com.yfuse.core.designsystem.pressable
++import com.yfuse.core.designsystem.rememberDecorativePhase
+ import com.yfuse.core.designsystem.touchTarget
+ import com.yfuse.core.offline.DownloadStatus
+ import com.yfuse.core.offline.OfflineIndexStatus
+@@ -757,17 +754,16 @@
+     )
+     val collapse by animateFloatAsState(
+         targetValue = if (completed) 1f else 0f,
+-        animationSpec = tween(if (reduceMotion) 0 else DOWNLOAD_COMPLETE_MS, easing = Motion.Curve),
++        animationSpec = tween(if (reduceMotion) 0 else Motion.DOWNLOAD_COMPLETE, easing = Motion.Curve),
+         label = "downloadComplete",
+     )
+     val flowing = item.status == DownloadStatus.Downloading && !reduceMotion
+-    val transition = rememberInfiniteTransition(label = "downloadFlow")
+-    val flow by transition.animateFloat(
+-        initialValue = 0f,
+-        targetValue = 1f,
+-        animationSpec = infiniteRepeatable(tween(DOWNLOAD_FLOW_MS, easing = LinearEasing)),
+-        label = "downloadFlowPhase",
+-    )
++    val flow =
++        rememberDecorativePhase(
++            enabled = flowing,
++            periodMillis = Motion.DOWNLOAD_FLOW,
++            label = "downloadFlow",
++        )
+     Box(Modifier.fillMaxWidth().height(4.dp)) {
+         Box(
+             Modifier
+@@ -786,7 +782,7 @@
+                         if (!flowing || size.width <= 0f) return@drawWithContent
+                         // One soft highlight travelling the filled length, never the empty part.
+                         val band = size.width * 0.35f
+-                        val head = -band + (size.width + 2f * band) * flow
++                        val head = -band + (size.width + 2f * band) * flow.value
+                         drawRect(
+                             brush =
+                                 Brush.horizontalGradient(
+@@ -811,9 +807,6 @@
+         )
+     }
+ }
+-
+-private const val DOWNLOAD_COMPLETE_MS = 380
+-private const val DOWNLOAD_FLOW_MS = 1_400
+ 
+ private fun downloadStatusText(item: OfflineMedia): String =
+     when (item.status) {
+--- before/composeApp/src/commonMain/kotlin/com/yfuse/app/DefaultTabMotion.kt
++++ composeApp/src/commonMain/kotlin/com/yfuse/app/DefaultTabMotion.kt
+@@ -0,0 +1,65 @@
++package com.yfuse.app
++
++import androidx.compose.animation.core.Animatable
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.LaunchedEffect
++import androidx.compose.runtime.State
++import androidx.compose.runtime.remember
++import com.yfuse.core.designsystem.Motion
++import kotlinx.coroutines.coroutineScope
++import kotlinx.coroutines.launch
++
++internal class DefaultTabMotion(
++    val left: State<Float>,
++    val right: State<Float>,
++)
++
++/** Created only by the standard path; switching styles starts at the current selection. */
++@Composable
++internal fun rememberDefaultTabMotion(
++    selectedIndex: Int,
++    reduceMotion: Boolean,
++): DefaultTabMotion {
++    val initialIndex = selectedIndex.coerceAtLeast(0).toFloat()
++    val indicatorLeft = remember { Animatable(tabPillTargetLeft(initialIndex)) }
++    val indicatorRight = remember { Animatable(tabPillTargetRight(initialIndex)) }
++    LaunchedEffect(selectedIndex, reduceMotion) {
++        if (selectedIndex < 0) return@LaunchedEffect
++        val targetIndex = selectedIndex.toFloat()
++        val targetLeft = tabPillTargetLeft(targetIndex)
++        val targetRight = tabPillTargetRight(targetIndex)
++        if (reduceMotion) {
++            indicatorLeft.snapTo(targetLeft)
++            indicatorRight.snapTo(targetRight)
++        } else {
++            val currentCenter = (indicatorLeft.value + indicatorRight.value) / 2f
++            val movingRight = targetIndex + 0.5f >= currentCenter
++            coroutineScope {
++                launch {
++                    indicatorLeft.animateTo(
++                        targetValue = targetLeft,
++                        animationSpec =
++                            if (movingRight) {
++                                Motion.tabIndicatorTrailing()
++                            } else {
++                                Motion.tabIndicatorLeading()
++                            },
++                    )
++                }
++                launch {
++                    indicatorRight.animateTo(
++                        targetValue = targetRight,
++                        animationSpec =
++                            if (movingRight) {
++                                Motion.tabIndicatorLeading()
++                            } else {
++                                Motion.tabIndicatorTrailing()
++                            },
++                    )
++                }
++            }
++        }
++    }
++
++    return remember { DefaultTabMotion(indicatorLeft.asState(), indicatorRight.asState()) }
++}
+--- before/composeApp/src/commonMain/kotlin/com/yfuse/app/App.kt
++++ composeApp/src/commonMain/kotlin/com/yfuse/app/App.kt
+@@ -2,7 +2,6 @@
+ 
+ import androidx.compose.animation.AnimatedContent
+ import androidx.compose.animation.animateColorAsState
+-import androidx.compose.animation.core.Animatable
+ import androidx.compose.animation.core.animateDpAsState
+ import androidx.compose.animation.core.animateFloatAsState
+ import androidx.compose.animation.core.snap
+@@ -134,8 +133,6 @@
+ import com.yfuse.feature.watch.InviteResolution
+ import com.yfuse.feature.watch.WatchInviteSheet
+ import com.yfuse.feature.watch.WatchRoomInfoDialog
+-import kotlinx.coroutines.coroutineScope
+-import kotlinx.coroutines.launch
+ 
+ private data class TabItem(
+     val tab: Tab,
+@@ -1024,56 +1021,18 @@
+     // Two independently sprung edges make the selected glass pull slightly in the direction
+     // of travel. The draw phase caps that stretch, so a jump across the bar never turns the
+     // indicator into a stripe spanning unrelated icons.
+-    val initialIndex = selectedIndex.coerceAtLeast(0).toFloat()
+-    val indicatorLeft = remember { Animatable(tabPillTargetLeft(initialIndex)) }
+-    val indicatorRight = remember { Animatable(tabPillTargetRight(initialIndex)) }
+-    LaunchedEffect(selectedIndex, reduceMotion, enhanced) {
+-        if (selectedIndex < 0) return@LaunchedEffect
+-        val targetIndex = selectedIndex.toFloat()
+-        val targetLeft = tabPillTargetLeft(targetIndex)
+-        val targetRight = tabPillTargetRight(targetIndex)
+-        if (reduceMotion || enhanced) {
+-            indicatorLeft.snapTo(targetLeft)
+-            indicatorRight.snapTo(targetRight)
+-        } else {
+-            val currentCenter = (indicatorLeft.value + indicatorRight.value) / 2f
+-            val movingRight = targetIndex + 0.5f >= currentCenter
+-            coroutineScope {
+-                launch {
+-                    indicatorLeft.animateTo(
+-                        targetValue = targetLeft,
+-                        animationSpec =
+-                            if (movingRight) {
+-                                Motion.tabIndicatorTrailing()
+-                            } else {
+-                                Motion.tabIndicatorLeading()
+-                            },
+-                    )
+-                }
+-                launch {
+-                    indicatorRight.animateTo(
+-                        targetValue = targetRight,
+-                        animationSpec =
+-                            if (movingRight) {
+-                                Motion.tabIndicatorLeading()
+-                            } else {
+-                                Motion.tabIndicatorTrailing()
+-                            },
+-                    )
+-                }
+-            }
+-        }
+-    }
+-    val indicatorAlpha by animateFloatAsState(
+-        targetValue = if (hasSelection) 1f else 0f,
+-        animationSpec =
+-            if (reduceMotion) {
+-                snap()
+-            } else {
+-                tween(Motion.QUICK, easing = Motion.Curve)
+-            },
+-        label = "tabIndicatorAlpha",
+-    )
++    val defaultMotion = if (enhanced) null else rememberDefaultTabMotion(selectedIndex, reduceMotion)
++    val indicatorAlpha =
++        animateFloatAsState(
++            targetValue = if (hasSelection) 1f else 0f,
++            animationSpec =
++                if (reduceMotion) {
++                    snap()
++                } else {
++                    tween(Motion.QUICK, easing = Motion.Curve)
++                },
++            label = "tabIndicatorAlpha",
++        )
+     Row(
+         modifier
+             .fillMaxWidth()
+@@ -1088,15 +1047,15 @@
+             // After the material and before the buttons: the island belongs to the glass, not
+             // over the icons.
+             .drawBehind {
+-                if (indicatorAlpha <= 0f) return@drawBehind
++                if (indicatorAlpha.value <= 0f) return@drawBehind
+                 val cell = size.width / tabs.size
+                 // The selected region nearly fills its cell — a broad island, not a small
+                 // Material indicator — so it stays legible over artwork-heavy roots and the
+                 // quiet ones alike.
+                 val bounds =
+                     tabIndicatorBounds(
+-                        rawLeft = liquidMotion?.left?.value ?: indicatorLeft.value,
+-                        rawRight = liquidMotion?.right?.value ?: indicatorRight.value,
++                        rawLeft = liquidMotion?.left?.value ?: checkNotNull(defaultMotion).left.value,
++                        rawRight = liquidMotion?.right?.value ?: checkNotNull(defaultMotion).right.value,
+                         tabCount = tabs.size,
+                         maxScale = if (enhanced) 1.8f else TAB_PILL_MAX_SCALE,
+                     )
+@@ -1105,7 +1064,7 @@
+                 val pillHeight = size.height * 0.86f * (1f - if (enhanced) stretch * 0.12f else 0f)
+                 val left = cell * if (rtl) tabs.size - bounds.left - bounds.width else bounds.left
+                 val top = (size.height - pillHeight) / 2f
+-                val alpha = indicatorAlpha.coerceIn(0f, 1f)
++                val alpha = indicatorAlpha.value.coerceIn(0f, 1f)
+                 if (liquid) {
+                     drawLensIsland(
+                         rect = Rect(left, top, left + pillWidth, top + pillHeight),
+@@ -1280,7 +1239,7 @@
+     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+     val emphasis by animateFloatAsState(
+         targetValue = if (selected) 1f else 0f,
+-        animationSpec = if (reduceMotion) snap() else spring(dampingRatio = 0.76f, stiffness = 460f),
++        animationSpec = Motion.tabIcon(reduceMotion),
+         label = "tabSelectionScale",
+     )
+     val boxSize = if (compact) 34.dp else 38.dp
+@@ -1326,9 +1285,9 @@
+     return TabIndicatorBounds(left = left, width = width)
+ }
+ 
+-private fun tabPillTargetLeft(index: Float): Float = index + (1f - TAB_PILL_WIDTH_FRACTION) / 2f
+-
+-private fun tabPillTargetRight(index: Float): Float = index + (1f + TAB_PILL_WIDTH_FRACTION) / 2f
++internal fun tabPillTargetLeft(index: Float): Float = index + (1f - TAB_PILL_WIDTH_FRACTION) / 2f
++
++internal fun tabPillTargetRight(index: Float): Float = index + (1f + TAB_PILL_WIDTH_FRACTION) / 2f
+ 
+ internal fun rootTabMotion(
+     previous: Tab,
+--- before/composeApp/src/commonMain/kotlin/com/yfuse/app/LiquidTabMotion.kt
++++ composeApp/src/commonMain/kotlin/com/yfuse/app/LiquidTabMotion.kt
+@@ -2,8 +2,6 @@
+ 
+ import androidx.compose.animation.core.Animatable
+ import androidx.compose.animation.core.animateFloatAsState
+-import androidx.compose.animation.core.snap
+-import androidx.compose.animation.core.spring
+ import androidx.compose.animation.core.tween
+ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+ import androidx.compose.runtime.Composable
+@@ -64,18 +62,16 @@
+     }
+     // The leading edge follows the finger; the tail retains a little weight. On release both
+     // settle more slowly, allowing the stretched lens to become round again.
+-    val leading = if (dragIndex != null) 700f else 300f
+-    val trailing = if (dragIndex != null) 240f else 155f
+     val left =
+         animateFloatAsState(
+             target + 0.09f,
+-            if (reduceMotion) snap() else spring(0.92f, if (rightward) trailing else leading),
++            Motion.liquidTabEdge(reduceMotion, dragging = dragIndex != null, leading = !rightward),
+             label = "liquidTabLeft",
+         )
+     val right =
+         animateFloatAsState(
+             target + 0.91f,
+-            if (reduceMotion) snap() else spring(0.92f, if (rightward) leading else trailing),
++            Motion.liquidTabEdge(reduceMotion, dragging = dragIndex != null, leading = rightward),
+             label = "liquidTabRight",
+         )
+     val sweep = remember { Animatable(1f) }
+@@ -88,7 +84,7 @@
+         sweep.snapTo(1f)
+         if (changed && selected >= 0 && dragIndex == null && !reduceMotion) {
+             sweep.snapTo(0f)
+-            sweep.animateTo(1f, tween(520, delayMillis = 90, easing = Motion.Curve))
++            sweep.animateTo(1f, tween(Motion.TAB_SWEEP, delayMillis = Motion.TAB_SWEEP_DELAY, easing = Motion.Curve))
+         }
+     }
+     val gestures =
+--- before/composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/Tokens.kt
++++ composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/Tokens.kt
+@@ -424,7 +424,7 @@
+  * 开启「减弱动态效果」后全部降为瞬时切换（see [AccessibilityPreferences] consumers).
+  */
+ object Motion {
+-    /** `cubic-bezier(.32,.72,0,1)` — the single easing used by every transition. */
++    /** `cubic-bezier(.32,.72,0,1)` — the default easing; tuned dialog curves are kept in [Dialog]. */
+     val Curve =
+         androidx.compose.animation.core
+             .CubicBezierEasing(0.32f, 0.72f, 0f, 1f)
+@@ -438,6 +438,34 @@
+ 
+     const val STATE_HANDOFF = 150
+     const val DISCLOSURE = 160
++
++    // Decorative periods and individually tuned arrivals retain their existing timing.
++    const val DETAIL_LOADING_BLOOM = 6_000
++    const val DOWNLOAD_FLOW = 1_400
++    const val DOWNLOAD_COMPLETE = 380
++    const val THEME_CROSSFADE = 380
++    const val ORB_COMET = 1_200
++    const val TAB_SWEEP = 520
++    const val TAB_SWEEP_DELAY = 90
++
++    /** Shared dialog timing slots; stored enum names and all existing durations stay intact. */
++    object Dialog {
++        const val ENTER_QUICK = 360
++        const val ENTER_STANDARD = 380
++        const val ENTER_EMPHASIZED = 400
++        const val ENTER_EXTENDED = 420
++        const val EXIT_QUICK = 240
++        const val EXIT_COMPACT = 250
++        const val EXIT_STANDARD = 260
++        const val EXIT_EMPHASIZED = 280
++        const val EXIT_EXTENDED = 300
++        val EnterCurve =
++            androidx.compose.animation.core
++                .CubicBezierEasing(0.2f, 0.45f, 0.25f, 1f)
++        val ExitCurve =
++            androidx.compose.animation.core
++                .CubicBezierEasing(0.4f, 0f, 0.75f, 0.65f)
++    }
+ 
+     // ------------------------------------------------------------ 弹簧
+     //
+@@ -500,7 +528,26 @@
+         if (reduceMotion) {
+             snap()
+         } else {
+-            spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMedium)
++            spring(dampingRatio = 0.76f, stiffness = 460f)
++        }
++
++    /** The dragged liquid edge is tighter than its tail; release retains the tuned weight. */
++    fun liquidTabEdge(
++        reduceMotion: Boolean,
++        dragging: Boolean,
++        leading: Boolean,
++    ): FiniteAnimationSpec<Float> =
++        if (reduceMotion) {
++            snap()
++        } else {
++            val stiffness =
++                when {
++                    dragging && leading -> 700f
++                    dragging -> 240f
++                    leading -> 300f
++                    else -> 155f
++                }
++            spring(dampingRatio = 0.92f, stiffness = stiffness)
+         }
+ 
+     /** 推进（详情 / 类型 / 下载）— 右侧 30px 滑入 + 淡入. */
+--- before/composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/ThemeCrossfade.kt
++++ composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/ThemeCrossfade.kt
+@@ -115,4 +115,4 @@
+         isDark = to.isDark,
+     )
+ 
+-const val THEME_CROSSFADE_MS = 380
++const val THEME_CROSSFADE_MS = Motion.THEME_CROSSFADE
+--- before/composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/OrbProgress.kt
++++ composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/OrbProgress.kt
+@@ -121,7 +121,7 @@
+     return 1f + ORB_CORE_SWELL * wave
+ }
+ 
+-internal const val ORB_COMET_MS = 1_200
++internal const val ORB_COMET_MS = Motion.ORB_COMET
+ internal const val ORB_BREATH_MS = SKELETON_PULSE_MS_INT
+ private const val ORB_RING_FRACTION = 0.2f
+ private const val ORB_CORE_FRACTION = 0.36f
+--- before/composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/DialogAnimation.kt
++++ composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/DialogAnimation.kt
+@@ -26,49 +26,49 @@
+     val enterMillis: Int,
+     val exitMillis: Int,
+ ) {
+-    Lift("柔和浮起", "轻轻上浮，柔和展开", 360, 240),
+-    Axis("中轴展开", "从中央细缝向上下展开", 380, 260),
+-    Slide("底部升起", "从屏幕底部滑入，关闭时滑回", 420, 280),
+-    Touch("触点展开", "从点击位置展开，关闭时收回", 420, 300),
+-    Spring("柔性回弹", "轻微拉伸，带细腻回弹", 400, 280),
+-    Perspective("轻透视展开", "轻微倾斜翻起，回到正面", 400, 280),
+-    Hologram("全息扫描", "扫描光线经过，逐行展开玻璃面板", 400, 280),
+-    Fold("空间折叠", "两侧屏幕围绕中央折线展开", 400, 280),
+-    Energy("能量边框", "四角光线勾勒边框，内部随后展开", 420, 280),
+-    Layers("分层悬浮", "玻璃、标题与内容从不同深度归位", 400, 280),
+-    Portal("光圈展开", "从点击位置扩张光圈，收回时逆向闭合", 400, 280),
+-    Reconstruct("数字重构", "横向切片错位进入，快速拼成完整面板", 400, 280),
+-    Magnetic("磁悬停泊", "沿短弧线滑入，轻微倾斜后平稳归位", 400, 280),
+-    Liquid("液态成形", "圆润水滴舒展成玻璃面板，文字保持原比例", 420, 280),
+-    Blinds("光栅百叶", "竖向光栅依次翻开，关闭时逐条闭合", 400, 280),
+-    Assemble("四角汇聚", "四块玻璃从四角靠拢，接缝平稳闭合", 400, 280),
+-    Radar("雷达扫掠", "旋转光束揭开面板，反向扫掠收起", 420, 280),
+-    Ribbon("丝绸揭幕", "柔软弧线自下而上揭开，像轻轻掀起丝绸", 420, 280),
+-    Iris("菱镜光圈", "六边形光圈轻旋展开，露出完整玻璃面板", 400, 280),
+-    Mosaic("方格织入", "细分方格沿对角线依次显现，交织成完整面板", 420, 280),
+-    Orbit("轻旋入场", "卡片沿短弧线轻旋靠近，平稳落定", 400, 280),
+-    Curtain("双幕展开", "两道柔弧从中央向两侧打开，关闭时合拢", 400, 280),
+-    Bloom("花瓣绽放", "六片圆润花瓣从中央舒展，逐渐连成完整面板", 420, 260),
+-    CardExtract("卡片抽取", "像抽出一张卡片，轻轻翻起后落稳", 380, 240),
+-    Diagonal("斜光掠入", "一束斜光从左上掠向右下，揭开面板", 360, 240),
+-    Capsule("胶囊舒展", "小胶囊先横向伸展，再向上下撑开", 420, 260),
+-    Steps("阶梯铺开", "横向阶梯由上至下依次铺开，收起时逐层回拢", 400, 260),
+-    PosterMorph("海报化窗", "海报延展成弹窗；没有海报时从触点展开", 420, 280),
+-    Ripple("涟漪显现", "从触点泛起两道轻柔波纹，逐渐显露内容", 400, 260),
+-    PageFold("折页展开", "上页先展开，下页随后舒展，轻巧收拢", 400, 260),
+-    MagneticDrag("磁吸归位", "向下拖动弹窗，轻拉回弹，拉远后顺势关闭", 380, 240),
+-    Sheen("柔光扫入", "面板轻轻浮起，海报色柔光掠过边缘", 380, 240),
+-    Cascade("内容接力", "面板先落定，标题、选项与按钮依次轻盈入场", 420, 260),
+-    PaperPlane("纸飞机投递", "沿折纸航线轻巧滑入，稳稳送到眼前", 380, 240),
+-    WindChime("风铃轻摆", "悬挂卡片轻摆两拍，迅速安静归位", 420, 260),
+-    InstantPhoto("拍立得冲印", "从短窄出片口展开，照片边框轻轻收稳", 420, 260),
+-    Zipper("拉链解封", "拉头向下划开，两侧顺势展开", 380, 240),
+-    Ticket("票根展开", "票头先显现，正文沿齿边利落铺开", 400, 250),
+-    Envelope("信封拆启", "封口轻启，信笺从下沿舒展到眼前", 420, 260),
+-    Constellation("星图织光", "星点连成轮廓，中央光面渐渐铺满", 420, 260),
+-    PuzzleLock("拼图扣合", "两片圆弧拼图相向靠拢，接缝轻巧扣合", 400, 250),
+-    Hourglass("沙漏汇流", "上下沙丘向中央汇流，细腰舒展成完整面板", 420, 260),
+-    Pinwheel("风车开页", "四叶纸风车轻转开页，边角依次舒展", 420, 260),
++    Lift("柔和浮起", "轻轻上浮，柔和展开", Motion.Dialog.ENTER_QUICK, Motion.Dialog.EXIT_QUICK),
++    Axis("中轴展开", "从中央细缝向上下展开", Motion.Dialog.ENTER_STANDARD, Motion.Dialog.EXIT_STANDARD),
++    Slide("底部升起", "从屏幕底部滑入，关闭时滑回", Motion.Dialog.ENTER_EXTENDED, Motion.Dialog.EXIT_EMPHASIZED),
++    Touch("触点展开", "从点击位置展开，关闭时收回", Motion.Dialog.ENTER_EXTENDED, Motion.Dialog.EXIT_EXTENDED),
++    Spring("柔性回弹", "轻微拉伸，带细腻回弹", Motion.Dialog.ENTER_EMPHASIZED, Motion.Dialog.EXIT_EMPHASIZED),
++    Perspective("轻透视展开", "轻微倾斜翻起，回到正面", Motion.Dialog.ENTER_EMPHASIZED, Motion.Dialog.EXIT_EMPHASIZED),
++    Hologram("全息扫描", "扫描光线经过，逐行展开玻璃面板", Motion.Dialog.ENTER_EMPHASIZED, Motion.Dialog.EXIT_EMPHASIZED),
++    Fold("空间折叠", "两侧屏幕围绕中央折线展开", Motion.Dialog.ENTER_EMPHASIZED, Motion.Dialog.EXIT_EMPHASIZED),
++    Energy("能量边框", "四角光线勾勒边框，内部随后展开", Motion.Dialog.ENTER_EXTENDED, Motion.Dialog.EXIT_EMPHASIZED),
++    Layers("分层悬浮", "玻璃、标题与内容从不同深度归位", Motion.Dialog.ENTER_EMPHASIZED, Motion.Dialog.EXIT_EMPHASIZED),
++    Portal("光圈展开", "从点击位置扩张光圈，收回时逆向闭合", Motion.Dialog.ENTER_EMPHASIZED, Motion.Dialog.EXIT_EMPHASIZED),
++    Reconstruct("数字重构", "横向切片错位进入，快速拼成完整面板", Motion.Dialog.ENTER_EMPHASIZED, Motion.Dialog.EXIT_EMPHASIZED),
++    Magnetic("磁悬停泊", "沿短弧线滑入，轻微倾斜后平稳归位", Motion.Dialog.ENTER_EMPHASIZED, Motion.Dialog.EXIT_EMPHASIZED),
++    Liquid("液态成形", "圆润水滴舒展成玻璃面板，文字保持原比例", Motion.Dialog.ENTER_EXTENDED, Motion.Dialog.EXIT_EMPHASIZED),
++    Blinds("光栅百叶", "竖向光栅依次翻开，关闭时逐条闭合", Motion.Dialog.ENTER_EMPHASIZED, Motion.Dialog.EXIT_EMPHASIZED),
++    Assemble("四角汇聚", "四块玻璃从四角靠拢，接缝平稳闭合", Motion.Dialog.ENTER_EMPHASIZED, Motion.Dialog.EXIT_EMPHASIZED),
++    Radar("雷达扫掠", "旋转光束揭开面板，反向扫掠收起", Motion.Dialog.ENTER_EXTENDED, Motion.Dialog.EXIT_EMPHASIZED),
++    Ribbon("丝绸揭幕", "柔软弧线自下而上揭开，像轻轻掀起丝绸", Motion.Dialog.ENTER_EXTENDED, Motion.Dialog.EXIT_EMPHASIZED),
++    Iris("菱镜光圈", "六边形光圈轻旋展开，露出完整玻璃面板", Motion.Dialog.ENTER_EMPHASIZED, Motion.Dialog.EXIT_EMPHASIZED),
++    Mosaic("方格织入", "细分方格沿对角线依次显现，交织成完整面板", Motion.Dialog.ENTER_EXTENDED, Motion.Dialog.EXIT_EMPHASIZED),
++    Orbit("轻旋入场", "卡片沿短弧线轻旋靠近，平稳落定", Motion.Dialog.ENTER_EMPHASIZED, Motion.Dialog.EXIT_EMPHASIZED),
++    Curtain("双幕展开", "两道柔弧从中央向两侧打开，关闭时合拢", Motion.Dialog.ENTER_EMPHASIZED, Motion.Dialog.EXIT_EMPHASIZED),
++    Bloom("花瓣绽放", "六片圆润花瓣从中央舒展，逐渐连成完整面板", Motion.Dialog.ENTER_EXTENDED, Motion.Dialog.EXIT_STANDARD),
++    CardExtract("卡片抽取", "像抽出一张卡片，轻轻翻起后落稳", Motion.Dialog.ENTER_STANDARD, Motion.Dialog.EXIT_QUICK),
++    Diagonal("斜光掠入", "一束斜光从左上掠向右下，揭开面板", Motion.Dialog.ENTER_QUICK, Motion.Dialog.EXIT_QUICK),
++    Capsule("胶囊舒展", "小胶囊先横向伸展，再向上下撑开", Motion.Dialog.ENTER_EXTENDED, Motion.Dialog.EXIT_STANDARD),
++    Steps("阶梯铺开", "横向阶梯由上至下依次铺开，收起时逐层回拢", Motion.Dialog.ENTER_EMPHASIZED, Motion.Dialog.EXIT_STANDARD),
++    PosterMorph("海报化窗", "海报延展成弹窗；没有海报时从触点展开", Motion.Dialog.ENTER_EXTENDED, Motion.Dialog.EXIT_EMPHASIZED),
++    Ripple("涟漪显现", "从触点泛起两道轻柔波纹，逐渐显露内容", Motion.Dialog.ENTER_EMPHASIZED, Motion.Dialog.EXIT_STANDARD),
++    PageFold("折页展开", "上页先展开，下页随后舒展，轻巧收拢", Motion.Dialog.ENTER_EMPHASIZED, Motion.Dialog.EXIT_STANDARD),
++    MagneticDrag("磁吸归位", "向下拖动弹窗，轻拉回弹，拉远后顺势关闭", Motion.Dialog.ENTER_STANDARD, Motion.Dialog.EXIT_QUICK),
++    Sheen("柔光扫入", "面板轻轻浮起，海报色柔光掠过边缘", Motion.Dialog.ENTER_STANDARD, Motion.Dialog.EXIT_QUICK),
++    Cascade("内容接力", "面板先落定，标题、选项与按钮依次轻盈入场", Motion.Dialog.ENTER_EXTENDED, Motion.Dialog.EXIT_STANDARD),
++    PaperPlane("纸飞机投递", "沿折纸航线轻巧滑入，稳稳送到眼前", Motion.Dialog.ENTER_STANDARD, Motion.Dialog.EXIT_QUICK),
++    WindChime("风铃轻摆", "悬挂卡片轻摆两拍，迅速安静归位", Motion.Dialog.ENTER_EXTENDED, Motion.Dialog.EXIT_STANDARD),
++    InstantPhoto("拍立得冲印", "从短窄出片口展开，照片边框轻轻收稳", Motion.Dialog.ENTER_EXTENDED, Motion.Dialog.EXIT_STANDARD),
++    Zipper("拉链解封", "拉头向下划开，两侧顺势展开", Motion.Dialog.ENTER_STANDARD, Motion.Dialog.EXIT_QUICK),
++    Ticket("票根展开", "票头先显现，正文沿齿边利落铺开", Motion.Dialog.ENTER_EMPHASIZED, Motion.Dialog.EXIT_COMPACT),
++    Envelope("信封拆启", "封口轻启，信笺从下沿舒展到眼前", Motion.Dialog.ENTER_EXTENDED, Motion.Dialog.EXIT_STANDARD),
++    Constellation("星图织光", "星点连成轮廓，中央光面渐渐铺满", Motion.Dialog.ENTER_EXTENDED, Motion.Dialog.EXIT_STANDARD),
++    PuzzleLock("拼图扣合", "两片圆弧拼图相向靠拢，接缝轻巧扣合", Motion.Dialog.ENTER_EMPHASIZED, Motion.Dialog.EXIT_COMPACT),
++    Hourglass("沙漏汇流", "上下沙丘向中央汇流，细腰舒展成完整面板", Motion.Dialog.ENTER_EXTENDED, Motion.Dialog.EXIT_STANDARD),
++    Pinwheel("风车开页", "四叶纸风车轻转开页，边角依次舒展", Motion.Dialog.ENTER_EXTENDED, Motion.Dialog.EXIT_STANDARD),
+ }
+ 
+ val LocalDialogAnimation = staticCompositionLocalOf { DialogAnimation.Lift }
+@@ -98,6 +98,13 @@
+             host.poster = null
+         }
+     }
++
++/** Normalized progress shared by the staged dialog masks and transforms. */
++internal fun dialogStage(
++    progress: Float,
++    start: Float,
++    end: Float,
++): Float = ((progress - start) / (end - start)).coerceIn(0f, 1f)
+ 
+ internal data class DialogMotionFrame(
+     val scaleX: Float = 1f,
+--- before/composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/CuriousDialogMotion.kt
++++ composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/CuriousDialogMotion.kt
+@@ -24,18 +24,12 @@
+ 
+ private const val CURIOUS_REST_PROGRESS = 0.92f
+ 
+-private fun curiousStage(
+-    progress: Float,
+-    start: Float,
+-    end: Float,
+-): Float = ((progress - start) / (end - start)).coerceIn(0f, 1f)
+-
+ /** One complete card moves; the reveal never stretches individual letters or splits their layers. */
+ internal fun curiousDialogMotionFrame(
+     animation: DialogAnimation,
+     progress: Float,
+ ): DialogMotionFrame {
+-    val t = curiousStage(progress, 0f, 0.86f)
++    val t = dialogStage(progress, 0f, 0.86f)
+     if (t >= 1f) return DialogMotionFrame()
+     val hidden = 1f - t
+     return when (animation) {
+@@ -65,27 +59,27 @@
+     val w = width.coerceAtLeast(0f)
+     val h = height.coerceAtLeast(0f)
+     val p = progress.coerceIn(0f, 1f)
+-    val reveal = curiousStage(p, 0f, 0.88f)
++    val reveal = dialogStage(p, 0f, 0.88f)
+     if (reveal >= 1f) return CuriousDialogGeometry(Rect(0f, 0f, w, h), 1f, 0f)
+     return when (animation) {
+         DialogAnimation.Envelope -> {
+-            val widthFraction = curiousStage(p, 0f, 0.24f)
+-            val letter = curiousStage(p, 0.08f, 0.86f)
++            val widthFraction = dialogStage(p, 0f, 0.24f)
++            val letter = dialogStage(p, 0.08f, 0.86f)
+             val inset = w * (1f - widthFraction) / 2f
+             CuriousDialogGeometry(Rect(inset, h * (1f - letter), w - inset, h), letter, 1f - letter)
+         }
+         DialogAnimation.Constellation -> {
+-            val light = curiousStage(p, 0.08f, 0.84f)
++            val light = dialogStage(p, 0.08f, 0.84f)
+             val x = w * (1f - light) / 2f
+             val y = h * (1f - light) / 2f
+-            CuriousDialogGeometry(Rect(x, y, w - x, h - y), light, 1f - curiousStage(p, 0.36f, 0.86f))
++            CuriousDialogGeometry(Rect(x, y, w - x, h - y), light, 1f - dialogStage(p, 0.36f, 0.86f))
+         }
+         DialogAnimation.PuzzleLock ->
+-            CuriousDialogGeometry(Rect(0f, 0f, w, h), reveal, 1f - curiousStage(p, 0.30f, 0.86f))
++            CuriousDialogGeometry(Rect(0f, 0f, w, h), reveal, 1f - dialogStage(p, 0.30f, 0.86f))
+         DialogAnimation.Hourglass -> {
+             val x = w * (1f - reveal) / 2f
+             val y = h * (1f - reveal) / 2f
+-            CuriousDialogGeometry(Rect(x, y, w - x, h - y), reveal, 1f - curiousStage(p, 0.24f, 0.86f))
++            CuriousDialogGeometry(Rect(x, y, w - x, h - y), reveal, 1f - dialogStage(p, 0.24f, 0.86f))
+         }
+         DialogAnimation.Pinwheel -> {
+             // Scale every blade radius as well as its outer edge: the first contour has zero area.
+@@ -249,7 +243,7 @@
+                 drawLine(ink, Offset(center.x, b.top + fold), b.topRight, hairline)
+             }
+             DialogAnimation.Constellation -> {
+-                val joined = curiousStage(p, 0f, 0.5f) * starPositions.size
++                val joined = dialogStage(p, 0f, 0.5f) * starPositions.size
+                 for (index in starPositions.indices) {
+                     val start = starPositions[index]
+                     val end = starPositions[(index + 1) % starPositions.size]
+@@ -274,7 +268,7 @@
+                 )
+             }
+             DialogAnimation.Hourglass -> {
+-                val fall = curiousStage(p, 0.05f, 0.76f)
++                val fall = dialogStage(p, 0.05f, 0.76f)
+                 for (index in 0..2) {
+                     val y = b.top + b.height * ((fall - index * 0.15f).coerceIn(0f, 1f))
+                     drawCircle(ink, hairline * (1.6f - index * 0.25f), Offset(center.x, y))
+--- before/composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/DelightDialogMotion.kt
++++ composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/DelightDialogMotion.kt
+@@ -29,18 +29,12 @@
+     val toothDepth: Float = 0f,
+ )
+ 
+-private fun delightStage(
+-    progress: Float,
+-    start: Float,
+-    end: Float,
+-): Float = ((progress - start) / (end - start)).coerceIn(0f, 1f)
+-
+ /** Transform only the complete card. Uniform scale keeps every glyph's proportions intact. */
+ internal fun delightDialogMotionFrame(
+     animation: DialogAnimation,
+     progress: Float,
+ ): DialogMotionFrame {
+-    val t = delightStage(progress, 0f, 0.88f)
++    val t = dialogStage(progress, 0f, 0.88f)
+     if (t >= 1f) return DialogMotionFrame()
+     val hidden = 1f - t
+     val arc = sin(PI * t).toFloat() * hidden
+@@ -77,30 +71,30 @@
+     if (p >= DELIGHT_REST_PROGRESS) return DelightDialogMask(Rect(0f, 0f, w, h))
+     return when (animation) {
+         DialogAnimation.PaperPlane -> {
+-            val unfold = delightStage(p, 0f, 0.78f)
++            val unfold = dialogStage(p, 0f, 0.78f)
+             val insetX = w * (1f - unfold) / 2f
+             val insetY = h * (1f - unfold) / 2f
+             val bounds = Rect(insetX, insetY, w - insetX, h - insetY)
+             DelightDialogMask(
+                 bounds,
+-                edgeInset = bounds.width * 0.22f * (1f - delightStage(p, 0.18f, 0.78f)),
++                edgeInset = bounds.width * 0.22f * (1f - dialogStage(p, 0.18f, 0.78f)),
+             )
+         }
+         DialogAnimation.WindChime -> {
+-            val reveal = delightStage(p, 0f, 0.72f)
++            val reveal = dialogStage(p, 0f, 0.72f)
+             val inset = w * 0.03f * (1f - reveal)
+             DelightDialogMask(Rect(inset, 0f, w - inset, h * reveal))
+         }
+         DialogAnimation.InstantPhoto -> {
+-            val slot = delightStage(p, 0f, 0.24f)
+-            val paper = delightStage(p, 0.10f, 0.84f)
++            val slot = dialogStage(p, 0f, 0.24f)
++            val paper = dialogStage(p, 0.10f, 0.84f)
+             val inset = w * (1f - slot) / 2f
+             DelightDialogMask(Rect(inset, 0f, w - inset, h * paper))
+         }
+         DialogAnimation.Zipper -> {
+-            val upper = delightStage(p, 0f, 0.52f)
+-            val lower = delightStage(p, 0.32f, 0.90f)
+-            val depth = delightStage(p, 0f, 0.72f)
++            val upper = dialogStage(p, 0f, 0.52f)
++            val lower = dialogStage(p, 0.32f, 0.90f)
++            val depth = dialogStage(p, 0f, 0.72f)
+             val inset = w * (1f - upper) / 2f
+             val bounds = Rect(inset, 0f, w - inset, h * depth)
+             DelightDialogMask(
+@@ -109,12 +103,12 @@
+             )
+         }
+         DialogAnimation.Ticket -> {
+-            val header = delightStage(p, 0f, 0.22f)
+-            val body = delightStage(p, 0.18f, 0.90f)
++            val header = dialogStage(p, 0f, 0.22f)
++            val body = dialogStage(p, 0.18f, 0.90f)
+             val bottom = h * (0.18f * header + 0.82f * body)
+             DelightDialogMask(
+                 Rect(0f, 0f, w * header, bottom),
+-                toothDepth = min(min(w, h) * 0.025f, bottom / 4f) * (1f - delightStage(p, 0.30f, 0.84f)),
++                toothDepth = min(min(w, h) * 0.025f, bottom / 4f) * (1f - dialogStage(p, 0.30f, 0.84f)),
+             )
+         }
+         else -> DelightDialogMask(Rect(0f, 0f, w, h))
+@@ -187,7 +181,7 @@
+         when (animation) {
+             DialogAnimation.PaperPlane -> {
+                 val wing = min(12.dp.toPx(), size.width * 0.04f)
+-                val x = wing + (size.width - wing * 2f) * delightStage(p, 0f, 0.82f)
++                val x = wing + (size.width - wing * 2f) * dialogStage(p, 0f, 0.82f)
+                 val y = wing * 0.75f
+                 val plane =
+                     cache.edge.apply {
+--- before/composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/Dialogs.kt
++++ composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/Dialogs.kt
+@@ -1,7 +1,6 @@
+ package com.yfuse.core.designsystem
+ 
+ import androidx.compose.animation.core.Animatable
+-import androidx.compose.animation.core.CubicBezierEasing
+ import androidx.compose.animation.core.tween
+ import androidx.compose.foundation.background
+ import androidx.compose.foundation.border
+@@ -275,12 +274,12 @@
+                 if (leaving) {
+                     tween(
+                         overlayRemainingDurationMillis(animation.exitMillis, progress.value, target),
+-                        easing = OverlayExitCurve,
++                        easing = Motion.Dialog.ExitCurve,
+                     )
+                 } else {
+                     tween(
+                         overlayRemainingDurationMillis(animation.enterMillis, progress.value, target),
+-                        easing = OverlayEnterCurve,
++                        easing = Motion.Dialog.EnterCurve,
+                     )
+                 },
+             )
+@@ -289,9 +288,6 @@
+     }
+     return remember(progress) { { progress.value } }
+ }
+-
+-private val OverlayEnterCurve = CubicBezierEasing(0.2f, 0.45f, 0.25f, 1f)
+-private val OverlayExitCurve = CubicBezierEasing(0.4f, 0f, 0.75f, 0.65f)
+ 
+ internal fun overlayRemainingDurationMillis(
+     duration: Int,
+--- before/composeApp/src/commonTest/kotlin/com/yfuse/core/designsystem/DecorativePhaseTest.kt
++++ composeApp/src/commonTest/kotlin/com/yfuse/core/designsystem/DecorativePhaseTest.kt
+@@ -0,0 +1,107 @@
++package com.yfuse.core.designsystem
++
++import androidx.compose.runtime.AbstractApplier
++import androidx.compose.runtime.BroadcastFrameClock
++import androidx.compose.runtime.Composition
++import androidx.compose.runtime.CompositionLocalProvider
++import androidx.compose.runtime.Recomposer
++import androidx.compose.runtime.State
++import androidx.compose.runtime.mutableStateOf
++import androidx.compose.runtime.snapshots.Snapshot
++import kotlinx.coroutines.launch
++import kotlinx.coroutines.test.runCurrent
++import kotlinx.coroutines.test.runTest
++import kotlin.test.Test
++import kotlin.test.assertEquals
++import kotlin.test.assertFalse
++import kotlin.test.assertTrue
++
++@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
++class DecorativePhaseTest {
++    @Test
++    fun feature_visibility_and_reduced_motion_remove_the_clock_and_allow_restart() =
++        runTest {
++            val clock = BroadcastFrameClock()
++            val recomposer = Recomposer(coroutineContext + clock)
++            val runner = launch(clock) { recomposer.runRecomposeAndApplyChanges() }
++            val composition = Composition(NoNodes(), recomposer)
++            val enabled = mutableStateOf(false)
++            val visible = mutableStateOf(true)
++            val reduced = mutableStateOf(false)
++            lateinit var phase: State<Float>
++            var time = 0L
++
++            fun frame() {
++                Snapshot.sendApplyNotifications()
++                runCurrent()
++                time += 100_000_000L
++                clock.sendFrame(time)
++                runCurrent()
++            }
++            try {
++                composition.setContent {
++                    CompositionLocalProvider(
++                        LocalRouteVisible provides visible.value,
++                        LocalAccessibilityOptions provides AccessibilityOptions(reduceMotion = reduced.value),
++                    ) {
++                        phase =
++                            rememberDecorativePhase(
++                                enabled.value,
++                                periodMillis = 1_000,
++                                rest = 0.5f,
++                                label = "test",
++                            )
++                    }
++                }
++                repeat(3) { frame() }
++                assertEquals(0.5f, phase.value)
++                assertFalse(clock.hasAwaiters, "Disabled feature must not request animation frames")
++                enabled.value = true
++                repeat(4) { frame() }
++                assertTrue(clock.hasAwaiters)
++                val moving = phase.value
++                frame()
++                assertTrue(phase.value > moving)
++
++                // Each policy change removes an already running clock, not just its visual output.
++                for (gate in listOf(reduced, visible, enabled)) {
++                    gate.value = gate === reduced
++                    repeat(3) { frame() }
++                    assertEquals(0.5f, phase.value)
++                    assertFalse(clock.hasAwaiters, "Inactive policy must remove the frame subscription")
++                    gate.value = gate !== reduced
++                    repeat(4) { frame() }
++                    assertTrue(clock.hasAwaiters, "Restoring the policy must restart the animation")
++                }
++            } finally {
++                composition.dispose()
++                recomposer.cancel()
++                runner.join()
++            }
++        }
++
++    private class NoNodes : AbstractApplier<Unit>(Unit) {
++        override fun insertTopDown(
++            index: Int,
++            instance: Unit,
++        ) = Unit
++
++        override fun insertBottomUp(
++            index: Int,
++            instance: Unit,
++        ) = Unit
++
++        override fun remove(
++            index: Int,
++            count: Int,
++        ) = Unit
++
++        override fun move(
++            from: Int,
++            to: Int,
++            count: Int,
++        ) = Unit
++
++        override fun onClear() = Unit
++    }
++}

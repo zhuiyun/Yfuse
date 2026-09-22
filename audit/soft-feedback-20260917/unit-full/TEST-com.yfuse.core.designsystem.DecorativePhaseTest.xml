@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.designsystem.DecorativePhaseTest" tests="1" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:04.503Z" hostname="DESKTOP-HM2J0FM" time="0.078">
+  <properties/>
+  <testcase name="feature_visibility_and_reduced_motion_remove_the_clock_and_allow_restart" classname="com.yfuse.core.designsystem.DecorativePhaseTest" time="0.078"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

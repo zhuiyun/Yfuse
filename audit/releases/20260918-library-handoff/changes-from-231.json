@@ -1,0 +1,57 @@
+[
+  {
+    "path": "composeApp/src/androidInstrumentedTest/kotlin/com/yfuse/core/network/NetworkSecurityPolicyInstrumentedTest.kt",
+    "before": null,
+    "after": "702505851e514b238b3488dcabe2f4e312acba6eaef0741ed7e405a2d2794556"
+  },
+  {
+    "path": "composeApp/src/androidMain/res/xml/network_security_config.xml",
+    "before": "b57f1ff9484ebdd5a207addd3af969f01c04ebc11ecc60d0dd3df9d88d468ad1",
+    "after": "1c0f1ece35aa909c64bef700714d3657c9dc76dd54a7b5ed721759b5a6db6eaa"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/handoff/HandoffApi.kt",
+    "before": "3bee6296c4f3332cfbe3082d151107526c296dc6cc6e36a7b00ef401f12b92c4",
+    "after": "c4e874e863293bbb825edf575e1d8c7ce34f3f8b20102058769adf27b7695d69"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/handoff/HandoffController.kt",
+    "before": "547ac0871128141e0e411d5f86aa22cafa6b7a4619c261f8f7d46a4f4d4a45d4",
+    "after": "5102a80d29a8e0da45d2209862ad48c6cf9f8492e6e8fc4010dabd01efdf5748"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/handoff/DeviceHandoffScreen.kt",
+    "before": "9c1d079ad4192083f180ff8b4976135d2bbb4edddd49ca875f48b2a82e196255",
+    "after": "79505d6373a8560400588052d9b3253b64ab43d10bafb83b237bcaf3ecd60e62"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerSettingsPanel.kt",
+    "before": "24e6ad792d45395d63585a591718d6fc156fdeccaff6c2706961c56d0eda0f7a",
+    "after": "fd3de85c81a0b8cebb584b629df1e25660f4b4056ee842c40a57b8b530792700"
+  },
+  {
+    "path": "composeApp/src/commonTest/kotlin/com/yfuse/core/handoff/AccountHandoffApiTest.kt",
+    "before": null,
+    "after": "13344fff3e1a7fdc1ffc0f3fc157b7ae6dddd3c848fb0387b54636fae1327416"
+  },
+  {
+    "path": "composeApp/src/commonTest/kotlin/com/yfuse/core/handoff/HandoffControllerTest.kt",
+    "before": "fbb576e1912046217df103a3abbcc076c0f1358a46abeda17a7616c69462dd46",
+    "after": "344b3aec80fff68ae11ddda8bf5dfaeebf881bb0420c99b2902ef8f3fb00e009"
+  },
+  {
+    "path": "release-notes.txt",
+    "before": "1fdeb4cd1c17943d728252e5b3a6cd06f7ce4d2a6da442da97d1a7bf2ec8504e",
+    "after": "4e39d72d32fe7481b5d70241071a97d846356d60d73dde889a57865bf8423714"
+  },
+  {
+    "path": "version.properties",
+    "before": "d3ae33ffb7f921de7f7d57655ccf96bccb66ab33d8a127f3c013190e994156b9",
+    "after": "16d700264a0a4277a167246d49dd56e278c7f3b06a0d783d5a83302435da5cd8"
+  },
+  {
+    "path": "watchTogetherServer/gradle.lockfile",
+    "before": "fbeebd9f11cc946db9772838c74f60d7c7771ac2a87d56023bbfa5f872a5dc1f",
+    "after": "57c22ff61fb9cd313ff866307653f0a10b74361bb0d771d46ad08b7a8b1094d5"
+  }
+]

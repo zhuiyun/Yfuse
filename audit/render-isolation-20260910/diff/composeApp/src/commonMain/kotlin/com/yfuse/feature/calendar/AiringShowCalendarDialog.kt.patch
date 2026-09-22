@@ -1,0 +1,20 @@
+--- composeApp/src/commonMain/kotlin/com/yfuse/feature/calendar/AiringShowCalendarDialog.kt (before turn)
++++ composeApp/src/commonMain/kotlin/com/yfuse/feature/calendar/AiringShowCalendarDialog.kt
+@@ -18,8 +18,6 @@
+ import androidx.compose.foundation.rememberScrollState
+ import androidx.compose.foundation.shape.CircleShape
+ import androidx.compose.foundation.verticalScroll
+-import androidx.compose.material3.Icon
+-import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.LaunchedEffect
+ import androidx.compose.runtime.getValue
+@@ -63,6 +61,8 @@
+ import com.yfuse.core.util.daysBetweenIso
+ import com.yfuse.core.util.isoShortDate
+ import com.yfuse.core.util.isoWeekdayLabel
++import com.yfuse.core.designsystem.ThemeIcon as Icon
++import com.yfuse.core.designsystem.ThemeText as Text
+ 
+ private val DialogMaximumHeight = 740.dp
+ private val DialogHeroHeight = 206.dp

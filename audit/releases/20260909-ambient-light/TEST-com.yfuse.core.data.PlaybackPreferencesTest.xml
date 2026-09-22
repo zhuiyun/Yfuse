@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.data.PlaybackPreferencesTest" tests="16" skipped="0" failures="0" errors="0" timestamp="2026-09-09T10:41:21.455Z" hostname="DESKTOP-HM2J0FM" time="0.091">
+  <properties/>
+  <testcase name="ycore_native_only_requires_automatic_engine_selection" classname="com.yfuse.core.data.PlaybackPreferencesTest" time="0.026"/>
+  <testcase name="stale_native_only_value_is_cleared_when_a_locked_engine_is_restored" classname="com.yfuse.core.data.PlaybackPreferencesTest" time="0.0"/>
+  <testcase name="ycore_device_quirks_are_bounded_and_persist_without_media_identity" classname="com.yfuse.core.data.PlaybackPreferencesTest" time="0.029"/>
+  <testcase name="media_version_preference_defaults_to_hdr_and_persists" classname="com.yfuse.core.data.PlaybackPreferencesTest" time="0.0"/>
+  <testcase name="smart_source_defaults_on_and_persists_off" classname="com.yfuse.core.data.PlaybackPreferencesTest" time="0.0"/>
+  <testcase name="ambient_light_defaults_on_and_persists_off" classname="com.yfuse.core.data.PlaybackPreferencesTest" time="0.0"/>
+  <testcase name="ycore_optimization_mode_defaults_balanced_and_persists" classname="com.yfuse.core.data.PlaybackPreferencesTest" time="0.0"/>
+  <testcase name="ycore_performance_baselines_are_bounded_and_private" classname="com.yfuse.core.data.PlaybackPreferencesTest" time="0.005"/>
+  <testcase name="series_playback_memory_is_bounded_and_evicts_the_oldest_choice" classname="com.yfuse.core.data.PlaybackPreferencesTest" time="0.013"/>
+  <testcase name="ycore_native_only_defaults_off_and_cannot_outlive_the_core2_switch" classname="com.yfuse.core.data.PlaybackPreferencesTest" time="0.0"/>
+  <testcase name="a_film_keeps_its_choices_under_its_own_id_and_never_leaks_into_a_series" classname="com.yfuse.core.data.PlaybackPreferencesTest" time="0.001"/>
+  <testcase name="ycore_engine_selection_defaults_to_auto_and_persists_a_lock" classname="com.yfuse.core.data.PlaybackPreferencesTest" time="0.0"/>
+  <testcase name="series_playback_is_server_scoped_persistent_and_normalized" classname="com.yfuse.core.data.PlaybackPreferencesTest" time="0.013"/>
+  <testcase name="ycore_buffer_duration_defaults_to_auto_and_persists" classname="com.yfuse.core.data.PlaybackPreferencesTest" time="0.001"/>
+  <testcase name="playback_output_preferences_default_off_and_persist" classname="com.yfuse.core.data.PlaybackPreferencesTest" time="0.0"/>
+  <testcase name="ycore2_defaults_on_and_persists_opt_out" classname="com.yfuse.core.data.PlaybackPreferencesTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.data.PlexCloudAccountServiceTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:03.091Z" hostname="DESKTOP-HM2J0FM" time="0.033">
+  <properties/>
+  <testcase name="watchlist_uses_cloud_identity_and_cloud_token" classname="com.yfuse.core.data.PlexCloudAccountServiceTest" time="0.01"/>
+  <testcase name="home_switch_and_resource_login_preserve_cloud_token_and_fallback_routes" classname="com.yfuse.core.data.PlexCloudAccountServiceTest" time="0.018"/>
+  <testcase name="pin_login_uses_cloud_headers_and_never_places_token_in_url" classname="com.yfuse.core.data.PlexCloudAccountServiceTest" time="0.005"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

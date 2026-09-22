@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.AmbientSamplingPolicyTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-10T01:31:12.308Z" hostname="DESKTOP-HM2J0FM" time="0.003">
+  <properties/>
+  <testcase name="stable_picture_slows_down_and_a_cut_restores_fast_sampling" classname="com.yfuse.feature.player.AmbientSamplingPolicyTest" time="0.001"/>
+  <testcase name="persistent_failure_backs_off_and_success_recovers" classname="com.yfuse.feature.player.AmbientSamplingPolicyTest" time="0.0"/>
+  <testcase name="only_black_bars_wider_than_the_picture_guard_need_live_colour" classname="com.yfuse.feature.player.AmbientSamplingPolicyTest" time="0.001"/>
+  <testcase name="seeking_and_source_resets_cannot_bypass_the_request_limit" classname="com.yfuse.feature.player.AmbientSamplingPolicyTest" time="0.001"/>
+  <testcase name="user_action_shortens_backoff_but_still_respects_the_minimum_interval" classname="com.yfuse.feature.player.AmbientSamplingPolicyTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

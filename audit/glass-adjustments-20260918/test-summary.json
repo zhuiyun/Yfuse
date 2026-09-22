@@ -1,0 +1,23 @@
+[
+  {
+    "suite": "com.yfuse.core.data.ThemePreferencesTest",
+    "tests": 11,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  {
+    "suite": "com.yfuse.core.designsystem.GlassMaterialTest",
+    "tests": 7,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  {
+    "suite": "com.yfuse.core.designsystem.GlassTest",
+    "tests": 8,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  }
+]

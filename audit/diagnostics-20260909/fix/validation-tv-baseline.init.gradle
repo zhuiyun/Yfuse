@@ -1,0 +1,28 @@
+// Keep the user's unfinished TV settings work intact. For this diagnostic-fix verification
+// only, compile the TV UI from HEAD 805af51c81247e87de6e1a0ee10101b97c64e990 instead.
+// The real files are neither edited nor deleted; all playback fixes remain current sources.
+gradle.beforeProject { project ->
+    if (project.path == ':composeApp') {
+        project.plugins.withId('com.android.application') {
+            project.extensions.getByName('androidComponents').finalizeDsl { android ->
+                // Device validation can be built together with the normal release artifact.
+                android.buildTypes.getByName('debug').applicationIdSuffix = '.diagnosticsfix'
+            }
+        }
+    }
+}
+gradle.afterProject { project, state ->
+    if (project.path == ':composeApp') {
+        def root = project.rootProject.projectDir.toPath()
+        def originalMain = root.resolve('composeApp/src/androidMain/kotlin/com/yfuse/tv/ui')
+        def originalTests = root.resolve('composeApp/src/androidUnitTest/kotlin/com/yfuse/tv/ui')
+        def sourceSets = project.extensions.getByName('kotlin').sourceSets
+        sourceSets.getByName('androidMain').kotlin {
+            exclude { entry -> entry.file.toPath().startsWith(originalMain) }
+            srcDir(root.resolve('audit/diagnostics-20260909/fix/tv-baseline/composeApp/src/androidMain/kotlin').toFile())
+        }
+        sourceSets.getByName('androidUnitTest').kotlin {
+            exclude { entry -> entry.file.toPath().startsWith(originalTests) }
+        }
+    }
+}

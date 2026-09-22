@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.render.YRenderedFrameRateSamplerTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:44:00.524Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="stalled_output_becomes_zero_instead_of_retaining_the_last_positive_rate" classname="com.yfuse.core2.render.YRenderedFrameRateSamplerTest" time="0.001"/>
+  <testcase name="invalid_counts_and_elapsed_times_do_not_produce_an_output_rate" classname="com.yfuse.core2.render.YRenderedFrameRateSamplerTest" time="0.0"/>
+  <testcase name="explicit_reset_prevents_pause_or_seek_time_from_entering_the_next_window" classname="com.yfuse.core2.render.YRenderedFrameRateSamplerTest" time="0.0"/>
+  <testcase name="irregular_polling_uses_the_actual_elapsed_interval" classname="com.yfuse.core2.render.YRenderedFrameRateSamplerTest" time="0.0"/>
+  <testcase name="counter_restart_discards_the_previous_rate_and_restarts_the_window" classname="com.yfuse.core2.render.YRenderedFrameRateSamplerTest" time="0.0"/>
+  <testcase name="measures_output_over_wall_time_and_retains_the_actual_sample_time" classname="com.yfuse.core2.render.YRenderedFrameRateSamplerTest" time="0.0"/>
+  <testcase name="backwards_clock_and_long_unobserved_gap_discard_old_samples" classname="com.yfuse.core2.render.YRenderedFrameRateSamplerTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

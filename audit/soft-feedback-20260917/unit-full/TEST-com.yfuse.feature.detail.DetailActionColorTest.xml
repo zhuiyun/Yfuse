@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.detail.DetailActionColorTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:13.570Z" hostname="DESKTOP-HM2J0FM" time="0.004">
+  <properties/>
+  <testcase name="primary_play_key_selects_readable_ink_for_bright_and_dark_artwork" classname="com.yfuse.feature.detail.DetailActionColorTest" time="0.004"/>
+  <testcase name="item_fallback_is_not_one_fixed_colour" classname="com.yfuse.feature.detail.DetailActionColorTest" time="0.0"/>
+  <testcase name="primary_play_key_keeps_the_artwork_colour_without_brand_blending" classname="com.yfuse.feature.detail.DetailActionColorTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

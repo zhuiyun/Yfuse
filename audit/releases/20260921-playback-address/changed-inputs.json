@@ -1,0 +1,7 @@
+[
+  "composeApp/src/commonMain/kotlin/com/yfuse/core/network/EmbyStream.kt",
+  "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerStore.kt",
+  "composeApp/src/commonTest/kotlin/com/yfuse/feature/player/PlaybackRoadmapTest.kt",
+  "release-notes.txt",
+  "version.properties"
+]

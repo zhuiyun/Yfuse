@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.update.UpdateManifestPolicyTest" tests="10" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:44:00.738Z" hostname="DESKTOP-HM2J0FM" time="0.003">
+  <properties/>
+  <testcase name="signed_payload_is_the_fields_in_publish_order_joined_by_newlines" classname="com.yfuse.update.UpdateManifestPolicyTest" time="0.0"/>
+  <testcase name="an_unpinned_production_release_can_discover_the_published_update" classname="com.yfuse.update.UpdateManifestPolicyTest" time="0.001"/>
+  <testcase name="implicit_and_explicit_default_ports_are_the_same_origin" classname="com.yfuse.update.UpdateManifestPolicyTest" time="0.0"/>
+  <testcase name="an_optional_key_does_not_block_unsigned_or_previously_signed_manifests" classname="com.yfuse.update.UpdateManifestPolicyTest" time="0.0"/>
+  <testcase name="malformed_digest_is_rejected_before_download" classname="com.yfuse.update.UpdateManifestPolicyTest" time="0.0"/>
+  <testcase name="an_http_source_may_upgrade_the_download_to_https" classname="com.yfuse.update.UpdateManifestPolicyTest" time="0.0"/>
+  <testcase name="a_manifest_cannot_redirect_to_another_origin_or_directory" classname="com.yfuse.update.UpdateManifestPolicyTest" time="0.0"/>
+  <testcase name="an_https_source_cannot_downgrade_the_download" classname="com.yfuse.update.UpdateManifestPolicyTest" time="0.0"/>
+  <testcase name="same_origin_production_https_download_is_accepted" classname="com.yfuse.update.UpdateManifestPolicyTest" time="0.001"/>
+  <testcase name="trust_verdict_only_accepts_a_valid_signature_once_a_key_is_pinned" classname="com.yfuse.update.UpdateManifestPolicyTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

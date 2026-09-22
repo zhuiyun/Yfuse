@@ -1,0 +1,23 @@
+--- composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlaybackBookmarkBinding.kt (before turn)
++++ composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlaybackBookmarkBinding.kt
+@@ -20,7 +20,7 @@
+ internal fun rememberPlaybackBookmarkBinding(
+     preferences: PlaybackPreferences,
+     item: PlayerMediaItem?,
+-    positionMs: Long,
++    positionMs: () -> Long,
+ ): Pair<PlaybackBookmarkPanelState, PlaybackBookmarkActions> {
+     var store by remember(preferences) { mutableStateOf<PlaybackBookmarks?>(null) }
+     LaunchedEffect(preferences) { store = withContext(Dispatchers.IO) { preferences.bookmarks } }
+@@ -56,7 +56,10 @@
+         error = error ?: store?.loadError,
+     ) to
+         PlaybackBookmarkActions(
+-            onSave = { title, note -> update { save(it, positionMs.coerceAtLeast(0), title, note) } },
++            onSave = { title, note ->
++                val capturedPosition = positionMs().coerceAtLeast(0)
++                update { save(it, capturedPosition, title, note) }
++            },
+             onDelete = { id -> update { remove(it, id) } },
+         )
+ }

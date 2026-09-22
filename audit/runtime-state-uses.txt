@@ -1,0 +1,89 @@
+492:                        "Playback startup reached $name on ${state.diagnostics.engine} " +
+501:                            "engine" to state.diagnostics.engine,
+502:                            "route" to state.diagnostics.playMethod,
+503:                            "renderPath" to state.diagnostics.plannedRenderPath,
+504:                            "decoder" to state.diagnostics.decoder,
+505:                            "outputGeneration" to state.diagnostics.outputEvidenceGeneration.toString(),
+511:            if (!videoReported && state.diagnostics.effectiveVideoReadiness == PlaybackOutputReadiness.Rendering) {
+515:            if (!audioReported && state.diagnostics.effectiveAudioReadiness == PlaybackOutputReadiness.Rendering) {
+548:                    engine.state.value.diagnostics.effectiveVideoReadiness ==
+586:        val latestLocalState by rememberUpdatedState(localState)
+624:                    state = localState,
+777:            localState,
+811:            localState,
+831:                state = localState,
+879:                        state = localState,
+914:            state.diagnostics.dolbyVisionOutput ||
+915:                state.diagnostics.dynamicRange.contains("hdr", ignoreCase = true) ||
+916:                state.diagnostics.dynamicRange.contains("dolby", ignoreCase = true)
+984:            localState.positionMs,
+991:                localState.durationMs - localState.positionMs <= END_OF_EPISODE_ARM_WINDOW_MS
+1024:                    fallbackPositionMs = localState.positionMs,
+1043:        val bookmarkBinding = rememberPlaybackBookmarkBinding(playbackPreferences, currentItem, state.positionMs)
+1051:            state.diagnostics.videoReadiness,
+1052:            state.diagnostics.audioReadiness,
+1053:            state.diagnostics.dolbyVisionOutput,
+1054:            state.diagnostics.dolbyAtmosOutput,
+1055:            state.diagnostics.dolbyAtmosOutputMode,
+1056:            state.diagnostics.audioOutputRouteVerified,
+1057:            state.diagnostics.dolbyVisionRpuApplied,
+1058:            state.diagnostics.dolbyVisionEnhancementLayerComposed,
+1063:            val p7 = version.dolbyVisionP7Output(state.diagnostics)
+1065:                state.diagnostics.fallbackReason?.startsWith("用户手动") == true
+1070:                    "decoder" to state.diagnostics.decoder,
+1072:                    "videoReadiness" to state.diagnostics.videoReadiness.name,
+1073:                    "audioReadiness" to state.diagnostics.audioReadiness.name,
+1074:                    "videoOutput" to state.diagnostics.videoOutput,
+1075:                    "audioOutput" to state.diagnostics.audioOutput,
+1076:                    "dolbyVisionOutput" to state.diagnostics.dolbyVisionOutput.toString(),
+1077:                    "dolbyAtmosBitstreamOutput" to state.diagnostics.dolbyAtmosOutput.toString(),
+1078:                    "dolbyAtmosSourceDetected" to state.diagnostics.dolbyAtmosSourceDetected.toString(),
+1079:                    "dolbyAtmosOutputMode" to state.diagnostics.dolbyAtmosOutputMode.name,
+1080:                    "audioOutputRoute" to state.diagnostics.audioOutputRoute,
+1081:                    "audioOutputRouteVerified" to state.diagnostics.audioOutputRouteVerified.toString(),
+1083:                        state.diagnostics.hasNativeDualDolbyOutput().toString(),
+1085:                        state.diagnostics.hasNativeDualDolbyPresentationOutput().toString(),
+1164:                positionMs = state.positionMs,
+1263:            state.diagnostics.audioOutputRoute,
+1264:            state.diagnostics.audioOutputRouteVerified,
+1266:            val route = state.diagnostics.audioOutputRoute
+1267:            if (!state.diagnostics.audioOutputRouteVerified || route.isBlank()) return@LaunchedEffect
+1414:        // Selection is its own state, separate from position/buffering updates. Keying this on
+1449:                playbackState = state,
+1510:            playbackState = rememberUpdatedState(state),
+1517:        val latestState by rememberUpdatedState(state)
+1571:            rememberUpdatedState(localState),
+1574:            rememberUpdatedState(state),
+1591:        BindPlaybackDiagnostics(rememberUpdatedState(state), kind, enginesTried, core2NativeOnlyActive)
+1831:            resume = resume.copy(itemIndex = state.currentIndex, positionMs = positionMs)
+1912:                        state = state,
+1950:                            state = state,
+2006:                        state = state,
+2057:            state = state,
+2097:        LaunchedEffect(engine, state.diagnostics.effectiveVideoReadiness, state.currentIndex) {
+2098:            if (state.diagnostics.effectiveVideoReadiness != PlaybackOutputReadiness.Rendering) {
+2259:            resume = resume.copy(itemIndex = state.currentIndex, positionMs = positionMs)
+2339:                state,
+2373:                            state.diagnostics.videoWidth.takeIf { it > 0 }
+2430:                            state.diagnostics.effectiveAudioReadiness == PlaybackOutputReadiness.Rendering &&
+2434:                        state.diagnostics.effectiveVideoReadiness != PlaybackOutputReadiness.Rendering,
+2438:                        state.currentIndex != startIndex && state.positionMs < 3_000L -> "正在衔接下一集"
+2447:                        state.diagnostics.effectiveVideoReadiness == PlaybackOutputReadiness.Rendering,
+2451:                        state.diagnostics.videoWidth.toFloat() / state.videoHeight
+2458:                    state.diagnostics.bufferedDurationMs,
+2459:                    state.diagnostics.sourceBufferedMs,
+2463:                    state.diagnostics.effectiveVideoReadiness == PlaybackOutputReadiness.Rendering &&
+2468:                        state.diagnostics.networkBitsPerSecond > 0L &&
+2469:                            state.diagnostics.bitrateBitsPerSecond > 0L &&
+2470:                            state.diagnostics.networkBitsPerSecond < state.diagnostics.bitrateBitsPerSecond ->
+2480:                    positionMs = state.positionMs,
+2496:                    playback = rememberUpdatedState(state),
+2531:                            scope.launch { loadCastItem(deviceId, state.currentIndex, state.positionMs) }
+2557:                                        positionMs = state.positionMs,
+2645:                            measuredAvOffsetMs = state.diagnostics.avSyncOffsetMs,
+2676:                                state.diagnostics.avSyncOffsetMs?.let { measured ->
+3174:                            loadCastItem(deviceId, state.currentIndex, state.positionMs)
+3183:                                    localState.positionMs
+3208:                            state.diagnostics.hasActiveDolbyVisionOutput(),
+3211:                            state.diagnostics.hasActiveDolbyAtmosOutput(),
+3222:                    skip = skip.state,

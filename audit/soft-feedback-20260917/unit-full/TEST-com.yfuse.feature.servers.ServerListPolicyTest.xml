@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.servers.ServerListPolicyTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:16.326Z" hostname="DESKTOP-HM2J0FM" time="0.011">
+  <properties/>
+  <testcase name="transportDiagnosisExplainsHttpsAndConfirmedLan" classname="com.yfuse.feature.servers.ServerListPolicyTest" time="0.002"/>
+  <testcase name="reachabilityAndLatencySeverityAreIndependent" classname="com.yfuse.feature.servers.ServerListPolicyTest" time="0.007"/>
+  <testcase name="latencySeverityFilterComposesWithAccountFilter" classname="com.yfuse.feature.servers.ServerListPolicyTest" time="0.001"/>
+  <testcase name="onlineAndLatencySortingKeepMissingMeasurementsLast" classname="com.yfuse.feature.servers.ServerListPolicyTest" time="0.001"/>
+  <testcase name="accountFilterAndRecentSortCompose" classname="com.yfuse.feature.servers.ServerListPolicyTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

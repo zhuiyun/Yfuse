@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.PlaybackOutputReadinessTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:15.874Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="selecting_an_audio_track_does_not_claim_that_audio_reached_the_output" classname="com.yfuse.feature.player.PlaybackOutputReadinessTest" time="0.0"/>
+  <testcase name="mpv_audio_requires_output_driver_and_output_format" classname="com.yfuse.feature.player.PlaybackOutputReadinessTest" time="0.0"/>
+  <testcase name="dolby_badges_are_reported_facts_not_diagnostic_text" classname="com.yfuse.feature.player.PlaybackOutputReadinessTest" time="0.0"/>
+  <testcase name="real_audio_output_corrects_unknown_metadata_to_audio_only" classname="com.yfuse.feature.player.PlaybackOutputReadinessTest" time="0.0"/>
+  <testcase name="missing_server_metadata_still_arms_a_conservative_video_watchdog" classname="com.yfuse.feature.player.PlaybackOutputReadinessTest" time="0.0"/>
+  <testcase name="runtime_observation_uses_structured_readiness_instead_of_diagnostic_labels" classname="com.yfuse.feature.player.PlaybackOutputReadinessTest" time="0.0"/>
+  <testcase name="parsed_video_dimensions_do_not_claim_that_a_frame_reached_the_surface" classname="com.yfuse.feature.player.PlaybackOutputReadinessTest" time="0.0"/>
+  <testcase name="waiting_is_the_default_and_unknown_withholds_missing_output_judgements" classname="com.yfuse.feature.player.PlaybackOutputReadinessTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

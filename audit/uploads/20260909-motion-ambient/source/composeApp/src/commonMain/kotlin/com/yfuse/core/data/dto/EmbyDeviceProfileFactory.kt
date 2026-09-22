@@ -1,0 +1,234 @@
+package com.yfuse.core.data.dto
+
+import com.yfuse.core.playback.PlaybackAudioCodec
+import com.yfuse.core.playback.PlaybackDeviceCapabilities
+import com.yfuse.core.playback.PlaybackHdrFormat
+import com.yfuse.core.playback.PlaybackVideoCodec
+
+/**
+ * PlaybackInfo is capability negotiation, not Yfuse's adaptive network limiter. Keep the server
+ * ceiling above UHD Blu-ray/remux peak bitrates so an original/Auto request is not silently changed
+ * into transcoding merely because file metadata exceeds the old 120 Mbps profile cap.
+ */
+internal const val YFUSE_MAX_STREAMING_BITRATE_BPS = 1_000_000_000L
+
+/**
+ * The native engines can decode up to 7.1 and downmix locally even when the current Android output
+ * route is stereo. Server negotiation therefore advertises ingest capacity, not speaker count.
+ */
+internal const val YFUSE_LOCAL_DECODE_MAX_AUDIO_CHANNELS = 8
+
+/**
+ * Builds the server contract for what Yfuse can ingest locally.
+ *
+ * The server contract must describe an actually executable playback path. In particular, advertising
+ * Dolby Vision on a device without a usable Dolby decoder/output makes Emby direct-play profile 5,
+ * which has no ordinary HDR/SDR base layer to fall back to and therefore cannot produce a frame.
+ */
+internal object EmbyDeviceProfileFactory {
+    fun create(capabilities: PlaybackDeviceCapabilities): DeviceProfileDto {
+        val videoCodecs =
+            (capabilities.videoDecoders + LOCAL_VIDEO_DECODERS).flatMapTo(
+                linkedSetOf(),
+                PlaybackVideoCodec::embyNames,
+            )
+        if (videoCodecs.isEmpty()) videoCodecs += "h264"
+        if (capabilities.supportsDolbyVisionOutput) {
+            capabilities.dolbyVisionBaseCodecs.forEach { codec ->
+                videoCodecs += codec.embyNames
+            }
+        }
+        // The packaged native FFmpeg path can decode these formats to PCM even when Android's
+        // current AudioTrack route cannot passthrough them. Advertising only the active route made
+        // Emby start an unnecessary server audio/video transcode for Atmos and TrueHD sources.
+        val audioCodecs =
+            (capabilities.directPlayableAudio + LOCAL_AUDIO_DECODERS).flatMapTo(
+                linkedSetOf(),
+                PlaybackAudioCodec::embyNames,
+            )
+        if (audioCodecs.isEmpty()) audioCodecs += "aac"
+        val transcodeMaxAudioChannels = capabilities.maxAudioChannels.coerceIn(2, 8)
+        return DeviceProfileDto(
+            MaxStreamingBitrate = YFUSE_MAX_STREAMING_BITRATE_BPS,
+            DirectPlayProfiles =
+                listOf(
+                    DirectPlayProfileDto(
+                        Container = DIRECT_PLAY_VIDEO_CONTAINERS,
+                        VideoCodec = videoCodecs.joinToString(","),
+                        AudioCodec = audioCodecs.joinToString(","),
+                    ),
+                ),
+            TranscodingProfiles =
+                listOf(
+                    TranscodingProfileDto(
+                        Container = "ts",
+                        VideoCodec = "h264",
+                        AudioCodec = "aac",
+                        Protocol = "hls",
+                        MaxAudioChannels = transcodeMaxAudioChannels.toString(),
+                    ),
+                    TranscodingProfileDto(
+                        Container = "mp4",
+                        VideoCodec = "h264",
+                        AudioCodec = "aac",
+                        Protocol = "http",
+                        MaxAudioChannels = transcodeMaxAudioChannels.toString(),
+                    ),
+                ),
+            CodecProfiles =
+                codecProfiles(
+                    capabilities,
+                    videoCodecs,
+                    YFUSE_LOCAL_DECODE_MAX_AUDIO_CHANNELS,
+                ),
+            SubtitleProfiles = subtitleProfiles(),
+        )
+    }
+
+    private fun codecProfiles(
+        capabilities: PlaybackDeviceCapabilities,
+        videoCodecs: Set<String>,
+        maxAudioChannels: Int,
+    ): List<CodecProfileDto> =
+        buildList {
+            if ("h264" in videoCodecs) {
+                val h264Ranges =
+                    buildSet {
+                        add("SDR")
+                        if (
+                            capabilities.supportsDolbyVisionOutput &&
+                            PlaybackVideoCodec.H264 in capabilities.dolbyVisionBaseCodecs
+                        ) {
+                            add("DOVI")
+                        }
+                    }
+                add(videoRangeProfile("h264", h264Ranges))
+            }
+            if (videoCodecs.any { it == "hevc" || it == "h265" }) {
+                add(videoRangeProfile("hevc", hevcRangeTypes(capabilities)))
+            }
+            if ("vp9" in videoCodecs) {
+                add(
+                    videoRangeProfile(
+                        "vp9",
+                        openHdrRangeTypes(capabilities, PlaybackVideoCodec.Vp9),
+                    ),
+                )
+            }
+            if ("av1" in videoCodecs) {
+                add(
+                    videoRangeProfile(
+                        "av1",
+                        openHdrRangeTypes(capabilities, PlaybackVideoCodec.Av1),
+                    ),
+                )
+            }
+            listOf("vp8", "mpeg2video", "mpeg4", "vc1")
+                .filter(videoCodecs::contains)
+                .forEach { codec -> add(videoRangeProfile(codec, setOf("SDR"))) }
+            add(
+                CodecProfileDto(
+                    Type = "VideoAudio",
+                    Conditions =
+                        listOf(
+                            ProfileConditionDto(
+                                Condition = "LessThanEqual",
+                                Property = "AudioChannels",
+                                Value = maxAudioChannels.toString(),
+                            ),
+                        ),
+                ),
+            )
+        }
+
+    private fun videoRangeProfile(
+        codec: String,
+        rangeTypes: Set<String>,
+    ): CodecProfileDto =
+        CodecProfileDto(
+            Type = "Video",
+            Codec = codec,
+            Conditions =
+                listOf(
+                    ProfileConditionDto(
+                        Condition = "EqualsAny",
+                        Property = "VideoRangeType",
+                        Value = rangeTypes.joinToString("|"),
+                    ),
+                ),
+        )
+
+    private fun hevcRangeTypes(capabilities: PlaybackDeviceCapabilities): Set<String> =
+        buildSet {
+            addAll(LOCAL_HEVC_INPUT_RANGE_TYPES)
+            addAll(openHdrRangeTypes(capabilities, PlaybackVideoCodec.Hevc))
+            if (capabilities.supportsDolbyVisionOutput) {
+                addAll(DOLBY_VISION_INPUT_RANGE_TYPES)
+            }
+        }
+
+    private fun openHdrRangeTypes(
+        capabilities: PlaybackDeviceCapabilities,
+        codec: PlaybackVideoCodec,
+    ): Set<String> =
+        buildSet {
+            add("SDR")
+            if (capabilities.supportsHdrOutput(PlaybackHdrFormat.Hdr10, codec)) add("HDR10")
+            if (capabilities.supportsHdrOutput(PlaybackHdrFormat.Hdr10Plus, codec)) {
+                add("HDR10Plus")
+            }
+            if (capabilities.supportsHdrOutput(PlaybackHdrFormat.Hlg, codec)) add("HLG")
+        }
+
+    private fun subtitleProfiles(): List<SubtitleProfileDto> =
+        listOf(
+            SubtitleProfileDto("srt", "External"),
+            SubtitleProfileDto("vtt", "External"),
+            SubtitleProfileDto("subrip", "External"),
+            SubtitleProfileDto("ass", "Embed"),
+            SubtitleProfileDto("ssa", "Embed"),
+            SubtitleProfileDto("pgs", "Embed"),
+            SubtitleProfileDto("pgssub", "Embed"),
+            SubtitleProfileDto("dvdsub", "Embed"),
+            SubtitleProfileDto("dvbsub", "Embed"),
+        )
+}
+
+private const val DIRECT_PLAY_VIDEO_CONTAINERS = "mkv,mp4,m4v,mov,ts,m2ts,webm"
+private val LOCAL_VIDEO_DECODERS =
+    setOf(
+        PlaybackVideoCodec.H264,
+        PlaybackVideoCodec.Hevc,
+    )
+private val LOCAL_HEVC_INPUT_RANGE_TYPES =
+    setOf(
+        "SDR",
+        "HDR10",
+        "HDR10Plus",
+        "HLG",
+    )
+private val DOLBY_VISION_INPUT_RANGE_TYPES =
+    setOf(
+        "DOVI",
+        "DOVIWithHDR10",
+        "DOVIWithHLG",
+        "DOVIWithSDR",
+        "DOVIWithEL",
+        "DOVIWithHDR10Plus",
+        "DOVIWithELHDR10Plus",
+    )
+private val LOCAL_AUDIO_DECODERS =
+    setOf(
+        PlaybackAudioCodec.Aac,
+        PlaybackAudioCodec.Mp3,
+        PlaybackAudioCodec.Ac3,
+        PlaybackAudioCodec.Eac3,
+        PlaybackAudioCodec.Eac3Joc,
+        PlaybackAudioCodec.TrueHd,
+        PlaybackAudioCodec.Dts,
+        PlaybackAudioCodec.DtsHd,
+        PlaybackAudioCodec.Flac,
+        PlaybackAudioCodec.Opus,
+        PlaybackAudioCodec.Vorbis,
+        PlaybackAudioCodec.Pcm,
+    )

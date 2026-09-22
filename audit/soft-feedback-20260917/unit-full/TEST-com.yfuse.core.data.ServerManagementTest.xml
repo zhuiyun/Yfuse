@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.data.ServerManagementTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:03.312Z" hostname="DESKTOP-HM2J0FM" time="0.012">
+  <properties/>
+  <testcase name="plex_management_scans_sections_without_claiming_scheduled_tasks" classname="com.yfuse.core.data.ServerManagementTest" time="0.006"/>
+  <testcase name="jellyfin_management_lists_libraries_and_runs_real_scheduled_tasks" classname="com.yfuse.core.data.ServerManagementTest" time="0.006"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.data.GenreFacetNormalizationTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:02.918Z" hostname="DESKTOP-HM2J0FM" time="0.0">
+  <properties/>
+  <testcase name="bilingual_genres_prefer_real_chinese_server_entry" classname="com.yfuse.core.data.GenreFacetNormalizationTest" time="0.0"/>
+  <testcase name="duplicate_spelling_is_removed_without_changing_query_value" classname="com.yfuse.core.data.GenreFacetNormalizationTest" time="0.0"/>
+  <testcase name="english_genre_is_kept_when_server_has_no_chinese_twin" classname="com.yfuse.core.data.GenreFacetNormalizationTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

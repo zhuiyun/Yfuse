@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.PlayerSeriesLaunchTest" tests="1" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:16.033Z" hostname="DESKTOP-HM2J0FM" time="0.012">
+  <properties/>
+  <testcase name="series_is_resolved_to_episode_before_playback_info" classname="com.yfuse.feature.player.PlayerSeriesLaunchTest" time="0.012"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

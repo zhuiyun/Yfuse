@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.NextUpRingCompositionTest" tests="1" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:15.834Z" hostname="DESKTOP-HM2J0FM" time="0.011">
+  <properties/>
+  <testcase name="item_switch_discards_previous_ring_and_inactive_policies_remove_frame_requests" classname="com.yfuse.feature.player.NextUpRingCompositionTest" time="0.011"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

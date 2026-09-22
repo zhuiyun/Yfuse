@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.NativeDirectPacingPolicyTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:44:00.149Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="completeWriteReleasesCodecOutput" classname="com.yfuse.core2.android.NativeDirectPacingPolicyTest" time="0.001"/>
+  <testcase name="zeroByteWriteKeepsAudioBufferForRetry" classname="com.yfuse.core2.android.NativeDirectPacingPolicyTest" time="0.0"/>
+  <testcase name="invalidWriteCountersAreRejected" classname="com.yfuse.core2.android.NativeDirectPacingPolicyTest" time="0.0"/>
+  <testcase name="partialWriteKeepsCodecOutputOwnedByNativeDirect" classname="com.yfuse.core2.android.NativeDirectPacingPolicyTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

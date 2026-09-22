@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.RemoteCastPlaybackTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:16.174Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="confirmed_receiver_truth_replaces_local_transport_truth" classname="com.yfuse.feature.player.RemoteCastPlaybackTest" time="0.0"/>
+  <testcase name="local_dolby_evidence_is_cleared_until_this_receiver_load_reports_output" classname="com.yfuse.feature.player.RemoteCastPlaybackTest" time="0.0"/>
+  <testcase name="unconfirmed_receiver_position_does_not_replace_local_position" classname="com.yfuse.feature.player.RemoteCastPlaybackTest" time="0.0"/>
+  <testcase name="matching_playing_receipt_projects_receiver_dolby_output" classname="com.yfuse.feature.player.RemoteCastPlaybackTest" time="0.001"/>
+  <testcase name="non_fatal_cast_command_error_never_becomes_player_fatal_error" classname="com.yfuse.feature.player.RemoteCastPlaybackTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

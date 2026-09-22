@@ -1,0 +1,8 @@
+{
+  "modelVersion": "5.0.0",
+  "description": "Yfuse HarmonyOS native application",
+  "dependencies": {},
+  "devDependencies": {
+    "@ohos/hvigor-ohos-plugin": "6.0.0"
+  }
+}

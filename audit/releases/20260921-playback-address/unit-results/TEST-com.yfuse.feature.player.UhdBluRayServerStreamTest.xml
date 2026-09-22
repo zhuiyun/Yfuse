@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.UhdBluRayServerStreamTest" tests="1" skipped="0" failures="0" errors="0" timestamp="2026-09-21T06:15:41.996Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="negotiated_m2ts_main_feature_is_direct_stream_instead_of_server_transcode" classname="com.yfuse.feature.player.UhdBluRayServerStreamTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

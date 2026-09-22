@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.detail.DetailStoreTest" tests="32" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:13.601Z" hostname="DESKTOP-HM2J0FM" time="1.475">
+  <properties/>
+  <testcase name="newer_episode_selection_cancels_the_old_request_without_leaking_loading" classname="com.yfuse.feature.detail.DetailStoreTest" time="0.045"/>
+  <testcase name="episode_selects_first_and_selected_episode_plays_its_version" classname="com.yfuse.feature.detail.DetailStoreTest" time="0.025"/>
+  <testcase name="play_while_episode_is_resolving_waits_for_and_plays_the_new_episode" classname="com.yfuse.feature.detail.DetailStoreTest" time="0.012"/>
+  <testcase name="quality_sorting_does_not_replace_the_current_server_as_the_default_selection" classname="com.yfuse.feature.detail.DetailStoreTest" time="0.015"/>
+  <testcase name="resource_selection_updates_main_play_target_before_playing" classname="com.yfuse.feature.detail.DetailStoreTest" time="0.019"/>
+  <testcase name="player_selection_syncs_episode_and_version_together" classname="com.yfuse.feature.detail.DetailStoreTest" time="0.007"/>
+  <testcase name="stalled_resource_switch_has_a_wall_clock_deadline" classname="com.yfuse.feature.detail.DetailStoreTest" time="0.065"/>
+  <testcase name="tapping_a_pending_resource_again_queues_play_after_resolution" classname="com.yfuse.feature.detail.DetailStoreTest" time="0.011"/>
+  <testcase name="initial_playback_enrichment_only_spins_after_play_is_requested" classname="com.yfuse.feature.detail.DetailStoreTest" time="0.009"/>
+  <testcase name="exhausted_season_load_keeps_the_previous_episode_directory" classname="com.yfuse.feature.detail.DetailStoreTest" time="0.011"/>
+  <testcase name="episode_tap_during_server_switch_restarts_resolution_and_plays_new_coordinate" classname="com.yfuse.feature.detail.DetailStoreTest" time="0.018"/>
+  <testcase name="season_episode_load_retries_transient_failures" classname="com.yfuse.feature.detail.DetailStoreTest" time="0.012"/>
+  <testcase name="failedWatchLaterRemovalRollsBackMembership" classname="com.yfuse.feature.detail.DetailStoreTest" time="0.015"/>
+  <testcase name="resource_selection_retries_transient_connection_failures_then_succeeds" classname="com.yfuse.feature.detail.DetailStoreTest" time="0.014"/>
+  <testcase name="resource_selection_stops_after_bounded_network_retries" classname="com.yfuse.feature.detail.DetailStoreTest" time="0.013"/>
+  <testcase name="initial_series_play_target_does_not_wait_for_the_catalog" classname="com.yfuse.feature.detail.DetailStoreTest" time="0.009"/>
+  <testcase name="favorite_state_survives_switching_to_another_episode" classname="com.yfuse.feature.detail.DetailStoreTest" time="0.012"/>
+  <testcase name="watchLaterMembershipRestoresAndCanBeRemoved" classname="com.yfuse.feature.detail.DetailStoreTest" time="0.01"/>
+  <testcase name="initial_series_directory_is_reused_for_the_episode_list" classname="com.yfuse.feature.detail.DetailStoreTest" time="0.007"/>
+  <testcase name="cross_server_episode_resolution_retries_and_keeps_the_same_coordinate" classname="com.yfuse.feature.detail.DetailStoreTest" time="0.27"/>
+  <testcase name="source_without_the_current_episode_does_not_fall_back_to_next_up" classname="com.yfuse.feature.detail.DetailStoreTest" time="0.009"/>
+  <testcase name="resource_selection_does_not_retry_a_cloudflare_access_block" classname="com.yfuse.feature.detail.DetailStoreTest" time="0.008"/>
+  <testcase name="playback_resolution_has_a_deadline_and_clears_the_spinner" classname="com.yfuse.feature.detail.DetailStoreTest" time="0.012"/>
+  <testcase name="episode_content_and_play_button_do_not_wait_for_inherited_cast" classname="com.yfuse.feature.detail.DetailStoreTest" time="0.009"/>
+  <testcase name="server_switch_during_episode_resolution_keeps_the_newly_selected_coordinate" classname="com.yfuse.feature.detail.DetailStoreTest" time="0.013"/>
+  <testcase name="version_selects_first_and_selected_version_plays" classname="com.yfuse.feature.detail.DetailStoreTest" time="0.009"/>
+  <testcase name="newer_failed_resource_switch_keeps_the_last_committed_source" classname="com.yfuse.feature.detail.DetailStoreTest" time="0.778"/>
+  <testcase name="episode_selection_timeout_clears_loading_and_restores_the_committed_episode" classname="com.yfuse.feature.detail.DetailStoreTest" time="0.006"/>
+  <testcase name="cross_server_player_selection_commits_its_exact_episode_and_version" classname="com.yfuse.feature.detail.DetailStoreTest" time="0.009"/>
+  <testcase name="changing_version_clears_track_choice_missing_from_new_file" classname="com.yfuse.feature.detail.DetailStoreTest" time="0.003"/>
+  <testcase name="initial_watch_later_lookup_is_not_presented_as_a_user_sync" classname="com.yfuse.feature.detail.DetailStoreTest" time="0.003"/>
+  <testcase name="stale_episode_response_cannot_commit_while_server_switch_is_resolving" classname="com.yfuse.feature.detail.DetailStoreTest" time="0.017"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,20 @@
+--- composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/DownloadsScreen.kt (before turn)
++++ composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/DownloadsScreen.kt
+@@ -17,8 +17,6 @@
+ import androidx.compose.foundation.layout.statusBarsPadding
+ import androidx.compose.foundation.lazy.LazyColumn
+ import androidx.compose.foundation.lazy.LazyRow
+-import androidx.compose.material3.Icon
+-import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.collectAsState
+ import androidx.compose.runtime.getValue
+@@ -73,6 +71,8 @@
+ import com.yfuse.core.offline.OfflineQueueSummary
+ import com.yfuse.core.offline.rememberOfflineStorageDirectoryPicker
+ import com.yfuse.core.offline.summarizeOfflineQueue
++import com.yfuse.core.designsystem.ThemeIcon as Icon
++import com.yfuse.core.designsystem.ThemeText as Text
+ 
+ enum class DownloadFilter(
+     val label: String,

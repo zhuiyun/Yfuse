@@ -1,0 +1,52 @@
+[
+  {
+    "timestamp": "2026-09-20T10:37:56.195712Z",
+    "session": "8bbb2f24",
+    "level": "INFO",
+    "category": "update",
+    "event": "check_started",
+    "message": "Application update check started",
+    "attributes": {
+      "automatic": "false",
+      "currentversionname": "1.0.75",
+      "currentversioncode": "237",
+      "thread": "main"
+    }
+  },
+  {
+    "timestamp": "2026-09-20T10:37:56.369379Z",
+    "session": "8bbb2f24",
+    "level": "INFO",
+    "category": "update",
+    "event": "manifest_accepted_without_key",
+    "message": "No manifest key configured; update source, download integrity and APK checks still apply",
+    "attributes": {
+      "thread": "DefaultDispatcher-worker-17"
+    }
+  },
+  {
+    "timestamp": "2026-09-20T10:37:56.370020Z",
+    "session": "8bbb2f24",
+    "level": "WARNING",
+    "category": "update",
+    "event": "manifest_behind_installed",
+    "message": "Update manifest advertises an older build than the installed one",
+    "attributes": {
+      "publishedversionname": "1.0.74",
+      "publishedversioncode": "236",
+      "currentversioncode": "237",
+      "thread": "main"
+    }
+  },
+  {
+    "timestamp": "2026-09-20T10:38:06.903877Z",
+    "session": "8bbb2f24",
+    "level": "INFO",
+    "category": "update",
+    "event": "automatic_check_skipped",
+    "message": "Automatic update check skipped within the check interval",
+    "attributes": {
+      "thread": "main"
+    }
+  }
+]

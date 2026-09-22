@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.offline.OfflineDownloadBudgetTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:05.669Z" hostname="DESKTOP-HM2J0FM" time="0.002">
+  <properties/>
+  <testcase name="overnight_window_includes_midnight_but_excludes_end" classname="com.yfuse.core.offline.OfflineDownloadBudgetTest" time="0.001"/>
+  <testcase name="byte_budget_checks_remaining_capacity_without_overflow" classname="com.yfuse.core.offline.OfflineDownloadBudgetTest" time="0.001"/>
+  <testcase name="daytime_window_and_all_day_have_exact_boundaries" classname="com.yfuse.core.offline.OfflineDownloadBudgetTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

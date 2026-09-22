@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.designsystem.AmbientLightTransitionTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-09-10T01:17:41.979Z" hostname="DESKTOP-HM2J0FM" time="0.093">
+  <properties/>
+  <testcase name="transition_is_paced_and_reaches_the_exact_target" classname="com.yfuse.core.designsystem.AmbientLightTransitionTest" time="0.085"/>
+  <testcase name="dark_frame_fades_the_precomputed_accent_back_to_the_artwork" classname="com.yfuse.core.designsystem.AmbientLightTransitionTest" time="0.001"/>
+  <testcase name="zero_duration_publishes_only_the_target_without_starting_a_clock" classname="com.yfuse.core.designsystem.AmbientLightTransitionTest" time="0.002"/>
+  <testcase name="cancelling_visibility_stops_all_future_publications" classname="com.yfuse.core.designsystem.AmbientLightTransitionTest" time="0.005"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

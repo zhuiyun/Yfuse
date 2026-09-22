@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.account.AccountRepositoryStateTest" tests="17" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:46:58.450Z" hostname="DESKTOP-HM2J0FM" time="2.189">
+  <properties/>
+  <testcase name="corrupted_sync_key_does_not_erase_a_valid_login" classname="com.yfuse.core.account.AccountRepositoryStateTest" time="0.042"/>
+  <testcase name="temporary_credential_read_failure_is_retryable_without_clearing_secrets" classname="com.yfuse.core.account.AccountRepositoryStateTest" time="0.007"/>
+  <testcase name="stalled_sync_keeps_the_rotated_session_and_releases_account_operations" classname="com.yfuse.core.account.AccountRepositoryStateTest" time="1.017"/>
+  <testcase name="stalled_refresh_becomes_retryable_without_erasing_credentials" classname="com.yfuse.core.account.AccountRepositoryStateTest" time="1.007"/>
+  <testcase name="restore_session_transient_refresh_failure_preserves_credentials" classname="com.yfuse.core.account.AccountRepositoryStateTest" time="0.006"/>
+  <testcase name="restore_session_sync_failure_keeps_refreshed_session_signed_in" classname="com.yfuse.core.account.AccountRepositoryStateTest" time="0.006"/>
+  <testcase name="restore_failure_wording_separates_the_phone_the_network_and_the_service" classname="com.yfuse.core.account.AccountRepositoryStateTest" time="0.001"/>
+  <testcase name="lost_refresh_response_reuses_persisted_request_after_repository_restart" classname="com.yfuse.core.account.AccountRepositoryStateTest" time="0.009"/>
+  <testcase name="restore_session_falls_back_to_the_legacy_refresh_body_for_a_strict_older_backend" classname="com.yfuse.core.account.AccountRepositoryStateTest" time="0.009"/>
+  <testcase name="change_password_replaces_every_locally_stored_wrapper_field" classname="com.yfuse.core.account.AccountRepositoryStateTest" time="0.018"/>
+  <testcase name="forbidden_invite_issue_removes_server_capability_from_the_live_session" classname="com.yfuse.core.account.AccountRepositoryStateTest" time="0.008"/>
+  <testcase name="upload_conflict_stops_after_one_put_and_restores_non_syncing_state" classname="com.yfuse.core.account.AccountRepositoryStateTest" time="0.026"/>
+  <testcase name="restore_session_reports_a_backend_that_rejects_even_the_legacy_refresh_body" classname="com.yfuse.core.account.AccountRepositoryStateTest" time="0.005"/>
+  <testcase name="restore_session_names_an_edge_failure_in_front_of_the_account_service" classname="com.yfuse.core.account.AccountRepositoryStateTest" time="0.006"/>
+  <testcase name="sync_rebuilds_missing_local_key_wrap_from_the_cloud_copy" classname="com.yfuse.core.account.AccountRepositoryStateTest" time="0.008"/>
+  <testcase name="failed_refresh_token_commit_preserves_pending_request_for_retry" classname="com.yfuse.core.account.AccountRepositoryStateTest" time="0.008"/>
+  <testcase name="restore_session_refresh_unauthorized_clears_credentials_and_signs_out" classname="com.yfuse.core.account.AccountRepositoryStateTest" time="0.005"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

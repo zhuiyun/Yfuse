@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.PlaybackAuditRegressionTest" tests="10" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:44:00.262Z" hostname="DESKTOP-HM2J0FM" time="0.079">
+  <properties/>
+  <testcase name="httpIsAllowedAndCrossOriginHeadersDoNotLeak" classname="com.yfuse.core2.android.PlaybackAuditRegressionTest" time="0.001"/>
+  <testcase name="matchingEntityReusesCacheButMissingEntityCannot" classname="com.yfuse.core2.android.PlaybackAuditRegressionTest" time="0.034"/>
+  <testcase name="headerLimitStopsReadingBeforeAllocationGrows" classname="com.yfuse.core2.android.PlaybackAuditRegressionTest" time="0.002"/>
+  <testcase name="dashAcceptsEquivalentZeroStartsOverHttp" classname="com.yfuse.core2.android.PlaybackAuditRegressionTest" time="0.001"/>
+  <testcase name="sameLengthReplacementInvalidatesBlocksAndOldWriters" classname="com.yfuse.core2.android.PlaybackAuditRegressionTest" time="0.038"/>
+  <testcase name="hlsZeroPlaceholderDoesNotRejectFollowingMedia" classname="com.yfuse.core2.android.PlaybackAuditRegressionTest" time="0.001"/>
+  <testcase name="rollbackFailureRetainsBothErrors" classname="com.yfuse.core2.android.PlaybackAuditRegressionTest" time="0.0"/>
+  <testcase name="closeAlsoUnblocksBackpressuredProducer" classname="com.yfuse.core2.android.PlaybackAuditRegressionTest" time="0.001"/>
+  <testcase name="rejectedAudioChoiceRestoresPositionAndOldTrack" classname="com.yfuse.core2.android.PlaybackAuditRegressionTest" time="0.0"/>
+  <testcase name="closeWakesBlockedReaderWithoutReadTimeout" classname="com.yfuse.core2.android.PlaybackAuditRegressionTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

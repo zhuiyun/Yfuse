@@ -1,0 +1,20 @@
+--- composeApp/src/commonMain/kotlin/com/yfuse/feature/library/LibraryHomeScreen.kt (before turn)
++++ composeApp/src/commonMain/kotlin/com/yfuse/feature/library/LibraryHomeScreen.kt
+@@ -27,8 +27,6 @@
+ import androidx.compose.foundation.selection.selectableGroup
+ import androidx.compose.foundation.shape.CircleShape
+ import androidx.compose.material3.ExperimentalMaterial3Api
+-import androidx.compose.material3.Icon
+-import androidx.compose.material3.Text
+ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+ import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
+ import androidx.compose.runtime.Composable
+@@ -138,6 +136,8 @@
+ import com.yfuse.core.network.EmbyImages
+ import kotlinx.coroutines.delay
+ import kotlinx.coroutines.launch
++import com.yfuse.core.designsystem.ThemeIcon as Icon
++import com.yfuse.core.designsystem.ThemeText as Text
+ 
+ /**
+  * The caption clears the whole dissolve band — white copy cannot follow the artwork into

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.NextItemCancellationTest" tests="1" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:44:00.155Z" hostname="DESKTOP-HM2J0FM" time="0.004">
+  <properties/>
+  <testcase name="cancelling_preparation_signals_the_actual_read_without_waiting_for_its_deadline" classname="com.yfuse.core2.android.NextItemCancellationTest" time="0.004"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.PlayerControlFormattingDolbyTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:15.996Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="mpvPostRenderFelEvidenceUpgradesReadout" classname="com.yfuse.feature.player.PlayerControlFormattingDolbyTest" time="0.0"/>
+  <testcase name="activeTranscodeRouteAlwaysReportsServerTranscode" classname="com.yfuse.feature.player.PlayerControlFormattingDolbyTest" time="0.0"/>
+  <testcase name="staleServerTranscodeDiagnosticCannotOverrideDirectRuntimeRoute" classname="com.yfuse.feature.player.PlayerControlFormattingDolbyTest" time="0.0"/>
+  <testcase name="mpvToneMappingIsNotPresentedAsNativeDolby" classname="com.yfuse.feature.player.PlayerControlFormattingDolbyTest" time="0.001"/>
+  <testcase name="nativeDolbyOutputWinsOverSourceBadge" classname="com.yfuse.feature.player.PlayerControlFormattingDolbyTest" time="0.0"/>
+  <testcase name="hdr10BaseLayerGetsExplicitCompatibilityGrade" classname="com.yfuse.feature.player.PlayerControlFormattingDolbyTest" time="0.0"/>
+  <testcase name="mpvEvidenceIsIgnoredBeforeVideoOutputRenders" classname="com.yfuse.feature.player.PlayerControlFormattingDolbyTest" time="0.0"/>
+  <testcase name="felRequiresExplicitCompositionEvidence" classname="com.yfuse.feature.player.PlayerControlFormattingDolbyTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

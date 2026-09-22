@@ -1,0 +1,20 @@
+--- composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/Poster.kt (before turn)
++++ composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/Poster.kt
+@@ -16,8 +16,6 @@
+ import androidx.compose.foundation.layout.height
+ import androidx.compose.foundation.layout.padding
+ import androidx.compose.foundation.layout.size
+-import androidx.compose.material3.Icon
+-import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.getValue
+ import androidx.compose.runtime.key
+@@ -47,6 +45,8 @@
+ import coil3.compose.AsyncImage
+ import coil3.decode.DataSource
+ import kotlin.math.roundToInt
++import com.yfuse.core.designsystem.ThemeIcon as Icon
++import com.yfuse.core.designsystem.ThemeText as Text
+ 
+ /** Large artwork may resolve cinematically, but should never hold the image soft for 550ms. */
+ private const val ARTWORK_REVEAL_DURATION_MS = Motion.ARTWORK_REVEAL

@@ -1,0 +1,37 @@
+--- before/composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/SeasonEpisodesPage.kt
++++ after/composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/SeasonEpisodesPage.kt
+@@ -16,7 +16,6 @@
+ import androidx.compose.foundation.layout.statusBarsPadding
+ import androidx.compose.foundation.layout.width
+ import androidx.compose.foundation.lazy.LazyColumn
+-import androidx.compose.foundation.lazy.itemsIndexed
+ import androidx.compose.foundation.lazy.rememberLazyListState
+ import androidx.compose.foundation.shape.CircleShape
+ import androidx.compose.material3.Icon
+@@ -46,6 +45,8 @@
+ import com.yfuse.core.designsystem.glass
+ import com.yfuse.core.designsystem.heroScrim
+ import com.yfuse.core.designsystem.motionAwareScrollToItem
++import com.yfuse.core.designsystem.motionItem
++import com.yfuse.core.designsystem.motionItemsIndexed
+ import com.yfuse.core.designsystem.pressable
+ import com.yfuse.core.designsystem.touchTarget
+ import com.yfuse.core.model.Episode
+@@ -108,7 +109,7 @@
+                 state = listState,
+                 contentPadding = PaddingValues(bottom = Dimens.contentBottom),
+             ) {
+-                item(key = "season-hero") {
++                motionItem(key = "season-hero") {
+                     Box(Modifier.fillMaxWidth().height(268.dp)) {
+                         FallbackImage(
+                             urls = heroUrls,
+@@ -147,7 +148,7 @@
+                     }
+                 }
+ 
+-                itemsIndexed(
++                motionItemsIndexed(
+                     episodes,
+                     key = { index, episode -> "all-ep-${episode.id}-$index" },
+                 ) { _, episode ->

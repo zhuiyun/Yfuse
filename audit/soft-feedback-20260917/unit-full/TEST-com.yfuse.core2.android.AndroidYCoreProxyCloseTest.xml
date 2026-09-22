@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.AndroidYCoreProxyCloseTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:12.978Z" hostname="DESKTOP-HM2J0FM" time="0.059">
+  <properties/>
+  <testcase name="shutdown_closes_a_client_which_has_not_finished_sending_headers" classname="com.yfuse.core2.android.AndroidYCoreProxyCloseTest" time="0.005"/>
+  <testcase name="unregister_and_registration_racing_shutdown_leave_no_uncancelled_registration" classname="com.yfuse.core2.android.AndroidYCoreProxyCloseTest" time="0.001"/>
+  <testcase name="sequential_and_range_shutdown_cancel_upstream_without_waiting_for_slow_cleanup" classname="com.yfuse.core2.android.AndroidYCoreProxyCloseTest" time="0.032"/>
+  <testcase name="transport_can_reopen_for_range_retry_but_never_open_after_proxy_shutdown" classname="com.yfuse.core2.android.AndroidYCoreProxyCloseTest" time="0.001"/>
+  <testcase name="shutdown_cancels_manifest_waiter_even_while_the_worker_is_still_cleaning_up" classname="com.yfuse.core2.android.AndroidYCoreProxyCloseTest" time="0.019"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

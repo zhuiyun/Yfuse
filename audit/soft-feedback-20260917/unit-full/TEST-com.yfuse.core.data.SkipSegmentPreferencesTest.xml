@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.data.SkipSegmentPreferencesTest" tests="11" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:04.155Z" hostname="DESKTOP-HM2J0FM" time="0.002">
+  <properties/>
+  <testcase name="clearing_the_last_boundary_drops_the_entry" classname="com.yfuse.core.data.SkipSegmentPreferencesTest" time="0.001"/>
+  <testcase name="clearing_one_boundary_leaves_the_others_alone" classname="com.yfuse.core.data.SkipSegmentPreferencesTest" time="0.0"/>
+  <testcase name="credits_wait_for_a_duration_rather_than_landing_at_zero" classname="com.yfuse.core.data.SkipSegmentPreferencesTest" time="0.0"/>
+  <testcase name="a_lead_longer_than_the_item_is_ignored" classname="com.yfuse.core.data.SkipSegmentPreferencesTest" time="0.0"/>
+  <testcase name="the_mode_survives_recreation" classname="com.yfuse.core.data.SkipSegmentPreferencesTest" time="0.001"/>
+  <testcase name="a_series_without_an_entry_keeps_the_server_segments_untouched" classname="com.yfuse.core.data.SkipSegmentPreferencesTest" time="0.0"/>
+  <testcase name="an_override_replaces_only_its_own_segment_type" classname="com.yfuse.core.data.SkipSegmentPreferencesTest" time="0.0"/>
+  <testcase name="a_fresh_install_offers_the_button_rather_than_moving_the_playhead" classname="com.yfuse.core.data.SkipSegmentPreferencesTest" time="0.0"/>
+  <testcase name="the_old_auto_skip_switch_becomes_a_mode_without_changing_behaviour" classname="com.yfuse.core.data.SkipSegmentPreferencesTest" time="0.0"/>
+  <testcase name="credits_are_placed_back_from_the_end_of_whatever_is_playing" classname="com.yfuse.core.data.SkipSegmentPreferencesTest" time="0.0"/>
+  <testcase name="legacy_absolute_credits_are_kept_then_migrated_when_duration_arrives" classname="com.yfuse.core.data.SkipSegmentPreferencesTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

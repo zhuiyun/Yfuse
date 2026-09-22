@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.AndroidCore2DolbyTrialGuardTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:43:54.385Z" hostname="DESKTOP-HM2J0FM" time="0.013">
+  <properties/>
+  <testcase name="dolby_profile_10_enters_av1_runtime_routing" classname="com.yfuse.core2.android.AndroidCore2DolbyTrialGuardTest" time="0.006"/>
+  <testcase name="known_unsupported_dolby_profile_remains_blocked" classname="com.yfuse.core2.android.AndroidCore2DolbyTrialGuardTest" time="0.0"/>
+  <testcase name="dolby_profile_5_enters_strict_runtime_routing" classname="com.yfuse.core2.android.AndroidCore2DolbyTrialGuardTest" time="0.0"/>
+  <testcase name="dolby_profile_7_enters_layer_aware_runtime_routing" classname="com.yfuse.core2.android.AndroidCore2DolbyTrialGuardTest" time="0.0"/>
+  <testcase name="server_dolby_hint_prevents_generic_hevc_platform_routing" classname="com.yfuse.core2.android.AndroidCore2DolbyTrialGuardTest" time="0.005"/>
+  <testcase name="dolby_profile_8_with_compatible_base_layer_remains_trial_eligible" classname="com.yfuse.core2.android.AndroidCore2DolbyTrialGuardTest" time="0.0"/>
+  <testcase name="platform_dolby_without_configuration_requires_enhanced_truth_probe" classname="com.yfuse.core2.android.AndroidCore2DolbyTrialGuardTest" time="0.001"/>
+  <testcase name="unknown_dolby_profile_enters_local_truth_probe" classname="com.yfuse.core2.android.AndroidCore2DolbyTrialGuardTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

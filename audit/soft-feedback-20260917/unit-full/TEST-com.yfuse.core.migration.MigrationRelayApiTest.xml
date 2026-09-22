@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.migration.MigrationRelayApiTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:04.933Z" hostname="DESKTOP-HM2J0FM" time="0.018">
+  <properties/>
+  <testcase name="official_https_origin_can_create_a_ticket" classname="com.yfuse.core.migration.MigrationRelayApiTest" time="0.012"/>
+  <testcase name="redirect_cannot_send_transfer_secret_to_another_origin" classname="com.yfuse.core.migration.MigrationRelayApiTest" time="0.003"/>
+  <testcase name="closing_api_keeps_an_injected_client_usable" classname="com.yfuse.core.migration.MigrationRelayApiTest" time="0.002"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

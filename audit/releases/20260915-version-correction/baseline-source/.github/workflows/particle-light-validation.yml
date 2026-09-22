@@ -1,0 +1,112 @@
+name: Particle source validation and official signing
+
+on:
+  push:
+    branches: [codex/particle-light-20260912]
+    paths:
+      - .github/workflows/particle-light-validation.yml
+      - .github/particle-light/**
+      - composeApp/**
+      - version.properties
+      - release-notes.txt
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: particle-light-prepare-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          fetch-depth: 0
+      - name: Apply readable source edits
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF_NAME" == codex/particle-light-20260912 ]]
+          if [[ -f .github/particle-light/finish.py ]]; then
+            sed 's/"34166656470"/native_run=34166656470/g; s/"34624144758"/native_run=34624144758/g' .github/particle-light/finish.py > /tmp/yfuse-finish.py
+            python3 /tmp/yfuse-finish.py
+            git rm -- .github/particle-light/finish.py
+          fi
+          if [[ -f .github/particle-light/final.b64 ]]; then
+            git rm -- .github/particle-light/final.b64
+          fi
+          git add -u
+          git diff --cached --check
+          git diff 04dc5086eccaacdf3013080b6ecc5d353f1663ee --name-only -z -- composeApp version.properties release-notes.txt > /tmp/particle-changed-paths
+      - uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - name: Format modified source only
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew :composeApp:ktlintFormat --no-daemon --console=plain --max-workers=2 > /tmp/particle-format.log 2>&1
+          python3 - <<'PY'
+          import pathlib, subprocess
+          allowed = set(pathlib.Path('/tmp/particle-changed-paths').read_bytes().split(b'\0'))
+          for path in subprocess.check_output(['git', 'diff', '--name-only', '-z']).split(b'\0'):
+              if path and path not in allowed:
+                  subprocess.run(['git', 'restore', '--worktree', '--', path.decode()], check=True)
+          PY
+          git add -u
+          git diff --cached --check
+      - name: Save exact implementation on development branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'Yfuse build automation'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          if ! git diff --cached --quiet; then
+            git commit -m 'feat: finish Android light surfaces, fix compile and preserve shade priority (218)'
+            git push origin "HEAD:refs/heads/$GITHUB_REF_NAME"
+          fi
+          mkdir -p build/particle-source
+          git archive --format=zip -o build/particle-source/yfuse-source.zip HEAD
+          git diff 04dc5086eccaacdf3013080b6ecc5d353f1663ee HEAD -- composeApp version.properties release-notes.txt > build/particle-source/implementation.patch
+          git rev-parse HEAD > build/particle-source/source-commit.txt
+          git rev-parse 'HEAD^{tree}' > build/particle-source/source-tree.txt
+          python3 scripts/release_metadata.py --format json > build/particle-source/release-metadata.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: particle-implementation-${{ github.run_id }}
+          path: build/particle-source/
+          retention-days: 7
+          if-no-files-found: error
+      - name: Verify formatting and design contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :composeApp:ktlintCheck :composeApp:verifyDesignSystemUsage --no-daemon --console=plain --max-workers=2 2>&1 | tee /tmp/particle-check.log
+      - name: Start official signing workflow, artifact only
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF_NAME" == codex/particle-light-20260912 ]]
+          remote="$(git ls-remote origin "refs/heads/$GITHUB_REF_NAME" | cut -f1)"
+          [[ "$remote" == "$(git rev-parse HEAD)" ]]
+          gh api --method POST "repos/$GITHUB_REPOSITORY/actions/workflows/sign-android-branch.yml/dispatches" -f ref="$GITHUB_REF_NAME"
+      - name: Upload validation diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: particle-validation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            /tmp/particle-format.log
+            /tmp/particle-check.log
+            composeApp/build/reports/ktlint/
+          if-no-files-found: warn
+          retention-days: 7

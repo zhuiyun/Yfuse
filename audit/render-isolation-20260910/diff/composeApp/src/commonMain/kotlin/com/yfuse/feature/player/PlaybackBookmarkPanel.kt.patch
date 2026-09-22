@@ -1,0 +1,18 @@
+--- composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlaybackBookmarkPanel.kt (before turn)
++++ composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlaybackBookmarkPanel.kt
+@@ -4,7 +4,6 @@
+ import androidx.compose.foundation.layout.heightIn
+ import androidx.compose.foundation.layout.padding
+ import androidx.compose.foundation.text.BasicTextField
+-import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.getValue
+ import androidx.compose.runtime.mutableStateOf
+@@ -19,6 +18,7 @@
+ import androidx.compose.ui.unit.dp
+ import com.yfuse.core.data.PlaybackBookmark
+ import com.yfuse.core.designsystem.AppTypography
++import com.yfuse.core.designsystem.ThemeText as Text
+ 
+ data class PlaybackBookmarkPanelState(
+     val mediaIdentity: String = "",

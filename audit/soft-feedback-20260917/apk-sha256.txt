@@ -1,0 +1,5 @@
+
+Algorithm : SHA256
+Hash      : 0A2B95BA621C0DDF412F420AA8D2D006695C588C04148F1450FD87E455589CFE
+Path      : D:\Demo\Yfuse\composeApp\build\outputs\apk\debug\composeApp-debug.apk
+

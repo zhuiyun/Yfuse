@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.data.EmbySourceServiceTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:02.866Z" hostname="DESKTOP-HM2J0FM" time="0.013">
+  <properties/>
+  <testcase name="a_provider_match_reports_the_best_source_of_the_current_server" classname="com.yfuse.core.data.EmbySourceServiceTest" time="0.006"/>
+  <testcase name="a_series_without_the_requested_episode_is_listed_without_a_source" classname="com.yfuse.core.data.EmbySourceServiceTest" time="0.004"/>
+  <testcase name="an_unreachable_server_is_retried_and_then_degrades_instead_of_failing_the_comparison" classname="com.yfuse.core.data.EmbySourceServiceTest" time="0.003"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

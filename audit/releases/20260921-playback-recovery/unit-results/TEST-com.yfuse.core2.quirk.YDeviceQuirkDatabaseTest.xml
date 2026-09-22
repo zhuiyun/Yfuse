@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.quirk.YDeviceQuirkDatabaseTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:44:00.498Z" hostname="DESKTOP-HM2J0FM" time="0.004">
+  <properties/>
+  <testcase name="global rule forces enhanced demux and disables passthrough and tunnel" classname="com.yfuse.core2.quirk.YDeviceQuirkDatabaseTest" time="0.003"/>
+  <testcase name="applies matching decoder rule without affecting other devices" classname="com.yfuse.core2.quirk.YDeviceQuirkDatabaseTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

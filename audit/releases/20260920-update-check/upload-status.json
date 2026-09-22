@@ -1,0 +1,11 @@
+{
+  "versionName": "1.0.75",
+  "versionCode": 237,
+  "commit": "f627bd04cb0fe307cae0a228abb586f32fc4bb05",
+  "destination": "git@github.com:zhuiyun/Yfuse.git",
+  "branch": "master",
+  "pushed": true,
+  "remoteVerified": true,
+  "artifactOnly": true,
+  "verifiedAtUtc": "2026-09-20T10:04:00.6622265+00:00"
+}

@@ -1,0 +1,173 @@
+[
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core2/api/YPlayer.kt",
+    "created": false,
+    "sha256": "c87a7ae7e5af8a4c5785a12e5daf6a1a35391d02de1930ff3c6b25e7b6f3022e",
+    "beforeLines": 472,
+    "afterLines": 481,
+    "added": 9,
+    "removed": 0
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerSkipCoordinator.kt",
+    "created": false,
+    "sha256": "d0dc5bb3ccab22990c4d27b07001f549feb1f37d7e5016bcd73d38fca8628c1a",
+    "beforeLines": 307,
+    "afterLines": 339,
+    "added": 37,
+    "removed": 5
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerRoot.kt",
+    "created": false,
+    "sha256": "151dc863cff0a849247ad672a9dfc9f932477b945b75d6666241b8b4808c2396",
+    "beforeLines": 3304,
+    "afterLines": 3320,
+    "added": 16,
+    "removed": 0
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidCore2MediaProbe.kt",
+    "created": false,
+    "sha256": "661e370a4fcef2cae8b97151ecaa7fb2873a7399a21fbe590dc0bd994717ed7f",
+    "beforeLines": 1127,
+    "afterLines": 1158,
+    "added": 31,
+    "removed": 0
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidEnhancedMediaProbe.kt",
+    "created": false,
+    "sha256": "8e14b324a56787dea21f1167324e07a077146c38c06c407110a1a7c7c47974d1",
+    "beforeLines": 392,
+    "afterLines": 397,
+    "added": 5,
+    "removed": 0
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidNextItemPreparation.kt",
+    "created": true,
+    "sha256": "52de76005e2ebe343f1618f3d506608c573e848dab2506000169503cb64f0814",
+    "beforeLines": 0,
+    "afterLines": 233,
+    "added": 233,
+    "removed": 0
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidAdaptiveCore2YPlayer.kt",
+    "created": false,
+    "sha256": "fd732cb42f36d13eac15c1da097e3b462a909f1d6244f82c9f17397e1be96c11",
+    "beforeLines": 2164,
+    "afterLines": 2311,
+    "added": 229,
+    "removed": 82
+  },
+  {
+    "path": "composeApp/src/commonTest/kotlin/com/yfuse/feature/player/NextItemCreditsBoundaryTest.kt",
+    "created": true,
+    "sha256": "ef5b28f59533f127fecdf5ad80008bb82fc5a4cb12d368f04c1593e8f13f02d5",
+    "beforeLines": 0,
+    "afterLines": 34,
+    "added": 34,
+    "removed": 0
+  },
+  {
+    "path": "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidNextItemPreparationTest.kt",
+    "created": true,
+    "sha256": "cf412fc87c68f4e31c52326b0e48df04c0b0adefdb9a8581ae8daf9dab034ee9",
+    "beforeLines": 0,
+    "afterLines": 85,
+    "added": 85,
+    "removed": 0
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidVideoDecoderHandoff.kt",
+    "created": true,
+    "sha256": "3c5587a2ceb111a734a3230c7de67cbdeb2da771272d60449616b513bfab84ca",
+    "beforeLines": 0,
+    "afterLines": 131,
+    "added": 131,
+    "removed": 0
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidNativeDirectYPlayer.kt",
+    "created": false,
+    "sha256": "e1bcc87b2be38b819f0bc982b7fa7cbfcaacbda3b6910cfe4e63c2f1d9e2a7c6",
+    "beforeLines": 3206,
+    "afterLines": 3261,
+    "added": 65,
+    "removed": 10
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidAudioTrackRenderNode.kt",
+    "created": false,
+    "sha256": "8b19c371c4d7279b0a610664e82ba1ac8a4a0d82a63541153f48779128e54c32",
+    "beforeLines": 476,
+    "afterLines": 543,
+    "added": 68,
+    "removed": 1
+  },
+  {
+    "path": "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/NextItemOutputHandoffTest.kt",
+    "created": true,
+    "sha256": "414f3ba29efb8224205859875984b62ee130195d23efdbfe50ced1b93a54a4e0",
+    "beforeLines": 0,
+    "afterLines": 27,
+    "added": 27,
+    "removed": 0
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidCore2Trial.kt",
+    "created": false,
+    "sha256": "21cec4e37cf73839667c96160249e6c101f6cfe049cfe7449963ef4ed02816b5",
+    "beforeLines": 535,
+    "afterLines": 536,
+    "added": 1,
+    "removed": 0
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidTransportMediaDataSource.kt",
+    "created": false,
+    "sha256": "a47362fbfc3d79acf9d3c0d286f7aca9d8ade1c583fc84e3dad7666fa7e9230e",
+    "beforeLines": 1472,
+    "afterLines": 1484,
+    "added": 13,
+    "removed": 1
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidPreparedEnhancedDemux.kt",
+    "created": false,
+    "sha256": "470d1ac0b6aae148bf693a3de9e11819e9694b9f8e3b22e05d1c4fe03c9ee1ad",
+    "beforeLines": 101,
+    "afterLines": 102,
+    "added": 2,
+    "removed": 1
+  },
+  {
+    "path": "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidPreparedMediaSlotTest.kt",
+    "created": false,
+    "sha256": "87952ec9e075bb80a5e50556a13d79b512461fdbf949ca8f06341dcbeea2a5a3",
+    "beforeLines": 38,
+    "afterLines": 57,
+    "added": 19,
+    "removed": 0
+  },
+  {
+    "path": "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/NextItemRangeReuseTest.kt",
+    "created": true,
+    "sha256": "be8769581c10ceb0a5d17a98da986ad7bea0bd07a2ad68b42309401eaeb7a524",
+    "beforeLines": 0,
+    "afterLines": 99,
+    "added": 99,
+    "removed": 0
+  },
+  {
+    "path": "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/NextItemCancellationTest.kt",
+    "created": true,
+    "sha256": "382f84c99edbbcadb62975fd7fea290ca5056a2c6ccd55641db2e7f8a97f4dd9",
+    "beforeLines": 0,
+    "afterLines": 36,
+    "added": 36,
+    "removed": 0
+  }
+]

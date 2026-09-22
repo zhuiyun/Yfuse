@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.AndroidProxyMediaSessionsTest" tests="10" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:43:57.391Z" hostname="DESKTOP-HM2J0FM" time="0.538">
+  <properties/>
+  <testcase name="missing_strong_validator_never_reuses_previous_persisted_bytes_or_validation" classname="com.yfuse.core2.android.AndroidProxyMediaSessionsTest" time="0.105"/>
+  <testcase name="sequential_and_concurrent_proxy_ranges_share_one_initial_origin_read" classname="com.yfuse.core2.android.AndroidProxyMediaSessionsTest" time="0.016"/>
+  <testcase name="taking_over_initial_validation_keeps_the_time_already_spent_waiting" classname="com.yfuse.core2.android.AndroidProxyMediaSessionsTest" time="0.258"/>
+  <testcase name="late_failure_from_an_old_reader_cannot_clear_the_new_representation_cache" classname="com.yfuse.core2.android.AndroidProxyMediaSessionsTest" time="0.035"/>
+  <testcase name="changed_entity_on_later_range_invalidates_all_old_readers_and_persistent_blocks" classname="com.yfuse.core2.android.AndroidProxyMediaSessionsTest" time="0.045"/>
+  <testcase name="proxy_media_identity_isolates_authorization_and_media_versions" classname="com.yfuse.core2.android.AndroidProxyMediaSessionsTest" time="0.015"/>
+  <testcase name="cancelling_initial_owner_allows_another_reader_to_take_over_validation" classname="com.yfuse.core2.android.AndroidProxyMediaSessionsTest" time="0.002"/>
+  <testcase name="cancelling_a_waiter_does_not_cancel_or_close_the_initial_owner" classname="com.yfuse.core2.android.AndroidProxyMediaSessionsTest" time="0.001"/>
+  <testcase name="expired_validation_rechecks_origin_and_retires_old_cached_readers" classname="com.yfuse.core2.android.AndroidProxyMediaSessionsTest" time="0.001"/>
+  <testcase name="waiting_for_initial_validation_respects_the_request_budget_without_cancelling_its_owner" classname="com.yfuse.core2.android.AndroidProxyMediaSessionsTest" time="0.059"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

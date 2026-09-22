@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.PlaybackRuntimeCadenceTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:15.952Z" hostname="DESKTOP-HM2J0FM" time="0.0">
+  <properties/>
+  <testcase name="idle_playback_backs_off_cpu_wakes" classname="com.yfuse.feature.player.PlaybackRuntimeCadenceTest" time="0.0"/>
+  <testcase name="idle_interval_cannot_be_more_aggressive_than_active_playback" classname="com.yfuse.feature.player.PlaybackRuntimeCadenceTest" time="0.0"/>
+  <testcase name="active_or_pending_playback_keeps_the_responsive_interval" classname="com.yfuse.feature.player.PlaybackRuntimeCadenceTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,75 @@
+{
+  "artifactId": 10299938547,
+  "workflowRunId": 34701134934,
+  "sourceCommit": "8dc1e5b22fbd74f014670bf07c1773891f719191",
+  "sourceTree": "2db1d65fe316120f8a452ce39af04b455446c9e6",
+  "artifactZipSha256": "07d8eeedfa3a8feb3e4f6945105cd0f771ab29f9e918d3f7a2028bd90ba93f81",
+  "installedSha256": {
+    "libmpv-release.aar": "db5f9f2f81d42457e2c6dfa84c6645ee4e140473c8a862a85699aaa02522c75a",
+    "libmpv-release.aar.sha256": "108c0edf6d01ab1abcb57209892cd16a3b14b4bcd840140912ee38e09b15c89d",
+    "libmpv-release.sources.txt": "a905ecca8f8f8cb4feb5e9db26f8cf4e9aae2fccb36247935f3a7da3925e7990",
+    "ycore-native.aar": "c78976de5c06bf637bc452b2acbfb8c8375822f4b14e1ecf41bd7893d33ce5a7",
+    "ycore-native.aar.sha256": "e760fa244c5b4df318d6d467d66bf1c808eb6acd951dcc01d3e0ba6f11832e4a",
+    "ycore-native.sources.txt": "a905ecca8f8f8cb4feb5e9db26f8cf4e9aae2fccb36247935f3a7da3925e7990",
+    "ycore-gpu.aar": "8ff27ee0d58fcc553d6ea26818daeaf4d42caa323aeb52f2b3d172039a42562e",
+    "ycore-gpu.aar.sha256": "5f5b3499587b9acf47e1fb4f6b8e21f20511ed189b0c488e856fb2e940e6ce8a",
+    "ycore-gpu.sources.txt": "a905ecca8f8f8cb4feb5e9db26f8cf4e9aae2fccb36247935f3a7da3925e7990"
+  },
+  "installedLibraries": {
+    "libavcodec.so": "2440fc79482e7ab4e40ba2f3e9fb7ba10f196935b39566c636e866e0dcdeb42c",
+    "libavdevice.so": "c67959777c8137a98825e7e63bfd8e555090781c66b34c9d0053e54869110c08",
+    "libavfilter.so": "d9736182d803c460569b4fae9fb0d588a6e02f71f213ec000641521a07cf7d28",
+    "libavformat.so": "ee3fb014d6d12ff54e658fc1ae70dfcaae55d0259a34b46e4fc3cb2a41f773dc",
+    "libavutil.so": "2d2ab7b3071f9e4643f67ba65170f7290d821aa80e8b14dfcc356a15c493c47a",
+    "libc++_shared.so": "c4c2fe5cbcb1fba0003a31fc7ab29a9bb12df6cc187ec45a806462540e83d93b",
+    "libmpv.so": "d06566edd8dd09c7419f61f9888d2f29e5e186ff578f8a984f1c968cab7baee6",
+    "libplayer.so": "2a5b828f3da71049c7603d6432fce50af7ca2286c33e70028bbcf466ead09005",
+    "libswresample.so": "59a2c9dbd713db7e4a17949b85334873745bf0183a2686300068093fe5b57ee0",
+    "libswscale.so": "48782396b8c8993a7bb72990b87cd460e57f65d3e69c26c9e04031b0ef9f43e8",
+    "libycore_demux.so": "18798aa7b206607be2e418321c0fc7d96c064ad31e430e43c3fae069c31407ab",
+    "libycore_gpu.so": "4ea9a8ad54d15cc642dd952df2b65ad1f8d04aed179436d54ac1379f7a3ff01d"
+  },
+  "matchesDelivered226Libraries": true,
+  "carrierModification": "Only the byte-identical libycore_gpu.so is removed; ycore-gpu.aar packages it once",
+  "repositoryGates": [
+    "verify-yfuse-mpv-bluray-aar.sh",
+    "verify-yfuse-mpv-dolby-aar.sh",
+    "verify-ycore-native.sh"
+  ],
+  "repositoryGatesExitCode": 0,
+  "repositoryGateLog": "install.log",
+  "enginePins": [
+    {
+      "name": "libmpv-release.aar",
+      "configuredSha256": "db5f9f2f81d42457e2c6dfa84c6645ee4e140473c8a862a85699aaa02522c75a",
+      "actualSha256": "db5f9f2f81d42457e2c6dfa84c6645ee4e140473c8a862a85699aaa02522c75a",
+      "installed": true,
+      "matches": true
+    },
+    {
+      "name": "libmpv-dolby-release.aar",
+      "configuredSha256": "074121c3fbbfd32fad74b14400c0a4c2678235f5dc818f9e4a79699ee77f3ecb",
+      "actualSha256": null,
+      "installed": false,
+      "matches": null
+    },
+    {
+      "name": "libmpv-stable-release.aar",
+      "configuredSha256": "9900fe61971e39bf4bc69f306437ffd3de1587c63821570143e142a858b6f9a9",
+      "actualSha256": null,
+      "installed": false,
+      "matches": null
+    },
+    {
+      "name": "mdk-sdk-android.7z",
+      "configuredSha256": "87aa236840134fe3b5c3b08e813c2b4f0557d4c2fc7034679417bc598dd785ba",
+      "actualSha256": "87aa236840134fe3b5c3b08e813c2b4f0557d4c2fc7034679417bc598dd785ba",
+      "installed": true,
+      "matches": true
+    }
+  ],
+  "temporaryFilesCleaned": true,
+  "installedToDevice": false,
+  "playbackRun": false,
+  "gradleRunByThisTask": false
+}

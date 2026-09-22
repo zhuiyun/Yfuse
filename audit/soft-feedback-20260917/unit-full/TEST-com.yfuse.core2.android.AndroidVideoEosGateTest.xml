@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.AndroidVideoEosGateTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:12.842Z" hostname="DESKTOP-HM2J0FM" time="0.0">
+  <properties/>
+  <testcase name="first_generation_short_clip_holds_eos_until_real_render_evidence_arrives" classname="com.yfuse.core2.android.AndroidVideoEosGateTest" time="0.0"/>
+  <testcase name="an_old_real_first_frame_does_not_bypass_a_new_seek_generation" classname="com.yfuse.core2.android.AndroidVideoEosGateTest" time="0.0"/>
+  <testcase name="decoder_that_needs_eos_to_output_a_frame_is_unblocked_at_one_second" classname="com.yfuse.core2.android.AndroidVideoEosGateTest" time="0.0"/>
+  <testcase name="repeated_polling_does_not_extend_the_original_deadline" classname="com.yfuse.core2.android.AndroidVideoEosGateTest" time="0.0"/>
+  <testcase name="reset_for_flush_or_seek_clears_queued_input_and_the_previous_deadline" classname="com.yfuse.core2.android.AndroidVideoEosGateTest" time="0.0"/>
+  <testcase name="long_video_with_real_first_frame_can_queue_end_of_stream_immediately" classname="com.yfuse.core2.android.AndroidVideoEosGateTest" time="0.0"/>
+  <testcase name="time_spent_loading_input_does_not_consume_the_wait_after_eof" classname="com.yfuse.core2.android.AndroidVideoEosGateTest" time="0.0"/>
+  <testcase name="no_video_input_or_empty_track_does_not_delay_end_of_stream" classname="com.yfuse.core2.android.AndroidVideoEosGateTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

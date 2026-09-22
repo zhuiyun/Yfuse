@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.sync.YMediaTimestampTimelineTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:44:00.663Z" hostname="DESKTOP-HM2J0FM" time="0.002">
+  <properties/>
+  <testcase name="decode_preroll_can_remain_negative_while_presentation_time_is_clamped" classname="com.yfuse.core2.sync.YMediaTimestampTimelineTest" time="0.001"/>
+  <testcase name="reset_starts_a_new_media_timeline" classname="com.yfuse.core2.sync.YMediaTimestampTimelineTest" time="0.0"/>
+  <testcase name="negative_source_origin_is_preserved_by_the_inverse_mapping" classname="com.yfuse.core2.sync.YMediaTimestampTimelineTest" time="0.0"/>
+  <testcase name="first_source_pts_becomes_zero_and_seek_adds_the_origin_back" classname="com.yfuse.core2.sync.YMediaTimestampTimelineTest" time="0.001"/>
+  <testcase name="zero_based_sources_are_identity_mapped" classname="com.yfuse.core2.sync.YMediaTimestampTimelineTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.data.TmdbHomeCacheTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:04.172Z" hostname="DESKTOP-HM2J0FM" time="0.012">
+  <properties/>
+  <testcase name="recommendation_cache_is_bounded_and_round_trips" classname="com.yfuse.core.data.TmdbHomeCacheTest" time="0.006"/>
+  <testcase name="recommendation_cache_expires_after_seven_days" classname="com.yfuse.core.data.TmdbHomeCacheTest" time="0.0"/>
+  <testcase name="cancellation_from_read_cleanup_and_write_is_preserved" classname="com.yfuse.core.data.TmdbHomeCacheTest" time="0.002"/>
+  <testcase name="failing_settings_read_and_cleanup_are_a_cache_miss" classname="com.yfuse.core.data.TmdbHomeCacheTest" time="0.0"/>
+  <testcase name="malformed_and_oversized_entries_remain_cache_misses_when_removal_fails" classname="com.yfuse.core.data.TmdbHomeCacheTest" time="0.003"/>
+  <testcase name="unreadable_recommendation_cache_is_removed" classname="com.yfuse.core.data.TmdbHomeCacheTest" time="0.0"/>
+  <testcase name="recommendation_cache_bounds_text_and_serialized_size" classname="com.yfuse.core.data.TmdbHomeCacheTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.AndroidPlaybackOutputTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:15.734Z" hostname="DESKTOP-HM2J0FM" time="0.003">
+  <properties/>
+  <testcase name="explicit_exo_decoder_modes_are_deterministic_but_retain_a_safe_fallback" classname="com.yfuse.feature.player.AndroidPlaybackOutputTest" time="0.001"/>
+  <testcase name="initialized_encoded_audio_track_is_named_as_runtime_output" classname="com.yfuse.feature.player.AndroidPlaybackOutputTest" time="0.001"/>
+  <testcase name="exo_delegates_seamless_mode_but_reserves_always_for_the_surface_api" classname="com.yfuse.feature.player.AndroidPlaybackOutputTest" time="0.0"/>
+  <testcase name="exo_reports_pcm_fallback_separately_from_encoded_passthrough" classname="com.yfuse.feature.player.AndroidPlaybackOutputTest" time="0.0"/>
+  <testcase name="passthrough_output_does_not_claim_an_audio_decoder" classname="com.yfuse.feature.player.AndroidPlaybackOutputTest" time="0.0"/>
+  <testcase name="generic_truehd_is_only_immersive_carrier_evidence" classname="com.yfuse.feature.player.AndroidPlaybackOutputTest" time="0.001"/>
+  <testcase name="exo_does_not_mislabel_offload_as_hdmi_passthrough" classname="com.yfuse.feature.player.AndroidPlaybackOutputTest" time="0.0"/>
+  <testcase name="decoded_pcm_output_includes_the_actual_audio_decoder" classname="com.yfuse.feature.player.AndroidPlaybackOutputTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.migration.MigrationRelayHttpEngineTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:04.952Z" hostname="DESKTOP-HM2J0FM" time="0.187">
+  <properties/>
+  <testcase name="closing_migration_engine_keeps_the_shared_origin_connection_reusable" classname="com.yfuse.core.migration.MigrationRelayHttpEngineTest" time="0.179"/>
+  <testcase name="default_migration_engine_does_not_borrow_the_shared_origin_connection" classname="com.yfuse.core.migration.MigrationRelayHttpEngineTest" time="0.008"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

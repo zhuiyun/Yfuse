@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.sync.playback.PlaybackServerApplyPolicyTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:07.497Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="not_found_is_a_terminal_server_target_failure" classname="com.yfuse.core.sync.playback.PlaybackServerApplyPolicyTest" time="0.0"/>
+  <testcase name="access_denied_cools_the_server_instead_of_retrying_the_same_task" classname="com.yfuse.core.sync.playback.PlaybackServerApplyPolicyTest" time="0.0"/>
+  <testcase name="transient_network_and_server_errors_still_retry" classname="com.yfuse.core.sync.playback.PlaybackServerApplyPolicyTest" time="0.0"/>
+  <testcase name="origin_lookup_prefers_its_exact_emby_id" classname="com.yfuse.core.sync.playback.PlaybackServerApplyPolicyTest" time="0.0"/>
+  <testcase name="unauthorized_cools_the_server_instead_of_retrying_with_stale_credentials" classname="com.yfuse.core.sync.playback.PlaybackServerApplyPolicyTest" time="0.0"/>
+  <testcase name="cross_server_lookup_never_sends_an_emby_scoped_id" classname="com.yfuse.core.sync.playback.PlaybackServerApplyPolicyTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

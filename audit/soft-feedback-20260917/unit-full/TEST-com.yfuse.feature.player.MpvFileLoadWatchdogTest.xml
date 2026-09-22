@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.MpvFileLoadWatchdogTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:15.815Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="stale_loaded_or_released_attempts_are_ignored" classname="com.yfuse.feature.player.MpvFileLoadWatchdogTest" time="0.001"/>
+  <testcase name="hard_limit_wins_even_when_progress_is_still_arriving" classname="com.yfuse.feature.player.MpvFileLoadWatchdogTest" time="0.0"/>
+  <testcase name="optical_and_large_prores_sources_get_long_startup_windows" classname="com.yfuse.feature.player.MpvFileLoadWatchdogTest" time="0.0"/>
+  <testcase name="progress_heartbeat_keeps_a_slow_source_alive_after_grace" classname="com.yfuse.feature.player.MpvFileLoadWatchdogTest" time="0.0"/>
+  <testcase name="old_eight_second_deadline_can_no_longer_fail_an_optical_load" classname="com.yfuse.feature.player.MpvFileLoadWatchdogTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

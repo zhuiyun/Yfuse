@@ -1,0 +1,164 @@
+--- before/composeApp/src/commonMain/kotlin/com/yfuse/feature/search/SearchScreen.kt
++++ after/composeApp/src/commonMain/kotlin/com/yfuse/feature/search/SearchScreen.kt
+@@ -18,8 +18,6 @@
+ import androidx.compose.foundation.layout.width
+ import androidx.compose.foundation.lazy.LazyColumn
+ import androidx.compose.foundation.lazy.LazyRow
+-import androidx.compose.foundation.lazy.items
+-import androidx.compose.foundation.lazy.itemsIndexed
+ import androidx.compose.foundation.selection.selectableGroup
+ import androidx.compose.foundation.shape.CircleShape
+ import androidx.compose.foundation.text.BasicTextField
+@@ -78,7 +76,9 @@
+ import com.yfuse.core.designsystem.TabBarInset
+ import com.yfuse.core.designsystem.glass
+ import com.yfuse.core.designsystem.mediaLazyItemKey
+-import com.yfuse.core.designsystem.motionAwareItem
++import com.yfuse.core.designsystem.motionItem
++import com.yfuse.core.designsystem.motionItems
++import com.yfuse.core.designsystem.motionItemsIndexed
+ import com.yfuse.core.designsystem.pressable
+ import com.yfuse.core.designsystem.rememberDisclosureProgress
+ import com.yfuse.core.designsystem.searchFieldArrival
+@@ -142,7 +142,12 @@
+     val keyboard = LocalSoftwareKeyboardController.current
+     val focusManager = LocalFocusManager.current
+     val routeVisible = LocalRouteVisible.current
+-    val resultHandoff = rememberSearchResultsHandoff(state.resultsPhase(), loading = state.loading)
++    val resultHandoff =
++        rememberSearchResultsHandoff(
++            state.resultsPhase(),
++            loading = state.loading,
++            presentationKey = state.presentationKey(),
++        )
+     var filterSheet by remember { mutableStateOf<SearchFilterSheet?>(null) }
+     var coverageExpanded by remember(state.searchedQuery) { mutableStateOf(false) }
+     StatusBarIconStyle(darkIcons = !palette.isDark)
+@@ -167,7 +172,7 @@
+             contentPadding = PaddingValues(top = Dimens.contentTop, bottom = TabBarInset),
+             verticalArrangement = Arrangement.spacedBy(12.dp),
+         ) {
+-            item {
++            motionItem {
+                 Column {
+                     SearchField(
+                         query = state.query,
+@@ -182,7 +187,7 @@
+                     Spacer(Modifier.height(8.dp))
+                 }
+             }
+-            item {
++            motionItem {
+                 Column {
+                     SearchFilterBar(
+                         state = state,
+@@ -204,7 +209,7 @@
+             // 演员 sits above the titles: a cast match is a different kind of answer, and
+             // a title search can never surface it — `/Items` matches item names only.
+             if (state.people.isNotEmpty() && state.person == null) {
+-                item {
++                motionItem {
+                     PeopleRow(
+                         people = state.people,
+                         baseUrl = component::serverBaseUrl,
+@@ -215,7 +220,7 @@
+             }
+ 
+             state.person?.let { person ->
+-                item {
++                motionItem {
+                     PersonBanner(
+                         person = person,
+                         onClear = { store.accept(SearchIntent.SelectPerson(null)) },
+@@ -225,12 +230,12 @@
+ 
+             val awaitingFirstResults = state.loading && state.groups.isEmpty()
+             if (awaitingFirstResults) {
+-                item { SearchSkeleton() }
++                motionItem { SearchSkeleton() }
+             }
+ 
+             // Nothing typed yet: the chip row alone, no empty results heading.
+             if ((state.hasSearched || state.error != null) && !awaitingFirstResults) {
+-                item(key = "search-results-heading") {
++                motionItem(key = "search-results-heading") {
+                     Column(
+                         Modifier.padding(horizontal = Dimens.pageHorizontal).then(resultHandoff.item()),
+                         verticalArrangement = Arrangement.spacedBy(10.dp),
+@@ -254,7 +259,7 @@
+                 }
+                 when {
+                     state.error != null ->
+-                        item(key = "search-results-error") {
++                        motionItem(key = "search-results-error") {
+                             ErrorState(
+                                 message = state.error!!,
+                                 onRetry = { store.accept(SearchIntent.Retry) },
+@@ -268,14 +273,14 @@
+ 
+                     // 没有找到相关内容 — `400 12px Manrope`, `--pg-hint`, `padding:20px 0`.
+                     state.visibleGroups.all { it.items.isEmpty() } && !state.loading ->
+-                        item(key = "search-results-empty") {
++                        motionItem(key = "search-results-empty") {
+                             Box(Modifier.padding(horizontal = Dimens.pageHorizontal).then(resultHandoff.item())) {
+                                 EmptyResults(filtered = state.type != SearchType.All)
+                             }
+                         }
+ 
+                     state.aggregated.isNotEmpty() ->
+-                        itemsIndexed(
++                        motionItemsIndexed(
+                             items = state.visibleAggregated,
+                             key = { _, group -> group.identity },
+                             contentType = { _, _ -> "aggregated-search-result" },
+@@ -304,7 +309,7 @@
+                         }
+ 
+                     else ->
+-                        itemsIndexed(
++                        motionItemsIndexed(
+                             items = state.visibleGroups,
+                             key = { _, group -> "server-results-${group.serverId}" },
+                             contentType = { _, _ -> "server-search-group" },
+@@ -332,7 +337,7 @@
+             }
+ 
+             if (!state.hasSearched && state.query.isBlank()) {
+-                item {
++                motionItem {
+                     RecentSearches(
+                         title = if (state.recent.isEmpty()) "试试搜索" else "搜索记录",
+                         terms = state.recent.ifEmpty { suggestedTerms },
+@@ -371,9 +376,9 @@
+             .padding(horizontal = Dimens.pageHorizontal)
+             .heightIn(min = 50.dp)
+             .searchFieldArrival()
++            .then(motion)
+             .shadow(Shadows.searchBarFocused, shape)
+             .glass(shape, palette.card3, accent.border)
+-            .then(motion)
+             // The conditional clear action already owns a 48dp touch target. Vertical padding
+             // here would add to that real layout height and make the field jump when text appears.
+             .padding(horizontal = 16.dp),
+@@ -507,10 +512,10 @@
+             contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
+             horizontalArrangement = Arrangement.spacedBy(12.dp),
+         ) {
+-            items(people, key = { "${it.serverId}-${it.personId}" }) { person ->
++            motionItems(people, key = { "${it.serverId}-${it.personId}" }) { person ->
+                 Column(
+                     // Cast lands after the titles do, so the row grows into place.
+-                    Modifier.width(64.dp).then(motionAwareItem()).pressable { onSelect(person) },
++                    Modifier.width(64.dp).then(Modifier).pressable { onSelect(person) },
+                     horizontalAlignment = Alignment.CenterHorizontally,
+                 ) {
+                     // The image draws nothing when the server has no headshot, so the
+@@ -642,7 +647,7 @@
+                 modifier = Modifier.fillMaxWidth(),
+                 horizontalArrangement = Arrangement.spacedBy(10.dp),
+             ) {
+-                itemsIndexed(
++                motionItemsIndexed(
+                     items = group.items,
+                     key = { index, item ->
+                         mediaLazyItemKey("search:${group.serverId}", index, item.id)

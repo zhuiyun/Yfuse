@@ -1,0 +1,17 @@
+Verifies
+Verified using v1 scheme (JAR signing): false
+Verified using v2 scheme (APK Signature Scheme v2): true
+Verified using v3 scheme (APK Signature Scheme v3): false
+Verified using v3.1 scheme (APK Signature Scheme v3.1): false
+Verified using v4 scheme (APK Signature Scheme v4): false
+Verified for SourceStamp: false
+Number of signers: 1
+Signer #1 certificate DN: CN=Yfuse, OU=Mobile, O=Yfuse, L=Shanghai, ST=Shanghai, C=CN
+Signer #1 certificate SHA-256 digest: 373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84
+Signer #1 certificate SHA-1 digest: e68138167717bbe9ccfb88598e7fb870941776cf
+Signer #1 certificate MD5 digest: 34ad08fbfb3d8b417eb646ce60f2b2c6
+Signer #1 key algorithm: RSA
+Signer #1 key size (bits): 4096
+Signer #1 public key SHA-256 digest: 6cb149fc8c9edae59aa294c5a3e1fa904c332f43cb6f46941000e701fddbe566
+Signer #1 public key SHA-1 digest: 44048c22b3b880c240e4a4216e14ba7fda40a55b
+Signer #1 public key MD5 digest: 860b78389f019fa41a8fe430ddf639ea

@@ -1,0 +1,164 @@
+package com.yfuse.core.designsystem
+
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
+import androidx.compose.runtime.State
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
+
+/**
+ * Extracts a representative colour from the image at [url], used to tint the
+ * detail screen. Returns [fallback] until (or unless) extraction succeeds.
+ */
+@Composable
+expect fun rememberDominantColor(
+    url: String?,
+    fallback: Color,
+): Color
+
+/**
+ * Raw colour sampled from the part of the displayed artwork removed by [fadeIntoPage].
+ *
+ * [targetAspectRatio] describes the actual hero slot, so Android can reproduce
+ * `ContentScale.Crop` before sampling. [fadeFraction] is the fraction of that slot occupied by
+ * [HeroPageFade]. A null result means that the resolved bitmap has not been sampled yet.
+ */
+@Composable
+expect fun rememberArtworkPageColor(
+    url: String?,
+    targetAspectRatio: Float,
+    fadeFraction: Float,
+): Color?
+
+/**
+ * Harmonizes the extracted artwork colour once, then animates that final UI target.
+ *
+ * Running [harmonizeArtworkAccent] on every intermediate animation frame is not continuous:
+ * its luminance guard changes the number of black/white correction passes at thresholds. A
+ * smooth raw-colour animation therefore produced several discrete jumps across the detail page.
+ * [identity] keeps one target for the lifetime of a media item while its resolved fallback URL
+ * changes, but resets it when the user opens a different item.
+ */
+@Composable
+fun rememberAnimatedArtworkAccent(
+    url: String?,
+    fallback: Color,
+    darkTheme: Boolean,
+    identity: Any?,
+    durationMillis: Int = Motion.ACCENT,
+): AnimatedColorState {
+    val target = rememberArtworkAccentTarget(url, fallback, darkTheme, identity)
+    return rememberAnimatedColorState(target, durationMillis)
+}
+
+/** Stable semantic theme target. Animation belongs to local decorative draw nodes, not a whole-page palette. */
+@Composable
+fun rememberArtworkAccentTarget(
+    url: String?,
+    fallback: Color,
+    darkTheme: Boolean,
+    identity: Any?,
+): Color {
+    val extracted = rememberDominantColor(url, fallback)
+    var target by remember(identity, fallback, darkTheme) {
+        mutableStateOf(harmonizeArtworkAccent(extracted, darkTheme))
+    }
+    LaunchedEffect(extracted, fallback, darkTheme, identity) {
+        if (extracted != fallback) {
+            target = harmonizeArtworkAccent(extracted, darkTheme)
+        }
+    }
+    return target
+}
+
+/**
+ * Weight used by the raw page-colour sampler at [fadeProgress] through [HeroPageFade].
+ *
+ * Cubing the mask coverage concentrates the fit on the final visible rows that actually meet
+ * the page. This matters when the lower hero changes brightness quickly: averaging too much of the
+ * earlier fade makes the page target look like a separate colour band even though the last pixel is
+ * mathematically continuous. The colour itself is still a direct linear-light source average.
+ */
+internal fun artworkPageSampleWeight(fadeProgress: Float): Float {
+    val progress = fadeProgress.coerceIn(0f, 1f)
+    val stops = heroPageFadeMaskStops()
+    val coverage =
+        stops
+            .asList()
+            .zipWithNext()
+            .firstOrNull { (start, end) -> progress <= end.first && progress >= start.first }
+            ?.let { (start, end) ->
+                val span = (end.first - start.first).coerceAtLeast(0.0001f)
+                val fraction = (progress - start.first) / span
+                start.second.alpha + (end.second.alpha - start.second.alpha) * fraction
+            }
+            ?: stops.last().second.alpha
+    return coverage * coverage * coverage
+}
+
+/**
+ * Turns an extracted bitmap swatch into a UI colour rather than trusting the raw pixel.
+ * Backdrops routinely produce near-black night scenes or very bright skies; both are valid
+ * image colours and poor button/selection colours. The restrained band also keeps every title
+ * recognisably inside Yfuse's visual system instead of letting the artwork redesign the app.
+ */
+fun harmonizeArtworkAccent(
+    raw: Color,
+    darkTheme: Boolean,
+): Color {
+    val brandBlend = if (darkTheme) 0.10f else 0.16f
+    var result = lerp(raw, Brand.Primary, brandBlend) // design-system: brand-identity
+    val minimum = if (darkTheme) 0.10f else 0.08f
+    val maximum = if (darkTheme) 0.34f else 0.28f
+    repeat(5) {
+        val light = result.luminance()
+        result =
+            when {
+                light < minimum -> lerp(result, Color.White, 0.12f)
+                light > maximum -> lerp(result, Color.Black, 0.12f)
+                else -> return result
+            }
+    }
+    return result
+}
+
+/** The semantic target changes once; consumers opt into the intermediate paint values. */
+@Stable
+class AnimatedColorState internal constructor(
+    val target: Color,
+    private val animated: State<Color>,
+) : State<Color> {
+    override val value: Color get() = animated.value
+}
+
+@Composable
+fun rememberAnimatedColorState(
+    target: Color,
+    durationMillis: Int = Motion.ACCENT,
+): AnimatedColorState {
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val animated =
+        animateColorAsState(
+            targetValue = target,
+            animationSpec = tween(if (reduceMotion) 0 else durationMillis, easing = Motion.Curve),
+            label = "localArtworkAccent",
+        )
+    return remember(target, animated) { AnimatedColorState(target, animated) }
+}
+
+/** Restart boundary for text/material controls whose paint API takes a Color instead of a lambda. */
+@Composable
+fun AnimatedColorContent(
+    color: State<Color>,
+    content: @Composable (Color) -> Unit,
+) {
+    content(color.value)
+}

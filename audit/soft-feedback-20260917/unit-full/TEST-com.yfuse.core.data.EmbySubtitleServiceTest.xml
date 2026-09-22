@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.data.EmbySubtitleServiceTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:02.880Z" hostname="DESKTOP-HM2J0FM" time="0.017">
+  <properties/>
+  <testcase name="search_asks_the_remote_provider_for_one_language_and_lists_every_candidate" classname="com.yfuse.core.data.EmbySubtitleServiceTest" time="0.005"/>
+  <testcase name="a_missing_subtitle_maps_to_the_not_found_domain_error" classname="com.yfuse.core.data.EmbySubtitleServiceTest" time="0.008"/>
+  <testcase name="download_posts_the_provider_subtitle_id_as_one_encoded_path_segment" classname="com.yfuse.core.data.EmbySubtitleServiceTest" time="0.004"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

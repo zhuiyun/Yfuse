@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.PlaybackPreloaderPolicyTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-09-20T01:56:36.578Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="native-only runtime does not start an unused Media3 source download" classname="com.yfuse.feature.player.PlaybackPreloaderPolicyTest" time="0.001"/>
+  <testcase name="startup_prefix_follows_bitrate_with_safe_bounds" classname="com.yfuse.feature.player.PlaybackPreloaderPolicyTest" time="0.0"/>
+  <testcase name="a YCore playback does not start an unused Media3 source download" classname="com.yfuse.feature.player.PlaybackPreloaderPolicyTest" time="0.0"/>
+  <testcase name="warms_only_unmetered_networks_outside_battery_saver" classname="com.yfuse.feature.player.PlaybackPreloaderPolicyTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

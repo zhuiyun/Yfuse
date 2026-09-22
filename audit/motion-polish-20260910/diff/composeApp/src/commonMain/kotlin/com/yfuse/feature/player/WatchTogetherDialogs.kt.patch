@@ -1,0 +1,11 @@
+--- composeApp/src/commonMain/kotlin/com/yfuse/feature/player/WatchTogetherDialogs.kt (before turn)
++++ composeApp/src/commonMain/kotlin/com/yfuse/feature/player/WatchTogetherDialogs.kt
+@@ -113,7 +113,7 @@
+         SkeletonHandoff(
+             loading = connecting && !connected,
+             modifier = Modifier.fillMaxWidth().heightIn(min = if (connecting && !connected) 210.dp else 0.dp),
+-            skeleton = { PageLoadingSkeleton() },
++            skeleton = { PageLoadingSkeleton(rows = 1) },
+         ) {
+             if (connected) {
+                 Column(

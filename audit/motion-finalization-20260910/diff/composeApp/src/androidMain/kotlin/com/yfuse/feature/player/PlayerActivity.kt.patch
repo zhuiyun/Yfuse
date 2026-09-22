@@ -1,0 +1,101 @@
+--- before/composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerActivity.kt
++++ after/composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerActivity.kt
+@@ -184,6 +184,8 @@
+     private var playerLaunchGeneration = 0L
+     private var playbackGate: WatchGatedPlayback? = null
+     private var activeState = PlaybackState()
++    private var artworkMorph: PlayerArtworkMorphState? = null
++    private var artworkClosing = false
+     private lateinit var audioManager: AudioManager
+     private lateinit var audioFocusController: PlayerAudioFocusController
+     private var remoteCastManager: CastManager? = null
+@@ -356,7 +358,12 @@
+         // this Activity and never writes ACCELEROMETER_ROTATION or USER_ROTATION, so leaving the
+         // player restores the user's unchanged system rotation preference.
+         super.onCreate(savedInstanceState)
+-        configurePlayerWindowMotion()
++        artworkMorph =
++            com.yfuse.core.designsystem.PlayerArtworkOrigins
++                .consume(
++                    intent.getLongExtra(PLAYER_ARTWORK_TOKEN, -1L),
++                )?.let(::PlayerArtworkMorphState)
++        configurePlayerWindowMotion(sharedArtwork = artworkMorph != null)
+         waitingForSessions = ServerSessionRecovery.showIfNeeded(this)
+         if (waitingForSessions) return
+         // A tablet is held whichever way its owner likes; forcing landscape on it only forces a
+@@ -480,8 +487,11 @@
+                 PlayerPreparationContent(
+                     state = state,
+                     onRetry = { pending.store.accept(PlayerIntent.Retry) },
+-                    onBack = ::finish,
++                    onBack = {
++                        if (artworkMorph?.requestExit { finish() } != true) finish()
++                    },
+                 )
++                PlayerArtworkMorph(artworkMorph, ready = state.error != null, inPictureInPicture = false)
+             }
+         }
+         lifecycleScope.launch {
+@@ -720,6 +730,7 @@
+                 accessibility = AccessibilityOptions(reduceMotion = reduceMotion),
+             ) {
+                 PlayerRoot(
++                    artworkMorph = artworkMorph,
+                     items = liveItems,
+                     startIndex = initialStartIndex,
+                     startPositionMs = initialStartPositionMs,
+@@ -1019,25 +1030,41 @@
+ 
+     override fun finish() {
+         // Apply the close policy before finish on API 34+, then support the legacy API afterward.
+-        if (android.os.Build.VERSION.SDK_INT >= 34) finishPlayerWindowMotion(pipWasVisible)
++        if (android.os.Build.VERSION.SDK_INT >=
++            34
++        ) {
++            finishPlayerWindowMotion(pipWasVisible, sharedArtwork = artworkClosing)
++        }
+         super.finish()
+-        if (android.os.Build.VERSION.SDK_INT < 34) finishPlayerWindowMotion(pipWasVisible)
++        if (android.os.Build.VERSION.SDK_INT <
++            34
++        ) {
++            finishPlayerWindowMotion(pipWasVisible, sharedArtwork = artworkClosing)
++        }
+     }
+ 
+     private fun closePlayerAndReturn() {
+         if (stopRequested) return
+-        // Mark the activity as closing before finishing it. Otherwise onUserLeaveHint can
+-        // race this path and turn a deliberate close into PiP. MainActivity stays directly
+-        // underneath this activity in the same task, so finish() restores it without a relaunch.
+         stopRequested = true
+-        activePlayer?.release()
+-        activePlayer = null
+-        activeQueueAppender = null
+-        activeQueueUpdater = null
+-        abandonAudioFocus()
+-        ActivePlayback.clear()
+-        stopPlaybackKeepAliveService()
+-        finish()
++        activePlayer?.pause()
++        val finishPlayback = {
++            activePlayer?.release()
++            activePlayer = null
++            activeQueueAppender = null
++            activeQueueUpdater = null
++            abandonAudioFocus()
++            ActivePlayback.clear()
++            stopPlaybackKeepAliveService()
++            finish()
++        }
++        if (isInPictureInPictureMode ||
++            artworkMorph?.requestExit {
++                artworkClosing = true
++                finishPlayback()
++            } != true
++        ) {
++            finishPlayback()
++        }
+     }
+ 
+     private fun enterPlayerPictureInPicture() {

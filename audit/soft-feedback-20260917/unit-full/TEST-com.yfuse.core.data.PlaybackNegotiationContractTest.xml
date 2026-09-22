@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.data.PlaybackNegotiationContractTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:03.049Z" hostname="DESKTOP-HM2J0FM" time="0.006">
+  <properties/>
+  <testcase name="stereo_phone_route_does_not_force_server_downmix_or_transcode" classname="com.yfuse.core.data.PlaybackNegotiationContractTest" time="0.003"/>
+  <testcase name="dolby_only_source_disables_direct_routes_when_device_has_no_dolby_output" classname="com.yfuse.core.data.PlaybackNegotiationContractTest" time="0.003"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

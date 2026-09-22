@@ -1,0 +1,252 @@
+{
+  "date": "2026-09-20",
+  "baselineHead": "1bbf5f12f05e43ef4b6e84ef837766ee92a31bfc",
+  "basis": "Current dirty workspace, including Android 17 migration; no playback implementation changes made in this review.",
+  "gradleTask": ":phoneShared:testAndroidHostTest",
+  "buildSuccessful": true,
+  "suites": 18,
+  "tests": 111,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0,
+  "resultProvenance": "XML results were produced at 2026-09-20T01:56:34Z through 01:56:37Z. Final Gradle verification reused them as UP-TO-DATE. The first Windows PowerShell wrapper reported the Java stderr banner as an error; the child Gradle execution still produced these results.",
+  "device": {
+    "androidApi": 28,
+    "installedVersionCode": 216,
+    "currentBuildInstalled": false,
+    "installedVersionName": "1.0.54"
+  },
+  "playbackPerformanceMeasured": false,
+  "results": [
+    {
+      "suite": "com.yfuse.core.playback.PlaybackBufferPolicyTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": "2026-09-20T01:56:34.255Z"
+    },
+    {
+      "suite": "com.yfuse.core.playback.PlaybackStartupPolicyTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": "2026-09-20T01:56:34.279Z"
+    },
+    {
+      "suite": "com.yfuse.core2.android.AndroidBoundedProbeTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": "2026-09-20T01:56:34.299Z"
+    },
+    {
+      "suite": "com.yfuse.core2.android.AndroidNextItemPreloadWindowTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": "2026-09-20T01:56:34.529Z"
+    },
+    {
+      "suite": "com.yfuse.core2.android.AndroidPreparedMediaSlotTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": "2026-09-20T01:56:34.644Z"
+    },
+    {
+      "suite": "com.yfuse.core2.android.AndroidProbeBudgetTest",
+      "tests": 9,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": "2026-09-20T01:56:34.892Z"
+    },
+    {
+      "suite": "com.yfuse.core2.android.AndroidTransportMediaDataSourcePrefetchTest",
+      "tests": 16,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": "2026-09-20T01:56:35.132Z"
+    },
+    {
+      "suite": "com.yfuse.core2.android.AndroidTransportStartupAndResumeTest",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": "2026-09-20T01:56:35.869Z"
+    },
+    {
+      "suite": "com.yfuse.core2.android.AndroidYCoreBlockCacheTest",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": "2026-09-20T01:56:36.366Z"
+    },
+    {
+      "suite": "com.yfuse.core2.android.AndroidYCoreVerifiedRouteMemoryTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": "2026-09-20T01:56:36.520Z"
+    },
+    {
+      "suite": "com.yfuse.core2.strategy.YProbeTruthPolicyTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": "2026-09-20T01:56:36.531Z"
+    },
+    {
+      "suite": "com.yfuse.feature.player.AdaptiveStartupLoadControlTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": "2026-09-20T01:56:36.534Z"
+    },
+    {
+      "suite": "com.yfuse.feature.player.PlaybackPreloaderPolicyTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": "2026-09-20T01:56:36.578Z"
+    },
+    {
+      "suite": "com.yfuse.feature.player.PlaybackPreloadTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": "2026-09-20T01:56:36.557Z"
+    },
+    {
+      "suite": "com.yfuse.feature.player.PlaybackProbeCompletionGateTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": "2026-09-20T01:56:36.582Z"
+    },
+    {
+      "suite": "com.yfuse.feature.player.PlaybackQueueUpdateTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": "2026-09-20T01:56:36.593Z"
+    },
+    {
+      "suite": "com.yfuse.feature.player.PlayerStoreTest",
+      "tests": 23,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": "2026-09-20T01:56:36.600Z"
+    },
+    {
+      "suite": "com.yfuse.feature.player.StartupTransferEvidenceTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": "2026-09-20T01:56:37.112Z"
+    }
+  ],
+  "evidenceSourceHashes": [
+    {
+      "path": "D:/Demo/Yfuse/composeApp/src/androidMain/kotlin/com/yfuse/core/network/HttpClientFactory.android.kt",
+      "sha256": "d2fbd3521f009d98f848430ccbb06dff0dbe62c79c57403a8b3f59f2c380464a"
+    },
+    {
+      "path": "D:/Demo/Yfuse/composeApp/src/androidMain/kotlin/com/yfuse/core/playback/PlaybackMediaProbeService.android.kt",
+      "sha256": "6684e1050d20031d57f6889f0b4d5d18f2b1efe3e241731f9cf13c9736ae0b54"
+    },
+    {
+      "path": "D:/Demo/Yfuse/composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidAdaptiveCore2YPlayer.kt",
+      "sha256": "0665a2a6c64a2037137699ec55f681f60b02c18a71d705788182b28f2d4f75d0"
+    },
+    {
+      "path": "D:/Demo/Yfuse/composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidCore2MediaProbe.kt",
+      "sha256": "661e370a4fcef2cae8b97151ecaa7fb2873a7399a21fbe590dc0bd994717ed7f"
+    },
+    {
+      "path": "D:/Demo/Yfuse/composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidEnhancedMediaProbe.kt",
+      "sha256": "8e14b324a56787dea21f1167324e07a077146c38c06c407110a1a7c7c47974d1"
+    },
+    {
+      "path": "D:/Demo/Yfuse/composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidNextItemPreparation.kt",
+      "sha256": "52de76005e2ebe343f1618f3d506608c573e848dab2506000169503cb64f0814"
+    },
+    {
+      "path": "D:/Demo/Yfuse/composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidPreparedExtractorSlot.kt",
+      "sha256": "862e9ba8a3f1d22887d2e18a1ce9db7193e2ee70b5163031e34c92a9cda42d98"
+    },
+    {
+      "path": "D:/Demo/Yfuse/composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidProbeBudget.kt",
+      "sha256": "3a7c2f3d82b695ce88691ada9583d8963fc927e57f9a5390e881bdeff24b7ff6"
+    },
+    {
+      "path": "D:/Demo/Yfuse/composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidTransportMediaDataSource.kt",
+      "sha256": "8c744d53cd1cdfbacf694f44dfce528cc74f7f251d1b27a29d6bdb1f3be1a151"
+    },
+    {
+      "path": "D:/Demo/Yfuse/composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidYCoreVerifiedRouteMemory.kt",
+      "sha256": "c15ed237d5cd8d5549cd22b90dd7ad94b133bf459dad909e51ac03d72727ce74"
+    },
+    {
+      "path": "D:/Demo/Yfuse/composeApp/src/androidMain/kotlin/com/yfuse/feature/player/ExoVideoEngine.kt",
+      "sha256": "6b9419296c254c405760d63b6c2e60ef3d5fe2bb2c8e6b145fb3d10c9dc9dcbd"
+    },
+    {
+      "path": "D:/Demo/Yfuse/composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlaybackPreloader.android.kt",
+      "sha256": "1228211de234de440669834769b453f4690cfc94b155f7a38ea999db2fdad3a1"
+    },
+    {
+      "path": "D:/Demo/Yfuse/composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerRoot.kt",
+      "sha256": "16acd3b18c7e6976e6020aede9ba035b2ab348775ff9a618518117e0d160adf7"
+    },
+    {
+      "path": "D:/Demo/Yfuse/composeApp/src/androidMain/kotlin/com/yfuse/feature/player/YCorePlayerRuntime.android.kt",
+      "sha256": "92769aad30360ecd0516460a12085622ddafa4dfa6b69fb825bc1dc8990c2b1a"
+    },
+    {
+      "path": "D:/Demo/Yfuse/composeApp/src/commonMain/kotlin/com/yfuse/core/data/EmbyDetailService.kt",
+      "sha256": "eda75b39470b5f955c00325fb7745154be71f62252bc0a90d0a78636cdd2bedf"
+    },
+    {
+      "path": "D:/Demo/Yfuse/composeApp/src/commonMain/kotlin/com/yfuse/core/data/PlexMediaServerAdapter.kt",
+      "sha256": "8ca6d823b80f6a230895258f2004f15a7a2147ccb873b20538cbda20dafee8df"
+    },
+    {
+      "path": "D:/Demo/Yfuse/composeApp/src/commonMain/kotlin/com/yfuse/core/playback/PlaybackStartupPolicy.kt",
+      "sha256": "392116da9132a30542f1c9ace9b9120cb4e974ca40fbdbb4e784d17e1b935c36"
+    },
+    {
+      "path": "D:/Demo/Yfuse/composeApp/src/commonMain/kotlin/com/yfuse/core2/network/YBufferController.kt",
+      "sha256": "8bbf182b665eb40794506089d162eb9c771076ad1d2165764385f40d7505f308"
+    },
+    {
+      "path": "D:/Demo/Yfuse/composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailComponent.kt",
+      "sha256": "658c330344ea6a47d79ba501874fb8265b9f8c22ef453e7fd94d59adf1d04308"
+    },
+    {
+      "path": "D:/Demo/Yfuse/composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerStore.kt",
+      "sha256": "a20555e993633dbe6d304483b184e4e09a89538924cf4deb767d996b398cfda2"
+    },
+    {
+      "path": "D:/Demo/Yfuse/scripts/native/ycore_demux_jni.cpp",
+      "sha256": "559f134528273aa1dfb6f07c8209ebe39be988fa1ea6753f3849fb37bf475d4a"
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+[
+  "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/NativePlaybackStateSupport.kt",
+  "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/MdkVideoEngine.kt",
+  "composeApp/src/androidUnitTest/kotlin/com/yfuse/feature/player/MdkLoadStateGateTest.kt"
+]

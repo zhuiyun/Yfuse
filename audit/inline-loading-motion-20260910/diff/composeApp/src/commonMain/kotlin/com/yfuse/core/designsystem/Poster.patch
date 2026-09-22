@@ -1,0 +1,82 @@
+--- composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/Poster.kt
++++ composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/Poster.kt
+@@ -1,5 +1,8 @@
+ package com.yfuse.core.designsystem
+ 
++import androidx.compose.animation.core.animateFloatAsState
++import androidx.compose.animation.core.snap
++import androidx.compose.animation.core.tween
+ import androidx.compose.foundation.background
+ import androidx.compose.foundation.layout.Arrangement
+ import androidx.compose.foundation.layout.Box
+@@ -29,13 +32,16 @@
+ import androidx.compose.ui.graphics.Color
+ import androidx.compose.ui.graphics.Shadow
+ import androidx.compose.ui.graphics.Shape
++import androidx.compose.ui.graphics.TransformOrigin
+ import androidx.compose.ui.graphics.graphicsLayer
+ import androidx.compose.ui.layout.ContentScale
++import androidx.compose.ui.platform.LocalLayoutDirection
+ import androidx.compose.ui.semantics.clearAndSetSemantics
+ import androidx.compose.ui.semantics.contentDescription
+ import androidx.compose.ui.semantics.semantics
+ import androidx.compose.ui.text.style.TextOverflow
+ import androidx.compose.ui.unit.Dp
++import androidx.compose.ui.unit.LayoutDirection
+ import androidx.compose.ui.unit.dp
+ import androidx.compose.ui.unit.sp
+ import coil3.compose.AsyncImage
+@@ -372,23 +378,36 @@
+         }
+ 
+         progress?.takeIf { it > 0f }?.let { rawProgress ->
+-            val watched = rawProgress.coerceIn(0f, 1f)
+-            // Keep the total duration visible: without a rail, a short watched segment
+-            // reads like a decorative underline instead of resumable playback state.
+-            Box(
+-                Modifier
+-                    .align(Alignment.BottomStart)
+-                    .fillMaxWidth()
+-                    .height(4.dp)
+-                    .background(Color.Black.copy(alpha = 0.42f)),
+-            )
+-            Box(
+-                Modifier
+-                    .align(Alignment.BottomStart)
+-                    .fillMaxWidth(watched)
+-                    .height(4.dp)
+-                    .background(PrimaryGradient),
+-            )
++            // A recycled poster starts at its own value, never the previous artwork's progress.
++            key(candidates) {
++                val watched = rawProgress.coerceIn(0f, 1f)
++                val moving = !reduceMotion && LocalRouteVisible.current
++                val animatedWatched =
++                    animateFloatAsState(
++                        targetValue = watched,
++                        animationSpec = if (moving) tween(Motion.STANDARD, easing = Motion.Curve) else snap(),
++                        label = "poster-watched",
++                    )
++                val origin = if (LocalLayoutDirection.current == LayoutDirection.Rtl) 1f else 0f
++                Box(
++                    Modifier
++                        .align(Alignment.BottomStart)
++                        .fillMaxWidth()
++                        .height(4.dp)
++                        .background(Color.Black.copy(alpha = 0.42f)),
++                )
++                Box(
++                    Modifier
++                        .align(Alignment.BottomStart)
++                        .fillMaxWidth()
++                        .height(4.dp)
++                        .graphicsLayer {
++                            // Read in the layer: no per-frame composition or layout, including in grids.
++                            scaleX = animatedWatched.value
++                            transformOrigin = TransformOrigin(origin, 0.5f)
++                        }.background(PrimaryGradient),
++                )
++            }
+         }
+     }
+ }

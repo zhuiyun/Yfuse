@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.util.DateWindowTest" tests="11" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:08.560Z" hostname="DESKTOP-HM2J0FM" time="0.002">
+  <properties/>
+  <testcase name="the_epoch_day_is_anchored_where_the_weekday_maths_expects" classname="com.yfuse.core.util.DateWindowTest" time="0.0"/>
+  <testcase name="shifts_within_a_month" classname="com.yfuse.core.util.DateWindowTest" time="0.0"/>
+  <testcase name="handles_leap_days" classname="com.yfuse.core.util.DateWindowTest" time="0.0"/>
+  <testcase name="leaves_unparseable_input_alone_rather_than_inventing_a_date" classname="com.yfuse.core.util.DateWindowTest" time="0.001"/>
+  <testcase name="counts_days_between_dates_in_both_directions" classname="com.yfuse.core.util.DateWindowTest" time="0.0"/>
+  <testcase name="crosses_month_and_year_boundaries" classname="com.yfuse.core.util.DateWindowTest" time="0.0"/>
+  <testcase name="shortens_a_date_for_a_chip" classname="com.yfuse.core.util.DateWindowTest" time="0.0"/>
+  <testcase name="names_the_weekday_a_date_falls_on" classname="com.yfuse.core.util.DateWindowTest" time="0.0"/>
+  <testcase name="the_daily_pick_copes_with_an_empty_pool_a_bad_date_and_dates_before_1970" classname="com.yfuse.core.util.DateWindowTest" time="0.0"/>
+  <testcase name="the_daily_pick_walks_the_whole_pool_before_repeating" classname="com.yfuse.core.util.DateWindowTest" time="0.001"/>
+  <testcase name="the_daily_pick_is_stable_within_a_day_and_moves_on_overnight" classname="com.yfuse.core.util.DateWindowTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

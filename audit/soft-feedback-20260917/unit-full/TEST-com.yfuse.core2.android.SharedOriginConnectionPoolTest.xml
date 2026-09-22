@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.SharedOriginConnectionPoolTest" tests="1" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:13.263Z" hostname="DESKTOP-HM2J0FM" time="0.017">
+  <properties/>
+  <testcase name="a_media_byte_range_reuses_the_connection_the_api_client_already_opened" classname="com.yfuse.core2.android.SharedOriginConnectionPoolTest" time="0.017"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

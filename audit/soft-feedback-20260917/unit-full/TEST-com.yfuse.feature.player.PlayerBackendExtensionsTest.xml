@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.PlayerBackendExtensionsTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:15.990Z" hostname="DESKTOP-HM2J0FM" time="0.004">
+  <properties/>
+  <testcase name="forwards_optional_controls_without_exposing_the_engine_to_callers" classname="com.yfuse.feature.player.PlayerBackendExtensionsTest" time="0.003"/>
+  <testcase name="unsupported_scale_and_disc_controls_fail_explicitly" classname="com.yfuse.feature.player.PlayerBackendExtensionsTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

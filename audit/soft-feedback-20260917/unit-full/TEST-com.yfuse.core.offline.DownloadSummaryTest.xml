@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.offline.DownloadSummaryTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:05.591Z" hostname="DESKTOP-HM2J0FM" time="0.011">
+  <properties/>
+  <testcase name="weights_bytes_and_excludes_completed_history" classname="com.yfuse.core.offline.DownloadSummaryTest" time="0.008"/>
+  <testcase name="paused_and_failure_remain_visible_without_active_downloads" classname="com.yfuse.core.offline.DownloadSummaryTest" time="0.003"/>
+  <testcase name="unknown_sizes_are_indeterminate_and_large_sizes_do_not_overflow" classname="com.yfuse.core.offline.DownloadSummaryTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

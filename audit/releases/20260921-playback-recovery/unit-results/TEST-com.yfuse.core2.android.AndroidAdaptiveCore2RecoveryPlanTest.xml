@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.AndroidAdaptiveCore2RecoveryPlanTest" tests="10" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:43:53.384Z" hostname="DESKTOP-HM2J0FM" time="0.008">
+  <properties/>
+  <testcase name="real playback failures replace the preflight gate with an actionable category" classname="com.yfuse.core2.android.AndroidAdaptiveCore2RecoveryPlanTest" time="0.002"/>
+  <testcase name="explicit disc software decode follows probed HDR and owns required tone mapping" classname="com.yfuse.core2.android.AndroidAdaptiveCore2RecoveryPlanTest" time="0.003"/>
+  <testcase name="explicit YCore never lets persisted route memory become a hard startup gate" classname="com.yfuse.core2.android.AndroidAdaptiveCore2RecoveryPlanTest" time="0.0"/>
+  <testcase name="YCore internal recovery advances through enhanced hardware then software" classname="com.yfuse.core2.android.AndroidAdaptiveCore2RecoveryPlanTest" time="0.0"/>
+  <testcase name="native direct never treats an unresolved Dolby source as ordinary HEVC" classname="com.yfuse.core2.android.AndroidAdaptiveCore2RecoveryPlanTest" time="0.0"/>
+  <testcase name="silent native recovery stays inside the active serialized child" classname="com.yfuse.core2.android.AndroidAdaptiveCore2RecoveryPlanTest" time="0.001"/>
+  <testcase name="same native route codec recovery is serialized without rebuilding the child" classname="com.yfuse.core2.android.AndroidAdaptiveCore2RecoveryPlanTest" time="0.0"/>
+  <testcase name="Dolby Vision never crosses into ordinary software decode" classname="com.yfuse.core2.android.AndroidAdaptiveCore2RecoveryPlanTest" time="0.001"/>
+  <testcase name="native direct accepts the Dolby identity exposed by the platform extractor" classname="com.yfuse.core2.android.AndroidAdaptiveCore2RecoveryPlanTest" time="0.0"/>
+  <testcase name="explicit software refuses missing probe Dolby Vision and either protection signal" classname="com.yfuse.core2.android.AndroidAdaptiveCore2RecoveryPlanTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

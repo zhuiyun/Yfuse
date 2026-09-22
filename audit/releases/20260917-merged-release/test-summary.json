@@ -1,0 +1,9 @@
+{
+  "tests": 2653,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0,
+  "module": "phoneShared",
+  "task": "testAndroidHostTest",
+  "sourceRevision": "8efe21b12fb46936bfeec0f1d64959987f027607"
+}

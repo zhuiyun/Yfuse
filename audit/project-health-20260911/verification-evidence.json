@@ -1,0 +1,188 @@
+{
+  "commit": "04dc5086eccaacdf3013080b6ecc5d353f1663ee",
+  "source_scope": "Git-tracked Kotlin files under module src; physical lines including comments/blanks; regex counts are not defect counts",
+  "modules": {
+    "composeApp": {
+      "files": 1269,
+      "lines": 259856,
+      "test_files": 523
+    },
+    "macrobenchmark": {
+      "files": 5,
+      "lines": 212,
+      "test_files": 0
+    },
+    "tvApp": {
+      "files": 23,
+      "lines": 8186,
+      "test_files": 1
+    },
+    "watchTogetherProtocol": {
+      "files": 4,
+      "lines": 595,
+      "test_files": 2
+    },
+    "watchTogetherServer": {
+      "files": 57,
+      "lines": 21513,
+      "test_files": 24
+    }
+  },
+  "baseline": {
+    "composeApp-baseline.xml": {
+      "files": 124,
+      "errors": 701,
+      "rules": {
+        "standard:chain-method-continuation": 161,
+        "standard:function-signature": 88,
+        "standard:property-naming": 143,
+        "standard:no-consecutive-comments": 4,
+        "standard:import-ordering": 24,
+        "standard:indent": 54,
+        "standard:multiline-expression-wrapping": 31,
+        "standard:function-expression-body": 3,
+        "standard:no-unused-imports": 2,
+        "standard:blank-line-before-declaration": 7,
+        "standard:argument-list-wrapping": 73,
+        "standard:function-literal": 22,
+        "standard:max-line-length": 21,
+        "standard:wrapping": 7,
+        "standard:binary-expression-wrapping": 10,
+        "standard:annotation": 2,
+        "standard:spacing-between-declarations-with-annotations": 2,
+        "standard:class-signature": 6,
+        "standard:condition-wrapping": 4,
+        "standard:if-else-wrapping": 20,
+        "standard:multiline-if-else": 8,
+        "standard:parameter-list-wrapping": 2,
+        "standard:string-template": 1,
+        "standard:spacing-between-declarations-with-comments": 1,
+        "standard:no-empty-first-line-in-method-block": 1,
+        "standard:string-template-indent": 4
+      }
+    },
+    "mdkAndroid-baseline.xml": {
+      "files": 0,
+      "errors": 0,
+      "rules": {}
+    },
+    "tvApp-baseline.xml": {
+      "files": 2,
+      "errors": 5,
+      "rules": {
+        "standard:chain-method-continuation": 4,
+        "standard:multiline-expression-wrapping": 1
+      }
+    },
+    "watchTogetherProtocol-baseline.xml": {
+      "files": 0,
+      "errors": 0,
+      "rules": {}
+    },
+    "watchTogetherServer-baseline.xml": {
+      "files": 8,
+      "errors": 449,
+      "rules": {
+        "standard:function-signature": 49,
+        "standard:if-else-wrapping": 12,
+        "standard:multiline-if-else": 9,
+        "standard:chain-method-continuation": 170,
+        "standard:wrapping": 6,
+        "standard:function-literal": 32,
+        "standard:multiline-expression-wrapping": 24,
+        "standard:statement-wrapping": 2,
+        "standard:argument-list-wrapping": 80,
+        "standard:max-line-length": 23,
+        "standard:parameter-list-wrapping": 6,
+        "standard:binary-expression-wrapping": 10,
+        "standard:blank-line-before-declaration": 18,
+        "standard:trailing-comma-on-call-site": 1,
+        "standard:class-signature": 2,
+        "standard:condition-wrapping": 4,
+        "standard:no-unused-imports": 1
+      }
+    }
+  },
+  "lexical_counts": {
+    "catch_exception": 60,
+    "catch_throwable": 112,
+    "empty_catch": 3,
+    "discard_exception_name": 20,
+    "runCatching": 842,
+    "non_null_assertion": 120,
+    "suppress": 77
+  },
+  "largest_files": [
+    [
+      "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerRoot.kt",
+      3452
+    ],
+    [
+      "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidNativeDirectYPlayer.kt",
+      3261
+    ],
+    [
+      "watchTogetherServer/src/main/kotlin/com/yfuse/watch/CalendarIngestion.kt",
+      2879
+    ],
+    [
+      "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidAdaptiveCore2YPlayer.kt",
+      2311
+    ],
+    [
+      "watchTogetherServer/src/main/kotlin/com/yfuse/watch/Application.kt",
+      2302
+    ],
+    [
+      "composeApp/src/commonMain/kotlin/com/yfuse/feature/servers/ServersTabScreen.kt",
+      2241
+    ],
+    [
+      "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/MpvVideoEngine.kt",
+      2187
+    ],
+    [
+      "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidEnhancedPlaybackSession.kt",
+      2154
+    ],
+    [
+      "composeApp/src/androidMain/kotlin/com/yfuse/update/AppUpdateManager.kt",
+      2132
+    ],
+    [
+      "composeApp/src/androidMain/kotlin/com/yfuse/core/offline/OfflineMedia.android.kt",
+      2131
+    ]
+  ],
+  "tracked_locks": [
+    "composeApp/gradle.lockfile",
+    "macrobenchmark/gradle.lockfile",
+    "mdkAndroid/gradle.lockfile",
+    "watchTogetherProtocol/gradle.lockfile",
+    "watchTogetherServer/gradle.lockfile"
+  ],
+  "effective_dependency_count": 745,
+  "old_sbom_extra_coordinates": [
+    "androidx.media:media:1.6.0",
+    "com.google.zxing:core:3.3.3",
+    "org.bouncycastle:bcprov-jdk18on:1.84",
+    "org.jetbrains.kotlin:kotlin-build-tools-api:2.1.21",
+    "org.jetbrains.kotlin:kotlin-build-tools-impl:2.1.21",
+    "org.jetbrains.kotlin:kotlin-compiler-embeddable:2.1.21",
+    "org.jetbrains.kotlin:kotlin-compiler-runner:2.1.21",
+    "org.jetbrains.kotlin:kotlin-daemon-client:2.1.21",
+    "org.jetbrains.kotlin:kotlin-daemon-embeddable:2.1.21",
+    "org.jetbrains.kotlin:kotlin-klib-commonizer-embeddable:2.1.21",
+    "org.jetbrains.kotlin:kotlin-script-runtime:2.1.21",
+    "org.jetbrains.kotlin:kotlin-scripting-common:2.1.21",
+    "org.jetbrains.kotlin:kotlin-scripting-compiler-embeddable:2.1.21",
+    "org.jetbrains.kotlin:kotlin-scripting-compiler-impl-embeddable:2.1.21",
+    "org.jetbrains.kotlin:kotlin-scripting-jvm:2.1.21",
+    "org.jetbrains.kotlin:kotlin-stdlib-common:2.1.21",
+    "org.jetbrains.kotlin:kotlin-stdlib-jdk7:2.2.21",
+    "org.jetbrains.kotlin:kotlin-stdlib-jdk8:2.2.21",
+    "org.jetbrains.kotlin:kotlin-stdlib:2.1.21",
+    "org.xerial:sqlite-jdbc:3.53.2.1"
+  ],
+  "old_sbom_missing_coordinates": []
+}

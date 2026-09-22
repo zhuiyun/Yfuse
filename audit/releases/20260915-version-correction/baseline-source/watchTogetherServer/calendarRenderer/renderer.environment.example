@@ -1,0 +1,9 @@
+YFUSE_CALENDAR_RENDERER_TOKEN=replace-with-at-least-24-random-characters
+# On Windows, set this to chrome if the bundled Chromium cannot access the network.
+# Leave it unset in the provided Docker image.
+# YFUSE_RENDERER_BROWSER_CHANNEL=chrome
+# If corporate Windows policy blocks headless browser networking, use headed mode locally.
+# YFUSE_RENDERER_HEADLESS=false
+# Prefer a Playwright storage-state.json mounted by compose. If that is unavailable, inject
+# only the Weibo Cookie header through the deployment secret store; never commit it here.
+# YFUSE_RENDERER_WEIBO_COOKIE=SUB=...; SUBP=...

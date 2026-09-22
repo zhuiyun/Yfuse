@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.bitstream.YBitstreamTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:13.289Z" hostname="DESKTOP-HM2J0FM" time="0.002">
+  <properties/>
+  <testcase name="H264 parameter-set scanning stays independent from HEVC type rules" classname="com.yfuse.core2.bitstream.YBitstreamTest" time="0.0"/>
+  <testcase name="length-prefixed parser rejects truncated or oversized access units" classname="com.yfuse.core2.bitstream.YBitstreamTest" time="0.0"/>
+  <testcase name="AV1 low-overhead normalization adds a bounded OBU size field" classname="com.yfuse.core2.bitstream.YBitstreamTest" time="0.001"/>
+  <testcase name="HEVC registered SEI exposes HDR10 plus payload" classname="com.yfuse.core2.bitstream.YBitstreamTest" time="0.001"/>
+  <testcase name="AV1 OBU parser rejects a payload beyond the access unit" classname="com.yfuse.core2.bitstream.YBitstreamTest" time="0.0"/>
+  <testcase name="HEVC AnnexB scan exposes parameter sets and Dolby evidence" classname="com.yfuse.core2.bitstream.YBitstreamTest" time="0.0"/>
+  <testcase name="long AnnexB zero run belongs to the delimiter not the previous NAL" classname="com.yfuse.core2.bitstream.YBitstreamTest" time="0.0"/>
+  <testcase name="AnnexB and four-byte length-prefix normalization round trips encoded units" classname="com.yfuse.core2.bitstream.YBitstreamTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

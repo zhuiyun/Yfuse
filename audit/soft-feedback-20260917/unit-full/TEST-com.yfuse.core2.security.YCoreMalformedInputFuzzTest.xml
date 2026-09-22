@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.security.YCoreMalformedInputFuzzTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:13.352Z" hostname="DESKTOP-HM2J0FM" time="0.062">
+  <properties/>
+  <testcase name="arbitrary_dolby_configuration_round_trips_without_hidden_bytes" classname="com.yfuse.core2.security.YCoreMalformedInputFuzzTest" time="0.006"/>
+  <testcase name="random_access_units_are_bounded_and_never_escape_the_input" classname="com.yfuse.core2.security.YCoreMalformedInputFuzzTest" time="0.056"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

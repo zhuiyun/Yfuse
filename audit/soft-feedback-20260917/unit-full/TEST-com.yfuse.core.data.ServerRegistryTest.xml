@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.data.ServerRegistryTest" tests="18" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:03.325Z" hostname="DESKTOP-HM2J0FM" time="0.803">
+  <properties/>
+  <testcase name="plex_cloud_token_uses_a_second_secure_slot_and_never_enters_settings" classname="com.yfuse.core.data.ServerRegistryTest" time="0.002"/>
+  <testcase name="tokenIsAbsentFromOrdinarySettingsAndReloadsFromSecureStore" classname="com.yfuse.core.data.ServerRegistryTest" time="0.0"/>
+  <testcase name="missingOrCorruptedSecureSecretFailsClosedAndRequiresLogin" classname="com.yfuse.core.data.ServerRegistryTest" time="0.001"/>
+  <testcase name="renamePersistsWithoutChangingIdentitySessionOrDefault" classname="com.yfuse.core.data.ServerRegistryTest" time="0.001"/>
+  <testcase name="routeMutationsAllowPublicAndLocalHttpWithoutConfirmation" classname="com.yfuse.core.data.ServerRegistryTest" time="0.001"/>
+  <testcase name="removingServerRemovesItsEncryptedSecret" classname="com.yfuse.core.data.ServerRegistryTest" time="0.0"/>
+  <testcase name="replacingConnectionKeepsBoundedPersistedAliasesAndReusesOneSecretSlot" classname="com.yfuse.core.data.ServerRegistryTest" time="0.004"/>
+  <testcase name="publicHttpCanBeSavedWithoutConfirmation" classname="com.yfuse.core.data.ServerRegistryTest" time="0.0"/>
+  <testcase name="protectedBackupRoundTripsCredentialsAndRejectsWrongPasswordExpiryAndV1" classname="com.yfuse.core.data.ServerRegistryTest" time="0.394"/>
+  <testcase name="failedLegacySecretMigrationPurgesPlaintextAndRequiresLogin" classname="com.yfuse.core.data.ServerRegistryTest" time="0.001"/>
+  <testcase name="failedOldCacheCleanupDoesNotFailCommittedReplacement" classname="com.yfuse.core.data.ServerRegistryTest" time="0.001"/>
+  <testcase name="jellyfin_provider_kind_survives_encrypted_registry_reload" classname="com.yfuse.core.data.ServerRegistryTest" time="0.001"/>
+  <testcase name="localCleartextConfirmationPersistsLocallyButIsNotCloudSerializable" classname="com.yfuse.core.data.ServerRegistryTest" time="0.0"/>
+  <testcase name="legacyPlaintextRegistryMigratesOnceAndIsImmediatelySanitized" classname="com.yfuse.core.data.ServerRegistryTest" time="0.001"/>
+  <testcase name="protectedBackupRestoresHttpServersWithoutConfirmation" classname="com.yfuse.core.data.ServerRegistryTest" time="0.392"/>
+  <testcase name="reselecting_the_current_default_does_not_republish_the_registry" classname="com.yfuse.core.data.ServerRegistryTest" time="0.0"/>
+  <testcase name="httpServersSyncAndReloadWithoutConfirmation" classname="com.yfuse.core.data.ServerRegistryTest" time="0.001"/>
+  <testcase name="firstAddedBecomesDefaultAndRemovingItReassignsDefault" classname="com.yfuse.core.data.ServerRegistryTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

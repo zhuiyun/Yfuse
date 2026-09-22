@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.home.HomeStoreTest" tests="17" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:15.108Z" hostname="DESKTOP-HM2J0FM" time="0.22">
+  <properties/>
+  <testcase name="cached_recommendations_remain_visible_when_live_refresh_fails" classname="com.yfuse.feature.home.HomeStoreTest" time="0.022"/>
+  <testcase name="partial_refresh_keeps_yesterdays_four_shelves_without_refreshing_the_cache_date" classname="com.yfuse.feature.home.HomeStoreTest" time="0.023"/>
+  <testcase name="partial_first_load_does_not_claim_to_show_old_content" classname="com.yfuse.feature.home.HomeStoreTest" time="0.012"/>
+  <testcase name="quick_home_revisits_reuse_refresh_but_explicit_refresh_still_fetches" classname="com.yfuse.feature.home.HomeStoreTest" time="0.035"/>
+  <testcase name="settings_read_and_cleanup_failures_do_not_prevent_live_recommendations" classname="com.yfuse.feature.home.HomeStoreTest" time="0.009"/>
+  <testcase name="home_avatar_uses_a_recognizable_user_initial" classname="com.yfuse.feature.home.HomeStoreTest" time="0.005"/>
+  <testcase name="complete_refresh_clears_the_partial_notice_and_replaces_old_shelves" classname="com.yfuse.feature.home.HomeStoreTest" time="0.019"/>
+  <testcase name="unavailable_recommendations_do_not_claim_the_emby_server_is_offline" classname="com.yfuse.feature.home.HomeStoreTest" time="0.008"/>
+  <testcase name="authorization_and_rate_limit_failures_have_distinct_actionable_notices" classname="com.yfuse.feature.home.HomeStoreTest" time="0.017"/>
+  <testcase name="canceled_old_cache_write_finishes_before_the_newer_write" classname="com.yfuse.feature.home.HomeStoreTest" time="0.003"/>
+  <testcase name="hero_play_action_starts_a_matched_emby_item" classname="com.yfuse.feature.home.HomeStoreTest" time="0.016"/>
+  <testcase name="partial_merge_preserves_media_type_identity_and_clears_successfully_empty_shelves" classname="com.yfuse.feature.home.HomeStoreTest" time="0.001"/>
+  <testcase name="empty_successful_feeds_clear_old_shelves_while_only_the_failed_popular_feed_is_retained" classname="com.yfuse.feature.home.HomeStoreTest" time="0.023"/>
+  <testcase name="continue_watching_copy_formats_resume_position_and_date" classname="com.yfuse.feature.home.HomeStoreTest" time="0.001"/>
+  <testcase name="matched_recommendation_opens_emby_detail" classname="com.yfuse.feature.home.HomeStoreTest" time="0.016"/>
+  <testcase name="repeated_partial_refreshes_are_bounded_and_restore_missing_shelves_in_display_order" classname="com.yfuse.feature.home.HomeStoreTest" time="0.002"/>
+  <testcase name="known_unavailable_default_server_does_not_start_home_requests" classname="com.yfuse.feature.home.HomeStoreTest" time="0.008"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

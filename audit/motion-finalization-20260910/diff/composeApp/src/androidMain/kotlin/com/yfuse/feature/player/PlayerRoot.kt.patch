@@ -1,0 +1,40 @@
+--- before/composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerRoot.kt
++++ after/composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerRoot.kt
+@@ -131,6 +131,7 @@
+     onPlayerDetached: (YPlayer) -> Unit,
+     onPlaybackState: (PlaybackState, PlayerMediaItem?) -> Unit,
+     onVideoBounds: (Rect) -> Unit,
++    artworkMorph: PlayerArtworkMorphState? = null,
+     onBack: () -> Unit,
+     onEnterPictureInPicture: () -> Unit,
+     onRefreshEpisodes: () -> Unit,
+@@ -2415,7 +2416,8 @@
+                 artworkUrls = listOf(currentItem?.stillUrl, currentItem?.posterUrl),
+                 title = currentItem?.title.orEmpty(),
+                 visible =
+-                    currentItem != null &&
++                    artworkMorph?.visible != true &&
++                        currentItem != null &&
+                         state.error == null &&
+                         !state.ended &&
+                         !(
+@@ -2431,6 +2433,19 @@
+                         else -> "正在准备画面"
+                     },
+                 modifier = Modifier.fillMaxSize(),
++            )
++            PlayerArtworkMorph(
++                state = artworkMorph,
++                ready =
++                    state.error != null ||
++                        state.diagnostics.effectiveVideoReadiness == PlaybackOutputReadiness.Rendering,
++                inPictureInPicture = inPictureInPicture,
++                aspectRatio =
++                    if (scaleMode == VideoScaleMode.Fit && state.videoHeight > 0) {
++                        state.diagnostics.videoWidth.toFloat() / state.videoHeight
++                    } else {
++                        null
++                    },
+             )
+             val sourceBufferMs =
+                 maxOf(

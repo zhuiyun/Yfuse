@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.search.SearchStoreTest" tests="12" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:16.261Z" hostname="DESKTOP-HM2J0FM" time="0.057">
+  <properties/>
+  <testcase name="submit_searches_default_server_and_exposes_results" classname="com.yfuse.feature.search.SearchStoreTest" time="0.011"/>
+  <testcase name="fast_server_results_are_visible_while_a_slow_server_is_still_loading" classname="com.yfuse.feature.search.SearchStoreTest" time="0.006"/>
+  <testcase name="submit_without_server_shows_actionable_error" classname="com.yfuse.feature.search.SearchStoreTest" time="0.002"/>
+  <testcase name="type_filter_is_not_offered_for_a_kind_nothing_matched" classname="com.yfuse.feature.search.SearchStoreTest" time="0.0"/>
+  <testcase name="load_more_appends_the_next_server_page_without_duplicates" classname="com.yfuse.feature.search.SearchStoreTest" time="0.01"/>
+  <testcase name="saved_rule_searches_without_keywords_and_paginates_on_the_selected_server" classname="com.yfuse.feature.search.SearchStoreTest" time="0.007"/>
+  <testcase name="every_failed_server_keeps_actionable_per_server_context" classname="com.yfuse.feature.search.SearchStoreTest" time="0.006"/>
+  <testcase name="a_new_query_resets_the_previous_type_filter" classname="com.yfuse.feature.search.SearchStoreTest" time="0.003"/>
+  <testcase name="type_filter_narrows_the_groups_and_the_heading_count" classname="com.yfuse.feature.search.SearchStoreTest" time="0.001"/>
+  <testcase name="smart_source_groups_provider_copies_and_switch_disables_aggregation" classname="com.yfuse.feature.search.SearchStoreTest" time="0.009"/>
+  <testcase name="a_failed_server_is_kept_in_coverage_but_not_the_result_stream" classname="com.yfuse.feature.search.SearchStoreTest" time="0.0"/>
+  <testcase name="clear_resets_query_results_and_error" classname="com.yfuse.feature.search.SearchStoreTest" time="0.002"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

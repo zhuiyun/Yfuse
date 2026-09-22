@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.designsystem.DialogAnimationTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-09-22T01:21:16.718Z" hostname="DESKTOP-HM2J0FM" time="0.019">
+  <properties/>
+  <testcase name="layer_and_mask_share_geometry_without_stale_frames_when_exit_reverses" classname="com.yfuse.core.designsystem.DialogAnimationTest" time="0.001"/>
+  <testcase name="reconstruction_slices_reveal_monotonically_and_reassemble_without_offsets" classname="com.yfuse.core.designsystem.DialogAnimationTest" time="0.001"/>
+  <testcase name="portal_reaches_every_corner_even_when_trigger_is_outside_the_panel" classname="com.yfuse.core.designsystem.DialogAnimationTest" time="0.001"/>
+  <testcase name="mask_only_styles_reuse_identity_geometry_across_animation_frames" classname="com.yfuse.core.designsystem.DialogAnimationTest" time="0.0"/>
+  <testcase name="each_choice_survives_preferences_recreation_and_unknown_values_fall_back" classname="com.yfuse.core.designsystem.DialogAnimationTest" time="0.002"/>
+  <testcase name="every_style_finishes_at_identity_and_keeps_geometry_in_bounds" classname="com.yfuse.core.designsystem.DialogAnimationTest" time="0.014"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.data.PlaybackTrackRequestTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:03.089Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="stating_no_preference_stores_nothing" classname="com.yfuse.core.data.PlaybackTrackRequestTest" time="0.001"/>
+  <testcase name="it_is_consumed_once_so_the_next_episode_starts_clean" classname="com.yfuse.core.data.PlaybackTrackRequestTest" time="0.0"/>
+  <testcase name="the_request_reaches_the_entry_it_was_made_for" classname="com.yfuse.core.data.PlaybackTrackRequestTest" time="0.0"/>
+  <testcase name="a_player_opening_for_something_else_finds_nothing" classname="com.yfuse.core.data.PlaybackTrackRequestTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

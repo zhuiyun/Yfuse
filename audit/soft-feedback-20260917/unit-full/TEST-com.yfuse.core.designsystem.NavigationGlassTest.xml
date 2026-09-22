@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.designsystem.NavigationGlassTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:04.637Z" hostname="DESKTOP-HM2J0FM" time="0.003">
+  <properties/>
+  <testcase name="selection_fade_clamps_overshoot_and_ignores_non_finite_values" classname="com.yfuse.core.designsystem.NavigationGlassTest" time="0.002"/>
+  <testcase name="selection_remains_translucent_in_both_themes" classname="com.yfuse.core.designsystem.NavigationGlassTest" time="0.0"/>
+  <testcase name="selection_uses_the_current_accent_instead_of_a_fixed_blue_plate" classname="com.yfuse.core.designsystem.NavigationGlassTest" time="0.0"/>
+  <testcase name="reduced_transparency_frosted_and_unsupported_platforms_keep_the_fallback" classname="com.yfuse.core.designsystem.NavigationGlassTest" time="0.0"/>
+  <testcase name="fine_rim_and_shallow_refraction_do_not_recreate_the_wide_inner_bevel" classname="com.yfuse.core.designsystem.NavigationGlassTest" time="0.0"/>
+  <testcase name="pane_keeps_backdrop_colour_visible_in_both_themes" classname="com.yfuse.core.designsystem.NavigationGlassTest" time="0.0"/>
+  <testcase name="invalid_or_collapsed_bounds_never_create_an_invalid_gradient" classname="com.yfuse.core.designsystem.NavigationGlassTest" time="0.0"/>
+  <testcase name="rim_is_inset_so_its_outside_edge_stays_inside_the_selected_capsule" classname="com.yfuse.core.designsystem.NavigationGlassTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

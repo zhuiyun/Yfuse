@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.playback.PlaybackPlannerTest" tests="22" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:06.652Z" hostname="DESKTOP-HM2J0FM" time="0.003">
+  <properties/>
+  <testcase name="repeated_device_failure_removes_the_bad_engine_from_the_plan" classname="com.yfuse.core.playback.PlaybackPlannerTest" time="0.0"/>
+  <testcase name="compact_package_never_selects_an_unbundled_locked_engine" classname="com.yfuse.core.playback.PlaybackPlannerTest" time="0.001"/>
+  <testcase name="platform_dolby_output_safely_overrides_a_native_backend_lock" classname="com.yfuse.core.playback.PlaybackPlannerTest" time="0.0"/>
+  <testcase name="disc_source_with_server_fallback_uses_server_parse_and_platform_decode" classname="com.yfuse.core.playback.PlaybackPlannerTest" time="0.0"/>
+  <testcase name="drm_remains_on_the_platform_path_even_when_history_prefers_native" classname="com.yfuse.core.playback.PlaybackPlannerTest" time="0.0"/>
+  <testcase name="power_saver_uses_server_tone_mapping_instead_of_running_the_gpu_path" classname="com.yfuse.core.playback.PlaybackPlannerTest" time="0.0"/>
+  <testcase name="power_saver_overrides_a_native_preference_for_supported_content" classname="com.yfuse.core.playback.PlaybackPlannerTest" time="0.0"/>
+  <testcase name="unsupported_platform_audio_keeps_native_demux_ahead_of_performance_ranking" classname="com.yfuse.core.playback.PlaybackPlannerTest" time="0.0"/>
+  <testcase name="dolby_vision_stays_on_local_mpv_even_when_server_transcode_exists" classname="com.yfuse.core.playback.PlaybackPlannerTest" time="0.0"/>
+  <testcase name="balanced_mode_uses_device_performance_history_for_equivalent_engines" classname="com.yfuse.core.playback.PlaybackPlannerTest" time="0.0"/>
+  <testcase name="known_exotic_container_uses_native_demux_before_platform_failure" classname="com.yfuse.core.playback.PlaybackPlannerTest" time="0.001"/>
+  <testcase name="passthrough_only_audio_is_not_directly_playable_when_passthrough_is_disabled" classname="com.yfuse.core.playback.PlaybackPlannerTest" time="0.0"/>
+  <testcase name="prores_12bit_prefers_original_ffmpeg_decode_even_when_server_can_transcode" classname="com.yfuse.core.playback.PlaybackPlannerTest" time="0.0"/>
+  <testcase name="protected_content_safely_overrides_a_native_backend_lock" classname="com.yfuse.core.playback.PlaybackPlannerTest" time="0.0"/>
+  <testcase name="unsupported_hardware_prefers_an_available_server_transcode" classname="com.yfuse.core.playback.PlaybackPlannerTest" time="0.0"/>
+  <testcase name="ordinary_supported_video_preserves_the_efficient_platform_path" classname="com.yfuse.core.playback.PlaybackPlannerTest" time="0.0"/>
+  <testcase name="huge_remote_mov_uses_native_demux_and_keeps_every_backend_in_the_fallback_chain" classname="com.yfuse.core.playback.PlaybackPlannerTest" time="0.0"/>
+  <testcase name="dolby_only_source_never_routes_original_frames_through_a_native_engine" classname="com.yfuse.core.playback.PlaybackPlannerTest" time="0.0"/>
+  <testcase name="compatibility_mode_prefers_mpv_but_keeps_platform_as_a_fallback" classname="com.yfuse.core.playback.PlaybackPlannerTest" time="0.0"/>
+  <testcase name="locked_backend_disables_automatic_reranking_and_fallback" classname="com.yfuse.core.playback.PlaybackPlannerTest" time="0.0"/>
+  <testcase name="dolby_vision_source_never_reaches_mdk_unless_locked" classname="com.yfuse.core.playback.PlaybackPlannerTest" time="0.0"/>
+  <testcase name="unsupported_hardware_uses_local_software_when_server_cannot_transcode" classname="com.yfuse.core.playback.PlaybackPlannerTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

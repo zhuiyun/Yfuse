@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.model.PlaybackHistoryTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:05.144Z" hostname="DESKTOP-HM2J0FM" time="0.008">
+  <properties/>
+  <testcase name="seriesKeepsTheMostRecentlyWatchedEpisodeAndItsExactProgress" classname="com.yfuse.core.model.PlaybackHistoryTest" time="0.005"/>
+  <testcase name="moviesAndSeriesWithTheSameTitleAreSeparateWorks" classname="com.yfuse.core.model.PlaybackHistoryTest" time="0.001"/>
+  <testcase name="localItemIdsDoNotCollideBetweenServersWithoutWorkMetadata" classname="com.yfuse.core.model.PlaybackHistoryTest" time="0.0"/>
+  <testcase name="datesAreComparedAsInstantsIncludingOffsetsAndFractionalSeconds" classname="com.yfuse.core.model.PlaybackHistoryTest" time="0.0"/>
+  <testcase name="remakesAndConflictingExternalIdsAreNotMergedByTitle" classname="com.yfuse.core.model.PlaybackHistoryTest" time="0.001"/>
+  <testcase name="episodeProviderIdsDoNotSplitARecordedSeriesIntoEpisodeCards" classname="com.yfuse.core.model.PlaybackHistoryTest" time="0.0"/>
+  <testcase name="movieVersionsUseProviderIdentityAndKeepTheLatestSource" classname="com.yfuse.core.model.PlaybackHistoryTest" time="0.0"/>
+  <testcase name="missingDatesPreserveServerOrderAndRepeatedItemIdsAreRemoved" classname="com.yfuse.core.model.PlaybackHistoryTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.PlaybackReportingTargetTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:15.942Z" hostname="DESKTOP-HM2J0FM" time="0.002">
+  <properties/>
+  <testcase name="downloaded_file_keeps_its_source_server" classname="com.yfuse.feature.player.PlaybackReportingTargetTest" time="0.0"/>
+  <testcase name="local_file_without_source_server_never_uses_the_current_default" classname="com.yfuse.feature.player.PlaybackReportingTargetTest" time="0.0"/>
+  <testcase name="remote_legacy_entry_retains_default_server_compatibility" classname="com.yfuse.feature.player.PlaybackReportingTargetTest" time="0.0"/>
+  <testcase name="missing_queue_entry_disables_reporting" classname="com.yfuse.feature.player.PlaybackReportingTargetTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

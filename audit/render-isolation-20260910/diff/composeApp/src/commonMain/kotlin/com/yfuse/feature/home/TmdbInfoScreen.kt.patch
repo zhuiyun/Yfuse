@@ -1,0 +1,20 @@
+--- composeApp/src/commonMain/kotlin/com/yfuse/feature/home/TmdbInfoScreen.kt (before turn)
++++ composeApp/src/commonMain/kotlin/com/yfuse/feature/home/TmdbInfoScreen.kt
+@@ -21,8 +21,6 @@
+ import androidx.compose.foundation.lazy.LazyRow
+ import androidx.compose.foundation.lazy.rememberLazyListState
+ import androidx.compose.foundation.shape.CircleShape
+-import androidx.compose.material3.Icon
+-import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.LaunchedEffect
+ import androidx.compose.runtime.collectAsState
+@@ -73,6 +71,8 @@
+ import com.yfuse.core.designsystem.waitingPulse
+ import com.yfuse.core.model.ServerSource
+ import com.yfuse.core.network.TmdbImages
++import com.yfuse.core.designsystem.ThemeIcon as Icon
++import com.yfuse.core.designsystem.ThemeText as Text
+ 
+ /** Full TMDB detail page; Emby availability only controls the play action. */
+ @Composable

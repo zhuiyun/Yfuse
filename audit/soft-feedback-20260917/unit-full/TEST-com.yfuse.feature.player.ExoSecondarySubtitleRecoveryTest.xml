@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.ExoSecondarySubtitleRecoveryTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:15.776Z" hostname="DESKTOP-HM2J0FM" time="0.019">
+  <properties/>
+  <testcase name="reselect_after_error_prepares_same_queue_at_current_main_position" classname="com.yfuse.feature.player.ExoSecondarySubtitleRecoveryTest" time="0.016"/>
+  <testcase name="normal_reselection_keeps_prepared_pipeline_and_reenable_resynchronizes" classname="com.yfuse.feature.player.ExoSecondarySubtitleRecoveryTest" time="0.003"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

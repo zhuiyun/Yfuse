@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.designsystem.MediaLazyItemKeyTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:04.629Z" hostname="DESKTOP-HM2J0FM" time="0.002">
+  <properties/>
+  <testcase name="duplicate_media_ids_in_one_rail_have_unique_keys" classname="com.yfuse.core.designsystem.MediaLazyItemKeyTest" time="0.002"/>
+  <testcase name="identical_positions_in_different_rails_have_distinct_keys" classname="com.yfuse.core.designsystem.MediaLazyItemKeyTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.VersionFallbackTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:16.223Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="automatic_version_choice_keeps_prior_attempts_to_prevent_cycles" classname="com.yfuse.feature.player.VersionFallbackTest" time="0.0"/>
+  <testcase name="failed_version_moves_to_best_untried_file" classname="com.yfuse.feature.player.VersionFallbackTest" time="0.0"/>
+  <testcase name="manual_version_choice_starts_a_new_bounded_recovery_chain" classname="com.yfuse.feature.player.VersionFallbackTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

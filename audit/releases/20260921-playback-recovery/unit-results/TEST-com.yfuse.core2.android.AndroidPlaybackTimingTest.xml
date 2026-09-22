@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.AndroidPlaybackTimingTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:43:56.897Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="positive_audio_delay_advances_video_without_changing_audio_clock" classname="com.yfuse.core2.android.AndroidPlaybackTimingTest" time="0.001"/>
+  <testcase name="vsync_alignment_is_bounded_and_stale_samples_are_ignored" classname="com.yfuse.core2.android.AndroidPlaybackTimingTest" time="0.0"/>
+  <testcase name="paused_actor_sleeps_but_preview_keeps_decoder_responsive" classname="com.yfuse.core2.android.AndroidPlaybackTimingTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

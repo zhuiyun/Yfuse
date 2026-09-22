@@ -1,0 +1,5 @@
+[
+  "composeApp/src\\androidMain\\kotlin\\com\\yfuse\\core2\\android\\AndroidNativeEnhancedYPlayer.kt",
+  "composeApp/src\\androidMain\\kotlin\\com\\yfuse\\feature\\player\\PlayerRoot.kt",
+  "composeApp/src\\androidUnitTest\\kotlin\\com\\yfuse\\core2\\android\\AndroidPlaybackProxyAdmissionTest.kt"
+]

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.NextItemOutputHandoffTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:13.065Z" hostname="DESKTOP-HM2J0FM" time="0.0">
+  <properties/>
+  <testcase name="pcm_end_waits_for_submitted_frames_and_tolerates_clock_rounding" classname="com.yfuse.core2.android.NextItemOutputHandoffTest" time="0.0"/>
+  <testcase name="seeking_discards_old_pcm_tail_before_counting_newly_submitted_samples" classname="com.yfuse.core2.android.NextItemOutputHandoffTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

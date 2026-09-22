@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.playback.PlaybackHealthTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:06.627Z" hostname="DESKTOP-HM2J0FM" time="0.003">
+  <properties/>
+  <testcase name="health_session_excludes_initial_prepare_buffering_and_counts_rendered_time" classname="com.yfuse.core.playback.PlaybackHealthTest" time="0.002"/>
+  <testcase name="measured_battery_power_is_kept_separate_from_the_route_estimate" classname="com.yfuse.core.playback.PlaybackHealthTest" time="0.0"/>
+  <testcase name="sustained_frame_loss_penalizes_the_engine_after_a_real_observation_window" classname="com.yfuse.core.playback.PlaybackHealthTest" time="0.0"/>
+  <testcase name="power_estimate_distinguishes_platform_hardware_from_gpu_tone_mapping" classname="com.yfuse.core.playback.PlaybackHealthTest" time="0.0"/>
+  <testcase name="network_rebuffering_degrades_health_without_blacklisting_a_decoder" classname="com.yfuse.core.playback.PlaybackHealthTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

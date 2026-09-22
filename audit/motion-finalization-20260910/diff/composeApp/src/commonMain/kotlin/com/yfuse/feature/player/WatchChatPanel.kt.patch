@@ -1,0 +1,31 @@
+--- before/composeApp/src/commonMain/kotlin/com/yfuse/feature/player/WatchChatPanel.kt
++++ after/composeApp/src/commonMain/kotlin/com/yfuse/feature/player/WatchChatPanel.kt
+@@ -13,7 +13,6 @@
+ import androidx.compose.foundation.layout.size
+ import androidx.compose.foundation.layout.width
+ import androidx.compose.foundation.lazy.LazyColumn
+-import androidx.compose.foundation.lazy.items
+ import androidx.compose.foundation.lazy.rememberLazyListState
+ import androidx.compose.foundation.rememberScrollState
+ import androidx.compose.foundation.text.BasicTextField
+@@ -43,7 +42,7 @@
+ import com.yfuse.core.designsystem.LocalAccessibilityOptions
+ import com.yfuse.core.designsystem.WatchAvatar
+ import com.yfuse.core.designsystem.glass
+-import com.yfuse.core.designsystem.motionAwareItem
++import com.yfuse.core.designsystem.motionItems
+ import com.yfuse.core.designsystem.overlayDismiss
+ import com.yfuse.core.designsystem.pressable
+ import com.yfuse.core.designsystem.rememberAccentColorsForSurface
+@@ -272,9 +271,9 @@
+                     state = listState,
+                     verticalArrangement = Arrangement.spacedBy(9.dp),
+                 ) {
+-                    items(messages, key = { it.id }) { message ->
++                    motionItems(messages, key = { it.id }) { message ->
+                         // Someone else's message arriving mid-film should not be a jump cut.
+-                        WatchChatBubble(message, onRetry, motionAwareItem())
++                        WatchChatBubble(message, onRetry, Modifier)
+                     }
+                 }
+             }

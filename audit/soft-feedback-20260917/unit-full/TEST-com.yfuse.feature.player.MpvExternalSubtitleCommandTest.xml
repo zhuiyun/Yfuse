@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.MpvExternalSubtitleCommandTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:15.813Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="every_plex_sidecar_is_mounted_and_only_the_default_is_selected" classname="com.yfuse.feature.player.MpvExternalSubtitleCommandTest" time="0.001"/>
+  <testcase name="item_without_sidecar_does_not_issue_an_mpv_command" classname="com.yfuse.feature.player.MpvExternalSubtitleCommandTest" time="0.0"/>
+  <testcase name="selected_sidecar_is_mounted_and_selected_without_switching_engine" classname="com.yfuse.feature.player.MpvExternalSubtitleCommandTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

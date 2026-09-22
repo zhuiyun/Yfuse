@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.offline.OfflineCommandQueueTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:05.651Z" hostname="DESKTOP-HM2J0FM" time="0.018">
+  <properties/>
+  <testcase name="one_failed_write_is_reported_without_losing_following_commands" classname="com.yfuse.core.offline.OfflineCommandQueueTest" time="0.006"/>
+  <testcase name="a_full_queue_rejects_with_feedback_instead_of_growing_or_running_on_the_caller" classname="com.yfuse.core.offline.OfflineCommandQueueTest" time="0.005"/>
+  <testcase name="accepted_ui_commands_run_later_in_order_and_a_worker_waits_for_them" classname="com.yfuse.core.offline.OfflineCommandQueueTest" time="0.003"/>
+  <testcase name="cancelled_consumer_does_not_leave_worker_acknowledgements_hanging" classname="com.yfuse.core.offline.OfflineCommandQueueTest" time="0.004"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

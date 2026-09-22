@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.cast.DlnaOperationsTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:02.017Z" hostname="DESKTOP-HM2J0FM" time="0.011">
+  <properties/>
+  <testcase name="late_failure_from_previous_load_on_same_receiver_is_discarded" classname="com.yfuse.core.cast.DlnaOperationsTest" time="0.003"/>
+  <testcase name="explicit_stop_rejects_a_late_result_without_needing_a_new_revision" classname="com.yfuse.core.cast.DlnaOperationsTest" time="0.001"/>
+  <testcase name="cancelled_blocking_read_cannot_publish_success_after_switching_receivers" classname="com.yfuse.core.cast.DlnaOperationsTest" time="0.003"/>
+  <testcase name="failed_load_rollback_and_retry_never_reuse_previous_or_failed_tokens" classname="com.yfuse.core.cast.DlnaOperationsTest" time="0.001"/>
+  <testcase name="rollback_preserves_previous_playback_but_rejects_both_old_custom_receipts" classname="com.yfuse.core.cast.DlnaOperationsTest" time="0.001"/>
+  <testcase name="confirmed_seek_returns_before_an_unnecessary_failing_request" classname="com.yfuse.core.cast.DlnaOperationsTest" time="0.001"/>
+  <testcase name="failure_without_previous_playback_keeps_attempted_target_and_advances_generation" classname="com.yfuse.core.cast.DlnaOperationsTest" time="0.0"/>
+  <testcase name="unconfirmed_receiver_uses_only_the_bounded_retry_budget" classname="com.yfuse.core.cast.DlnaOperationsTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

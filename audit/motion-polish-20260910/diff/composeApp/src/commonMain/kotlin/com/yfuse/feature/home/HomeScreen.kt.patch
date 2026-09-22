@@ -1,0 +1,63 @@
+--- composeApp/src/commonMain/kotlin/com/yfuse/feature/home/HomeScreen.kt (before turn)
++++ composeApp/src/commonMain/kotlin/com/yfuse/feature/home/HomeScreen.kt
+@@ -81,6 +81,7 @@
+ import com.yfuse.core.designsystem.OrbProgressDefaults
+ import com.yfuse.core.designsystem.Poster
+ import com.yfuse.core.designsystem.PrimaryGradient
++import com.yfuse.core.designsystem.RefreshIndicator
+ import com.yfuse.core.designsystem.RefreshThresholdHaptics
+ import com.yfuse.core.designsystem.ScrollToTopOnReselect
+ import com.yfuse.core.designsystem.SkeletonArrivalScope
+@@ -96,6 +97,7 @@
+ import com.yfuse.core.designsystem.glass
+ import com.yfuse.core.designsystem.heroDurationLabel
+ import com.yfuse.core.designsystem.heroMediaTypeLabel
++import com.yfuse.core.designsystem.heroScrollCollapse
+ import com.yfuse.core.designsystem.heroTopScrim
+ import com.yfuse.core.designsystem.livingPosterFrame
+ import com.yfuse.core.designsystem.livingPosterHeroHeight
+@@ -286,6 +288,7 @@
+                 onRefreshCalendar()
+             },
+             state = pullState,
++            indicator = { RefreshIndicator(pullState, state.refreshing, Modifier.align(Alignment.TopCenter)) },
+             modifier = Modifier.fillMaxSize(),
+         ) {
+             SkeletonArrivalScope(state.loading && state.content.isEmpty) {
+@@ -305,20 +308,22 @@
+                     // Navigation in the hero header must remain available even when the remote
+                     // recommendation feed is loading or unavailable.
+                     motionItem(key = "home-hero", arrival = false) {
+-                        HomeHeroCarousel(
+-                            items = state.featuredSlides.take(8),
+-                            userName = state.server?.userName,
+-                            height = heroHeight,
+-                            showSidePreview = showSidePreview,
+-                            visible = heroVisible && !listState.isScrollInProgress,
+-                            onOpenProfile = onOpenProfile,
+-                            onOpenCalendar = onOpenCalendar,
+-                            onPlay = { onIntent(HomeIntent.Play(it)) },
+-                            onDetails = { onIntent(HomeIntent.Open(it)) },
+-                            onFavorite = { onIntent(HomeIntent.Favorite(it)) },
+-                            onAccent = onHeroAccent,
+-                            onPageColor = onHeroPageColor,
+-                        )
++                        Box(Modifier.heroScrollCollapse(listState, heroHeight)) {
++                            HomeHeroCarousel(
++                                items = state.featuredSlides.take(8),
++                                userName = state.server?.userName,
++                                height = heroHeight,
++                                showSidePreview = showSidePreview,
++                                visible = heroVisible && !listState.isScrollInProgress,
++                                onOpenProfile = onOpenProfile,
++                                onOpenCalendar = onOpenCalendar,
++                                onPlay = { onIntent(HomeIntent.Play(it)) },
++                                onDetails = { onIntent(HomeIntent.Open(it)) },
++                                onFavorite = { onIntent(HomeIntent.Favorite(it)) },
++                                onAccent = onHeroAccent,
++                                onPageColor = onHeroPageColor,
++                            )
++                        }
+                     }
+ 
+                     if (state.loading && state.content.isEmpty) {

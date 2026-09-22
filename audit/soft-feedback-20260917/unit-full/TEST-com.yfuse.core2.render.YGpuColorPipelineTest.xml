@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.render.YGpuColorPipelineTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:13.347Z" hostname="DESKTOP-HM2J0FM" time="0.002">
+  <properties/>
+  <testcase name="hdr_output_uses_bt2390_when_mastering_peak_exceeds_the_display" classname="com.yfuse.core2.render.YGpuColorPipelineTest" time="0.002"/>
+  <testcase name="hdr10_to_sdr_uses_bt2390_bt2020_mapping_and_dither" classname="com.yfuse.core2.render.YGpuColorPipelineTest" time="0.0"/>
+  <testcase name="hlg_to_hlg_preserves_dynamic_range_without_tone_mapping" classname="com.yfuse.core2.render.YGpuColorPipelineTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

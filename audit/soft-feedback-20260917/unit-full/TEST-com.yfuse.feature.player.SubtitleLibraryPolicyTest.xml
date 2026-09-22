@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.SubtitleLibraryPolicyTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:16.219Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="unsupported_server_is_distinct_from_an_empty_subtitle_search" classname="com.yfuse.feature.player.SubtitleLibraryPolicyTest" time="0.0"/>
+  <testcase name="local_import_is_scoped_to_the_exact_server_item_and_version" classname="com.yfuse.feature.player.SubtitleLibraryPolicyTest" time="0.001"/>
+  <testcase name="importing_the_same_uri_preserves_provider_tracks_without_duplicate_entries" classname="com.yfuse.feature.player.SubtitleLibraryPolicyTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

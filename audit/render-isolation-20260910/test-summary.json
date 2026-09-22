@@ -1,0 +1,14 @@
+{
+  "composeApp": {
+    "tests": 2489,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "tvApp": {
+    "tests": 59,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  }
+}

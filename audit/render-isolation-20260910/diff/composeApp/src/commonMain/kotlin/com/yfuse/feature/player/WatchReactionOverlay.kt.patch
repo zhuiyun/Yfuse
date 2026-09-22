@@ -1,0 +1,18 @@
+--- composeApp/src/commonMain/kotlin/com/yfuse/feature/player/WatchReactionOverlay.kt (before turn)
++++ composeApp/src/commonMain/kotlin/com/yfuse/feature/player/WatchReactionOverlay.kt
+@@ -9,7 +9,6 @@
+ import androidx.compose.foundation.layout.Row
+ import androidx.compose.foundation.layout.fillMaxSize
+ import androidx.compose.foundation.layout.padding
+-import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.LaunchedEffect
+ import androidx.compose.runtime.key
+@@ -32,6 +31,7 @@
+ import kotlin.math.cos
+ import kotlin.math.exp
+ import kotlin.math.sin
++import com.yfuse.core.designsystem.ThemeText as Text
+ 
+ /** How long a bubble takes to cross the strip it floats up. */
+ private const val REACTION_MS = Motion.WATCH_REACTION

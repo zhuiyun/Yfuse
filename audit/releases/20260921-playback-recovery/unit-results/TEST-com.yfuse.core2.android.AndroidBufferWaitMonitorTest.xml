@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.AndroidBufferWaitMonitorTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:43:54.382Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="packets_extend_progress_deadline_without_erasing_total_wait" classname="com.yfuse.core2.android.AndroidBufferWaitMonitorTest" time="0.001"/>
+  <testcase name="no_progress_wait_outlives_range_budget_then_expires" classname="com.yfuse.core2.android.AndroidBufferWaitMonitorTest" time="0.0"/>
+  <testcase name="pause_and_seek_start_fresh_waits" classname="com.yfuse.core2.android.AndroidBufferWaitMonitorTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.designsystem.LoadingMotionTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-09-10T01:31:12.265Z" hostname="DESKTOP-HM2J0FM" time="0.004">
+  <properties/>
+  <testcase name="orb_core_breathes_up_and_returns" classname="com.yfuse.core.designsystem.LoadingMotionTest" time="0.001"/>
+  <testcase name="staggered_reveal_delays_later_items_and_finishes_everyone_together" classname="com.yfuse.core.designsystem.LoadingMotionTest" time="0.001"/>
+  <testcase name="skeleton_pulse_is_a_full_breath_per_period_and_a_phase_shifts_it" classname="com.yfuse.core.designsystem.LoadingMotionTest" time="0.002"/>
+  <testcase name="sweep_crosses_then_rests_and_is_off_while_the_clock_is_stopped" classname="com.yfuse.core.designsystem.LoadingMotionTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

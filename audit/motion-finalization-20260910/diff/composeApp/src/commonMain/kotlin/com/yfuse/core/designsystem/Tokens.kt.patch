@@ -1,0 +1,11 @@
+--- before/composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/Tokens.kt
++++ after/composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/Tokens.kt
+@@ -448,7 +448,7 @@
+     const val ARTWORK_REVEAL = 400
+     const val POSTER_FADE = 180
+     const val NEXT_UP_INTERPOLATION = 500
+-    const val SEARCH_REVEAL = 680
++    const val SEARCH_REVEAL = 1100
+     const val SEARCH_ROW_STAGGER = 55
+     const val WAIT_HALF_CYCLE = 850
+     const val ARRIVAL_REVEAL = 480

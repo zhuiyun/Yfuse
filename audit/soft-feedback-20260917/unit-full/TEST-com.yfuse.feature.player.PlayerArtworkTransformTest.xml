@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.PlayerArtworkTransformTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:15.987Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="portrait_frame_returns_to_landscape_card_without_stretching" classname="com.yfuse.feature.player.PlayerArtworkTransformTest" time="0.001"/>
+  <testcase name="full_frame_has_no_crop_or_translation" classname="com.yfuse.feature.player.PlayerArtworkTransformTest" time="0.0"/>
+  <testcase name="unknown_drawable_geometry_never_produces_nan_or_infinite_transforms" classname="com.yfuse.feature.player.PlayerArtworkTransformTest" time="0.0"/>
+  <testcase name="landscape_frame_returns_to_portrait_card_without_stretching" classname="com.yfuse.feature.player.PlayerArtworkTransformTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

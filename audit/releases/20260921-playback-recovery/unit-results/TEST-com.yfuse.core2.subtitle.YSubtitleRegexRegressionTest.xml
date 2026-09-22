@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.subtitle.YSubtitleRegexRegressionTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:44:00.653Z" hostname="DESKTOP-HM2J0FM" time="0.003">
+  <properties/>
+  <testcase name="embeddedPlainTextInitializesSubtitleHelpers" classname="com.yfuse.core2.subtitle.YSubtitleRegexRegressionTest" time="0.0"/>
+  <testcase name="standaloneWebVttInitializesParserHelpers" classname="com.yfuse.core2.subtitle.YSubtitleRegexRegressionTest" time="0.001"/>
+  <testcase name="unclosedOverrideRemainsLiteral" classname="com.yfuse.core2.subtitle.YSubtitleRegexRegressionTest" time="0.0"/>
+  <testcase name="embeddedAssKeepsWholeCueStyle" classname="com.yfuse.core2.subtitle.YSubtitleRegexRegressionTest" time="0.001"/>
+  <testcase name="standaloneAssAndSsaStripOverridesAndRetainStyle" classname="com.yfuse.core2.subtitle.YSubtitleRegexRegressionTest" time="0.0"/>
+  <testcase name="embeddedOverridesPreserveTextAndLineBreaks" classname="com.yfuse.core2.subtitle.YSubtitleRegexRegressionTest" time="0.0"/>
+  <testcase name="trailingLiteralClosingBraceIsPreserved" classname="com.yfuse.core2.subtitle.YSubtitleRegexRegressionTest" time="0.0"/>
+  <testcase name="standaloneSrtInitializesParserHelpers" classname="com.yfuse.core2.subtitle.YSubtitleRegexRegressionTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

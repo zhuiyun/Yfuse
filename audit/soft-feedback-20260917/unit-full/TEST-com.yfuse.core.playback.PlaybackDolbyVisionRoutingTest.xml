@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.playback.PlaybackDolbyVisionRoutingTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:06.611Z" hostname="DESKTOP-HM2J0FM" time="0.004">
+  <properties/>
+  <testcase name="profile_eight_one_uses_hdr10_base_without_a_dolby_display" classname="com.yfuse.core.playback.PlaybackDolbyVisionRoutingTest" time="0.001"/>
+  <testcase name="compatible_base_is_tone_mapped_on_an_sdr_only_display" classname="com.yfuse.core.playback.PlaybackDolbyVisionRoutingTest" time="0.001"/>
+  <testcase name="planner_exposes_gpu_dolby_render_path_for_profile_seven" classname="com.yfuse.core.playback.PlaybackDolbyVisionRoutingTest" time="0.002"/>
+  <testcase name="profile_seven_enhancement_uses_verified_gpu_next_when_gpu_budget_is_sufficient" classname="com.yfuse.core.playback.PlaybackDolbyVisionRoutingTest" time="0.0"/>
+  <testcase name="planner_exposes_native_platform_path_for_profile_eight_one" classname="com.yfuse.core.playback.PlaybackDolbyVisionRoutingTest" time="0.0"/>
+  <testcase name="profile_seven_enhancement_falls_back_to_real_hdr10_base_when_gpu_is_constrained" classname="com.yfuse.core.playback.PlaybackDolbyVisionRoutingTest" time="0.0"/>
+  <testcase name="profile_eight_one_uses_native_mediacodec_on_a_dolby_display" classname="com.yfuse.core.playback.PlaybackDolbyVisionRoutingTest" time="0.0"/>
+  <testcase name="raw_disc_never_routes_profile_eight_one_to_exo" classname="com.yfuse.core.playback.PlaybackDolbyVisionRoutingTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,23 @@
+{
+  "device": {
+    "serial": "RF8M223V4MD",
+    "model": "SM-G973U",
+    "fingerprint": "samsung/beyond1qltesq/beyond1q:9/PPR1.180610.011/G973USQU2ASG8:user/release-keys",
+    "sdk": 28,
+    "display_size": "Physical size: 1440x3040\nOverride size: 1080x2280",
+    "display_density": "Physical density: 420",
+    "font_scale": "1.1",
+    "peak_refresh_rate": "null",
+    "min_refresh_rate": "null",
+    "animation_scales": {
+      "animator_duration_scale": "0.5",
+      "window_animation_scale": "0.5",
+      "transition_animation_scale": "0.5"
+    }
+  },
+  "package": "com.yfuse.benchmark",
+  "variant": "benchmark",
+  "runtime_profile": "full",
+  "fixture_hash": "442e2e2245160fc62bb7c0fceb9f1bdfc8272f153fd9311c80a21d7b4608ae98",
+  "started_epoch": 1789008188.5801327
+}

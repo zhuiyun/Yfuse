@@ -1,0 +1,14 @@
+--- composeApp\src\androidMain\kotlin\com\yfuse\core2\android\AndroidEnhancedMediaProbe.kt
++++ composeApp\src\androidMain\kotlin\com\yfuse\core2\android\AndroidEnhancedMediaProbe.kt
+@@ -37,6 +37,11 @@
+     fun takePreparedDemux(item: YMediaItem): AndroidPreparedEnhancedDemux? = preparedDemux.take(item)
+ 
+     fun closePreparedDemux() = preparedDemux.close()
++
++    fun returnPreparedDemux(
++        item: YMediaItem,
++        source: AndroidPreparedEnhancedDemux,
++    ) = preparedDemux.offer(item, source)
+ 
+     /**
+      * Recent deep-probe failures, each with the nanoTime after which it may be retried.

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.NextUpRingStateTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:15.846Z" hostname="DESKTOP-HM2J0FM" time="0.003">
+  <properties/>
+  <testcase name="predictions_follow_speed_clamp_at_end_and_reject_invalid_speed" classname="com.yfuse.feature.player.NextUpRingStateTest" time="0.0"/>
+  <testcase name="pause_seek_and_cancel_stop_an_inflight_prediction_and_replace_the_displayed_position" classname="com.yfuse.feature.player.NextUpRingStateTest" time="0.003"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

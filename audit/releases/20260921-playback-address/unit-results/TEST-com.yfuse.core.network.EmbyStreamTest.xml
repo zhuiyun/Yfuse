@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.network.EmbyStreamTest" tests="16" skipped="0" failures="0" errors="0" timestamp="2026-09-21T06:15:41.448Z" hostname="DESKTOP-HM2J0FM" time="0.007">
+  <properties/>
+  <testcase name="a_source_thinner_than_the_ladder_is_not_padded_out" classname="com.yfuse.core.network.EmbyStreamTest" time="0.0"/>
+  <testcase name="negotiated_https_and_relative_urls_remain_usable" classname="com.yfuse.core.network.EmbyStreamTest" time="0.001"/>
+  <testcase name="a_transcode_never_upscales_and_never_drops_below_the_old_default" classname="com.yfuse.core.network.EmbyStreamTest" time="0.0"/>
+  <testcase name="unconfirmedHttpCdnUrlsAreAllowedWithoutServerCredentials" classname="com.yfuse.core.network.EmbyStreamTest" time="0.001"/>
+  <testcase name="a_transcode_aims_at_the_source_rather_than_a_fixed_1080p" classname="com.yfuse.core.network.EmbyStreamTest" time="0.0"/>
+  <testcase name="credentials_and_media_source_are_query_encoded" classname="com.yfuse.core.network.EmbyStreamTest" time="0.0"/>
+  <testcase name="progressive_fallback_requests_mp4_transcoding" classname="com.yfuse.core.network.EmbyStreamTest" time="0.0"/>
+  <testcase name="confirmedPublicHttpCdnUrlIsUsableWithoutLeakingServerCredentials" classname="com.yfuse.core.network.EmbyStreamTest" time="0.001"/>
+  <testcase name="the_device_id_is_not_a_shared_constant" classname="com.yfuse.core.network.EmbyStreamTest" time="0.0"/>
+  <testcase name="a_transcode_ladder_follows_the_source_through_stream_urls" classname="com.yfuse.core.network.EmbyStreamTest" time="0.001"/>
+  <testcase name="sameOriginNegotiatedHlsIsForcedToH264AacCompatibility" classname="com.yfuse.core.network.EmbyStreamTest" time="0.001"/>
+  <testcase name="each_file_gets_its_own_play_session" classname="com.yfuse.core.network.EmbyStreamTest" time="0.0"/>
+  <testcase name="signedCrossOriginTranscodeUrlIsNotModified" classname="com.yfuse.core.network.EmbyStreamTest" time="0.001"/>
+  <testcase name="confirmedLocalHttpCdnUrlIsAlsoKeptCredentialFree" classname="com.yfuse.core.network.EmbyStreamTest" time="0.0"/>
+  <testcase name="same_origin_absolute_url_keeps_authentication_and_normalizes_default_port" classname="com.yfuse.core.network.EmbyStreamTest" time="0.001"/>
+  <testcase name="every_address_for_a_file_names_the_same_play_session" classname="com.yfuse.core.network.EmbyStreamTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

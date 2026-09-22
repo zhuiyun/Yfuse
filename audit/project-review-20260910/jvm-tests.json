@@ -1,0 +1,18 @@
+[
+  {
+    "Module": "watchTogetherProtocol",
+    "Suites": 2,
+    "Tests": 8.0,
+    "Failures": 0.0,
+    "Errors": 0.0,
+    "Skipped": 0.0
+  },
+  {
+    "Module": "watchTogetherServer",
+    "Suites": 24,
+    "Tests": 175.0,
+    "Failures": 0.0,
+    "Errors": 0.0,
+    "Skipped": 0.0
+  }
+]

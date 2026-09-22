@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.data.EmbyServerServiceTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:02.855Z" hostname="DESKTOP-HM2J0FM" time="0.01">
+  <properties/>
+  <testcase name="an_unavailable_server_maps_to_the_server_domain_error" classname="com.yfuse.core.data.EmbyServerServiceTest" time="0.005"/>
+  <testcase name="probe_address_normalizes_the_scheme_and_trailing_slash" classname="com.yfuse.core.data.EmbyServerServiceTest" time="0.003"/>
+  <testcase name="probe_reads_system_info_with_the_server_token_and_reports_a_latency" classname="com.yfuse.core.data.EmbyServerServiceTest" time="0.002"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

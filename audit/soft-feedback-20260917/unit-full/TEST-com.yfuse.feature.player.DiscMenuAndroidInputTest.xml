@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.DiscMenuAndroidInputTest" tests="1" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:15.755Z" hostname="DESKTOP-HM2J0FM" time="0.0">
+  <properties/>
+  <testcase name="dpad_enter_and_menu_keys_map_to_backend_neutral_commands" classname="com.yfuse.feature.player.DiscMenuAndroidInputTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

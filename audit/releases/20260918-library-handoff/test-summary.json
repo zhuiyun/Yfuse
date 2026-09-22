@@ -1,0 +1,75 @@
+{
+  "jvm": {
+    "tests": 44.0,
+    "failures": 0.0,
+    "errors": 0.0,
+    "skipped": 0.0,
+    "suites": [
+      {
+        "name": "com.yfuse.core.account.AccountAccessTokenSourceTest",
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "name": "com.yfuse.core.handoff.AccountHandoffApiTest",
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "name": "com.yfuse.core.handoff.HandoffControllerTest",
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "name": "com.yfuse.core.handoff.HandoffPlaybackRegistryTest",
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "name": "com.yfuse.core.handoff.HandoffVaultCipherTest",
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "name": "com.yfuse.core.network.HttpClientFactoryTest",
+        "tests": 12,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "name": "com.yfuse.core.network.ServerEndpointPolicyTest",
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "name": "com.yfuse.update.UpdateManifestPolicyTest",
+        "tests": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    ]
+  },
+  "android": {
+    "tests": 2,
+    "failures": 0,
+    "device": "SM-G973U",
+    "api": 28,
+    "applicationId": "com.yfuse.networkpolicy",
+    "scope": "packaged network security policy",
+    "productionApkTested": false
+  }
+}

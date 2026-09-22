@@ -1,0 +1,126 @@
+{
+  "UnitTests": 72.0,
+  "Suites": [
+    {
+      "Name": "com.yfuse.app.RootTabMotionTest",
+      "Tests": 6,
+      "Failures": 0,
+      "Errors": 0,
+      "Skipped": 0
+    },
+    {
+      "Name": "com.yfuse.core.data.PlaybackPreferencesTest",
+      "Tests": 16,
+      "Failures": 0,
+      "Errors": 0,
+      "Skipped": 0
+    },
+    {
+      "Name": "com.yfuse.core.data.ThemePreferencesTest",
+      "Tests": 2,
+      "Failures": 0,
+      "Errors": 0,
+      "Skipped": 0
+    },
+    {
+      "Name": "com.yfuse.core.designsystem.AmbientLightTest",
+      "Tests": 8,
+      "Failures": 0,
+      "Errors": 0,
+      "Skipped": 0
+    },
+    {
+      "Name": "com.yfuse.core.designsystem.AmbientLightTransitionTest",
+      "Tests": 4,
+      "Failures": 0,
+      "Errors": 0,
+      "Skipped": 0
+    },
+    {
+      "Name": "com.yfuse.core.designsystem.LoadingMotionTest",
+      "Tests": 4,
+      "Failures": 0,
+      "Errors": 0,
+      "Skipped": 0
+    },
+    {
+      "Name": "com.yfuse.core.designsystem.ThemeCrossfadeTest",
+      "Tests": 2,
+      "Failures": 0,
+      "Errors": 0,
+      "Skipped": 0
+    },
+    {
+      "Name": "com.yfuse.feature.player.AmbientCopyTest",
+      "Tests": 10,
+      "Failures": 0,
+      "Errors": 0,
+      "Skipped": 0
+    },
+    {
+      "Name": "com.yfuse.feature.player.AmbientSamplingPolicyTest",
+      "Tests": 5,
+      "Failures": 0,
+      "Errors": 0,
+      "Skipped": 0
+    },
+    {
+      "Name": "com.yfuse.feature.player.Core2SurfaceTest",
+      "Tests": 4,
+      "Failures": 0,
+      "Errors": 0,
+      "Skipped": 0
+    },
+    {
+      "Name": "com.yfuse.feature.search.SearchResultsHandoffTest",
+      "Tests": 11,
+      "Failures": 0,
+      "Errors": 0,
+      "Skipped": 0
+    }
+  ],
+  "Sources": [
+    {
+      "Path": "androidMain/kotlin/com/yfuse/feature/player/AmbientSamplingPolicy.kt",
+      "SHA256": "2f41cf17e6caa2c4e71ba92687bcd10234074b2fdb36137607ecfd52d93437b2"
+    },
+    {
+      "Path": "androidMain/kotlin/com/yfuse/feature/player/AmbientCopy.kt",
+      "SHA256": "92641e3f53593824feca14f113617ea27f333d77b738b685651425fec1dbf2f2"
+    },
+    {
+      "Path": "androidMain/kotlin/com/yfuse/feature/player/AmbientFrameSampler.kt",
+      "SHA256": "58b8cc68b7a3f6f357e5555b4a75de821232615d8c17ab08d9e104980202453a"
+    },
+    {
+      "Path": "androidMain/kotlin/com/yfuse/feature/player/PlayerRoot.kt",
+      "SHA256": "9848dd797336ca07cd32072a7e13367541fb866a683e9c126d35f6b9187286c0"
+    },
+    {
+      "Path": "commonMain/kotlin/com/yfuse/core/designsystem/AmbientLight.kt",
+      "SHA256": "b21ff214bd296bc5bf72a2d0926c38089548cdf4c2b69e1bc1d170a1862a9cc1"
+    },
+    {
+      "Path": "commonMain/kotlin/com/yfuse/feature/player/PlayerChromeRefined.kt",
+      "SHA256": "8f89472ab0e24131ef2056fd9159bf15dbad13cd9c400dc52cf148220cf7bae2"
+    },
+    {
+      "Path": "commonMain/kotlin/com/yfuse/feature/player/PlayerControls.kt",
+      "SHA256": "b4edaba60cabad011ab25e263ae52be5990d2e59405265fc5cfbdb455dd4934a"
+    },
+    {
+      "Path": "androidUnitTest/kotlin/com/yfuse/feature/player/AmbientSamplingPolicyTest.kt",
+      "SHA256": "3277e99bbcfba3ec0b6a5d853dfb8d1c0fae8a3b9f30921da7ba2a272e7dd750"
+    },
+    {
+      "Path": "androidUnitTest/kotlin/com/yfuse/feature/player/AmbientCopyTest.kt",
+      "SHA256": "32d731ce4e29a11baad6a7110c66cc4c86927fc72388205c1793e1631255664a"
+    },
+    {
+      "Path": "commonTest/kotlin/com/yfuse/core/designsystem/AmbientLightTransitionTest.kt",
+      "SHA256": "71b7727e94c179511f17714165b7d9f38710eec3e026d8407341cd982f2c0bc1"
+    }
+  ],
+  "DevicePowerMeasurement": "Not performed; no connected device",
+  "Validation": "Release Kotlin compile and unit tests; design-system check passed"
+}

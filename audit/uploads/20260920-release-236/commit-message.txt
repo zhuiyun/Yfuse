@@ -1,0 +1,13 @@
+Ship 1.0.74 kernel fixes and frame rate diagnostics [artifact only]
+
+Include the delivered phone/TV playback, HTTP compatibility, API 37,
+glass settings, sync, server resource bounds and dependency improvements.
+Add page, rendered output and source FPS settings and regression tests.
+Update native demux interruption, software fallback and lifecycle cleanup.
+
+Validation: source matches the signed 1.0.74 (236) release; existing verified
+phone 2871 and TV 63 tests match current inputs. Node 10 and Python 47 tests
+passed before upload; git diff --check passed. No physical device validation.
+
+The signed APK is already published; retain the artifact-only marker to
+avoid repeating production publication on this source upload.

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.AndroidFfmpegDemuxerMappingTest" tests="16" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:43:55.342Z" hostname="DESKTOP-HM2J0FM" time="0.006">
+  <properties/>
+  <testcase name="baseline AAC and AC3 codecs remain native-decodable identities" classname="com.yfuse.core2.android.AndroidFfmpegDemuxerMappingTest" time="0.001"/>
+  <testcase name="NAL packing metadata preserves AnnexB and length prefix width" classname="com.yfuse.core2.android.AndroidFfmpegDemuxerMappingTest" time="0.0"/>
+  <testcase name="native open statuses in an unrecognised layout stay Unknown instead of penalising the container" classname="com.yfuse.core2.android.AndroidFfmpegDemuxerMappingTest" time="0.001"/>
+  <testcase name="v2 PGS malformed timestamp extension is rejected" classname="com.yfuse.core2.android.AndroidFfmpegDemuxerMappingTest" time="0.0"/>
+  <testcase name="DTS core and DTS-HD profiles stay distinct" classname="com.yfuse.core2.android.AndroidFfmpegDemuxerMappingTest" time="0.0"/>
+  <testcase name="native bitmap subtitle payload preserves authored canvas and ARGB pixels" classname="com.yfuse.core2.android.AndroidFfmpegDemuxerMappingTest" time="0.003"/>
+  <testcase name="tagged heap pointers returned as session handles are not mistaken for open failures" classname="com.yfuse.core2.android.AndroidFfmpegDemuxerMappingTest" time="0.0"/>
+  <testcase name="PGS sentinel is open until the next display and never accumulates previous pictures" classname="com.yfuse.core2.android.AndroidFfmpegDemuxerMappingTest" time="0.0"/>
+  <testcase name="native FFmpeg failures keep network and authorization out of device learning" classname="com.yfuse.core2.android.AndroidFfmpegDemuxerMappingTest" time="0.0"/>
+  <testcase name="FFmpeg container aliases normalize to Core2 identities" classname="com.yfuse.core2.android.AndroidFfmpegDemuxerMappingTest" time="0.001"/>
+  <testcase name="MediaExtractor subtitle MIME maps to the same overlay formats" classname="com.yfuse.core2.android.AndroidFfmpegDemuxerMappingTest" time="0.0"/>
+  <testcase name="FFmpeg subtitle codec names map to stable overlay formats" classname="com.yfuse.core2.android.AndroidFfmpegDemuxerMappingTest" time="0.0"/>
+  <testcase name="PCM 24-bit family stays PCM instead of unknown audio" classname="com.yfuse.core2.android.AndroidFfmpegDemuxerMappingTest" time="0.0"/>
+  <testcase name="FFmpeg video codec names map without involving a decoder" classname="com.yfuse.core2.android.AndroidFfmpegDemuxerMappingTest" time="0.0"/>
+  <testcase name="packed native open failures expose the stage and AVERROR without changing the class" classname="com.yfuse.core2.android.AndroidFfmpegDemuxerMappingTest" time="0.0"/>
+  <testcase name="v2 PGS clear preserves composition PTS even when END packet arrives later" classname="com.yfuse.core2.android.AndroidFfmpegDemuxerMappingTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

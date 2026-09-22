@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.data.EmbyAuthServiceTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:02.168Z" hostname="DESKTOP-HM2J0FM" time="0.026">
+  <properties/>
+  <testcase name="rejected_credentials_map_to_the_unauthorized_domain_error" classname="com.yfuse.core.data.EmbyAuthServiceTest" time="0.005"/>
+  <testcase name="public_users_are_listed_from_the_normalized_base_url" classname="com.yfuse.core.data.EmbyAuthServiceTest" time="0.009"/>
+  <testcase name="authenticate_still_succeeds_when_the_public_info_endpoint_is_broken" classname="com.yfuse.core.data.EmbyAuthServiceTest" time="0.007"/>
+  <testcase name="authenticate_posts_the_credentials_and_reads_the_public_server_identity" classname="com.yfuse.core.data.EmbyAuthServiceTest" time="0.005"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

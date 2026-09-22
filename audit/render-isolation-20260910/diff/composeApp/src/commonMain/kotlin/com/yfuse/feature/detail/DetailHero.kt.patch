@@ -1,0 +1,20 @@
+--- composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailHero.kt (before turn)
++++ composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailHero.kt
+@@ -19,8 +19,6 @@
+ import androidx.compose.foundation.layout.statusBarsPadding
+ import androidx.compose.foundation.lazy.LazyListState
+ import androidx.compose.foundation.shape.CircleShape
+-import androidx.compose.material3.Icon
+-import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.LaunchedEffect
+ import androidx.compose.runtime.State
+@@ -81,6 +79,8 @@
+ import com.yfuse.core.designsystem.touchTarget
+ import com.yfuse.core.model.MediaDetail
+ import com.yfuse.core.model.MediaVersion
++import com.yfuse.core.designsystem.ThemeIcon as Icon
++import com.yfuse.core.designsystem.ThemeText as Text
+ 
+ @Composable
+ internal fun rememberHeroScroll(

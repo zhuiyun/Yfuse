@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.home.HomePlayerRouteAutoplayTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:15.098Z" hostname="DESKTOP-HM2J0FM" time="0.008">
+  <properties/>
+  <testcase name="a_saved_player_route_without_autoplay_restores_the_legacy_true_default" classname="com.yfuse.feature.home.HomePlayerRouteAutoplayTest" time="0.008"/>
+  <testcase name="an_explicit_paused_start_survives_player_route_serialization" classname="com.yfuse.feature.home.HomePlayerRouteAutoplayTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

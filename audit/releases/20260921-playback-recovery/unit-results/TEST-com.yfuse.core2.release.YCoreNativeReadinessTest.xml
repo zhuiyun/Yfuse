@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.release.YCoreNativeReadinessTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:44:00.507Z" hostname="DESKTOP-HM2J0FM" time="0.003">
+  <properties/>
+  <testcase name="absence_of_a_required_native_component_fails_dependency_purity" classname="com.yfuse.core2.release.YCoreNativeReadinessTest" time="0.002"/>
+  <testcase name="missing_evidence_never_releases_the_native_kernel" classname="com.yfuse.core2.release.YCoreNativeReadinessTest" time="0.0"/>
+  <testcase name="transport_stream_and_vc1_are_admitted_to_runtime_capability_checks" classname="com.yfuse.core2.release.YCoreNativeReadinessTest" time="0.0"/>
+  <testcase name="complete_pure_evidence_releases_the_baseline" classname="com.yfuse.core2.release.YCoreNativeReadinessTest" time="0.0"/>
+  <testcase name="observing_any_legacy_engine_fails_dependency_purity" classname="com.yfuse.core2.release.YCoreNativeReadinessTest" time="0.0"/>
+  <testcase name="dolby_vision_brand_and_profile_suffixed_codec_names_are_admitted_as_hevc" classname="com.yfuse.core2.release.YCoreNativeReadinessTest" time="0.0"/>
+  <testcase name="code_coverage_cannot_replace_physical_device_and_soak_evidence" classname="com.yfuse.core2.release.YCoreNativeReadinessTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.app.RootTabMotionTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-09-10T01:17:41.799Z" hostname="DESKTOP-HM2J0FM" time="0.067">
+  <properties/>
+  <testcase name="indicator_stretch_is_capped_and_kept_inside_bar" classname="com.yfuse.app.RootTabMotionTest" time="0.06"/>
+  <testcase name="search_has_distinct_enter_and_exit_motion" classname="com.yfuse.app.RootTabMotionTest" time="0.0"/>
+  <testcase name="liquid_drag_stretch_remains_inside_both_edges" classname="com.yfuse.app.RootTabMotionTest" time="0.0"/>
+  <testcase name="indicator_rest_width_keeps_the_expected_cell_insets" classname="com.yfuse.app.RootTabMotionTest" time="0.001"/>
+  <testcase name="ordinary_destinations_use_equal_level_tab_motion" classname="com.yfuse.app.RootTabMotionTest" time="0.0"/>
+  <testcase name="dragging_obeys_direction_and_bar_bounds" classname="com.yfuse.app.RootTabMotionTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

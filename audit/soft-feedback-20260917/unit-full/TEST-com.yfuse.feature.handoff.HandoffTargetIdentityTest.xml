@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.handoff.HandoffTargetIdentityTest" tests="1" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:15.094Z" hostname="DESKTOP-HM2J0FM" time="0.0">
+  <properties/>
+  <testcase name="onlyOriginalServerItemAndKnownVersionKeepTrackIndexes" classname="com.yfuse.feature.handoff.HandoffTargetIdentityTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

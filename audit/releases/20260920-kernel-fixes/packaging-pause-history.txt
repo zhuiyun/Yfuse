@@ -1,0 +1,3 @@
+Packaging paused at user request after assembleRelease completed. No APK verification or delivery was performed.
+The pre-FPS APK build is obsolete after the new source edits; do not deliver it.
+Version 1.0.74 (236) is reserved for this pending delivery. Source hashes and tests must be refreshed before resuming packaging.

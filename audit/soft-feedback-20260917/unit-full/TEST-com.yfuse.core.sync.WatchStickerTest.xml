@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.sync.WatchStickerTest" tests="9" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:07.462Z" hostname="DESKTOP-HM2J0FM" time="0.007">
+  <properties/>
+  <testcase name="only_a_whole_token_is_a_sticker" classname="com.yfuse.core.sync.WatchStickerTest" time="0.002"/>
+  <testcase name="every_preset_round_trips_through_the_wire_token" classname="com.yfuse.core.sync.WatchStickerTest" time="0.0"/>
+  <testcase name="surrounding_whitespace_survives_the_trip" classname="com.yfuse.core.sync.WatchStickerTest" time="0.0"/>
+  <testcase name="a_message_reports_the_sticker_it_carries" classname="com.yfuse.core.sync.WatchStickerTest" time="0.001"/>
+  <testcase name="expanded_catalogue_keeps_64_presets_across_every_category_and_motion_variety" classname="com.yfuse.core.sync.WatchStickerTest" time="0.0"/>
+  <testcase name="legacy_ids_keep_resolving_after_catalogue_expansion" classname="com.yfuse.core.sync.WatchStickerTest" time="0.0"/>
+  <testcase name="one_line_text_draws_something_for_both_kinds" classname="com.yfuse.core.sync.WatchStickerTest" time="0.0"/>
+  <testcase name="production_chat_validation_enforces_its_shared_grapheme_limit" classname="com.yfuse.core.sync.WatchStickerTest" time="0.001"/>
+  <testcase name="preset_ids_are_unique_and_the_token_fits_a_chat_message" classname="com.yfuse.core.sync.WatchStickerTest" time="0.003"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.learning.YPlaybackLearningTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:44:00.468Z" hostname="DESKTOP-HM2J0FM" time="0.002">
+  <properties/>
+  <testcase name="three consecutive unrendered attempts avoid exact route" classname="com.yfuse.core2.learning.YPlaybackLearningTest" time="0.001"/>
+  <testcase name="severe thermal pressure penalizes then avoids the exact route" classname="com.yfuse.core2.learning.YPlaybackLearningTest" time="0.0"/>
+  <testcase name="underruns drift resets and heavy frame drops penalize a rendered route" classname="com.yfuse.core2.learning.YPlaybackLearningTest" time="0.0"/>
+  <testcase name="learns quality metrics without media identity" classname="com.yfuse.core2.learning.YPlaybackLearningTest" time="0.001"/>
+  <testcase name="repeated severe measured degradation avoids only the exact route" classname="com.yfuse.core2.learning.YPlaybackLearningTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

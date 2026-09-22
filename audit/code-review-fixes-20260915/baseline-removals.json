@@ -1,0 +1,16 @@
+{
+  "config/ktlint/watchTogetherServer-baseline.xml": [
+    {
+      "file": "watchTogetherServer/src/main/kotlin/com/yfuse/watch/CalendarIngestion.kt",
+      "removed_errors": 206
+    },
+    {
+      "file": "watchTogetherServer/src/main/kotlin/com/yfuse/watch/CalendarScheduleStore.kt",
+      "removed_errors": 14
+    },
+    {
+      "file": "watchTogetherServer/src/main/kotlin/com/yfuse/watch/OverseasCalendarIngestion.kt",
+      "removed_errors": 71
+    }
+  ]
+}

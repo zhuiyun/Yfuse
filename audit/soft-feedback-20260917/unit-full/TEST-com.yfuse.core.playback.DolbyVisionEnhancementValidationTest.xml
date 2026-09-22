@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.playback.DolbyVisionEnhancementValidationTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:06.586Z" hostname="DESKTOP-HM2J0FM" time="0.002">
+  <properties/>
+  <testcase name="only_explicit_enhancement_composition_evidence_allows_an_fel_claim" classname="com.yfuse.core.playback.DolbyVisionEnhancementValidationTest" time="0.002"/>
+  <testcase name="base_layer_and_rpu_output_still_does_not_prove_fel_composition" classname="com.yfuse.core.playback.DolbyVisionEnhancementValidationTest" time="0.0"/>
+  <testcase name="contradictory_missing_base_layer_metadata_never_promotes_a_composition_claim" classname="com.yfuse.core.playback.DolbyVisionEnhancementValidationTest" time="0.0"/>
+  <testcase name="profile_seven_el_presence_alone_is_not_fel_output_evidence" classname="com.yfuse.core.playback.DolbyVisionEnhancementValidationTest" time="0.0"/>
+  <testcase name="profile_eight_or_profile_seven_without_el_is_not_an_fel_validation_case" classname="com.yfuse.core.playback.DolbyVisionEnhancementValidationTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

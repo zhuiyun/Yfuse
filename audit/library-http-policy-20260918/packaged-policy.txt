@@ -1,0 +1,17 @@
+E: network-security-config (line=2)
+    E: base-config (line=7)
+      A: cleartextTrafficPermitted=true
+    E: domain-config (line=15)
+      A: cleartextTrafficPermitted=false
+        E: domain (line=16)
+          A: includeSubdomains=true
+            T: 'themoviedb.org'
+        E: domain (line=17)
+          A: includeSubdomains=true
+            T: 'tmdb.org'
+        E: domain (line=18)
+          A: includeSubdomains=true
+            T: 'trakt.tv'
+        E: domain (line=19)
+          A: includeSubdomains=true
+            T: 'plex.tv'

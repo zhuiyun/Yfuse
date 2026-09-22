@@ -1,0 +1,20 @@
+--- composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerNextUp.kt (before turn)
++++ composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerNextUp.kt
+@@ -11,8 +11,6 @@
+ import androidx.compose.foundation.layout.padding
+ import androidx.compose.foundation.layout.size
+ import androidx.compose.foundation.layout.widthIn
+-import androidx.compose.material3.Icon
+-import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
+@@ -34,6 +32,8 @@
+ import com.yfuse.core.designsystem.rememberAccentColorsForSurface
+ import com.yfuse.core.designsystem.shadow
+ import com.yfuse.core.designsystem.touchTarget
++import com.yfuse.core.designsystem.ThemeIcon as Icon
++import com.yfuse.core.designsystem.ThemeText as Text
+ 
+ /** How long before the end 下一集 announces itself. */
+ internal const val NEXT_UP_WINDOW_MS = 10_000L

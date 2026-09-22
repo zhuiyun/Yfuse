@@ -1,0 +1,12 @@
+[
+  "composeApp/src/androidMain/kotlin/com/yfuse/core/playback/PlaybackProxyLimits.kt",
+  "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidFfmpegSoftwareDecoderNode.kt",
+  "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidPlaybackMemoryBudget.kt",
+  "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidPlaybackStagingBuffer.kt",
+  "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidYCoreHttpProxy.kt",
+  "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/AndroidPlaybackHttpProxy.kt",
+  "composeApp/src/androidUnitTest/kotlin/com/yfuse/core/playback/PlaybackProxyLimitsTest.kt",
+  "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidPlaybackStagingBufferTest.kt",
+  "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidPlaybackProxyAdmissionTest.kt",
+  "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidSoftwareVideoRenderNode.kt"
+]

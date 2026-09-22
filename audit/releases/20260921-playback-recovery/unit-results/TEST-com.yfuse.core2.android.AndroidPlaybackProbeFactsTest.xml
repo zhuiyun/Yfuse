@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.AndroidPlaybackProbeFactsTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:43:56.648Z" hostname="DESKTOP-HM2J0FM" time="0.003">
+  <properties/>
+  <testcase name="core_truth_clears_incorrect_server_dolby_claims" classname="com.yfuse.core2.android.AndroidPlaybackProbeFactsTest" time="0.003"/>
+  <testcase name="facts_are_never_applied_to_another_source_or_session" classname="com.yfuse.core2.android.AndroidPlaybackProbeFactsTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

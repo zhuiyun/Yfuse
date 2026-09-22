@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.sync.playback.PlaybackSyncManagerTest" tests="9" skipped="0" failures="0" errors="0" timestamp="2026-09-20T04:16:50.106Z" hostname="DESKTOP-HM2J0FM" time="1.826">
+  <properties/>
+  <testcase name="an_unavailable_token_does_not_leave_the_sync_indicator_running" classname="com.yfuse.core.sync.playback.PlaybackSyncManagerTest" time="0.342"/>
+  <testcase name="a_refresh_timeout_after_401_is_deferred_without_losing_local_progress" classname="com.yfuse.core.sync.playback.PlaybackSyncManagerTest" time="0.204"/>
+  <testcase name="a_401_can_refresh_once_and_upload_the_queued_progress" classname="com.yfuse.core.sync.playback.PlaybackSyncManagerTest" time="0.382"/>
+  <testcase name="token_cancellation_is_not_reported_as_a_network_failure_or_retried" classname="com.yfuse.core.sync.playback.PlaybackSyncManagerTest" time="0.145"/>
+  <testcase name="token_timeout_preserves_playback_and_retries_only_after_backoff" classname="com.yfuse.core.sync.playback.PlaybackSyncManagerTest" time="0.152"/>
+  <testcase name="an_evicted_cloud_entity_is_retried_as_a_cas_creation" classname="com.yfuse.core.sync.playback.PlaybackSyncManagerTest" time="0.155"/>
+  <testcase name="an_account_refresh_404_does_not_disable_the_playback_endpoint" classname="com.yfuse.core.sync.playback.PlaybackSyncManagerTest" time="0.145"/>
+  <testcase name="an_empty_legacy_push_response_keeps_pending_data_and_reports_failure_with_backoff" classname="com.yfuse.core.sync.playback.PlaybackSyncManagerTest" time="0.147"/>
+  <testcase name="a_second_401_is_deferred_instead_of_starting_a_refresh_loop" classname="com.yfuse.core.sync.playback.PlaybackSyncManagerTest" time="0.154"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

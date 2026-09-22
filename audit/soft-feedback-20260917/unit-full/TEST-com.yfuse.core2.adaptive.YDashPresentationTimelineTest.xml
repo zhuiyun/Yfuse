@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.adaptive.YDashPresentationTimelineTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:08.596Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="repeated_representation_ids_stay_scoped_to_period_and_seek_crosses_exact_boundary" classname="com.yfuse.core2.adaptive.YDashPresentationTimelineTest" time="0.001"/>
+  <testcase name="period_duration_infers_next_start_and_last_duration_but_overlap_is_rejected" classname="com.yfuse.core2.adaptive.YDashPresentationTimelineTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

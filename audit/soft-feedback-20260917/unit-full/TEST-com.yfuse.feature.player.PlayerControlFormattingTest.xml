@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.PlayerControlFormattingTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:15.998Z" hostname="DESKTOP-HM2J0FM" time="0.0">
+  <properties/>
+  <testcase name="genuinelyDifferentMediaClearsTheOldTimeline" classname="com.yfuse.feature.player.PlayerControlFormattingTest" time="0.0"/>
+  <testcase name="knownDurationClampsProgressToTimeline" classname="com.yfuse.feature.player.PlayerControlFormattingTest" time="0.0"/>
+  <testcase name="unknownDurationNeverRendersAsCompleted" classname="com.yfuse.feature.player.PlayerControlFormattingTest" time="0.0"/>
+  <testcase name="stallKeepsTheLastValidTimeline" classname="com.yfuse.feature.player.PlayerControlFormattingTest" time="0.0"/>
+  <testcase name="engineSwitchForTheSameQueueItemKeepsTimeline" classname="com.yfuse.feature.player.PlayerControlFormattingTest" time="0.0"/>
+  <testcase name="timeUnsetDoesNotOverwriteTheLastValidTimeline" classname="com.yfuse.feature.player.PlayerControlFormattingTest" time="0.0"/>
+  <testcase name="sourceSwitchForTheSameQueueItemKeepsTimeline" classname="com.yfuse.feature.player.PlayerControlFormattingTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

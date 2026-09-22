@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.CodecFrameTimestampMapperTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:13.046Z" hostname="DESKTOP-HM2J0FM" time="0.002">
+  <properties/>
+  <testcase name="flush_invalidates_all_old_states_without_reusing_a_timestamp" classname="com.yfuse.core2.android.CodecFrameTimestampMapperTest" time="0.001"/>
+  <testcase name="negative_large_duplicate_and_reordered_media_timestamps_are_restored_exactly" classname="com.yfuse.core2.android.CodecFrameTimestampMapperTest" time="0.0"/>
+  <testcase name="exhausted_identity_space_fails_without_wrapping_even_after_flush" classname="com.yfuse.core2.android.CodecFrameTimestampMapperTest" time="0.0"/>
+  <testcase name="only_actually_released_frames_supply_evidence_and_failed_release_revokes_it" classname="com.yfuse.core2.android.CodecFrameTimestampMapperTest" time="0.0"/>
+  <testcase name="try_again_capacity_checks_do_not_consume_tokens_and_drops_recycle_capacity" classname="com.yfuse.core2.android.CodecFrameTimestampMapperTest" time="0.0"/>
+  <testcase name="missing_callbacks_have_bounded_retention_without_blocking_future_inputs" classname="com.yfuse.core2.android.CodecFrameTimestampMapperTest" time="0.0"/>
+  <testcase name="changing_listener_clears_released_evidence_but_keeps_queued_and_held_outputs" classname="com.yfuse.core2.android.CodecFrameTimestampMapperTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

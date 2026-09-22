@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.AndroidMediaSourceFailureTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:43:56.443Z" hostname="DESKTOP-HM2J0FM" time="0.002">
+  <properties/>
+  <testcase name="wrapped_range_denial_survives_proxy_and_probe_and_cannot_trigger_codec_fallback" classname="com.yfuse.core2.android.AndroidMediaSourceFailureTest" time="0.001"/>
+  <testcase name="status_mapping_is_bounded_and_preserves_missing_sources" classname="com.yfuse.core2.android.AndroidMediaSourceFailureTest" time="0.001"/>
+  <testcase name="unknown_format_still_allows_probe_fallback" classname="com.yfuse.core2.android.AndroidMediaSourceFailureTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

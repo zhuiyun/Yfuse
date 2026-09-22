@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.dolby.YDolbyVisionLayerSynchronizerTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:44:00.445Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="joins_dual_tracks_within_250_microseconds_and_flushes_branches" classname="com.yfuse.core2.dolby.YDolbyVisionLayerSynchronizerTest" time="0.001"/>
+  <testcase name="splits_base_rpu_and_enhancement_without_claiming_composition" classname="com.yfuse.core2.dolby.YDolbyVisionLayerSynchronizerTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

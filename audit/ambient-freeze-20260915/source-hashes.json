@@ -1,0 +1,26 @@
+[
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerAmbientBinding.kt",
+    "sha256": "E1BFB5463FB280AB1AA15F6FCD825AEC7EFE8375DFC42020454A3176C6E50A0E"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/AmbientSamplingPolicy.kt",
+    "sha256": "8C2DD20EC1789320A5843E7FEDEE754CDF8645AE8C9649AE14BA9D5C77FFE1B3"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/AmbientFrameSampler.kt",
+    "sha256": "2968F947DF2C23AB2216C130E4A67EF7AF5F1EA8A96E42A1386D8238C60C6DC2"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/AmbientCopy.kt",
+    "sha256": "F991C19040437F427635A06DB90FAE89ECFA1735022C1608485486D098E0229F"
+  },
+  {
+    "path": "composeApp/src/androidUnitTest/kotlin/com/yfuse/feature/player/AmbientSamplingPolicyTest.kt",
+    "sha256": "A178F3BD884FA73B651D82FED7EC87981E0FE4CB9A79D98ABEF07548C0EEC9EE"
+  },
+  {
+    "path": "composeApp/src/androidUnitTest/kotlin/com/yfuse/feature/player/AmbientCopyTest.kt",
+    "sha256": "3C94B125DA3051D9D3F76F01562657DD84B26724307196C39A2A16A2C211BF08"
+  }
+]

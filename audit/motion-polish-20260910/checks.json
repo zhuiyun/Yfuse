@@ -1,0 +1,18 @@
+{
+  "sourceFiles": 21,
+  "sourceHashesMatch": true,
+  "tests": {
+    "Android": {
+      "tests": 2482,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "TV": {
+      "tests": 59,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  }
+}

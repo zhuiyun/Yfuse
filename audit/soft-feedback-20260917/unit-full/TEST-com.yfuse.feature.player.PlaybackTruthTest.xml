@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.PlaybackTruthTest" tests="13" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:15.986Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="generated_fallback_url_is_not_treated_as_server_approved_transcoding" classname="com.yfuse.feature.player.PlaybackTruthTest" time="0.0"/>
+  <testcase name="fast_probe_builds_a_credential_free_capability_signature" classname="com.yfuse.feature.player.PlaybackTruthTest" time="0.0"/>
+  <testcase name="p7_fel_log_never_claims_enhancement_without_explicit_output_trace" classname="com.yfuse.feature.player.PlaybackTruthTest" time="0.0"/>
+  <testcase name="dolby_source_disables_automatic_server_fallback_but_keeps_manual_choice" classname="com.yfuse.feature.player.PlaybackTruthTest" time="0.0"/>
+  <testcase name="a_dolby_badge_cannot_be_produced_by_the_wording_of_a_label" classname="com.yfuse.feature.player.PlaybackTruthTest" time="0.0"/>
+  <testcase name="dolby_badges_require_runtime_output_evidence_not_source_metadata" classname="com.yfuse.feature.player.PlaybackTruthTest" time="0.0"/>
+  <testcase name="native_dual_dolby_requires_both_live_output_readiness_signals" classname="com.yfuse.feature.player.PlaybackTruthTest" time="0.0"/>
+  <testcase name="dolby_local_pipeline_does_not_display_the_servers_transcode_recommendation_as_active" classname="com.yfuse.feature.player.PlaybackTruthTest" time="0.001"/>
+  <testcase name="spatialized_atmos_source_is_visible_without_becoming_bitstream_output" classname="com.yfuse.feature.player.PlaybackTruthTest" time="0.0"/>
+  <testcase name="device_preflight_starts_on_transcode_before_the_engine_is_created" classname="com.yfuse.feature.player.PlaybackTruthTest" time="0.0"/>
+  <testcase name="missing_transcode_url_does_not_replace_a_working_direct_source" classname="com.yfuse.feature.player.PlaybackTruthTest" time="0.0"/>
+  <testcase name="auto_preserves_the_server_negotiated_direct_stream_truth" classname="com.yfuse.feature.player.PlaybackTruthTest" time="0.0"/>
+  <testcase name="secure_item_marks_the_probe_without_leaking_license_credentials" classname="com.yfuse.feature.player.PlaybackTruthTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,26 @@
+{
+  "composeApp/build/test-results/testReleaseUnitTest": {
+    "tests": 2460,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "tvApp/build/test-results/testDebugUnitTest": {
+    "tests": 59,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "watchTogetherProtocol/build/test-results/jvmTest": {
+    "tests": 8,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "watchTogetherServer/build/test-results/test": {
+    "tests": 175,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  }
+}

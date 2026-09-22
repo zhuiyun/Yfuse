@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.designsystem.MotionHandoffPolicyTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:04.634Z" hostname="DESKTOP-HM2J0FM" time="0.003">
+  <properties/>
+  <testcase name="visible_rows_start_fifty_five_milliseconds_apart_and_always_finish" classname="com.yfuse.core.designsystem.MotionHandoffPolicyTest" time="0.001"/>
+  <testcase name="artwork_geometry_maps_exactly_when_both_windows_share_an_orientation" classname="com.yfuse.core.designsystem.MotionHandoffPolicyTest" time="0.001"/>
+  <testcase name="launch_is_single_use_and_disposed_cards_are_not_return_targets" classname="com.yfuse.core.designsystem.MotionHandoffPolicyTest" time="0.0"/>
+  <testcase name="artwork_geometry_shrinks_a_full_width_hero_whole_to_the_top_centre" classname="com.yfuse.core.designsystem.MotionHandoffPolicyTest" time="0.001"/>
+  <testcase name="artwork_geometry_keeps_its_aspect_ratio_across_a_portrait_to_landscape_boundary" classname="com.yfuse.core.designsystem.MotionHandoffPolicyTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

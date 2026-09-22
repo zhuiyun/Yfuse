@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.api.YDualDolbyEvidenceTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:44:00.423Z" hostname="DESKTOP-HM2J0FM" time="0.0">
+  <properties/>
+  <testcase name="both outputs must be reproven after a disruptive event" classname="com.yfuse.core2.api.YDualDolbyEvidenceTest" time="0.0"/>
+  <testcase name="diagnostics invalidation clears all physical output proof atomically" classname="com.yfuse.core2.api.YDualDolbyEvidenceTest" time="0.0"/>
+  <testcase name="unverified audio progress cannot retain an Atmos claim" classname="com.yfuse.core2.api.YDualDolbyEvidenceTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

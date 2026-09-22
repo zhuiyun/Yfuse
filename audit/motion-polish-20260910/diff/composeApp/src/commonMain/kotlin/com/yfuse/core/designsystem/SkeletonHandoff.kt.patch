@@ -1,0 +1,46 @@
+--- composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/SkeletonHandoff.kt (before turn)
++++ composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/SkeletonHandoff.kt
+@@ -22,7 +22,11 @@
+ import androidx.compose.runtime.staticCompositionLocalOf
+ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.graphics.graphicsLayer
++import androidx.compose.ui.semantics.ProgressBarRangeInfo
+ import androidx.compose.ui.semantics.clearAndSetSemantics
++import androidx.compose.ui.semantics.progressBarRangeInfo
++import androidx.compose.ui.semantics.semantics
++import androidx.compose.ui.semantics.stateDescription
+ import androidx.compose.ui.unit.dp
+ 
+ internal const val HANDOFF_ROW_MS = 55
+@@ -75,7 +79,14 @@
+ ) {
+     val reduce = LocalAccessibilityOptions.current.reduceMotion || !LocalRouteVisible.current
+     SkeletonArrivalScope(loading) {
+-        Box(modifier) {
++        Box(
++            modifier.semantics {
++                if (loading) {
++                    progressBarRangeInfo = ProgressBarRangeInfo.Indeterminate
++                    stateDescription = "正在加载"
++                }
++            },
++        ) {
+             AnimatedVisibility(
+                 visible = loading,
+                 enter = fadeIn(tween(if (reduce) 0 else Motion.QUICK)),
+@@ -100,10 +111,13 @@
+ 
+ /** Used only while real local/connection data is pending; no artificial loading delay. */
+ @Composable
+-internal fun PageLoadingSkeleton(modifier: Modifier = Modifier) {
++internal fun PageLoadingSkeleton(
++    modifier: Modifier = Modifier,
++    rows: Int = 4,
++) {
+     Column(modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
+         SkeletonBlock(Modifier.width(120.dp).height(24.dp))
+-        repeat(4) { index ->
++        repeat(rows.coerceIn(1, 4)) { index ->
+             SkeletonBlock(Modifier.fillMaxWidth().height(76.dp), phaseMs = index * HANDOFF_ROW_MS)
+         }
+     }

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.recovery.YPlaybackRecoveryPolicyTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:44:00.505Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="protected content never crosses into insecure software fallback" classname="com.yfuse.core2.recovery.YPlaybackRecoveryPolicyTest" time="0.0"/>
+  <testcase name="network and authorization failures are left to their owning layers" classname="com.yfuse.core2.recovery.YPlaybackRecoveryPolicyTest" time="0.0"/>
+  <testcase name="transient native codec failure gets one same-route rebuild" classname="com.yfuse.core2.recovery.YPlaybackRecoveryPolicyTest" time="0.001"/>
+  <testcase name="a hardware disc failure gets one retry and one software transition" classname="com.yfuse.core2.recovery.YPlaybackRecoveryPolicyTest" time="0.0"/>
+  <testcase name="an attempted software route cannot loop through a reported hardware route" classname="com.yfuse.core2.recovery.YPlaybackRecoveryPolicyTest" time="0.0"/>
+  <testcase name="enhanced hardware failure advances to YCore software decode" classname="com.yfuse.core2.recovery.YPlaybackRecoveryPolicyTest" time="0.0"/>
+  <testcase name="tunnel failure disables tunnel instead of repeating it" classname="com.yfuse.core2.recovery.YPlaybackRecoveryPolicyTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

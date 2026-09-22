@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.api.YInitialTrackSelectionTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:44:00.425Z" hostname="DESKTOP-HM2J0FM" time="0.002">
+  <properties/>
+  <testcase name="selected_audio_disabled_subtitles_and_invalid_ids_do_not_require_a_new_graph" classname="com.yfuse.core2.api.YInitialTrackSelectionTest" time="0.0"/>
+  <testcase name="mixed_language_aliases_share_the_same_ordinal_on_both_sides_of_a_route_change" classname="com.yfuse.core2.api.YInitialTrackSelectionTest" time="0.0"/>
+  <testcase name="duplicate_labels_and_codecs_preserve_the_requested_language_ordinal" classname="com.yfuse.core2.api.YInitialTrackSelectionTest" time="0.0"/>
+  <testcase name="initial_language_uses_container_track_identity_and_language_aliases" classname="com.yfuse.core2.api.YInitialTrackSelectionTest" time="0.0"/>
+  <testcase name="trusted_handoff_ordinal_still_checks_metadata" classname="com.yfuse.core2.api.YInitialTrackSelectionTest" time="0.0"/>
+  <testcase name="a_language_code_never_matches_another_languages_label" classname="com.yfuse.core2.api.YInitialTrackSelectionTest" time="0.001"/>
+  <testcase name="no_intent_has_one_canonical_representation" classname="com.yfuse.core2.api.YInitialTrackSelectionTest" time="0.0"/>
+  <testcase name="a_route_change_restores_the_same_language_when_demux_ids_change" classname="com.yfuse.core2.api.YInitialTrackSelectionTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.network.TmdbImagesTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:05.588Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="full_schedule_artwork_urls_are_not_prefixed_with_a_tmdb_host" classname="com.yfuse.core.network.TmdbImagesTest" time="0.001"/>
+  <testcase name="relative_paths_keep_both_cdn_candidates_and_blank_paths_are_ignored" classname="com.yfuse.core.network.TmdbImagesTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,60 @@
+--- before/composeApp/src/androidMain/kotlin/com/yfuse/feature/player/BottomSubtitleStack.kt
++++ after/composeApp/src/androidMain/kotlin/com/yfuse/feature/player/BottomSubtitleStack.kt
+@@ -51,24 +51,39 @@
+     scale: Float,
+     appearance: SubtitleAppearance,
+ ) {
+-    if (text.isBlank()) return
+-    AndroidView(
+-        factory = { context ->
+-            TextView(context).apply {
+-                gravity = Gravity.CENTER
+-                includeFontPadding = false
+-                importantForAccessibility = android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO
+-            }
+-        },
+-        update = { view ->
+-            view.text = if (appearance == SubtitleAppearance() && text is Spanned) text else text.toString()
+-            view.setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f * scale.coerceIn(0.6f, 1.8f))
+-            view.setTextColor(appearance.textColorArgb.toInt())
+-            view.setBackgroundColor(appearance.backgroundColorArgb.toInt())
+-            view.setShadowLayer(appearance.outlineWidth.coerceIn(0f, 6f), 0f, 0f, appearance.outlineColorArgb.toInt())
+-        },
+-        modifier = Modifier.fillMaxWidth(),
+-    )
++    SubtitleHandoff(text) { visibleText ->
++        if (visibleText.isNotBlank()) {
++            AndroidView(
++                factory = { context ->
++                    TextView(context).apply {
++                        gravity = Gravity.CENTER
++                        includeFontPadding = false
++                        importantForAccessibility = android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO
++                    }
++                },
++                update = { view ->
++                    view.text =
++                        if (appearance == SubtitleAppearance() &&
++                            visibleText is Spanned
++                        ) {
++                            visibleText
++                        } else {
++                            visibleText.toString()
++                        }
++                    view.setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f * scale.coerceIn(0.6f, 1.8f))
++                    view.setTextColor(appearance.textColorArgb.toInt())
++                    view.setBackgroundColor(appearance.backgroundColorArgb.toInt())
++                    view.setShadowLayer(
++                        appearance.outlineWidth.coerceIn(0f, 6f),
++                        0f,
++                        0f,
++                        appearance.outlineColorArgb.toInt(),
++                    )
++                },
++                modifier = Modifier.fillMaxWidth(),
++            )
++        }
++    }
+ }
+ 
+ @UnstableApi

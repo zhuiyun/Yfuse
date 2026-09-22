@@ -1,0 +1,55 @@
+{
+  "tracked_lockfiles": [
+    "composeApp/gradle.lockfile",
+    "macrobenchmark/gradle.lockfile",
+    "mdkAndroid/gradle.lockfile",
+    "watchTogetherProtocol/gradle.lockfile",
+    "watchTogetherServer/gradle.lockfile"
+  ],
+  "extra_scanned_lockfiles": [
+    ".codex-calendar-optimization/composeApp/gradle.lockfile",
+    ".codex-calendar-optimization/macrobenchmark/gradle.lockfile",
+    ".codex-calendar-optimization/mdkAndroid/gradle.lockfile",
+    ".codex-calendar-optimization/watchTogetherProtocol/gradle.lockfile",
+    ".codex-calendar-optimization/watchTogetherServer/gradle.lockfile",
+    ".worktrees/playback-perf/composeApp/gradle.lockfile",
+    ".worktrees/playback-perf/macrobenchmark/gradle.lockfile",
+    ".worktrees/playback-perf/mdkAndroid/gradle.lockfile",
+    ".worktrees/playback-perf/watchTogetherProtocol/gradle.lockfile",
+    ".worktrees/playback-perf/watchTogetherServer/gradle.lockfile",
+    "build/healthcheck-supply-chain-input/composeApp/gradle.lockfile",
+    "build/healthcheck-supply-chain-input/macrobenchmark/gradle.lockfile",
+    "build/healthcheck-supply-chain-input/mdkAndroid/gradle.lockfile",
+    "build/healthcheck-supply-chain-input/watchTogetherProtocol/gradle.lockfile",
+    "build/healthcheck-supply-chain-input/watchTogetherServer/gradle.lockfile"
+  ],
+  "effective_scanned_coordinate_count": 765,
+  "effective_tracked_coordinate_count": 745,
+  "extra_coordinates": [
+    "androidx.media:media:1.6.0",
+    "com.google.zxing:core:3.3.3",
+    "org.bouncycastle:bcprov-jdk18on:1.84",
+    "org.jetbrains.kotlin:kotlin-build-tools-api:2.1.21",
+    "org.jetbrains.kotlin:kotlin-build-tools-impl:2.1.21",
+    "org.jetbrains.kotlin:kotlin-compiler-embeddable:2.1.21",
+    "org.jetbrains.kotlin:kotlin-compiler-runner:2.1.21",
+    "org.jetbrains.kotlin:kotlin-daemon-client:2.1.21",
+    "org.jetbrains.kotlin:kotlin-daemon-embeddable:2.1.21",
+    "org.jetbrains.kotlin:kotlin-klib-commonizer-embeddable:2.1.21",
+    "org.jetbrains.kotlin:kotlin-script-runtime:2.1.21",
+    "org.jetbrains.kotlin:kotlin-scripting-common:2.1.21",
+    "org.jetbrains.kotlin:kotlin-scripting-compiler-embeddable:2.1.21",
+    "org.jetbrains.kotlin:kotlin-scripting-compiler-impl-embeddable:2.1.21",
+    "org.jetbrains.kotlin:kotlin-scripting-jvm:2.1.21",
+    "org.jetbrains.kotlin:kotlin-stdlib-common:2.1.21",
+    "org.jetbrains.kotlin:kotlin-stdlib-jdk7:2.2.21",
+    "org.jetbrains.kotlin:kotlin-stdlib-jdk8:2.2.21",
+    "org.jetbrains.kotlin:kotlin-stdlib:2.1.21",
+    "org.xerial:sqlite-jdbc:3.53.2.1"
+  ],
+  "malformed_osv_responses_silently_return_no_findings": {
+    "missing_results": [],
+    "short_results": []
+  },
+  "probe_note": "Assertions describe the current defect, not corrected behavior; OSV is mocked."
+}

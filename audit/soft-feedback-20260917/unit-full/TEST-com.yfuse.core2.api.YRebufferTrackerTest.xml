@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.api.YRebufferTrackerTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:13.288Z" hostname="DESKTOP-HM2J0FM" time="0.0">
+  <properties/>
+  <testcase name="seek_pause_and_stop_do_not_extend_or_create_rebuffer_events" classname="com.yfuse.core2.api.YRebufferTrackerTest" time="0.0"/>
+  <testcase name="startup_is_excluded_and_live_duration_includes_the_current_stall" classname="com.yfuse.core2.api.YRebufferTrackerTest" time="0.0"/>
+  <testcase name="failure_and_release_freeze_duration_before_cleanup_and_later_retry" classname="com.yfuse.core2.api.YRebufferTrackerTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.YEnhancedAudioSelectionTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:13.283Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="actualEac3TrackCanUseSoftwareAudioWithTheDolbyHardwareVideoPlan" classname="com.yfuse.core2.android.YEnhancedAudioSelectionTest" time="0.0"/>
+  <testcase name="playableNativeTrackIsPreferredBeforeSoftwareOnlyTrack" classname="com.yfuse.core2.android.YEnhancedAudioSelectionTest" time="0.0"/>
+  <testcase name="missingSoftwareExtensionDoesNotInventADecoderOrDropRequiredAudio" classname="com.yfuse.core2.android.YEnhancedAudioSelectionTest" time="0.0"/>
+  <testcase name="enabledPassthroughIsRetainedWhenTheActualTrackSupportsIt" classname="com.yfuse.core2.android.YEnhancedAudioSelectionTest" time="0.0"/>
+  <testcase name="unknownProbeAudioDoesNotOverrideDisabledPassthrough" classname="com.yfuse.core2.android.YEnhancedAudioSelectionTest" time="0.001"/>
+  <testcase name="pcmPreferenceUsesHardwareDecoderEvenWhenDeviceAlsoAdvertisesPassthrough" classname="com.yfuse.core2.android.YEnhancedAudioSelectionTest" time="0.0"/>
+  <testcase name="videoOnlyMediaDoesNotInventAnAudioTrack" classname="com.yfuse.core2.android.YEnhancedAudioSelectionTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

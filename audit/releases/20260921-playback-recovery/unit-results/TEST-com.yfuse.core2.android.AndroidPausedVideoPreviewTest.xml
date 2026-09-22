@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.AndroidPausedVideoPreviewTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:43:56.642Z" hostname="DESKTOP-HM2J0FM" time="0.003">
+  <properties/>
+  <testcase name="network wait and a new generation cannot age the tunnel renderer deadline" classname="com.yfuse.core2.android.AndroidPausedVideoPreviewTest" time="0.0"/>
+  <testcase name="submitted preview recycles remaining codec output without verifying or displaying it" classname="com.yfuse.core2.android.AndroidPausedVideoPreviewTest" time="0.002"/>
+  <testcase name="tunnel waits for actual audio progress and bounds a short clip final callback" classname="com.yfuse.core2.android.AndroidPausedVideoPreviewTest" time="0.0"/>
+  <testcase name="late real callback confirms the same submitted preview after waiting stops" classname="com.yfuse.core2.android.AndroidPausedVideoPreviewTest" time="0.0"/>
+  <testcase name="preview waits for actual output and restores discarded audio source on resume" classname="com.yfuse.core2.android.AndroidPausedVideoPreviewTest" time="0.0"/>
+  <testcase name="new seek supersedes previous preview and release clears pending resume" classname="com.yfuse.core2.android.AndroidPausedVideoPreviewTest" time="0.0"/>
+  <testcase name="new seek and actual callback reset the bounded callback wait" classname="com.yfuse.core2.android.AndroidPausedVideoPreviewTest" time="0.001"/>
+  <testcase name="missing static frame callback settles unconfirmed without a renderer failure" classname="com.yfuse.core2.android.AndroidPausedVideoPreviewTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

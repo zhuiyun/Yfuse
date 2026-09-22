@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.playback.PlaybackCodecMappingTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:06.596Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="pcm_s24le_is_normalized_to_pcm" classname="com.yfuse.core.playback.PlaybackCodecMappingTest" time="0.001"/>
+  <testcase name="prores_aliases_map_to_the_ffmpeg_software_first_codec" classname="com.yfuse.core.playback.PlaybackCodecMappingTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

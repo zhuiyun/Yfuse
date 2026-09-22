@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.library.LibraryStoreTest" tests="11" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:15.439Z" hostname="DESKTOP-HM2J0FM" time="0.076">
+  <properties/>
+  <testcase name="personal_categories_are_not_repeated_as_library_shelves" classname="com.yfuse.feature.library.LibraryStoreTest" time="0.001"/>
+  <testcase name="loads_home_content_for_default_server" classname="com.yfuse.feature.library.LibraryStoreTest" time="0.015"/>
+  <testcase name="serverSwitchUsesOnlyTheSelectedServersCacheAndFreshness" classname="com.yfuse.feature.library.LibraryStoreTest" time="0.006"/>
+  <testcase name="token_rotation_does_not_replace_fresh_memory_with_an_old_cache_snapshot" classname="com.yfuse.feature.library.LibraryStoreTest" time="0.01"/>
+  <testcase name="slow_counts_do_not_hide_previews_and_switching_server_replaces_progress" classname="com.yfuse.feature.library.LibraryStoreTest" time="0.009"/>
+  <testcase name="unavailable_cache_storage_does_not_block_live_library" classname="com.yfuse.feature.library.LibraryStoreTest" time="0.006"/>
+  <testcase name="token_rotation_with_the_same_server_id_reloads_the_home" classname="com.yfuse.feature.library.LibraryStoreTest" time="0.008"/>
+  <testcase name="stale_server_response_cannot_replace_the_new_server_home" classname="com.yfuse.feature.library.LibraryStoreTest" time="0.006"/>
+  <testcase name="cachedFailureKeepsContentAndMarksItOffline" classname="com.yfuse.feature.library.LibraryStoreTest" time="0.005"/>
+  <testcase name="cachedColdStartBecomesLiveAndAdvancesTimestamp" classname="com.yfuse.feature.library.LibraryStoreTest" time="0.008"/>
+  <testcase name="no_server_shows_empty" classname="com.yfuse.feature.library.LibraryStoreTest" time="0.002"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.offline.OfflineIndexRecoveryTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:05.677Z" hostname="DESKTOP-HM2J0FM" time="0.012">
+  <properties/>
+  <testcase name="recovery_is_not_published_when_its_durable_write_fails" classname="com.yfuse.core.offline.OfflineIndexRecoveryTest" time="0.001"/>
+  <testcase name="unreadable_index_never_runs_real_orphan_cleanup_or_publishes_an_empty_index" classname="com.yfuse.core.offline.OfflineIndexRecoveryTest" time="0.011"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

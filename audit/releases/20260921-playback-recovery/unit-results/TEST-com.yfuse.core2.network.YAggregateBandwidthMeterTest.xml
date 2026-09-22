@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.network.YAggregateBandwidthMeterTest" tests="10" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:44:00.485Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="a stalled active transfer eventually lowers the rolling estimate" classname="com.yfuse.core2.network.YAggregateBandwidthMeterTest" time="0.0"/>
+  <testcase name="idle time between busy periods is not counted against throughput" classname="com.yfuse.core2.network.YAggregateBandwidthMeterTest" time="0.0"/>
+  <testcase name="overlapping transfers are measured as one link, not four" classname="com.yfuse.core2.network.YAggregateBandwidthMeterTest" time="0.0"/>
+  <testcase name="default estimator lowers emergency estimate within two seconds without disturbing stable median" classname="com.yfuse.core2.network.YAggregateBandwidthMeterTest" time="0.0"/>
+  <testcase name="a busy period stays open while any transfer is in flight" classname="com.yfuse.core2.network.YAggregateBandwidthMeterTest" time="0.0"/>
+  <testcase name="one burst cannot move the estimate the way an average would" classname="com.yfuse.core2.network.YAggregateBandwidthMeterTest" time="0.0"/>
+  <testcase name="the estimate follows a sustained change" classname="com.yfuse.core2.network.YAggregateBandwidthMeterTest" time="0.0"/>
+  <testcase name="a transfer too small to time is not recorded" classname="com.yfuse.core2.network.YAggregateBandwidthMeterTest" time="0.0"/>
+  <testcase name="a failed transfer still closes its busy period" classname="com.yfuse.core2.network.YAggregateBandwidthMeterTest" time="0.0"/>
+  <testcase name="continuous concurrent transfers publish before the group ends without counting bytes twice" classname="com.yfuse.core2.network.YAggregateBandwidthMeterTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

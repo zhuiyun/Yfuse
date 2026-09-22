@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.tv.player.TvRemoteInputControllerTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-09-15T04:26:39.302Z" hostname="DESKTOP-HM2J0FM" time="0.005">
+  <properties/>
+  <testcase name="release_flushes_a_repeat_that_arrived_inside_the_debounce_window" classname="com.yfuse.tv.player.TvRemoteInputControllerTest" time="0.004"/>
+  <testcase name="center_toggles_and_reveals_hidden_chrome_but_defers_to_a_focused_control" classname="com.yfuse.tv.player.TvRemoteInputControllerTest" time="0.0"/>
+  <testcase name="hidden_dpad_seek_is_bounded_debounced_and_flushed_on_release" classname="com.yfuse.tv.player.TvRemoteInputControllerTest" time="0.0"/>
+  <testcase name="space_is_play_pause_over_video_but_remains_text_input_inside_a_panel" classname="com.yfuse.tv.player.TvRemoteInputControllerTest" time="0.0"/>
+  <testcase name="visible_chrome_leaves_fresh_dpad_arrows_to_compose_navigation" classname="com.yfuse.tv.player.TvRemoteInputControllerTest" time="0.001"/>
+  <testcase name="media_keys_have_explicit_play_pause_and_queue_semantics" classname="com.yfuse.tv.player.TvRemoteInputControllerTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

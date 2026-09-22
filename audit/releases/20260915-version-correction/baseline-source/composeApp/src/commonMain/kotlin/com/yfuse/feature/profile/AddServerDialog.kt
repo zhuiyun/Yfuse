@@ -1,0 +1,662 @@
+package com.yfuse.feature.profile
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.AppShapes
+import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.GlassDialog
+import com.yfuse.core.designsystem.GlassShapes
+import com.yfuse.core.designsystem.LocalAccentColors
+import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.OrbProgress
+import com.yfuse.core.designsystem.OverlayButton
+import com.yfuse.core.designsystem.OverlayButtonTone
+import com.yfuse.core.designsystem.OverlayHeader
+import com.yfuse.core.designsystem.formDivider
+import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.touchTarget
+import com.yfuse.core.model.MediaServerKind
+import com.yfuse.core.network.rememberLocalNetworkPermissionRequest
+import com.yfuse.core.network.validateEmbyServerEndpoint
+import com.yfuse.feature.servers.PlexAccountUiState
+import com.yfuse.feature.servers.ServersIntent
+import com.yfuse.feature.servers.ServersState
+import com.yfuse.core.designsystem.ThemeIcon as Icon
+import com.yfuse.core.designsystem.ThemeText as Text
+import com.yfuse.core.designsystem.liquidGlass as glass
+
+/**
+ * 添加服务器.
+ *
+ * This used to be a four-step full-screen wizard reached by a route push, which is a
+ * lot of ceremony for "type an address and sign in" — and it buried the LAN scan two
+ * steps deep. Everything now lives in one modal: discovered servers on top for the
+ * common case, the manual form below for the rest.
+ */
+@Composable
+fun AddServerDialog(
+    state: ServersState,
+    onIntent: (ServersIntent) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
+    val form = state.form
+    val uriHandler = LocalUriHandler.current
+    val editing = state.editingServerId != null
+    val endpointValidation = validateEmbyServerEndpoint(form.url, form.httpRiskAccepted)
+    val requestLanScan =
+        rememberLocalNetworkPermissionRequest(
+            onGranted = { onIntent(ServersIntent.Scan) },
+            onDenied = { onIntent(ServersIntent.LocalNetworkPermissionDenied) },
+        )
+
+    GlassDialog(onDismiss = onDismiss, scrollable = false) {
+        OverlayHeader(
+            title = if (editing) "编辑服务器" else "添加服务器",
+            subtitle =
+                if (editing) {
+                    "名称可直接修改；连接信息变更后需重新登录"
+                } else {
+                    "连接 Emby、Jellyfin 或 Plex 服务器"
+                },
+            onClose = onDismiss,
+        )
+
+        // Only the fields scroll. The header, validation message, and submit button remain
+        // visible even on a short screen or while the IME is open.
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .weight(1f, fill = false)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            FieldLabel("局域网发现") {
+                Row(
+                    Modifier
+                        .pressable(enabled = !state.scanning) {
+                            requestLanScan()
+                        }.touchTarget()
+                        .glass(GlassShapes.thumb, palette.card2, palette.border)
+                        .padding(horizontal = 10.dp, vertical = 5.dp),
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (state.scanning) {
+                        OrbProgress(size = 10.dp, color = accent.accent)
+                    }
+                    Text(
+                        if (state.scanning) "扫描中" else "扫描",
+                        style = AppTypography.caption.strong,
+                        color = accent.accent,
+                    )
+                }
+            }
+
+            when {
+                state.discovered.isNotEmpty() ->
+                    state.discovered.forEach { server ->
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .pressable { onIntent(ServersIntent.SelectDiscovered(server)) }
+                                .glass(GlassShapes.chip, palette.card2, palette.border)
+                                .padding(horizontal = 10.dp, vertical = 9.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Box(
+                                Modifier
+                                    .size(30.dp)
+                                    .background(accent.accent, AppShapes.thumb),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    server.name.take(1).uppercase(),
+                                    style = AppTypography.caption.strong,
+                                    color = accent.onAccent,
+                                )
+                            }
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    server.name,
+                                    style = AppTypography.body.strong,
+                                    color = palette.text,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    server.address,
+                                    style = AppTypography.caption.regular,
+                                    color = palette.sub2,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            Icon(
+                                AppIcons.ChevronRight,
+                                null,
+                                tint = palette.sub2,
+                                modifier = Modifier.size(13.dp),
+                            )
+                        }
+                    }
+
+                state.scanError != null ->
+                    Text(
+                        state.scanError,
+                        style = AppTypography.caption.medium.copy(lineHeight = 16.8.sp),
+                        color = palette.error,
+                    )
+
+                !state.scanning ->
+                    Text(
+                        "点击扫描查找同一网络下的服务器，或在下方手动填写。",
+                        style = AppTypography.caption.regular.copy(lineHeight = 16.8.sp),
+                        color = palette.hint,
+                    )
+            }
+
+            Spacer(Modifier.height(4.dp))
+            FieldLabel("服务器信息")
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .glass(GlassShapes.card, palette.card2, palette.border),
+            ) {
+                FormRow(label = "服务类型", divider = true, labelBottomPadding = 6.dp) {
+                    Row(
+                        modifier = Modifier.selectableGroup(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        ProviderSegment("Emby", MediaServerKind.Emby, form.kind, Modifier.weight(1f)) {
+                            onIntent(ServersIntent.ProviderChanged(MediaServerKind.Emby))
+                        }
+                        ProviderSegment("Jellyfin", MediaServerKind.Jellyfin, form.kind, Modifier.weight(1f)) {
+                            onIntent(ServersIntent.ProviderChanged(MediaServerKind.Jellyfin))
+                        }
+                        ProviderSegment("Plex", MediaServerKind.Plex, form.kind, Modifier.weight(1f)) {
+                            onIntent(ServersIntent.ProviderChanged(MediaServerKind.Plex))
+                        }
+                    }
+                }
+                FormInput(
+                    label = "显示名称",
+                    value = form.serverName,
+                    placeholder = if (editing) "输入服务器名称" else "留空使用服务器名称",
+                    enabled = !form.submitting,
+                    divider = true,
+                ) { onIntent(ServersIntent.ServerNameChanged(it)) }
+                FormRow(label = "协议", divider = true, labelBottomPadding = 6.dp) {
+                    Row(
+                        modifier = Modifier.selectableGroup(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        ProtocolSegment("HTTPS", form.https, Modifier.weight(1f)) {
+                            onIntent(ServersIntent.ProtocolChanged(true))
+                        }
+                        ProtocolSegment("HTTP", !form.https, Modifier.weight(1f)) {
+                            onIntent(ServersIntent.ProtocolChanged(false))
+                        }
+                    }
+                }
+                FormInput(
+                    label = "地址",
+                    value = form.host,
+                    placeholder = "media.example.com",
+                    enabled = !form.submitting,
+                    keyboardType = KeyboardType.Uri,
+                    divider = true,
+                ) { onIntent(ServersIntent.HostChanged(it)) }
+                FormInput(
+                    label = "端口",
+                    value = form.port,
+                    enabled = !form.submitting,
+                    keyboardType = KeyboardType.Number,
+                    divider = false,
+                ) { onIntent(ServersIntent.PortChanged(it)) }
+            }
+            Spacer(Modifier.height(4.dp))
+            FieldLabel("账号")
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .glass(GlassShapes.card, palette.card2, palette.border),
+            ) {
+                if (form.kind == MediaServerKind.Plex) {
+                    FormRow(label = "Plex 云账号", divider = true) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            when (val account = state.plexAccount) {
+                                PlexAccountUiState.Idle,
+                                PlexAccountUiState.Cancelled,
+                                PlexAccountUiState.Expired,
+                                is PlexAccountUiState.Error,
+                                -> {
+                                    Text(
+                                        when (account) {
+                                            PlexAccountUiState.Expired -> "登录码已过期，请重新开始。"
+                                            PlexAccountUiState.Cancelled -> "已取消 Plex 账号登录。"
+                                            is PlexAccountUiState.Error -> account.message
+                                            else -> "使用 plex.tv 账号发现服务器，并保留远程与 Relay 线路。"
+                                        },
+                                        style = AppTypography.caption.regular,
+                                        color =
+                                            if (account is PlexAccountUiState.Error) {
+                                                palette.error
+                                            } else {
+                                                palette.sub2
+                                            },
+                                    )
+                                    OverlayButton(
+                                        label = if (account == PlexAccountUiState.Idle) "使用 Plex 账号登录" else "重新登录",
+                                        onClick = { onIntent(ServersIntent.StartPlexAccountSignIn) },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        tone = OverlayButtonTone.Plain,
+                                    )
+                                }
+                                PlexAccountUiState.Starting,
+                                PlexAccountUiState.LoadingAccount,
+                                PlexAccountUiState.LoadingServers,
+                                PlexAccountUiState.Connecting,
+                                -> {
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        OrbProgress(size = 14.dp, color = accent.accent)
+                                        Text(
+                                            when (account) {
+                                                PlexAccountUiState.Starting -> "正在申请登录码…"
+                                                PlexAccountUiState.LoadingAccount -> "正在读取 Plex Home…"
+                                                PlexAccountUiState.LoadingServers -> "正在发现账号服务器…"
+                                                else -> "正在验证服务器线路…"
+                                            },
+                                            style = AppTypography.caption.medium,
+                                            color = palette.body,
+                                        )
+                                    }
+                                }
+                                is PlexAccountUiState.AwaitingAuthorization -> {
+                                    Text(
+                                        "登录码  ${account.code}",
+                                        style = AppTypography.body.strong,
+                                        color = palette.text,
+                                    )
+                                    Text(
+                                        "在 Plex 页面确认后会自动继续。",
+                                        style = AppTypography.caption.regular,
+                                        color = palette.sub2,
+                                    )
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        OverlayButton(
+                                            label = "打开 Plex 授权页",
+                                            onClick = { uriHandler.openUri(account.authUrl) },
+                                            modifier = Modifier.weight(1f),
+                                            tone = OverlayButtonTone.Plain,
+                                        )
+                                        OverlayButton(
+                                            label = "取消",
+                                            onClick = { onIntent(ServersIntent.CancelPlexAccountSignIn) },
+                                            modifier = Modifier.weight(1f),
+                                            tone = OverlayButtonTone.Plain,
+                                        )
+                                    }
+                                }
+                                is PlexAccountUiState.SelectingHomeUser -> {
+                                    Text(
+                                        "选择 Plex Home 用户",
+                                        style = AppTypography.caption.strong,
+                                        color = palette.text,
+                                    )
+                                    if (account.users.any { it.pinProtected }) {
+                                        FormInput(
+                                            label = "Home PIN（受保护用户）",
+                                            value = state.plexHomePin,
+                                            divider = false,
+                                            password = true,
+                                            keyboardType = KeyboardType.Number,
+                                        ) { onIntent(ServersIntent.PlexHomePinChanged(it)) }
+                                    }
+                                    account.error?.let {
+                                        Text(it, style = AppTypography.caption.medium, color = palette.error)
+                                    }
+                                    account.users.forEach { user ->
+                                        PlexChoiceRow(
+                                            title = user.name,
+                                            subtitle =
+                                                buildString {
+                                                    append(if (user.admin) "管理员" else "家庭用户")
+                                                    if (user.pinProtected) append(" · 需要 PIN")
+                                                },
+                                        ) { onIntent(ServersIntent.SelectPlexHomeUser(user.id)) }
+                                    }
+                                }
+                                is PlexAccountUiState.SelectingServer -> {
+                                    Text(
+                                        "选择 Plex Media Server",
+                                        style = AppTypography.caption.strong,
+                                        color = palette.text,
+                                    )
+                                    account.servers.forEach { server ->
+                                        PlexChoiceRow(
+                                            title = server.name,
+                                            subtitle =
+                                                "${if (server.owned) "自有" else "共享"} · ${server.routeCount} 条线路",
+                                        ) { onIntent(ServersIntent.SelectPlexCloudServer(server.id)) }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    FormInput(
+                        label = "手动 Plex Token（备用）",
+                        value = form.password,
+                        placeholder = if (editing) "修改连接时重新填写 Token" else "输入 X-Plex-Token",
+                        enabled = !form.submitting,
+                        password = true,
+                        divider = false,
+                    ) { onIntent(ServersIntent.PasswordChanged(it)) }
+                } else {
+                    FormInput(
+                        label = "用户名",
+                        value = form.username,
+                        placeholder = "输入用户名",
+                        enabled = !form.submitting,
+                        divider = true,
+                    ) { onIntent(ServersIntent.UsernameChanged(it)) }
+                    FormInput(
+                        label = "密码",
+                        value = form.password,
+                        placeholder = if (editing) "仅修改名称时无需填写" else "留空表示无密码",
+                        enabled = !form.submitting,
+                        password = true,
+                        divider = false,
+                    ) { onIntent(ServersIntent.PasswordChanged(it)) }
+                }
+            }
+
+            // Picking a discovered server loads its public users; offer them as one tap
+            // instead of making the name be typed from memory.
+            if (form.kind != MediaServerKind.Plex && state.publicUsers.isNotEmpty()) {
+                Row(
+                    modifier = Modifier.selectableGroup(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    state.publicUsers
+                        .map { it.Name }
+                        .filter(String::isNotBlank)
+                        .take(4)
+                        .forEach { name ->
+                            val selected = name == form.username
+                            Text(
+                                name,
+                                style =
+                                    if (selected) {
+                                        AppTypography.caption.strong
+                                    } else {
+                                        AppTypography.caption.medium
+                                    },
+                                color = if (selected) accent.accent else palette.body,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier =
+                                    Modifier
+                                        .pressable(role = Role.RadioButton) {
+                                            onIntent(ServersIntent.SelectPublicUser(name))
+                                        }.semantics { this.selected = selected }
+                                        .touchTarget()
+                                        .glass(
+                                            shape = GlassShapes.thumb,
+                                            fill =
+                                                if (selected) {
+                                                    accent.container
+                                                } else {
+                                                    palette.card2
+                                                },
+                                            border =
+                                                if (selected) {
+                                                    accent.border
+                                                } else {
+                                                    palette.border
+                                                },
+                                        ).padding(horizontal = 10.dp, vertical = 6.dp),
+                            )
+                        }
+                }
+            }
+        }
+
+        // Outside the scrolling form, immediately above the button that produced it. As the
+        // form's last child it was drawn past the bottom of a 400dp scroll box that the
+        // fields already overflow, so a failed connection looked like the button simply
+        // stopped spinning — the one moment the dialog has something to say and it was the
+        // one thing the user could not see.
+        if (form.error != null) {
+            Text(
+                form.error,
+                style = AppTypography.caption.medium,
+                color = palette.error,
+                modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+            )
+        }
+
+        OverlayButton(
+            label = if (editing) "保存修改" else "连接到服务器",
+            onClick = { onIntent(ServersIntent.Submit) },
+            modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+            tone = OverlayButtonTone.Primary,
+            enabled =
+                (form.canSubmit || (editing && !state.connectionEdited)) &&
+                    endpointValidation.allowed &&
+                    (!editing || form.serverName.isNotBlank()),
+            loading = form.submitting,
+        )
+    }
+}
+
+@Composable
+private fun PlexChoiceRow(
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit,
+) {
+    val palette = LocalPalette.current
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .pressable(onClick = onClick)
+            .touchTarget()
+            .glass(GlassShapes.thumb, palette.card3, palette.border)
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                title,
+                style = AppTypography.body.strong,
+                color = palette.text,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                subtitle,
+                style = AppTypography.caption.regular,
+                color = palette.sub2,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Icon(AppIcons.ChevronRight, null, tint = palette.sub2, modifier = Modifier.size(13.dp))
+    }
+}
+
+/** Group label, optionally with a trailing control on the same baseline. */
+@Composable
+private fun FieldLabel(
+    text: String,
+    trailing: @Composable (() -> Unit)? = null,
+) {
+    val palette = LocalPalette.current
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text,
+            style = AppTypography.caption.strong.copy(letterSpacing = 0.4.sp),
+            color = palette.sub2,
+        )
+        trailing?.invoke()
+    }
+}
+
+/** Form row — `padding:11px 14px`, hairline `rgba(0,0,0,.06)` between rows. */
+@Composable
+private fun FormRow(
+    label: String,
+    divider: Boolean,
+    labelBottomPadding: androidx.compose.ui.unit.Dp = 3.dp,
+    content: @Composable () -> Unit,
+) {
+    val palette = LocalPalette.current
+    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 9.dp)) {
+        Text(
+            label,
+            style = AppTypography.caption.regular,
+            color = palette.sub2,
+            modifier = Modifier.padding(bottom = labelBottomPadding),
+        )
+        content()
+    }
+    if (divider) {
+        Box(Modifier.fillMaxWidth().height(1.dp).background(formDivider()))
+    }
+}
+
+/** Same row with a `500 13px Manrope` text input; label sits 3px above it. */
+@Composable
+private fun FormInput(
+    label: String,
+    value: String,
+    divider: Boolean,
+    enabled: Boolean = true,
+    placeholder: String? = null,
+    password: Boolean = false,
+    keyboardType: KeyboardType = KeyboardType.Text,
+    onValueChange: (String) -> Unit,
+) {
+    val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
+    FormRow(label = label, divider = divider) {
+        Box(contentAlignment = Alignment.CenterStart) {
+            if (value.isEmpty() && placeholder != null) {
+                Text(placeholder, style = AppTypography.body.medium, color = palette.hint)
+            }
+            BasicTextField(
+                value = value,
+                onValueChange = onValueChange,
+                enabled = enabled,
+                singleLine = true,
+                textStyle = AppTypography.body.medium.copy(color = palette.text),
+                cursorBrush = SolidColor(accent.accent),
+                visualTransformation =
+                    if (password) {
+                        PasswordVisualTransformation()
+                    } else {
+                        VisualTransformation.None
+                    },
+                keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .semantics { contentDescription = label },
+            )
+        }
+    }
+}
+
+/**
+ * Protocol segment — `padding:6px 0`, `radius:9px`; selected is
+ * `700 11.5px Manrope` `#3D64C9` on `rgba(61,100,201,.12)`, otherwise `500` `--pg-sub2`.
+ */
+@Composable
+private fun ProtocolSegment(
+    label: String,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
+    Box(
+        modifier
+            .pressable(role = Role.RadioButton, onClick = onClick)
+            .semantics { this.selected = selected }
+            .touchTarget()
+            .glass(
+                shape = AppShapes.thumb,
+                fill = if (selected) accent.container else palette.card3,
+                border =
+                    if (selected) {
+                        accent.border
+                    } else {
+                        palette.border.copy(alpha = 0.55f)
+                    },
+            ).padding(vertical = 6.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            label,
+            style = if (selected) AppTypography.caption.strong else AppTypography.caption.medium,
+            color = if (selected) accent.accent else palette.sub2,
+        )
+    }
+}
+
+@Composable
+private fun ProviderSegment(
+    label: String,
+    kind: MediaServerKind,
+    selectedKind: MediaServerKind,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    ProtocolSegment(
+        label = label,
+        selected = kind == selectedKind,
+        modifier = modifier,
+        onClick = onClick,
+    )
+}

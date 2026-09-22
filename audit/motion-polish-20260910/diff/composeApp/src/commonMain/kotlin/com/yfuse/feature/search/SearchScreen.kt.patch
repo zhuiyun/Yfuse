@@ -1,0 +1,40 @@
+--- composeApp/src/commonMain/kotlin/com/yfuse/feature/search/SearchScreen.kt (before turn)
++++ composeApp/src/commonMain/kotlin/com/yfuse/feature/search/SearchScreen.kt
+@@ -1,9 +1,12 @@
++@file:OptIn(ExperimentalLayoutApi::class)
++
+ package com.yfuse.feature.search
+ 
+ import androidx.compose.foundation.background
+ import androidx.compose.foundation.layout.Arrangement
+ import androidx.compose.foundation.layout.Box
+ import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.ExperimentalLayoutApi
+ import androidx.compose.foundation.layout.FlowRow
+ import androidx.compose.foundation.layout.PaddingValues
+ import androidx.compose.foundation.layout.Row
+@@ -12,6 +15,8 @@
+ import androidx.compose.foundation.layout.fillMaxWidth
+ import androidx.compose.foundation.layout.height
+ import androidx.compose.foundation.layout.heightIn
++import androidx.compose.foundation.layout.imeNestedScroll
++import androidx.compose.foundation.layout.imePadding
+ import androidx.compose.foundation.layout.padding
+ import androidx.compose.foundation.layout.size
+ import androidx.compose.foundation.layout.statusBarsPadding
+@@ -165,7 +170,14 @@
+ 
+     // Page-level light, in order: the skeleton sweep while the first results load, then the
+     // handoff's own pulse and arrival sweep. Each draws only while its clock is running.
+-    Box(Modifier.fillMaxSize().skeletonSweep().then(resultHandoff.page)) {
++    Box(
++        Modifier
++            .fillMaxSize()
++            .imePadding()
++            .imeNestedScroll()
++            .skeletonSweep()
++            .then(resultHandoff.page),
++    ) {
+         LazyColumn(
+             state = component.listState,
+             modifier = Modifier.fillMaxSize().statusBarsPadding(),

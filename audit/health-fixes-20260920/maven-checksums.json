@@ -1,0 +1,198 @@
+[
+  {
+    "url": "https://repo.maven.apache.org/maven2/org/bouncycastle/bcprov-jdk18on/1.85/bcprov-jdk18on-1.85.pom",
+    "sha256": "a48e978d6b24c183c4832f5c49d71c1f84156b99c6fa9a410aafb373a254be7c",
+    "size": 1160,
+    "upstreamChecksumAlgorithm": "sha256",
+    "upstreamChecksum": "a48e978d6b24c183c4832f5c49d71c1f84156b99c6fa9a410aafb373a254be7c"
+  },
+  {
+    "url": "https://repo.maven.apache.org/maven2/org/bouncycastle/bcprov-jdk18on/1.85/bcprov-jdk18on-1.85.jar",
+    "sha256": "20af26bf6060bb8005cc2389916812c1e0e998dc48d2ced7131b89461b54cff7",
+    "size": 10321819,
+    "upstreamChecksumAlgorithm": "sha256",
+    "upstreamChecksum": "20af26bf6060bb8005cc2389916812c1e0e998dc48d2ced7131b89461b54cff7"
+  },
+  {
+    "url": "https://repo.maven.apache.org/maven2/org/bouncycastle/bcpg-jdk18on/1.85/bcpg-jdk18on-1.85.pom",
+    "sha256": "4b5036c7cf9a0d52dd72e496f361b160cd5b8ba00f0f84238ea52f4272f67865",
+    "size": 1811,
+    "upstreamChecksumAlgorithm": "sha256",
+    "upstreamChecksum": "4b5036c7cf9a0d52dd72e496f361b160cd5b8ba00f0f84238ea52f4272f67865"
+  },
+  {
+    "url": "https://repo.maven.apache.org/maven2/org/bouncycastle/bcpg-jdk18on/1.85/bcpg-jdk18on-1.85.jar",
+    "sha256": "39426367dc247dfaae9b1253457a39298b6b9a6c28a39b908bca829e315323dd",
+    "size": 716246,
+    "upstreamChecksumAlgorithm": "sha256",
+    "upstreamChecksum": "39426367dc247dfaae9b1253457a39298b6b9a6c28a39b908bca829e315323dd"
+  },
+  {
+    "url": "https://repo.maven.apache.org/maven2/org/bouncycastle/bcpkix-jdk18on/1.85/bcpkix-jdk18on-1.85.pom",
+    "sha256": "9b052b0cb85cb7d8bb0956afcc74f31c814f1c67e03498e1ca74f8fe8611d957",
+    "size": 1522,
+    "upstreamChecksumAlgorithm": "sha256",
+    "upstreamChecksum": "9b052b0cb85cb7d8bb0956afcc74f31c814f1c67e03498e1ca74f8fe8611d957"
+  },
+  {
+    "url": "https://repo.maven.apache.org/maven2/org/bouncycastle/bcpkix-jdk18on/1.85/bcpkix-jdk18on-1.85.jar",
+    "sha256": "c9f82b2d4e99c4bbdfccf684e52cc06ea06a0b567bfd0d08f9c5a3f417055996",
+    "size": 1315409,
+    "upstreamChecksumAlgorithm": "sha256",
+    "upstreamChecksum": "c9f82b2d4e99c4bbdfccf684e52cc06ea06a0b567bfd0d08f9c5a3f417055996"
+  },
+  {
+    "url": "https://repo.maven.apache.org/maven2/org/bouncycastle/bcutil-jdk18on/1.85/bcutil-jdk18on-1.85.pom",
+    "sha256": "9f1c79a12a7c03d78860e05750dcc44e855e20205c7af7cffbf29a69448d85ea",
+    "size": 1344,
+    "upstreamChecksumAlgorithm": "sha256",
+    "upstreamChecksum": "9f1c79a12a7c03d78860e05750dcc44e855e20205c7af7cffbf29a69448d85ea"
+  },
+  {
+    "url": "https://repo.maven.apache.org/maven2/org/bouncycastle/bcutil-jdk18on/1.85/bcutil-jdk18on-1.85.jar",
+    "sha256": "590f55ed5d68529239898a4a5c4f730b6e37f45d1cfa3fbe51f8485abe32c42d",
+    "size": 718812,
+    "upstreamChecksumAlgorithm": "sha256",
+    "upstreamChecksum": "590f55ed5d68529239898a4a5c4f730b6e37f45d1cfa3fbe51f8485abe32c42d"
+  },
+  {
+    "url": "https://repo.maven.apache.org/maven2/com/squareup/wire/wire-runtime/6.4.5/wire-runtime-6.4.5.pom",
+    "sha256": "9ec49c375683837c67b9fd576a8e0b8c5f20cacd7779254ba52c18b182007f87",
+    "size": 1927,
+    "upstreamChecksumAlgorithm": "sha1",
+    "upstreamChecksum": "59409b2bfecdfa9a9dc1dda95e88e71b94140f20"
+  },
+  {
+    "url": "https://repo.maven.apache.org/maven2/com/squareup/wire/wire-runtime/6.4.5/wire-runtime-6.4.5.module",
+    "sha256": "9227ebf170024938b548eed98fb3b76891358257c1412f518b53aec3db858ad4",
+    "size": 28887,
+    "upstreamChecksumAlgorithm": "sha1",
+    "upstreamChecksum": "c6a062170c91265487be43dc47774f4edef47ffd"
+  },
+  {
+    "url": "https://repo.maven.apache.org/maven2/com/squareup/wire/wire-runtime/6.4.5/wire-runtime-6.4.5.jar",
+    "sha256": "f5d0a99dd738a8eb534d55005117142b426a67386c466241635725d739eafafc",
+    "size": 39790,
+    "upstreamChecksumAlgorithm": "sha1",
+    "upstreamChecksum": "540b71e82df1b26766b8f0f339acd9bde1d5ee3f"
+  },
+  {
+    "url": "https://repo.maven.apache.org/maven2/com/squareup/wire/wire-runtime-jvm/6.4.5/wire-runtime-jvm-6.4.5.pom",
+    "sha256": "b5404c22071bc8f50bf48caeb13f82b81e0f1705855d817db6c7611a63f7c880",
+    "size": 1931,
+    "upstreamChecksumAlgorithm": "sha1",
+    "upstreamChecksum": "3580c35f3658b56d6e00ec66c08a60590d42b72a"
+  },
+  {
+    "url": "https://repo.maven.apache.org/maven2/com/squareup/wire/wire-runtime-jvm/6.4.5/wire-runtime-jvm-6.4.5.module",
+    "sha256": "46a4a3d1478949fd0b5a01ea136775a2bb2bd4952ef8891e086ae73a189276dc",
+    "size": 3722,
+    "upstreamChecksumAlgorithm": "sha1",
+    "upstreamChecksum": "6d0fee1ce3d42a14e0f42cc4b57fb509c3805af8"
+  },
+  {
+    "url": "https://repo.maven.apache.org/maven2/com/squareup/wire/wire-runtime-jvm/6.4.5/wire-runtime-jvm-6.4.5.jar",
+    "sha256": "525cb6f4d838555ed882ebf1567bb4069ab0aa5a5bc69a3fce0be27e6fbb5b4c",
+    "size": 263341,
+    "upstreamChecksumAlgorithm": "sha1",
+    "upstreamChecksum": "55fdfd70ca4d608c6119dc4f36f624748e428e6c"
+  },
+  {
+    "url": "https://repo.maven.apache.org/maven2/org/apache/commons/commons-lang3/3.18.0/commons-lang3-3.18.0.pom",
+    "sha256": "aa254b373b6f6d46bc9dca86331b072a8ab86eb25ea9921fd439618392e98a16",
+    "size": 32038,
+    "upstreamChecksumAlgorithm": "sha1",
+    "upstreamChecksum": "03e931ac2bbab520654e06ac5ca7088098886bb3"
+  },
+  {
+    "url": "https://repo.maven.apache.org/maven2/org/apache/commons/commons-parent/85/commons-parent-85.pom",
+    "sha256": "d189ff2c0027e96bb65d31e6f227ed2af966169b36af1e973dd5ba08926dc7b5",
+    "size": 78337,
+    "upstreamChecksumAlgorithm": "sha1",
+    "upstreamChecksum": "cc8d9a1242954f0245843e625e2a7497a2f95037"
+  },
+  {
+    "url": "https://repo.maven.apache.org/maven2/org/apache/apache/35/apache-35.pom",
+    "sha256": "ea297dcd114136e8b8e8b630230d52a76c2fc69f6c5db25d672b1857000728b8",
+    "size": 24249,
+    "upstreamChecksumAlgorithm": "sha1",
+    "upstreamChecksum": "0a20c027145b2ee59e77ef7dee4881d4ab0a8e07"
+  },
+  {
+    "url": "https://repo.maven.apache.org/maven2/org/apache/commons/commons-lang3/3.18.0/commons-lang3-3.18.0.jar",
+    "sha256": "4eeeae8d20c078abb64b015ec158add383ac581571cddc45c68f0c9ae0230720",
+    "size": 702952,
+    "upstreamChecksumAlgorithm": "sha1",
+    "upstreamChecksum": "fb14946f0e39748a6571de0635acbe44e7885491"
+  },
+  {
+    "url": "https://repo.maven.apache.org/maven2/org/apache/httpcomponents/httpclient/4.5.14/httpclient-4.5.14.pom",
+    "sha256": "f18355af4cf80a8a4ef04ebd742a47e90a7eaf080c725b2095dbc4fc5dbdefb7",
+    "size": 6623,
+    "upstreamChecksumAlgorithm": "sha1",
+    "upstreamChecksum": "f62c6a311407cc4b47d0ea9eec6cf97ed25b8cee"
+  },
+  {
+    "url": "https://repo.maven.apache.org/maven2/org/apache/httpcomponents/httpcomponents-client/4.5.14/httpcomponents-client-4.5.14.pom",
+    "sha256": "5bad1de4f101447659f89d089868ccbad64a68cc503d2d65410b51f6904aa061",
+    "size": 15277,
+    "upstreamChecksumAlgorithm": "sha1",
+    "upstreamChecksum": "e36b5c26d9012cce0ba214e06462596585475217"
+  },
+  {
+    "url": "https://repo.maven.apache.org/maven2/org/apache/httpcomponents/httpcomponents-parent/11/httpcomponents-parent-11.pom",
+    "sha256": "a901f87b115c55070c7ee43efff63e20e7b02d30af2443ae292bf1f4e532d3aa",
+    "size": 34695,
+    "upstreamChecksumAlgorithm": "sha1",
+    "upstreamChecksum": "3ee7a841cc49326e8681089ea7ad6a3b81b88581"
+  },
+  {
+    "url": "https://repo.maven.apache.org/maven2/org/apache/apache/21/apache-21.pom",
+    "sha256": "af10c108da014f17cafac7b52b2b4b5a3a1c18265fa2af97a325d9143537b380",
+    "size": 17107,
+    "upstreamChecksumAlgorithm": "sha1",
+    "upstreamChecksum": "649b700a1b2b4a1d87e7ae8e3f47bfe101b2a4a5"
+  },
+  {
+    "url": "https://repo.maven.apache.org/maven2/org/apache/httpcomponents/httpclient/4.5.14/httpclient-4.5.14.jar",
+    "sha256": "c8bc7e1c51a6d4ce72f40d2ebbabf1c4b68bfe76e732104b04381b493478e9d6",
+    "size": 785639,
+    "upstreamChecksumAlgorithm": "sha1",
+    "upstreamChecksum": "1194890e6f56ec29177673f2f12d0b8e627dec98"
+  },
+  {
+    "url": "https://repo.maven.apache.org/maven2/com/google/protobuf/protobuf-java/4.28.3/protobuf-java-4.28.3.pom",
+    "sha256": "f70bea74bd0b5325c2d2fc4d58d86163744019738d1ca436e067d733c5f7c125",
+    "size": 1554,
+    "upstreamChecksumAlgorithm": "sha1",
+    "upstreamChecksum": "3475fd8808b62feddccd9704a0530203efcb40d2"
+  },
+  {
+    "url": "https://repo.maven.apache.org/maven2/com/google/protobuf/protobuf-parent/4.28.3/protobuf-parent-4.28.3.pom",
+    "sha256": "5364cdc058b2e5a212af6dfc1894299070dd434026a15827bbe313774489f403",
+    "size": 9319,
+    "upstreamChecksumAlgorithm": "sha1",
+    "upstreamChecksum": "7cff07b948592e4012be233f0cddba2d7409bb24"
+  },
+  {
+    "url": "https://repo.maven.apache.org/maven2/com/google/protobuf/protobuf-java/4.28.3/protobuf-java-4.28.3.jar",
+    "sha256": "ba02977c0fef8b40af9f85fe69af362d8e13f2685b49a9752750b18da726157e",
+    "size": 1840325,
+    "upstreamChecksumAlgorithm": "sha1",
+    "upstreamChecksum": "625a6534f0baef7e34a4a0e84b94ea0012385760"
+  },
+  {
+    "url": "https://repo.maven.apache.org/maven2/org/junit/junit-bom/5.13.1/junit-bom-5.13.1.pom",
+    "sha256": "fa68451ea830572ed43ffe51d75b6a05f7a5e665a602a51f49d6be02063a65f3",
+    "size": 5649,
+    "upstreamChecksumAlgorithm": "sha256",
+    "upstreamChecksum": "fa68451ea830572ed43ffe51d75b6a05f7a5e665a602a51f49d6be02063a65f3"
+  },
+  {
+    "url": "https://repo.maven.apache.org/maven2/org/junit/junit-bom/5.13.1/junit-bom-5.13.1.module",
+    "sha256": "33c07ab9724790a6e5859ba07d69117ac530439724545a81c4179e3272c75de8",
+    "size": 6994,
+    "upstreamChecksumAlgorithm": "sha256",
+    "upstreamChecksum": "33c07ab9724790a6e5859ba07d69117ac530439724545a81c4179e3272c75de8"
+  }
+]

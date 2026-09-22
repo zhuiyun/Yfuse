@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.designsystem.GlassTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:04.609Z" hostname="DESKTOP-HM2J0FM" time="0.002">
+  <properties/>
+  <testcase name="transparent_controls_stay_transparent_in_frosted_mode" classname="com.yfuse.core.designsystem.GlassTest" time="0.001"/>
+  <testcase name="light_frosted_cards_do_not_become_opaque_white_plates" classname="com.yfuse.core.designsystem.GlassTest" time="0.0"/>
+  <testcase name="opaque_composite_removes_transparency_without_discarding_semantic_colour" classname="com.yfuse.core.designsystem.GlassTest" time="0.001"/>
+  <testcase name="stronger_frosted_surfaces_have_more_body_than_quiet_ones" classname="com.yfuse.core.designsystem.GlassTest" time="0.0"/>
+  <testcase name="dark_or_semantic_material_borders_are_removed" classname="com.yfuse.core.designsystem.GlassTest" time="0.0"/>
+  <testcase name="frosted_material_has_diffused_light_and_depth_in_both_themes" classname="com.yfuse.core.designsystem.GlassTest" time="0.0"/>
+  <testcase name="luminous_material_edge_keeps_its_requested_strength" classname="com.yfuse.core.designsystem.GlassTest" time="0.0"/>
+  <testcase name="absent_material_border_stays_absent" classname="com.yfuse.core.designsystem.GlassTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

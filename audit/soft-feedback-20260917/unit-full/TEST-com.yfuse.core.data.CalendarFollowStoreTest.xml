@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.data.CalendarFollowStoreTest" tests="12" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:02.064Z" hostname="DESKTOP-HM2J0FM" time="0.01">
+  <properties/>
+  <testcase name="unfollow_removes_delivery_and_baseline_keys" classname="com.yfuse.core.data.CalendarFollowStoreTest" time="0.004"/>
+  <testcase name="cancelling_an_auto_follow_prevents_automatic_readdition" classname="com.yfuse.core.data.CalendarFollowStoreTest" time="0.002"/>
+  <testcase name="successful_server_scan_prunes_only_stale_automatic_follows" classname="com.yfuse.core.data.CalendarFollowStoreTest" time="0.0"/>
+  <testcase name="cloud_restore_validates_and_replaces_followed_series" classname="com.yfuse.core.data.CalendarFollowStoreTest" time="0.001"/>
+  <testcase name="follows_persist_and_reminders_are_bounded" classname="com.yfuse.core.data.CalendarFollowStoreTest" time="0.0"/>
+  <testcase name="failed_server_scan_never_prunes_automatic_follows" classname="com.yfuse.core.data.CalendarFollowStoreTest" time="0.0"/>
+  <testcase name="changing_reminder_mode_resets_availability_baseline" classname="com.yfuse.core.data.CalendarFollowStoreTest" time="0.0"/>
+  <testcase name="library_series_are_auto_followed_with_availability_reminders" classname="com.yfuse.core.data.CalendarFollowStoreTest" time="0.001"/>
+  <testcase name="bulk_actions_update_reminders_and_clean_all_follow_state" classname="com.yfuse.core.data.CalendarFollowStoreTest" time="0.0"/>
+  <testcase name="cloud_restore_cleans_reminder_state_for_removed_series" classname="com.yfuse.core.data.CalendarFollowStoreTest" time="0.0"/>
+  <testcase name="automatic_refresh_timestamp_prevents_duplicate_background_scans" classname="com.yfuse.core.data.CalendarFollowStoreTest" time="0.001"/>
+  <testcase name="manual_follow_stays_manual_and_later_cancel_still_blocks_auto_follow" classname="com.yfuse.core.data.CalendarFollowStoreTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

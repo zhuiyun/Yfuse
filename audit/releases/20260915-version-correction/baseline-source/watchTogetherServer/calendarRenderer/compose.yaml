@@ -1,0 +1,19 @@
+services:
+  calendar-renderer:
+    build: .
+    restart: unless-stopped
+    init: true
+    ports:
+      - "127.0.0.1:8091:8091"
+    env_file:
+      - renderer.environment
+    environment:
+      YFUSE_RENDERER_HOST: 0.0.0.0
+      YFUSE_RENDERER_PORT: 8091
+      YFUSE_RENDERER_STORAGE_STATE: /var/lib/yfuse-renderer/storage-state.json
+    volumes:
+      - ./renderer-state:/var/lib/yfuse-renderer:ro
+    shm_size: 256mb
+    mem_limit: 768m
+    security_opt:
+      - no-new-privileges:true

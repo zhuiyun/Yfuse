@@ -1,0 +1,24 @@
+settingsEvaluated { settings ->
+    settings.dependencyResolutionManagement.repositories.exclusiveContent {
+        forRepository {
+            settings.dependencyResolutionManagement.repositories.maven {
+                url = new File(settings.rootDir, 'audit/playback-optimization-20260920/maven').toURI()
+            }
+        }
+        filter { includeModule('androidx.media3', 'media3-datasource-okhttp') }
+    }
+    def mirror = new File(settings.rootDir, '.gradle-tmp/health-maven')
+    settings.dependencyResolutionManagement.repositories.exclusiveContent {
+        forRepository {
+            settings.dependencyResolutionManagement.repositories.maven { url = mirror.toURI() }
+        }
+        filter {
+            mirror.eachFileRecurse { file ->
+                if (file.name.endsWith('.pom')) {
+                    def parts = mirror.toPath().relativize(file.toPath()).toString().replace('\\', '/').split('/')
+                    includeVersion(parts[0..-4].join('.'), parts[-3], parts[-2])
+                }
+            }
+        }
+    }
+}

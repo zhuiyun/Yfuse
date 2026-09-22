@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.designsystem.LoopingCarouselTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:04.628Z" hostname="DESKTOP-HM2J0FM" time="0.0">
+  <properties/>
+  <testcase name="indicator_uses_the_shortest_route_across_the_loop_boundary" classname="com.yfuse.core.designsystem.LoopingCarouselTest" time="0.0"/>
+  <testcase name="empty_and_single_item_carousels_stay_on_one_page" classname="com.yfuse.core.designsystem.LoopingCarouselTest" time="0.0"/>
+  <testcase name="accessibility_state_exposes_the_real_page_and_count" classname="com.yfuse.core.designsystem.LoopingCarouselTest" time="0.0"/>
+  <testcase name="start_page_is_aligned_and_has_room_in_both_directions" classname="com.yfuse.core.designsystem.LoopingCarouselTest" time="0.0"/>
+  <testcase name="pages_wrap_back_to_real_item_indices" classname="com.yfuse.core.designsystem.LoopingCarouselTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

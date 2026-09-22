@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.strategy.YAudioOnlyStrategyTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:44:00.595Z" hostname="DESKTOP-HM2J0FM" time="0.0">
+  <properties/>
+  <testcase name="a container the platform extractor cannot demux is not claimed as executable" classname="com.yfuse.core2.strategy.YAudioOnlyStrategyTest" time="0.0"/>
+  <testcase name="a codec with no platform decoder is not claimed as executable" classname="com.yfuse.core2.strategy.YAudioOnlyStrategyTest" time="0.0"/>
+  <testcase name="the video placeholder never influences the plan" classname="com.yfuse.core2.strategy.YAudioOnlyStrategyTest" time="0.0"/>
+  <testcase name="passthrough capability is honoured for audio-only media" classname="com.yfuse.core2.strategy.YAudioOnlyStrategyTest" time="0.0"/>
+  <testcase name="audio-only media plans a native direct route with no video pipeline" classname="com.yfuse.core2.strategy.YAudioOnlyStrategyTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

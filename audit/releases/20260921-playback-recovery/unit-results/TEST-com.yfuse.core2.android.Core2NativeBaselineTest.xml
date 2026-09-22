@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.Core2NativeBaselineTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:44:00.140Z" hostname="DESKTOP-HM2J0FM" time="0.0">
+  <properties/>
+  <testcase name="progressive_mp4_and_mkv_with_avc_or_hevc_enter_the_native_lane" classname="com.yfuse.core2.android.Core2NativeBaselineTest" time="0.0"/>
+  <testcase name="adaptive_drm_dolby_and_disc_sources_are_fail_closed" classname="com.yfuse.core2.android.Core2NativeBaselineTest" time="0.0"/>
+  <testcase name="proven_dolby_pipeline_enters_runtime_routing" classname="com.yfuse.core2.android.Core2NativeBaselineTest" time="0.0"/>
+  <testcase name="extended_hardware_codec_and_container_candidates_enter_runtime_probing" classname="com.yfuse.core2.android.Core2NativeBaselineTest" time="0.0"/>
+  <testcase name="implemented_adaptive_and_drm_lanes_bypass_progressive_container_gate" classname="com.yfuse.core2.android.Core2NativeBaselineTest" time="0.0"/>
+  <testcase name="proven_bluray_pipeline_enters_native_runtime_probing" classname="com.yfuse.core2.android.Core2NativeBaselineTest" time="0.0"/>
+  <testcase name="unsupported_or_unknown_metadata_cannot_silently_use_a_legacy_engine" classname="com.yfuse.core2.android.Core2NativeBaselineTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

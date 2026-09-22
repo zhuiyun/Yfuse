@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.AndroidYCoreHttpProxyTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:44:00.004Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="accepts_only_one_explicit_forward_byte_range" classname="com.yfuse.core2.android.AndroidYCoreHttpProxyTest" time="0.001"/>
+  <testcase name="adaptive_children_keep_source_headers_and_credentials" classname="com.yfuse.core2.android.AndroidYCoreHttpProxyTest" time="0.0"/>
+  <testcase name="low_latency_hls_reload_rejects_invalid_or_unrelated_query" classname="com.yfuse.core2.android.AndroidYCoreHttpProxyTest" time="0.0"/>
+  <testcase name="adaptive_cache_key_survives_token_rotation_but_keeps_semantic_coordinates" classname="com.yfuse.core2.android.AndroidYCoreHttpProxyTest" time="0.0"/>
+  <testcase name="low_latency_hls_reload_forwards_only_valid_control_coordinates" classname="com.yfuse.core2.android.AndroidYCoreHttpProxyTest" time="0.0"/>
+  <testcase name="detects_authored_separate_hls_renditions_without_false_positive_on_muxed_master" classname="com.yfuse.core2.android.AndroidYCoreHttpProxyTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

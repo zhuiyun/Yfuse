@@ -1,0 +1,460 @@
+package com.yfuse.core.designsystem
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.runtime.State
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.toggleableState
+import androidx.compose.ui.state.ToggleableState
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import com.yfuse.core.designsystem.ThemeIcon as Icon
+import com.yfuse.core.designsystem.ThemeText as Text
+
+/*
+ * The artwork-over-page hero shared by 影视详情页 and the TMDB info page.
+ *
+ * Both pages are the same layout — full-bleed backdrop, a wash blending it into the
+ * page, and an information sheet lifted over its lower edge — and both were written out
+ * by hand. They drifted: the detail page's wash was corrected to the design's four
+ * stops while the TMDB page kept the old three, so the same screen swallowed most of its
+ * artwork in one place and not the other. These helpers are the one copy.
+ */
+
+/** `rgba(18,22,32,…)` — the ink the wash darkens towards under the status bar. */
+val HeroInk = Color(0xFF121620)
+
+/**
+ * Legibility for hero copy that no longer sits on a scrim.
+ *
+ * A carousel that ends in the page's own colour cannot also be darkened at the bottom: the
+ * two meet as a band of grey, with the picture ghosting through it, and no curve makes that
+ * look deliberate. The dark band is gone — so the white title, which used to lean on it,
+ * carries its own shadow instead. It costs nothing where the artwork is already dark and
+ * saves the one case that used to be unreadable: a bright sky behind a white headline.
+ */
+val HeroTextShadow: Shadow =
+    Shadow(
+        color = Color(0xFF05070D).copy(alpha = 0.58f),
+        offset = Offset(0f, 1.5f),
+        blurRadius = 12f,
+    )
+
+private val HeroDockFill = HeroInk.copy(alpha = 0.58f)
+private val HeroDockBorder = Color.White.copy(alpha = 0.22f)
+private val HeroPlayFill = HeroInk.copy(alpha = 0.68f)
+private val HeroPlayBorder = Color.White.copy(alpha = 0.30f)
+private val HeroPlayInk = Color.White.copy(alpha = 0.94f)
+private val HeroToolSelectedFill = Color.White.copy(alpha = 0.20f)
+
+/**
+ * Artwork-safe action row shared by the 首页 and 媒体库 reels.
+ *
+ * Play uses a wider dark-glass pill; secondary tools use matching glass circles. Keeping each
+ * control to one material layer avoids both a white block over the artwork and the previous
+ * toolbar-inside-toolbar look.
+ */
+@Composable
+fun HeroActionDock(
+    onPlay: () -> Unit,
+    onFavorite: () -> Unit,
+    modifier: Modifier = Modifier,
+    favorite: Boolean? = null,
+    playActionLabel: String = "播放影片",
+    favoriteActionLabel: String = if (favorite == true) "取消收藏" else "加入收藏",
+) {
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Row(
+            Modifier
+                .height(46.dp)
+                .pressable(
+                    focusShape = AppShapes.pill,
+                    onClickLabel = playActionLabel,
+                    onClick = onPlay,
+                ).shadow(GlassLift.control, AppShapes.pill)
+                .liquidGlass(
+                    shape = AppShapes.pill,
+                    fill = HeroPlayFill,
+                    border = HeroPlayBorder,
+                    over = HeroInk,
+                    sheen = 0.68f,
+                ).padding(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                AppIcons.Play,
+                contentDescription = null,
+                tint = HeroPlayInk,
+                modifier = Modifier.size(17.dp),
+            )
+            Text("继续播放", style = AppTypography.body.strong, color = HeroPlayInk, maxLines = 1)
+        }
+        HeroFavoriteButton(
+            icon = if (favorite == true) AppIcons.HeartFilled else AppIcons.Heart,
+            description = favoriteActionLabel,
+            onClick = onFavorite,
+            active = favorite,
+        )
+    }
+}
+
+@Composable
+private fun HeroFavoriteButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    description: String,
+    onClick: () -> Unit,
+    active: Boolean? = null,
+) {
+    val shape = AppShapes.pill
+    Row(
+        Modifier
+            .height(46.dp)
+            .pressable(
+                haptic = HapticSignal.Confirm.takeIf { active != null },
+                role = if (active == null) Role.Button else Role.Checkbox,
+                focusShape = shape,
+                onClickLabel = description,
+                onClick = onClick,
+            ).then(
+                if (active == null) {
+                    Modifier
+                } else {
+                    Modifier.semantics { toggleableState = ToggleableState(active) }
+                },
+            ).shadow(GlassLift.control, shape)
+            .liquidGlass(
+                shape = shape,
+                fill = if (active == true) HeroToolSelectedFill else HeroDockFill,
+                border = HeroDockBorder,
+                over = HeroInk,
+                sheen = 0.58f,
+            ).padding(horizontal = 14.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (active == null) {
+            Icon(icon, null, tint = Color.White.copy(alpha = 0.88f), modifier = Modifier.size(17.dp))
+        } else {
+            BurstIcon(
+                icon = icon,
+                active = active,
+                contentDescription = null,
+                tint = Color.White.copy(alpha = 0.88f),
+                burstColor = Color.White,
+                iconSize = 17.dp,
+            )
+        }
+        Text(
+            text = if (active == true) "已收藏" else "收藏",
+            style = AppTypography.body.strong,
+            color = Color.White.copy(alpha = 0.92f),
+            maxLines = 1,
+        )
+    }
+}
+
+/**
+ * Scrim for a hero whose lower edge dissolves into the page — dark at the top, where the
+ * status bar and the floating header need it, and nothing at all below the midpoint.
+ *
+ * [topInk] is how heavy the top gets; the rest of the shape is fixed, because it is what
+ * keeps the darkness clear of the dissolve.
+ */
+fun heroTopScrim(
+    topInk: Float = 0.66f,
+    midInk: Float = 0.28f,
+): Brush =
+    scrim(
+        0f to Color.Transparent,
+        0.46f to Color.Transparent,
+        0.80f to HeroInk.copy(alpha = midInk),
+        1f to HeroInk.copy(alpha = topInk),
+    )
+
+/**
+ * Page colour under the artwork — the poster's own colour, washed into the page.
+ *
+ * The light theme used to be flat white, which made the one screen that is *about* a
+ * single piece of artwork the one screen that took no colour from it: the hero faded into
+ * a slab that could have belonged to any title. Both themes now carry the harmonized
+ * artwork accent (see [harmonizeArtworkAccent], which has already pulled it into a
+ * restrained luminance band before it reaches here).
+ *
+ * The guards are the point. 次文字 and 提示文字 were measured against a page of a
+ * particular brightness, and a wash is allowed to colour that page, not to darken it out
+ * from under its own text — so a light surface is lifted back towards white until it is
+ * as bright as the standard page, and a dark one is pushed back towards the dark page
+ * until it is as deep.
+ */
+fun heroSurface(
+    accent: Color,
+    isDark: Boolean,
+): Color =
+    if (isDark) {
+        accent
+            .copy(alpha = 0.34f)
+            .compositeOver(Color(0xFF0B111C))
+            .darkenedTo(DARK_HERO_SURFACE_LUMINANCE, Color(0xFF0B111C))
+            .chromaBoosted(DARK_HERO_SURFACE_CHROMA)
+    } else {
+        accent
+            .copy(alpha = 0.34f)
+            .compositeOver(Color.White)
+            .lightenedTo(LIGHT_HERO_SURFACE_LUMINANCE, Color.White)
+            .chromaBoosted(LIGHT_HERO_SURFACE_CHROMA)
+    }
+
+/** As bright as [LightPalette]'s own `background`, where its greys were measured. */
+private const val LIGHT_HERO_SURFACE_LUMINANCE = 0.87f
+
+/** No lighter than the tint the dark detail page already carried. */
+private const val DARK_HERO_SURFACE_LUMINANCE = 0.032f
+
+/**
+ * How much of the artwork's colour survives the brightness guards.
+ *
+ * Lifting a colour towards white is also draining it: guard first, then push the chroma
+ * back out from the grey of the same brightness, and the page reads as *this poster's*
+ * colour rather than as a hint of one. Chroma is symmetric about the channel mean, so it
+ * moves the hue back into view without moving the brightness the guards just fixed.
+ */
+private const val LIGHT_HERO_SURFACE_CHROMA = 2.6f
+private const val DARK_HERO_SURFACE_CHROMA = 2.2f
+
+private fun Color.lightenedTo(
+    minimum: Float,
+    towards: Color,
+): Color {
+    var result = this
+    repeat(10) {
+        if (result.luminance() >= minimum) return result
+        result = lerp(result, towards, 0.14f)
+    }
+    return result
+}
+
+private fun Color.darkenedTo(
+    maximum: Float,
+    towards: Color,
+): Color {
+    var result = this
+    repeat(10) {
+        if (result.luminance() <= maximum) return result
+        result = lerp(result, towards, 0.14f)
+    }
+    return result
+}
+
+private fun Color.chromaBoosted(factor: Float): Color {
+    val mean = (red + green + blue) / 3f
+    return Color(
+        red = (mean + (red - mean) * factor).coerceIn(0f, 1f),
+        green = (mean + (green - mean) * factor).coerceIn(0f, 1f),
+        blue = (mean + (blue - mean) * factor).coerceIn(0f, 1f),
+        alpha = alpha,
+    )
+}
+
+/**
+ * The page's ground, washed toward the artwork the hero is currently showing.
+ *
+ * A hero used to dissolve into `palette.background` — a fixed grey — so the colour stopped
+ * dead at the bottom of the carousel and everything below it belonged to a different picture.
+ * Tinting the whole page instead makes the artwork the room the content sits in, and because
+ * the accent handed in is already animated, the room changes with the slide.
+ *
+ * The light theme previously kept only 11% of the artwork colour. That left an almost-white
+ * page under a dark or saturated poster, so even a mathematically continuous dissolve looked
+ * like a white fog bank. The stronger, still contrast-safe mix makes the page visibly belong
+ * to the poster while retaining the palette background as the majority colour.
+ */
+@Composable
+@ReadOnlyComposable
+fun pageTint(accent: Color): Color {
+    val palette = LocalPalette.current
+    return lerp(palette.background, accent, if (palette.isDark) 0.24f else 0.30f)
+}
+
+/**
+ * `0deg {page} 3%, {page}55% 22%, rgba(18,22,32,.12) 62%, rgba(18,22,32,.42)`
+ * (「影视详情页 优化」).
+ *
+ * The 22% stop is the one that matters. Running the page colour straight into the dark
+ * stop — which is what the three-stop version did — keeps the wash above 50% opaque all
+ * the way to mid-hero, so the artwork is only ever visible in its top third. Reaching
+ * 55% by 22% confines the blend to the strip the information sheet actually sits over.
+ */
+fun heroScrim(
+    surface: Color,
+    bottomSurface: Color = surface,
+): Brush =
+    scrim(
+        0.03f to bottomSurface,
+        0.22f to surface.copy(alpha = 0.55f),
+        0.62f to HeroInk.copy(alpha = 0.12f),
+        1f to HeroInk.copy(alpha = 0.42f),
+    )
+
+/**
+ * Readability wash for 首页 and 媒体库's reels.
+ *
+ * This brush deliberately contains no page-coloured stops. Painting an opaque light colour
+ * over a photograph creates the pale fog band the reel used to show even when the final pixel
+ * happened to equal the page. The artwork layer now owns the transition through
+ * [Modifier.fadeIntoPage]; this scrim only stabilizes contrast near the status bar and is
+ * completely transparent throughout the lower half.
+ */
+fun heroReelScrim(): Brush =
+    scrim(
+        0f to Color.Transparent,
+        0.54f to Color.Transparent,
+        0.68f to HeroInk.copy(alpha = 0.10f),
+        1f to HeroInk.copy(alpha = 0.42f),
+    )
+
+/**
+ * Blend band drawn behind the lifted sheet, over a fixed [height] of page.
+ *
+ * [start] holds the band off for that much first, leaving the sheet's top transparent. A
+ * sheet lifted far enough that its own copy sits on the artwork needs that: the band ramps
+ * towards the page colour, so text over the ramp has to be page ink, and text over the
+ * artwork has to be artwork ink. Text that spans the ramp cannot be either. Starting the
+ * band where the artwork ends keeps each piece of copy on one side of that line.
+ */
+fun heroPanelBrush(
+    surface: Color,
+    density: Density,
+    height: Dp = 170.dp,
+    start: Dp = 0.dp,
+): Brush =
+    Brush.verticalGradient(
+        colorStops =
+            arrayOf(
+                0f to Color.Transparent,
+                0.30f to surface.copy(alpha = 0.42f),
+                0.66f to surface.copy(alpha = 0.90f),
+                1f to surface,
+            ),
+        startY = with(density) { start.toPx() },
+        endY = with(density) { (start + height).toPx() },
+    )
+
+/**
+ * How much of a carousel's lower edge is spent dissolving into the page.
+ *
+ * Shared by 首页 and 库 so the two reels end the same way, and so each screen can hold its
+ * caption and its dots clear of the same band.
+ *
+ * It was 76dp while the artwork still had a dark scrim under it, where a long dissolve
+ * would only have meant a longer grey band. With the scrim gone the constraint is the
+ * opposite one: a short melt on a 390dp hero reads as a smudge along the bottom edge
+ * rather than as the picture settling into the page, so the band is now most of the space
+ * below the caption.
+ */
+val HeroPageFade: Dp = 120.dp
+
+/** Copy stays out of the part of the hero that has mostly dissolved into the page. */
+val HeroCaptionClearance: Dp = HeroPageFade - 20.dp
+
+fun Modifier.fadeIntoPage(height: Dp = HeroPageFade): Modifier =
+    this
+        .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+        .drawWithContent {
+            drawContent()
+            val fade = height.toPx().coerceAtMost(size.height)
+            if (fade <= 0f) return@drawWithContent
+            val top = size.height - fade
+            drawRect(
+                brush =
+                    Brush.verticalGradient(
+                        colorStops = heroPageFadeMaskStops(),
+                        startY = top,
+                        endY = size.height,
+                    ),
+                topLeft = Offset(0f, top),
+                size = Size(size.width, fade),
+                blendMode = BlendMode.DstOut,
+            )
+        }
+
+internal fun heroPageFadeMaskStops(): Array<Pair<Float, Color>> =
+    arrayOf(
+        0f to Color.Transparent,
+        0.24f to Color.Black.copy(alpha = 0.04f),
+        0.50f to Color.Black.copy(alpha = 0.28f),
+        0.72f to Color.Black.copy(alpha = 0.62f),
+        0.88f to Color.Black.copy(alpha = 0.86f),
+        0.97f to Color.Black.copy(alpha = 0.97f),
+        1f to Color.Black,
+    )
+
+/**
+ * Pulls content up over the lower edge of the hero by [lift].
+ *
+ * `offset` cannot do this job inside a lazy list: it moves the drawing but leaves the
+ * measured height behind, so the lift reappears as dead page hanging off the end of the
+ * list. This shrinks the slot instead.
+ */
+fun Modifier.liftOverHero(lift: Dp): Modifier =
+    layout { measurable, constraints ->
+        val liftPx = lift.roundToPx()
+        val placeable = measurable.measure(constraints)
+        layout(placeable.width, (placeable.height - liftPx).coerceAtLeast(0)) {
+            placeable.place(0, -liftPx)
+        }
+    }
+
+/**
+ * True once the page — rather than the artwork — owns the top edge, which is what
+ * decides whether the status bar needs dark icons.
+ *
+ * [heroHeight] must be the hero's real height. Passing a literal that happens to match
+ * is how the media library ended up flipping its status bar at the wrong scroll offset
+ * after its hero was resized.
+ */
+@Composable
+fun rememberScrolledPastHero(
+    listState: LazyListState,
+    heroHeight: Dp,
+    switchInset: Dp = 56.dp,
+): State<Boolean> {
+    val density = LocalDensity.current
+    return remember(listState, heroHeight, switchInset, density) {
+        val switchOffset = with(density) { (heroHeight - switchInset).roundToPx() }
+        derivedStateOf {
+            listState.firstVisibleItemIndex > 0 ||
+                listState.firstVisibleItemScrollOffset >= switchOffset
+        }
+    }
+}

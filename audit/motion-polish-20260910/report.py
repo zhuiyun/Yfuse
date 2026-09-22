@@ -1,0 +1,57 @@
+from pathlib import Path
+import hashlib,json,xml.etree.ElementTree as ET
+ROOT=Path(__file__).resolve().parents[2]
+OUT=Path(__file__).resolve().parent
+assert 'BUILD SUCCESSFUL' in (OUT/'feature-tests.log').read_text(encoding='utf-8-sig'), 'Final build did not pass'
+snapshot=json.loads((OUT/'snapshot.json').read_text(encoding='utf-8'))
+assert all(hashlib.sha256((ROOT/r['path']).read_bytes()).hexdigest()==r['sha256'] for r in snapshot), 'Source changed after snapshot'
+counts={}
+for name,folder in [('Android','composeApp/build/test-results/testReleaseUnitTest'),('TV','tvApp/build/test-results/testDebugUnitTest')]:
+    files=list((ROOT/folder).glob('TEST-*.xml'))
+    assert files, folder
+    total={k:0 for k in ('tests','failures','errors','skipped')}
+    for path in files:
+        node=ET.parse(path).getroot()
+        for key in total:total[key]+=int(node.attrib.get(key,0))
+    assert total['failures']==total['errors']==total['skipped']==0,total
+    counts[name]=total
+assert (ROOT/'composeApp/build/test-results/testReleaseUnitTest/TEST-com.yfuse.core.designsystem.ToastQueueTest.xml').exists()
+(OUT/'checks.json').write_text(json.dumps({'sourceFiles':len(snapshot),'sourceHashesMatch':True,'tests':counts},ensure_ascii=False,indent=2),encoding='utf-8')
+total=sum(x['tests'] for x in counts.values())
+report=f'''# 动效剩余项收尾 · 2026-09-10
+
+本轮按当前代码补齐用户表格中的剩余实现，共修改 {len(snapshot)} 个文件，其中 3 个新文件。此前已经完成的骨架溶解、55ms 交错、搜索结果身份变化触发、分段弹簧、预测返回圆角等继续保留，没有按旧报告的“20/7/8 处”统计重复改动。
+
+| 范围 | 本轮结果 |
+| --- | --- |
+| 首页、库首页 | 英雄区域随滚动收缩、淡出，保持列表测量槽位稳定；滚动量只在 graphicsLayer 读取。 |
+| 库首页 | 添加刷新完成扫光，阈值震动使用真实 refreshing 状态。将原先一个大 Column 中的书架拆为稳定 key 的懒列表条目；骨架删除、横幅进出、书架位置变化由列表动画衔接。服务器选择颜色使用统一弹簧。 |
+| 库网格、库首页文案 | 总数、缓存/离线提示与统计文案使用小范围交叉淡化和宽度过渡。 |
+| 服务器 | 网格与列表共用一棵 Lookahead 树；卡片边界和位置连续变化，列表动画只负责增删淡化，避免两套位置动画叠加；刷新结果图标交叉淡化。 |
+| 一起看 | 邀请解析、建房、错误及可加入状态接入骨架交接与内容阶段过渡。紧凑弹层使用单行骨架，避免页面骨架溢出；公共骨架提供无障碍加载状态。 |
+| 播放器 | 缓冲条向前插值、回退或重置立即对齐，动画值只在绘制读取。Exo 双字幕清空时保留旧行到 QUICK 淡出结束。 |
+| 画中画 | 在进入请求、离开窗口提示及 Android 15 的进入过渡回调中提前隐藏控制层；退出完成后控制层淡入。保留视频 Surface，并对支持的平台启用 seamless resize。进入请求失败恢复原可见性，窗口重获焦点处理取消恢复。 |
+| Toast | 最多堆叠三条，重复文案替换旧实例；独立超时、拖动期间暂停计时、横向滑动/点击/无障碍操作关闭。旧提示超时与重复关闭不能清掉新提示。 |
+| 返回、键盘、刷新、尺寸 | 第一次根返回仍提示确认，确认窗口内停用应用兜底回调，让第二次返回交给系统；退后台时重置。搜索、表单、播放器面板、公共弹层接入 IME 嵌套滚动。三处 PTR 统一玻璃光球样式。导航窗口跨宽度层级或方向变化时使用单树阶段交接，首帧测量不额外闪现。 |
+
+当前表格中的其他项目在上一轮完成，见 [上一轮明细](D:/Demo/Yfuse/audit/motion-finalization-20260910/RESULTS.md)。本轮没有增加视频 Surface 快照或逐帧页面重组，也没有给原生 ASS 的逐帧特效强加字幕交叉淡化。
+
+## 验证
+
+- 最终 `:composeApp:testReleaseUnitTest`：{counts['Android']['tests']} 项通过。
+- 最终 `:tvApp:testDebugUnitTest`：{counts['TV']['tests']} 项通过。
+- 合计 **{total} 项，0 失败、0 错误、0 跳过**。新增 3 个 Toast 队列回归测试，覆盖旧超时、突发限长/重复替换和外部清除。
+- `:composeApp:verifyDesignSystemUsage`、修改文件 ktlint、模块边界检查、`git diff --check` 均通过。
+- 源码 SHA-256 与本轮快照全部一致；[最终日志](D:/Demo/Yfuse/audit/motion-polish-20260910/feature-tests.log)、[校验数据](D:/Demo/Yfuse/audit/motion-polish-20260910/checks.json)、[文件快照](D:/Demo/Yfuse/audit/motion-polish-20260910/snapshot.json)。
+- 第一轮检查通过；中间一次因新文案过渡缺少 import 而编译失败，已修复，并在最终代码上重新运行完整检查。
+
+## 验证边界
+
+按用户要求未连接手机，未执行真机截图、方向/PiP 视觉验收或长时内核稳定性测试；本次没有签名打包或上传。系统 PiP 的实际 Surface 合成与厂商转场仍需实机观察，不能从编译和单元测试推断为所有设备无闪烁。
+
+Toast 入口仍兼容现有 `String?` 状态：如果上游连续发送相同字符串且状态没有任何变化，UI 无法识别为一次新事件；不同消息以及经清除后再次发布的相同消息均可正常入队。
+
+PiP 回调时机依据 [Android 官方 PiP 指南](https://developer.android.google.cn/develop/ui/views/picture-in-picture?hl=en)。其余结果依据本地源码与测试产物。
+'''
+(OUT/'RESULTS.md').write_text(report,encoding='utf-8')
+print(json.dumps({'files':len(snapshot),'totalTests':total,'tests':counts},ensure_ascii=False))

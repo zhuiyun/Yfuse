@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.detail.SourceSelectionPresentationTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:15.093Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="unmeasured_network_does_not_gain_fictional_speed_or_capability_claims" classname="com.yfuse.feature.detail.SourceSelectionPresentationTest" time="0.0"/>
+  <testcase name="recommendation_never_pretends_the_current_manual_selection_changed" classname="com.yfuse.feature.detail.SourceSelectionPresentationTest" time="0.0"/>
+  <testcase name="all_offline_sources_have_no_recommendation_even_when_metadata_is_high_quality" classname="com.yfuse.feature.detail.SourceSelectionPresentationTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

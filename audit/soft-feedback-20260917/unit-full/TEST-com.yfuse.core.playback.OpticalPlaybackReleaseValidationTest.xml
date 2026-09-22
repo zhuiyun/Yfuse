@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.playback.OpticalPlaybackReleaseValidationTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:06.591Z" hostname="DESKTOP-HM2J0FM" time="0.002">
+  <properties/>
+  <testcase name="missing_physical_evidence_is_not_a_release_pass" classname="com.yfuse.core.playback.OpticalPlaybackReleaseValidationTest" time="0.001"/>
+  <testcase name="release_ready_requires_every_optical_and_regression_gate_to_pass" classname="com.yfuse.core.playback.OpticalPlaybackReleaseValidationTest" time="0.001"/>
+  <testcase name="one_explicit_failure_keeps_the_candidate_blocked_even_when_other_samples_pass" classname="com.yfuse.core.playback.OpticalPlaybackReleaseValidationTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

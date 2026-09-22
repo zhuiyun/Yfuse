@@ -1,0 +1,76 @@
+# Gradle files
+.gradle/
+build/
+.kotlin/
+
+# Local configuration file (sdk path, etc)
+local.properties
+
+# Log/OS Files
+*.log
+
+# Python cache files
+__pycache__/
+*.py[cod]
+
+# Android Studio generated files and folders
+captures/
+.externalNativeBuild/
+.cxx/
+*.aab
+*.apk
+output-metadata.json
+
+# IntelliJ
+*.iml
+.idea/
+misc.xml
+deploymentTargetDropDown.xml
+render.experimental.xml
+
+# Keystore files
+*.jks
+*.keystore
+keystore.properties
+
+# Google Services (e.g. APIs or Firebase)
+google-services.json
+
+# Android Profiling
+*.hprof
+
+# Bundled player engine binaries (large; fetched by scripts/fetch-engines)
+composeApp/libs/
+
+# Local proxy used for development and network troubleshooting
+.tmp-proxy/
+
+# Local scratch files, generated QA captures, and design experiments
+tmp/
+
+# Downloaded GitHub Actions packages kept only for local verification
+artifacts/
+
+# Historical audit media belongs in CI/release artifacts, not every Git checkout.
+audit/**/*.png
+audit/**/*.jpg
+audit/**/*.jpeg
+audit/**/*.webp
+audit/**/*.gif
+audit/**/*.mp4
+
+# Extracted native AAR contents are fetched and verified during the build.
+mpvaar/
+.native-build/
+
+# Calendar renderer session material and deployment secrets
+watchTogetherServer/calendarRenderer/node_modules/
+watchTogetherServer/calendarRenderer/renderer.environment
+watchTogetherServer/calendarRenderer/storage-state.json
+watchTogetherServer/calendarRenderer/renderer-state/storage-state.json
+
+# Local build caches and linked checkouts (reports under audit remain reviewable)
+/.gradle-tmp/
+/.worktrees/
+/.codex-calendar-optimization/
+/audit/**/before/

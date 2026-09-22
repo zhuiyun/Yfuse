@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.PlayerControlSnapshotTest" tests="1" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:15.999Z" hostname="DESKTOP-HM2J0FM" time="0.01">
+  <properties/>
+  <testcase name="position_and_buffer_ticks_update_timeline_without_recomposing_the_control_reader" classname="com.yfuse.feature.player.PlayerControlSnapshotTest" time="0.01"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

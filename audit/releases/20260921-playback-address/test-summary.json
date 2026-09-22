@@ -1,0 +1,37 @@
+[
+  {
+    "name": "com.yfuse.core.network.EmbyStreamTest",
+    "tests": 16,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  {
+    "name": "com.yfuse.feature.player.PlaybackRoadmapTest",
+    "tests": 20,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  {
+    "name": "com.yfuse.feature.player.PlayerStoreTest",
+    "tests": 23,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  {
+    "name": "com.yfuse.feature.player.PlexPlaybackRouteTest",
+    "tests": 2,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  {
+    "name": "com.yfuse.feature.player.UhdBluRayServerStreamTest",
+    "tests": 1,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  }
+]

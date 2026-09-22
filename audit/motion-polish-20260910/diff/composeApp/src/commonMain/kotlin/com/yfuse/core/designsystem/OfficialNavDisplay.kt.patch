@@ -1,0 +1,11 @@
+--- composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/OfficialNavDisplay.kt (before turn)
++++ composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/OfficialNavDisplay.kt
+@@ -77,7 +77,7 @@
+     val searchTravelPx = with(density) { 14.dp.roundToPx() }
+     val pushTravelPx = with(density) { Motion.pushOffset.roundToPx() }
+     val popTravelPx = with(density) { Motion.popOffset.roundToPx() }
+-    SharedTransitionLayout(modifier) {
++    SharedTransitionLayout(modifier.windowSizeHandoff()) {
+         CompositionLocalProvider(
+             LocalSharedTransitionScope provides this,
+             LocalSharedMediaTransitionController provides sharedMediaController,

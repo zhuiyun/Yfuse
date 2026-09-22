@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.SeekFeedbackTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:16.210Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="release_and_invalid_geometry_remove_deformation" classname="com.yfuse.feature.player.SeekFeedbackTest" time="0.001"/>
+  <testcase name="narrow_rails_and_endpoints_never_draw_outside_the_track" classname="com.yfuse.feature.player.SeekFeedbackTest" time="0.0"/>
+  <testcase name="direction_changes_the_tail_without_moving_the_seek_position" classname="com.yfuse.feature.player.SeekFeedbackTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

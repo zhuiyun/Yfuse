@@ -1,0 +1,34 @@
+[
+  {
+    "Path": "D:\\Demo\\Yfuse\\composeApp\\gradle.lockfile",
+    "Hash": "D8710DA07C469A40C7DA0C1208EA9AA6A9D87D5A4778616F1CF22B8ED26E33A9"
+  },
+  {
+    "Path": "D:\\Demo\\Yfuse\\phoneShared\\gradle.lockfile",
+    "Hash": "E11A2BDB48917E2210ABDAE009D39EE4CB8337A43763E1235F538E56CD01F258"
+  },
+  {
+    "Path": "D:\\Demo\\Yfuse\\tvApp\\gradle.lockfile",
+    "Hash": "545604A354AF568F76312215952669B6797991A9B7C1F0A3EB255DC99B4FACAC"
+  },
+  {
+    "Path": "D:\\Demo\\Yfuse\\tvShared\\gradle.lockfile",
+    "Hash": "9AAF28DAB834AE905E46491347D1B397B3DE49DF33C882B96D6E802B477EBCD1"
+  },
+  {
+    "Path": "D:\\Demo\\Yfuse\\macrobenchmark\\gradle.lockfile",
+    "Hash": "5AAD02DD56F99B882B63F00515EDEAF2296236A98F8C6C48E07392341B1C598E"
+  },
+  {
+    "Path": "D:\\Demo\\Yfuse\\mdkAndroid\\gradle.lockfile",
+    "Hash": "15AC49DCF749A827686D1C6698BE04B8FB83C0CD0EC447028E223E3C0102F8D9"
+  },
+  {
+    "Path": "D:\\Demo\\Yfuse\\watchTogetherProtocol\\gradle.lockfile",
+    "Hash": "A621F91D7DC85486681CAC531BB60D2B330AA29F7842C92C7FBD381D425A37D5"
+  },
+  {
+    "Path": "D:\\Demo\\Yfuse\\watchTogetherServer\\gradle.lockfile",
+    "Hash": "FBEEBD9F11CC946DB9772838C74F60D7C7771AC2A87D56023BBFA5F872A5DC1F"
+  }
+]

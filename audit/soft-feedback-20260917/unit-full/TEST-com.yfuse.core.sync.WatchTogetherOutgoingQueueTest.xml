@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.sync.WatchTogetherOutgoingQueueTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:07.483Z" hostname="DESKTOP-HM2J0FM" time="0.008">
+  <properties/>
+  <testcase name="acknowledged_chat_does_not_time_out" classname="com.yfuse.core.sync.WatchTogetherOutgoingQueueTest" time="0.001"/>
+  <testcase name="admitted_messages_are_sent_in_fifo_order" classname="com.yfuse.core.sync.WatchTogetherOutgoingQueueTest" time="0.003"/>
+  <testcase name="queued_message_for_old_owner_is_not_sent_to_replacement" classname="com.yfuse.core.sync.WatchTogetherOutgoingQueueTest" time="0.002"/>
+  <testcase name="full_queue_rejects_without_growing_and_reports_failure_once" classname="com.yfuse.core.sync.WatchTogetherOutgoingQueueTest" time="0.001"/>
+  <testcase name="retry_gets_a_fresh_ack_timeout_window" classname="com.yfuse.core.sync.WatchTogetherOutgoingQueueTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

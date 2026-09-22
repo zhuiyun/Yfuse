@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.update.UpdateRestoreTrustTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-20T09:32:45.605Z" hostname="DESKTOP-HM2J0FM" time="0.003">
+  <properties/>
+  <testcase name="an_unsigned_download_resumes_without_a_key_but_not_after_installing_a_build_with_a_key" classname="com.yfuse.update.UpdateRestoreTrustTest" time="0.002"/>
+  <testcase name="signed_records_are_reverified_using_the_current_key_and_exact_stored_payload" classname="com.yfuse.update.UpdateRestoreTrustTest" time="0.001"/>
+  <testcase name="missing_keys_do_not_allow_restoring_another_origin_or_a_malformed_digest" classname="com.yfuse.update.UpdateRestoreTrustTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

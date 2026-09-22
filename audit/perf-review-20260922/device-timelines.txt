@@ -1,0 +1,314 @@
+# 设备日志关键事件（OPPO PLG110 / Android 17；来源：Yfuse-diagnostics-20260921-130754 与 20260922-150836）
+2026-09-21T13:13:38.518 b7c78790 playback_preparation_stage {"stage": "item_detail_ready", "itemid": "110968", "serverref": "p516e10f2aa616f5d1eed2808", "usesdefaultserver": "true", "outcome": "ready", "elapsedms": "2"}
+2026-09-21T13:13:38.526 b7c78790 playback_info_request {"mediasourcepinned": "true", "forcevideotranscode": "false", "enabledirectplay": "true", "enabledirectstream": "true", "maxstreamingbitrate": "1000000000", "maxaudiochannels": "8", "hevcranges": "SDR|HDR10|HDR10Plus|HLG|DOVI|DOVIWithHDR10|DOVIWithHLG|DOVIWith
+2026-09-21T13:13:39.760 b7c78790 playback_info_response {"sourcecount": "1", "errorcode": ""}
+2026-09-21T13:13:39.770 b7c78790 playback_preparation_stage {"stage": "playback_info_ready", "itemid": "110968", "serverref": "p516e10f2aa616f5d1eed2808", "usesdefaultserver": "true", "outcome": "ready", "elapsedms": "1252"}
+2026-09-21T13:13:39.782 b7c78790 playback_preparation_stage {"stage": "current_item_ready", "itemid": "110968", "serverref": "p516e10f2aa616f5d1eed2808", "usesdefaultserver": "true", "outcome": "ready", "elapsedms": "1263"}
+2026-09-21T13:13:46.526 b7c78790 source_lookup_timed_out {"serverref": "p78de18ecdfc459f197f539ab", "budgetms": "8000"}
+2026-09-21T13:13:48.926 b7c78790 playback_launch_stage {"stage": "play_requested", "tapelapsedms": "0"}
+2026-09-21T13:13:48.927 b7c78790 playback_launch_stage {"stage": "detail_selection_ready", "tapelapsedms": "0"}
+2026-09-21T13:13:48.932 b7c78790 playback_launch_stage {"stage": "prepared_store_claimed", "tapelapsedms": "6"}
+2026-09-21T13:13:48.984 b7c78790 activity_launched {}
+2026-09-21T13:13:49.022 b7c78790 preparation_completed_in_activity {"itemcount": "31"}
+2026-09-21T13:13:49.056 b7c78790 engine_attached {"engine": "Exo", "implementation": "fw7"}
+2026-09-21T13:13:49.153 b7c78790 engine_detached {"engine": "Exo", "implementation": "fw7"}
+2026-09-21T13:13:49.279 b7c78790 transport_range_failed {"failurekind": "Authorization", "exceptionchain": "r10", "status": "403", "expectedrangestart": "0", "acceptedrangestart": "unavailable", "attemptcount": "1"}
+2026-09-21T13:13:49.286 b7c78790 metadata_probe_budget {"stage": "platform", "outcome": "completed", "elapsedms": "139", "limitms": "8000", "reservedms": "2000"}
+2026-09-21T13:13:49.287 b7c78790 startup_stage_timing {"stage": "platform_probe", "itemid": "110968", "serverref": "p516e10f2aa616f5d1eed2808", "decoder": "", "elapsedms": "140", "outcome": "success"}
+2026-09-21T13:13:49.287 b7c78790 playback_launch_stage {"stage": "startup_error", "tapelapsedms": "361"}
+2026-09-21T13:13:49.305 b7c78790 native_only_failure {"engine": "YCore2Native", "itemindex": "0", "failurekind": "Authorization", "failure": "YCore 2.0 片源访问被拒绝，请检查访问权限或刷新播放地址"}
+2026-09-21T13:14:06.181 b7c78790 playback_preparation_stage {"stage": "item_detail_ready", "itemid": "111461", "serverref": "p516e10f2aa616f5d1eed2808", "usesdefaultserver": "true", "outcome": "ready", "elapsedms": "2"}
+2026-09-21T13:14:06.188 b7c78790 playback_info_request {"mediasourcepinned": "true", "forcevideotranscode": "false", "enabledirectplay": "true", "enabledirectstream": "true", "maxstreamingbitrate": "1000000000", "maxaudiochannels": "8", "hevcranges": "SDR|HDR10|HDR10Plus|HLG|DOVI|DOVIWithHDR10|DOVIWithHLG|DOVIWith
+2026-09-21T13:14:07.362 b7c78790 playback_info_response {"sourcecount": "1", "errorcode": ""}
+2026-09-21T13:14:07.372 b7c78790 playback_preparation_stage {"stage": "playback_info_ready", "itemid": "111461", "serverref": "p516e10f2aa616f5d1eed2808", "usesdefaultserver": "true", "outcome": "ready", "elapsedms": "1189"}
+2026-09-21T13:14:07.381 b7c78790 playback_preparation_stage {"stage": "current_item_ready", "itemid": "111461", "serverref": "p516e10f2aa616f5d1eed2808", "usesdefaultserver": "true", "outcome": "ready", "elapsedms": "1199"}
+2026-09-21T13:14:14.189 b7c78790 source_lookup_timed_out {"serverref": "p78de18ecdfc459f197f539ab", "budgetms": "8000"}
+2026-09-21T13:14:18.596 b7c78790 playback_launch_stage {"stage": "play_requested", "tapelapsedms": "0"}
+2026-09-21T13:14:18.598 b7c78790 playback_launch_stage {"stage": "detail_selection_ready", "tapelapsedms": "1"}
+2026-09-21T13:14:18.606 b7c78790 playback_launch_stage {"stage": "prepared_store_claimed", "tapelapsedms": "9"}
+2026-09-21T13:14:18.655 b7c78790 activity_launched {}
+2026-09-21T13:14:18.689 b7c78790 preparation_completed_in_activity {"itemcount": "21"}
+2026-09-21T13:14:18.718 b7c78790 engine_attached {"engine": "Exo", "implementation": "fw7"}
+2026-09-21T13:14:18.775 b7c78790 engine_detached {"engine": "Exo", "implementation": "fw7"}
+2026-09-21T13:14:18.886 b7c78790 transport_range_failed {"failurekind": "Authorization", "exceptionchain": "r10", "status": "403", "expectedrangestart": "0", "acceptedrangestart": "unavailable", "attemptcount": "1"}
+2026-09-21T13:14:18.891 b7c78790 metadata_probe_budget {"stage": "platform", "outcome": "completed", "elapsedms": "122", "limitms": "8000", "reservedms": "2000"}
+2026-09-21T13:14:18.893 b7c78790 startup_stage_timing {"stage": "platform_probe", "itemid": "111461", "serverref": "p516e10f2aa616f5d1eed2808", "decoder": "", "elapsedms": "124", "outcome": "success"}
+2026-09-21T13:14:18.893 b7c78790 playback_launch_stage {"stage": "startup_error", "tapelapsedms": "297"}
+2026-09-21T13:14:18.908 b7c78790 native_only_failure {"engine": "YCore2Native", "itemindex": "0", "failurekind": "Authorization", "failure": "YCore 2.0 片源访问被拒绝，请检查访问权限或刷新播放地址"}
+2026-09-21T13:14:26.100 b7c78790 engine_detached {"engine": "YCore2Native", "implementation": "l5b"}
+2026-09-21T13:14:26.100 b7c78790 engine_attached {"engine": "Exo", "implementation": "ko3"}
+2026-09-21T13:14:34.711 b7c78790 engine_detached {"engine": "Exo", "implementation": "ko3"}
+2026-09-21T13:15:06.755 b7c78790 play_selection_load_failed {"serverref": "p71c4825032ceb160b7422d4f", "itemid": "1246444"}
+2026-09-21T13:15:14.793 b7c78790 source_lookup_timed_out {"serverref": "p71c4825032ceb160b7422d4f", "budgetms": "8000"}
+2026-09-21T13:15:20.114 b7c78790 playback_launch_stage {"stage": "play_requested", "tapelapsedms": "0"}
+2026-09-21T13:15:26.512 b7c78790 home_enrichment_timeout {"serverref": "p71c4825032ceb160b7422d4f", "pendingpreviews": "6"}
+2026-09-21T13:15:26.517 b7c78790 load_completed {"serverref": "p71c4825032ceb160b7422d4f", "generation": "4", "durationms": "30170"}
+2026-09-21T13:15:38.107 b7c78790 playback_preparation_stage {"stage": "item_detail_ready", "itemid": "1246466", "serverref": "p71c4825032ceb160b7422d4f", "usesdefaultserver": "true", "outcome": "ready", "elapsedms": "3"}
+2026-09-21T13:15:38.121 b7c78790 playback_info_request {"mediasourcepinned": "true", "forcevideotranscode": "false", "enabledirectplay": "true", "enabledirectstream": "true", "maxstreamingbitrate": "1000000000", "maxaudiochannels": "8", "hevcranges": "SDR|HDR10|HDR10Plus|HLG|DOVI|DOVIWithHDR10|DOVIWithHLG|DOVIWith
+2026-09-21T13:15:40.135 b7c78790 playback_info_response {"sourcecount": "1", "errorcode": ""}
+2026-09-21T13:15:40.144 b7c78790 playback_preparation_stage {"stage": "playback_info_ready", "itemid": "1246466", "serverref": "p71c4825032ceb160b7422d4f", "usesdefaultserver": "true", "outcome": "ready", "elapsedms": "2039"}
+2026-09-21T13:15:40.147 b7c78790 playback_preparation_stage {"stage": "current_item_ready", "itemid": "1246466", "serverref": "p71c4825032ceb160b7422d4f", "usesdefaultserver": "true", "outcome": "ready", "elapsedms": "2043"}
+2026-09-21T13:15:40.607 b7c78790 playback_launch_stage {"stage": "play_requested", "tapelapsedms": "0"}
+2026-09-21T13:15:40.608 b7c78790 playback_launch_stage {"stage": "detail_selection_ready", "tapelapsedms": "1"}
+2026-09-21T13:15:40.615 b7c78790 playback_launch_stage {"stage": "prepared_store_claimed", "tapelapsedms": "7"}
+2026-09-21T13:15:40.654 b7c78790 activity_launched {}
+2026-09-21T13:15:40.682 b7c78790 preparation_completed_in_activity {"itemcount": "23"}
+2026-09-21T13:15:40.708 b7c78790 engine_attached {"engine": "Exo", "implementation": "fw7"}
+2026-09-21T13:15:40.776 b7c78790 engine_detached {"engine": "Exo", "implementation": "fw7"}
+2026-09-21T13:15:46.121 b7c78790 source_lookup_timed_out {"serverref": "p78de18ecdfc459f197f539ab", "budgetms": "8000"}
+2026-09-21T13:15:46.275 b7c78790 transport_range_opened {"implementation": "OkHttp", "status": "206", "negotiatedprotocol": "http/1.1", "redirectcount": "1", "finalprotocol": "Https", "cleartextredirect": "false", "contentlengthknown": "true"}
+2026-09-21T13:15:46.427 b7c78790 transport_block_loaded {"blockindex": "0", "blocksize": "2097152", "loadordinal": "1", "contentlength": "5557299298"}
+2026-09-21T13:15:48.773 b7c78790 metadata_probe_budget {"stage": "platform", "outcome": "cancelled_or_deadline", "elapsedms": "8001", "limitms": "8000", "reservedms": "2000"}
+2026-09-21T13:15:48.774 b7c78790 startup_stage_timing {"stage": "platform_probe", "itemid": "1246466", "serverref": "p71c4825032ceb160b7422d4f", "decoder": "", "elapsedms": "8004", "outcome": "success"}
+2026-09-21T13:15:50.759 b7c78790 transport_range_failed {"failurekind": "Authorization", "exceptionchain": "w5b", "status": "403", "expectedrangestart": "393216", "acceptedrangestart": "unavailable", "attemptcount": "1"}
+2026-09-21T13:15:51.714 b7c78790 transport_block_loaded {"blockindex": "0", "blocksize": "2097152", "loadordinal": "3", "contentlength": "5557299298"}
+2026-09-21T13:16:04.523 b7c78790 transport_block_loaded {"blockindex": "185", "blocksize": "2097152", "loadordinal": "1", "contentlength": "5557299298"}
+2026-09-21T13:16:04.788 b7c78790 transport_range_opened {"implementation": "OkHttp", "status": "206", "negotiatedprotocol": "http/1.1", "redirectcount": "1", "finalprotocol": "Https", "cleartextredirect": "false", "contentlengthknown": "true"}
+2026-09-21T13:16:05.187 b7c78790 transport_range_failed {"failurekind": "Authorization", "exceptionchain": "w5b", "status": "403", "expectedrangestart": "5555355648", "acceptedrangestart": "unavailable", "attemptcount": "1"}
+2026-09-21T13:16:06.778 b7c78790 metadata_probe_budget {"stage": "enhanced", "outcome": "cancelled_or_deadline", "elapsedms": "18000", "limitms": "18000", "reservedms": "2000"}
+2026-09-21T13:16:06.787 b7c78790 startup_stage_timing {"stage": "enhanced_probe", "itemid": "1246466", "serverref": "p71c4825032ceb160b7422d4f", "decoder": "", "elapsedms": "18006", "outcome": "success"}
+2026-09-21T13:16:08.772 b7c78790 startup_stage_timing {"stage": "platform_probe", "itemid": "1246466", "serverref": "p71c4825032ceb160b7422d4f", "decoder": "", "elapsedms": "1983", "outcome": "success"}
+2026-09-21T13:16:09.702 b7c78790 transport_block_loaded {"blockindex": "0", "blocksize": "2097152", "loadordinal": "3", "contentlength": "5557299298"}
+2026-09-21T13:16:11.689 b7c78790 initial_audio_track_selected {"route": "NativeDirect", "preferencerequested": "false", "discoveredtracks": "3", "selectedordinal": "2"}
+2026-09-21T13:16:11.924 b7c78790 native_direct_seek {"targetus": "0", "playbackrequested": "true"}
+2026-09-21T13:16:12.436 b7c78790 transport_range_opened {"implementation": "OkHttp", "status": "206", "negotiatedprotocol": "http/1.1", "redirectcount": "1", "finalprotocol": "Https", "cleartextredirect": "false", "contentlengthknown": "true"}
+2026-09-21T13:16:34.549 b7c78790 playback_launch_stage {"stage": "first_audio_output", "tapelapsedms": "53941"}
+2026-09-21T13:16:34.550 b7c78790 playback_startup_stage {"stage": "first_audio_output", "itemid": "1246466", "serverref": "p71c4825032ceb160b7422d4f", "engine": "YCore 2.0", "route": "NativeDirect", "renderpath": "Surface + AudioTrack", "decoder": "c2.mtk.hevc.decoder + c2.android.aac.decoder", "outputgeneration": 
+2026-09-21T13:16:34.588 b7c78790 playback_launch_stage {"stage": "first_video_output", "tapelapsedms": "53981"}
+2026-09-21T13:16:34.589 b7c78790 playback_startup_stage {"stage": "first_video_output", "itemid": "1246466", "serverref": "p71c4825032ceb160b7422d4f", "engine": "YCore 2.0", "route": "NativeDirect", "renderpath": "Surface + AudioTrack", "decoder": "c2.mtk.hevc.decoder + c2.android.aac.decoder", "outputgeneration": 
+2026-09-21T13:17:22.479 b7c78790 transport_range_failed {"failurekind": "TransientIo", "exceptionchain": "r10", "status": "403", "expectedrangestart": "33554432", "acceptedrangestart": "unavailable", "attemptcount": "3"}
+2026-09-21T13:17:24.954 b7c78790 playback_startup_stage {"stage": "first_audio_output", "itemid": "1246466", "serverref": "p71c4825032ceb160b7422d4f", "engine": "YCore 2.0", "route": "NativeDirect", "renderpath": "Surface + AudioTrack", "decoder": "c2.mtk.hevc.decoder + c2.android.aac.decoder", "outputgeneration": 
+2026-09-21T13:17:24.993 b7c78790 playback_startup_stage {"stage": "first_video_output", "itemid": "1246466", "serverref": "p71c4825032ceb160b7422d4f", "engine": "YCore 2.0", "route": "NativeDirect", "renderpath": "Surface + AudioTrack", "decoder": "c2.mtk.hevc.decoder + c2.android.aac.decoder", "outputgeneration": 
+2026-09-21T13:17:41.735 b7c78790 engine_detached {"engine": "YCore2Native", "implementation": "l5b"}
+2026-09-21T13:18:03.803 b7c78790 playback_preparation_stage {"stage": "item_detail_ready", "itemid": "111663", "serverref": "p516e10f2aa616f5d1eed2808", "usesdefaultserver": "true", "outcome": "ready", "elapsedms": "2"}
+2026-09-21T13:18:03.811 b7c78790 playback_info_request {"mediasourcepinned": "true", "forcevideotranscode": "false", "enabledirectplay": "true", "enabledirectstream": "true", "maxstreamingbitrate": "1000000000", "maxaudiochannels": "8", "hevcranges": "SDR|HDR10|HDR10Plus|HLG|DOVI|DOVIWithHDR10|DOVIWithHLG|DOVIWith
+2026-09-21T13:18:05.476 b7c78790 playback_info_response {"sourcecount": "1", "errorcode": ""}
+2026-09-21T13:18:05.481 b7c78790 playback_preparation_stage {"stage": "playback_info_ready", "itemid": "111663", "serverref": "p516e10f2aa616f5d1eed2808", "usesdefaultserver": "true", "outcome": "ready", "elapsedms": "1679"}
+2026-09-21T13:18:05.485 b7c78790 playback_preparation_stage {"stage": "current_item_ready", "itemid": "111663", "serverref": "p516e10f2aa616f5d1eed2808", "usesdefaultserver": "true", "outcome": "ready", "elapsedms": "1683"}
+2026-09-21T13:18:06.686 b7c78790 playback_launch_stage {"stage": "play_requested", "tapelapsedms": "0"}
+2026-09-21T13:18:06.687 b7c78790 playback_launch_stage {"stage": "detail_selection_ready", "tapelapsedms": "1"}
+2026-09-21T13:18:06.692 b7c78790 playback_launch_stage {"stage": "prepared_store_claimed", "tapelapsedms": "6"}
+2026-09-21T13:18:06.729 b7c78790 activity_launched {}
+2026-09-21T13:18:06.769 b7c78790 preparation_completed_in_activity {"itemcount": "1"}
+2026-09-21T13:18:06.796 b7c78790 engine_attached {"engine": "Exo", "implementation": "fw7"}
+2026-09-21T13:18:06.851 b7c78790 engine_detached {"engine": "Exo", "implementation": "fw7"}
+2026-09-21T13:18:06.976 b7c78790 transport_range_failed {"failurekind": "Authorization", "exceptionchain": "r10", "status": "403", "expectedrangestart": "0", "acceptedrangestart": "unavailable", "attemptcount": "1"}
+2026-09-21T13:18:06.990 b7c78790 metadata_probe_budget {"stage": "platform", "outcome": "completed", "elapsedms": "135", "limitms": "8000", "reservedms": "2000"}
+2026-09-21T13:18:06.991 b7c78790 startup_stage_timing {"stage": "platform_probe", "itemid": "111663", "serverref": "p516e10f2aa616f5d1eed2808", "decoder": "", "elapsedms": "142", "outcome": "success"}
+2026-09-21T13:18:06.994 b7c78790 playback_launch_stage {"stage": "startup_error", "tapelapsedms": "309"}
+2026-09-21T13:18:07.011 b7c78790 native_only_failure {"engine": "YCore2Native", "itemindex": "0", "failurekind": "Authorization", "failure": "YCore 2.0 片源访问被拒绝，请检查访问权限或刷新播放地址"}
+2026-09-21T13:18:07.534 b7c78790 load_completed {"serverref": "p516e10f2aa616f5d1eed2808", "generation": "5", "durationms": "6818"}
+2026-09-21T13:22:40.274 10f3699d library_lookup_timed_out {"serverref": "p9ebf2c86d4a6fa7738b739b6", "timeoutms": "8000"}
+2026-09-21T13:23:02.599 10f3699d home_enrichment_timeout {"serverref": "pcc3e515803a628a711da4153", "pendingpreviews": "3"}
+2026-09-21T13:23:03.286 10f3699d load_completed {"serverref": "p0b8d50a3cdda489256bea69b", "generation": "1", "durationms": "31010"}
+2026-09-21T13:23:05.133 10f3699d library_lookup_timed_out {"serverref": "p9ebf2c86d4a6fa7738b739b6", "timeoutms": "8000"}
+2026-09-22T00:34:59.202 3ad0e3f2 library_lookup_timed_out {"serverref": "p490046592222f19d57eb7adc", "timeoutms": "8000"}
+2026-09-22T00:35:07.260 3ad0e3f2 library_lookup_timed_out {"serverref": "p490046592222f19d57eb7adc", "timeoutms": "8000"}
+2026-09-22T00:35:21.778 3ad0e3f2 home_enrichment_timeout {"serverref": "p490046592222f19d57eb7adc", "pendingpreviews": "3"}
+2026-09-22T00:35:24.155 3ad0e3f2 library_lookup_timed_out {"serverref": "p490046592222f19d57eb7adc", "timeoutms": "8000"}
+2026-09-22T00:35:24.423 3ad0e3f2 load_completed {"serverref": "pf9c9ac8e179eff82dde80e5f", "generation": "1", "durationms": "33181"}
+2026-09-22T05:15:01.598 8225ca87 detail_load_stage {"stage": "started", "itemid": "111658", "serverref": "pd452a023f3f5a1be05210c37", "generation": "1", "outcome": "ready", "elapsedms": "0"}
+2026-09-22T05:15:03.679 8225ca87 detail_load_stage {"stage": "content_ready", "itemid": "111658", "serverref": "pd452a023f3f5a1be05210c37", "generation": "1", "outcome": "network", "elapsedms": "2081"}
+2026-09-22T05:15:03.794 8225ca87 detail_first_content_frame {"itemid": "111658", "serverref": "pd452a023f3f5a1be05210c37", "elapsedms": "2196"}
+2026-09-22T05:15:05.629 8225ca87 library_lookup_timed_out {"serverref": "p167f5c72ebf7d5abd213cc8e", "timeoutms": "8000"}
+2026-09-22T05:15:08.683 8225ca87 detail_load_stage {"stage": "play_target_ready", "itemid": "111658", "serverref": "pd452a023f3f5a1be05210c37", "generation": "1", "outcome": "failed", "elapsedms": "7085"}
+2026-09-22T05:15:08.685 8225ca87 play_selection_load_failed {"serverref": "pd452a023f3f5a1be05210c37", "itemid": "111658"}
+2026-09-22T05:15:13.787 8225ca87 detail_load_stage {"stage": "started", "itemid": "111658", "serverref": "pd452a023f3f5a1be05210c37", "generation": "1", "outcome": "ready", "elapsedms": "0"}
+2026-09-22T05:15:13.818 8225ca87 detail_load_stage {"stage": "content_ready", "itemid": "111658", "serverref": "pd452a023f3f5a1be05210c37", "generation": "1", "outcome": "cache", "elapsedms": "32"}
+2026-09-22T05:15:13.920 8225ca87 detail_first_content_frame {"itemid": "111658", "serverref": "pd452a023f3f5a1be05210c37", "elapsedms": "134"}
+2026-09-22T05:15:18.484 8225ca87 detail_load_stage {"stage": "refresh_ready", "itemid": "111658", "serverref": "pd452a023f3f5a1be05210c37", "generation": "1", "outcome": "network", "elapsedms": "4697"}
+2026-09-22T05:15:18.895 8225ca87 detail_load_stage {"stage": "play_target_ready", "itemid": "111658", "serverref": "pd452a023f3f5a1be05210c37", "generation": "1", "outcome": "failed", "elapsedms": "5108"}
+2026-09-22T05:15:18.896 8225ca87 play_selection_load_failed {"serverref": "pd452a023f3f5a1be05210c37", "itemid": "111658"}
+2026-09-22T05:15:26.899 8225ca87 source_lookup_timed_out {"serverref": "p167f5c72ebf7d5abd213cc8e", "budgetms": "8000"}
+2026-09-22T05:15:28.039 8225ca87 home_enrichment_timeout {"serverref": "pfeddbc8ad2d85f15d970d4ea", "pendingpreviews": "4"}
+2026-09-22T05:15:28.395 8225ca87 load_completed {"serverref": "pd452a023f3f5a1be05210c37", "generation": "1", "durationms": "30722"}
+2026-09-22T05:15:29.891 8225ca87 playback_launch_stage {"stage": "play_requested", "tapelapsedms": "0"}
+2026-09-22T05:15:30.576 8225ca87 library_lookup_timed_out {"serverref": "pfeddbc8ad2d85f15d970d4ea", "timeoutms": "8000"}
+2026-09-22T05:15:31.242 8225ca87 playback_launch_stage {"stage": "detail_selection_ready", "tapelapsedms": "1351"}
+2026-09-22T05:15:31.283 8225ca87 playback_launch_stage {"stage": "prepared_store_claimed", "tapelapsedms": "1391"}
+2026-09-22T05:15:31.315 8225ca87 playback_launch_stage {"stage": "item_detail_ready", "tapelapsedms": "1423"}
+2026-09-22T05:15:31.316 8225ca87 playback_preparation_stage {"stage": "item_detail_ready", "itemid": "111663", "serverref": "pd452a023f3f5a1be05210c37", "usesdefaultserver": "true", "outcome": "ready", "elapsedms": "35"}
+2026-09-22T05:15:31.355 8225ca87 activity_launched {}
+2026-09-22T05:15:31.384 8225ca87 playback_info_request {"mediasourcepinned": "true", "forcevideotranscode": "false", "enabledirectplay": "true", "enabledirectstream": "true", "maxstreamingbitrate": "1000000000", "maxaudiochannels": "8", "hevcranges": "SDR|HDR10|HDR10Plus|HLG|DOVI|DOVIWithHDR10|DOVIWithHLG|DOVIWith
+2026-09-22T05:15:33.479 8225ca87 playback_info_response {"sourcecount": "1", "errorcode": ""}
+2026-09-22T05:15:33.483 8225ca87 playback_launch_stage {"stage": "playback_info_ready", "tapelapsedms": "3592"}
+2026-09-22T05:15:33.484 8225ca87 playback_preparation_stage {"stage": "playback_info_ready", "itemid": "111663", "serverref": "pd452a023f3f5a1be05210c37", "usesdefaultserver": "true", "outcome": "ready", "elapsedms": "2203"}
+2026-09-22T05:15:33.529 8225ca87 preparation_completed_in_activity {"itemcount": "1"}
+2026-09-22T05:15:33.568 8225ca87 playback_launch_stage {"stage": "current_item_ready", "tapelapsedms": "3676"}
+2026-09-22T05:15:33.570 8225ca87 playback_preparation_stage {"stage": "current_item_ready", "itemid": "111663", "serverref": "pd452a023f3f5a1be05210c37", "usesdefaultserver": "true", "outcome": "ready", "elapsedms": "2289"}
+2026-09-22T05:15:33.629 8225ca87 engine_attached {"engine": "Exo", "implementation": "tw7"}
+2026-09-22T05:15:33.727 8225ca87 engine_detached {"engine": "Exo", "implementation": "tw7"}
+2026-09-22T05:15:34.959 8225ca87 source_lookup_timed_out {"serverref": "p8388db3b7f7156100e596695", "budgetms": "8000"}
+2026-09-22T05:15:35.099 8225ca87 transport_range_opened {"implementation": "OkHttp", "status": "206", "negotiatedprotocol": "http/1.1", "redirectcount": "2", "finalprotocol": "Https", "cleartextredirect": "false", "contentlengthknown": "true"}
+2026-09-22T05:15:36.146 8225ca87 transport_block_loaded {"blockindex": "2364", "blocksize": "2097152", "loadordinal": "1", "contentlength": "4958799061"}
+2026-09-22T05:15:37.006 8225ca87 metadata_probe_budget {"stage": "platform", "outcome": "completed", "elapsedms": "3292", "limitms": "8000", "reservedms": "2000"}
+2026-09-22T05:15:37.008 8225ca87 startup_stage_timing {"stage": "platform_probe", "itemid": "111663", "serverref": "pd452a023f3f5a1be05210c37", "decoder": "", "elapsedms": "3295", "outcome": "success"}
+2026-09-22T05:15:37.671 8225ca87 startup_stage_timing {"stage": "codec_sample_probe", "itemid": "111663", "serverref": "pd452a023f3f5a1be05210c37", "decoder": "c2.dolby.decoder.hevc", "elapsedms": "638", "outcome": "success"}
+2026-09-22T05:15:37.673 8225ca87 startup_stage_timing {"stage": "route_decision", "itemid": "111663", "serverref": "pd452a023f3f5a1be05210c37", "decoder": "", "elapsedms": "664", "outcome": "success"}
+2026-09-22T05:15:37.674 8225ca87 route_selected {"itemid": "111663", "serverref": "pd452a023f3f5a1be05210c37", "route": "NativeDirect", "demuxpath": "Platform", "decodepath": "Hardware", "renderpath": "SurfaceDirect", "platformdemuxsupported": "true", "enhanceddemuxsupported": "true", "videocodec": "H265", 
+2026-09-22T05:15:37.706 8225ca87 initial_audio_track_selected {"route": "NativeDirect", "preferencerequested": "false", "discoveredtracks": "1", "selectedordinal": "0"}
+2026-09-22T05:15:37.777 8225ca87 native_direct_seek {"targetus": "7253000", "playbackrequested": "true"}
+2026-09-22T05:15:39.523 8225ca87 video_decoder_candidates {"mime": "video/dolby-vision", "profile": "32", "planned": "c2.dolby.decoder.hevc", "preferred": "", "candidates": "c2.dolby.decoder.hevc,c2.dolby.decoder.hevc.secure"}
+2026-09-22T05:15:40.294 8225ca87 playback_launch_stage {"stage": "first_audio_output", "tapelapsedms": "10402"}
+2026-09-22T05:15:40.295 8225ca87 playback_startup_stage {"stage": "first_audio_output", "itemid": "111663", "serverref": "pd452a023f3f5a1be05210c37", "engine": "YCore 2.0", "route": "NativeDirect", "renderpath": "Surface + AudioTrack", "decoder": "c2.dolby.decoder.hevc + c2.android.aac.decoder", "outputgeneration":
+2026-09-22T05:15:40.296 8225ca87 playback_launch_stage {"stage": "background_requests_released", "tapelapsedms": "10404"}
+2026-09-22T05:15:42.285 8225ca87 playback_launch_stage {"stage": "first_video_output", "tapelapsedms": "12393"}
+2026-09-22T05:15:42.287 8225ca87 playback_startup_stage {"stage": "first_video_output", "itemid": "111663", "serverref": "pd452a023f3f5a1be05210c37", "engine": "YCore 2.0", "route": "NativeDirect", "renderpath": "Surface + AudioTrack", "decoder": "c2.dolby.decoder.hevc + c2.android.aac.decoder", "outputgeneration":
+2026-09-22T05:15:42.389 8225ca87 position_corrected {"engine": "YCore2Native", "targetms": "7253", "actualms": "9226", "errorms": "1723", "tolerancems": "250"}
+2026-09-22T05:15:52.669 8225ca87 engine_detached {"engine": "YCore2Native", "implementation": "y5b"}
+2026-09-20T11:18:45.646 4a4488ba library_lookup_timed_out {"serverref": "p4d3d383be155267895c1a23e", "timeoutms": "8000"}
+2026-09-20T11:19:01.118 4a4488ba library_lookup_timed_out {"serverref": "p98d03f36845d5c23f6e1b7fa", "timeoutms": "8000"}
+2026-09-20T11:19:04.310 4a4488ba load_completed {"serverref": "pbfef889e91c1e9a86319102e", "generation": "1", "durationms": "26564"}
+2026-09-20T11:19:08.480 4a4488ba home_enrichment_timeout {"serverref": "pd4b03911edc5486f4077231a", "pendingpreviews": "2"}
+2026-09-20T11:19:14.134 4a4488ba play_selection_load_failed {"serverref": "p59f2dedf45ca0a2b7ed3508a", "itemid": "110092"}
+2026-09-20T11:19:25.336 4a4488ba library_lookup_timed_out {"serverref": "p98d03f36845d5c23f6e1b7fa", "timeoutms": "8000"}
+2026-09-20T11:19:32.071 4a4488ba library_lookup_timed_out {"serverref": "p6fbc48bc1ad29943c380d20f", "timeoutms": "8000"}
+2026-09-20T11:22:06.073 4a4488ba home_enrichment_timeout {"serverref": "p59f2dedf45ca0a2b7ed3508a", "pendingpreviews": "0"}
+2026-09-20T11:22:31.168 4a4488ba playback_preparation_stage {"stage": "item_detail_ready", "itemid": "13678", "serverref": "p59f2dedf45ca0a2b7ed3508a", "usesdefaultserver": "false", "outcome": "ready", "elapsedms": "30"}
+2026-09-20T11:22:31.210 4a4488ba playback_info_request {"mediasourcepinned": "true", "forcevideotranscode": "false", "enabledirectplay": "true", "enabledirectstream": "true", "maxstreamingbitrate": "1000000000", "maxaudiochannels": "8", "hevcranges": "SDR|HDR10|HDR10Plus|HLG|DOVI|DOVIWithHDR10|DOVIWithHLG|DOVIWith
+2026-09-20T11:22:54.422 4a4488ba load_completed {"serverref": "pbfef889e91c1e9a86319102e", "generation": "2", "durationms": "5960"}
+2026-09-20T15:28:28.715 d5e90a3b library_lookup_timed_out {"serverref": "p43cd3056aa92ae7e47f0f85e", "timeoutms": "8000"}
+2026-09-20T15:28:34.960 d5e90a3b play_selection_load_failed {"serverref": "p114a709d7d1e55334666bcd6", "itemid": "1197307"}
+2026-09-20T15:28:36.836 d5e90a3b library_lookup_timed_out {"serverref": "p43cd3056aa92ae7e47f0f85e", "timeoutms": "8000"}
+2026-09-20T15:28:42.978 d5e90a3b source_lookup_timed_out {"serverref": "p114a709d7d1e55334666bcd6", "budgetms": "8000"}
+2026-09-20T15:28:46.012 d5e90a3b load_completed {"serverref": "p114a709d7d1e55334666bcd6", "generation": "1", "durationms": "25396"}
+2026-09-20T15:28:49.022 d5e90a3b playback_launch_stage {"stage": "play_requested", "tapelapsedms": "0"}
+2026-09-20T15:28:50.907 d5e90a3b home_enrichment_timeout {"serverref": "pd420e35eee470b52a7dd7ea3", "pendingpreviews": "2"}
+2026-09-20T15:28:53.386 d5e90a3b playback_launch_stage {"stage": "detail_selection_ready", "tapelapsedms": "4364"}
+2026-09-20T15:28:53.391 d5e90a3b playback_launch_stage {"stage": "prepared_store_claimed", "tapelapsedms": "4369"}
+2026-09-20T15:28:53.394 d5e90a3b playback_launch_stage {"stage": "item_detail_ready", "tapelapsedms": "4372"}
+2026-09-20T15:28:53.395 d5e90a3b playback_preparation_stage {"stage": "item_detail_ready", "itemid": "1197311", "serverref": "p114a709d7d1e55334666bcd6", "usesdefaultserver": "true", "outcome": "ready", "elapsedms": "6"}
+2026-09-20T15:28:53.465 d5e90a3b playback_info_request {"mediasourcepinned": "true", "forcevideotranscode": "false", "enabledirectplay": "true", "enabledirectstream": "true", "maxstreamingbitrate": "1000000000", "maxaudiochannels": "8", "hevcranges": "SDR|HDR10|HDR10Plus|HLG|DOVI|DOVIWithHDR10|DOVIWithHLG|DOVIWith
+2026-09-20T15:28:53.477 d5e90a3b library_lookup_timed_out {"serverref": "pa366a772aaa0846685434003", "timeoutms": "8000"}
+2026-09-20T15:28:53.514 d5e90a3b activity_launched {}
+2026-09-20T15:28:54.387 d5e90a3b playback_info_response {"sourcecount": "1", "errorcode": ""}
+2026-09-20T15:28:54.394 d5e90a3b playback_launch_stage {"stage": "playback_info_ready", "tapelapsedms": "5372"}
+2026-09-20T15:28:54.395 d5e90a3b playback_preparation_stage {"stage": "playback_info_ready", "itemid": "1197311", "serverref": "p114a709d7d1e55334666bcd6", "usesdefaultserver": "true", "outcome": "ready", "elapsedms": "1006"}
+2026-09-20T15:28:54.431 d5e90a3b preparation_completed_in_activity {"itemcount": "1"}
+2026-09-20T15:28:54.451 d5e90a3b playback_launch_stage {"stage": "current_item_ready", "tapelapsedms": "5429"}
+2026-09-20T15:28:54.451 d5e90a3b playback_preparation_stage {"stage": "current_item_ready", "itemid": "1197311", "serverref": "p114a709d7d1e55334666bcd6", "usesdefaultserver": "true", "outcome": "ready", "elapsedms": "1062"}
+2026-09-20T15:28:54.498 d5e90a3b engine_attached {"engine": "Exo", "implementation": "ew7"}
+2026-09-20T15:28:54.582 d5e90a3b engine_detached {"engine": "Exo", "implementation": "ew7"}
+2026-09-20T15:28:57.689 d5e90a3b transport_range_opened {"implementation": "Cronet", "status": "206", "negotiatedprotocol": "h2", "redirectcount": "0", "finalprotocol": "Https", "cleartextredirect": "false", "contentlengthknown": "true"}
+2026-09-20T15:28:58.613 d5e90a3b transport_block_loaded {"blockindex": "0", "blocksize": "2097152", "loadordinal": "1", "contentlength": "5240463753"}
+2026-09-20T15:29:02.578 d5e90a3b metadata_probe_budget {"stage": "platform", "outcome": "deadline_or_busy", "elapsedms": "8001", "limitms": "8000", "reservedms": "2000"}
+2026-09-20T15:29:02.580 d5e90a3b startup_stage_timing {"stage": "platform_probe", "itemid": "1197311", "serverref": "p114a709d7d1e55334666bcd6", "decoder": "", "elapsedms": "8004"}
+2026-09-20T15:29:03.947 d5e90a3b transport_range_opened {"implementation": "OkHttp", "status": "206", "negotiatedprotocol": "h2", "redirectcount": "0", "finalprotocol": "Https", "cleartextredirect": "false", "contentlengthknown": "true"}
+2026-09-20T15:29:04.773 d5e90a3b transport_block_loaded {"blockindex": "0", "blocksize": "2097152", "loadordinal": "1", "contentlength": "5240463753"}
+2026-09-20T15:29:09.984 d5e90a3b transport_block_loaded {"blockindex": "0", "blocksize": "2097152", "loadordinal": "3", "contentlength": "5240463753"}
+2026-09-20T15:29:11.402 d5e90a3b metadata_probe_budget {"stage": "enhanced", "outcome": "completed", "elapsedms": "8817", "limitms": "18000", "reservedms": "2000"}
+2026-09-20T15:29:11.403 d5e90a3b startup_stage_timing {"stage": "enhanced_probe", "itemid": "1197311", "serverref": "p114a709d7d1e55334666bcd6", "decoder": "", "elapsedms": "8819"}
+2026-09-20T15:29:11.618 d5e90a3b startup_stage_timing {"stage": "codec_configuration_probe", "itemid": "1197311", "serverref": "p114a709d7d1e55334666bcd6", "decoder": "c2.mtk.hevc.decoder", "elapsedms": "184"}
+2026-09-20T15:29:11.621 d5e90a3b startup_stage_timing {"stage": "route_decision", "itemid": "1197311", "serverref": "p114a709d7d1e55334666bcd6", "decoder": "", "elapsedms": "216"}
+2026-09-20T15:29:11.623 d5e90a3b route_selected {"itemid": "1197311", "serverref": "p114a709d7d1e55334666bcd6", "route": "SoftwareFallback", "demuxpath": "Enhanced", "decodepath": "Hardware", "renderpath": "SurfaceDirect", "platformdemuxsupported": "false", "enhanceddemuxsupported": "true", "videocodec": "H
+2026-09-20T15:29:11.690 d5e90a3b initial_audio_track_selected {"route": "NativeEnhanced", "preferencerequested": "false", "discoveredtracks": "2", "selectedordinal": "1"}
+2026-09-20T15:29:16.204 d5e90a3b transport_block_loaded {"blockindex": "0", "blocksize": "2097152", "loadordinal": "7", "contentlength": "5240463753"}
+2026-09-20T15:29:24.453 d5e90a3b playback_launch_stage {"stage": "background_priority_deadline", "tapelapsedms": "35431"}
+2026-09-20T15:29:32.490 d5e90a3b playback_launch_stage {"stage": "first_video_output", "tapelapsedms": "43468"}
+2026-09-20T15:29:32.491 d5e90a3b playback_startup_stage {"stage": "first_video_output", "itemid": "1197311", "serverref": "p114a709d7d1e55334666bcd6", "engine": "YCore 2.0", "route": "SoftwareFallback", "renderpath": "Surface + AudioTrack", "decoder": "c2.mtk.hevc.decoder + FFmpeg software audio", "outputgeneration
+2026-09-20T15:29:32.698 d5e90a3b playback_launch_stage {"stage": "first_audio_output", "tapelapsedms": "43676"}
+2026-09-20T15:29:32.700 d5e90a3b playback_startup_stage {"stage": "first_audio_output", "itemid": "1197311", "serverref": "p114a709d7d1e55334666bcd6", "engine": "YCore 2.0", "route": "SoftwareFallback", "renderpath": "Surface + AudioTrack", "decoder": "c2.mtk.hevc.decoder + FFmpeg software audio", "outputgeneration
+2026-09-20T15:29:42.567 d5e90a3b playback_startup_stage {"stage": "first_video_output", "itemid": "1197311", "serverref": "p114a709d7d1e55334666bcd6", "engine": "YCore 2.0", "route": "SoftwareFallback", "renderpath": "Surface + AudioTrack", "decoder": "c2.mtk.hevc.decoder + FFmpeg software audio", "outputgeneration
+2026-09-20T15:29:42.780 d5e90a3b playback_startup_stage {"stage": "first_audio_output", "itemid": "1197311", "serverref": "p114a709d7d1e55334666bcd6", "engine": "YCore 2.0", "route": "SoftwareFallback", "renderpath": "Surface + AudioTrack", "decoder": "c2.mtk.hevc.decoder + FFmpeg software audio", "outputgeneration
+2026-09-20T15:30:10.859 d5e90a3b engine_detached {"engine": "YCore2Native", "implementation": "k5b"}
+2026-09-21T05:03:56.095 84e2e85d library_lookup_timed_out {"serverref": "pa180bd444863e76dae8223af", "timeoutms": "8000"}
+2026-09-21T05:04:04.169 84e2e85d library_lookup_timed_out {"serverref": "pf587ce81f08706b4d1119f89", "timeoutms": "8000"}
+2026-09-21T05:04:12.155 84e2e85d load_completed {"serverref": "p19dcd47112b39ac08758c00e", "generation": "1", "durationms": "23987"}
+2026-09-21T05:04:18.723 84e2e85d home_enrichment_timeout {"serverref": "pf587ce81f08706b4d1119f89", "pendingpreviews": "2"}
+2026-09-21T05:04:21.044 84e2e85d library_lookup_timed_out {"serverref": "p0e83c8eb8d9446a1ccf32d73", "timeoutms": "8000"}
+2026-09-21T05:04:26.140 84e2e85d playback_preparation_stage {"stage": "item_detail_ready", "itemid": "1191609", "serverref": "p19dcd47112b39ac08758c00e", "usesdefaultserver": "true", "outcome": "ready", "elapsedms": "8"}
+2026-09-21T05:04:26.266 84e2e85d playback_info_request {"mediasourcepinned": "true", "forcevideotranscode": "false", "enabledirectplay": "true", "enabledirectstream": "true", "maxstreamingbitrate": "1000000000", "maxaudiochannels": "8", "hevcranges": "SDR|HDR10|HDR10Plus|HLG|DOVI|DOVIWithHDR10|DOVIWithHLG|DOVIWith
+2026-09-21T05:04:27.523 84e2e85d playback_info_response {"sourcecount": "1", "errorcode": ""}
+2026-09-21T05:04:27.542 84e2e85d playback_preparation_stage {"stage": "playback_info_ready", "itemid": "1191609", "serverref": "p19dcd47112b39ac08758c00e", "usesdefaultserver": "true", "outcome": "ready", "elapsedms": "1410"}
+2026-09-21T05:04:27.556 84e2e85d playback_preparation_stage {"stage": "current_item_ready", "itemid": "1191609", "serverref": "p19dcd47112b39ac08758c00e", "usesdefaultserver": "true", "outcome": "ready", "elapsedms": "1424"}
+2026-09-21T05:04:32.783 84e2e85d playback_launch_stage {"stage": "play_requested", "tapelapsedms": "0"}
+2026-09-21T05:04:32.784 84e2e85d playback_launch_stage {"stage": "detail_selection_ready", "tapelapsedms": "1"}
+2026-09-21T05:04:32.786 84e2e85d playback_launch_stage {"stage": "prepared_store_claimed", "tapelapsedms": "3"}
+2026-09-21T05:04:32.845 84e2e85d activity_launched {}
+2026-09-21T05:04:32.902 84e2e85d preparation_completed_in_activity {"itemcount": "13"}
+2026-09-21T05:04:32.964 84e2e85d engine_attached {"engine": "Exo", "implementation": "fw7"}
+2026-09-21T05:04:33.048 84e2e85d engine_detached {"engine": "Exo", "implementation": "fw7"}
+2026-09-21T05:04:34.834 84e2e85d transport_range_opened {"implementation": "Cronet", "status": "206", "negotiatedprotocol": "h2", "redirectcount": "0", "finalprotocol": "Https", "cleartextredirect": "false", "contentlengthknown": "true"}
+2026-09-21T05:04:35.403 84e2e85d transport_block_loaded {"blockindex": "0", "blocksize": "2097152", "loadordinal": "1", "contentlength": "5071883233"}
+2026-09-21T05:04:36.451 84e2e85d metadata_probe_budget {"stage": "platform", "outcome": "completed", "elapsedms": "3364", "limitms": "8000", "reservedms": "2000"}
+2026-09-21T05:04:36.451 84e2e85d startup_stage_timing {"stage": "platform_probe", "itemid": "1191609", "serverref": "p19dcd47112b39ac08758c00e", "decoder": "", "elapsedms": "3365", "outcome": "success"}
+2026-09-21T05:04:36.465 84e2e85d startup_stage_timing {"stage": "route_decision", "itemid": "1191609", "serverref": "p19dcd47112b39ac08758c00e", "decoder": "", "elapsedms": "11", "outcome": "success"}
+2026-09-21T05:04:36.466 84e2e85d route_selected {"itemid": "1191609", "serverref": "p19dcd47112b39ac08758c00e", "route": "NativeDirect", "demuxpath": "Platform", "decodepath": "Hardware", "renderpath": "SurfaceDirect", "platformdemuxsupported": "true", "enhanceddemuxsupported": "true", "videocodec": "H265",
+2026-09-21T05:04:36.486 84e2e85d initial_audio_track_selected {"route": "NativeDirect", "preferencerequested": "false", "discoveredtracks": "1", "selectedordinal": "0"}
+2026-09-21T05:04:36.725 84e2e85d native_direct_seek {"targetus": "240235000", "playbackrequested": "true"}
+2026-09-21T05:04:39.127 84e2e85d playback_launch_stage {"stage": "first_audio_output", "tapelapsedms": "6343"}
+2026-09-21T05:04:39.128 84e2e85d playback_startup_stage {"stage": "first_audio_output", "itemid": "1191609", "serverref": "p19dcd47112b39ac08758c00e", "engine": "YCore 2.0", "route": "NativeDirect", "renderpath": "Surface + AudioTrack", "decoder": "c2.mtk.hevc.decoder + c2.android.aac.decoder", "outputgeneration": 
+2026-09-21T05:04:39.521 84e2e85d playback_launch_stage {"stage": "first_video_output", "tapelapsedms": "6738"}
+2026-09-21T05:04:39.522 84e2e85d playback_startup_stage {"stage": "first_video_output", "itemid": "1191609", "serverref": "p19dcd47112b39ac08758c00e", "engine": "YCore 2.0", "route": "NativeDirect", "renderpath": "Surface + AudioTrack", "decoder": "c2.mtk.hevc.decoder + c2.android.aac.decoder", "outputgeneration": 
+2026-09-21T05:04:39.592 84e2e85d position_corrected {"engine": "YCore2Native", "targetms": "240235", "actualms": "240827", "errorms": "342", "tolerancems": "250"}
+2026-09-21T05:06:13.533 84e2e85d engine_detached {"engine": "YCore2Native", "implementation": "l5b"}
+2026-09-21T05:06:19.809 84e2e85d playback_launch_stage {"stage": "item_detail_ready", "tapelapsedms": "107025"}
+2026-09-21T05:06:19.810 84e2e85d playback_preparation_stage {"stage": "item_detail_ready", "itemid": "1191609", "serverref": "p19dcd47112b39ac08758c00e", "usesdefaultserver": "true", "outcome": "ready", "elapsedms": "3"}
+2026-09-21T05:06:19.821 84e2e85d playback_info_request {"mediasourcepinned": "true", "forcevideotranscode": "false", "enabledirectplay": "true", "enabledirectstream": "true", "maxstreamingbitrate": "1000000000", "maxaudiochannels": "8", "hevcranges": "SDR|HDR10|HDR10Plus|HLG|DOVI|DOVIWithHDR10|DOVIWithHLG|DOVIWith
+2026-09-21T05:06:21.613 84e2e85d playback_info_response {"sourcecount": "1", "errorcode": ""}
+2026-09-21T05:06:21.616 84e2e85d playback_launch_stage {"stage": "playback_info_ready", "tapelapsedms": "108833"}
+2026-09-21T05:06:21.616 84e2e85d playback_preparation_stage {"stage": "playback_info_ready", "itemid": "1191609", "serverref": "p19dcd47112b39ac08758c00e", "usesdefaultserver": "true", "outcome": "ready", "elapsedms": "1810"}
+2026-09-21T05:06:21.618 84e2e85d playback_launch_stage {"stage": "current_item_ready", "tapelapsedms": "108835"}
+2026-09-21T05:06:21.618 84e2e85d playback_preparation_stage {"stage": "current_item_ready", "itemid": "1191609", "serverref": "p19dcd47112b39ac08758c00e", "usesdefaultserver": "true", "outcome": "ready", "elapsedms": "1812"}
+2026-09-21T05:06:21.619 84e2e85d playback_launch_stage {"stage": "background_requests_released", "tapelapsedms": "108836"}
+2026-09-21T05:06:30.333 84e2e85d load_completed {"serverref": "p7f61cb5506f08f031bf3449b", "generation": "2", "durationms": "2958"}
+2026-09-21T05:06:31.284 84e2e85d playback_preparation_stage {"stage": "item_detail_ready", "itemid": "111663", "serverref": "p7f61cb5506f08f031bf3449b", "usesdefaultserver": "true", "outcome": "ready", "elapsedms": "2"}
+2026-09-21T05:06:31.293 84e2e85d playback_info_request {"mediasourcepinned": "true", "forcevideotranscode": "false", "enabledirectplay": "true", "enabledirectstream": "true", "maxstreamingbitrate": "1000000000", "maxaudiochannels": "8", "hevcranges": "SDR|HDR10|HDR10Plus|HLG|DOVI|DOVIWithHDR10|DOVIWithHLG|DOVIWith
+2026-09-21T05:06:32.448 84e2e85d playback_info_response {"sourcecount": "1", "errorcode": ""}
+2026-09-21T05:06:32.454 84e2e85d playback_preparation_stage {"stage": "playback_info_ready", "itemid": "111663", "serverref": "p7f61cb5506f08f031bf3449b", "usesdefaultserver": "true", "outcome": "ready", "elapsedms": "1172"}
+2026-09-21T05:06:32.456 84e2e85d playback_preparation_stage {"stage": "current_item_ready", "itemid": "111663", "serverref": "p7f61cb5506f08f031bf3449b", "usesdefaultserver": "true", "outcome": "ready", "elapsedms": "1174"}
+2026-09-21T05:06:34.216 84e2e85d playback_launch_stage {"stage": "play_requested", "tapelapsedms": "0"}
+2026-09-21T05:06:34.217 84e2e85d playback_launch_stage {"stage": "detail_selection_ready", "tapelapsedms": "1"}
+2026-09-21T05:06:34.223 84e2e85d playback_launch_stage {"stage": "prepared_store_claimed", "tapelapsedms": "7"}
+2026-09-21T05:06:34.283 84e2e85d activity_launched {}
+2026-09-21T05:06:34.314 84e2e85d preparation_completed_in_activity {"itemcount": "12"}
+2026-09-21T05:06:34.341 84e2e85d engine_attached {"engine": "Exo", "implementation": "fw7"}
+2026-09-21T05:06:34.401 84e2e85d engine_detached {"engine": "Exo", "implementation": "fw7"}
+2026-09-21T05:06:34.634 84e2e85d transport_range_failed {"failurekind": "Authorization", "exceptionchain": "r10", "status": "403", "expectedrangestart": "0", "acceptedrangestart": "unavailable", "attemptcount": "1"}
+2026-09-21T05:06:34.646 84e2e85d metadata_probe_budget {"stage": "platform", "outcome": "completed", "elapsedms": "242", "limitms": "8000", "reservedms": "2000"}
+2026-09-21T05:06:34.647 84e2e85d startup_stage_timing {"stage": "platform_probe", "itemid": "111663", "serverref": "p7f61cb5506f08f031bf3449b", "decoder": "", "elapsedms": "243", "outcome": "success"}
+2026-09-21T05:06:34.648 84e2e85d playback_launch_stage {"stage": "startup_error", "tapelapsedms": "432"}
+2026-09-21T05:06:34.665 84e2e85d native_only_failure {"engine": "YCore2Native", "itemindex": "0", "failurekind": "Authorization", "failure": "YCore 2.0 片源访问被拒绝，请检查访问权限或刷新播放地址"}
+2026-09-21T05:06:40.221 84e2e85d engine_detached {"engine": "YCore2Native", "implementation": "l5b"}
+2026-09-21T05:06:42.801 84e2e85d playback_launch_stage {"stage": "play_requested", "tapelapsedms": "0"}
+2026-09-21T05:06:42.802 84e2e85d playback_launch_stage {"stage": "detail_selection_ready", "tapelapsedms": "1"}
+2026-09-21T05:06:42.806 84e2e85d playback_launch_stage {"stage": "store_created", "tapelapsedms": "4"}
+2026-09-21T05:06:42.821 84e2e85d playback_launch_stage {"stage": "item_detail_ready", "tapelapsedms": "20"}
+2026-09-21T05:06:42.822 84e2e85d playback_preparation_stage {"stage": "item_detail_ready", "itemid": "111663", "serverref": "p7f61cb5506f08f031bf3449b", "usesdefaultserver": "true", "outcome": "ready", "elapsedms": "16"}
+2026-09-21T05:06:42.834 84e2e85d playback_info_request {"mediasourcepinned": "true", "forcevideotranscode": "false", "enabledirectplay": "true", "enabledirectstream": "true", "maxstreamingbitrate": "1000000000", "maxaudiochannels": "8", "hevcranges": "SDR|HDR10|HDR10Plus|HLG|DOVI|DOVIWithHDR10|DOVIWithHLG|DOVIWith
+2026-09-21T05:06:42.842 84e2e85d activity_launched {}
+2026-09-21T05:06:42.981 84e2e85d playback_info_response {"sourcecount": "1", "errorcode": ""}
+2026-09-21T05:06:42.983 84e2e85d playback_launch_stage {"stage": "playback_info_ready", "tapelapsedms": "181"}
+2026-09-21T05:06:42.983 84e2e85d playback_preparation_stage {"stage": "playback_info_ready", "itemid": "111663", "serverref": "p7f61cb5506f08f031bf3449b", "usesdefaultserver": "true", "outcome": "ready", "elapsedms": "177"}
+2026-09-21T05:06:42.984 84e2e85d preparation_completed_in_activity {"itemcount": "1"}
+2026-09-21T05:06:42.990 84e2e85d playback_launch_stage {"stage": "current_item_ready", "tapelapsedms": "189"}
+2026-09-21T05:06:42.990 84e2e85d playback_preparation_stage {"stage": "current_item_ready", "itemid": "111663", "serverref": "p7f61cb5506f08f031bf3449b", "usesdefaultserver": "true", "outcome": "ready", "elapsedms": "185"}
+2026-09-21T05:06:43.000 84e2e85d engine_attached {"engine": "Exo", "implementation": "fw7"}
+2026-09-21T05:06:43.133 84e2e85d transport_range_failed {"failurekind": "Authorization", "exceptionchain": "r10", "status": "403", "expectedrangestart": "0", "acceptedrangestart": "unavailable", "attemptcount": "1"}
+2026-09-21T05:06:43.137 84e2e85d metadata_probe_budget {"stage": "platform", "outcome": "completed", "elapsedms": "95", "limitms": "8000", "reservedms": "2000"}
+2026-09-21T05:06:43.138 84e2e85d startup_stage_timing {"stage": "platform_probe", "itemid": "111663", "serverref": "p7f61cb5506f08f031bf3449b", "decoder": "", "elapsedms": "97", "outcome": "success"}
+2026-09-21T05:06:43.139 84e2e85d playback_launch_stage {"stage": "startup_error", "tapelapsedms": "338"}
+2026-09-21T05:06:43.145 84e2e85d playback_launch_stage {"stage": "background_requests_released", "tapelapsedms": "344"}
+2026-09-21T05:06:43.156 84e2e85d native_only_failure {"engine": "YCore2Native", "itemindex": "0", "failurekind": "Authorization", "failure": "YCore 2.0 片源访问被拒绝，请检查访问权限或刷新播放地址"}
+2026-09-21T05:06:48.275 84e2e85d engine_detached {"engine": "YCore2Native", "implementation": "l5b"}
+2026-09-21T05:07:48.101 84e2e85d playback_launch_stage {"stage": "play_requested", "tapelapsedms": "0"}
+2026-09-21T05:07:48.102 84e2e85d playback_launch_stage {"stage": "detail_selection_ready", "tapelapsedms": "1"}
+2026-09-21T05:07:48.108 84e2e85d playback_launch_stage {"stage": "store_created", "tapelapsedms": "6"}
+2026-09-21T05:07:48.151 84e2e85d activity_launched {}
+2026-09-21T05:07:48.268 84e2e85d playback_launch_stage {"stage": "item_detail_ready", "tapelapsedms": "167"}
+2026-09-21T05:07:48.269 84e2e85d playback_preparation_stage {"stage": "item_detail_ready", "itemid": "111663", "serverref": "p7f61cb5506f08f031bf3449b", "usesdefaultserver": "true", "outcome": "ready", "elapsedms": "161"}
+2026-09-21T05:07:48.280 84e2e85d playback_info_request {"mediasourcepinned": "true", "forcevideotranscode": "false", "enabledirectplay": "true", "enabledirectstream": "true", "maxstreamingbitrate": "1000000000", "maxaudiochannels": "8", "hevcranges": "SDR|HDR10|HDR10Plus|HLG|DOVI|DOVIWithHDR10|DOVIWithHLG|DOVIWith
+2026-09-21T05:07:48.447 84e2e85d playback_info_response {"sourcecount": "1", "errorcode": ""}
+2026-09-21T05:07:48.449 84e2e85d playback_launch_stage {"stage": "playback_info_ready", "tapelapsedms": "348"}
+2026-09-21T05:07:48.450 84e2e85d playback_preparation_stage {"stage": "playback_info_ready", "itemid": "111663", "serverref": "p7f61cb5506f08f031bf3449b", "usesdefaultserver": "true", "outcome": "ready", "elapsedms": "342"}
+2026-09-21T05:07:48.451 84e2e85d preparation_completed_in_activity {"itemcount": "1"}
+2026-09-21T05:07:48.458 84e2e85d playback_launch_stage {"stage": "current_item_ready", "tapelapsedms": "357"}
+2026-09-21T05:07:48.459 84e2e85d playback_preparation_stage {"stage": "current_item_ready", "itemid": "111663", "serverref": "p7f61cb5506f08f031bf3449b", "usesdefaultserver": "true", "outcome": "ready", "elapsedms": "351"}
+2026-09-21T05:07:48.469 84e2e85d engine_attached {"engine": "Exo", "implementation": "fw7"}
+2026-09-21T05:07:48.515 84e2e85d engine_detached {"engine": "Exo", "implementation": "fw7"}
+2026-09-21T05:07:48.614 84e2e85d transport_range_failed {"failurekind": "Authorization", "exceptionchain": "r10", "status": "403", "expectedrangestart": "0", "acceptedrangestart": "unavailable", "attemptcount": "1"}
+2026-09-21T05:07:48.635 84e2e85d metadata_probe_budget {"stage": "platform", "outcome": "completed", "elapsedms": "125", "limitms": "8000", "reservedms": "2000"}
+2026-09-21T05:07:48.636 84e2e85d startup_stage_timing {"stage": "platform_probe", "itemid": "111663", "serverref": "p7f61cb5506f08f031bf3449b", "decoder": "", "elapsedms": "125", "outcome": "success"}
+2026-09-21T05:07:48.639 84e2e85d playback_launch_stage {"stage": "startup_error", "tapelapsedms": "537"}
+2026-09-21T05:07:48.655 84e2e85d playback_launch_stage {"stage": "background_requests_released", "tapelapsedms": "554"}
+2026-09-21T05:07:48.656 84e2e85d native_only_failure {"engine": "YCore2Native", "itemindex": "0", "failurekind": "Authorization", "failure": "YCore 2.0 片源访问被拒绝，请检查访问权限或刷新播放地址"}

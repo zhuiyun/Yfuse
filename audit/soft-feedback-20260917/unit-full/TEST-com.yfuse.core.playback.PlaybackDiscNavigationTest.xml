@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.playback.PlaybackDiscNavigationTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:06.603Z" hostname="DESKTOP-HM2J0FM" time="0.003">
+  <properties/>
+  <testcase name="ordinary_media_has_no_disc_navigation" classname="com.yfuse.core.playback.PlaybackDiscNavigationTest" time="0.001"/>
+  <testcase name="rich_metadata_keeps_authored_names_and_fills_missing_rows" classname="com.yfuse.core.playback.PlaybackDiscNavigationTest" time="0.001"/>
+  <testcase name="multi_angle_titles_expose_zero_based_selection_with_human_labels" classname="com.yfuse.core.playback.PlaybackDiscNavigationTest" time="0.001"/>
+  <testcase name="explicit_mpls_hints_become_stable_playlist_numbers" classname="com.yfuse.core.playback.PlaybackDiscNavigationTest" time="0.0"/>
+  <testcase name="long_chapter_times_use_hour_format" classname="com.yfuse.core.playback.PlaybackDiscNavigationTest" time="0.0"/>
+  <testcase name="count_only_backends_still_expose_selectable_rows" classname="com.yfuse.core.playback.PlaybackDiscNavigationTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

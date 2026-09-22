@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.network.FallbackTranscodeContractTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:05.495Z" hostname="DESKTOP-HM2J0FM" time="0.0">
+  <properties/>
+  <testcase name="progressive_fallback_cannot_stream_copy_dolby_vision" classname="com.yfuse.core.network.FallbackTranscodeContractTest" time="0.0"/>
+  <testcase name="hls_fallback_forces_a_real_compatibility_encode" classname="com.yfuse.core.network.FallbackTranscodeContractTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

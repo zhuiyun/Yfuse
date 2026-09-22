@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.servers.ServerRefreshStateTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:16.357Z" hostname="DESKTOP-HM2J0FM" time="0.01">
+  <properties/>
+  <testcase name="thrown_failure_has_an_explicit_result_after_the_spinner_stops" classname="com.yfuse.feature.servers.ServerRefreshStateTest" time="0.005"/>
+  <testcase name="success_requires_both_actual_checks_and_partial_failures_are_not_hidden" classname="com.yfuse.feature.servers.ServerRefreshStateTest" time="0.0"/>
+  <testcase name="background_completion_remains_suppressed_after_return_until_a_new_explicit_refresh" classname="com.yfuse.feature.servers.ServerRefreshStateTest" time="0.001"/>
+  <testcase name="explicit_refresh_owns_one_generation_and_clears_the_previous_outcome_before_running" classname="com.yfuse.feature.servers.ServerRefreshStateTest" time="0.002"/>
+  <testcase name="a_cancelled_result_propagates_cancellation_instead_of_becoming_a_failed_or_successful_check" classname="com.yfuse.feature.servers.ServerRefreshStateTest" time="0.0"/>
+  <testcase name="cancellation_during_work_or_before_launch_never_becomes_success_or_a_stuck_spinner" classname="com.yfuse.feature.servers.ServerRefreshStateTest" time="0.001"/>
+  <testcase name="bootstrap_background_return_and_old_generations_cannot_replay_completion_feedback" classname="com.yfuse.feature.servers.ServerRefreshStateTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

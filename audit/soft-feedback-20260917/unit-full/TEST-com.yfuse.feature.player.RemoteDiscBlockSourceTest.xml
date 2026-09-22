@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.RemoteDiscBlockSourceTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:16.184Z" hostname="DESKTOP-HM2J0FM" time="0.013">
+  <properties/>
+  <testcase name="redirects_are_not_followed_with_server_credentials" classname="com.yfuse.feature.player.RemoteDiscBlockSourceTest" time="0.003"/>
+  <testcase name="udf_blocks_are_read_with_exact_identity_byte_ranges_and_fresh_auth_headers" classname="com.yfuse.feature.player.RemoteDiscBlockSourceTest" time="0.002"/>
+  <testcase name="closed_reader_is_inert" classname="com.yfuse.feature.player.RemoteDiscBlockSourceTest" time="0.001"/>
+  <testcase name="range_probe_requires_206_and_records_total_length" classname="com.yfuse.feature.player.RemoteDiscBlockSourceTest" time="0.001"/>
+  <testcase name="offsets_above_two_gigabytes_stay_64_bit" classname="com.yfuse.feature.player.RemoteDiscBlockSourceTest" time="0.003"/>
+  <testcase name="a_server_that_ignores_range_is_rejected_instead_of_downloading_the_whole_iso" classname="com.yfuse.feature.player.RemoteDiscBlockSourceTest" time="0.002"/>
+  <testcase name="content_range_and_block_header_validation_rejects_ambiguous_values" classname="com.yfuse.feature.player.RemoteDiscBlockSourceTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

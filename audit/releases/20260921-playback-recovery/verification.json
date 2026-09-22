@@ -1,0 +1,2103 @@
+{
+  "verifiedAtUtc": "2026-09-21T01:46:15.210702+00:00",
+  "apk": "Yfuse-1.0.77-239-full-arm64-signed.apk",
+  "applicationId": "com.yfuse",
+  "versionName": "1.0.77",
+  "versionCode": 239,
+  "previousVersionName": "1.0.76",
+  "previousVersionCode": 238,
+  "previousSha256": "12c906e0d43e34d8db9a0fff5d54ad7f8f4318d41b697aa57c6249f45ed714ef",
+  "projectMetadataMatches": true,
+  "releaseNotesMatch": true,
+  "packagedNetworkPolicyVerified": true,
+  "compileSdk": 37,
+  "targetSdk": 37,
+  "minSdk": 26,
+  "applicationShellVerified": true,
+  "packageProfile": "full",
+  "abi": "arm64-v8a",
+  "bytes": 29219206,
+  "sha256": "406339c7ec9f76520a18f5c6ac70f61817359df8f34149c27466b7dec5f4f90b",
+  "certificateSha256": "373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84",
+  "signatureVerified": true,
+  "signatureV2": true,
+  "updateMissingKeyRejectionRemovedFromDex": true,
+  "olderFeedErrorRemovedFromDex": true,
+  "debuggable": false,
+  "zipalign16KiBCheckPassed": true,
+  "elf16KiBAlignmentVerified": true,
+  "zipCrcVerified": true,
+  "zipAlignmentScope": "16 KiB offsets checked for stored .so; compressed .so are extracted, so ZIP offsets do not apply",
+  "nativeLibraries": [
+    {
+      "path": "lib/arm64-v8a/libandroidx.graphics.path.so",
+      "bytes": 10096,
+      "sha256": "41e9a793c43a0f4fddb19e33f346bace464f30f888ba7b9eaf96294ea115bfb6",
+      "elf": {
+        "class": 64,
+        "machine": "AArch64",
+        "minimumLoadAlignmentBytes": 16384,
+        "loadSegments": [
+          {
+            "index": 1,
+            "offset": 0,
+            "virtualAddress": 0,
+            "fileBytes": 7232,
+            "memoryBytes": 7232,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 2,
+            "offset": 7232,
+            "virtualAddress": 23616,
+            "fileBytes": 912,
+            "memoryBytes": 912,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 3,
+            "offset": 8144,
+            "virtualAddress": 40912,
+            "fileBytes": 0,
+            "memoryBytes": 16,
+            "alignmentBytes": 16384
+          }
+        ],
+        "alignment16KiBVerified": true
+      },
+      "zip": {
+        "compressionMethod": 8,
+        "dataOffset": 6567924,
+        "alignment16KiBApplicable": false,
+        "alignment16KiBVerified": null,
+        "loading": "extracted during installation"
+      }
+    },
+    {
+      "path": "lib/arm64-v8a/libass.so",
+      "bytes": 1345872,
+      "sha256": "e55c83c3d9bcb7d1bfd62d1ba3aa3c0e9bc796861dd9cf145e73a75017075266",
+      "elf": {
+        "class": 64,
+        "machine": "AArch64",
+        "minimumLoadAlignmentBytes": 16384,
+        "loadSegments": [
+          {
+            "index": 1,
+            "offset": 0,
+            "virtualAddress": 0,
+            "fileBytes": 1314160,
+            "memoryBytes": 1314160,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 2,
+            "offset": 1314160,
+            "virtualAddress": 1330544,
+            "fileBytes": 27672,
+            "memoryBytes": 29328,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 3,
+            "offset": 1341832,
+            "virtualAddress": 1374600,
+            "fileBytes": 2128,
+            "memoryBytes": 2936,
+            "alignmentBytes": 16384
+          }
+        ],
+        "alignment16KiBVerified": true
+      },
+      "zip": {
+        "compressionMethod": 8,
+        "dataOffset": 6572363,
+        "alignment16KiBApplicable": false,
+        "alignment16KiBVerified": null,
+        "loading": "extracted during installation"
+      }
+    },
+    {
+      "path": "lib/arm64-v8a/libavcodec.so",
+      "bytes": 12044032,
+      "sha256": "2440fc79482e7ab4e40ba2f3e9fb7ba10f196935b39566c636e866e0dcdeb42c",
+      "elf": {
+        "class": 64,
+        "machine": "AArch64",
+        "minimumLoadAlignmentBytes": 16384,
+        "loadSegments": [
+          {
+            "index": 1,
+            "offset": 0,
+            "virtualAddress": 0,
+            "fileBytes": 11758960,
+            "memoryBytes": 11758960,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 2,
+            "offset": 11758960,
+            "virtualAddress": 11775344,
+            "fileBytes": 278688,
+            "memoryBytes": 279184,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 3,
+            "offset": 12037648,
+            "virtualAddress": 12070416,
+            "fileBytes": 4128,
+            "memoryBytes": 6041712,
+            "alignmentBytes": 16384
+          }
+        ],
+        "alignment16KiBVerified": true
+      },
+      "zip": {
+        "compressionMethod": 8,
+        "dataOffset": 7257151,
+        "alignment16KiBApplicable": false,
+        "alignment16KiBVerified": null,
+        "loading": "extracted during installation"
+      }
+    },
+    {
+      "path": "lib/arm64-v8a/libavdevice.so",
+      "bytes": 9096,
+      "sha256": "c67959777c8137a98825e7e63bfd8e555090781c66b34c9d0053e54869110c08",
+      "elf": {
+        "class": 64,
+        "machine": "AArch64",
+        "minimumLoadAlignmentBytes": 16384,
+        "loadSegments": [
+          {
+            "index": 1,
+            "offset": 0,
+            "virtualAddress": 0,
+            "fileBytes": 6512,
+            "memoryBytes": 6512,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 2,
+            "offset": 6512,
+            "virtualAddress": 22896,
+            "fileBytes": 616,
+            "memoryBytes": 1680,
+            "alignmentBytes": 16384
+          }
+        ],
+        "alignment16KiBVerified": true
+      },
+      "zip": {
+        "compressionMethod": 8,
+        "dataOffset": 13332623,
+        "alignment16KiBApplicable": false,
+        "alignment16KiBVerified": null,
+        "loading": "extracted during installation"
+      }
+    },
+    {
+      "path": "lib/arm64-v8a/libavfilter.so",
+      "bytes": 138240,
+      "sha256": "d9736182d803c460569b4fae9fb0d588a6e02f71f213ec000641521a07cf7d28",
+      "elf": {
+        "class": 64,
+        "machine": "AArch64",
+        "minimumLoadAlignmentBytes": 16384,
+        "loadSegments": [
+          {
+            "index": 1,
+            "offset": 0,
+            "virtualAddress": 0,
+            "fileBytes": 128560,
+            "memoryBytes": 128560,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 2,
+            "offset": 128560,
+            "virtualAddress": 144944,
+            "fileBytes": 7640,
+            "memoryBytes": 10704,
+            "alignmentBytes": 16384
+          }
+        ],
+        "alignment16KiBVerified": true
+      },
+      "zip": {
+        "compressionMethod": 8,
+        "dataOffset": 13336141,
+        "alignment16KiBApplicable": false,
+        "alignment16KiBVerified": null,
+        "loading": "extracted during installation"
+      }
+    },
+    {
+      "path": "lib/arm64-v8a/libavformat.so",
+      "bytes": 3032992,
+      "sha256": "ee3fb014d6d12ff54e658fc1ae70dfcaae55d0259a34b46e4fc3cb2a41f773dc",
+      "elf": {
+        "class": 64,
+        "machine": "AArch64",
+        "minimumLoadAlignmentBytes": 16384,
+        "loadSegments": [
+          {
+            "index": 1,
+            "offset": 0,
+            "virtualAddress": 0,
+            "fileBytes": 2849600,
+            "memoryBytes": 2849600,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 2,
+            "offset": 2849600,
+            "virtualAddress": 2865984,
+            "fileBytes": 180320,
+            "memoryBytes": 181440,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 3,
+            "offset": 3029920,
+            "virtualAddress": 3062688,
+            "fileBytes": 820,
+            "memoryBytes": 13088,
+            "alignmentBytes": 16384
+          }
+        ],
+        "alignment16KiBVerified": true
+      },
+      "zip": {
+        "compressionMethod": 8,
+        "dataOffset": 13394495,
+        "alignment16KiBApplicable": false,
+        "alignment16KiBVerified": null,
+        "loading": "extracted during installation"
+      }
+    },
+    {
+      "path": "lib/arm64-v8a/libavutil.so",
+      "bytes": 741944,
+      "sha256": "2d2ab7b3071f9e4643f67ba65170f7290d821aa80e8b14dfcc356a15c493c47a",
+      "elf": {
+        "class": 64,
+        "machine": "AArch64",
+        "minimumLoadAlignmentBytes": 16384,
+        "loadSegments": [
+          {
+            "index": 1,
+            "offset": 0,
+            "virtualAddress": 0,
+            "fileBytes": 666112,
+            "memoryBytes": 666112,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 2,
+            "offset": 666112,
+            "virtualAddress": 682496,
+            "fileBytes": 73536,
+            "memoryBytes": 75264,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 3,
+            "offset": 739648,
+            "virtualAddress": 772416,
+            "fileBytes": 40,
+            "memoryBytes": 1108952,
+            "alignmentBytes": 16384
+          }
+        ],
+        "alignment16KiBVerified": true
+      },
+      "zip": {
+        "compressionMethod": 8,
+        "dataOffset": 14806147,
+        "alignment16KiBApplicable": false,
+        "alignment16KiBVerified": null,
+        "loading": "extracted during installation"
+      }
+    },
+    {
+      "path": "lib/arm64-v8a/libc++_shared.so",
+      "bytes": 1374336,
+      "sha256": "c4c2fe5cbcb1fba0003a31fc7ab29a9bb12df6cc187ec45a806462540e83d93b",
+      "elf": {
+        "class": 64,
+        "machine": "AArch64",
+        "minimumLoadAlignmentBytes": 16384,
+        "loadSegments": [
+          {
+            "index": 1,
+            "offset": 0,
+            "virtualAddress": 0,
+            "fileBytes": 1329912,
+            "memoryBytes": 1329912,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 2,
+            "offset": 1329912,
+            "virtualAddress": 1346296,
+            "fileBytes": 41104,
+            "memoryBytes": 42248,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 3,
+            "offset": 1371016,
+            "virtualAddress": 1403784,
+            "fileBytes": 568,
+            "memoryBytes": 32192,
+            "alignmentBytes": 16384
+          }
+        ],
+        "alignment16KiBVerified": true
+      },
+      "zip": {
+        "compressionMethod": 8,
+        "dataOffset": 15133252,
+        "alignment16KiBApplicable": false,
+        "alignment16KiBVerified": null,
+        "loading": "extracted during installation"
+      }
+    },
+    {
+      "path": "lib/arm64-v8a/libdav1d.so",
+      "bytes": 612472,
+      "sha256": "290bbf17d72e0b50edfcc974b2dc7fa6d7106b82dbca3e68df8351a55bcd287b",
+      "elf": {
+        "class": 64,
+        "machine": "AArch64",
+        "minimumLoadAlignmentBytes": 16384,
+        "loadSegments": [
+          {
+            "index": 1,
+            "offset": 0,
+            "virtualAddress": 0,
+            "fileBytes": 605504,
+            "memoryBytes": 605504,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 2,
+            "offset": 605504,
+            "virtualAddress": 621888,
+            "fileBytes": 5032,
+            "memoryBytes": 8896,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 3,
+            "offset": 610536,
+            "virtualAddress": 643304,
+            "fileBytes": 24,
+            "memoryBytes": 233512,
+            "alignmentBytes": 16384
+          }
+        ],
+        "alignment16KiBVerified": true
+      },
+      "zip": {
+        "compressionMethod": 8,
+        "dataOffset": 15588157,
+        "alignment16KiBApplicable": false,
+        "alignment16KiBVerified": null,
+        "loading": "extracted during installation"
+      }
+    },
+    {
+      "path": "lib/arm64-v8a/libffmpeg.so",
+      "bytes": 8003848,
+      "sha256": "7942b55e7950c32e0fcd5532f0af2435e43e22491a75e7609b2b63210104f371",
+      "elf": {
+        "class": 64,
+        "machine": "AArch64",
+        "minimumLoadAlignmentBytes": 16384,
+        "loadSegments": [
+          {
+            "index": 1,
+            "offset": 0,
+            "virtualAddress": 0,
+            "fileBytes": 7515152,
+            "memoryBytes": 7515152,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 2,
+            "offset": 7515152,
+            "virtualAddress": 7531536,
+            "fileBytes": 483016,
+            "memoryBytes": 484336,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 3,
+            "offset": 7998168,
+            "virtualAddress": 8030936,
+            "fileBytes": 3768,
+            "memoryBytes": 4551020,
+            "alignmentBytes": 16384
+          }
+        ],
+        "alignment16KiBVerified": true
+      },
+      "zip": {
+        "compressionMethod": 8,
+        "dataOffset": 15891392,
+        "alignment16KiBApplicable": false,
+        "alignment16KiBVerified": null,
+        "loading": "extracted during installation"
+      }
+    },
+    {
+      "path": "lib/arm64-v8a/libimage_processing_util_jni.so",
+      "bytes": 32528,
+      "sha256": "0292b063fafccf734472cbb59588e756c2dbca907c72021ba6fbf126385508a2",
+      "elf": {
+        "class": 64,
+        "machine": "AArch64",
+        "minimumLoadAlignmentBytes": 16384,
+        "loadSegments": [
+          {
+            "index": 1,
+            "offset": 0,
+            "virtualAddress": 0,
+            "fileBytes": 29472,
+            "memoryBytes": 29472,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 2,
+            "offset": 29472,
+            "virtualAddress": 45856,
+            "fileBytes": 992,
+            "memoryBytes": 3296,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 3,
+            "offset": 30464,
+            "virtualAddress": 63232,
+            "fileBytes": 0,
+            "memoryBytes": 4,
+            "alignmentBytes": 16384
+          }
+        ],
+        "alignment16KiBVerified": true
+      },
+      "zip": {
+        "compressionMethod": 8,
+        "dataOffset": 19980112,
+        "alignment16KiBApplicable": false,
+        "alignment16KiBVerified": null,
+        "loading": "extracted during installation"
+      }
+    },
+    {
+      "path": "lib/arm64-v8a/libmdk.so",
+      "bytes": 2072000,
+      "sha256": "1ae87eae1c5633238ac69acc2bba7c44b2c974c8f32c21ac35778376f77ce575",
+      "elf": {
+        "class": 64,
+        "machine": "AArch64",
+        "minimumLoadAlignmentBytes": 16384,
+        "loadSegments": [
+          {
+            "index": 1,
+            "offset": 0,
+            "virtualAddress": 0,
+            "fileBytes": 2018576,
+            "memoryBytes": 2018576,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 2,
+            "offset": 2018576,
+            "virtualAddress": 2034960,
+            "fileBytes": 49848,
+            "memoryBytes": 49904,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 3,
+            "offset": 2068424,
+            "virtualAddress": 2101192,
+            "fileBytes": 624,
+            "memoryBytes": 26592,
+            "alignmentBytes": 16384
+          }
+        ],
+        "alignment16KiBVerified": true
+      },
+      "zip": {
+        "compressionMethod": 8,
+        "dataOffset": 19995753,
+        "alignment16KiBApplicable": false,
+        "alignment16KiBVerified": null,
+        "loading": "extracted during installation"
+      }
+    },
+    {
+      "path": "lib/arm64-v8a/libmpv.so",
+      "bytes": 6946680,
+      "sha256": "d06566edd8dd09c7419f61f9888d2f29e5e186ff578f8a984f1c968cab7baee6",
+      "elf": {
+        "class": 64,
+        "machine": "AArch64",
+        "minimumLoadAlignmentBytes": 16384,
+        "loadSegments": [
+          {
+            "index": 1,
+            "offset": 0,
+            "virtualAddress": 0,
+            "fileBytes": 6566176,
+            "memoryBytes": 6566176,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 2,
+            "offset": 6566176,
+            "virtualAddress": 6582560,
+            "fileBytes": 355584,
+            "memoryBytes": 356064,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 3,
+            "offset": 6921760,
+            "virtualAddress": 6954528,
+            "fileBytes": 22744,
+            "memoryBytes": 29920,
+            "alignmentBytes": 16384
+          }
+        ],
+        "alignment16KiBVerified": true
+      },
+      "zip": {
+        "compressionMethod": 8,
+        "dataOffset": 20853897,
+        "alignment16KiBApplicable": false,
+        "alignment16KiBVerified": null,
+        "loading": "extracted during installation"
+      }
+    },
+    {
+      "path": "lib/arm64-v8a/libplayer.so",
+      "bytes": 20288,
+      "sha256": "2a5b828f3da71049c7603d6432fce50af7ca2286c33e70028bbcf466ead09005",
+      "elf": {
+        "class": 64,
+        "machine": "AArch64",
+        "minimumLoadAlignmentBytes": 16384,
+        "loadSegments": [
+          {
+            "index": 1,
+            "offset": 0,
+            "virtualAddress": 0,
+            "fileBytes": 17232,
+            "memoryBytes": 17232,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 2,
+            "offset": 17232,
+            "virtualAddress": 33616,
+            "fileBytes": 944,
+            "memoryBytes": 3248,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 3,
+            "offset": 18176,
+            "virtualAddress": 50944,
+            "fileBytes": 0,
+            "memoryBytes": 120,
+            "alignmentBytes": 16384
+          }
+        ],
+        "alignment16KiBVerified": true
+      },
+      "zip": {
+        "compressionMethod": 8,
+        "dataOffset": 23772573,
+        "alignment16KiBApplicable": false,
+        "alignment16KiBVerified": null,
+        "loading": "extracted during installation"
+      }
+    },
+    {
+      "path": "lib/arm64-v8a/libsurface_util_jni.so",
+      "bytes": 4896,
+      "sha256": "a5c9d1928ea92ec7a94dff8cf666e7739cd734198b9f0ae1d4e28ea3c86516ba",
+      "elf": {
+        "class": 64,
+        "machine": "AArch64",
+        "minimumLoadAlignmentBytes": 16384,
+        "loadSegments": [
+          {
+            "index": 1,
+            "offset": 0,
+            "virtualAddress": 0,
+            "fileBytes": 2480,
+            "memoryBytes": 2480,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 2,
+            "offset": 2480,
+            "virtualAddress": 18864,
+            "fileBytes": 568,
+            "memoryBytes": 1616,
+            "alignmentBytes": 16384
+          }
+        ],
+        "alignment16KiBVerified": true
+      },
+      "zip": {
+        "compressionMethod": 8,
+        "dataOffset": 23779862,
+        "alignment16KiBApplicable": false,
+        "alignment16KiBVerified": null,
+        "loading": "extracted during installation"
+      }
+    },
+    {
+      "path": "lib/arm64-v8a/libswresample.so",
+      "bytes": 97768,
+      "sha256": "59a2c9dbd713db7e4a17949b85334873745bf0183a2686300068093fe5b57ee0",
+      "elf": {
+        "class": 64,
+        "machine": "AArch64",
+        "minimumLoadAlignmentBytes": 16384,
+        "loadSegments": [
+          {
+            "index": 1,
+            "offset": 0,
+            "virtualAddress": 0,
+            "fileBytes": 88544,
+            "memoryBytes": 88544,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 2,
+            "offset": 88544,
+            "virtualAddress": 104928,
+            "fileBytes": 7184,
+            "memoryBytes": 9760,
+            "alignmentBytes": 16384
+          }
+        ],
+        "alignment16KiBVerified": true
+      },
+      "zip": {
+        "compressionMethod": 8,
+        "dataOffset": 23781681,
+        "alignment16KiBApplicable": false,
+        "alignment16KiBVerified": null,
+        "loading": "extracted during installation"
+      }
+    },
+    {
+      "path": "lib/arm64-v8a/libswscale.so",
+      "bytes": 1247552,
+      "sha256": "48782396b8c8993a7bb72990b87cd460e57f65d3e69c26c9e04031b0ef9f43e8",
+      "elf": {
+        "class": 64,
+        "machine": "AArch64",
+        "minimumLoadAlignmentBytes": 16384,
+        "loadSegments": [
+          {
+            "index": 1,
+            "offset": 0,
+            "virtualAddress": 0,
+            "fileBytes": 1195584,
+            "memoryBytes": 1195584,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 2,
+            "offset": 1195584,
+            "virtualAddress": 1211968,
+            "fileBytes": 49784,
+            "memoryBytes": 53696,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 3,
+            "offset": 1245368,
+            "virtualAddress": 1278136,
+            "fileBytes": 0,
+            "memoryBytes": 278856,
+            "alignmentBytes": 16384
+          }
+        ],
+        "alignment16KiBVerified": true
+      },
+      "zip": {
+        "compressionMethod": 8,
+        "dataOffset": 23826062,
+        "alignment16KiBApplicable": false,
+        "alignment16KiBVerified": null,
+        "loading": "extracted during installation"
+      }
+    },
+    {
+      "path": "lib/arm64-v8a/libycore_demux.so",
+      "bytes": 2777712,
+      "sha256": "b41fe7b1a45dc1610a4f932c510dd22f65956a7207c6e20d66112fae12677d34",
+      "elf": {
+        "class": 64,
+        "machine": "AArch64",
+        "minimumLoadAlignmentBytes": 16384,
+        "loadSegments": [
+          {
+            "index": 1,
+            "offset": 0,
+            "virtualAddress": 0,
+            "fileBytes": 2734992,
+            "memoryBytes": 2734992,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 2,
+            "offset": 2734992,
+            "virtualAddress": 2751376,
+            "fileBytes": 38216,
+            "memoryBytes": 42096,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 3,
+            "offset": 2773208,
+            "virtualAddress": 2805976,
+            "fileBytes": 2088,
+            "memoryBytes": 5400,
+            "alignmentBytes": 16384
+          }
+        ],
+        "alignment16KiBVerified": true
+      },
+      "zip": {
+        "compressionMethod": 8,
+        "dataOffset": 24351767,
+        "alignment16KiBApplicable": false,
+        "alignment16KiBVerified": null,
+        "loading": "extracted during installation"
+      }
+    },
+    {
+      "path": "lib/arm64-v8a/libycore_gpu.so",
+      "bytes": 102320,
+      "sha256": "4ea9a8ad54d15cc642dd952df2b65ad1f8d04aed179436d54ac1379f7a3ff01d",
+      "elf": {
+        "class": 64,
+        "machine": "AArch64",
+        "minimumLoadAlignmentBytes": 16384,
+        "loadSegments": [
+          {
+            "index": 1,
+            "offset": 0,
+            "virtualAddress": 0,
+            "fileBytes": 98128,
+            "memoryBytes": 98128,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 2,
+            "offset": 98128,
+            "virtualAddress": 114512,
+            "fileBytes": 1896,
+            "memoryBytes": 4272,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 3,
+            "offset": 100024,
+            "virtualAddress": 132792,
+            "fileBytes": 40,
+            "memoryBytes": 2184,
+            "alignmentBytes": 16384
+          }
+        ],
+        "alignment16KiBVerified": true
+      },
+      "zip": {
+        "compressionMethod": 8,
+        "dataOffset": 25549832,
+        "alignment16KiBApplicable": false,
+        "alignment16KiBVerified": null,
+        "loading": "extracted during installation"
+      }
+    },
+    {
+      "path": "lib/arm64-v8a/libyfuse-mdk-jni.so",
+      "bytes": 1191008,
+      "sha256": "2c69160dfdb6090eb772fe9ba4a9022e5c382c76c0955d79390fa5a943702040",
+      "elf": {
+        "class": 64,
+        "machine": "AArch64",
+        "minimumLoadAlignmentBytes": 16384,
+        "loadSegments": [
+          {
+            "index": 1,
+            "offset": 0,
+            "virtualAddress": 0,
+            "fileBytes": 83248,
+            "memoryBytes": 83248,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 2,
+            "offset": 83248,
+            "virtualAddress": 99632,
+            "fileBytes": 1592,
+            "memoryBytes": 15056,
+            "alignmentBytes": 16384
+          },
+          {
+            "index": 3,
+            "offset": 84840,
+            "virtualAddress": 117608,
+            "fileBytes": 40,
+            "memoryBytes": 2176,
+            "alignmentBytes": 16384
+          }
+        ],
+        "alignment16KiBVerified": true
+      },
+      "zip": {
+        "compressionMethod": 8,
+        "dataOffset": 25593782,
+        "alignment16KiBApplicable": false,
+        "alignment16KiBVerified": null,
+        "loading": "extracted during installation"
+      }
+    }
+  ],
+  "previousNativeLibraryComparison": [
+    {
+      "path": "lib/arm64-v8a/libandroidx.graphics.path.so",
+      "previousSha256": "41e9a793c43a0f4fddb19e33f346bace464f30f888ba7b9eaf96294ea115bfb6",
+      "currentSha256": "41e9a793c43a0f4fddb19e33f346bace464f30f888ba7b9eaf96294ea115bfb6",
+      "status": "unchanged"
+    },
+    {
+      "path": "lib/arm64-v8a/libass.so",
+      "previousSha256": "e55c83c3d9bcb7d1bfd62d1ba3aa3c0e9bc796861dd9cf145e73a75017075266",
+      "currentSha256": "e55c83c3d9bcb7d1bfd62d1ba3aa3c0e9bc796861dd9cf145e73a75017075266",
+      "status": "unchanged"
+    },
+    {
+      "path": "lib/arm64-v8a/libavcodec.so",
+      "previousSha256": "2440fc79482e7ab4e40ba2f3e9fb7ba10f196935b39566c636e866e0dcdeb42c",
+      "currentSha256": "2440fc79482e7ab4e40ba2f3e9fb7ba10f196935b39566c636e866e0dcdeb42c",
+      "status": "unchanged"
+    },
+    {
+      "path": "lib/arm64-v8a/libavdevice.so",
+      "previousSha256": "c67959777c8137a98825e7e63bfd8e555090781c66b34c9d0053e54869110c08",
+      "currentSha256": "c67959777c8137a98825e7e63bfd8e555090781c66b34c9d0053e54869110c08",
+      "status": "unchanged"
+    },
+    {
+      "path": "lib/arm64-v8a/libavfilter.so",
+      "previousSha256": "d9736182d803c460569b4fae9fb0d588a6e02f71f213ec000641521a07cf7d28",
+      "currentSha256": "d9736182d803c460569b4fae9fb0d588a6e02f71f213ec000641521a07cf7d28",
+      "status": "unchanged"
+    },
+    {
+      "path": "lib/arm64-v8a/libavformat.so",
+      "previousSha256": "ee3fb014d6d12ff54e658fc1ae70dfcaae55d0259a34b46e4fc3cb2a41f773dc",
+      "currentSha256": "ee3fb014d6d12ff54e658fc1ae70dfcaae55d0259a34b46e4fc3cb2a41f773dc",
+      "status": "unchanged"
+    },
+    {
+      "path": "lib/arm64-v8a/libavutil.so",
+      "previousSha256": "2d2ab7b3071f9e4643f67ba65170f7290d821aa80e8b14dfcc356a15c493c47a",
+      "currentSha256": "2d2ab7b3071f9e4643f67ba65170f7290d821aa80e8b14dfcc356a15c493c47a",
+      "status": "unchanged"
+    },
+    {
+      "path": "lib/arm64-v8a/libc++_shared.so",
+      "previousSha256": "c4c2fe5cbcb1fba0003a31fc7ab29a9bb12df6cc187ec45a806462540e83d93b",
+      "currentSha256": "c4c2fe5cbcb1fba0003a31fc7ab29a9bb12df6cc187ec45a806462540e83d93b",
+      "status": "unchanged"
+    },
+    {
+      "path": "lib/arm64-v8a/libdav1d.so",
+      "previousSha256": "290bbf17d72e0b50edfcc974b2dc7fa6d7106b82dbca3e68df8351a55bcd287b",
+      "currentSha256": "290bbf17d72e0b50edfcc974b2dc7fa6d7106b82dbca3e68df8351a55bcd287b",
+      "status": "unchanged"
+    },
+    {
+      "path": "lib/arm64-v8a/libffmpeg.so",
+      "previousSha256": "7942b55e7950c32e0fcd5532f0af2435e43e22491a75e7609b2b63210104f371",
+      "currentSha256": "7942b55e7950c32e0fcd5532f0af2435e43e22491a75e7609b2b63210104f371",
+      "status": "unchanged"
+    },
+    {
+      "path": "lib/arm64-v8a/libimage_processing_util_jni.so",
+      "previousSha256": "0292b063fafccf734472cbb59588e756c2dbca907c72021ba6fbf126385508a2",
+      "currentSha256": "0292b063fafccf734472cbb59588e756c2dbca907c72021ba6fbf126385508a2",
+      "status": "unchanged"
+    },
+    {
+      "path": "lib/arm64-v8a/libmdk.so",
+      "previousSha256": "1ae87eae1c5633238ac69acc2bba7c44b2c974c8f32c21ac35778376f77ce575",
+      "currentSha256": "1ae87eae1c5633238ac69acc2bba7c44b2c974c8f32c21ac35778376f77ce575",
+      "status": "unchanged"
+    },
+    {
+      "path": "lib/arm64-v8a/libmpv.so",
+      "previousSha256": "d06566edd8dd09c7419f61f9888d2f29e5e186ff578f8a984f1c968cab7baee6",
+      "currentSha256": "d06566edd8dd09c7419f61f9888d2f29e5e186ff578f8a984f1c968cab7baee6",
+      "status": "unchanged"
+    },
+    {
+      "path": "lib/arm64-v8a/libplayer.so",
+      "previousSha256": "2a5b828f3da71049c7603d6432fce50af7ca2286c33e70028bbcf466ead09005",
+      "currentSha256": "2a5b828f3da71049c7603d6432fce50af7ca2286c33e70028bbcf466ead09005",
+      "status": "unchanged"
+    },
+    {
+      "path": "lib/arm64-v8a/libsurface_util_jni.so",
+      "previousSha256": "a5c9d1928ea92ec7a94dff8cf666e7739cd734198b9f0ae1d4e28ea3c86516ba",
+      "currentSha256": "a5c9d1928ea92ec7a94dff8cf666e7739cd734198b9f0ae1d4e28ea3c86516ba",
+      "status": "unchanged"
+    },
+    {
+      "path": "lib/arm64-v8a/libswresample.so",
+      "previousSha256": "59a2c9dbd713db7e4a17949b85334873745bf0183a2686300068093fe5b57ee0",
+      "currentSha256": "59a2c9dbd713db7e4a17949b85334873745bf0183a2686300068093fe5b57ee0",
+      "status": "unchanged"
+    },
+    {
+      "path": "lib/arm64-v8a/libswscale.so",
+      "previousSha256": "48782396b8c8993a7bb72990b87cd460e57f65d3e69c26c9e04031b0ef9f43e8",
+      "currentSha256": "48782396b8c8993a7bb72990b87cd460e57f65d3e69c26c9e04031b0ef9f43e8",
+      "status": "unchanged"
+    },
+    {
+      "path": "lib/arm64-v8a/libycore_demux.so",
+      "previousSha256": "b41fe7b1a45dc1610a4f932c510dd22f65956a7207c6e20d66112fae12677d34",
+      "currentSha256": "b41fe7b1a45dc1610a4f932c510dd22f65956a7207c6e20d66112fae12677d34",
+      "status": "unchanged"
+    },
+    {
+      "path": "lib/arm64-v8a/libycore_gpu.so",
+      "previousSha256": "4ea9a8ad54d15cc642dd952df2b65ad1f8d04aed179436d54ac1379f7a3ff01d",
+      "currentSha256": "4ea9a8ad54d15cc642dd952df2b65ad1f8d04aed179436d54ac1379f7a3ff01d",
+      "status": "unchanged"
+    },
+    {
+      "path": "lib/arm64-v8a/libyfuse-mdk-jni.so",
+      "previousSha256": "2c69160dfdb6090eb772fe9ba4a9022e5c382c76c0955d79390fa5a943702040",
+      "currentSha256": "2c69160dfdb6090eb772fe9ba4a9022e5c382c76c0955d79390fa5a943702040",
+      "status": "unchanged"
+    }
+  ],
+  "ycoreByteIdentityChecks": [
+    {
+      "source": "jni/arm64-v8a/libavcodec.so",
+      "packagedPath": "lib/arm64-v8a/libavcodec.so",
+      "sha256": "2440fc79482e7ab4e40ba2f3e9fb7ba10f196935b39566c636e866e0dcdeb42c",
+      "byteIdentical": true
+    },
+    {
+      "source": "jni/arm64-v8a/libavformat.so",
+      "packagedPath": "lib/arm64-v8a/libavformat.so",
+      "sha256": "ee3fb014d6d12ff54e658fc1ae70dfcaae55d0259a34b46e4fc3cb2a41f773dc",
+      "byteIdentical": true
+    },
+    {
+      "source": "jni/arm64-v8a/libavutil.so",
+      "packagedPath": "lib/arm64-v8a/libavutil.so",
+      "sha256": "2d2ab7b3071f9e4643f67ba65170f7290d821aa80e8b14dfcc356a15c493c47a",
+      "byteIdentical": true
+    },
+    {
+      "source": "jni/arm64-v8a/libc++_shared.so",
+      "packagedPath": "lib/arm64-v8a/libc++_shared.so",
+      "sha256": "c4c2fe5cbcb1fba0003a31fc7ab29a9bb12df6cc187ec45a806462540e83d93b",
+      "byteIdentical": true
+    },
+    {
+      "source": "jni/arm64-v8a/libswresample.so",
+      "packagedPath": "lib/arm64-v8a/libswresample.so",
+      "sha256": "59a2c9dbd713db7e4a17949b85334873745bf0183a2686300068093fe5b57ee0",
+      "byteIdentical": true
+    },
+    {
+      "source": "jni/arm64-v8a/libswscale.so",
+      "packagedPath": "lib/arm64-v8a/libswscale.so",
+      "sha256": "48782396b8c8993a7bb72990b87cd460e57f65d3e69c26c9e04031b0ef9f43e8",
+      "byteIdentical": true
+    },
+    {
+      "source": "jni/arm64-v8a/libycore_demux.so",
+      "packagedPath": "lib/arm64-v8a/libycore_demux.so",
+      "sha256": "b41fe7b1a45dc1610a4f932c510dd22f65956a7207c6e20d66112fae12677d34",
+      "byteIdentical": true
+    },
+    {
+      "source": "jni/arm64-v8a/libycore_gpu.so",
+      "packagedPath": "lib/arm64-v8a/libycore_gpu.so",
+      "sha256": "4ea9a8ad54d15cc642dd952df2b65ad1f8d04aed179436d54ac1379f7a3ff01d",
+      "byteIdentical": true
+    }
+  ],
+  "ycoreNativeAudit": "audit/kernel-fixes-20260920/native/result.json",
+  "ycoreReadControlJniMethodsPresent": [
+    "nativeDemuxReadControlApiVersion",
+    "nativeInterruptDemuxRead",
+    "nativeResumeDemuxRead"
+  ],
+  "mdkReleaseJni": {
+    "releaseOutput": ".gradle-tmp/kernel-fixes-build/mdkAndroid/build/intermediates/library_jni/release/copyReleaseJniLibsProjectOnly/jni/arm64-v8a/libyfuse-mdk-jni.so",
+    "sha256": "2c69160dfdb6090eb772fe9ba4a9022e5c382c76c0955d79390fa5a943702040",
+    "byteIdentical": true,
+    "checkedReleaseOutputs": [
+      {
+        "path": ".gradle-tmp/kernel-fixes-build/mdkAndroid/build/intermediates/library_and_local_jars_jni/release/copyReleaseJniLibsProjectAndLocalJars/jni/arm64-v8a/libyfuse-mdk-jni.so",
+        "sha256": "70495f2abbbe5401c94c49169c17a34b625e7743f7e5cc15957608245c3b71a9",
+        "byteIdenticalToApk": false
+      },
+      {
+        "path": ".gradle-tmp/kernel-fixes-build/mdkAndroid/build/intermediates/library_jni/release/copyReleaseJniLibsProjectOnly/jni/arm64-v8a/libyfuse-mdk-jni.so",
+        "sha256": "2c69160dfdb6090eb772fe9ba4a9022e5c382c76c0955d79390fa5a943702040",
+        "byteIdenticalToApk": true
+      },
+      {
+        "path": ".gradle-tmp/kernel-fixes-build/mdkAndroid/build/intermediates/merged_native_libs/release/mergeReleaseNativeLibs/out/lib/arm64-v8a/libyfuse-mdk-jni.so",
+        "sha256": "2c69160dfdb6090eb772fe9ba4a9022e5c382c76c0955d79390fa5a943702040",
+        "byteIdenticalToApk": true
+      },
+      {
+        "path": ".gradle-tmp/kernel-fixes-build/mdkAndroid/build/intermediates/stripped_native_libs/release/stripReleaseDebugSymbols/out/lib/arm64-v8a/libyfuse-mdk-jni.so",
+        "sha256": "70495f2abbbe5401c94c49169c17a34b625e7743f7e5cc15957608245c3b71a9",
+        "byteIdenticalToApk": false
+      }
+    ]
+  },
+  "frameRateFeatureDexMarkers": [
+    "player.showFrameRate",
+    "显示帧率",
+    "实时输出",
+    "片源",
+    "页面 FPS"
+  ],
+  "sourceFileCount": 1819,
+  "sourceManifest": "audit/releases/20260921-playback-recovery/source-hashes.json",
+  "sourceManifestSha256": "30dc60a2fcecd1ba7778ded726b8477b5a781738a460e02d62f583436c17084d",
+  "tests": {
+    "tests": {
+      "tests": 862,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "suites": {
+      "com.yfuse.core2.adaptive.YAdaptiveBitrateTest": {
+        "tests": 9,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.adaptive.YAdaptiveReopenCompatibilityTest": {
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.adaptive.YDashFinitePlaybackTimelineTest": {
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.adaptive.YDashParserTest": {
+        "tests": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.adaptive.YDashPresentationTimelineTest": {
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.adaptive.YHlsParserTest": {
+        "tests": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidActiveAudioOutputFingerprintTest": {
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidAdaptiveCore2RecoveryPlanTest": {
+        "tests": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidAdaptiveDrmInitializationDataTest": {
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidAdaptiveHttpMediaTransportTest": {
+        "tests": 17,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidAdaptiveManifestDiscoveryTest": {
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidAdaptivePresentationStateTest": {
+        "tests": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidAdaptiveProxyTransitionTest": {
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidAssSubtitleRendererTest": {
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidAudioClockProgressGuardTest": {
+        "tests": 11,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidAudioCodecMappingTest": {
+        "tests": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidAudioRouteEvidenceTest": {
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidAudioTrackRenderNodePolicyTest": {
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidBoundedProbeTest": {
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidBufferWaitMonitorTest": {
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidCore2DolbyTrialGuardTest": {
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidCore2FallbackPolicyTest": {
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidCore2ProbeTruthMergeTest": {
+        "tests": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidCore2SoftwareRouteTest": {
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidCore2TrialTest": {
+        "tests": 11,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidCronetHostHealthTest": {
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidDemuxAnalysisPolicyTest": {
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidDemuxReadAheadNodeTest": {
+        "tests": 9,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidDemuxReadControlTest": {
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidDolbyProfileMappingTest": {
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidEncodedAudioTrackRenderNodeTest": {
+        "tests": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidEnhancedAudioSelectionTest": {
+        "tests": 12,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidEnhancedMediaProbeFailureMemoryTest": {
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidExternalSubtitleCancellationTest": {
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidExternalSubtitleSessionTest": {
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidFfmpegDemuxerMappingTest": {
+        "tests": 16,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidForwardCacheWarmerTest": {
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidHttpMediaTransportTest": {
+        "tests": 15,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidHttpRangeHeadersTest": {
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidHttpRangeMediaDataSourceTest": {
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidMediaCodecVideoNodePolicyTest": {
+        "tests": 24,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidMediaExtractorReadAheadNodeTest": {
+        "tests": 21,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidMediaSourceFailureTest": {
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidMetadataProbeStageTest": {
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidNativeDirectAudioRoutePreviewTest": {
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidNetworkRecoveryWindowTest": {
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidNextItemPreloadWindowTest": {
+        "tests": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidNextItemPreparationTest": {
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidPausedVideoPreviewTest": {
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidPlaybackMemoryBudgetTest": {
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidPlaybackProbeFactsTest": {
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidPlaybackProxyAdmissionTest": {
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidPlaybackStagingBufferTest": {
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidPlaybackTimingTest": {
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidPlaybackWorkerStepTest": {
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidPreparedMediaSlotTest": {
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidProbeBudgetTest": {
+        "tests": 9,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidProxyMediaSessionsTest": {
+        "tests": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidQueueCursorTest": {
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidRangeReadWatchdogTest": {
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidRuntimeCapabilityRegistryTest": {
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidSecureSurfacePolicyTest": {
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidSourceRouteStateRegistryTest": {
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidSurfacePlaybackCompletionTest": {
+        "tests": 9,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidTransportCancellationTest": {
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidTransportDiscBlockSourceTest": {
+        "tests": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidTransportMediaDataSourcePrefetchTest": {
+        "tests": 16,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidTransportMemoryPressureTest": {
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidTransportRequestFactoryTest": {
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidTransportStartupAndResumeTest": {
+        "tests": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidTunnelSeekAudioTest": {
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidVideoEosGateTest": {
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidVideoOutputEpochTest": {
+        "tests": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidYCoreBlockCacheTest": {
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidYCoreBluRayPlayerReleaseTest": {
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidYCoreCryptoInfoTest": {
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidYCoreHttpProxyTest": {
+        "tests": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidYCoreProxyCloseTest": {
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.AndroidYCoreVerifiedRouteMemoryTest": {
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.Anime4KFrameLedgerTest": {
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.BoundedFrameLeasePoolTest": {
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.CodecFrameTimestampMapperTest": {
+        "tests": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.Core2NativeBaselineTest": {
+        "tests": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.NativeDirectCommandPolicyTest": {
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.NativeDirectHdr10PlusTest": {
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.NativeDirectPacingPolicyTest": {
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.NativeEnhancedCommandPolicyTest": {
+        "tests": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.NextItemCancellationTest": {
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.NextItemOutputHandoffTest": {
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.NextItemRangeReuseTest": {
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.PlaybackAuditRegressionTest": {
+        "tests": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.PlaybackTransportAuditTest": {
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.SharedOriginConnectionPoolTest": {
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.YAdaptiveBufferModelTest": {
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.YAdaptiveReopenGateTest": {
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.YEnhancedAudioSelectionTest": {
+        "tests": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.android.YEnhancedDemuxSourceTest": {
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.api.YDualDolbyEvidenceTest": {
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.api.YInitialTrackSelectionTest": {
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.api.YPlayerDiagnosticsTest": {
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.api.YPlayerQueueTest": {
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.api.YRebufferTrackerTest": {
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.bitstream.YBitstreamTest": {
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.bitstream.YCodecConfigurationTest": {
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.capability.YCapabilityTest": {
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.dolby.YDolbyVisionBitstreamTest": {
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.dolby.YDolbyVisionConfigEncodingTest": {
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.dolby.YDolbyVisionConfigTest": {
+        "tests": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.dolby.YDolbyVisionFelEvidenceProviderTest": {
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.dolby.YDolbyVisionLayerSynchronizerTest": {
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.dolby.YDolbyVisionRouterTest": {
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.dolby.YMatroskaDolbyVisionMetadataParserTest": {
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.dolby.YMatroskaTrackCodecParserTest": {
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.drm.YDrmRenewalPolicyTest": {
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.graph.YPlaybackGraphTest": {
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.hdr.YHdr10PlusParserTest": {
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.hdr.YHdrMetadataTest": {
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.hdr.YHdrRouterTest": {
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.learning.YPlaybackLearningTest": {
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.legacy.AndroidMpvCore2FallbackFactoryTest": {
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.legacy.LegacyYPlayerAdapterTest": {
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.legacy.YPlayerVideoEngineAdapterTest": {
+        "tests": 12,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.network.YAggregateBandwidthMeterTest": {
+        "tests": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.network.YBufferControllerTest": {
+        "tests": 16,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.network.YMediaTransportTest": {
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.network.YTransportRetryPolicyTest": {
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.quirk.YCore2FailureLedgerTest": {
+        "tests": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.quirk.YDeviceQuirkDatabaseTest": {
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.recovery.YAudioHandoverPolicyTest": {
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.recovery.YPlaybackRecoveryPolicyTest": {
+        "tests": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.release.YCoreNativeReadinessTest": {
+        "tests": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.render.YFrameRatePolicyTest": {
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.render.YGpuColorPipelineTest": {
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.render.YGpuPipelineTest": {
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.render.YNativeGpuRuntimeTest": {
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.render.YRenderedFrameRateSamplerTest": {
+        "tests": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.security.YCoreMalformedInputFuzzTest": {
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.strategy.YAudioOnlyStrategyTest": {
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.strategy.YPlatformAudioDemuxStrategyTest": {
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.strategy.YPlaybackStrategyTest": {
+        "tests": 16,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.strategy.YProbeTruthPolicyTest": {
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.strategy.YTunnelPolicyTest": {
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.subtitle.YDualSubtitleTimelineTest": {
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.subtitle.YEmbeddedTextSubtitleQueueTest": {
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.subtitle.YSubtitleClockAnchorTest": {
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.subtitle.YSubtitleCueBufferTest": {
+        "tests": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.subtitle.YSubtitleParserCancellationTest": {
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.subtitle.YSubtitleRegexRegressionTest": {
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.subtitle.YTextSubtitleParserTest": {
+        "tests": 9,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.sync.YAvSyncTest": {
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.sync.YMediaClockTest": {
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.sync.YMediaTimestampTimelineTest": {
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.core2.test.YMediaTestSuiteTest": {
+        "tests": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.feature.player.PlaybackDiagnosticsTest": {
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.update.AutomaticUpdateCheckGateTest": {
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.update.UpdateCheckPolicyTest": {
+        "tests": 16,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.update.UpdateDownloadBoundaryTest": {
+        "tests": 11,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.update.UpdateManifestPolicyTest": {
+        "tests": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.update.UpdatePackageIdentityTest": {
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.update.UpdateRestoreTrustTest": {
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "com.yfuse.update.UpdateResumePolicyTest": {
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    },
+    "fullAppSuiteRerun": false,
+    "changedInputsFromPreviousRelease": [
+      "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidAdaptiveCore2YPlayer.kt",
+      "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidBufferWaitMonitor.kt",
+      "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidCore2MediaProbe.kt",
+      "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidDemuxReadAheadNode.kt",
+      "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidEnhancedMediaProbe.kt",
+      "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidEnhancedPlaybackSession.kt",
+      "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidFfmpegDemuxer.kt",
+      "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidMediaExtractorDemuxNode.kt",
+      "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidMediaSourceFailure.kt",
+      "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidNativeEnhancedYPlayer.kt",
+      "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidRangeReadDiagnostics.kt",
+      "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidRangeReadWatchdog.kt",
+      "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidTransportMediaDataSource.kt",
+      "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidYCoreHttpProxy.kt",
+      "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/YCoreStartupTiming.kt",
+      "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidBufferWaitMonitorTest.kt",
+      "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidDemuxReadAheadNodeTest.kt",
+      "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidMediaSourceFailureTest.kt",
+      "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidYCoreProxyCloseTest.kt",
+      "composeApp/src/commonMain/kotlin/com/yfuse/core2/network/YBufferController.kt",
+      "composeApp/src/commonTest/kotlin/com/yfuse/core2/network/YBufferControllerTest.kt",
+      "release-notes.txt",
+      "version.properties"
+    ],
+    "deviceTested": false
+  },
+  "playbackTested": false,
+  "installed": false,
+  "published": false,
+  "updateManifestPublicKeyConfigured": false
+}

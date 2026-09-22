@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.sync.ServerSyncManagerTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:07.407Z" hostname="DESKTOP-HM2J0FM" time="0.03">
+  <properties/>
+  <testcase name="pending_queue_rejects_oversized_identity_and_bounds_display_text" classname="com.yfuse.core.sync.ServerSyncManagerTest" time="0.0"/>
+  <testcase name="known_unavailable_yun_endpoint_is_skipped_even_when_forced" classname="com.yfuse.core.sync.ServerSyncManagerTest" time="0.003"/>
+  <testcase name="progressSnapshotIsThrottledUnlessForcedAndSeedsLocalStore" classname="com.yfuse.core.sync.ServerSyncManagerTest" time="0.009"/>
+  <testcase name="successful_forced_retry_clears_persisted_backoff" classname="com.yfuse.core.sync.ServerSyncManagerTest" time="0.007"/>
+  <testcase name="pending_queue_keeps_only_the_newest_distinct_operations_within_capacity" classname="com.yfuse.core.sync.ServerSyncManagerTest" time="0.001"/>
+  <testcase name="disabledProgressSyncDoesNotWritePlayedStateToEmby" classname="com.yfuse.core.sync.ServerSyncManagerTest" time="0.002"/>
+  <testcase name="eachNewManagerMakesOneFreshStartupProgressAttemptDespiteOldBackoff" classname="com.yfuse.core.sync.ServerSyncManagerTest" time="0.003"/>
+  <testcase name="cancellingAtBatchPersistenceClearsTheSyncingIndicator" classname="com.yfuse.core.sync.ServerSyncManagerTest" time="0.005"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

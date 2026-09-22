@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.PlaybackLifecyclePolicyTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:15.867Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="closing_picture_in_picture_releases_hidden_playback" classname="com.yfuse.feature.player.PlaybackLifecyclePolicyTest" time="0.001"/>
+  <testcase name="screen_off_pauses_even_in_picture_in_picture" classname="com.yfuse.feature.player.PlaybackLifecyclePolicyTest" time="0.0"/>
+  <testcase name="configuration_change_does_not_pause_visible_playback" classname="com.yfuse.feature.player.PlaybackLifecyclePolicyTest" time="0.0"/>
+  <testcase name="active_picture_in_picture_keeps_playing_in_background" classname="com.yfuse.feature.player.PlaybackLifecyclePolicyTest" time="0.0"/>
+  <testcase name="fullscreen_player_pauses_when_sent_to_background" classname="com.yfuse.feature.player.PlaybackLifecyclePolicyTest" time="0.0"/>
+  <testcase name="screen_off_does_not_turn_into_closed_picture_in_picture" classname="com.yfuse.feature.player.PlaybackLifecyclePolicyTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,116 @@
+--- before/composeApp/src/commonMain/kotlin/com/yfuse/feature/player/WatchTogetherDialogs.kt
++++ after/composeApp/src/commonMain/kotlin/com/yfuse/feature/player/WatchTogetherDialogs.kt
+@@ -7,10 +7,10 @@
+ import androidx.compose.foundation.layout.Spacer
+ import androidx.compose.foundation.layout.fillMaxWidth
+ import androidx.compose.foundation.layout.height
++import androidx.compose.foundation.layout.heightIn
+ import androidx.compose.foundation.layout.padding
+ import androidx.compose.foundation.layout.width
+ import androidx.compose.foundation.lazy.LazyRow
+-import androidx.compose.foundation.lazy.items
+ import androidx.compose.foundation.text.BasicTextField
+ import androidx.compose.foundation.text.KeyboardOptions
+ import androidx.compose.material3.Text
+@@ -37,10 +37,12 @@
+ import com.yfuse.core.designsystem.OverlayButton
+ import com.yfuse.core.designsystem.OverlayButtonTone
+ import com.yfuse.core.designsystem.OverlayHeader
++import com.yfuse.core.designsystem.PageLoadingSkeleton
++import com.yfuse.core.designsystem.SkeletonHandoff
+ import com.yfuse.core.designsystem.WatchAvatar
+ import com.yfuse.core.designsystem.contentHandoff
+ import com.yfuse.core.designsystem.glass
+-import com.yfuse.core.designsystem.motionAwareItem
++import com.yfuse.core.designsystem.motionItems
+ import com.yfuse.core.designsystem.pressable
+ import com.yfuse.core.designsystem.rememberAccentColorsForSurface
+ import com.yfuse.core.designsystem.touchTarget
+@@ -108,36 +110,44 @@
+                 },
+             onClose = onDismiss,
+         )
++        SkeletonHandoff(
++            loading = connecting && !connected,
++            modifier = Modifier.fillMaxWidth().heightIn(min = if (connecting && !connected) 210.dp else 0.dp),
++            skeleton = { PageLoadingSkeleton() },
++        ) {
++            if (connected) {
++                Column(
++                    Modifier
++                        .fillMaxWidth()
++                        .contentHandoff(connected to connecting)
++                        .glass(AppShapes.card, palette.card2, palette.border)
++                        .padding(14.dp),
++                    verticalArrangement = Arrangement.spacedBy(7.dp),
++                ) {
++                    CopyableRoomCode(
++                        roomCode = roomCode.orEmpty(),
++                        style = AppTypography.display.strong,
++                        color = accent.accent,
++                        modifier = Modifier.fillMaxWidth(),
++                    )
++                    Text(
++                        "${if (isHost) {
++                            "房主"
++                        } else if (canControl) {
++                            "可控制"
++                        } else {
++                            "成员"
++                        }} · " +
++                            "$participantCount 人在线 · ${participants.count { it.ready }} 人就绪",
++                        style = AppTypography.caption.medium,
++                        color = palette.sub2,
++                        modifier = Modifier.fillMaxWidth(),
++                        textAlign = TextAlign.Center,
++                    )
++                }
++            }
++        }
+         if (connected) {
+-            Column(
+-                Modifier
+-                    .fillMaxWidth()
+-                    .contentHandoff(connected to connecting)
+-                    .glass(AppShapes.card, palette.card2, palette.border)
+-                    .padding(14.dp),
+-                verticalArrangement = Arrangement.spacedBy(7.dp),
+-            ) {
+-                CopyableRoomCode(
+-                    roomCode = roomCode.orEmpty(),
+-                    style = AppTypography.display.strong,
+-                    color = accent.accent,
+-                    modifier = Modifier.fillMaxWidth(),
+-                )
+-                Text(
+-                    "${if (isHost) {
+-                        "房主"
+-                    } else if (canControl) {
+-                        "可控制"
+-                    } else {
+-                        "成员"
+-                    }} · " +
+-                        "$participantCount 人在线 · ${participants.count { it.ready }} 人就绪",
+-                    style = AppTypography.caption.medium,
+-                    color = palette.sub2,
+-                    modifier = Modifier.fillMaxWidth(),
+-                    textAlign = TextAlign.Center,
+-                )
+-            }
+             if (isHost) {
+                 Text(
+                     "控制权限",
+@@ -164,11 +174,11 @@
+                     Modifier.fillMaxWidth().padding(top = 12.dp),
+                     horizontalArrangement = Arrangement.spacedBy(10.dp),
+                 ) {
+-                    items(participants, key = { it.clientId }) { participant ->
++                    motionItems(participants, key = { it.clientId }) { participant ->
+                         Column(
+                             Modifier
+                                 .width(108.dp)
+-                                .then(motionAwareItem()),
++                                .then(Modifier),
+                             horizontalAlignment = Alignment.CenterHorizontally,
+                             verticalArrangement = Arrangement.spacedBy(4.dp),
+                         ) {

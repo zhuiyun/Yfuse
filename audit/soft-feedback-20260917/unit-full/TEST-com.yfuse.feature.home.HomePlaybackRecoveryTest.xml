@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.home.HomePlaybackRecoveryTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:15.097Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="recovery_position_is_converted_from_milliseconds_to_emby_ticks" classname="com.yfuse.feature.home.HomePlaybackRecoveryTest" time="0.0"/>
+  <testcase name="recovery_position_conversion_does_not_overflow" classname="com.yfuse.feature.home.HomePlaybackRecoveryTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

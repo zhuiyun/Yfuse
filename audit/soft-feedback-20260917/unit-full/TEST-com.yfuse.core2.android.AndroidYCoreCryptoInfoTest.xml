@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.AndroidYCoreCryptoInfoTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:12.973Z" hostname="DESKTOP-HM2J0FM" time="0.002">
+  <properties/>
+  <testcase name="unsupported_sample_encryption_remains_fail_closed" classname="com.yfuse.core2.android.AndroidYCoreCryptoInfoTest" time="0.001"/>
+  <testcase name="cenc_snapshot_copies_platform_arrays_and_redacts_key_material" classname="com.yfuse.core2.android.AndroidYCoreCryptoInfoTest" time="0.001"/>
+  <testcase name="cbcs_snapshot_preserves_crypt_and_skip_pattern" classname="com.yfuse.core2.android.AndroidYCoreCryptoInfoTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

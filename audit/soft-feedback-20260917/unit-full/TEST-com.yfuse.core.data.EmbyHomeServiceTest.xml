@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.data.EmbyHomeServiceTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:02.226Z" hostname="DESKTOP-HM2J0FM" time="0.158">
+  <properties/>
+  <testcase name="library_previews_finish_before_slow_optional_metadata_exhausts_the_budget" classname="com.yfuse.core.data.EmbyHomeServiceTest" time="0.071"/>
+  <testcase name="leaving_the_page_still_cancels_the_request" classname="com.yfuse.core.data.EmbyHomeServiceTest" time="0.004"/>
+  <testcase name="cancelling_enrichment_stops_requests_and_preserves_cached_previews" classname="com.yfuse.core.data.EmbyHomeServiceTest" time="0.024"/>
+  <testcase name="failed_preview_keeps_its_library_entry_and_recovers_on_refresh" classname="com.yfuse.core.data.EmbyHomeServiceTest" time="0.022"/>
+  <testcase name="many_stalled_sections_have_one_budget_and_keep_every_browse_entry" classname="com.yfuse.core.data.EmbyHomeServiceTest" time="0.016"/>
+  <testcase name="directory_and_preview_are_published_while_counts_are_still_pending" classname="com.yfuse.core.data.EmbyHomeServiceTest" time="0.01"/>
+  <testcase name="stalled_directory_returns_a_failure_instead_of_cancelling_the_store_load" classname="com.yfuse.core.data.EmbyHomeServiceTest" time="0.011"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

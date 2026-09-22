@@ -1,0 +1,31 @@
+--- before/composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/BackOverlay.kt
++++ after/composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/BackOverlay.kt
+@@ -23,9 +23,10 @@
+ fun BackOverlay(
+     onBack: () -> Unit,
+     modifier: Modifier = Modifier,
++    enabled: Boolean = true,
+     content: @Composable BoxScope.() -> Unit,
+ ) {
+-    ReportOverlayVisible()
++    if (enabled) ReportOverlayVisible()
+     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+     val currentBack by rememberUpdatedState(onBack)
+     val scope = rememberCoroutineScope()
+@@ -33,6 +34,7 @@
+     val overlayShape = remember { RoundedCornerShape(16.dp) }
+     val settling = remember { arrayOfNulls<Job>(1) }
+     PlatformPredictiveBackHandler(
++        enabled = enabled,
+         onProgress = {
+             settling[0]?.cancel()
+             progress = if (reduceMotion) 0f else it.coerceIn(0f, 1f)
+@@ -56,7 +58,7 @@
+     Box(
+         modifier.fillMaxSize().graphicsLayer {
+             val p = if (reduceMotion) 0f else progress.coerceIn(0f, 1f)
+-            scaleX = 1f - 0.06f * p
++            scaleX = 1f - 0.10f * p
+             scaleY = scaleX
+             alpha = 1f - 0.2f * p
+             translationX = 24.dp.toPx() * p

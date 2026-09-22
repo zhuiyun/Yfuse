@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.library.PlayerRouteLaunchGateTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:15.516Z" hostname="DESKTOP-HM2J0FM" time="0.0">
+  <properties/>
+  <testcase name="a_restored_player_route_holds_the_gate" classname="com.yfuse.feature.library.PlayerRouteLaunchGateTest" time="0.0"/>
+  <testcase name="duplicate_player_launch_is_rejected_until_the_route_closes" classname="com.yfuse.feature.library.PlayerRouteLaunchGateTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

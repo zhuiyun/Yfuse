@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.dolby.YMatroskaTrackCodecParserTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:44:00.455Z" hostname="DESKTOP-HM2J0FM" time="0.002">
+  <properties/>
+  <testcase name="rejects bytes that are not an EBML document" classname="com.yfuse.core2.dolby.YMatroskaTrackCodecParserTest" time="0.0"/>
+  <testcase name="asks for more bytes when the Tracks element is cut short" classname="com.yfuse.core2.dolby.YMatroskaTrackCodecParserTest" time="0.0"/>
+  <testcase name="lists every TrackEntry codec including audio the platform extractor hides" classname="com.yfuse.core2.dolby.YMatroskaTrackCodecParserTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.AndroidAdaptiveHttpMediaTransportTest" tests="17" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:43:53.411Z" hostname="DESKTOP-HM2J0FM" time="0.306">
+  <properties/>
+  <testcase name="cronet_http11_route_is_used_once_then_shared_ranges_use_okhttp" classname="com.yfuse.core2.android.AndroidAdaptiveHttpMediaTransportTest" time="0.039"/>
+  <testcase name="a_changed_entity_is_rejected_before_cronet_fallback_bytes_are_delivered" classname="com.yfuse.core2.android.AndroidAdaptiveHttpMediaTransportTest" time="0.006"/>
+  <testcase name="cronet_range_rejection_falls_back_before_media_extractor_sees_it" classname="com.yfuse.core2.android.AndroidAdaptiveHttpMediaTransportTest" time="0.001"/>
+  <testcase name="partial_cronet_fallback_without_validator_defers_to_the_block_retry" classname="com.yfuse.core2.android.AndroidAdaptiveHttpMediaTransportTest" time="0.001"/>
+  <testcase name="cronet_failure_falls_back_once_to_okhttp_transport" classname="com.yfuse.core2.android.AndroidAdaptiveHttpMediaTransportTest" time="0.013"/>
+  <testcase name="cronet_read_failure_resumes_the_exact_remaining_range_with_okhttp" classname="com.yfuse.core2.android.AndroidAdaptiveHttpMediaTransportTest" time="0.001"/>
+  <testcase name="premature_cronet_eof_before_the_range_end_also_resumes_with_okhttp" classname="com.yfuse.core2.android.AndroidAdaptiveHttpMediaTransportTest" time="0.002"/>
+  <testcase name="native_direct_okhttp_fallback_follows_same_origin_authenticated_redirects" classname="com.yfuse.core2.android.AndroidAdaptiveHttpMediaTransportTest" time="0.201"/>
+  <testcase name="rejected_redirect_target_cannot_be_reintroduced_by_parallel_prefetch" classname="com.yfuse.core2.android.AndroidAdaptiveHttpMediaTransportTest" time="0.0"/>
+  <testcase name="cronet_mismatched_range_falls_back_before_binding" classname="com.yfuse.core2.android.AndroidAdaptiveHttpMediaTransportTest" time="0.001"/>
+  <testcase name="watchdog_timeout_remembers_cronet_failure_before_retrying_the_range" classname="com.yfuse.core2.android.AndroidAdaptiveHttpMediaTransportTest" time="0.029"/>
+  <testcase name="cronet_failure_is_shared_by_every_range_transport_for_the_same_media_source" classname="com.yfuse.core2.android.AndroidAdaptiveHttpMediaTransportTest" time="0.002"/>
+  <testcase name="close_reaches_an_okhttp_transport_before_its_open_returns" classname="com.yfuse.core2.android.AndroidAdaptiveHttpMediaTransportTest" time="0.002"/>
+  <testcase name="authorization_range_failure_keeps_the_status_for_non_retryable_diagnostics" classname="com.yfuse.core2.android.AndroidAdaptiveHttpMediaTransportTest" time="0.001"/>
+  <testcase name="closing_a_pending_cronet_open_never_starts_an_okhttp_fallback" classname="com.yfuse.core2.android.AndroidAdaptiveHttpMediaTransportTest" time="0.003"/>
+  <testcase name="closing_a_stalled_cronet_read_does_not_reopen_the_abandoned_range" classname="com.yfuse.core2.android.AndroidAdaptiveHttpMediaTransportTest" time="0.002"/>
+  <testcase name="later_403_refreshes_a_source_that_already_served_a_validated_range" classname="com.yfuse.core2.android.AndroidAdaptiveHttpMediaTransportTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

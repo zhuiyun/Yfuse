@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.AndroidDolbyVisionRuntimeTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:15.598Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="low_memory_or_runtime_pressure_forces_base_layer_budget" classname="com.yfuse.feature.player.AndroidDolbyVisionRuntimeTest" time="0.0"/>
+  <testcase name="media_performance_class_device_allows_full_fel" classname="com.yfuse.feature.player.AndroidDolbyVisionRuntimeTest" time="0.0"/>
+  <testcase name="base_layer_route_strips_both_rpu_and_p7_enhancement_layer" classname="com.yfuse.feature.player.AndroidDolbyVisionRuntimeTest" time="0.0"/>
+  <testcase name="legacy_high_memory_gles3_device_allows_full_fel" classname="com.yfuse.feature.player.AndroidDolbyVisionRuntimeTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

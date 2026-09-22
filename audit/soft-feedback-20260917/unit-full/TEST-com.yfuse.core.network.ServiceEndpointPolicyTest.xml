@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.network.ServiceEndpointPolicyTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:05.585Z" hostname="DESKTOP-HM2J0FM" time="0.002">
+  <properties/>
+  <testcase name="officialWatchServiceDefaultsToSecureTransport" classname="com.yfuse.core.network.ServiceEndpointPolicyTest" time="0.001"/>
+  <testcase name="localCleartextRequiresAnExplicitConfirmation" classname="com.yfuse.core.network.ServiceEndpointPolicyTest" time="0.0"/>
+  <testcase name="securePublicHttpAndWebSocketEndpointsAreAccepted" classname="com.yfuse.core.network.ServiceEndpointPolicyTest" time="0.001"/>
+  <testcase name="publicCleartextIsRejectedEvenAfterConfirmation" classname="com.yfuse.core.network.ServiceEndpointPolicyTest" time="0.0"/>
+  <testcase name="incompleteOrUnsupportedAddressesAreInvalid" classname="com.yfuse.core.network.ServiceEndpointPolicyTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

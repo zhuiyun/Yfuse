@@ -1,0 +1,18 @@
+Picked up JAVA_TOOL_OPTIONS: -Djdk.net.unixdomain.tmpdir=D:/Demo/Yfuse/gradle.properties
+Verifies
+Verified using v1 scheme (JAR signing): false
+Verified using v2 scheme (APK Signature Scheme v2): true
+Verified using v3 scheme (APK Signature Scheme v3): false
+Verified using v3.1 scheme (APK Signature Scheme v3.1): false
+Verified using v4 scheme (APK Signature Scheme v4): false
+Verified for SourceStamp: false
+Number of signers: 1
+Signer #1 certificate DN: C=US, O=Android, CN=Android Debug
+Signer #1 certificate SHA-256 digest: ab07788b8e7e06cbbfd8740acce431282c41249f25ce6ddf2683400febc6d995
+Signer #1 certificate SHA-1 digest: 0876fbb4468ec7083aab927c62fe61ed5bc7053c
+Signer #1 certificate MD5 digest: 5162f9f01d34abf1245fbe3da0aeed1b
+Signer #1 key algorithm: RSA
+Signer #1 key size (bits): 2048
+Signer #1 public key SHA-256 digest: 204bfb7e409df37a0238667aea09f4ad3609ef199ceb0e56ab6a0cfec2aa2f12
+Signer #1 public key SHA-1 digest: 36c877a94760593ea1274ed8ff5306b9e4fc1cba
+Signer #1 public key MD5 digest: c16979dcee67c80899b2f817b0043704

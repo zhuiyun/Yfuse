@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.playback.AndroidBlockingMediaProbeLaneTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:06.063Z" hostname="DESKTOP-HM2J0FM" time="0.522">
+  <properties/>
+  <testcase name="inline_continuation_can_start_the_next_probe_without_skipping_or_losing_ownership" classname="com.yfuse.core.playback.AndroidBlockingMediaProbeLaneTest" time="0.01"/>
+  <testcase name="timeout_returns_while_vendor_is_blocked_and_repeated_requests_never_add_workers" classname="com.yfuse.core.playback.AndroidBlockingMediaProbeLaneTest" time="0.509"/>
+  <testcase name="caller_cancellation_does_not_wait_for_native_cleanup_and_late_results_are_discarded" classname="com.yfuse.core.playback.AndroidBlockingMediaProbeLaneTest" time="0.003"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.AndroidEncodedAudioTrackRenderNodeTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:43:55.128Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="joc uses base carrier unless the sink exposes exact transport" classname="com.yfuse.core2.android.AndroidEncodedAudioTrackRenderNodeTest" time="0.001"/>
+  <testcase name="base carrier encodings do not advertise object audio" classname="com.yfuse.core2.android.AndroidEncodedAudioTrackRenderNodeTest" time="0.0"/>
+  <testcase name="maps only Android encoded passthrough codecs" classname="com.yfuse.core2.android.AndroidEncodedAudioTrackRenderNodeTest" time="0.0"/>
+  <testcase name="truehd tries the mat carrier after the truehd encoding from api 30" classname="com.yfuse.core2.android.AndroidEncodedAudioTrackRenderNodeTest" time="0.0"/>
+  <testcase name="uses standard eac3 carrier for joc before api 28" classname="com.yfuse.core2.android.AndroidEncodedAudioTrackRenderNodeTest" time="0.0"/>
+  <testcase name="mat carrier counts as truehd passthrough capability" classname="com.yfuse.core2.android.AndroidEncodedAudioTrackRenderNodeTest" time="0.0"/>
+  <testcase name="exact joc encoding preserves positive object audio capability" classname="com.yfuse.core2.android.AndroidEncodedAudioTrackRenderNodeTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

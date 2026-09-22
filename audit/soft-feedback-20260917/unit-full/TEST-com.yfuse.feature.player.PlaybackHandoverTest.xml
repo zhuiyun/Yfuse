@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.PlaybackHandoverTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:15.865Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="paused_handover_enforces_the_250ms_budget" classname="com.yfuse.feature.player.PlaybackHandoverTest" time="0.001"/>
+  <testcase name="paused_handover_preserves_position_speed_and_pause_intent" classname="com.yfuse.feature.player.PlaybackHandoverTest" time="0.0"/>
+  <testcase name="playing_handover_allows_only_real_time_progression" classname="com.yfuse.feature.player.PlaybackHandoverTest" time="0.0"/>
+  <testcase name="ended_media_never_restarts_during_handover" classname="com.yfuse.feature.player.PlaybackHandoverTest" time="0.0"/>
+  <testcase name="captures_tracks_delays_and_disc_location" classname="com.yfuse.feature.player.PlaybackHandoverTest" time="0.0"/>
+  <testcase name="handover_position_validation_is_one_shot_and_item_scoped" classname="com.yfuse.feature.player.PlaybackHandoverTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

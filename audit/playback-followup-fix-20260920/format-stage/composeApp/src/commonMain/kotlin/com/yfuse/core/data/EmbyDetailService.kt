@@ -1,0 +1,493 @@
+package com.yfuse.core.data
+
+import com.yfuse.core.data.dto.BaseItemDto
+import com.yfuse.core.data.dto.EmbyThumbnailSetDto
+import com.yfuse.core.data.dto.ItemsResponseDto
+import com.yfuse.core.data.dto.bestTrickplay
+import com.yfuse.core.data.dto.toEpisode
+import com.yfuse.core.data.dto.toMediaDetail
+import com.yfuse.core.data.dto.toMediaItem
+import com.yfuse.core.data.dto.toPerson
+import com.yfuse.core.data.dto.toSeason
+import com.yfuse.core.model.Episode
+import com.yfuse.core.model.MediaDetail
+import com.yfuse.core.model.MediaItem
+import com.yfuse.core.model.MediaServerKind
+import com.yfuse.core.model.Person
+import com.yfuse.core.model.PlayTarget
+import com.yfuse.core.model.SavedServer
+import com.yfuse.core.model.Season
+import com.yfuse.core.model.TrickplayInfo
+import com.yfuse.core.model.TrickplayTimelineFrame
+import com.yfuse.core.network.EmbyStream
+import io.ktor.client.HttpClient
+import io.ktor.client.call.body
+import io.ktor.client.request.get
+import io.ktor.client.request.header
+import io.ktor.client.request.parameter
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import kotlin.math.roundToInt
+
+internal data class PlayTargetResolution(
+    val target: PlayTarget,
+    val episodes: List<Episode>? = null,
+)
+
+internal class EmbyDetailService(
+    private val client: HttpClient,
+    private val progress: PlaybackProgressProjection = PlaybackProgressProjection(),
+) {
+    /** Real Emby recommendations used by the detail page's compact poster rail. */
+    suspend fun similarItems(
+        server: SavedServer,
+        itemId: String,
+        limit: Int = 12,
+    ): Result<List<MediaItem>> =
+        embyApiCall("similar_items") {
+            val dto: ItemsResponseDto =
+                client
+                    .get("${server.baseUrl}/Items/${embyPath(itemId)}/Similar") {
+                        header("X-Emby-Token", server.accessToken)
+                        parameter("UserId", server.userId)
+                        parameter("Limit", limit)
+                        parameter(
+                            "Fields",
+                            "ProductionYear,CommunityRating,BackdropImageTags,ParentBackdropItemId," +
+                                "ParentBackdropImageTags,SeriesPrimaryImageTag",
+                        )
+                        parameter("EnableImageTypes", "Primary,Backdrop")
+                        parameter("ImageTypeLimit", 2)
+                    }.body()
+            dto.Items.map { progress.project(server, it).toMediaItem() }
+        }
+
+    /**
+     * Resolves what to actually play for a detail item: movies/episodes play
+     * themselves; a series plays its "next up" episode (falling back to the
+     * first episode), carrying that episode's resume position.
+     */
+    suspend fun resolvePlayTarget(
+        server: SavedServer,
+        detail: MediaDetail,
+    ): Result<PlayTarget> = resolvePlayTargetWithEpisodes(server, detail).map(PlayTargetResolution::target)
+
+    /**
+     * Resolves the concrete playback target and retains the episode directory already read while
+     * finding NextUp. The detail page can reuse that directory instead of immediately requesting
+     * the same series a second time just to paint its episode list.
+     */
+    suspend fun resolvePlayTargetWithEpisodes(
+        server: SavedServer,
+        detail: MediaDetail,
+    ): Result<PlayTargetResolution> =
+        embyApiCall("resolve_play_target") {
+            if (detail.type != "Series") {
+                PlayTargetResolution(
+                    target = PlayTarget(detail.id, detail.resumePositionTicks ?: 0L),
+                )
+            } else {
+                val directory = fetchLocalEpisodeDirectory(server, detail.id)
+                val projected = directory.map { item -> item to progress.project(server, item) }
+                val episode = selectLocalNextUp(server, projected) ?: directory.firstOrNull()
+                requireNotNull(episode) { "no episodes" }
+                val projectedTarget = progress.project(server, episode)
+                PlayTargetResolution(
+                    target =
+                        PlayTarget(
+                            projectedTarget.Id,
+                            projectedTarget.UserData?.PlaybackPositionTicks ?: 0L,
+                        ),
+                    episodes = projected.map { it.second.toEpisode() },
+                )
+            }
+        }
+
+    /** Reads the directory once for both next-up selection and the selected file's media facts. */
+    suspend fun resolveSeriesPlayback(
+        server: SavedServer,
+        seriesId: String,
+    ): Result<SeriesPlaybackResolution> =
+        embyApiCall("resolve_series_playback") {
+            val directory = fetchLocalEpisodeDirectory(server, seriesId, includePlaybackSources = true)
+            val projected = directory.map { item -> item to progress.project(server, item) }
+            val episode =
+                requireNotNull(selectLocalNextUp(server, projected) ?: directory.firstOrNull()) {
+                    "no episodes"
+                }
+            val selected = progress.project(server, episode)
+            val reusable = selected.hasPlaybackSourceSnapshot(seriesId)
+            val detail =
+                if (reusable) {
+                    selected.toMediaDetail()
+                } else {
+                    itemDetail(server, selected.Id, includeInheritedPeople = false, playbackOnly = true).getOrThrow()
+                }
+            logSeriesPlaybackSnapshot(server.kind.name, reusable)
+            SeriesPlaybackResolution(
+                target = PlayTarget(selected.Id, selected.UserData?.PlaybackPositionTicks ?: 0L),
+                detail = detail,
+                episodes =
+                    projected
+                        .takeIf { entries -> entries.all { (_, item) -> item.hasPlaybackSourceSnapshot(seriesId) } }
+                        ?.map { (_, item) -> item.toEpisode() },
+            )
+        }
+
+    internal suspend fun fetchNextUp(
+        server: SavedServer,
+        seriesId: String,
+    ): BaseItemDto? = fetchLocalNextUp(server, seriesId)
+
+    internal suspend fun fetchFirstEpisode(
+        server: SavedServer,
+        seriesId: String,
+    ): BaseItemDto? {
+        val dto: ItemsResponseDto =
+            client
+                .get("${server.baseUrl}/Shows/${embyPath(seriesId)}/Episodes") {
+                    header("X-Emby-Token", server.accessToken)
+                    parameter("UserId", server.userId)
+                    parameter("Limit", 1)
+                }.body()
+        return dto.Items.firstOrNull()
+    }
+
+    private suspend fun fetchLocalNextUp(
+        server: SavedServer,
+        seriesId: String,
+    ): BaseItemDto? {
+        val projected =
+            fetchLocalEpisodeDirectory(server, seriesId)
+                .map { item -> item to progress.project(server, item) }
+        return selectLocalNextUp(server, projected)
+    }
+
+    private suspend fun fetchLocalEpisodeDirectory(
+        server: SavedServer,
+        seriesId: String,
+        includePlaybackSources: Boolean = false,
+    ): List<BaseItemDto> {
+        val dto: ItemsResponseDto =
+            client
+                .get("${server.baseUrl}/Shows/${embyPath(seriesId)}/Episodes") {
+                    header("X-Emby-Token", server.accessToken)
+                    parameter("UserId", server.userId)
+                    parameter(
+                        "Fields",
+                        "Overview,Chapters,ProviderIds,RunTimeTicks,UserData,PremiereDate" +
+                            if (includePlaybackSources) {
+                                ",MediaSources,MediaStreams,Path,SeriesPrimaryImageTag"
+                            } else {
+                                ""
+                            },
+                    )
+                }.body()
+        return dto.Items
+    }
+
+    private fun selectLocalNextUp(
+        server: SavedServer,
+        projected: List<Pair<BaseItemDto, BaseItemDto>>,
+    ): BaseItemDto? {
+        val recentIds = progress.localStates(server).mapNotNull { it.serverItemId }
+        val byId = projected.associateBy { it.first.Id }
+        recentIds.forEach { id ->
+            val candidate =
+                byId[id]?.takeIf { (_, item) ->
+                    item.UserData?.Played != true && (item.UserData?.PlaybackPositionTicks ?: 0L) > 0L
+                }
+            if (candidate != null) return candidate.first
+        }
+        return projected.firstOrNull { (_, item) -> item.UserData?.Played != true }?.first
+            ?: projected.firstOrNull()?.first
+    }
+
+    /** Server-wide next episodes for the 首页「下一集」shelf. */
+    suspend fun nextUpEpisodes(
+        server: SavedServer,
+        limit: Int = 12,
+    ): Result<List<MediaItem>> =
+        embyApiCall("next_up") {
+            localNextUpEpisodes(server, limit)
+        }
+
+    private suspend fun localNextUpEpisodes(
+        server: SavedServer,
+        limit: Int,
+    ): List<MediaItem> {
+        val recentStates = progress.localStates(server).take(MAX_LOCAL_NEXT_UP_HISTORY)
+        val ids = recentStates.mapNotNull { it.serverItemId }.distinct()
+        if (ids.isEmpty()) return emptyList()
+        val cards: ItemsResponseDto =
+            client
+                .get("${server.baseUrl}/Users/${embyPath(server.userId)}/Items") {
+                    header("X-Emby-Token", server.accessToken)
+                    parameter("Ids", ids.joinToString(","))
+                    parameter(
+                        "Fields",
+                        "ProductionYear,CommunityRating,Overview,ProviderIds,BackdropImageTags," +
+                            "ParentBackdropItemId,ParentBackdropImageTags,SeriesPrimaryImageTag,RunTimeTicks,UserData",
+                    )
+                    parameter("EnableImageTypes", "Primary,Backdrop")
+                    parameter("ImageTypeLimit", 2)
+                    parameter("Limit", ids.size)
+                }.body()
+        val cardsById = cards.Items.associateBy(BaseItemDto::Id)
+        // Every finished episode needs its series directory to name the one after it. Those
+        // used to be fetched one at a time as the loop reached them — up to 36 serial round
+        // trips before the shelf could show. Read the distinct series up front, a few at a
+        // time, so the shelf costs one network wait instead of one per series.
+        val finishedSeriesIds =
+            recentStates
+                .asSequence()
+                .filter { it.played }
+                .mapNotNull { state -> state.serverItemId?.let(cardsById::get) }
+                .filter { it.Type == "Episode" }
+                .mapNotNull(BaseItemDto::SeriesId)
+                .distinct()
+                .toList()
+        val episodesBySeries =
+            coroutineScope {
+                val permits = Semaphore(NEXT_UP_SERIES_CONCURRENCY)
+                finishedSeriesIds
+                    .map { seriesId ->
+                        async { permits.withPermit { seriesId to fetchSeriesEpisodes(server, seriesId) } }
+                    }.awaitAll()
+                    .toMap()
+            }
+        val result = mutableListOf<BaseItemDto>()
+        recentStates.forEach { state ->
+            if (result.size >= limit) return@forEach
+            val item = state.serverItemId?.let(cardsById::get) ?: return@forEach
+            if (item.Type != "Episode") return@forEach
+            val candidate =
+                if (!state.played && state.positionMs > 0L) {
+                    item
+                } else if (state.played) {
+                    val seriesId = item.SeriesId ?: return@forEach
+                    val episodes = episodesBySeries[seriesId].orEmpty()
+                    val currentIndex = episodes.indexOfFirst { it.Id == item.Id }
+                    episodes
+                        .asSequence()
+                        .drop((currentIndex + 1).coerceAtLeast(0))
+                        .firstOrNull { progress.project(server, it).UserData?.Played != true }
+                } else {
+                    null
+                }
+            if (candidate != null && result.none { it.Id == candidate.Id }) result += candidate
+        }
+        return result.take(limit).map { progress.project(server, it).toMediaItem() }
+    }
+
+    private suspend fun fetchSeriesEpisodes(
+        server: SavedServer,
+        seriesId: String,
+    ): List<BaseItemDto> {
+        val dto: ItemsResponseDto =
+            client
+                .get("${server.baseUrl}/Shows/${embyPath(seriesId)}/Episodes") {
+                    header("X-Emby-Token", server.accessToken)
+                    parameter("UserId", server.userId)
+                    parameter(
+                        "Fields",
+                        "ProductionYear,CommunityRating,Overview,ProviderIds,BackdropImageTags," +
+                            "ParentBackdropItemId,ParentBackdropImageTags,SeriesPrimaryImageTag,RunTimeTicks,UserData",
+                    )
+                    parameter("EnableImageTypes", "Primary,Backdrop")
+                    parameter("ImageTypeLimit", 2)
+                }.body()
+        return dto.Items
+    }
+
+    private companion object {
+        const val MAX_LOCAL_NEXT_UP_HISTORY = 36
+        const val NEXT_UP_SERIES_CONCURRENCY = 4
+        const val EMBY_THUMBNAIL_WIDTH = 320
+        const val TICKS_PER_MILLISECOND = 10_000L
+        const val DEFAULT_EMBY_THUMBNAIL_INTERVAL_MS = 10_000L
+    }
+
+    /** Full detail for a single item. Episodes inherit the series' cast. */
+    suspend fun itemDetail(
+        server: SavedServer,
+        itemId: String,
+        includeInheritedPeople: Boolean = true,
+        playbackOnly: Boolean = false,
+    ): Result<MediaDetail> =
+        embyApiCall("item_detail") {
+            val dto: BaseItemDto =
+                client
+                    .get("${server.baseUrl}/Users/${embyPath(server.userId)}/Items/${embyPath(itemId)}") {
+                        header("X-Emby-Token", server.accessToken)
+                        parameter(
+                            "Fields",
+                            // Path and DateCreated are opt-in, and the 媒体信息 block is built out of
+                            // them. BackdropImageTags is deliberately absent: it is not an ItemFields
+                            // value — image tags come back on their own — and naming one Emby doesn't
+                            // know risks the whole request rather than adding a field.
+                            if (playbackOnly) {
+                                "MediaSources,MediaStreams,Chapters,ProviderIds,Path,SeriesPrimaryImageTag"
+                            } else {
+                                "Overview,Genres,People,ParentBackdropItemId,ParentBackdropImageTags," +
+                                    "SeriesPrimaryImageTag,MediaSources,MediaStreams," +
+                                    "Path,DateCreated,Chapters,ProviderIds"
+                            },
+                        )
+                    }.body()
+            val detail = progress.project(server, dto).toMediaDetail()
+
+            // Emby returns no cast on episodes; borrow the series' cast instead.
+            if (includeInheritedPeople &&
+                detail.type == "Episode" &&
+                detail.people.isEmpty() &&
+                detail.seriesId != null
+            ) {
+                detail.copy(people = inheritedEpisodePeople(server, detail).getOrDefault(emptyList()))
+            } else {
+                detail
+            }
+        }
+
+    /** Optional enrichment, requested separately by the detail screen after its first content. */
+    suspend fun inheritedEpisodePeople(
+        server: SavedServer,
+        detail: MediaDetail,
+    ): Result<List<Person>> =
+        embyApiCall("episode_cast") {
+            if (detail.type != "Episode" || detail.people.isNotEmpty() || detail.seriesId == null) {
+                return@embyApiCall detail.people
+            }
+            val series: BaseItemDto =
+                client
+                    .get("${server.baseUrl}/Users/${embyPath(server.userId)}/Items/${embyPath(detail.seriesId)}") {
+                        header("X-Emby-Token", server.accessToken)
+                        parameter("Fields", "People")
+                    }.body()
+            series.People.orEmpty().map { it.toPerson() }
+        }
+
+    /** Seasons of a series. */
+    suspend fun seasons(
+        server: SavedServer,
+        seriesId: String,
+    ): Result<List<Season>> =
+        embyApiCall("seasons") {
+            val dto: ItemsResponseDto =
+                client
+                    .get("${server.baseUrl}/Shows/${embyPath(seriesId)}/Seasons") {
+                        header("X-Emby-Token", server.accessToken)
+                        parameter("UserId", server.userId)
+                    }.body()
+            dto.Items.map { it.toSeason() }
+        }
+
+    suspend fun episodes(
+        server: SavedServer,
+        seriesId: String,
+        seasonId: String?,
+        includeMediaSources: Boolean = false,
+        seasonNumber: Int? = null,
+    ): Result<List<Episode>> =
+        embyApiCall("episodes") {
+            val dto: ItemsResponseDto =
+                client
+                    .get("${server.baseUrl}/Shows/${embyPath(seriesId)}/Episodes") {
+                        header("X-Emby-Token", server.accessToken)
+                        parameter("UserId", server.userId)
+                        if (seasonId != null) parameter("SeasonId", seasonId)
+                        if (seasonNumber != null) parameter("Season", seasonNumber)
+                        parameter(
+                            "Fields",
+                            "Overview,Chapters,ProviderIds,RunTimeTicks,UserData,PremiereDate" +
+                                if (includeMediaSources) ",MediaSources,MediaStreams" else "",
+                        )
+                    }.body()
+            dto.Items.map { progress.project(server, it).toEpisode() }
+        }
+
+    /** Optional provider-specific seek previews; failure is intentionally isolated from playback. */
+    suspend fun trickplayInfo(
+        server: SavedServer,
+        itemId: String,
+        mediaSourceId: String,
+    ): Result<TrickplayInfo?> =
+        if (server.kind == MediaServerKind.Emby) {
+            embyThumbnailInfo(server, itemId, mediaSourceId)
+        } else {
+            jellyfinTrickplayInfo(server, itemId, mediaSourceId)
+        }
+
+    private suspend fun jellyfinTrickplayInfo(
+        server: SavedServer,
+        itemId: String,
+        mediaSourceId: String,
+    ): Result<TrickplayInfo?> =
+        embyApiCall("jellyfin_trickplay_info") {
+            val dto: BaseItemDto =
+                client
+                    .get(
+                        "${server.baseUrl}/Users/${embyPath(server.userId)}/Items/${embyPath(itemId)}",
+                    ) {
+                        header("X-Emby-Token", server.accessToken)
+                        parameter("Fields", "Trickplay")
+                    }.body()
+            dto.bestTrickplay(mediaSourceId)
+        }
+
+    private suspend fun embyThumbnailInfo(
+        server: SavedServer,
+        itemId: String,
+        mediaSourceId: String,
+    ): Result<TrickplayInfo?> =
+        embyApiCall("emby_thumbnail_set") {
+            val dto: EmbyThumbnailSetDto =
+                client
+                    .get("${server.baseUrl}/Items/${embyPath(itemId)}/ThumbnailSet") {
+                        header("X-Emby-Token", server.accessToken)
+                        parameter("MediaSourceId", mediaSourceId)
+                    }.body()
+            val width = EMBY_THUMBNAIL_WIDTH
+            val aspectRatio = dto.AspectRatio?.takeIf { it.isFinite() && it > 0.0 } ?: (16.0 / 9.0)
+            val height = (width / aspectRatio).roundToInt().coerceAtLeast(1)
+            val frames =
+                dto.Thumbnails
+                    .asSequence()
+                    .filter { it.PositionTicks >= 0L }
+                    .distinctBy { it.PositionTicks }
+                    .sortedBy { it.PositionTicks }
+                    .map { thumbnail ->
+                        TrickplayTimelineFrame(
+                            positionMs = thumbnail.PositionTicks / TICKS_PER_MILLISECOND,
+                            url =
+                                EmbyStream.videoPreviewThumbnail(
+                                    baseUrl = server.baseUrl,
+                                    itemId = itemId,
+                                    mediaSourceId = mediaSourceId,
+                                    positionTicks = thumbnail.PositionTicks,
+                                    imageTag = thumbnail.ImageTag,
+                                    token = server.accessToken,
+                                    maxWidth = width,
+                                ),
+                        )
+                    }.toList()
+            if (frames.isEmpty()) return@embyApiCall null
+            val intervalMs =
+                frames
+                    .zipWithNext { first, second -> second.positionMs - first.positionMs }
+                    .firstOrNull { it > 0L }
+                    ?: DEFAULT_EMBY_THUMBNAIL_INTERVAL_MS
+            TrickplayInfo(
+                width = width,
+                height = height,
+                tileColumns = 1,
+                tileRows = 1,
+                intervalMs = intervalMs,
+                thumbnailCount = frames.size,
+                frames = frames,
+            )
+        }
+}

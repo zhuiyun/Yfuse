@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.AndroidNextItemPreparationTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:10.477Z" hostname="DESKTOP-HM2J0FM" time="0.005">
+  <properties/>
+  <testcase name="byte_budget_is_bounded_even_for_overflowing_or_missing_bitrate" classname="com.yfuse.core2.android.AndroidNextItemPreparationTest" time="0.001"/>
+  <testcase name="boundary_uses_credits_and_playback_speed_and_handles_unknown_duration" classname="com.yfuse.core2.android.AndroidNextItemPreparationTest" time="0.0"/>
+  <testcase name="transcode_and_adaptive_sources_are_not_opened_speculatively" classname="com.yfuse.core2.android.AndroidNextItemPreparationTest" time="0.0"/>
+  <testcase name="pressure_stalls_and_replaced_children_never_gain_permission_by_timeout" classname="com.yfuse.core2.android.AndroidNextItemPreparationTest" time="0.003"/>
+  <testcase name="prepared_source_window_tracks_changed_markers_and_does_not_start_while_paused" classname="com.yfuse.core2.android.AndroidNextItemPreparationTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

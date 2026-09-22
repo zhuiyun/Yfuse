@@ -1,0 +1,9 @@
+{
+  "string": [
+    { "name": "app_name", "value": "Yfuse" },
+    { "name": "module_desc", "value": "Yfuse HarmonyOS native client" },
+    { "name": "main_ability_desc", "value": "Yfuse main experience" },
+    { "name": "camera_reason", "value": "用于扫描服务器与一起看邀请二维码" },
+    { "name": "local_network_reason", "value": "用于发现局域网媒体服务器和投屏设备" }
+  ]
+}

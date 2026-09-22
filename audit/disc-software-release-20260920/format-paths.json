@@ -1,0 +1,10 @@
+[
+  "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidCore2DiscRouteFactory.kt",
+  "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidAdaptiveCore2YPlayer.kt",
+  "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidNativeEnhancedYPlayer.kt",
+  "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidRequiredSoftwarePlan.kt",
+  "composeApp/src/commonMain/kotlin/com/yfuse/core2/recovery/YPlaybackRecoveryPolicy.kt",
+  "composeApp/src/commonTest/kotlin/com/yfuse/core2/recovery/YPlaybackRecoveryPolicyTest.kt",
+  "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidAdaptiveCore2RecoveryPlanTest.kt",
+  "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidYCoreBluRayPlayerReleaseTest.kt"
+]

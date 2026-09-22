@@ -1,0 +1,21 @@
+gradle.projectsEvaluated {
+    def sources = []
+        def base = new File(rootProject.projectDir, 'audit/soft-feedback-20260917/baseline/composeApp/src')
+        base.eachFileRecurse { f ->
+            if (f.name.endsWith('.kt')) {
+                sources.add(new File(rootProject.projectDir, 'composeApp/src/' + base.toPath().relativize(f.toPath()).toString()).path)
+            }
+        }
+        sources.addAll([
+            'composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/SoftFeedback.kt',
+            'composeApp/src/commonMain/kotlin/com/yfuse/feature/player/SeekFeedback.kt',
+            'composeApp/src/commonTest/kotlin/com/yfuse/feature/player/SeekFeedbackTest.kt',
+            'composeApp/src/androidInstrumentedTest/kotlin/com/yfuse/feature/player/SoftFeedbackInstrumentedTest.kt'
+        ].collect { new File(rootProject.projectDir, it).path })
+    def included = sources.collect { new File(it).canonicalPath }.toSet()
+    [':phoneShared', ':composeApp'].each { name ->
+        rootProject.project(name).extensions.getByName('ktlint').filter {
+            include { element -> included.contains(element.file.canonicalPath) }
+        }
+    }
+}

@@ -1,0 +1,329 @@
+{
+  "packaged": false,
+  "uploaded": false,
+  "deviceValidated": false,
+  "manifests": {
+    "composeApp": {
+      "targetSdk": 37,
+      "minSdk": 26,
+      "localNetworkPermission": true
+    },
+    "tvApp": {
+      "targetSdk": 37,
+      "minSdk": 26,
+      "localNetworkPermission": true
+    }
+  },
+  "tests": {
+    "phoneShared": {
+      "passed": 126,
+      "suites": [
+        {
+          "name": "com.yfuse.core.network.AndroidHttpEnginePolicyTest",
+          "tests": 5,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.network.EmbyAuthTest",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.network.EmbyErrorMessagesTest",
+          "tests": 1,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.network.EmbyImagesTest",
+          "tests": 9,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.network.EmbyStreamTest",
+          "tests": 16,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.network.FallbackTranscodeContractTest",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.network.HttpClientFactoryTest",
+          "tests": 12,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.network.ImageCacheKeyTest",
+          "tests": 5,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.network.Jellyfin12CompatibilityTest",
+          "tests": 7,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.network.LocalNetworkPermissionTest",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.network.ServerEndpointPolicyTest",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.network.ServiceEndpointPolicyTest",
+          "tests": 5,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.core.network.TmdbImagesTest",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackKeepAliveServiceTest",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackLifecyclePolicyTest",
+          "tests": 6,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.servers.PlexLoginFormTest",
+          "tests": 1,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.servers.ServerConnectionPermissionTest",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.servers.ServerListPolicyTest",
+          "tests": 5,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.servers.ServerManagementControllerTest",
+          "tests": 7,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.servers.ServerRefreshStateTest",
+          "tests": 7,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.servers.ServersStoreTest",
+          "tests": 18,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.feature.servers.ServerStatsRefreshTest",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        }
+      ]
+    },
+    "tvShared": {
+      "passed": 63,
+      "suites": [
+        {
+          "name": "com.yfuse.tv.focus.FocusRepositoryTest",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.tv.focus.FocusRestorePolicyTest",
+          "tests": 6,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.tv.focus.FocusScopeStateMachineTest",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.tv.focus.RemoteKeyIntentTest",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.tv.integration.CastConnectLoadMapperTest",
+          "tests": 7,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.tv.integration.ContinueWatchingPolicyTest",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.tv.integration.EngageContinueWatchingPublisherTest",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.tv.integration.TvContinueWatchingWorkTest",
+          "tests": 1,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.tv.integration.TvPlaybackDeepLinkTest",
+          "tests": 6,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.tv.player.TvLocalPlaybackPolicyTest",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.tv.player.TvMediaSessionAdapterTest",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.tv.player.TvPlayerChromeControllerTest",
+          "tests": 1,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.tv.player.TvRemoteInputControllerTest",
+          "tests": 6,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.tv.ui.TvServerBackupFilesTest",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "name": "com.yfuse.tv.ui.TvSettingsSearchTest",
+          "tests": 9,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        }
+      ]
+    }
+  },
+  "lint": {
+    "composeApp": [
+      {
+        "id": "DiscouragedApi",
+        "severity": "Warning",
+        "message": "Fixed screen orientations will be ignored in most cases, starting from Android 16. Android is moving toward a model where apps are expected to adapt to various orientations, display sizes, and aspect ratios."
+      }
+    ],
+    "tvApp": [
+      {
+        "id": "UnusedAttribute",
+        "severity": "Warning",
+        "message": "Attribute `enableOnBackInvokedCallback` is only used in API level 33 and higher (current min is 31)"
+      },
+      {
+        "id": "LeanbackUsesWifi",
+        "severity": "Warning",
+        "message": "Requiring Wifi permissions limits app availability on TVs that support only Ethernet"
+      },
+      {
+        "id": "DiscouragedApi",
+        "severity": "Warning",
+        "message": "Fixed screen orientations will be ignored in most cases, starting from Android 16. Android is moving toward a model where apps are expected to adapt to various orientations, display sizes, and aspect ratios."
+      },
+      {
+        "id": "DiscouragedApi",
+        "severity": "Warning",
+        "message": "Fixed screen orientations will be ignored in most cases, starting from Android 16. Android is moving toward a model where apps are expected to adapt to various orientations, display sizes, and aspect ratios."
+      },
+      {
+        "id": "ChromeOsAbiSupport",
+        "severity": "Warning",
+        "message": "Missing x86_64 ABI support for ChromeOS"
+      },
+      {
+        "id": "IconLauncherShape",
+        "severity": "Warning",
+        "message": "Launcher icon used as round icon did not have a circular shape"
+      }
+    ]
+  }
+}

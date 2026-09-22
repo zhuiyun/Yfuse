@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.render.YFrameRatePolicyTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:44:00.511Z" hostname="DESKTOP-HM2J0FM" time="0.002">
+  <properties/>
+  <testcase name="fractional cinema cadence is never rounded away" classname="com.yfuse.core2.render.YFrameRatePolicyTest" time="0.0"/>
+  <testcase name="variable sources never force a fixed display mode" classname="com.yfuse.core2.render.YFrameRatePolicyTest" time="0.0"/>
+  <testcase name="keeps current exact cadence to avoid an unnecessary black screen" classname="com.yfuse.core2.render.YFrameRatePolicyTest" time="0.001"/>
+  <testcase name="selects highest exact fractional cadence multiple" classname="com.yfuse.core2.render.YFrameRatePolicyTest" time="0.0"/>
+  <testcase name="invalid or non-video rates do not reach platform display APIs" classname="com.yfuse.core2.render.YFrameRatePolicyTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

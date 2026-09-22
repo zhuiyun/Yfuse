@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.legacy.AndroidMpvCore2FallbackFactoryTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:44:00.470Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="gpu_route_is_preserved_when_mpv_reports_hardware_decode" classname="com.yfuse.core2.legacy.AndroidMpvCore2FallbackFactoryTest" time="0.001"/>
+  <testcase name="runtime_software_decode_is_reported_as_software_fallback" classname="com.yfuse.core2.legacy.AndroidMpvCore2FallbackFactoryTest" time="0.0"/>
+  <testcase name="direct_disc_builds_a_real_libbluray_source_and_bounded_fallback_plan" classname="com.yfuse.core2.legacy.AndroidMpvCore2FallbackFactoryTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

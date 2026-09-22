@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.PlaybackProxyRoutesTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:15.912Z" hostname="DESKTOP-HM2J0FM" time="0.009">
+  <properties/>
+  <testcase name="sliding_live_windows_keep_only_current_segments_and_bounded_history" classname="com.yfuse.feature.player.PlaybackProxyRoutesTest" time="0.007"/>
+  <testcase name="retired_segment_remains_available_until_its_active_read_finishes" classname="com.yfuse.feature.player.PlaybackProxyRoutesTest" time="0.001"/>
+  <testcase name="vod_manifest_retains_early_segments_for_backward_seeking" classname="com.yfuse.feature.player.PlaybackProxyRoutesTest" time="0.001"/>
+  <testcase name="variant_children_survive_and_old_source_is_retired_after_handover" classname="com.yfuse.feature.player.PlaybackProxyRoutesTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

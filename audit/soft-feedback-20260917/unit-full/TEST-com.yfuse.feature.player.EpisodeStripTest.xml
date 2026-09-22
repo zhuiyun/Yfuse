@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.EpisodeStripTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:15.761Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="episode_still_precedes_series_poster" classname="com.yfuse.feature.player.EpisodeStripTest" time="0.001"/>
+  <testcase name="missing_episode_still_falls_back_to_series_poster" classname="com.yfuse.feature.player.EpisodeStripTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

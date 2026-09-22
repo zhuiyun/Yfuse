@@ -1,0 +1,12 @@
+[
+  "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/NativePlaybackStateSupport.kt",
+  "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/MdkVideoEngine.kt",
+  "composeApp/src/androidUnitTest/kotlin/com/yfuse/feature/player/MdkLoadStateGateTest.kt",
+  "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlaybackEngineSlot.kt",
+  "composeApp/src/androidUnitTest/kotlin/com/yfuse/feature/player/PlaybackEngineSlotTest.kt",
+  "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerRoot.kt",
+  "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/ExoVideoEngine.kt",
+  "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/MpvVideoEngine.kt",
+  "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlaybackResourceCleanup.kt",
+  "composeApp/src/androidUnitTest/kotlin/com/yfuse/feature/player/PlaybackResourceCleanupTest.kt"
+]

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.offline.OfflineMediaSecurityTest" tests="26" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:05.691Z" hostname="DESKTOP-HM2J0FM" time="0.04">
+  <properties/>
+  <testcase name="reenqueueing_the_same_variant_keeps_its_verified_resume_state" classname="com.yfuse.core.offline.OfflineMediaSecurityTest" time="0.0"/>
+  <testcase name="rawOfflineTransferAllowsHttpWithoutConfirmation" classname="com.yfuse.core.offline.OfflineMediaSecurityTest" time="0.001"/>
+  <testcase name="startup_cleanup_keeps_the_revision_specific_completed_video" classname="com.yfuse.core.offline.OfflineMediaSecurityTest" time="0.007"/>
+  <testcase name="failed_selected_subtitle_is_an_explicit_playable_degradation" classname="com.yfuse.core.offline.OfflineMediaSecurityTest" time="0.004"/>
+  <testcase name="reenqueue_during_subtitle_download_rejects_the_old_revision" classname="com.yfuse.core.offline.OfflineMediaSecurityTest" time="0.005"/>
+  <testcase name="download_url_follows_a_server_edit_and_uses_the_rotated_token" classname="com.yfuse.core.offline.OfflineMediaSecurityTest" time="0.0"/>
+  <testcase name="unknown_length_subtitle_is_stopped_when_streamed_bytes_cross_the_limit" classname="com.yfuse.core.offline.OfflineMediaSecurityTest" time="0.001"/>
+  <testcase name="batch_filter_preserves_order_and_skips_watched_episodes" classname="com.yfuse.core.offline.OfflineMediaSecurityTest" time="0.0"/>
+  <testcase name="download_budget_and_window_survive_policy_reload" classname="com.yfuse.core.offline.OfflineMediaSecurityTest" time="0.001"/>
+  <testcase name="default_source_and_an_explicit_item_source_are_the_same_file" classname="com.yfuse.core.offline.OfflineMediaSecurityTest" time="0.0"/>
+  <testcase name="request_builder_uses_each_episode_source_and_never_reuses_current_subtitle_index" classname="com.yfuse.core.offline.OfflineMediaSecurityTest" time="0.0"/>
+  <testcase name="startup_cleanup_keeps_the_indexed_completed_path_after_reenqueue_advances_revision" classname="com.yfuse.core.offline.OfflineMediaSecurityTest" time="0.004"/>
+  <testcase name="only_known_offline_artifact_suffixes_are_cleaned_without_an_index_entry" classname="com.yfuse.core.offline.OfflineMediaSecurityTest" time="0.001"/>
+  <testcase name="legacy_authenticated_urls_are_scrubbed_while_source_selection_is_preserved" classname="com.yfuse.core.offline.OfflineMediaSecurityTest" time="0.001"/>
+  <testcase name="persisted_policy_clamps_concurrency" classname="com.yfuse.core.offline.OfflineMediaSecurityTest" time="0.0"/>
+  <testcase name="completed_is_created_only_after_the_sidecar_is_atomically_visible" classname="com.yfuse.core.offline.OfflineMediaSecurityTest" time="0.008"/>
+  <testcase name="removing_an_item_while_its_subtitle_is_prepared_cannot_publish_an_orphan" classname="com.yfuse.core.offline.OfflineMediaSecurityTest" time="0.006"/>
+  <testcase name="range_append_requires_the_expected_offset_and_same_validator" classname="com.yfuse.core.offline.OfflineMediaSecurityTest" time="0.0"/>
+  <testcase name="switching_media_source_resets_files_progress_validator_and_generation" classname="com.yfuse.core.offline.OfflineMediaSecurityTest" time="0.0"/>
+  <testcase name="pending_selector_honors_retry_time_and_concurrency" classname="com.yfuse.core.offline.OfflineMediaSecurityTest" time="0.001"/>
+  <testcase name="size_estimate_uses_exact_original_and_bitrate_for_quality_caps" classname="com.yfuse.core.offline.OfflineMediaSecurityTest" time="0.0"/>
+  <testcase name="download_progress_is_persisted_only_at_eight_megabyte_checkpoints" classname="com.yfuse.core.offline.OfflineMediaSecurityTest" time="0.0"/>
+  <testcase name="changing_quality_or_subtitle_is_a_new_download_variant" classname="com.yfuse.core.offline.OfflineMediaSecurityTest" time="0.0"/>
+  <testcase name="subtitle_content_length_rejects_a_declared_oversized_body" classname="com.yfuse.core.offline.OfflineMediaSecurityTest" time="0.0"/>
+  <testcase name="an_interrupted_post_finalize_download_keeps_its_verified_video_for_resume" classname="com.yfuse.core.offline.OfflineMediaSecurityTest" time="0.0"/>
+  <testcase name="storage_check_keeps_a_reserve_and_handles_unknown_content_length" classname="com.yfuse.core.offline.OfflineMediaSecurityTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

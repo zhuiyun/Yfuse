@@ -1,0 +1,13 @@
+{
+  "method": "Verbatim production mapper extraction and complete production YSubtitle.kt; synthetic decoded display sets; no Android or native runtime.",
+  "sources": [
+    {
+      "path": "D:\\Demo\\Yfuse\\composeApp\\src\\androidMain\\kotlin\\com\\yfuse\\core2\\android\\AndroidFfmpegDemuxer.kt",
+      "sha256": "3903EF9339729FFE2B60E0B8BF2D14B8C310F0237F784968DD5415B4CDF99212"
+    },
+    {
+      "path": "D:\\Demo\\Yfuse\\composeApp\\src\\commonMain\\kotlin\\com\\yfuse\\core2\\subtitle\\YSubtitle.kt",
+      "sha256": "B623CD6C1DE4D5C925297FDD5361AABFDC16A54A6B2D247815B5A63A5942DD5B"
+    }
+  ]
+}

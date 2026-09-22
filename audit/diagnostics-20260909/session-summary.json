@@ -1,0 +1,155 @@
+[
+  {
+    "package": "224345",
+    "session": "377b25e5",
+    "version": "1.0.43",
+    "lines": "7-375",
+    "count": 369,
+    "apiFailures": [
+      {
+        "kind": "Network",
+        "count": 17
+      },
+      {
+        "kind": "Unauthorized",
+        "count": 11
+      },
+      {
+        "kind": "Server(code=503)",
+        "count": 10
+      },
+      {
+        "kind": "Server(code=522)",
+        "count": 4
+      },
+      {
+        "kind": "Server(code=504)",
+        "count": 3
+      },
+      {
+        "kind": "Server(code=500)",
+        "count": 1
+      }
+    ],
+    "rangeFailures": [
+      {
+        "kind": "403/Q5",
+        "count": 9
+      },
+      {
+        "kind": "403/U2",
+        "count": 2
+      },
+      {
+        "kind": "unavailable/SocketTimeoutException",
+        "count": 5
+      }
+    ]
+  },
+  {
+    "package": "224345",
+    "session": "7db65de2",
+    "version": "1.0.43",
+    "lines": "1-6",
+    "count": 6,
+    "apiFailures": [
+      {
+        "kind": "Server(code=504)",
+        "count": 1
+      }
+    ],
+    "rangeFailures": []
+  },
+  {
+    "package": "224345",
+    "session": "b5db8a17",
+    "version": "1.0.43",
+    "lines": "376-528",
+    "count": 153,
+    "apiFailures": [
+      {
+        "kind": "Network",
+        "count": 19
+      },
+      {
+        "kind": "Server(code=503)",
+        "count": 14
+      },
+      {
+        "kind": "Server(code=500)",
+        "count": 6
+      },
+      {
+        "kind": "Server(code=504)",
+        "count": 5
+      },
+      {
+        "kind": "Server(code=522)",
+        "count": 2
+      }
+    ],
+    "rangeFailures": []
+  },
+  {
+    "package": "204707",
+    "session": "2617cf69",
+    "version": "1.0.41",
+    "lines": "1-250",
+    "count": 250,
+    "apiFailures": [
+      {
+        "kind": "AccessDenied(provider=Cloudflare)",
+        "count": 5
+      },
+      {
+        "kind": "Network",
+        "count": 4
+      }
+    ],
+    "rangeFailures": [
+      {
+        "kind": "unavailable/SocketTimeoutException",
+        "count": 1
+      },
+      {
+        "kind": "unavailable/SocketTimeoutException>SocketException",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "package": "204707",
+    "session": "e1e5022c",
+    "version": "1.0.43",
+    "lines": "251-399",
+    "count": 149,
+    "apiFailures": [
+      {
+        "kind": "AccessDenied(provider=Cloudflare)",
+        "count": 11
+      },
+      {
+        "kind": "Network",
+        "count": 6
+      },
+      {
+        "kind": "Unauthorized",
+        "count": 5
+      },
+      {
+        "kind": "Server(code=500)",
+        "count": 1
+      },
+      {
+        "kind": "Server(code=502)",
+        "count": 1
+      }
+    ],
+    "rangeFailures": [
+      {
+        "kind": "unavailable/SocketTimeoutException",
+        "count": 4
+      }
+    ]
+  }
+]

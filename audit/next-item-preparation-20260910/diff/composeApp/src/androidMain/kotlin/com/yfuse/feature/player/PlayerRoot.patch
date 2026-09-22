@@ -1,0 +1,25 @@
+--- composeApp\src\androidMain\kotlin\com\yfuse\feature\player\PlayerRoot.kt
++++ composeApp\src\androidMain\kotlin\com\yfuse\feature\player\PlayerRoot.kt
+@@ -1444,6 +1444,22 @@
+                 playbackGate = playbackGate,
+                 watchGuest = watchState.connected && !watchState.canControl,
+             )
++        LaunchedEffect(
++            player,
++            currentItem?.id,
++            skip.nextItemBoundaryMs,
++            autoNext,
++            watchState.connected,
++            watchState.canControl,
++        ) {
++            currentItem?.id?.let { id ->
++                player.setNextItemPreparation(
++                    itemId = id,
++                    transitionPositionMs = skip.nextItemBoundaryMs,
++                    enabled = autoNext && !(watchState.connected && !watchState.canControl),
++                )
++            }
++        }
+         // 详情页 picked a 音轨 / 字幕 before this opened; apply it once the engine has published
+         // what the file actually holds. Consumed rather than remembered — see PlaybackTrackRequest.
+         val trackRequest = remember { GlobalContext.get().get<PlaybackTrackRequest>() }

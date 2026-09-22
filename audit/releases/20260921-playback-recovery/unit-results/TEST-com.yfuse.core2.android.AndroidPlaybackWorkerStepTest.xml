@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.AndroidPlaybackWorkerStepTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:43:56.899Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="codec_backpressure_reuses_preparation_including_absent_metadata" classname="com.yfuse.core2.android.AndroidPlaybackWorkerStepTest" time="0.001"/>
+  <testcase name="cancellation_does_not_publish_a_playback_failure" classname="com.yfuse.core2.android.AndroidPlaybackWorkerStepTest" time="0.0"/>
+  <testcase name="pump_and_snapshot_failures_keep_their_typed_recovery_edge_and_allow_retry" classname="com.yfuse.core2.android.AndroidPlaybackWorkerStepTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

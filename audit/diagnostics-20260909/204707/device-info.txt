@@ -1,0 +1,17 @@
+Yfuse diagnostic package
+exportedAt=2026-09-08T12:47:09.167177Z
+appVersion=1.0.43 (205)
+applicationId=com.yfuse
+android=16 (API 36)
+device=OPPO OPD2409
+abis=arm64-v8a
+locale=zh-CN
+timeZone=Asia/Shanghai
+logFiles=1
+logEntries=399
+logBytes=297725
+logDroppedEntries=0
+logWriteFailures=0
+format=JSON Lines; one JSON object per line
+retention=7 days, at most 8 files / 5 MiB
+privacy=Tokens, credentials, server hosts and user identifiers are redacted.

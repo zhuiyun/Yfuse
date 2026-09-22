@@ -1,0 +1,26 @@
+{
+  "composeApp": {
+    "tests": 2558,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "tvApp": {
+    "tests": 63,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "watchTogetherServer": {
+    "tests": 204,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "watchTogetherProtocol": {
+    "tests": 8,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  }
+}

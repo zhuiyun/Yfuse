@@ -1,0 +1,23 @@
+// Local verification only: Gradle's JDK zipfs scanner cannot close archives mounted from
+// the sandbox's read-only shared cache. Use byte-identical workspace copies for JavaCompile.
+import java.nio.file.Files
+import org.gradle.api.tasks.compile.JavaCompile
+
+allprojects {
+    tasks.withType(JavaCompile).configureEach {
+        doFirst {
+            def sharedCache = new File(System.getenv('GRADLE_RO_DEP_CACHE'), 'modules-2/files-2.1').toPath()
+            def localCache = new File(rootProject.projectDir, '.gradle-tmp/verification-javac').toPath()
+            classpath = project.files(classpath.files.collect { original ->
+                def source = original.toPath()
+                if (!source.startsWith(sharedCache) || !Files.isRegularFile(source)) return original
+                def target = localCache.resolve(sharedCache.relativize(source))
+                if (!Files.exists(target)) {
+                    Files.createDirectories(target.parent)
+                    Files.copy(source, target)
+                }
+                target.toFile()
+            })
+        }
+    }
+}

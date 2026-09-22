@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.MpvDiscPlaybackUrlTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:15.809Z" hostname="DESKTOP-HM2J0FM" time="0.0">
+  <properties/>
+  <testcase name="dvd_keeps_its_native_disc_url_and_non_disc_sources_are_ignored" classname="com.yfuse.feature.player.MpvDiscPlaybackUrlTest" time="0.0"/>
+  <testcase name="bluray_and_bdmv_start_on_the_longest_playlist" classname="com.yfuse.feature.player.MpvDiscPlaybackUrlTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

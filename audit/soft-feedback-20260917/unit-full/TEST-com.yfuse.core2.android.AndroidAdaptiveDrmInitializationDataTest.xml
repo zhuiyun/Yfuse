@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.AndroidAdaptiveDrmInitializationDataTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:08.618Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="resolves_widevine_pssh_from_child_hls_media_playlist" classname="com.yfuse.core2.android.AndroidAdaptiveDrmInitializationDataTest" time="0.001"/>
+  <testcase name="fails_closed_when_hls_tree_contains_no_widevine_initialization_data" classname="com.yfuse.core2.android.AndroidAdaptiveDrmInitializationDataTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

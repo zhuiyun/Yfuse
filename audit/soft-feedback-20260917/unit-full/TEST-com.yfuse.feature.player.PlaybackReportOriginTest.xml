@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.PlaybackReportOriginTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:15.929Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="selected_subtitle_formats_are_recorded_without_track_urls_or_labels" classname="com.yfuse.feature.player.PlaybackReportOriginTest" time="0.0"/>
+  <testcase name="restored_reports_preserve_the_original_build_instead_of_inheriting_the_export_build" classname="com.yfuse.feature.player.PlaybackReportOriginTest" time="0.0"/>
+  <testcase name="old_timeline_entries_remain_unknown_across_repeated_restores" classname="com.yfuse.feature.player.PlaybackReportOriginTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

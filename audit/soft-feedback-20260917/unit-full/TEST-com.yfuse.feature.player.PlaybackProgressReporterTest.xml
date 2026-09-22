@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.PlaybackProgressReporterTest" tests="11" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:15.886Z" hostname="DESKTOP-HM2J0FM" time="0.022">
+  <properties/>
+  <testcase name="shrinking_the_queue_remaps_the_active_index_without_starting_the_session_twice" classname="com.yfuse.feature.player.PlaybackProgressReporterTest" time="0.002"/>
+  <testcase name="reports_carry_the_session_id_the_stream_urls_were_built_with" classname="com.yfuse.feature.player.PlaybackProgressReporterTest" time="0.0"/>
+  <testcase name="version_handover_stops_old_session_and_reports_the_new_session" classname="com.yfuse.feature.player.PlaybackProgressReporterTest" time="0.002"/>
+  <testcase name="reports_start_seek_transition_and_stop_in_order" classname="com.yfuse.feature.player.PlaybackProgressReporterTest" time="0.002"/>
+  <testcase name="recoverable_engine_error_does_not_delete_session_before_handover" classname="com.yfuse.feature.player.PlaybackProgressReporterTest" time="0.001"/>
+  <testcase name="slow_sink_coalesces_seek_storm_and_closes_with_the_latest_state" classname="com.yfuse.feature.player.PlaybackProgressReporterTest" time="0.007"/>
+  <testcase name="natural_end_reports_stopped_without_waiting_for_screen_close" classname="com.yfuse.feature.player.PlaybackProgressReporterTest" time="0.001"/>
+  <testcase name="an_entry_without_a_session_id_still_gets_one" classname="com.yfuse.feature.player.PlaybackProgressReporterTest" time="0.003"/>
+  <testcase name="reordering_the_queue_follows_the_active_session_instead_of_the_old_numeric_index" classname="com.yfuse.feature.player.PlaybackProgressReporterTest" time="0.001"/>
+  <testcase name="appending_an_episode_does_not_restart_the_active_session" classname="com.yfuse.feature.player.PlaybackProgressReporterTest" time="0.001"/>
+  <testcase name="one_sink_exception_does_not_prevent_the_later_stop_attempt" classname="com.yfuse.feature.player.PlaybackProgressReporterTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

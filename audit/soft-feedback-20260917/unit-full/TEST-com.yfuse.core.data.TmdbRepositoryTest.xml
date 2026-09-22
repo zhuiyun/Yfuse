@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.data.TmdbRepositoryTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:04.346Z" hostname="DESKTOP-HM2J0FM" time="0.067">
+  <properties/>
+  <testcase name="home_filters_talk_documentary_and_untrusted_domestic_metadata" classname="com.yfuse.core.data.TmdbRepositoryTest" time="0.008"/>
+  <testcase name="home_interleaves_domestic_content_into_all_existing_rows" classname="com.yfuse.core.data.TmdbRepositoryTest" time="0.016"/>
+  <testcase name="detail_fills_metadata_cast_and_runtime" classname="com.yfuse.core.data.TmdbRepositoryTest" time="0.018"/>
+  <testcase name="the_calendar_carries_film_releases_alongside_broadcasts" classname="com.yfuse.core.data.TmdbRepositoryTest" time="0.01"/>
+  <testcase name="a_season_whose_episodes_carry_no_dates_falls_back_to_the_show_record" classname="com.yfuse.core.data.TmdbRepositoryTest" time="0.011"/>
+  <testcase name="a_series_detail_calendar_queries_the_exact_show_and_expands_its_current_season" classname="com.yfuse.core.data.TmdbRepositoryTest" time="0.004"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.trakt.HttpTraktApiTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:08.493Z" hostname="DESKTOP-HM2J0FM" time="0.035">
+  <properties/>
+  <testcase name="missingPaginationAndOversizeBodyFailExplicitly" classname="com.yfuse.core.trakt.HttpTraktApiTest" time="0.018"/>
+  <testcase name="stopDuplicateIsSuccessButRateLimitRetainsRetryAfter" classname="com.yfuse.core.trakt.HttpTraktApiTest" time="0.012"/>
+  <testcase name="serverPaginationClampingDoesNotTruncateImportAndUsesOnlyTraktToken" classname="com.yfuse.core.trakt.HttpTraktApiTest" time="0.003"/>
+  <testcase name="episodeImportUsesSeriesCoordinatesAndSeriesCannotBeScrobbled" classname="com.yfuse.core.trakt.HttpTraktApiTest" time="0.002"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

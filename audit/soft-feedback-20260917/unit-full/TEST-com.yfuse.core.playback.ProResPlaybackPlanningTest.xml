@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.playback.ProResPlaybackPlanningTest" tests="1" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:06.685Z" hostname="DESKTOP-HM2J0FM" time="0.0">
+  <properties/>
+  <testcase name="prores_12bit_prefers_original_ffmpeg_even_when_server_can_transcode" classname="com.yfuse.core.playback.ProResPlaybackPlanningTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

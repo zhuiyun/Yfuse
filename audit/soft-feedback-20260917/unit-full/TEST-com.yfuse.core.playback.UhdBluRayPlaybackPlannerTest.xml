@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.playback.UhdBluRayPlaybackPlannerTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:06.687Z" hostname="DESKTOP-HM2J0FM" time="0.0">
+  <properties/>
+  <testcase name="dolby_vision_only_resolved_main_feature_uses_verified_platform_dolby_path" classname="com.yfuse.core.playback.UhdBluRayPlaybackPlannerTest" time="0.0"/>
+  <testcase name="server_resolved_hdr10_main_feature_stays_direct_and_preserves_truehd" classname="com.yfuse.core.playback.UhdBluRayPlaybackPlannerTest" time="0.0"/>
+  <testcase name="unresolved_remote_iso_still_uses_server_main_feature_fallback" classname="com.yfuse.core.playback.UhdBluRayPlaybackPlannerTest" time="0.0"/>
+  <testcase name="pgs_on_a_resolved_bluray_main_feature_uses_native_renderer_without_transcoding" classname="com.yfuse.core.playback.UhdBluRayPlaybackPlannerTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

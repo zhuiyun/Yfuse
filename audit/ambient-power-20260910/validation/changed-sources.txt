@@ -1,0 +1,10 @@
+androidMain/kotlin/com/yfuse/feature/player/AmbientSamplingPolicy.kt
+androidMain/kotlin/com/yfuse/feature/player/AmbientCopy.kt
+androidMain/kotlin/com/yfuse/feature/player/AmbientFrameSampler.kt
+androidMain/kotlin/com/yfuse/feature/player/PlayerRoot.kt
+commonMain/kotlin/com/yfuse/core/designsystem/AmbientLight.kt
+commonMain/kotlin/com/yfuse/feature/player/PlayerChromeRefined.kt
+commonMain/kotlin/com/yfuse/feature/player/PlayerControls.kt
+androidUnitTest/kotlin/com/yfuse/feature/player/AmbientSamplingPolicyTest.kt
+androidUnitTest/kotlin/com/yfuse/feature/player/AmbientCopyTest.kt
+commonTest/kotlin/com/yfuse/core/designsystem/AmbientLightTransitionTest.kt

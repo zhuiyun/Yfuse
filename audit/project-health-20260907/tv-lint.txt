@@ -1,0 +1,255 @@
+D:\Demo\Yfuse\composeApp\src\androidMain\kotlin\com\yfuse\feature\calendar\CalendarReminderWorker.kt:102: Warning: Setting Exact alarms with setExactAndAllowWhileIdle requires the SCHEDULE_EXACT_ALARM permission or power exemption from user; it is intended for applications where the user knowingly schedules actions to happen at a precise time such as alarms, clocks, calendars, etc. Check out the javadoc on this permission to make sure your use case is valid. [MissingPermission]
+            manager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtEpochMs, pending)
+            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+D:\Demo\Yfuse\composeApp\src\androidMain\kotlin\com\yfuse\feature\calendar\CalendarReminderWorker.kt:106: Warning: Setting Exact alarms with setExactAndAllowWhileIdle requires the SCHEDULE_EXACT_ALARM permission or power exemption from user; it is intended for applications where the user knowingly schedules actions to happen at a precise time such as alarms, clocks, calendars, etc. Check out the javadoc on this permission to make sure your use case is valid. [MissingPermission]
+            manager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtEpochMs, pending)
+            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+   Explanation for issues of type "MissingPermission":
+   This check scans through your code and libraries and looks at the APIs
+   being used, and checks this against the set of permissions required to
+   access those APIs. If the code using those APIs is called at runtime, then
+   the program will crash.
+
+   Furthermore, for permissions that are revocable (with targetSdkVersion 23),
+   client code must also be prepared to handle the calls throwing an exception
+   if the user rejects the request for permission at runtime.
+
+D:\Demo\Yfuse\composeApp\src\androidMain\kotlin\com\yfuse\tv\integration\ContinueWatchingStore.kt:152: Warning: Consider using apply() instead; commit writes its data to persistent storage immediately, whereas apply will handle it in the background [ApplySharedPref]
+            preferences.edit().remove(KEY_STATE).commit()
+                                                 ~~~~~~~~
+
+   Explanation for issues of type "ApplySharedPref":
+   Consider using apply() instead of commit on shared preferences. Whereas
+   commit blocks and writes its data to persistent storage immediately, apply
+   will handle it in the background.
+
+D:\Demo\Yfuse\composeApp\src\androidMain\kotlin\com\yfuse\core2\android\AndroidNativeDirectYPlayer.kt:783: Warning: Field requires API level 29 (current min is 26): android.media.MediaFormat#KEY_HDR10_PLUS_INFO [InlinedApi]
+                videoFormat?.containsKey(MediaFormat.KEY_HDR10_PLUS_INFO) == true ||
+                                         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+D:\Demo\Yfuse\composeApp\src\androidMain\kotlin\com\yfuse\feature\profile\PermissionHealthTools.android.kt:89: Warning: Field requires API level 31 (current min is 26): android.provider.Settings#ACTION_REQUEST_SCHEDULE_EXACT_ALARM [InlinedApi]
+            onClick = { openSettings(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM) },
+                                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+   Explanation for issues of type "InlinedApi":
+   This check scans through all the Android API field references in the
+   application and flags certain constants, such as static final integers and
+   Strings, which were introduced in later versions. These will actually be
+   copied into the class files rather than being referenced, which means that
+   the value is available even when running on older devices. In some cases
+   that's fine, and in other cases it can result in a runtime crash or
+   incorrect behavior. It depends on the context, so consider the code
+   carefully and decide whether it's safe and can be suppressed or whether the
+   code needs to be guarded.
+
+   If you really want to use this API and don't need to support older devices
+   just set the minSdkVersion in your build.gradle or AndroidManifest.xml
+   files.
+
+   If your code is deliberately accessing newer APIs, and you have ensured
+   (e.g. with conditional execution) that this code will only ever be called
+   on a supported platform, then you can annotate your class or method with
+   the @TargetApi annotation specifying the local minimum SDK to apply, such
+   as @TargetApi(11), such that this check considers 11 rather than your
+   manifest file's minimum SDK as the required API level.
+
+D:\Demo\Yfuse\tvApp\src\androidMain\AndroidManifest.xml:45: Warning: Attribute enableOnBackInvokedCallback is only used in API level 33 and higher (current min is 31) [UnusedAttribute]
+        android:enableOnBackInvokedCallback="true"
+        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+   Explanation for issues of type "UnusedAttribute":
+   This check finds attributes set in XML files that were introduced in a
+   version newer than the oldest version targeted by your application (with
+   the minSdkVersion attribute).
+
+   This is not an error; the application will simply ignore the attribute.
+   However, if the attribute is important to the appearance or functionality
+   of your application, you should consider finding an alternative way to
+   achieve the same result with only available attributes, and then you can
+   optionally create a copy of the layout in a layout-vNN folder which will be
+   used on API NN or higher where you can take advantage of the newer
+   attribute.
+
+   Note: This check does not only apply to attributes. For example, some tags
+   can be unused too, such as the new <tag> element in layouts introduced in
+   API 21.
+
+D:\Demo\Yfuse\tvApp\src\androidMain\AndroidManifest.xml:8: Warning: Requiring Wifi permissions limits app availability on TVs that support only Ethernet [LeanbackUsesWifi]
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+   Explanation for issues of type "LeanbackUsesWifi":
+   WiFi is not required for Android TV and many devices connect to the
+   internet via alternative methods e.g. Ethernet.
+
+   If your app is not focused specifically on WiFi functionality and only
+   wishes to connect to the internet, please modify your Manifest to contain:
+   <uses-feature android:name="android.hardware.wifi" android:required="false"
+   />
+
+   Un-metered or non-roaming connections can be detected in software using
+   NetworkCapabilities#NET_CAPABILITY_NOT_METERED and
+   NetworkCapabilities#NET_CAPABILITY_NOT_ROAMING.
+
+D:\Demo\Yfuse\tvApp\src\androidMain\AndroidManifest.xml:40: Warning: An activity in this app supports picture-in-picture and the targetSdkVersion is 31 or above; it is therefore strongly recommended to call both setAutoEnterEnabled(true) and setSourceRectHint(...) [PictureInPictureIssue]
+    <application
+     ~~~~~~~~~~~
+
+   Explanation for issues of type "PictureInPictureIssue":
+   Starting in Android 12, the recommended approach for enabling
+   picture-in-picture (PiP) has changed. If your app does not use the new
+   approach, your app's transition animations will be of poor quality compared
+   to other apps. The new approach requires calling setAutoEnterEnabled(true)
+   and setSourceRectHint(...).
+
+   https://developer.android.com/develop/ui/views/picture-in-picture#smoother-transition
+
+D:\Demo\Yfuse\tvApp\src\androidMain\AndroidManifest.xml:67: Warning: Fixed screen orientations will be ignored in most cases, starting from Android 16. Android is moving toward a model where apps are expected to adapt to various orientations, display sizes, and aspect ratios. [DiscouragedApi]
+            android:screenOrientation="landscape"
+            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+D:\Demo\Yfuse\tvApp\src\androidMain\AndroidManifest.xml:108: Warning: Fixed screen orientations will be ignored in most cases, starting from Android 16. Android is moving toward a model where apps are expected to adapt to various orientations, display sizes, and aspect ratios. [DiscouragedApi]
+            android:screenOrientation="landscape"
+            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+   Explanation for issues of type "DiscouragedApi":
+   Discouraged APIs are allowed and are not deprecated, but they may be unfit
+   for common use (e.g. due to slow performance or subtle behavior).
+
+D:\Demo\Yfuse\tvApp\build.gradle.kts:177: Warning: Missing x86_64 ABI support for ChromeOS [ChromeOsAbiSupport]
+                abiFilters += setOf("arm64-v8a", "armeabi-v7a")
+                              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+   Explanation for issues of type "ChromeOsAbiSupport":
+   To properly support ChromeOS, your Android application should have an x86
+   and/or x86_64 binary as part of the build configuration. To fix the issue,
+   ensure your files are properly optimized for ARM; the binary translator
+   will then ensure compatibility with x86. Alternatively, add an abiSplit for
+   x86 within your build.gradle file and create the required x86
+   dependencies.
+
+   https://developer.android.com/ndk/guides/abis
+
+D:\Demo\Yfuse\composeApp\src\androidMain\kotlin\com\yfuse\core2\android\AndroidSoftwareVideoRenderNode.kt:185: Warning: Unnecessary; SDK_INT is always >= 26 [ObsoleteSdkInt]
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+D:\Demo\Yfuse\composeApp\src\androidMain\kotlin\com\yfuse\tv\integration\AndroidTvProviderPublisher.kt:300: Warning: Unnecessary; SDK_INT is never < 26 [ObsoleteSdkInt]
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+   Explanation for issues of type "ObsoleteSdkInt":
+   This check flags version checks that are not necessary, because the
+   minSdkVersion (or surrounding known API level) is already at least as high
+   as the version checked for.
+
+   Similarly, it also looks for resources in -vNN folders, such as values-v14
+   where the version qualifier is less than or equal to the minSdkVersion,
+   where the contents should be merged into the best folder.
+
+D:\Demo\Yfuse\composeApp\src\androidMain\kotlin\com\yfuse\tv\integration\CastConnectReceiverBridge.kt:290: Warning: Do not place Android context classes in static fields (static reference to CastReceiverContext which has field zzg pointing to Context); this is a memory leak [StaticFieldLeak]
+    @Volatile
+    ^
+
+   Explanation for issues of type "StaticFieldLeak":
+   A static field will leak contexts.
+
+   Non-static inner classes have an implicit reference to their outer class.
+   If that outer class is for example a Fragment or Activity, then this
+   reference means that the long-running handler/loader/task will hold a
+   reference to the activity which prevents it from getting garbage
+   collected.
+
+   Similarly, direct field references to activities and fragments from these
+   longer running instances can cause leaks.
+
+   ViewModel classes should never point to Views or non-application Contexts.
+
+D:\Demo\Yfuse\composeApp\src\androidMain\res\values\bools.xml:3: Warning: The resource R.bool.launch_light_status_bar appears to be unused [UnusedResources]
+    <bool name="launch_light_status_bar">true</bool>
+          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+D:\Demo\Yfuse\composeApp\src\androidMain\res\values\colors.xml:7: Warning: The resource R.color.launch_surface appears to be unused [UnusedResources]
+    <color name="launch_surface">#F3F5F8</color>
+           ~~~~~~~~~~~~~~~~~~~~~
+D:\Demo\Yfuse\composeApp\src\androidMain\res\drawable\ic_cloud_player_foreground.xml:3: Warning: The resource R.drawable.ic_cloud_player_foreground appears to be unused [UnusedResources]
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+^
+D:\Demo\Yfuse\composeApp\src\androidMain\res\drawable\ic_cloud_player_mono.xml:3: Warning: The resource R.drawable.ic_cloud_player_mono appears to be unused [UnusedResources]
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+^
+D:\Demo\Yfuse\composeApp\src\androidMain\res\mipmap-anydpi\ic_launcher.xml:2: Warning: The resource R.mipmap.ic_launcher appears to be unused [UnusedResources]
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+^
+D:\Demo\Yfuse\composeApp\src\androidMain\res\drawable\ic_launcher_background.xml:2: Warning: The resource R.drawable.ic_launcher_background appears to be unused [UnusedResources]
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+^
+D:\Demo\Yfuse\composeApp\src\androidMain\res\drawable\ic_launcher_background_graphite.xml:4: Warning: The resource R.drawable.ic_launcher_background_graphite appears to be unused [UnusedResources]
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+^
+D:\Demo\Yfuse\composeApp\src\androidMain\res\mipmap-anydpi\ic_launcher_cloud.xml:8: Warning: The resource R.mipmap.ic_launcher_cloud appears to be unused [UnusedResources]
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+^
+D:\Demo\Yfuse\composeApp\src\androidMain\res\mipmap-hdpi\ic_launcher_foreground.png: Warning: The resource R.mipmap.ic_launcher_foreground appears to be unused [UnusedResources]
+D:\Demo\Yfuse\composeApp\src\androidMain\res\drawable\ic_launcher_foreground_inset.xml:10: Warning: The resource R.drawable.ic_launcher_foreground_inset appears to be unused [UnusedResources]
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+^
+D:\Demo\Yfuse\composeApp\src\androidMain\res\mipmap-anydpi\ic_launcher_graphite.xml:2: Warning: The resource R.mipmap.ic_launcher_graphite appears to be unused [UnusedResources]
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+^
+D:\Demo\Yfuse\composeApp\src\androidMain\res\drawable\ic_splash_transparent.xml:3: Warning: The resource R.drawable.ic_splash_transparent appears to be unused [UnusedResources]
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+^
+D:\Demo\Yfuse\composeApp\src\androidMain\res\drawable\ic_yfuse_mark_mono.xml:8: Warning: The resource R.drawable.ic_yfuse_mark_mono appears to be unused [UnusedResources]
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+^
+D:\Demo\Yfuse\composeApp\src\androidMain\res\values\themes.xml:12: Warning: The resource R.style.Theme_Yfuse appears to be unused [UnusedResources]
+    <style name="Theme.Yfuse" parent="android:Theme.Material.Light.NoActionBar">
+           ~~~~~~~~~~~~~~~~~~
+D:\Demo\Yfuse\composeApp\src\androidMain\res\xml\update_paths.xml:2: Warning: The resource R.xml.update_paths appears to be unused [UnusedResources]
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+^
+
+   Explanation for issues of type "UnusedResources":
+   Unused resources make applications larger and slow down builds.
+
+
+   The unused resource check can ignore tests. If you want to include
+   resources that are only referenced from tests, consider packaging them in a
+   test source set instead.
+
+   You can include test sources in the unused resource check by setting the
+   system property lint.unused-resources.include-tests =true, and to exclude
+   them (usually for performance reasons), use
+   lint.unused-resources.exclude-tests =true.
+   ,
+
+   Available options:
+
+   **skip-libraries** (default is true):
+   Whether the unused resource check should skip reporting unused resources in libraries.
+
+   Many libraries will declare resources that are part of the library surface; other modules depending on the library will also reference the resources. To avoid reporting all these resources as unused (in the context of a library), the unused resource check normally skips reporting unused resources in libraries. Instead, run the unused resource check on the consuming app module (along with `checkDependencies=true`).
+
+   However, there are cases where you want to check that all the resources declared in a library are used; in that case, you can disable the skip option.
+
+   To configure this option, use a `lint.xml` file with an <option> like this:
+
+   ```xml
+   <lint>
+       <issue id="UnusedResources">
+           <option name="skip-libraries" value="true" />
+       </issue>
+   </lint>
+   ```
+
+D:\Demo\Yfuse\tvApp\src\main\res\drawable-nodpi\tv_app_icon.png: Warning: Launcher icon used as round icon did not have a circular shape [IconLauncherShape]
+
+   Explanation for issues of type "IconLauncherShape":
+   According to the Android Design Guide
+   (https://d.android.com/r/studio-ui/designer/material/iconography) your
+   launcher icons should "use a distinct silhouette", a "three-dimensional,
+   front view, with a slight perspective as if viewed from above, so that
+   users perceive some depth."
+
+   The unique silhouette implies that your launcher icon should not be a
+   filled square.
+
+0 errors, 30 warnings

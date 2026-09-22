@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.update.UpdateCheckPolicyTest" tests="16" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:44:00.693Z" hostname="DESKTOP-HM2J0FM" time="0.006">
+  <properties/>
+  <testcase name="wall_clock_rollback_allows_one_recovery_check_then_starts_a_new_interval" classname="com.yfuse.update.UpdateCheckPolicyTest" time="0.0"/>
+  <testcase name="process_launch_can_force_one_manifest_check_inside_the_persisted_interval" classname="com.yfuse.update.UpdateCheckPolicyTest" time="0.0"/>
+  <testcase name="automatic_check_attempt_is_persisted_across_manager_recreation_for_one_day" classname="com.yfuse.update.UpdateCheckPolicyTest" time="0.001"/>
+  <testcase name="the_dialog_opens_automatically_once_a_day_for_a_version" classname="com.yfuse.update.UpdateCheckPolicyTest" time="0.0"/>
+  <testcase name="only_manifest_metadata_may_change_without_replacing_the_active_download" classname="com.yfuse.update.UpdateCheckPolicyTest" time="0.001"/>
+  <testcase name="release_0_2_47_is_newer_than_installed_0_2_46_by_version_code" classname="com.yfuse.update.UpdateCheckPolicyTest" time="0.0"/>
+  <testcase name="initial_foreground_waits_for_launch_check_before_enabling_resume_checks" classname="com.yfuse.update.UpdateCheckPolicyTest" time="0.0"/>
+  <testcase name="null_download_snapshot_is_stale_when_restore_or_download_publishes_owned_state" classname="com.yfuse.update.UpdateCheckPolicyTest" time="0.001"/>
+  <testcase name="an_older_feed_preserves_newer_packages_and_download_progress" classname="com.yfuse.update.UpdateCheckPolicyTest" time="0.0"/>
+  <testcase name="trust_failures_are_not_misreported_as_connection_errors" classname="com.yfuse.update.UpdateCheckPolicyTest" time="0.001"/>
+  <testcase name="an_older_valid_feed_completes_the_check_and_clears_a_previous_failure" classname="com.yfuse.update.UpdateCheckPolicyTest" time="0.0"/>
+  <testcase name="refreshing_a_resume_validator_preserves_newer_manifest_metadata" classname="com.yfuse.update.UpdateCheckPolicyTest" time="0.001"/>
+  <testcase name="an_old_download_is_replaced_when_the_manifest_publishes_a_new_version" classname="com.yfuse.update.UpdateCheckPolicyTest" time="0.0"/>
+  <testcase name="an_old_download_is_invalidated_when_the_published_version_is_no_longer_an_update" classname="com.yfuse.update.UpdateCheckPolicyTest" time="0.0"/>
+  <testcase name="check_started_from_an_owned_state_allows_same_generation_progress_only" classname="com.yfuse.update.UpdateCheckPolicyTest" time="0.0"/>
+  <testcase name="finishing_a_download_keeps_same_package_metadata_refreshed_by_a_check" classname="com.yfuse.update.UpdateCheckPolicyTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

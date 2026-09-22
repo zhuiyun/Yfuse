@@ -1,0 +1,20 @@
+--- composeApp/src/commonMain/kotlin/com/yfuse/feature/calendar/CalendarScreen.kt (before turn)
++++ composeApp/src/commonMain/kotlin/com/yfuse/feature/calendar/CalendarScreen.kt
+@@ -23,8 +23,6 @@
+ import androidx.compose.foundation.lazy.rememberLazyListState
+ import androidx.compose.foundation.selection.selectableGroup
+ import androidx.compose.foundation.shape.CircleShape
+-import androidx.compose.material3.Icon
+-import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.LaunchedEffect
+ import androidx.compose.runtime.collectAsState
+@@ -91,6 +89,8 @@
+ import com.yfuse.core.util.rememberShareHandler
+ import com.yfuse.core.util.shiftIsoDate
+ import kotlinx.coroutines.launch
++import com.yfuse.core.designsystem.ThemeIcon as Icon
++import com.yfuse.core.designsystem.ThemeText as Text
+ import com.yfuse.core.designsystem.flatGlass as glass
+ 
+ /**

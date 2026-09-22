@@ -1,0 +1,29 @@
+{
+  "published": true,
+  "verifiedAt": "2026-09-20T15:45:34.5547906+08:00",
+  "versionName": "1.0.74",
+  "versionCode": 236,
+  "apkUrl": "https://47.112.219.60/yfuse/Yfuse-236-1.0.74.apk",
+  "sha256": "097ef573cd1f9211346be8f40ad14892678a5ca82a0800da44ea5cf643e5e03c",
+  "bytes": 29212566,
+  "manifests": [
+    {
+      "allReleaseFieldsMatch": true,
+      "url": "https://47.112.219.60/yfuse/update-v2.json"
+    },
+    {
+      "allReleaseFieldsMatch": true,
+      "url": "http://47.112.219.60/yfuse/update.json"
+    }
+  ],
+  "publicHttpsAndLegacyApkDownloadHashAndSizeVerifiedByPublisher": true,
+  "publisherLog": "audit/releases/20260920-kernel-fixes/publication/publish.log",
+  "signingCertificateSha256": "373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84",
+  "previousPublicVersion": "1.0.11 (173)",
+  "previousPublicApkSignatureMatches": true,
+  "serverProtocolVersion": 6,
+  "serverMinProtocolVersion": 5,
+  "historicalApksRetained": true,
+  "sourcePushed": false,
+  "devicePlaybackTested": false
+}

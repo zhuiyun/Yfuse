@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.trakt.TraktRepositoryTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:08.530Z" hostname="DESKTOP-HM2J0FM" time="0.029">
+  <properties/>
+  <testcase name="expiredTokenRotatesOnceBeforeImportAndStoresReplacement" classname="com.yfuse.core.trakt.TraktRepositoryTest" time="0.017"/>
+  <testcase name="profileSwitchAndReturnCannotRecordOldPlayerCallbacks" classname="com.yfuse.core.trakt.TraktRepositoryTest" time="0.001"/>
+  <testcase name="reportingRequiresExplicitOptInAndRespectsWriteInterval" classname="com.yfuse.core.trakt.TraktRepositoryTest" time="0.004"/>
+  <testcase name="retryAfterCannotBeBypassedAndCompletedOfflineEventIsRetained" classname="com.yfuse.core.trakt.TraktRepositoryTest" time="0.004"/>
+  <testcase name="failedImportContinuesAtUnfinishedPageAndDisconnectDropsQueue" classname="com.yfuse.core.trakt.TraktRepositoryTest" time="0.003"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.update.UpdateDownloadBoundaryTest" tests="11" skipped="0" failures="0" errors="0" timestamp="2026-09-20T10:44:29.699Z" hostname="DESKTOP-HM2J0FM" time="0.061">
+  <properties/>
+  <testcase name="stale_update_files_are_cleaned_without_touching_the_current_or_unrelated_files" classname="com.yfuse.update.UpdateDownloadBoundaryTest" time="0.025"/>
+  <testcase name="oversized_stream_is_rejected_before_the_offending_chunk_is_written" classname="com.yfuse.update.UpdateDownloadBoundaryTest" time="0.013"/>
+  <testcase name="digest_failure_is_read_only_until_the_owner_is_rechecked" classname="com.yfuse.update.UpdateDownloadBoundaryTest" time="0.005"/>
+  <testcase name="manifest_reader_rejects_after_only_the_limit_plus_one_bytes" classname="com.yfuse.update.UpdateDownloadBoundaryTest" time="0.001"/>
+  <testcase name="a_truncated_download_is_rejected_without_unowned_cleanup" classname="com.yfuse.update.UpdateDownloadBoundaryTest" time="0.005"/>
+  <testcase name="storage_preflight_preserves_the_reserve_without_overflow" classname="com.yfuse.update.UpdateDownloadBoundaryTest" time="0.0"/>
+  <testcase name="stale_download_owner_cannot_promote_a_verified_partial" classname="com.yfuse.update.UpdateDownloadBoundaryTest" time="0.0"/>
+  <testcase name="declared_content_length_must_match_the_manifest_when_present" classname="com.yfuse.update.UpdateDownloadBoundaryTest" time="0.0"/>
+  <testcase name="stale_restore_does_not_delete_a_new_generation_partial_with_the_same_version_code" classname="com.yfuse.update.UpdateDownloadBoundaryTest" time="0.004"/>
+  <testcase name="equal_length_cached_apk_is_rejected_when_the_same_version_is_republished" classname="com.yfuse.update.UpdateDownloadBoundaryTest" time="0.004"/>
+  <testcase name="exact_completed_download_matches_the_production_verifier" classname="com.yfuse.update.UpdateDownloadBoundaryTest" time="0.004"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

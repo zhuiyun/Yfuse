@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 13+ themed icon. A themed icon is a stencil: one colour, no gradient, no fold —
+  so the ribbon's turn and its cyan-to-magenta run, which are most of what the full mark
+  is, cannot survive here. What carries the identity at this size is the silhouette: a
+  thick play chevron with the motion bars trailing it.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- The ribbon, flattened: outer edge out to the point, inner edge back. -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M32,20 L87,53 L33,84 L46,72 L69,53 L45,33 Z" />
+    <!-- Motion bars, top to bottom; the second row is the broken one in the artwork. -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M26.5,48 L38.5,48 A2.5,2.5 0 0 1 38.5,53 L26.5,53 A2.5,2.5 0 0 1 26.5,48 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M20.5,56 L23.5,56 A2.5,2.5 0 0 1 23.5,61 L20.5,61 A2.5,2.5 0 0 1 20.5,56 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M30.5,56 L42.5,56 A2.5,2.5 0 0 1 42.5,61 L30.5,61 A2.5,2.5 0 0 1 30.5,56 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M27.5,64 L36.5,64 A2.5,2.5 0 0 1 36.5,69 L27.5,69 A2.5,2.5 0 0 1 27.5,64 Z" />
+</vector>

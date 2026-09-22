@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.AndroidCore2TrialTest" tests="11" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:43:54.407Z" hostname="DESKTOP-HM2J0FM" time="0.007">
+  <properties/>
+  <testcase name="core2_queue_mapping_preserves_direct_disc_identity" classname="com.yfuse.core2.android.AndroidCore2TrialTest" time="0.002"/>
+  <testcase name="core2_queue_mapping_preserves_remote_matroska_dolby_probe_hints" classname="com.yfuse.core2.android.AndroidCore2TrialTest" time="0.0"/>
+  <testcase name="dolby_vision_stream_enters_fail_closed_runtime_truth_probing" classname="com.yfuse.core2.android.AndroidCore2TrialTest" time="0.0"/>
+  <testcase name="supported_file_and_native_disc_schemes_are_trial_eligible" classname="com.yfuse.core2.android.AndroidCore2TrialTest" time="0.001"/>
+  <testcase name="core2_queue_mapping_preserves_request_identity_and_user_agent" classname="com.yfuse.core2.android.AndroidCore2TrialTest" time="0.003"/>
+  <testcase name="native_static_files_bypass_the_adaptive_loopback_proxy" classname="com.yfuse.core2.android.AndroidCore2TrialTest" time="0.0"/>
+  <testcase name="supported_widevine_and_subtitle_sources_follow_core2_gates" classname="com.yfuse.core2.android.AndroidCore2TrialTest" time="0.001"/>
+  <testcase name="core2_queue_mapping_uses_the_active_server_transcode_url" classname="com.yfuse.core2.android.AndroidCore2TrialTest" time="0.0"/>
+  <testcase name="server_resolved_disc_stream_does_not_expose_native_navigation" classname="com.yfuse.core2.android.AndroidCore2TrialTest" time="0.0"/>
+  <testcase name="native_disc_source_matrix_admits_saf_bdmv_but_not_remote_directory_trees" classname="com.yfuse.core2.android.AndroidCore2TrialTest" time="0.0"/>
+  <testcase name="invalid_queue_or_unknown_source_scheme_stays_on_legacy" classname="com.yfuse.core2.android.AndroidCore2TrialTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

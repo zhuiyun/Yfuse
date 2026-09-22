@@ -1,0 +1,6 @@
+# Normalize line endings; keep LF in the repo, silence CRLF warnings on Windows.
+* text=auto eol=lf
+*.bat text eol=crlf
+*.jar binary
+*.png binary
+*.apk binary

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.offline.OfflineBatchSelectionTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:05.629Z" hostname="DESKTOP-HM2J0FM" time="0.021">
+  <properties/>
+  <testcase name="version_matching_keeps_the_selected_audio_variant_when_sibling_order_changes" classname="com.yfuse.core.offline.OfflineBatchSelectionTest" time="0.005"/>
+  <testcase name="sibling_with_different_forced_semantics_does_not_reuse_index" classname="com.yfuse.core.offline.OfflineBatchSelectionTest" time="0.014"/>
+  <testcase name="sibling_without_a_compatible_version_does_not_silently_download_an_unrelated_file" classname="com.yfuse.core.offline.OfflineBatchSelectionTest" time="0.0"/>
+  <testcase name="season_maps_version_and_subtitle_features_across_heterogeneous_ids_and_indices" classname="com.yfuse.core.offline.OfflineBatchSelectionTest" time="0.0"/>
+  <testcase name="subtitle_language_and_forced_are_identity_while_codec_and_default_are_preferences" classname="com.yfuse.core.offline.OfflineBatchSelectionTest" time="0.0"/>
+  <testcase name="offline_playback_uri_preserves_saf_content_uri" classname="com.yfuse.core.offline.OfflineBatchSelectionTest" time="0.0"/>
+  <testcase name="auto_download_selects_only_new_unwatched_episodes_within_remaining_capacity" classname="com.yfuse.core.offline.OfflineBatchSelectionTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

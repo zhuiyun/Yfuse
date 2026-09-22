@@ -1,0 +1,19 @@
+--- composeApp\src\androidMain\kotlin\com\yfuse\core2\android\AndroidPreparedEnhancedDemux.kt
++++ composeApp\src\androidMain\kotlin\com\yfuse\core2\android\AndroidPreparedEnhancedDemux.kt
+@@ -23,6 +23,7 @@
+ 
+ /** Exact authorization matching and expiry prevent speculative opens leaking across sources. */
+ internal class AndroidPreparedMediaSlot<T>(
++    private val expiryMillis: Long = 30_000L,
+     private val release: (T) -> Unit,
+ ) {
+     private val lock = Any()
+@@ -47,7 +48,7 @@
+             expiry?.cancel(false)
+             this.item = item
+             prepared = value
+-            expiry = releaser.schedule({ expire(value) }, 30L, TimeUnit.SECONDS)
++            expiry = releaser.schedule({ expire(value) }, expiryMillis, TimeUnit.MILLISECONDS)
+             previous
+         }
+ 

@@ -1,0 +1,18 @@
+--- composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/DialogAnimationSheet.kt (before turn)
++++ composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/DialogAnimationSheet.kt
+@@ -6,7 +6,6 @@
+ import androidx.compose.foundation.layout.height
+ import androidx.compose.foundation.layout.size
+ import androidx.compose.foundation.lazy.LazyColumn
+-import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.CompositionLocalProvider
+ import androidx.compose.runtime.getValue
+@@ -35,6 +34,7 @@
+ import com.yfuse.core.designsystem.motionItemsIndexed
+ import com.yfuse.core.designsystem.overlayDismiss
+ import com.yfuse.core.designsystem.pressable
++import com.yfuse.core.designsystem.ThemeText as Text
+ 
+ @Composable
+ internal fun DialogAnimationSheet(

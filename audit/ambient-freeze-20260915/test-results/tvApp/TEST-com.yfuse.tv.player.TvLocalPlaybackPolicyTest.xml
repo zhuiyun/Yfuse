@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.tv.player.TvLocalPlaybackPolicyTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-09-15T04:26:39.276Z" hostname="DESKTOP-HM2J0FM" time="0.006">
+  <properties/>
+  <testcase name="a_server_selected_transcode_recovers_an_available_direct_version" classname="com.yfuse.tv.player.TvLocalPlaybackPolicyTest" time="0.005"/>
+  <testcase name="a_transcode_only_source_is_refused_instead_of_starting_server_decode" classname="com.yfuse.tv.player.TvLocalPlaybackPolicyTest" time="0.0"/>
+  <testcase name="direct_stream_is_kept_because_it_remuxes_without_server_decode" classname="com.yfuse.tv.player.TvLocalPlaybackPolicyTest" time="0.001"/>
+  <testcase name="removes_transcode_routes_from_items_versions_and_server_fallbacks" classname="com.yfuse.tv.player.TvLocalPlaybackPolicyTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

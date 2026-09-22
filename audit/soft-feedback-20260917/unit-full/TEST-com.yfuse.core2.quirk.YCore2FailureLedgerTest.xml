@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.quirk.YCore2FailureLedgerTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:13.336Z" hostname="DESKTOP-HM2J0FM" time="0.002">
+  <properties/>
+  <testcase name="expired records are pruned" classname="com.yfuse.core2.quirk.YCore2FailureLedgerTest" time="0.002"/>
+  <testcase name="network authorization drm and unknown never poison route memory" classname="com.yfuse.core2.quirk.YCore2FailureLedgerTest" time="0.0"/>
+  <testcase name="three decoder failures block only the exact Core2 route" classname="com.yfuse.core2.quirk.YCore2FailureLedgerTest" time="0.0"/>
+  <testcase name="repeated deterministic failure extends cooldown and increments count" classname="com.yfuse.core2.quirk.YCore2FailureLedgerTest" time="0.0"/>
+  <testcase name="deterministic categories contribute to one exact route threshold" classname="com.yfuse.core2.quirk.YCore2FailureLedgerTest" time="0.0"/>
+  <testcase name="failure after observation window starts a new count without requiring a read" classname="com.yfuse.core2.quirk.YCore2FailureLedgerTest" time="0.0"/>
+  <testcase name="verified success clears stale failures for the exact route" classname="com.yfuse.core2.quirk.YCore2FailureLedgerTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

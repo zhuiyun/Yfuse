@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.WatchPlaybackPolicyTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:16.228Z" hostname="DESKTOP-HM2J0FM" time="0.002">
+  <properties/>
+  <testcase name="unmatched_media_warns_only_after_the_grace_ticks_and_clears_on_match" classname="com.yfuse.feature.player.WatchPlaybackPolicyTest" time="0.001"/>
+  <testcase name="an_episode_matches_when_neither_library_can_name_the_show" classname="com.yfuse.feature.player.WatchPlaybackPolicyTest" time="0.0"/>
+  <testcase name="nudge_rate_is_not_promoted_to_the_room_nominal_rate" classname="com.yfuse.feature.player.WatchPlaybackPolicyTest" time="0.0"/>
+  <testcase name="initial_autoplay_buffering_is_not_published_as_a_room_pause" classname="com.yfuse.feature.player.WatchPlaybackPolicyTest" time="0.001"/>
+  <testcase name="a_coordinate_the_queue_does_not_hold_still_warns" classname="com.yfuse.feature.player.WatchPlaybackPolicyTest" time="0.0"/>
+  <testcase name="a_film_matches_on_any_provider_id_the_two_libraries_share" classname="com.yfuse.feature.player.WatchPlaybackPolicyTest" time="0.0"/>
+  <testcase name="a_coordinate_from_a_different_show_is_refused" classname="com.yfuse.feature.player.WatchPlaybackPolicyTest" time="0.0"/>
+  <testcase name="an_episode_matches_when_the_libraries_name_the_show_differently" classname="com.yfuse.feature.player.WatchPlaybackPolicyTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

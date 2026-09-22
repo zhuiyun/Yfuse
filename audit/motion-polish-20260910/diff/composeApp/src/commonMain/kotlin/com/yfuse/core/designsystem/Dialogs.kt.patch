@@ -1,0 +1,32 @@
+--- composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/Dialogs.kt (before turn)
++++ composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/Dialogs.kt
+@@ -1,3 +1,5 @@
++@file:OptIn(ExperimentalLayoutApi::class)
++
+ package com.yfuse.core.designsystem
+ 
+ import androidx.compose.animation.core.Animatable
+@@ -9,6 +11,7 @@
+ import androidx.compose.foundation.layout.Box
+ import androidx.compose.foundation.layout.Column
+ import androidx.compose.foundation.layout.ColumnScope
++import androidx.compose.foundation.layout.ExperimentalLayoutApi
+ import androidx.compose.foundation.layout.PaddingValues
+ import androidx.compose.foundation.layout.Row
+ import androidx.compose.foundation.layout.Spacer
+@@ -17,6 +20,7 @@
+ import androidx.compose.foundation.layout.fillMaxWidth
+ import androidx.compose.foundation.layout.height
+ import androidx.compose.foundation.layout.heightIn
++import androidx.compose.foundation.layout.imeNestedScroll
+ import androidx.compose.foundation.layout.imePadding
+ import androidx.compose.foundation.layout.padding
+ import androidx.compose.foundation.layout.safeDrawingPadding
+@@ -193,6 +197,7 @@
+                     Modifier
+                         .safeDrawingPadding()
+                         .imePadding()
++                        .imeNestedScroll()
+                         .padding(windowPadding)
+                         .widthIn(max = maxWidth)
+                         .fillMaxWidth()

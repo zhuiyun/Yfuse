@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.network.Jellyfin12CompatibilityTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:05.556Z" hostname="DESKTOP-HM2J0FM" time="0.022">
+  <properties/>
+  <testcase name="password_login_sends_modern_client_identity_without_a_token" classname="com.yfuse.core.network.Jellyfin12CompatibilityTest" time="0.004"/>
+  <testcase name="authenticated_api_works_without_legacy_headers" classname="com.yfuse.core.network.Jellyfin12CompatibilityTest" time="0.005"/>
+  <testcase name="proxy_authorization_is_preserved_with_modern_query_authentication" classname="com.yfuse.core.network.Jellyfin12CompatibilityTest" time="0.002"/>
+  <testcase name="modern_media_urls_keep_tokens_encoded_and_preserve_emby_compatibility" classname="com.yfuse.core.network.Jellyfin12CompatibilityTest" time="0.003"/>
+  <testcase name="negotiated_modern_token_is_not_duplicated_or_replaced_and_cdn_is_untouched" classname="com.yfuse.core.network.Jellyfin12CompatibilityTest" time="0.001"/>
+  <testcase name="working_proxy_prefix_is_never_stripped" classname="com.yfuse.core.network.Jellyfin12CompatibilityTest" time="0.002"/>
+  <testcase name="removed_alias_is_repaired_only_after_jellyfin_public_probe" classname="com.yfuse.core.network.Jellyfin12CompatibilityTest" time="0.004"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

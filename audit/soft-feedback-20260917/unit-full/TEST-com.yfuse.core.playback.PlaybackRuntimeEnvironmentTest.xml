@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.playback.PlaybackRuntimeEnvironmentTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:06.679Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="compatibility_mode_survives_low_battery_for_difficult_media" classname="com.yfuse.core.playback.PlaybackRuntimeEnvironmentTest" time="0.0"/>
+  <testcase name="thermal_pressure_overrides_quality_with_power_saver" classname="com.yfuse.core.playback.PlaybackRuntimeEnvironmentTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

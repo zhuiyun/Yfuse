@@ -1,0 +1,16 @@
+[
+  "watchTogetherProtocol/src/commonMain/kotlin/com/yfuse/watch/protocol/PlaybackProtocol.kt",
+  "watchTogetherServer/src/main/kotlin/com/yfuse/watch/account/PlaybackRelayStore.kt",
+  "watchTogetherServer/src/test/kotlin/com/yfuse/watch/account/PlaybackRelayStoreTest.kt",
+  "composeApp/src/commonMain/kotlin/com/yfuse/core/sync/playback/PlaybackSyncModels.kt",
+  "composeApp/src/commonMain/kotlin/com/yfuse/core/sync/playback/PlaybackSyncStore.kt",
+  "composeApp/src/commonMain/kotlin/com/yfuse/core/sync/playback/PlaybackSyncManager.kt",
+  "composeApp/src/commonMain/kotlin/com/yfuse/core/data/PlaybackEventOutbox.kt",
+  "composeApp/src/commonMain/kotlin/com/yfuse/core/data/EmbyApiCall.kt",
+  "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlaybackReportingCoordinator.kt",
+  "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlaybackReportingWarning.kt",
+  "composeApp/src/commonTest/kotlin/com/yfuse/core/sync/playback/PlaybackSyncManagerTest.kt",
+  "composeApp/src/commonTest/kotlin/com/yfuse/core/sync/playback/PlaybackSyncStoreTest.kt",
+  "composeApp/src/commonTest/kotlin/com/yfuse/core/data/PlaybackEventOutboxTest.kt",
+  "composeApp/src/commonTest/kotlin/com/yfuse/feature/player/PlaybackReportingCoordinatorTest.kt"
+]

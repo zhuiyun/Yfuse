@@ -1,0 +1,20 @@
+--- composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailFileSections.kt (before turn)
++++ composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailFileSections.kt
+@@ -17,8 +17,6 @@
+ import androidx.compose.foundation.lazy.LazyRow
+ import androidx.compose.foundation.selection.selectableGroup
+ import androidx.compose.foundation.shape.CircleShape
+-import androidx.compose.material3.Icon
+-import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.remember
+ import androidx.compose.ui.Alignment
+@@ -53,6 +51,8 @@
+ import com.yfuse.core.model.SourceInfo
+ import com.yfuse.core.model.compareMediaVersionsBestFirst
+ import com.yfuse.core.model.compareSourceInfoBestFirst
++import com.yfuse.core.designsystem.ThemeIcon as Icon
++import com.yfuse.core.designsystem.ThemeText as Text
+ 
+ /*
+  * The sections of 详情页 that describe a *file* rather than a title.

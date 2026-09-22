@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.library.UnifiedLibraryPagerTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:15.517Z" hostname="DESKTOP-HM2J0FM" time="0.023">
+  <properties/>
+  <testcase name="an_old_request_cannot_publish_into_a_new_profile" classname="com.yfuse.feature.library.UnifiedLibraryPagerTest" time="0.011"/>
+  <testcase name="repeated_first_page_is_reported_instead_of_looping_forever" classname="com.yfuse.feature.library.UnifiedLibraryPagerTest" time="0.004"/>
+  <testcase name="one_gesture_loads_at_most_four_libraries" classname="com.yfuse.feature.library.UnifiedLibraryPagerTest" time="0.003"/>
+  <testcase name="deduplication_keeps_sources_and_advances_raw_offsets" classname="com.yfuse.feature.library.UnifiedLibraryPagerTest" time="0.003"/>
+  <testcase name="failure_does_not_hide_other_servers_and_retries_the_failed_offset" classname="com.yfuse.feature.library.UnifiedLibraryPagerTest" time="0.002"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

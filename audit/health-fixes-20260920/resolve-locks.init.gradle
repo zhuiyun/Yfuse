@@ -1,0 +1,26 @@
+gradle.projectsEvaluated {
+    gradle.rootProject.allprojects.each { target ->
+        def lock = target.file('gradle.lockfile')
+        if (!lock.isFile()) return
+        def affected = ['org.bouncycastle:', 'com.squareup.wire:',
+                        'org.apache.commons:commons-lang3:', 'org.apache.httpcomponents:httpclient:']
+        // The protocol test locks still predate the already-declared serialization 1.8.0.
+        if (target.name == 'watchTogetherProtocol') affected.add('org.jetbrains.kotlinx:kotlinx-serialization')
+        def configurations = lock.readLines().findAll { line -> affected.any { line.startsWith(it) } }
+            .collectMany { it.split('=', 2)[1].split(',').toList() }.toSet()
+        target.tasks.register('resolveHealthLocks') {
+            doLast {
+                target.configurations.findAll { it.canBeResolved && configurations.contains(it.name) }
+                    .sort { it.name }.each { configuration ->
+                        logger.lifecycle("Resolving ${target.path}:${configuration.name}")
+                        def unresolved = configuration.incoming.resolutionResult.allDependencies.findAll {
+                            it instanceof org.gradle.api.artifacts.result.UnresolvedDependencyResult
+                        }
+                        if (!unresolved.empty) {
+                            throw new GradleException("Cannot resolve ${configuration.name}", unresolved.first().failure)
+                        }
+                    }
+            }
+        }
+    }
+}

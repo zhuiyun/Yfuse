@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.designsystem.DesignSystemContractTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:04.582Z" hostname="DESKTOP-HM2J0FM" time="0.009">
+  <properties/>
+  <testcase name="fixed_product_emphasis_remains_readable_in_both_themes" classname="com.yfuse.core.designsystem.DesignSystemContractTest" time="0.001"/>
+  <testcase name="semantic_text_and_error_roles_clear_small_text_contrast" classname="com.yfuse.core.designsystem.DesignSystemContractTest" time="0.0"/>
+  <testcase name="typography_exposes_four_fixed_levels_with_three_weights" classname="com.yfuse.core.designsystem.DesignSystemContractTest" time="0.007"/>
+  <testcase name="width_tiers_change_at_the_shared_breakpoints" classname="com.yfuse.core.designsystem.DesignSystemContractTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

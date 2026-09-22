@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.PlaybackReleaseTimingTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:15.923Z" hostname="DESKTOP-HM2J0FM" time="0.003">
+  <properties/>
+  <testcase name="native_failure_keeps_elapsed_stage_evidence_and_propagates_to_the_existing_error_handler" classname="com.yfuse.feature.player.PlaybackReleaseTimingTest" time="0.002"/>
+  <testcase name="diagnostic_export_preserves_release_evidence_under_normalized_attribute_names" classname="com.yfuse.feature.player.PlaybackReleaseTimingTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

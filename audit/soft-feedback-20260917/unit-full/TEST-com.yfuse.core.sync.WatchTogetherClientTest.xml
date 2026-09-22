@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.sync.WatchTogetherClientTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:07.474Z" hostname="DESKTOP-HM2J0FM" time="0.008">
+  <properties/>
+  <testcase name="leaving_resets_every_piece_of_room_state" classname="com.yfuse.core.sync.WatchTogetherClientTest" time="0.005"/>
+  <testcase name="a_persisted_room_is_exposed_on_start_and_discarded_on_request" classname="com.yfuse.core.sync.WatchTogetherClientTest" time="0.001"/>
+  <testcase name="a_member_without_control_cannot_publish_a_timeline" classname="com.yfuse.core.sync.WatchTogetherClientTest" time="0.0"/>
+  <testcase name="joining_through_an_endpoint_the_account_does_not_trust_fails_closed_without_connecting" classname="com.yfuse.core.sync.WatchTogetherClientTest" time="0.0"/>
+  <testcase name="chat_and_reactions_are_rejected_while_disconnected_without_touching_the_state" classname="com.yfuse.core.sync.WatchTogetherClientTest" time="0.001"/>
+  <testcase name="the_official_endpoint_is_still_refused_when_the_account_token_source_trusts_another_origin" classname="com.yfuse.core.sync.WatchTogetherClientTest" time="0.0"/>
+  <testcase name="a_sync_warning_marks_the_local_media_unavailable_until_it_is_cleared" classname="com.yfuse.core.sync.WatchTogetherClientTest" time="0.001"/>
+  <testcase name="a_fresh_client_is_disconnected_without_a_room_timeline_or_server_clock" classname="com.yfuse.core.sync.WatchTogetherClientTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

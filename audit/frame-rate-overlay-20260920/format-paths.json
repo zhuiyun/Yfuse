@@ -1,0 +1,8 @@
+[
+  "composeApp/src/androidMain/kotlin/com/yfuse/core/performance/PageFrameRateOverlay.android.kt",
+  "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerFrameRateOverlay.android.kt",
+  "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerFrameRateReadout.kt",
+  "composeApp/src/commonMain/kotlin/com/yfuse/core2/render/YRenderedFrameRateSampler.kt",
+  "composeApp/src/commonTest/kotlin/com/yfuse/core2/render/YRenderedFrameRateSamplerTest.kt",
+  "composeApp/src/commonTest/kotlin/com/yfuse/feature/player/PlayerFrameRateReadoutTest.kt"
+]

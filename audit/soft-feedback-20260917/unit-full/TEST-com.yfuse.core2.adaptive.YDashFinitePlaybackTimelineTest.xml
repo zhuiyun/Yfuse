@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.adaptive.YDashFinitePlaybackTimelineTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:08.578Z" hostname="DESKTOP-HM2J0FM" time="0.006">
+  <properties/>
+  <testcase name="unrepresentable_tick_products_keep_authored_addressing_instead_of_overflowing" classname="com.yfuse.core2.adaptive.YDashFinitePlaybackTimelineTest" time="0.002"/>
+  <testcase name="live_offset_and_authored_timeline_addressing_are_preserved" classname="com.yfuse.core2.adaptive.YDashFinitePlaybackTimelineTest" time="0.003"/>
+  <testcase name="an_exact_single_segment_period_has_one_timeline_entry_and_keeps_its_authored_number" classname="com.yfuse.core2.adaptive.YDashFinitePlaybackTimelineTest" time="0.0"/>
+  <testcase name="a_partial_final_segment_uses_exact_ceiling_without_expanding_every_segment" classname="com.yfuse.core2.adaptive.YDashFinitePlaybackTimelineTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

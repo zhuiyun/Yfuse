@@ -1,0 +1,10 @@
+PASS futureBitmapPressurePreservesTheCurrentAndNearestPictureWithoutBlockingAvProgress
+PASS clearingOneTrackDoesNotAffectTheOtherAndSeekDropsPreviousGeneration
+PASS prefetchedPgsDisplaysReplaceAllRectanglesAndClearAtTheirPresentationTime
+PASS clearBoundariesSurviveReorderedOutputAndEqualPtsReplacesTheWholeDisplay
+PASS longPgsPlaybackRetainsOnlyTheHistoryWindowAndLatestOpenDisplay
+PASS finiteBitmapExpiryAndAuthoredOverlappingTextArePreserved
+PASS v2 PGS clear preserves composition PTS even when END packet arrives later
+PASS v2 PGS malformed timestamp extension is rejected
+PASS PGS sentinel is open until the next display and never accumulates previous pictures
+PASS 9 production Kotlin subtitle regressions

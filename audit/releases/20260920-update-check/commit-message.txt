@@ -1,0 +1,9 @@
+Fix production update checks and ship 1.0.75 metadata [artifact only]
+
+Honor the documented optional manifest-signing configuration in production builds. Remove the release-only missing-key rejection while retaining pinned manifest signatures, trusted-source validation, download integrity, and APK identity and signer checks.
+
+Add regression coverage for the reported 1.0.73 to 1.0.74 update path and advance local delivery metadata to 1.0.75 (237), preserving release-note history.
+
+Validation: 57 update tests, Android Kotlin compilation, scoped ktlint, and the signed Release build passed. Verified actual APK version, production certificate, absence of the obsolete RejectedNoKey path, ZIP integrity/alignment, and native runtime identity. No device installation or playback test.
+
+Upload source only; do not trigger production publishing.

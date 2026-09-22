@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.AndroidForwardCacheWarmerTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:09.725Z" hostname="DESKTOP-HM2J0FM" time="0.052">
+  <properties/>
+  <testcase name="an abandoned seek response is never written to disk" classname="com.yfuse.core2.android.AndroidForwardCacheWarmerTest" time="0.01"/>
+  <testcase name="disk warming respects the window and skips cached blocks" classname="com.yfuse.core2.android.AndroidForwardCacheWarmerTest" time="0.042"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

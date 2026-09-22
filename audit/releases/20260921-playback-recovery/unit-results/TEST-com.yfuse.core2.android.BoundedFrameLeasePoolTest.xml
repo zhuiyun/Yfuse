@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.BoundedFrameLeasePoolTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:44:00.134Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="presentation_leases_are_exclusive_and_frames_are_reused" classname="com.yfuse.core2.android.BoundedFrameLeasePoolTest" time="0.001"/>
+  <testcase name="resize_and_release_do_not_recycle_frames_still_being_presented" classname="com.yfuse.core2.android.BoundedFrameLeasePoolTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

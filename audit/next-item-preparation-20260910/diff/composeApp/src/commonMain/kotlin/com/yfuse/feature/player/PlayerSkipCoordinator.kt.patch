@@ -1,0 +1,97 @@
+--- before/composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerSkipCoordinator.kt
++++ after/composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerSkipCoordinator.kt
+@@ -11,6 +11,7 @@
+ import com.yfuse.core.data.SkipMode
+ import com.yfuse.core.data.SkipSegmentPreferences
+ import com.yfuse.core.data.SkipTimes
++import com.yfuse.core.model.PlaybackSegment
+ import com.yfuse.core.model.PlaybackSegmentType
+ import kotlinx.coroutines.delay
+ 
+@@ -21,6 +22,7 @@
+ internal data class PlayerSkipController(
+     val state: SkipSegmentState,
+     val actions: SkipSegmentActions,
++    val nextItemBoundaryMs: Long?,
+ )
+ 
+ /** Movies have no series id, so intro/outro controls and automatic skipping are episode-only. */
+@@ -121,7 +123,7 @@
+         preferences.migrateLegacyCredits(key, playbackState.durationMs)
+     }
+     // Credits are stored as a distance back from the end, so duration participates in the key.
+-    val activeSegment =
++    val segments =
+         remember(currentItem, skipSeriesKey, timesBySeries, playbackState.durationMs) {
+             if (skipSeriesKey == null) {
+                 emptyList()
+@@ -132,9 +134,8 @@
+                     durationMs = playbackState.durationMs,
+                 )
+             }
+-        }.firstOrNull { segment ->
+-            segment.contains(playbackState.positionMs, playbackState.durationMs)
+-        }
++        }
++    val activeSegment = segments.firstOrNull { it.contains(playbackState.positionMs, playbackState.durationMs) }
+     val skipSegment: () -> Unit = {
+         when (activeSegment?.type) {
+             PlaybackSegmentType.Intro -> activeSegment.endMs?.let(playbackGate::seekTo)
+@@ -151,6 +152,7 @@
+     // An occurrence stays settled after a cancel or skip, even if the viewer rewinds into it.
+     val settled = remember { mutableStateOf<Pair<String, PlaybackSegmentType>?>(null) }
+     var creditsEnteredFromPlayback by remember(currentItem?.id) { mutableStateOf(false) }
++    var creditsPreloadCancelled by remember(currentItem?.id) { mutableStateOf(false) }
+     var lastOutsideCreditsPositionMs by remember(currentItem?.id) { mutableStateOf<Long?>(null) }
+     var countdownSeconds by remember { mutableStateOf<Int?>(null) }
+     val occurrence = activeSegment?.let { segment -> currentItem?.id?.let { it to segment.type } }
+@@ -264,6 +266,14 @@
+     }
+ 
+     return PlayerSkipController(
++        nextItemBoundaryMs =
++            nextItemCreditsBoundary(
++                segments = segments,
++                durationMs = playbackState.durationMs,
++                mode = mode,
++                cancelled = creditsPreloadCancelled,
++                watchGuest = watchGuest,
++            ),
+         state =
+             SkipSegmentState(
+                 segmentLabel =
+@@ -284,7 +294,10 @@
+         actions =
+             SkipSegmentActions(
+                 onSkip = skipSegment,
+-                onCancelAuto = { settled.value = occurrence },
++                onCancelAuto = {
++                    settled.value = occurrence
++                    if (occurrence?.second == PlaybackSegmentType.Credits) creditsPreloadCancelled = true
++                },
+                 onSetTimes = { introStart, introEnd, creditsLead ->
+                     val seriesKey = skipSeriesKey
+                     if (seriesKey != null) {
+@@ -305,3 +318,22 @@
+             ),
+     )
+ }
++
++/** Manual credits buttons can be pressed at entry; do not wait for the automatic countdown. */
++internal fun nextItemCreditsBoundary(
++    segments: List<PlaybackSegment>,
++    durationMs: Long,
++    mode: SkipMode,
++    cancelled: Boolean,
++    watchGuest: Boolean,
++): Long? =
++    if (mode == SkipMode.Off || cancelled || watchGuest) {
++        null
++    } else {
++        segments
++            .filter {
++                it.type == PlaybackSegmentType.Credits &&
++                    it.startMs > 0L &&
++                    (durationMs <= 0L || it.startMs < durationMs)
++            }.minOfOrNull { it.startMs }
++    }

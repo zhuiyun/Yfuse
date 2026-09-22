@@ -1,0 +1,10 @@
+--- composeApp\src\androidMain\kotlin\com\yfuse\core2\android\AndroidCore2Trial.kt
++++ composeApp\src\androidMain\kotlin\com\yfuse\core2\android\AndroidCore2Trial.kt
+@@ -411,6 +411,7 @@
+         headers = headers,
+         providerKey = serverId,
+         playbackSessionId = playSessionId,
++        allowNextItemPreparation = canPreloadSource && !usingServerTranscode,
+         cacheIdentity = yCoreCacheIdentity(),
+         cacheMaximumBytes = cacheMaximumBytes.coerceAtLeast(0L),
+         drmConfiguration = drmConfiguration ?: version?.drmConfiguration,

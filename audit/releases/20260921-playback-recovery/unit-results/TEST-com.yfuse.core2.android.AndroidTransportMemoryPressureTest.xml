@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.AndroidTransportMemoryPressureTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:43:59.343Z" hostname="DESKTOP-HM2J0FM" time="0.023">
+  <properties/>
+  <testcase name="paused_owner_snapshot_releases_completed_prefetch_and_speculation_resumes_after_recovery" classname="com.yfuse.core2.android.AndroidTransportMemoryPressureTest" time="0.021"/>
+  <testcase name="owner_snapshot_discards_the_startup_slice_without_waiting_for_a_future_read" classname="com.yfuse.core2.android.AndroidTransportMemoryPressureTest" time="0.002"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

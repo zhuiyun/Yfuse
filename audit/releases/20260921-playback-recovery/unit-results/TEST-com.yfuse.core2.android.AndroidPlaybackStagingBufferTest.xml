@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.AndroidPlaybackStagingBufferTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:43:56.894Z" hostname="DESKTOP-HM2J0FM" time="0.002">
+  <properties/>
+  <testcase name="staging_is_lazy_reclaims_cache_budget_and_releases_capacity_on_close" classname="com.yfuse.core2.android.AndroidPlaybackStagingBufferTest" time="0.001"/>
+  <testcase name="memory_pressure_preserves_required_staging_while_shrinking_disposable_bytes" classname="com.yfuse.core2.android.AndroidPlaybackStagingBufferTest" time="0.0"/>
+  <testcase name="failed_growth_keeps_previous_storage_and_restores_its_reservation" classname="com.yfuse.core2.android.AndroidPlaybackStagingBufferTest" time="0.001"/>
+  <testcase name="large_software_staging_and_two_render_frames_reduce_caches_without_rejecting_the_frame" classname="com.yfuse.core2.android.AndroidPlaybackStagingBufferTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

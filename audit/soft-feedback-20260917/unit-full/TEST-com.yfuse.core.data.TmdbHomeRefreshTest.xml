@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.data.TmdbHomeRefreshTest" tests="11" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:04.185Z" hostname="DESKTOP-HM2J0FM" time="0.143">
+  <properties/>
+  <testcase name="complete_refresh_may_have_successfully_empty_shelves" classname="com.yfuse.core.data.TmdbHomeRefreshTest" time="0.021"/>
+  <testcase name="response_exception_clients_preserve_authorization_failure" classname="com.yfuse.core.data.TmdbHomeRefreshTest" time="0.009"/>
+  <testcase name="successful_empty_catalogues_are_empty_instead_of_network_errors" classname="com.yfuse.core.data.TmdbHomeRefreshTest" time="0.009"/>
+  <testcase name="successful_empty_feeds_preserve_partial_completeness_when_another_feed_fails" classname="com.yfuse.core.data.TmdbHomeRefreshTest" time="0.005"/>
+  <testcase name="error_responses_preserve_the_http_category_without_expect_success" classname="com.yfuse.core.data.TmdbHomeRefreshTest" time="0.025"/>
+  <testcase name="only_failed_feed_groups_are_incomplete_when_other_feeds_succeed_empty" classname="com.yfuse.core.data.TmdbHomeRefreshTest" time="0.009"/>
+  <testcase name="transport_failure_is_network_without_retaining_the_transport_exception" classname="com.yfuse.core.data.TmdbHomeRefreshTest" time="0.013"/>
+  <testcase name="parent_cancellation_cancels_active_feeds_and_is_not_a_refresh_failure" classname="com.yfuse.core.data.TmdbHomeRefreshTest" time="0.007"/>
+  <testcase name="successful_catalogues_with_only_filtered_titles_are_empty" classname="com.yfuse.core.data.TmdbHomeRefreshTest" time="0.008"/>
+  <testcase name="successful_non_json_gateway_page_is_an_invalid_response" classname="com.yfuse.core.data.TmdbHomeRefreshTest" time="0.008"/>
+  <testcase name="invalid_json_and_missing_catalogue_payloads_are_invalid_responses" classname="com.yfuse.core.data.TmdbHomeRefreshTest" time="0.028"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

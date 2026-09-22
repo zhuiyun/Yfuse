@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.data.EmbySearchServiceTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:02.835Z" hostname="DESKTOP-HM2J0FM" time="0.019">
+  <properties/>
+  <testcase name="a_rejected_search_maps_to_the_unauthorized_domain_error" classname="com.yfuse.core.data.EmbySearchServiceTest" time="0.002"/>
+  <testcase name="an_unavailable_person_index_hides_the_row_instead_of_failing_the_search" classname="com.yfuse.core.data.EmbySearchServiceTest" time="0.003"/>
+  <testcase name="an_explicit_sort_keeps_the_server_order_and_pages_with_the_requested_limit" classname="com.yfuse.core.data.EmbySearchServiceTest" time="0.003"/>
+  <testcase name="genres_are_scoped_to_the_library_and_deduplicated_case_insensitively" classname="com.yfuse.core.data.EmbySearchServiceTest" time="0.003"/>
+  <testcase name="the_first_relevance_page_asks_for_a_wider_window_and_ranks_the_exact_title_first" classname="com.yfuse.core.data.EmbySearchServiceTest" time="0.002"/>
+  <testcase name="an_empty_exact_match_falls_back_to_shorter_terms_that_still_contain_the_query" classname="com.yfuse.core.data.EmbySearchServiceTest" time="0.005"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.YAdaptiveReopenGateTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:13.282Z" hostname="DESKTOP-HM2J0FM" time="0.0">
+  <properties/>
+  <testcase name="incompatible_switch_is_single_use_and_old_requests_cannot_reopen_after_seek" classname="com.yfuse.core2.android.YAdaptiveReopenGateTest" time="0.0"/>
+  <testcase name="attaching_new_children_does_not_reset_the_rolling_reopen_limit" classname="com.yfuse.core2.android.YAdaptiveReopenGateTest" time="0.0"/>
+  <testcase name="cooldown_and_generation_budget_prevent_an_automatic_reopen_loop" classname="com.yfuse.core2.android.YAdaptiveReopenGateTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

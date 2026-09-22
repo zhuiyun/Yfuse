@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.PlaybackRoadmapTest" tests="20" skipped="0" failures="0" errors="0" timestamp="2026-09-21T06:15:41.295Z" hostname="DESKTOP-HM2J0FM" time="0.15">
+  <properties/>
+  <testcase name="dolbyDirectPlayKeepsStaticSignedCdnUrlWithoutAddingCredentials" classname="com.yfuse.feature.player.PlaybackRoadmapTest" time="0.098"/>
+  <testcase name="a_server_selected_disc_direct_stream_is_used_instead_of_the_raw_iso" classname="com.yfuse.feature.player.PlaybackRoadmapTest" time="0.009"/>
+  <testcase name="dolbyDoesNotMistakeNonStaticOrAmbiguousNegotiatedStreamsForOriginalBytes" classname="com.yfuse.feature.player.PlaybackRoadmapTest" time="0.008"/>
+  <testcase name="directPlayKeepsNegotiatedStaticPathAndProviderParameters" classname="com.yfuse.feature.player.PlaybackRoadmapTest" time="0.003"/>
+  <testcase name="end_of_episode_timer_distinguishes_auto_transition_manual_switch_and_cast_ownership" classname="com.yfuse.feature.player.PlaybackRoadmapTest" time="0.0"/>
+  <testcase name="omitted_transcode_capability_keeps_best_effort_urls_out_of_preflight_truth" classname="com.yfuse.feature.player.PlaybackRoadmapTest" time="0.002"/>
+  <testcase name="trickplayFrameSelectsSheetAndTile" classname="com.yfuse.feature.player.PlaybackRoadmapTest" time="0.001"/>
+  <testcase name="pictureModeCyclesThroughFitCropAndStretch" classname="com.yfuse.feature.player.PlaybackRoadmapTest" time="0.0"/>
+  <testcase name="negotiationUsesGeneratedTranscodeWhenServerOmitsItsUrl" classname="com.yfuse.feature.player.PlaybackRoadmapTest" time="0.002"/>
+  <testcase name="iso_uses_a_best_effort_server_stream_even_when_an_old_server_denies_the_flag" classname="com.yfuse.feature.player.PlaybackRoadmapTest" time="0.001"/>
+  <testcase name="advancedSubtitleCodecsRequestStyledRenderer" classname="com.yfuse.feature.player.PlaybackRoadmapTest" time="0.001"/>
+  <testcase name="iso_never_falls_through_to_the_original_file_when_negotiation_is_incomplete" classname="com.yfuse.feature.player.PlaybackRoadmapTest" time="0.001"/>
+  <testcase name="publicHttpPlaybackInfoUrlsFollowTheExistingPolicyButStayCredentialFree" classname="com.yfuse.feature.player.PlaybackRoadmapTest" time="0.001"/>
+  <testcase name="playbackInfoDirectStreamUrlBecomesPrimaryAndKeepsSession" classname="com.yfuse.feature.player.PlaybackRoadmapTest" time="0.002"/>
+  <testcase name="deviceProfileAdvertisesStyledAndBitmapSubtitleDelivery" classname="com.yfuse.feature.player.PlaybackRoadmapTest" time="0.01"/>
+  <testcase name="hdr_caption_luminance_and_sleep_presets_have_stable_bounds" classname="com.yfuse.feature.player.PlaybackRoadmapTest" time="0.002"/>
+  <testcase name="unsupportedTranscodingDoesNotCreateFallbackUrls" classname="com.yfuse.feature.player.PlaybackRoadmapTest" time="0.001"/>
+  <testcase name="trickplay_cache_is_lazy_bounded_and_remembers_metadata_misses" classname="com.yfuse.feature.player.PlaybackRoadmapTest" time="0.001"/>
+  <testcase name="emby_seek_preview_selects_the_latest_exact_timeline_frame" classname="com.yfuse.feature.player.PlaybackRoadmapTest" time="0.0"/>
+  <testcase name="crossOriginPlaybackInfoUrlsReachThePlayerWithoutEmbyCredentials" classname="com.yfuse.feature.player.PlaybackRoadmapTest" time="0.002"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

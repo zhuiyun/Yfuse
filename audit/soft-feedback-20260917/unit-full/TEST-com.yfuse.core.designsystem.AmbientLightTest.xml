@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.designsystem.AmbientLightTest" tests="11" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:04.419Z" hostname="DESKTOP-HM2J0FM" time="0.009">
+  <properties/>
+  <testcase name="fromPixels_blackFrameIsDark" classname="com.yfuse.core.designsystem.AmbientLightTest" time="0.004"/>
+  <testcase name="fromPixels_darkSkyOnOneEdgeIsNotABar" classname="com.yfuse.core.designsystem.AmbientLightTest" time="0.0"/>
+  <testcase name="tone_leavesNeutralGreyWithoutInventingAHue" classname="com.yfuse.core.designsystem.AmbientLightTest" time="0.0"/>
+  <testcase name="fromPixels_liftsBakedInLetterboxOutOfThePicture" classname="com.yfuse.core.designsystem.AmbientLightTest" time="0.001"/>
+  <testcase name="differs_ignoresGrainButNoticesACut" classname="com.yfuse.core.designsystem.AmbientLightTest" time="0.001"/>
+  <testcase name="inset_interpolatesAndCountsAsAChange" classname="com.yfuse.core.designsystem.AmbientLightTest" time="0.001"/>
+  <testcase name="lerp_movesEveryBucketAndMeanTogether" classname="com.yfuse.core.designsystem.AmbientLightTest" time="0.0"/>
+  <testcase name="tone_keepsNearBlackBlack_andDimsBrightSky" classname="com.yfuse.core.designsystem.AmbientLightTest" time="0.0"/>
+  <testcase name="fromPixels_bucketsEachEdgeSeparately" classname="com.yfuse.core.designsystem.AmbientLightTest" time="0.0"/>
+  <testcase name="tone_boostsSaturationOfRealHue" classname="com.yfuse.core.designsystem.AmbientLightTest" time="0.0"/>
+  <testcase name="accent_staysInsideTheArtworkAccentBand" classname="com.yfuse.core.designsystem.AmbientLightTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

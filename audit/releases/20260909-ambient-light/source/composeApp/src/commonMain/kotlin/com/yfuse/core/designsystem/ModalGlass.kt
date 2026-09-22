@@ -1,0 +1,115 @@
+package com.yfuse.core.designsystem
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.unit.dp
+
+internal val LocalDialogBackdrop = staticCompositionLocalOf<BackdropState?> { null }
+internal val LocalMutedGlass = staticCompositionLocalOf { false }
+
+/** Dialogs occupy another window, so only the page (never the dialog itself) is captured. */
+@Composable
+internal fun DialogBackdropHost(content: @Composable () -> Unit) {
+    val backdrop = rememberBackdropState()
+    val motionHost = remember { DialogMotionHost() }
+    CompositionLocalProvider(LocalDialogBackdrop provides backdrop, LocalDialogMotionHost provides motionHost) {
+        Box(Modifier.fillMaxSize().trackDialogOrigin(motionHost).backdropSource(backdrop)) { content() }
+    }
+}
+
+/** Low-reflection liquid glass; refraction and diffusion affect the page, never the text. */
+@Composable
+fun Modifier.mutedGlassPanel(
+    shape: Shape = GlassShapes.sheet,
+    samplePage: Boolean = true,
+    dark: Boolean = LocalPalette.current.isDark,
+): Modifier {
+    // In-window player panels must never sample a root layer that contains themselves.
+    val backdrop = LocalDialogBackdrop.current.takeIf { samplePage }
+    val opaque = LocalAccessibilityOptions.current.reduceTransparency || backdrop?.active != true
+    // Without a backdrop (including reduced transparency), light text tokens need their
+    // light surface. Making the translucent grey tint opaque leaves captions hard to read.
+    val tint =
+        when {
+            dark -> Color(0xFF191E27)
+            opaque -> LightPalette.background
+            else -> Color(0xFF878F9B)
+        }
+    val body =
+        tint.copy(
+            alpha =
+                if (opaque) {
+                    1f
+                } else if (dark) {
+                    0.72f
+                } else {
+                    0.52f
+                },
+        )
+    val rim =
+        Brush.linearGradient(
+            0f to Color.White.copy(alpha = if (dark) 0.22f else 0.30f),
+            0.38f to Color.White.copy(alpha = 0.06f),
+            0.70f to Color.White.copy(alpha = 0.04f),
+            1f to Color.White.copy(alpha = 0.16f),
+        )
+    return this
+        .then(
+            if (!opaque && backdrop != null) {
+                Modifier.backdropBlur(
+                    backdrop,
+                    shape,
+                    radius = 22.dp,
+                    saturation = 1.12f,
+                    refraction = BackdropRefraction(edgeX = 0.08f, edgeY = 0.10f, strength = 3.dp),
+                )
+            } else {
+                Modifier
+            },
+        ).clip(shape)
+        .background(
+            Brush.verticalGradient(
+                listOf(body, body.copy(alpha = (body.alpha + 0.04f).coerceAtMost(1f))),
+            ),
+        ).background(
+            Brush.verticalGradient(
+                0f to Color.White.copy(alpha = if (opaque) 0f else 0.035f),
+                0.30f to Color.Transparent,
+                1f to Color.Black.copy(alpha = if (opaque) 0f else 0.025f),
+            ),
+        ).border(0.6.dp, rim, shape)
+}
+
+/** Nested controls inherit the modal's quiet material, including callers with white fills. */
+@Composable
+internal fun Modifier.mutedGlassControl(
+    shape: Shape,
+    fill: Color,
+    border: Color?,
+): Modifier {
+    val palette = LocalPalette.current
+    val reduceTransparency = LocalAccessibilityOptions.current.reduceTransparency
+    val neutral = if (palette.isDark) Color(0xFF353B45) else Color(0xFFBEC3CB)
+    val body =
+        if (reduceTransparency) neutral else fill.copy(alpha = fill.alpha.coerceAtMost(0.10f))
+    return clip(shape)
+        .background(body)
+        .then(
+            if (border != null) {
+                Modifier.border(0.5.dp, Color.White.copy(alpha = 0.10f), shape)
+            } else {
+                Modifier
+            },
+        )
+}

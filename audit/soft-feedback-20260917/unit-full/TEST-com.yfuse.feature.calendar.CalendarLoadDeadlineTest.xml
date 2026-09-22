@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.calendar.CalendarLoadDeadlineTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:13.552Z" hostname="DESKTOP-HM2J0FM" time="0.009">
+  <properties/>
+  <testcase name="a_repository_failure_is_not_rewritten_as_a_timeout" classname="com.yfuse.feature.calendar.CalendarLoadDeadlineTest" time="0.002"/>
+  <testcase name="the_whole_load_has_a_deadline_even_when_the_loader_never_returns" classname="com.yfuse.feature.calendar.CalendarLoadDeadlineTest" time="0.001"/>
+  <testcase name="a_successful_load_is_returned_unchanged" classname="com.yfuse.feature.calendar.CalendarLoadDeadlineTest" time="0.001"/>
+  <testcase name="parent_timeout_does_not_emit_a_calendar_failure" classname="com.yfuse.feature.calendar.CalendarLoadDeadlineTest" time="0.002"/>
+  <testcase name="explicit_cancellation_is_propagated_with_its_reason" classname="com.yfuse.feature.calendar.CalendarLoadDeadlineTest" time="0.003"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

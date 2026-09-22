@@ -1,0 +1,26 @@
+// Check only this task's source files, retaining the project's existing ktlint baselines.
+gradle.projectsEvaluated {
+    def sources = [
+        'composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerActivity.kt',
+        'composeApp/src/commonMain/kotlin/com/yfuse/app/App.kt',
+        'composeApp/src/commonMain/kotlin/com/yfuse/core/data/ThemePreferences.kt',
+        'composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/Dialogs.kt',
+        'composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/Theme.kt',
+        'composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/OrbProgress.kt',
+        'composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/LoadingAnimation.kt',
+        'composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/LoadingArtwork.kt',
+        'composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/LoadingAnimationSheet.kt',
+        'composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileScreen.kt',
+        'composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileSettingsScreens.kt',
+        'composeApp/src/commonTest/kotlin/com/yfuse/core/data/ThemePreferencesTest.kt',
+        'composeApp/src/commonTest/kotlin/com/yfuse/core/designsystem/LoadingAnimationTest.kt',
+        'tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvApp.kt',
+        'tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvAppearanceScreens.kt'
+    ].collect { new File(rootProject.projectDir, it).canonicalPath }.toSet()
+    [':phoneShared', ':tvShared'].each { name ->
+        rootProject.project(name).extensions.getByName('ktlint').filter {
+            // Keep parent directories traversable; only exclude files outside this change.
+            exclude { element -> element.file.isFile() && !sources.contains(element.file.canonicalPath) }
+        }
+    }
+}

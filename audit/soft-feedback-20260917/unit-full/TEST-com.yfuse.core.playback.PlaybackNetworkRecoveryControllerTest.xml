@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.playback.PlaybackNetworkRecoveryControllerTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:06.630Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="explicit_pause_and_ended_media_cancel_recovery" classname="com.yfuse.core.playback.PlaybackNetworkRecoveryControllerTest" time="0.001"/>
+  <testcase name="continued_play_intent_preserves_recovery_while_the_backend_is_stopped" classname="com.yfuse.core.playback.PlaybackNetworkRecoveryControllerTest" time="0.0"/>
+  <testcase name="online_transition_retries_once_at_the_last_offline_position" classname="com.yfuse.core.playback.PlaybackNetworkRecoveryControllerTest" time="0.0"/>
+  <testcase name="unknown_connectivity_never_claims_a_recovery" classname="com.yfuse.core.playback.PlaybackNetworkRecoveryControllerTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

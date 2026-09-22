@@ -1,0 +1,758 @@
+[
+  {
+    "package": "224345",
+    "entries": 528,
+    "first": "2026-09-08T14:35:02.373139Z",
+    "last": "2026-09-08T14:43:48.276363Z",
+    "sessions": [
+      {
+        "session": "377b25e5",
+        "count": 369
+      },
+      {
+        "session": "7db65de2",
+        "count": 6
+      },
+      {
+        "session": "b5db8a17",
+        "count": 153
+      }
+    ],
+    "levels": [
+      {
+        "level": "ERROR",
+        "count": 94
+      },
+      {
+        "level": "INFO",
+        "count": 319
+      },
+      {
+        "level": "WARNING",
+        "count": 115
+      }
+    ],
+    "events": [
+      {
+        "event": "emby, request_failed",
+        "count": 93
+      },
+      {
+        "event": "player.core2, transport_block_loaded",
+        "count": 32
+      },
+      {
+        "event": "player.core2, enhanced_audio_output",
+        "count": 26
+      },
+      {
+        "event": "player.core2, native_direct_qoe",
+        "count": 21
+      },
+      {
+        "event": "player.core2, startup_stage_timing",
+        "count": 20
+      },
+      {
+        "event": "feature.player, playback_preparation_stage",
+        "count": 18
+      },
+      {
+        "event": "player.core2, transport_range_failed",
+        "count": 16
+      },
+      {
+        "event": "player.core2, transport_range_opened",
+        "count": 15
+      },
+      {
+        "event": "performance.ui, jank_summary",
+        "count": 13
+      },
+      {
+        "event": "feature.home, resume_load_failed",
+        "count": 10
+      },
+      {
+        "event": "player, playback_startup_stage",
+        "count": 10
+      },
+      {
+        "event": "server.health, probe_failed",
+        "count": 9
+      },
+      {
+        "event": "feature.library, load_started",
+        "count": 8
+      },
+      {
+        "event": "emby, home_section_degraded",
+        "count": 8
+      },
+      {
+        "event": "update, automatic_check_skipped",
+        "count": 8
+      },
+      {
+        "event": "player.media, source_route_diagnostics",
+        "count": 8
+      },
+      {
+        "event": "feature.calendar, library_identity_catalog_failed",
+        "count": 6
+      },
+      {
+        "event": "player.negotiation, media_source_capabilities",
+        "count": 6
+      },
+      {
+        "event": "player.negotiation, playback_info_request",
+        "count": 6
+      },
+      {
+        "event": "player.negotiation, playback_info_response",
+        "count": 6
+      },
+      {
+        "event": "feature.calendar, active_library_series_failed",
+        "count": 6
+      },
+      {
+        "event": "feature.player, playback_negotiated",
+        "count": 6
+      },
+      {
+        "event": "feature.player, playback_route_selected",
+        "count": 6
+      },
+      {
+        "event": "player.core2, route_selected",
+        "count": 6
+      },
+      {
+        "event": "player, engine_detached",
+        "count": 5
+      },
+      {
+        "event": "player, engine_attached",
+        "count": 5
+      },
+      {
+        "event": "player.core2, native_direct_seek",
+        "count": 5
+      },
+      {
+        "event": "player.dolby, output_milestone",
+        "count": 5
+      },
+      {
+        "event": "player.capabilities, playback_reconciliation_not_required",
+        "count": 4
+      },
+      {
+        "event": "player.audio, focus_granted",
+        "count": 4
+      },
+      {
+        "event": "player.health, playback_health_assessed",
+        "count": 4
+      },
+      {
+        "event": "update, check_started",
+        "count": 4
+      },
+      {
+        "event": "sync, server_sync_completed",
+        "count": 4
+      },
+      {
+        "event": "player.core2, native_direct_seek_submitted",
+        "count": 4
+      },
+      {
+        "event": "update, check_failed",
+        "count": 4
+      },
+      {
+        "event": "player.core2, enhanced_audio_route_resolved",
+        "count": 4
+      },
+      {
+        "event": "update, manifest_rejected",
+        "count": 4
+      },
+      {
+        "event": "playback.sync, server_apply_deferred",
+        "count": 4
+      },
+      {
+        "event": "danmaku, loaded",
+        "count": 4
+      },
+      {
+        "event": "performance.ui, high_refresh_rate_requested",
+        "count": 4
+      },
+      {
+        "event": "feature.player, preparation_completed_in_activity",
+        "count": 4
+      },
+      {
+        "event": "emby, source_lookup_failed",
+        "count": 4
+      },
+      {
+        "event": "feature.calendar, series_index_failed",
+        "count": 4
+      },
+      {
+        "event": "feature.player, activity_launched",
+        "count": 4
+      },
+      {
+        "event": "feature.library, load_failed",
+        "count": 4
+      },
+      {
+        "event": "feature.library, load_completed",
+        "count": 4
+      },
+      {
+        "event": "feature.library, directory_ready",
+        "count": 4
+      },
+      {
+        "event": "sync, server_sync_failed",
+        "count": 3
+      },
+      {
+        "event": "player.handover, position_verified",
+        "count": 3
+      },
+      {
+        "event": "feature.calendar, series_provider_index_failed",
+        "count": 3
+      },
+      {
+        "event": "feature.detail, load_failed",
+        "count": 3
+      },
+      {
+        "event": "emby, source_lookup_timed_out",
+        "count": 3
+      },
+      {
+        "event": "player.core2, platform_audio_demux_skipped",
+        "count": 2
+      },
+      {
+        "event": "account, restore_scheduled",
+        "count": 2
+      },
+      {
+        "event": "account, restore_started",
+        "count": 2
+      },
+      {
+        "event": "player.capabilities, output_changed",
+        "count": 2
+      },
+      {
+        "event": "app, initializing",
+        "count": 2
+      },
+      {
+        "event": "sync, automatic_sync_started",
+        "count": 2
+      },
+      {
+        "event": "startup, phase_complete",
+        "count": 2
+      },
+      {
+        "event": "startup, deferred_initialization_complete",
+        "count": 2
+      },
+      {
+        "event": "server.registry, default_changed",
+        "count": 2
+      },
+      {
+        "event": "app, session_started",
+        "count": 2
+      },
+      {
+        "event": "player.queue, episodes_refreshed",
+        "count": 2
+      },
+      {
+        "event": "player.core2, platform_audio_track_hidden",
+        "count": 2
+      },
+      {
+        "event": "player.native, mpv_build_capabilities",
+        "count": 2
+      },
+      {
+        "event": "account, restore_finished",
+        "count": 2
+      },
+      {
+        "event": "player.core2, video_decoder_selected",
+        "count": 2
+      },
+      {
+        "event": "player.core2, internal_route_attempt",
+        "count": 2
+      },
+      {
+        "event": "player.core2, next_item_preloaded",
+        "count": 2
+      },
+      {
+        "event": "player.core2, internal_route_unavailable",
+        "count": 2
+      },
+      {
+        "event": "player.handover, position_corrected",
+        "count": 2
+      },
+      {
+        "event": "player.core2, matroska_dolby_config_recovered",
+        "count": 2
+      },
+      {
+        "event": "emby, home_enrichment_timeout",
+        "count": 2
+      },
+      {
+        "event": "player.core2, video_decoder_candidates",
+        "count": 2
+      },
+      {
+        "event": "feature.calendar, calendar_binding_write_failed",
+        "count": 2
+      },
+      {
+        "event": "player.core2, native_only_failure",
+        "count": 1
+      },
+      {
+        "event": "sync, server_sync_skipped",
+        "count": 1
+      },
+      {
+        "event": "diagnostics, export_requested",
+        "count": 1
+      },
+      {
+        "event": "player.dolby, runtime_health",
+        "count": 1
+      },
+      {
+        "event": "player.network, long_rebuffer_recovery",
+        "count": 1
+      },
+      {
+        "event": "core2.native, native_enhanced_failed",
+        "count": 1
+      },
+      {
+        "event": "player, engine_switch_requested",
+        "count": 1
+      },
+      {
+        "event": "playback.sync, server_apply_access_rejected_cooldown",
+        "count": 1
+      }
+    ],
+    "errors": [
+      {
+        "error": "Network",
+        "count": 36
+      },
+      {
+        "error": "Server(code=503)",
+        "count": 24
+      },
+      {
+        "error": "Unauthorized",
+        "count": 11
+      },
+      {
+        "error": "Server(code=504)",
+        "count": 9
+      },
+      {
+        "error": "Server(code=500)",
+        "count": 7
+      },
+      {
+        "error": "Server(code=522)",
+        "count": 6
+      }
+    ]
+  },
+  {
+    "package": "204707",
+    "entries": 399,
+    "first": "2026-09-07T23:09:45.377975Z",
+    "last": "2026-09-08T12:47:09.15412Z",
+    "sessions": [
+      {
+        "session": "2617cf69",
+        "count": 250
+      },
+      {
+        "session": "e1e5022c",
+        "count": 149
+      }
+    ],
+    "levels": [
+      {
+        "level": "ERROR",
+        "count": 35
+      },
+      {
+        "level": "INFO",
+        "count": 302
+      },
+      {
+        "level": "WARNING",
+        "count": 62
+      }
+    ],
+    "events": [
+      {
+        "event": "player.core2, native_direct_qoe",
+        "count": 157
+      },
+      {
+        "event": "emby, request_failed",
+        "count": 33
+      },
+      {
+        "event": "player.core2, transport_block_loaded",
+        "count": 19
+      },
+      {
+        "event": "player.dolby, output_milestone",
+        "count": 11
+      },
+      {
+        "event": "update, automatic_check_skipped",
+        "count": 7
+      },
+      {
+        "event": "tmdb, feed_request_failed",
+        "count": 7
+      },
+      {
+        "event": "player.core2, transport_range_opened",
+        "count": 7
+      },
+      {
+        "event": "player.core2, transport_range_failed",
+        "count": 6
+      },
+      {
+        "event": "playback.sync, cloud_sync_failed",
+        "count": 6
+      },
+      {
+        "event": "feature.player, playback_preparation_stage",
+        "count": 6
+      },
+      {
+        "event": "player.dolby, runtime_health",
+        "count": 6
+      },
+      {
+        "event": "player.core2, startup_stage_timing",
+        "count": 5
+      },
+      {
+        "event": "server.health, probe_failed",
+        "count": 5
+      },
+      {
+        "event": "feature.player, playback_route_selected",
+        "count": 5
+      },
+      {
+        "event": "feature.calendar, library_identity_catalog_failed",
+        "count": 4
+      },
+      {
+        "event": "player.capabilities, playback_reconciliation_not_required",
+        "count": 4
+      },
+      {
+        "event": "player.negotiation, playback_info_request",
+        "count": 4
+      },
+      {
+        "event": "player.media, source_route_diagnostics",
+        "count": 4
+      },
+      {
+        "event": "feature.player, preparation_completed_in_activity",
+        "count": 3
+      },
+      {
+        "event": "player.core2, route_selected",
+        "count": 3
+      },
+      {
+        "event": "performance.ui, jank_summary",
+        "count": 3
+      },
+      {
+        "event": "player, engine_attached",
+        "count": 3
+      },
+      {
+        "event": "player, engine_detached",
+        "count": 3
+      },
+      {
+        "event": "feature.player, playback_negotiated",
+        "count": 3
+      },
+      {
+        "event": "feature.home, resume_load_failed",
+        "count": 3
+      },
+      {
+        "event": "player.core2, video_decoder_candidates",
+        "count": 3
+      },
+      {
+        "event": "player.core2, video_decoder_selected",
+        "count": 3
+      },
+      {
+        "event": "player.core2, matroska_dolby_config_recovered",
+        "count": 3
+      },
+      {
+        "event": "feature.calendar, series_provider_index_failed",
+        "count": 3
+      },
+      {
+        "event": "feature.calendar, series_index_failed",
+        "count": 3
+      },
+      {
+        "event": "player.negotiation, media_source_capabilities",
+        "count": 3
+      },
+      {
+        "event": "emby, home_enrichment_timeout",
+        "count": 3
+      },
+      {
+        "event": "player.negotiation, playback_info_response",
+        "count": 3
+      },
+      {
+        "event": "feature.player, activity_launched",
+        "count": 3
+      },
+      {
+        "event": "player.audio, focus_granted",
+        "count": 3
+      },
+      {
+        "event": "sync, server_sync_completed",
+        "count": 2
+      },
+      {
+        "event": "sync, server_sync_failed",
+        "count": 2
+      },
+      {
+        "event": "sync, server_sync_skipped",
+        "count": 2
+      },
+      {
+        "event": "update, check_failed",
+        "count": 2
+      },
+      {
+        "event": "update, manifest_rejected",
+        "count": 2
+      },
+      {
+        "event": "update, check_started",
+        "count": 2
+      },
+      {
+        "event": "emby, source_lookup_failed",
+        "count": 2
+      },
+      {
+        "event": "emby, source_lookup_timed_out",
+        "count": 2
+      },
+      {
+        "event": "danmaku, request_failed",
+        "count": 2
+      },
+      {
+        "event": "feature.player, queue_ready",
+        "count": 2
+      },
+      {
+        "event": "diagnostics, export_requested",
+        "count": 2
+      },
+      {
+        "event": "account, restore_scheduled",
+        "count": 1
+      },
+      {
+        "event": "app, initializing",
+        "count": 1
+      },
+      {
+        "event": "app, session_started",
+        "count": 1
+      },
+      {
+        "event": "tmdb, home_unavailable",
+        "count": 1
+      },
+      {
+        "event": "startup, phase_complete",
+        "count": 1
+      },
+      {
+        "event": "startup, deferred_initialization_complete",
+        "count": 1
+      },
+      {
+        "event": "danmaku, http_failed",
+        "count": 1
+      },
+      {
+        "event": "account, restore_finished",
+        "count": 1
+      },
+      {
+        "event": "player.remote_policy, policy_unpublished",
+        "count": 1
+      },
+      {
+        "event": "player.network, premature_eof_recovery",
+        "count": 1
+      },
+      {
+        "event": "account, refresh_legacy_schema_result",
+        "count": 1
+      },
+      {
+        "event": "account, restore_started",
+        "count": 1
+      },
+      {
+        "event": "sync, automatic_sync_started",
+        "count": 1
+      },
+      {
+        "event": "player.native, mpv_build_capabilities",
+        "count": 1
+      },
+      {
+        "event": "player.capabilities, output_changed",
+        "count": 1
+      },
+      {
+        "event": "player.health, playback_health_assessed",
+        "count": 1
+      },
+      {
+        "event": "player.handover, position_verified",
+        "count": 1
+      },
+      {
+        "event": "feature.home, recommendations_load_failed",
+        "count": 1
+      },
+      {
+        "event": "feature.library, directory_ready",
+        "count": 1
+      },
+      {
+        "event": "feature.library, load_completed",
+        "count": 1
+      },
+      {
+        "event": "feature.library, load_started",
+        "count": 1
+      },
+      {
+        "event": "feature.player, playback_negotiation_timeout",
+        "count": 1
+      },
+      {
+        "event": "feature.player, playback_paused_for_lifecycle",
+        "count": 1
+      },
+      {
+        "event": "performance.ui, high_refresh_rate_requested",
+        "count": 1
+      },
+      {
+        "event": "player.core2, next_item_preloaded",
+        "count": 1
+      },
+      {
+        "event": "player.core2, native_only_failure",
+        "count": 1
+      },
+      {
+        "event": "player.core2, native_direct_seek",
+        "count": 1
+      },
+      {
+        "event": "playback.sync, server_apply_access_rejected_cooldown",
+        "count": 1
+      },
+      {
+        "event": "emby, home_section_degraded",
+        "count": 1
+      },
+      {
+        "event": "account, refresh_legacy_schema_fallback",
+        "count": 1
+      }
+    ],
+    "errors": [
+      {
+        "error": "AccessDenied(provider=Cloudflare)",
+        "count": 16
+      },
+      {
+        "error": "Network",
+        "count": 10
+      },
+      {
+        "error": "Unauthorized",
+        "count": 5
+      },
+      {
+        "error": "",
+        "count": 2
+      },
+      {
+        "error": "Server(code=500)",
+        "count": 1
+      },
+      {
+        "error": "Server(code=502)",
+        "count": 1
+      }
+    ]
+  }
+]

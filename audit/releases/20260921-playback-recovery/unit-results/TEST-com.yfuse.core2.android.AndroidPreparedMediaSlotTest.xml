@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.AndroidPreparedMediaSlotTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:43:56.901Z" hostname="DESKTOP-HM2J0FM" time="0.24">
+  <properties/>
+  <testcase name="unclaimed_sources_expire_but_transferred_sources_survive_the_deadline" classname="com.yfuse.core2.android.AndroidPreparedMediaSlotTest" time="0.236"/>
+  <testcase name="replacing_or_abandoning_a_probe_releases_each_owned_resource_once" classname="com.yfuse.core2.android.AndroidPreparedMediaSlotTest" time="0.001"/>
+  <testcase name="changed_track_intent_rejects_a_prepared_probe_without_changing_the_byte_cache_identity" classname="com.yfuse.core2.android.AndroidPreparedMediaSlotTest" time="0.003"/>
+  <testcase name="exact_source_is_transferred_once_and_no_longer_closed_by_the_slot" classname="com.yfuse.core2.android.AndroidPreparedMediaSlotTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

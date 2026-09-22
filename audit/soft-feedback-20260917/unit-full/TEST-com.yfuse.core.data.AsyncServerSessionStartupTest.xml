@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.data.AsyncServerSessionStartupTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:02.056Z" hostname="DESKTOP-HM2J0FM" time="0.007">
+  <properties/>
+  <testcase name="startup_does_not_block_caller_and_starts_services_once_after_restore" classname="com.yfuse.core.data.AsyncServerSessionStartupTest" time="0.004"/>
+  <testcase name="locked_credentials_preserve_the_gate_and_retry_without_starting_services" classname="com.yfuse.core.data.AsyncServerSessionStartupTest" time="0.003"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

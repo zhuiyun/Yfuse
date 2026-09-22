@@ -1,0 +1,35 @@
+--- before/composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/Interaction.kt
++++ after/composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/Interaction.kt
+@@ -312,7 +312,15 @@
+     if (LocalAccessibilityOptions.current.reduceMotion) {
+         Modifier.animateItem(fadeInSpec = null, placementSpec = null, fadeOutSpec = null)
+     } else {
+-        Modifier.animateItem()
++        Modifier.animateItem(
++            fadeInSpec =
++                androidx.compose.animation.core
++                    .tween(Motion.QUICK),
++            placementSpec = Motion.settle(),
++            fadeOutSpec =
++                androidx.compose.animation.core
++                    .tween(Motion.STANDARD),
++        )
+     }
+ 
+ /** [motionAwareItem], for grids. */
+@@ -321,5 +329,13 @@
+     if (LocalAccessibilityOptions.current.reduceMotion) {
+         Modifier.animateItem(fadeInSpec = null, placementSpec = null, fadeOutSpec = null)
+     } else {
+-        Modifier.animateItem()
+-    }
++        Modifier.animateItem(
++            fadeInSpec =
++                androidx.compose.animation.core
++                    .tween(Motion.QUICK),
++            placementSpec = Motion.settle(),
++            fadeOutSpec =
++                androidx.compose.animation.core
++                    .tween(Motion.STANDARD),
++        )
++    }

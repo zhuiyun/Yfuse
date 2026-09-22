@@ -1,0 +1,20 @@
+--- composeApp/src/commonMain/kotlin/com/yfuse/feature/home/TmdbRowPage.kt (before turn)
++++ composeApp/src/commonMain/kotlin/com/yfuse/feature/home/TmdbRowPage.kt
+@@ -17,8 +17,6 @@
+ import androidx.compose.foundation.lazy.grid.GridCells
+ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+ import androidx.compose.foundation.shape.CircleShape
+-import androidx.compose.material3.Icon
+-import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
+@@ -36,6 +34,8 @@
+ import com.yfuse.core.designsystem.touchTarget
+ import com.yfuse.core.model.TmdbItem
+ import com.yfuse.core.network.TmdbImages
++import com.yfuse.core.designsystem.ThemeIcon as Icon
++import com.yfuse.core.designsystem.ThemeText as Text
+ 
+ /**
+  * Smallest poster column this grid will draw.

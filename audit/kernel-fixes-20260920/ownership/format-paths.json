@@ -1,0 +1,6 @@
+[
+  "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/NativeCrashContextOwnership.kt",
+  "composeApp/src/androidUnitTest/kotlin/com/yfuse/feature/player/NativeCrashContextOwnershipTest.kt",
+  "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/AndroidNativeCrashMonitor.kt",
+  "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerEngineFactory.kt"
+]

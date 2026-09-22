@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.data.MediaVersionSelectionTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:02.959Z" hostname="DESKTOP-HM2J0FM" time="0.008">
+  <properties/>
+  <testcase name="missing_explicit_version_falls_back_to_preference_not_server_order" classname="com.yfuse.core.data.MediaVersionSelectionTest" time="0.007"/>
+  <testcase name="hdr_first_falls_back_to_dolby_then_sdr" classname="com.yfuse.core.data.MediaVersionSelectionTest" time="0.0"/>
+  <testcase name="explicit_episode_choice_wins_over_automatic_preference" classname="com.yfuse.core.data.MediaVersionSelectionTest" time="0.0"/>
+  <testcase name="dolby_first_and_highest_quality_are_deterministic" classname="com.yfuse.core.data.MediaVersionSelectionTest" time="0.0"/>
+  <testcase name="hdr_first_ignores_server_media_source_order" classname="com.yfuse.core.data.MediaVersionSelectionTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

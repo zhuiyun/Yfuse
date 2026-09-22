@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.MpvVideoReadinessGateTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:15.826Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="decoded_media_requires_a_configured_valid_surface_to_report_rendering" classname="com.yfuse.feature.player.MpvVideoReadinessGateTest" time="0.001"/>
+  <testcase name="replacement_discards_old_output_evidence_until_the_new_media_actually_starts" classname="com.yfuse.feature.player.MpvVideoReadinessGateTest" time="0.0"/>
+  <testcase name="configured_placeholder_cannot_confirm_a_media_frame_while_http_headers_are_pending" classname="com.yfuse.feature.player.MpvVideoReadinessGateTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

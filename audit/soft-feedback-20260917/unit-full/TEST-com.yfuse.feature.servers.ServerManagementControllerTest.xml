@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.servers.ServerManagementControllerTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:16.338Z" hostname="DESKTOP-HM2J0FM" time="0.017">
+  <properties/>
+  <testcase name="completed_user_switch_does_not_reopen_a_closed_panel" classname="com.yfuse.feature.servers.ServerManagementControllerTest" time="0.006"/>
+  <testcase name="busy_action_and_replaced_credentials_cannot_submit_again" classname="com.yfuse.feature.servers.ServerManagementControllerTest" time="0.003"/>
+  <testcase name="a_matching_user_switch_reloads_the_new_identity" classname="com.yfuse.feature.servers.ServerManagementControllerTest" time="0.001"/>
+  <testcase name="closing_cancels_a_pending_read_and_a_late_error_stays_closed" classname="com.yfuse.feature.servers.ServerManagementControllerTest" time="0.002"/>
+  <testcase name="reopening_same_server_rejects_old_generation_and_foreign_object_callbacks" classname="com.yfuse.feature.servers.ServerManagementControllerTest" time="0.002"/>
+  <testcase name="submitted_action_keeps_original_target_and_cannot_replace_new_panel_feedback" classname="com.yfuse.feature.servers.ServerManagementControllerTest" time="0.001"/>
+  <testcase name="closed_or_replaced_panel_rejects_noncooperative_late_loads" classname="com.yfuse.feature.servers.ServerManagementControllerTest" time="0.002"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

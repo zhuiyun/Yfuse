@@ -1,0 +1,20 @@
+--- composeApp/src/commonMain/kotlin/com/yfuse/feature/servers/ServersTabScreen.kt (before turn)
++++ composeApp/src/commonMain/kotlin/com/yfuse/feature/servers/ServersTabScreen.kt
+@@ -33,8 +33,6 @@
+ import androidx.compose.foundation.shape.CircleShape
+ import androidx.compose.foundation.text.KeyboardOptions
+ import androidx.compose.material3.ExperimentalMaterial3Api
+-import androidx.compose.material3.Icon
+-import androidx.compose.material3.Text
+ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+ import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
+ import androidx.compose.runtime.Composable
+@@ -124,6 +122,8 @@
+ import com.yfuse.core.util.rememberShareHandler
+ import com.yfuse.feature.profile.AddServerDialog
+ import kotlinx.coroutines.delay
++import com.yfuse.core.designsystem.ThemeIcon as Icon
++import com.yfuse.core.designsystem.ThemeText as Text
+ 
+ /** Two on a 360dp phone; wider windows fill with more cards rather than stretching them. */
+ private val ServerCardMinWidth = 146.dp

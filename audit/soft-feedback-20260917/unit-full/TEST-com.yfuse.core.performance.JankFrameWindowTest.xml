@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.performance.JankFrameWindowTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:05.744Z" hostname="DESKTOP-HM2J0FM" time="0.019">
+  <properties/>
+  <testcase name="stop_and_restart_reject_queued_frames_from_the_previous_tracking_period" classname="com.yfuse.core.performance.JankFrameWindowTest" time="0.0"/>
+  <testcase name="concurrent_stop_and_interval_completion_detach_each_frame_exactly_once" classname="com.yfuse.core.performance.JankFrameWindowTest" time="0.019"/>
+  <testcase name="smooth_frames_are_included_in_the_denominator_and_can_finish_a_window" classname="com.yfuse.core.performance.JankFrameWindowTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

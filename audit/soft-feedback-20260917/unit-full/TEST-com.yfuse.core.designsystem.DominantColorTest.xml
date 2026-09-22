@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.designsystem.DominantColorTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:04.605Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="artworkPageSampling_followsTheFadeAndFavoursItsLowerEdge" classname="com.yfuse.core.designsystem.DominantColorTest" time="0.001"/>
+  <testcase name="heroMask_revealsThePageOnlyAtTheLastPixelWithoutAFlatTail" classname="com.yfuse.core.designsystem.DominantColorTest" time="0.0"/>
+  <testcase name="nearBlackArtwork_isLiftedIntoAUsableAccentBand" classname="com.yfuse.core.designsystem.DominantColorTest" time="0.0"/>
+  <testcase name="harmonizationPreservesArtworkInfluence" classname="com.yfuse.core.designsystem.DominantColorTest" time="0.0"/>
+  <testcase name="brightArtwork_isLoweredForWhiteButtonCopy" classname="com.yfuse.core.designsystem.DominantColorTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

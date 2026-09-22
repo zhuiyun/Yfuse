@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.ManifestTrackDeduplicationTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:15.802Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="same_hls_group_with_different_names_remains_two_tracks" classname="com.yfuse.feature.player.ManifestTrackDeduplicationTest" time="0.001"/>
+  <testcase name="identical_hls_rendition_is_collapsed_and_keeps_selected_concrete_id" classname="com.yfuse.feature.player.ManifestTrackDeduplicationTest" time="0.0"/>
+  <testcase name="same_language_and_label_with_distinct_renditions_are_preserved" classname="com.yfuse.feature.player.ManifestTrackDeduplicationTest" time="0.0"/>
+  <testcase name="apparent_duplicates_without_manifest_identity_are_never_collapsed" classname="com.yfuse.feature.player.ManifestTrackDeduplicationTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

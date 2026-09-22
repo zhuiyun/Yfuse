@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.designsystem.CarouselMotionTest" tests="9" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:04.495Z" hostname="DESKTOP-HM2J0FM" time="0.005">
+  <properties/>
+  <testcase name="preview_edge_compensation_is_symmetric_during_swipes" classname="com.yfuse.core.designsystem.CarouselMotionTest" time="0.001"/>
+  <testcase name="signed_zero_offsets_produce_equal_identity_visuals" classname="com.yfuse.core.designsystem.CarouselMotionTest" time="0.0"/>
+  <testcase name="indicator_crossfades_continuously_across_the_loop_boundary" classname="com.yfuse.core.designsystem.CarouselMotionTest" time="0.0"/>
+  <testcase name="reduce_motion_returns_identity" classname="com.yfuse.core.designsystem.CarouselMotionTest" time="0.0"/>
+  <testcase name="adjacent_card_scales_without_external_parallax" classname="com.yfuse.core.designsystem.CarouselMotionTest" time="0.0"/>
+  <testcase name="artwork_overscan_covers_both_edges_throughout_the_swipe" classname="com.yfuse.core.designsystem.CarouselMotionTest" time="0.001"/>
+  <testcase name="centered_page_is_full_strength" classname="com.yfuse.core.designsystem.CarouselMotionTest" time="0.0"/>
+  <testcase name="next_card_stays_visible_in_the_reserved_peek_at_every_width" classname="com.yfuse.core.designsystem.CarouselMotionTest" time="0.003"/>
+  <testcase name="caption_stages_start_in_order_and_finish_at_their_original_positions" classname="com.yfuse.core.designsystem.CarouselMotionTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

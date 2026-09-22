@@ -1,0 +1,56 @@
+--- before/composeApp/src/commonMain/kotlin/com/yfuse/feature/calendar/AiringShowCalendarDialog.kt
++++ after/composeApp/src/commonMain/kotlin/com/yfuse/feature/calendar/AiringShowCalendarDialog.kt
+@@ -54,6 +54,7 @@
+ import com.yfuse.core.designsystem.overlayDismiss
+ import com.yfuse.core.designsystem.pressable
+ import com.yfuse.core.designsystem.rememberDominantColor
++import com.yfuse.core.designsystem.selectionColor
+ import com.yfuse.core.designsystem.touchTarget
+ import com.yfuse.core.model.CalendarDay
+ import com.yfuse.core.model.CalendarEntry
+@@ -361,7 +362,7 @@
+ ) {
+     val palette = LocalPalette.current
+     val accent = LocalAccentColors.current
+-    val content = if (active) accent.accent else palette.text
++    val content = selectionColor(if (active) accent.accent else palette.text)
+     Column(
+         Modifier
+             .weight(1f)
+@@ -424,7 +425,7 @@
+                 Text(
+                     timing.label(DEFAULT_REMINDER_MINUTES),
+                     style = AppTypography.body.medium,
+-                    color = if (active) accent.accent else palette.text,
++                    color = selectionColor(if (active) accent.accent else palette.text),
+                     modifier = Modifier.weight(1f),
+                 )
+                 if (active) {
+@@ -509,8 +510,8 @@
+             .semantics { selected = active }
+             .flatGlass(
+                 GlassShapes.chip,
+-                if (active) accent.container else palette.card2,
+-                if (active) accent.border else palette.border,
++                selectionColor(if (active) accent.container else palette.card2),
++                selectionColor(if (active) accent.border else palette.border),
+             ).padding(horizontal = 5.dp, vertical = 7.dp),
+         verticalArrangement = Arrangement.Center,
+         horizontalAlignment = Alignment.CenterHorizontally,
+@@ -518,14 +519,14 @@
+         Text(
+             isoShortDate(date).replace('-', '.'),
+             style = AppTypography.body.strong,
+-            color = if (active) accent.accent else palette.text,
++            color = selectionColor(if (active) accent.accent else palette.text),
+             maxLines = 1,
+         )
+         Spacer(Modifier.height(2.dp))
+         Text(
+             isoWeekdayLabel(date),
+             style = AppTypography.caption.regular,
+-            color = if (active) accent.accent else palette.sub2,
++            color = selectionColor(if (active) accent.accent else palette.sub2),
+             maxLines = 1,
+         )
+     }

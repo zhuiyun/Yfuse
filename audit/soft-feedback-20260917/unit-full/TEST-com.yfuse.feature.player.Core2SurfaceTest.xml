@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.Core2SurfaceTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:15.750Z" hostname="DESKTOP-HM2J0FM" time="0.002">
+  <properties/>
+  <testcase name="enlarged_bitmap_bounds_include_the_full_scaled_height" classname="com.yfuse.feature.player.Core2SurfaceTest" time="0.002"/>
+  <testcase name="stretch_uses_the_whole_container" classname="com.yfuse.feature.player.Core2SurfaceTest" time="0.0"/>
+  <testcase name="fit_preserves_aspect_ratio_inside_the_container" classname="com.yfuse.feature.player.Core2SurfaceTest" time="0.0"/>
+  <testcase name="fill_preserves_aspect_ratio_and_crops_the_overflow" classname="com.yfuse.feature.player.Core2SurfaceTest" time="0.0"/>
+  <testcase name="dual_subtitles_use_the_bottom_even_when_authored_at_the_top" classname="com.yfuse.feature.player.Core2SurfaceTest" time="0.0"/>
+  <testcase name="bitmap_display_set_reserves_the_height_of_all_rectangles" classname="com.yfuse.feature.player.Core2SurfaceTest" time="0.0"/>
+  <testcase name="bitmap_bounds_normalize_different_source_canvases" classname="com.yfuse.feature.player.Core2SurfaceTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

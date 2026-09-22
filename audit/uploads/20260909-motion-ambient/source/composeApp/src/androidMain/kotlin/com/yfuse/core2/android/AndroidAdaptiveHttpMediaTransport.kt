@@ -1,0 +1,543 @@
+package com.yfuse.core2.android
+
+import com.yfuse.core2.network.YByteRange
+import com.yfuse.core2.network.YMediaTransport
+import com.yfuse.core2.network.YMediaTransportRequest
+import com.yfuse.core2.network.YMediaTransportResponse
+import com.yfuse.core2.network.YSourceProtocol
+import com.yfuse.core2.network.YTransportFailureKind
+import com.yfuse.core2.network.YTransportFeature
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.withContext
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import java.io.IOException
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
+
+/** Prefers Cronet HTTP/2/HTTP/3 and falls back to the pinned OkHttp transport when unavailable. */
+internal class AndroidAdaptiveHttpMediaTransport(
+    private val routeState: AndroidAdaptiveHttpRouteState = AndroidAdaptiveHttpRouteState(),
+    private val createCronet: () -> YMediaTransport,
+    private val createOkHttp: () -> YMediaTransport = {
+        AndroidHttpMediaTransport(
+            followSafeRedirects = true,
+            allowCrossProtocolRedirects = true,
+            redirectState = routeState.redirectState,
+            callTimeoutSeconds = if (routeState.hasAcceptedRange) null else 8L,
+        )
+    },
+) : YMediaTransport {
+    override val supportedProtocols: Set<YSourceProtocol> =
+        setOf(YSourceProtocol.Http, YSourceProtocol.Https, YSourceProtocol.WebDav, YSourceProtocol.WebDavTls)
+    override val features: Set<YTransportFeature> =
+        setOf(
+            YTransportFeature.ByteRange,
+            YTransportFeature.Http2,
+            YTransportFeature.Http3,
+            YTransportFeature.ConnectionReuse,
+            YTransportFeature.RandomAccess,
+        )
+
+    private val transportLock = Any()
+    private var transportGeneration = 0L
+    private var opening: YMediaTransport? = null
+    private var openingJob: Job? = null
+    private var active: YMediaTransport? = null
+    private var preferred: YMediaTransport? = null
+    private var activeRequest: YMediaTransportRequest? = null
+    private var activeExpectedBytes: Long? = null
+    private var activeBytesRead = 0L
+    private var activeIsCronet = false
+    private var activeEntityTag: String? = null
+    private var activeContentLength: Long? = null
+
+    override suspend fun open(request: YMediaTransportRequest): YMediaTransportResponse {
+        require(request.protocol in supportedProtocols)
+        val generation = closeActive(propagateCancellation = true)
+        if (routeState.cronetAvailable) {
+            val cronet = preferred ?: runCatching(createCronet).getOrNull()
+            if (cronet != null) {
+                preferred = cronet
+                try {
+                    val response = openTransport(cronet, request, generation)
+                    response.requireAcceptedRange(
+                        request = request,
+                        previouslyAcceptedRange = routeState.hasAcceptedRange,
+                    )
+                    routeState.recordAcceptedRange(request, response)
+                    if (response.negotiatedProtocol.isLegacyHttp()) {
+                        // A non-multiplexed Cronet route provides no HTTP/2 or HTTP/3 benefit and
+                        // has repeatedly stalled on parallel CDN range reads. Keep this validated
+                        // request, but send every later range through the shared OkHttp pool.
+                        routeState.disableCronet(request.uri)
+                        preferred = null
+                    }
+                    bind(
+                        transport = cronet,
+                        request = request,
+                        response = response,
+                        cronet = true,
+                        generation = generation,
+                    )
+                    return response
+                } catch (cancelled: CancellationException) {
+                    closeOpeningTransport(cronet)
+                    throw cancelled
+                } catch (failure: Throwable) {
+                    closeOpeningTransport(cronet)
+                    synchronized(transportLock) { requireCurrentGeneration(generation) }
+                    routeState.rejectStaleAuthorizationRoute(request, failure)
+                    preferred = null
+                    routeState.disableCronet(request.uri)
+                }
+            } else {
+                routeState.disableCronet()
+            }
+        }
+        return openOkHttp(request, generation)
+    }
+
+    override suspend fun read(
+        destination: ByteArray,
+        offset: Int,
+        length: Int,
+    ): Int {
+        require(offset >= 0 && length >= 0 && offset <= destination.size - length)
+        if (length == 0) return 0
+        val (generation, transport) =
+            synchronized(transportLock) {
+                transportGeneration to checkNotNull(active) { "HTTP transport is not open" }
+            }
+        val count =
+            try {
+                transport.read(destination, offset, length)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Throwable) {
+                val canResume =
+                    synchronized(transportLock) {
+                        requireCurrentGeneration(generation)
+                        activeIsCronet
+                    }
+                if (!canResume) throw failure
+                return resumeWithOkHttp(destination, offset, length, failure, generation)
+            }
+        val prematureEnd =
+            synchronized(transportLock) {
+                requireCurrentGeneration(generation)
+                if (count > 0) activeBytesRead += count
+                count < 0 &&
+                    activeIsCronet &&
+                    activeExpectedBytes?.let { expected -> activeBytesRead < expected } == true
+            }
+        return if (prematureEnd) {
+            resumeWithOkHttp(
+                destination = destination,
+                offset = offset,
+                length = length,
+                cronetFailure = IllegalStateException("Cronet ended before the requested byte range"),
+                generation = generation,
+            )
+        } else {
+            count
+        }
+    }
+
+    override suspend fun close() {
+        closeActive(propagateCancellation = true)
+    }
+
+    private suspend fun resumeWithOkHttp(
+        destination: ByteArray,
+        offset: Int,
+        length: Int,
+        cronetFailure: Throwable,
+        generation: Long,
+    ): Int {
+        val validator: Pair<String?, Long?>
+        val resumedRequest =
+            synchronized(transportLock) {
+                requireCurrentGeneration(generation)
+                val request = checkNotNull(activeRequest) { "Cronet request metadata is unavailable" }
+                validator = activeEntityTag to activeContentLength
+                if (activeBytesRead > 0L && (validator.first == null || validator.second == null)) {
+                    routeState.disableCronet(request.uri)
+                    preferred = null
+                    // The enclosing block loader can discard unvalidated partial bytes and retry
+                    // through OkHttp. This transport cannot retract bytes already handed to it.
+                    throw IOException("Cronet partial response has no safe resumption validator", cronetFailure)
+                }
+                request.resumeAfter(activeBytesRead)?.let { remaining ->
+                    if (activeBytesRead >
+                        0L
+                    ) {
+                        remaining.copy(headers = remaining.headers + ("If-Range" to checkNotNull(validator.first)))
+                    } else {
+                        remaining
+                    }
+                }
+            } ?: return -1
+        routeState.disableCronet(resumedRequest.uri)
+        preferred = null
+        val fallbackGeneration = closeActive(propagateCancellation = true, expectedGeneration = generation)
+        try {
+            val response = openOkHttp(resumedRequest, fallbackGeneration)
+            if (resumedRequest.headers.containsKey("If-Range") &&
+                (response.entityTag != validator.first || response.contentLength != validator.second)
+            ) {
+                closeActive(propagateCancellation = true, expectedGeneration = fallbackGeneration)
+                throw AndroidRangeResponseException(
+                    YTransportFailureKind.InvalidRange,
+                    response.statusCode,
+                    resumedRequest.range?.startInclusive ?: 0L,
+                    response.acceptedRange?.startInclusive,
+                    "Media representation changed during Cronet fallback",
+                )
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (fallbackFailure: Throwable) {
+            fallbackFailure.addSuppressed(cronetFailure)
+            throw fallbackFailure
+        }
+        return read(destination, offset, length)
+    }
+
+    private suspend fun openOkHttp(
+        request: YMediaTransportRequest,
+        generation: Long,
+    ): YMediaTransportResponse {
+        val transport = createOkHttp()
+        return try {
+            val response = openTransport(transport, request, generation)
+            response.requireAcceptedRange(
+                request = request,
+                previouslyAcceptedRange = routeState.hasAcceptedRange,
+            )
+            routeState.recordAcceptedRange(request, response)
+            bind(
+                transport = transport,
+                request = request,
+                response = response,
+                cronet = false,
+                generation = generation,
+            )
+            response
+        } catch (cancelled: CancellationException) {
+            closeOpeningTransport(transport)
+            throw cancelled
+        } catch (failure: Throwable) {
+            closeOpeningTransport(transport)
+            synchronized(transportLock) { requireCurrentGeneration(generation) }
+            routeState.rejectStaleAuthorizationRoute(request, failure)
+            throw failure
+        }
+    }
+
+    private suspend fun openTransport(
+        transport: YMediaTransport,
+        request: YMediaTransportRequest,
+        generation: Long,
+    ): YMediaTransportResponse =
+        coroutineScope {
+            val job = currentCoroutineContext()[Job]
+            synchronized(transportLock) {
+                requireCurrentGeneration(generation)
+                opening = transport
+                openingJob = job
+            }
+            transport.open(request)
+        }
+
+    private suspend fun closeOpeningTransport(transport: YMediaTransport) {
+        synchronized(transportLock) {
+            if (opening === transport) {
+                opening = null
+                openingJob = null
+            }
+        }
+        closeTransport(transport, propagateCancellation = false)
+    }
+
+    private fun bind(
+        transport: YMediaTransport,
+        request: YMediaTransportRequest,
+        response: YMediaTransportResponse,
+        cronet: Boolean,
+        generation: Long,
+    ) {
+        synchronized(transportLock) {
+            requireCurrentGeneration(generation)
+            opening = null
+            openingJob = null
+            active = transport
+            activeRequest = request
+            activeExpectedBytes = response.expectedBodyBytes(request)
+            activeBytesRead = 0L
+            activeIsCronet = cronet
+            activeEntityTag = response.entityTag?.takeIf { it.length >= 2 && it.startsWith('"') && it.endsWith('"') }
+            activeContentLength = response.contentLength
+        }
+    }
+
+    private suspend fun closeActive(
+        propagateCancellation: Boolean,
+        expectedGeneration: Long? = null,
+    ): Long {
+        val (generation, transports, pendingJob) =
+            synchronized(transportLock) {
+                expectedGeneration?.let(::requireCurrentGeneration)
+                val generation = ++transportGeneration
+                // A range promotion may happen before any response exists. Include the opening
+                // transport so it actually releases its socket instead of competing with playback.
+                val transports = listOfNotNull(active, opening).distinct()
+                val pendingJob = openingJob
+                opening = null
+                openingJob = null
+                clearActive()
+                Triple(generation, transports, pendingJob)
+            }
+        // Also cover the hand-off before transport.open enters its IO dispatcher. This cancels
+        // only the scoped open, never the player's parent job or an already completed range.
+        pendingJob?.cancel()
+        transports.forEach { closeTransport(it, propagateCancellation) }
+        return generation
+    }
+
+    private fun requireCurrentGeneration(generation: Long) {
+        if (generation != transportGeneration) {
+            throw CancellationException("HTTP media operation was closed")
+        }
+    }
+
+    private fun clearActive() {
+        active = null
+        activeRequest = null
+        activeExpectedBytes = null
+        activeBytesRead = 0L
+        activeIsCronet = false
+        activeEntityTag = null
+        activeContentLength = null
+    }
+
+    private suspend fun closeTransport(
+        transport: YMediaTransport,
+        propagateCancellation: Boolean,
+    ) {
+        try {
+            withContext(NonCancellable) { transport.close() }
+        } catch (cancelled: CancellationException) {
+            if (propagateCancellation) throw cancelled
+        } catch (_: Throwable) {
+            // A failed transport is already being abandoned; its close error must not prevent the
+            // bounded OkHttp recovery path from opening the exact remaining byte range.
+        }
+    }
+}
+
+/**
+ * Per-media HTTP route memory shared by the primary reader and every prefetch transport.
+ *
+ * A provider redirect that Cronet cannot safely follow must disable that probe for the whole
+ * source, not only for one 2 MiB block. The same state also remembers OkHttp's credential-safe
+ * final media URL so later byte ranges do not repeat a slow origin/redirect chain.
+ */
+internal class AndroidAdaptiveHttpRouteState(
+    val redirectState: AndroidHttpMediaRedirectState = AndroidHttpMediaRedirectState(),
+    private val onCronetDisabled: (String) -> Unit = {},
+) {
+    private val cronetDisabled = AtomicBoolean(false)
+    private val acceptedRange = AtomicBoolean(false)
+
+    val cronetAvailable: Boolean
+        get() = !cronetDisabled.get()
+
+    val hasAcceptedRange: Boolean
+        get() = acceptedRange.get()
+
+    /**
+     * @param uri the media URI whose Cronet probe failed, when the refusal is attributable to one
+     *   origin rather than to the device. Reporting it lets the next playback of the same host skip
+     *   a probe that is already known to cost the full open timeout before falling back.
+     */
+    fun disableCronet(uri: String? = null) {
+        val firstRefusal = cronetDisabled.compareAndSet(false, true)
+        if (firstRefusal && uri != null) onCronetDisabled(uri)
+    }
+
+    fun recordAcceptedRange(
+        request: YMediaTransportRequest,
+        response: YMediaTransportResponse,
+    ) {
+        if (request.range != null && response.statusCode == 206) acceptedRange.set(true)
+    }
+
+    fun rejectStaleAuthorizationRoute(
+        request: YMediaTransportRequest,
+        failure: Throwable,
+    ) {
+        if (
+            request.range != null &&
+            hasAcceptedRange &&
+            failure is AndroidRangeResponseException &&
+            failure.statusCode == 403
+        ) {
+            redirectState.disableReuse(request.uri)
+        }
+    }
+}
+
+/**
+ * Route facts for one source URI, shared by every open of that URI in this process.
+ *
+ * The platform probe, the FFmpeg truth probe, the child player and the next-item preload each
+ * build a transport of their own, and each used to start from a blank [AndroidAdaptiveHttpRouteState].
+ * A recorded startup paid the same two redirects on every one of those opens, because the target
+ * the first open had already resolved lived in a state the second open could not see. The facts
+ * in the state are properties of the URI, not of the open: the redirect target, whether the
+ * origin accepts ranges, whether Cronet works against it. A bounded map keyed by the exact URI
+ * hands the same state to every open, and a rotated token is a new URI and so a new state.
+ */
+internal class AndroidSourceRouteStateRegistry(
+    private val maxEntries: Int = SOURCE_ROUTE_STATE_ENTRIES,
+) {
+    private val states =
+        object : LinkedHashMap<String, AndroidAdaptiveHttpRouteState>(16, 0.75f, true) {
+            override fun removeEldestEntry(
+                eldest: MutableMap.MutableEntry<String, AndroidAdaptiveHttpRouteState>?,
+            ): Boolean = size > maxEntries
+        }
+
+    @Synchronized
+    fun forSource(
+        uri: String,
+        onCronetDisabled: (String) -> Unit = {},
+    ): AndroidAdaptiveHttpRouteState =
+        states.getOrPut(uri) { AndroidAdaptiveHttpRouteState(onCronetDisabled = onCronetDisabled) }
+
+    @Synchronized
+    fun size(): Int = states.size
+
+    companion object {
+        val shared = AndroidSourceRouteStateRegistry()
+    }
+}
+
+/** Enough for the current item, its neighbours in the queue and one preload; older sources re-resolve. */
+private const val SOURCE_ROUTE_STATE_ENTRIES = 8
+
+/**
+ * Process-wide memory of origins whose Cronet probe already failed.
+ *
+ * [AndroidAdaptiveHttpRouteState] only lives for one media source, so without this every new
+ * playback re-probes a host that cannot answer HTTP/2 or HTTP/3 and pays the whole Cronet open
+ * timeout before the OkHttp fallback opens the first byte range. The cooldown is bounded so a
+ * transient origin outage cannot pin the app to OkHttp forever.
+ */
+internal class AndroidCronetHostHealth(
+    private val cooldownMs: Long = CRONET_HOST_COOLDOWN_MS,
+    private val nowEpochMs: () -> Long = System::currentTimeMillis,
+) {
+    private val blockedUntilByOrigin = ConcurrentHashMap<String, Long>()
+
+    fun isAvailable(uri: String): Boolean {
+        val origin = uri.transportOrigin() ?: return true
+        val blockedUntil = blockedUntilByOrigin[origin] ?: return true
+        if (nowEpochMs() < blockedUntil) return false
+        blockedUntilByOrigin.remove(origin, blockedUntil)
+        return true
+    }
+
+    fun recordFailure(uri: String) {
+        val origin = uri.transportOrigin() ?: return
+        blockedUntilByOrigin[origin] = nowEpochMs() + cooldownMs
+    }
+
+    companion object {
+        val shared = AndroidCronetHostHealth()
+    }
+}
+
+internal const val CRONET_HOST_COOLDOWN_MS = 10L * 60L * 1_000L
+
+/** Scheme + host + port. Cronet reachability is an origin property, never a per-path one. */
+private fun String.transportOrigin(): String? =
+    toHttpUrlOrNull()?.let { url -> "${url.scheme}://${url.host}:${url.port}" }
+
+private fun YMediaTransportResponse.requireAcceptedRange(
+    request: YMediaTransportRequest,
+    previouslyAcceptedRange: Boolean,
+) {
+    val requestedRange = request.range ?: return
+    if (statusCode != 206) {
+        throw AndroidRangeResponseException(
+            failureKind = statusCode.toAdaptiveRangeFailureKind(previouslyAcceptedRange),
+            statusCode = statusCode,
+            expectedRangeStart = requestedRange.startInclusive,
+            acceptedRangeStart = acceptedRange?.startInclusive,
+            safeMessage = "Random-access transport did not accept byte range",
+        )
+    }
+    if (acceptedRange?.startInclusive != requestedRange.startInclusive) {
+        throw AndroidRangeResponseException(
+            failureKind = YTransportFailureKind.InvalidRange,
+            statusCode = statusCode,
+            expectedRangeStart = requestedRange.startInclusive,
+            acceptedRangeStart = acceptedRange?.startInclusive,
+            safeMessage = "Random-access transport returned mismatched range metadata",
+        )
+    }
+}
+
+internal class AndroidRangeResponseException(
+    val failureKind: YTransportFailureKind,
+    val statusCode: Int,
+    val expectedRangeStart: Long,
+    val acceptedRangeStart: Long?,
+    safeMessage: String,
+) : IOException(safeMessage)
+
+private fun Int.toAdaptiveRangeFailureKind(previouslyAcceptedRange: Boolean): YTransportFailureKind =
+    when (this) {
+        401 -> YTransportFailureKind.Authorization
+        // Some media providers issue short-lived redirect targets that start returning 403 while
+        // the authenticated origin remains valid. Once this source has already served a validated
+        // range, treat only that later 403 as a bounded transport refresh instead of a bad login.
+        403 ->
+            if (previouslyAcceptedRange) {
+                YTransportFailureKind.TransientIo
+            } else {
+                YTransportFailureKind.Authorization
+            }
+        408, 425, 429 -> YTransportFailureKind.ServerBusy
+        in 500..599 -> YTransportFailureKind.ServerBusy
+        else -> YTransportFailureKind.InvalidRange
+    }
+
+private fun YMediaTransportRequest.resumeAfter(bytesRead: Long): YMediaTransportRequest? {
+    if (bytesRead <= 0L) return this
+    val base = range?.startInclusive ?: 0L
+    if (bytesRead > Long.MAX_VALUE - base) return null
+    val start = base + bytesRead
+    val end = range?.endInclusive
+    if (end != null && start > end) return null
+    return copy(range = YByteRange(start, end))
+}
+
+private fun YMediaTransportResponse.expectedBodyBytes(request: YMediaTransportRequest): Long? {
+    val servedRange = acceptedRange
+    if (servedRange?.endInclusive != null) {
+        return servedRange.endInclusive - servedRange.startInclusive + 1L
+    }
+    val requestedRange = request.range
+    return requestedRange
+        ?.endInclusive
+        ?.let { end -> end - requestedRange.startInclusive + 1L }
+        ?.takeIf { statusCode == 206 }
+}
+
+private fun String.isLegacyHttp(): Boolean = trim().lowercase() == "http/1.0" || trim().lowercase() == "http/1.1"

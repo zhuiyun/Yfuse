@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.ServerTranscodeFallbackPolicyTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:16.212Z" hostname="DESKTOP-HM2J0FM" time="0.0">
+  <properties/>
+  <testcase name="an_explicitly_approved_server_stream_remains_available_for_recovery" classname="com.yfuse.feature.player.ServerTranscodeFallbackPolicyTest" time="0.0"/>
+  <testcase name="approval_without_a_concrete_stream_cannot_start_a_fallback" classname="com.yfuse.feature.player.ServerTranscodeFallbackPolicyTest" time="0.0"/>
+  <testcase name="generated_urls_without_server_approval_are_never_used_as_fallbacks" classname="com.yfuse.feature.player.ServerTranscodeFallbackPolicyTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

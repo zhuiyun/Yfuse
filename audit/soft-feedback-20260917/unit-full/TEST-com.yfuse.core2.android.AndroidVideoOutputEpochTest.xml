@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.AndroidVideoOutputEpochTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:12.843Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="repeated_media_pts_retain_one_slot_per_genuinely_submitted_frame" classname="com.yfuse.core2.android.AndroidVideoOutputEpochTest" time="0.0"/>
+  <testcase name="submission_is_not_render_evidence_and_old_callbacks_cannot_verify_a_seek" classname="com.yfuse.core2.android.AndroidVideoOutputEpochTest" time="0.001"/>
+  <testcase name="fixed_backwards_future_and_old_epoch_render_times_cannot_produce_sync_measurements" classname="com.yfuse.core2.android.AndroidVideoOutputEpochTest" time="0.0"/>
+  <testcase name="reusing_a_presentation_timestamp_on_a_new_surface_requires_a_new_render" classname="com.yfuse.core2.android.AndroidVideoOutputEpochTest" time="0.0"/>
+  <testcase name="isolated_frame_identity_accepts_real_callback_with_stale_vendor_time_without_measuring_it" classname="com.yfuse.core2.android.AndroidVideoOutputEpochTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

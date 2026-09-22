@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.AndroidYCoreBluRayPlayerReleaseTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:43:59.993Z" hostname="DESKTOP-HM2J0FM" time="0.007">
+  <properties/>
+  <testcase name="failed source unregister never reports completion even after decoder cleanup" classname="com.yfuse.core2.android.AndroidYCoreBluRayPlayerReleaseTest" time="0.004"/>
+  <testcase name="registry removal does not release the wrapper barrier before its decoder" classname="com.yfuse.core2.android.AndroidYCoreBluRayPlayerReleaseTest" time="0.002"/>
+  <testcase name="a failed delegate wait remains pending and a later wait can finish" classname="com.yfuse.core2.android.AndroidYCoreBluRayPlayerReleaseTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

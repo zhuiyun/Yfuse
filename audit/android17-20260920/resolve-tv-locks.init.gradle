@@ -1,0 +1,23 @@
+gradle.projectsEvaluated {
+    [":composeApp", ":phoneShared", ":tvApp", ":tvShared", ":macrobenchmark"].each { projectPath ->
+        def target = gradle.rootProject.project(projectPath)
+        def lockedConfigurations = target.file("gradle.lockfile").readLines()
+            .findAll { it.startsWith("io.ktor:") }
+            .collectMany { it.split("=", 2)[1].split(",").toList() }.toSet()
+        target.tasks.register("resolveAndroid17Locks") {
+            doLast {
+                target.configurations.findAll {
+                    it.canBeResolved && lockedConfigurations.contains(it.name)
+                }.sort { it.name }.each { configuration ->
+                    logger.lifecycle("Resolving ${target.path}:${configuration.name}")
+                    def unresolved = configuration.incoming.resolutionResult.allDependencies.findAll {
+                        it instanceof org.gradle.api.artifacts.result.UnresolvedDependencyResult
+                    }
+                    if (!unresolved.empty) {
+                        throw new GradleException("Cannot resolve ${configuration.name}", unresolved.first().failure)
+                    }
+                }
+            }
+        }
+    }
+}

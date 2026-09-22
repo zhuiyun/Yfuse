@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.data.EmbyDeviceProfileFactoryTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:02.223Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="hdr10_only_panel_does_not_claim_dolby_vision_without_an_output_path" classname="com.yfuse.core.data.EmbyDeviceProfileFactoryTest" time="0.0"/>
+  <testcase name="conservative_profile_does_not_claim_unavailable_dolby_vision" classname="com.yfuse.core.data.EmbyDeviceProfileFactoryTest" time="0.001"/>
+  <testcase name="dolby_profile_preserves_native_output_and_direct_atmos_route" classname="com.yfuse.core.data.EmbyDeviceProfileFactoryTest" time="0.0"/>
+  <testcase name="playback_info_ceiling_does_not_force_uhd_remux_transcoding" classname="com.yfuse.core.data.EmbyDeviceProfileFactoryTest" time="0.0"/>
+  <testcase name="disc_images_are_never_advertised_as_linear_direct_play_containers" classname="com.yfuse.core.data.EmbyDeviceProfileFactoryTest" time="0.0"/>
+  <testcase name="sdr_panel_does_not_claim_dolby_vision_without_an_output_path" classname="com.yfuse.core.data.EmbyDeviceProfileFactoryTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

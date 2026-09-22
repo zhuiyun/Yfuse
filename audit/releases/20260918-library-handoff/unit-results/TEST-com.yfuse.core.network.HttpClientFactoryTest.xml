@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.network.HttpClientFactoryTest" tests="12" skipped="0" failures="0" errors="0" timestamp="2026-09-18T01:44:02.217Z" hostname="DESKTOP-HM2J0FM" time="0.12">
+  <properties/>
+  <testcase name="authenticatedGetFallsBackToThePre060IdentityAfterA403AndRemembersIt" classname="com.yfuse.core.network.HttpClientFactoryTest" time="0.032"/>
+  <testcase name="cloudflareRejectionCoolsOtherModulesButNotOtherSessions" classname="com.yfuse.core.network.HttpClientFactoryTest" time="0.015"/>
+  <testcase name="successfulAuthenticatedRequestKeepsTheCurrentIdentity" classname="com.yfuse.core.network.HttpClientFactoryTest" time="0.005"/>
+  <testcase name="embyClientRejectsCrossOriginHttpsRedirectBeforeTheSecondSend" classname="com.yfuse.core.network.HttpClientFactoryTest" time="0.008"/>
+  <testcase name="secondaryServerLearnsItsLegacySessionWithoutBecomingTheCurrentLibrary" classname="com.yfuse.core.network.HttpClientFactoryTest" time="0.014"/>
+  <testcase name="embyClientKeepsNormalContentNegotiationWhenJsonContentTypeExists" classname="com.yfuse.core.network.HttpClientFactoryTest" time="0.008"/>
+  <testcase name="danmakuClientInstallsTimeoutProtection" classname="com.yfuse.core.network.HttpClientFactoryTest" time="0.002"/>
+  <testcase name="embyClientDecodesJsonWhenSuccessfulResponseOmitsContentType" classname="com.yfuse.core.network.HttpClientFactoryTest" time="0.006"/>
+  <testcase name="embyClientAllowsPublicAndLocalHttpAndHttps" classname="com.yfuse.core.network.HttpClientFactoryTest" time="0.012"/>
+  <testcase name="embyClientRejectsCrossOriginHttpRedirectBeforeTheSecondSend" classname="com.yfuse.core.network.HttpClientFactoryTest" time="0.005"/>
+  <testcase name="embyIdentityHeaderUsesTheInjectedBuildVersion" classname="com.yfuse.core.network.HttpClientFactoryTest" time="0.005"/>
+  <testcase name="embyClientAllowsSameOriginRedirect" classname="com.yfuse.core.network.HttpClientFactoryTest" time="0.007"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

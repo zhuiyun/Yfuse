@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.AndroidRangeReadWatchdogTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:10.955Z" hostname="DESKTOP-HM2J0FM" time="0.697">
+  <properties/>
+  <testcase name="adaptive transport opening cancellation remains a retryable timeout" classname="com.yfuse.core2.android.AndroidRangeReadWatchdogTest" time="0.273"/>
+  <testcase name="progress extends idle allowance but cannot restart total budget" classname="com.yfuse.core2.android.AndroidRangeReadWatchdogTest" time="0.262"/>
+  <testcase name="retry and promotion consume the same total budget" classname="com.yfuse.core2.android.AndroidRangeReadWatchdogTest" time="0.001"/>
+  <testcase name="idle exchange is closed and surfaces as timeout" classname="com.yfuse.core2.android.AndroidRangeReadWatchdogTest" time="0.053"/>
+  <testcase name="finished watchdog cannot close a subsequent exchange" classname="com.yfuse.core2.android.AndroidRangeReadWatchdogTest" time="0.108"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

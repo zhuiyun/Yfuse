@@ -1,0 +1,42 @@
+[
+  {
+    "name": "com.yfuse.core.data.ThemePreferencesTest",
+    "tests": 11,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "timestamp": "2026-09-18T10:40:39.868Z"
+  },
+  {
+    "name": "com.yfuse.core.designsystem.GlassMaterialTest",
+    "tests": 7,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "timestamp": "2026-09-18T10:40:39.920Z"
+  },
+  {
+    "name": "com.yfuse.core.designsystem.GlassTest",
+    "tests": 8,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "timestamp": "2026-09-18T10:40:39.949Z"
+  },
+  {
+    "name": "com.yfuse.core.designsystem.BackdropFramesTest",
+    "tests": 3,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "timestamp": "2026-09-18T10:40:39.813Z"
+  },
+  {
+    "name": "com.yfuse.core.designsystem.OverlayVisibilityTest",
+    "tests": 1,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "timestamp": "2026-09-18T10:40:39.958Z"
+  }
+]

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.data.ServerSessionRecoveryTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-07T07:47:39.764Z" hostname="DESKTOP-HM2J0FM" time="0.02">
+  <properties/>
+  <testcase name="temporary_failure_in_any_secret_slot_preserves_every_session_and_cache" classname="com.yfuse.core.data.ServerSessionRecoveryTest" time="0.001"/>
+  <testcase name="unrelated_startup_errors_are_not_hidden_by_the_recovery_screen" classname="com.yfuse.core.data.ServerSessionRecoveryTest" time="0.001"/>
+  <testcase name="cleanup_of_an_earlier_corrupt_session_waits_for_the_entire_read" classname="com.yfuse.core.data.ServerSessionRecoveryTest" time="0.001"/>
+  <testcase name="unexpected_store_read_errors_are_preserved_as_retryable_failures" classname="com.yfuse.core.data.ServerSessionRecoveryTest" time="0.001"/>
+  <testcase name="failed_koin_restore_publishes_no_empty_registry_and_starts_services_once_after_retry" classname="com.yfuse.core.data.ServerSessionRecoveryTest" time="0.016"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

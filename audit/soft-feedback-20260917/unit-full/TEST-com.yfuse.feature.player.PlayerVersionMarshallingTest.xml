@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.PlayerVersionMarshallingTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:16.169Z" hostname="DESKTOP-HM2J0FM" time="0.002">
+  <properties/>
+  <testcase name="a_payload_from_another_build_decodes_instead_of_failing" classname="com.yfuse.feature.player.PlayerVersionMarshallingTest" time="0.002"/>
+  <testcase name="every_field_survives_the_round_trip" classname="com.yfuse.feature.player.PlayerVersionMarshallingTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

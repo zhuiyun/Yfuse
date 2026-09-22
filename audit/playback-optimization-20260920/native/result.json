@@ -1,0 +1,32 @@
+{
+  "compiled_source_sha256": {
+    "ycore_demux_jni.cpp": "0ccfb46eb515259465212568af29521970842ba9baa01cbf4c5a6b61948626b2",
+    "ycore_tone_map.h": "7a6e50fa676b87348f02f4ab6678dd601ae00f78a49e2bdbaf3799afa109662a",
+    "ycore_disc_uri.h": "7b479e151dfb76017c332c2cde6f046de5c2d472b0b00d5e3d211e974a4e4633",
+    "ycore_overlay_plane.h": "60a36bc6dcca68d39cf45156ac0d5119fecd4b8f9b95e00c6466b5cc34dfd82e"
+  },
+  "static_dependency_sha256": {
+    ".native-build\\ycore-arm64-prefix\\lib\\libass.a": "eab53498342df9712142ed52cb99f63b95a50529fb72e77d054b74702927c732",
+    ".native-build\\ycore-arm64-prefix\\lib\\libharfbuzz.a": "232c432dd93120cd7a883e0594e8d0df86df1452a4ea41df51f0dd0940bea186",
+    ".native-build\\ycore-arm64-prefix\\lib\\libfreetype.a": "dc0ec19ccbc144a82905c85dcd739735f0498c43acc95e419d89bd9ea7f55a4a",
+    ".native-build\\ycore-arm64-prefix\\lib\\libfribidi.a": "92418274700be370cf0ea484c086911183e82e69033825967c259e20c00be507",
+    ".native-build\\ycore-arm64-prefix\\lib\\libunibreak.a": "d0566e8e2fc58fd55e894d75355f01b3881a1319b8a8648be7ac002a26b860ec",
+    ".native-build\\libbluray-prefix\\lib\\libbluray.a": "fcae80d51c0a8615815d3e49d9f560e149bb2980b4cf0c3c2b5dd1bcef682a2a"
+  },
+  "ffmpeg_revision": "b79d4c4c0a160fc46988e98505af6039a53ad53e",
+  "ffmpeg_archive_sha256": "f7c63be8f824f8f4766ea9c375fb3d5c290d9924dfa8e6db343dbd6026dd0bbd",
+  "carrier_sha256": "db5f9f2f81d42457e2c6dfa84c6645ee4e140473c8a862a85699aaa02522c75a",
+  "gpu_companion_sha256": "8ff27ee0d58fcc553d6ea26818daeaf4d42caa323aeb52f2b3d172039a42562e",
+  "demux_sha256": "3b2259a80ae22d15af89191621e69b91f705cf9ec7fe25d30589d8b55f242594",
+  "aar_sha256": "d84ff4a99e13957f168a64e65aaf263ccfcd4082ea8bb317563b23609814572b",
+  "validation": [
+    "current source compiled",
+    "--no-undefined linked",
+    "required JNI methods present",
+    "16KiB LOAD alignment for all libraries",
+    "pinned shared dependencies identical",
+    "GPU bytes unchanged",
+    "embedded provenance equals sidecar"
+  ],
+  "device_validation": "not run"
+}

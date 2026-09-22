@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.AndroidAssSubtitleRendererTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:09.125Z" hostname="DESKTOP-HM2J0FM" time="0.009">
+  <properties/>
+  <testcase name="slow_font_render_conflates_clock_updates" classname="com.yfuse.core2.android.AndroidAssSubtitleRendererTest" time="0.003"/>
+  <testcase name="seek_track_and_appearance_changes_reject_frames_from_the_previous_generation" classname="com.yfuse.core2.android.AndroidAssSubtitleRendererTest" time="0.004"/>
+  <testcase name="period_translated_ass_uses_its_authored_clock_for_scripts_and_packets" classname="com.yfuse.core2.android.AndroidAssSubtitleRendererTest" time="0.001"/>
+  <testcase name="continuous_faster_clock_input_does_not_starve_completed_frames" classname="com.yfuse.core2.android.AndroidAssSubtitleRendererTest" time="0.001"/>
+  <testcase name="close_returns_while_native_render_is_busy_and_releases_handle_after_render" classname="com.yfuse.core2.android.AndroidAssSubtitleRendererTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

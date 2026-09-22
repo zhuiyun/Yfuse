@@ -1,0 +1,9 @@
+Ship 1.0.71 loading animations and adjustable glass [artifact only]
+
+Add nine selectable loading animations and a dedicated glass material page with three sliders, live preview, per-theme persistence, and reset presets. Wire preferences through phone, player, and TV entry points.
+
+Include the previously delivered 1.0.70 media-network and handoff fixes plus its existing dependency lock synchronization so the repository matches the packaged source. Increment project metadata and preserve release-note history.
+
+Validation: 25 relevant JVM tests, phone/TV source compilation, scoped formatting, and release build gates passed. Verified the actual com.yfuse 1.0.71 (233) Full ARM64 APK, production certificate, increasing version, ZIP integrity, and ZIP/ELF alignment against 1.0.70 (232). TV search tests remain blocked by an existing Ktor test-lock conflict; no device UI/playback validation.
+
+Upload source only; do not trigger production publishing.

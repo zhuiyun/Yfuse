@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.AndroidAudioClockProgressGuardTest" tests="11" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:43:54.200Z" hostname="DESKTOP-HM2J0FM" time="0.002">
+  <properties/>
+  <testcase name="playback head remains continuous across unsigned counter wrap" classname="com.yfuse.core2.android.AndroidAudioClockProgressGuardTest" time="0.001"/>
+  <testcase name="zero timestamp cannot hide a progressing playback head" classname="com.yfuse.core2.android.AndroidAudioClockProgressGuardTest" time="0.0"/>
+  <testcase name="stale timestamp falls back to advancing playback head" classname="com.yfuse.core2.android.AndroidAudioClockProgressGuardTest" time="0.0"/>
+  <testcase name="reset cannot turn an empty sink into rendered output" classname="com.yfuse.core2.android.AndroidAudioClockProgressGuardTest" time="0.0"/>
+  <testcase name="fully stalled playing clock yields wall clock fallback" classname="com.yfuse.core2.android.AndroidAudioClockProgressGuardTest" time="0.0"/>
+  <testcase name="first timestamp after a wrap uses the playback head cycle" classname="com.yfuse.core2.android.AndroidAudioClockProgressGuardTest" time="0.0"/>
+  <testcase name="empty paused track retains its stable position" classname="com.yfuse.core2.android.AndroidAudioClockProgressGuardTest" time="0.001"/>
+  <testcase name="hardware timestamp wraps without jumping behind the playback head" classname="com.yfuse.core2.android.AndroidAudioClockProgressGuardTest" time="0.0"/>
+  <testcase name="flush clears counter wrap and small corrections do not add a full cycle" classname="com.yfuse.core2.android.AndroidAudioClockProgressGuardTest" time="0.0"/>
+  <testcase name="advancing hardware timestamp remains authoritative" classname="com.yfuse.core2.android.AndroidAudioClockProgressGuardTest" time="0.0"/>
+  <testcase name="paused clock may remain stationary" classname="com.yfuse.core2.android.AndroidAudioClockProgressGuardTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

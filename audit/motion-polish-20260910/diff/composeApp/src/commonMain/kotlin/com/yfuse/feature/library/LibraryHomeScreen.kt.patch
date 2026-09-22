@@ -1,0 +1,335 @@
+--- composeApp/src/commonMain/kotlin/com/yfuse/feature/library/LibraryHomeScreen.kt (before turn)
++++ composeApp/src/commonMain/kotlin/com/yfuse/feature/library/LibraryHomeScreen.kt
+@@ -47,7 +47,6 @@
+ import androidx.compose.ui.draw.drawBehind
+ import androidx.compose.ui.graphics.Color
+ import androidx.compose.ui.graphics.graphicsLayer
+-import androidx.compose.ui.layout.layout
+ import androidx.compose.ui.platform.LocalDensity
+ import androidx.compose.ui.semantics.Role
+ import androidx.compose.ui.semantics.selected
+@@ -83,13 +82,16 @@
+ import com.yfuse.core.designsystem.MediaSharedElementKey
+ import com.yfuse.core.designsystem.MediaSizing
+ import com.yfuse.core.designsystem.Motion
++import com.yfuse.core.designsystem.MotionSwap
+ import com.yfuse.core.designsystem.OverlayHeader
+ import com.yfuse.core.designsystem.PageHint
++import com.yfuse.core.designsystem.RefreshIndicator
+ import com.yfuse.core.designsystem.RefreshThresholdHaptics
+ import com.yfuse.core.designsystem.ScrollToTopOnReselect
+ import com.yfuse.core.designsystem.SkeletonArrivalScope
+ import com.yfuse.core.designsystem.SkeletonRail
+ import com.yfuse.core.designsystem.StatusBarIconStyle
++import com.yfuse.core.designsystem.arrivalSweep
+ import com.yfuse.core.designsystem.carouselArtworkMotion
+ import com.yfuse.core.designsystem.carouselCaptionEntry
+ import com.yfuse.core.designsystem.carouselPageVisual
+@@ -98,6 +100,7 @@
+ import com.yfuse.core.designsystem.glass
+ import com.yfuse.core.designsystem.heroDurationLabel
+ import com.yfuse.core.designsystem.heroMediaTypeLabel
++import com.yfuse.core.designsystem.heroScrollCollapse
+ import com.yfuse.core.designsystem.heroTopScrim
+ import com.yfuse.core.designsystem.livingPosterFrame
+ import com.yfuse.core.designsystem.livingPosterHeroHeight
+@@ -118,9 +121,11 @@
+ import com.yfuse.core.designsystem.rememberCarouselCaptionProgress
+ import com.yfuse.core.designsystem.rememberCarouselPageColor
+ import com.yfuse.core.designsystem.rememberLoopingCarouselState
++import com.yfuse.core.designsystem.rememberRefreshReveal
+ import com.yfuse.core.designsystem.rememberRetainedArtworkPageColor
+ import com.yfuse.core.designsystem.rememberScrolledPastHero
+ import com.yfuse.core.designsystem.scrim
++import com.yfuse.core.designsystem.selectionColor
+ import com.yfuse.core.designsystem.sharedMediaArtwork
+ import com.yfuse.core.designsystem.sharedMediaOnClick
+ import com.yfuse.core.designsystem.skeletonSweep
+@@ -251,7 +256,8 @@
+         )
+ 
+     val pullState = rememberPullToRefreshState()
+-    RefreshThresholdHaptics(pullState, refreshing = state.loading)
++    RefreshThresholdHaptics(pullState, refreshing = state.refreshing)
++    val refreshArrival = rememberRefreshReveal(state.refreshing)
+ 
+     var serverMenuOpen by remember { mutableStateOf(false) }
+     val listState = component.listState
+@@ -350,14 +356,22 @@
+                         isRefreshing = state.refreshing,
+                         onRefresh = { store.accept(LibraryIntent.Retry) },
+                         state = pullState,
++                        indicator = {
++                            RefreshIndicator(
++                                pullState,
++                                state.refreshing,
++                                Modifier.align(Alignment.TopCenter),
++                            )
++                        },
+                         modifier = Modifier.fillMaxSize(),
+                     ) {
+                         SkeletonArrivalScope(state.loading && state.content.isEmpty) {
+                             LazyColumn(
+                                 // One page-wide sweep over the loading shelves, while any is loading.
+                                 modifier =
+-                                    Modifier.fillMaxSize().skeletonSweep(),
++                                    Modifier.fillMaxSize().skeletonSweep().arrivalSweep(refreshArrival),
+                                 state = listState,
++                                verticalArrangement = Arrangement.spacedBy(Dimens.sectionGap),
+                                 contentPadding = PaddingValues(bottom = bottomContentInset),
+                             ) {
+                                 if (slide != null) {
+@@ -366,6 +380,9 @@
+                                             Modifier
+                                                 .fillMaxWidth()
+                                                 .height(
++                                                    heroHeight,
++                                                ).heroScrollCollapse(
++                                                    listState,
+                                                     heroHeight,
+                                                 ).carouselTouchPause(carouselTouched),
+                                         ) {
+@@ -513,101 +530,68 @@
+                                     }
+                                 }
+ 
+-                                motionItem {
+-                                    val liftPx = with(density) { HeroLift.roundToPx() }
+-                                    // One page colour only: the hero removes its own alpha and reveals the exact background below.
+-                                    Column(
+-                                        Modifier
+-                                            .fillMaxWidth()
+-                                            // `offset` moves the drawing but keeps the measured height,
+-                                            // so the lift used to leave 52dp of blank page hanging off
+-                                            // the end of the list. Shrink the slot instead.
+-                                            .layout { measurable, constraints ->
+-                                                val placeable = measurable.measure(constraints)
+-                                                layout(
+-                                                    placeable.width,
+-                                                    (placeable.height - liftPx).coerceAtLeast(0),
+-                                                ) {
+-                                                    placeable.place(0, -liftPx)
++                                if (state.contentSource == LibraryContentSource.Cached && !state.content.isEmpty) {
++                                    motionItem(key = "library-freshness") {
++                                        LibraryFreshnessBanner(
++                                            updatedAtEpochMs = state.updatedAtEpochMs,
++                                            nowEpochMs = freshnessNowEpochMs,
++                                            error = state.error,
++                                            loading = state.loading,
++                                            onRetry = { store.accept(LibraryIntent.Retry) },
++                                        )
++                                    }
++                                }
++                                if (state.loading && state.content.isEmpty) {
++                                    motionItem(key = "library-loading") { SkeletonRow() }
++                                }
++                                if (state.content.rows.isNotEmpty() || state.currentServer != null) {
++                                    motionItem(key = "library-categories") {
++                                        CategoryCards(
++                                            baseUrl = baseUrl,
++                                            accessToken = accessToken,
++                                            rows = state.content.rows,
++                                            playlists = state.content.playlists,
++                                            onOpen = { component.onSeeAll(it.libraryId, it.title) },
++                                            onOpenPlaylists = {
++                                                state.currentServer?.id?.let { serverId ->
++                                                    component.onSeeAll(
++                                                        LibraryContainerDirectoryRoute(
++                                                            serverId,
++                                                            MediaContainerKind.Playlist,
++                                                        ).encode(),
++                                                        "播放列表",
++                                                    )
+                                                 }
+-                                                // Match the visual lift exactly: a larger top inset left a
+-                                                // full-width strip of bare page colour between the hero melt and
+-                                                // the first library card, which read as a horizontal seam.
+-                                            }.padding(top = HeroLift),
+-                                        verticalArrangement = Arrangement.spacedBy(Dimens.sectionGap),
+-                                    ) {
+-                                        if (
+-                                            state.contentSource == LibraryContentSource.Cached &&
+-                                            !state.content.isEmpty
+-                                        ) {
+-                                            LibraryFreshnessBanner(
+-                                                updatedAtEpochMs = state.updatedAtEpochMs,
+-                                                nowEpochMs = freshnessNowEpochMs,
+-                                                error = state.error,
+-                                                loading = state.loading,
+-                                                onRetry = { store.accept(LibraryIntent.Retry) },
+-                                            )
+-                                        }
+-
+-                                        if (state.loading && state.content.isEmpty) {
+-                                            SkeletonRow()
+-                                        }
+-
+-                                        if (
+-                                            state.content.rows.isNotEmpty() ||
+-                                            state.currentServer != null
+-                                        ) {
+-                                            CategoryCards(
+-                                                baseUrl = baseUrl,
+-                                                accessToken = accessToken,
+-                                                rows = state.content.rows,
+-                                                playlists = state.content.playlists,
+-                                                onOpen = {
+-                                                    component.onSeeAll(it.libraryId, it.title)
+-                                                },
+-                                                onOpenPlaylists = {
+-                                                    state.currentServer?.id?.let { serverId ->
+-                                                        component.onSeeAll(
+-                                                            LibraryContainerDirectoryRoute(
+-                                                                serverId,
+-                                                                MediaContainerKind.Playlist,
+-                                                            ).encode(),
+-                                                            "播放列表",
+-                                                        )
+-                                                    }
+-                                                },
+-                                            )
+-                                        }
+-
+-                                        if (state.content.resume.isNotEmpty()) {
+-                                            PlaybackHistory(
+-                                                baseUrl = baseUrl,
+-                                                accessToken = accessToken,
+-                                                serverId = state.currentServer?.id,
+-                                                items = state.content.resume,
+-                                                onItemClick = { component.onOpenItem(it.id) },
+-                                            )
+-                                        }
+-
+-                                        state.content.rows.libraryShelfRows().forEach { row ->
+-                                            CategorySection(
+-                                                baseUrl = baseUrl,
+-                                                accessToken = accessToken,
+-                                                serverId = state.currentServer?.id,
+-                                                row = row,
+-                                                onSeeAll = {
+-                                                    component.onSeeAll(row.libraryId, row.title)
+-                                                },
+-                                                onItemClick = { component.onOpenItem(it.id) },
+-                                            )
+-                                        }
+-
+-                                        state.content.counts?.let { counts ->
+-                                            LibraryCountFooter(
+-                                                movieCount = counts.movieCount,
+-                                                seriesCount = counts.seriesCount,
+-                                            )
+-                                        }
++                                            },
++                                        )
++                                    }
++                                }
++                                if (state.content.resume.isNotEmpty()) {
++                                    motionItem(key = "library-resume") {
++                                        PlaybackHistory(
++                                            baseUrl = baseUrl,
++                                            accessToken = accessToken,
++                                            serverId = state.currentServer?.id,
++                                            items = state.content.resume,
++                                            onItemClick = { component.onOpenItem(it.id) },
++                                        )
++                                    }
++                                }
++                                state.content.rows.libraryShelfRows().forEach { row ->
++                                    motionItem(key = "library-shelf:${row.libraryId}:${row.title}") {
++                                        CategorySection(
++                                            baseUrl = baseUrl,
++                                            accessToken = accessToken,
++                                            serverId = state.currentServer?.id,
++                                            row = row,
++                                            onSeeAll = { component.onSeeAll(row.libraryId, row.title) },
++                                            onItemClick = { component.onOpenItem(it.id) },
++                                        )
++                                    }
++                                }
++                                state.content.counts?.let { counts ->
++                                    motionItem(key = "library-counts") {
++                                        LibraryCountFooter(counts.movieCount, counts.seriesCount)
+                                     }
+                                 }
+                             }
+@@ -670,17 +654,17 @@
+                 border = palette.border,
+             ).padding(start = 14.dp, end = 8.dp, top = 12.dp, bottom = 8.dp),
+     ) {
+-        Text(
+-            text = if (error == null) "缓存内容" else "离线内容",
+-            style = AppTypography.body.strong,
+-            color = palette.text,
+-        )
+-        Text(
+-            text = detail,
+-            style = AppTypography.caption.regular,
+-            color = palette.sub,
+-            modifier = Modifier.padding(top = 3.dp),
+-        )
++        MotionSwap((error == null) to detail, Modifier.fillMaxWidth()) { (cached, message) ->
++            Column(Modifier.fillMaxWidth()) {
++                Text(if (cached) "缓存内容" else "离线内容", style = AppTypography.body.strong, color = palette.text)
++                Text(
++                    message,
++                    style = AppTypography.caption.regular,
++                    color = palette.sub,
++                    modifier = Modifier.padding(top = 3.dp),
++                )
++            }
++        }
+         if (error != null && !loading) {
+             Text(
+                 text = "重试",
+@@ -707,16 +691,18 @@
+     movieCount: Int,
+     seriesCount: Int,
+ ) {
+-    Text(
+-        text = "电影 $movieCount 部 · 剧集 $seriesCount 部",
+-        style = AppTypography.caption.medium,
+-        color = LocalPalette.current.sub2,
+-        textAlign = TextAlign.Center,
+-        modifier =
+-            Modifier
+-                .fillMaxWidth()
+-                .padding(horizontal = Dimens.pageHorizontal, vertical = 20.dp),
+-    )
++    MotionSwap(movieCount to seriesCount, Modifier.fillMaxWidth()) { (movies, series) ->
++        Text(
++            text = "电影 $movies 部 · 剧集 $series 部",
++            style = AppTypography.caption.medium,
++            color = LocalPalette.current.sub2,
++            textAlign = TextAlign.Center,
++            modifier =
++                Modifier
++                    .fillMaxWidth()
++                    .padding(horizontal = Dimens.pageHorizontal, vertical = 20.dp),
++        )
++    }
+ }
+ 
+ /**
+@@ -958,18 +944,11 @@
+                         ).semantics { this.selected = isCurrent }
+                         .glass(
+                             shape = GlassShapes.chip,
+-                            fill =
+-                                if (isCurrent) {
+-                                    themeAccent.container
+-                                } else {
+-                                    palette.card2
+-                                },
++                            fill = selectionColor(if (isCurrent) themeAccent.container else palette.card2),
+                             border =
+-                                if (isCurrent) {
+-                                    themeAccent.border.copy(alpha = 0.30f)
+-                                } else {
+-                                    palette.border
+-                                },
++                                selectionColor(
++                                    if (isCurrent) themeAccent.border.copy(alpha = 0.30f) else palette.border,
++                                ),
+                         ).padding(horizontal = 12.dp, vertical = 11.dp),
+                     horizontalArrangement = Arrangement.spacedBy(11.dp),
+                     verticalAlignment = Alignment.CenterVertically,

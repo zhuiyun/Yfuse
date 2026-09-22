@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.designsystem.CuriousDialogMotionTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-09-22T01:21:16.588Z" hostname="DESKTOP-HM2J0FM" time="0.114">
+  <properties/>
+  <testcase name="all_masks_expand_inside_portrait_landscape_and_tiny_panels" classname="com.yfuse.core.designsystem.CuriousDialogMotionTest" time="0.053"/>
+  <testcase name="decorations_are_one_finite_pulse_and_styles_have_distinct_reveals" classname="com.yfuse.core.designsystem.CuriousDialogMotionTest" time="0.007"/>
+  <testcase name="text_keeps_its_proportions_and_transforms_settle_before_the_masks" classname="com.yfuse.core.designsystem.CuriousDialogMotionTest" time="0.009"/>
+  <testcase name="pinwheel_blades_start_at_zero_area_and_their_whole_bounds_grow_from_the_center" classname="com.yfuse.core.designsystem.CuriousDialogMotionTest" time="0.001"/>
+  <testcase name="stage_boundaries_are_continuous_in_both_playback_directions" classname="com.yfuse.core.designsystem.CuriousDialogMotionTest" time="0.043"/>
+  <testcase name="every_style_has_a_full_undecorated_endpoint_before_final_bypass" classname="com.yfuse.core.designsystem.CuriousDialogMotionTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

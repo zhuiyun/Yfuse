@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.tv.ui.TvServerBackupFilesTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-15T04:26:39.308Z" hostname="DESKTOP-HM2J0FM" time="0.021">
+  <properties/>
+  <testcase name="selected_payload_is_a_snapshot_and_oversized_files_are_not_parsed" classname="com.yfuse.tv.ui.TvServerBackupFilesTest" time="0.019"/>
+  <testcase name="reader_accepts_exact_limit_and_rejects_the_next_byte" classname="com.yfuse.tv.ui.TvServerBackupFilesTest" time="0.001"/>
+  <testcase name="streaming_reader_does_not_trust_available_and_preserves_cancellation" classname="com.yfuse.tv.ui.TvServerBackupFilesTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

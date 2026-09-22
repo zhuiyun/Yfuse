@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.data.EmbyLookupServiceTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:46:58.044Z" hostname="DESKTOP-HM2J0FM" time="0.286">
+  <properties/>
+  <testcase name="a_provider_media_key_is_resolved_through_one_provider_id_query" classname="com.yfuse.core.data.EmbyLookupServiceTest" time="0.235"/>
+  <testcase name="movie_index_carries_local_watched_state_and_a_title_year_fallback_key" classname="com.yfuse.core.data.EmbyLookupServiceTest" time="0.025"/>
+  <testcase name="series_index_keys_every_provider_id_in_lower_case_and_skips_blank_values" classname="com.yfuse.core.data.EmbyLookupServiceTest" time="0.005"/>
+  <testcase name="identity_catalog_drops_unnamed_rows_and_keeps_favourite_state" classname="com.yfuse.core.data.EmbyLookupServiceTest" time="0.004"/>
+  <testcase name="a_server_failure_is_reported_as_the_server_domain_error" classname="com.yfuse.core.data.EmbyLookupServiceTest" time="0.008"/>
+  <testcase name="an_emby_media_key_is_read_as_a_plain_item_id_on_this_server" classname="com.yfuse.core.data.EmbyLookupServiceTest" time="0.002"/>
+  <testcase name="a_malformed_media_key_misses_without_touching_the_server" classname="com.yfuse.core.data.EmbyLookupServiceTest" time="0.002"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[SLF4J(W): No SLF4J providers were found.
+SLF4J(W): Defaulting to no-operation (NOP) logger implementation
+SLF4J(W): See https://www.slf4j.org/codes.html#noProviders for further details.
+]]></system-err>
+</testsuite>

@@ -1,0 +1,66 @@
+{
+  "production_kotlin_files": 808,
+  "production_files_over_1000_lines": 43,
+  "production_files_over_2000_lines": 12,
+  "largest_production_files": [
+    [
+      "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerRoot.kt",
+      3452
+    ],
+    [
+      "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidNativeDirectYPlayer.kt",
+      3261
+    ],
+    [
+      "watchTogetherServer/src/main/kotlin/com/yfuse/watch/CalendarIngestion.kt",
+      2879
+    ],
+    [
+      "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidAdaptiveCore2YPlayer.kt",
+      2311
+    ],
+    [
+      "watchTogetherServer/src/main/kotlin/com/yfuse/watch/Application.kt",
+      2302
+    ],
+    [
+      "composeApp/src/commonMain/kotlin/com/yfuse/feature/servers/ServersTabScreen.kt",
+      2241
+    ],
+    [
+      "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/MpvVideoEngine.kt",
+      2187
+    ],
+    [
+      "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidEnhancedPlaybackSession.kt",
+      2154
+    ]
+  ],
+  "ktlint_baseline_records": {
+    "composeApp-baseline.xml": 701,
+    "mdkAndroid-baseline.xml": 0,
+    "tvApp-baseline.xml": 5,
+    "watchTogetherProtocol-baseline.xml": 0,
+    "watchTogetherServer-baseline.xml": 449
+  },
+  "test_result_xml_summary": {
+    "server": {
+      "tests": 175,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "suites": 24,
+      "latest_mtime": "2026-09-15T01:25:10.354774+00:00"
+    },
+    "protocol": {
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "suites": 2,
+      "latest_mtime": "2026-09-15T01:33:47.732975+00:00"
+    }
+  },
+  "nul_bytes_in_tv_backup_screen": 1,
+  "report_source_links_valid": true
+}

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.AndroidTransportDiscBlockSourceTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:43:58.650Z" hostname="DESKTOP-HM2J0FM" time="0.007">
+  <properties/>
+  <testcase name="cancel signal returns without waiting for transport close and permanent source close remains closed" classname="com.yfuse.core2.android.AndroidTransportDiscBlockSourceTest" time="0.004"/>
+  <testcase name="transport that never makes progress fails instead of spinning forever" classname="com.yfuse.core2.android.AndroidTransportDiscBlockSourceTest" time="0.0"/>
+  <testcase name="remote ISO reads exact UDF blocks and forwards credentials" classname="com.yfuse.core2.android.AndroidTransportDiscBlockSourceTest" time="0.001"/>
+  <testcase name="LBA conversion remains 64 bit above four GiB" classname="com.yfuse.core2.android.AndroidTransportDiscBlockSourceTest" time="0.001"/>
+  <testcase name="probe requires a real complete block and closed source fails closed" classname="com.yfuse.core2.android.AndroidTransportDiscBlockSourceTest" time="0.0"/>
+  <testcase name="interrupted range recovers while delayed old transport close cannot close the new range" classname="com.yfuse.core2.android.AndroidTransportDiscBlockSourceTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

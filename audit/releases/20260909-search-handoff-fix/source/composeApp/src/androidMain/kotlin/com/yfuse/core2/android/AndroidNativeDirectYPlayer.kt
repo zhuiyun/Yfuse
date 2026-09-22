@@ -1,0 +1,3206 @@
+package com.yfuse.core2.android
+
+import android.content.Context
+import android.media.MediaCodec
+import android.media.MediaExtractor
+import android.media.MediaFormat
+import android.os.Process
+import android.view.Surface
+import com.yfuse.core.logging.AppLog
+import com.yfuse.core2.api.YDolbyAtmosOutputMode
+import com.yfuse.core2.api.YMediaItem
+import com.yfuse.core2.api.YMediaSourceHints
+import com.yfuse.core2.api.YOutputEvidenceResetReason
+import com.yfuse.core2.api.YPlaybackException
+import com.yfuse.core2.api.YPlaybackFailureCategory
+import com.yfuse.core2.api.YPlaybackFailureStage
+import com.yfuse.core2.api.YPlaybackPhase
+import com.yfuse.core2.api.YPlaybackRoute
+import com.yfuse.core2.api.YPlayer
+import com.yfuse.core2.api.YPlayerDiagnostics
+import com.yfuse.core2.api.YPlayerOpenRequest
+import com.yfuse.core2.api.YPlayerState
+import com.yfuse.core2.api.YTrack
+import com.yfuse.core2.api.YTrackType
+import com.yfuse.core2.api.YVideoOutput
+import com.yfuse.core2.api.invalidateOutputEvidence
+import com.yfuse.core2.api.yPlaybackStage
+import com.yfuse.core2.bitstream.YBitstream
+import com.yfuse.core2.bitstream.YSamplePacking
+import com.yfuse.core2.capability.YAudioCodec
+import com.yfuse.core2.capability.YAudioOutputPath
+import com.yfuse.core2.capability.YAudioRequirement
+import com.yfuse.core2.demux.YAudioTrackFormat
+import com.yfuse.core2.dolby.YDolbyVisionConfig
+import com.yfuse.core2.network.YBufferConditions
+import com.yfuse.core2.network.YBufferController
+import com.yfuse.core2.recovery.requiresPcmAudioPath
+import com.yfuse.core2.render.YFrameRateSwitchMode
+import com.yfuse.core2.render.videoFrameRateHint
+import com.yfuse.core2.subtitle.YSubtitleCue
+import com.yfuse.core2.subtitle.YSubtitleFormat
+import com.yfuse.core2.subtitle.appendUntimedTextSubtitlePacket
+import com.yfuse.core2.sync.YAvSync
+import com.yfuse.core2.sync.YClockSnapshot
+import com.yfuse.core2.sync.YMediaClock
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ExecutorCoroutineDispatcher
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import java.nio.ByteBuffer
+import java.util.concurrent.Executors
+
+/**
+ * First runnable Core2 player: MediaExtractor → MediaCodec → Surface plus MediaCodec → AudioTrack.
+ *
+ * This implementation is intentionally not wired as the production default yet. It exists so
+ * Phase 1 can harden the native lifecycle and timing behind the stable YPlayer API while Legacy
+ * remains the fallback for every user.
+ */
+internal class AndroidNativeDirectYPlayer(
+    context: Context,
+    private val request: YPlayerOpenRequest,
+    private val decoderName: String? = null,
+    private val runtimeCapabilityKey: YRuntimeVideoCapabilityKey? = null,
+    private val plannedAudioOutputPath: YAudioOutputPath? = null,
+    private val frameRateSwitchMode: YFrameRateSwitchMode = YFrameRateSwitchMode.SeamlessOnly,
+    private val plannedDolbyVisionConfig: YDolbyVisionConfig? = null,
+    private val confirmedDolbyVisionNalIdentity: Boolean = false,
+    private val requireDolbyVisionIdentity: Boolean = false,
+    private val preferredRemoteBufferTargetUs: Long? = null,
+    private val preparedExtractor: ((YMediaItem) -> YPlatformExtractorSource?)? = null,
+) : YPlayer,
+    AndroidSerializedPlayerRelease {
+    private val appContext = context.applicationContext
+    private val mutableState =
+        MutableStateFlow(
+            YPlayerState(
+                phase = YPlaybackPhase.Idle,
+                playbackRequested = request.autoPlay,
+                buffering = false,
+                positionMs = request.startPositionMs,
+                currentIndex = request.startIndex,
+                itemCount = request.items.size,
+                diagnostics =
+                    YPlayerDiagnostics(
+                        route = YPlaybackRoute.NativeDirect,
+                        demuxer = "MediaExtractor",
+                        renderer = "SurfaceView / AudioTrack",
+                        reason = "YCore 2.0 NativeDirect experimental path",
+                    ),
+            ),
+        )
+    override val state: StateFlow<YPlayerState> = mutableState.asStateFlow()
+
+    private val playbackDispatcher = createNativeDirectPlaybackDispatcher()
+    private val scope = CoroutineScope(SupervisorJob() + playbackDispatcher)
+    private val commands = Channel<Command>(Channel.UNLIMITED)
+
+    /** Conflated hint that wakes an idle run loop as soon as a command is queued. */
+    private val wakeSignal = Channel<Unit>(Channel.CONFLATED)
+
+    @Volatile
+    private var released = false
+
+    @Volatile
+    private var activeSession: NativeSession? = null
+
+    @Volatile
+    private var releasedAtMs: Long? = null
+
+    private val worker: Job = scope.launch { runLoop() }
+
+    override val playbackRequested: Boolean get() = mutableState.value.playbackRequested
+
+    override fun prepare() {
+        if (released) return
+        mutableState.updateState {
+            it.copy(
+                phase = YPlaybackPhase.Preparing,
+                buffering = it.playbackRequested,
+                error = null,
+            )
+        }
+        submit(Command.Prepare)
+    }
+
+    override fun setVideoOutput(output: YVideoOutput?): Boolean {
+        if (released) return false
+        if (output != null && output !is AndroidSurfaceVideoOutput) return false
+        submit(Command.SetVideoOutput(output as AndroidSurfaceVideoOutput?))
+        return true
+    }
+
+    override fun play() {
+        if (released) return
+        mutableState.updateState {
+            it.copy(
+                playbackRequested = true,
+                buffering = it.phase != YPlaybackPhase.Ended,
+                error = null,
+            )
+        }
+        submit(Command.Play)
+    }
+
+    override fun pause() {
+        if (released) return
+        mutableState.updateState {
+            it.copy(
+                playbackRequested = false,
+                playing = false,
+                buffering = false,
+            )
+        }
+        submit(Command.Pause)
+    }
+
+    override fun seekTo(positionMs: Long) {
+        if (released) return
+        val bounded = positionMs.coerceAtLeast(0L)
+        mutableState.updateState {
+            it.copy(
+                positionMs = bounded,
+                subtitleCues = emptyList(),
+                secondarySubtitleCues = emptyList(),
+                bufferedPositionMs = bounded,
+                buffering = it.playbackRequested,
+                phase = if (it.phase == YPlaybackPhase.Ended) YPlaybackPhase.Ready else it.phase,
+            )
+        }
+        submit(Command.Seek(bounded * MICROS_PER_MILLISECOND))
+    }
+
+    override fun setSpeed(speed: Float) {
+        if (released || !speed.isFinite() || speed <= 0f) return
+        mutableState.updateState { it.copy(speed = speed) }
+        submit(Command.SetSpeed(speed))
+    }
+
+    override val supportsAudioDelay: Boolean get() = true
+
+    override fun setAudioDelayMs(delayMs: Long): Boolean {
+        if (released) return false
+        submit(Command.SetAudioDelay(delayMs.coerceIn(-5_000L, 5_000L)))
+        return true
+    }
+
+    override fun selectTrack(
+        type: YTrackType,
+        id: String,
+    ) {
+        if (released) return
+        when (type) {
+            YTrackType.Audio ->
+                id.removePrefix(AUDIO_TRACK_PREFIX).toIntOrNull()?.let {
+                    submit(Command.SelectAudioTrack(it))
+                }
+            YTrackType.Subtitle -> {
+                when (id) {
+                    SUBTITLE_OFF -> submit(Command.SelectSubtitleTrack(null, externalTrackId = null))
+                    EXTERNAL_SUBTITLE_TRACK_ID ->
+                        submit(
+                            Command.SelectSubtitleTrack(
+                                null,
+                                externalTrackId =
+                                    mutableState.value.subtitleTracks
+                                        .firstOrNull {
+                                            it.id.startsWith(EXTERNAL_SUBTITLE_TRACK_PREFIX)
+                                        }?.id,
+                            ),
+                        )
+                    else -> {
+                        if (id.startsWith(EXTERNAL_SUBTITLE_TRACK_PREFIX)) {
+                            submit(Command.SelectSubtitleTrack(null, externalTrackId = id))
+                        } else {
+                            val trackIndex = id.removePrefix(SUBTITLE_TRACK_PREFIX).toIntOrNull() ?: return
+                            submit(Command.SelectSubtitleTrack(trackIndex, externalTrackId = null))
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    override val supportsSecondarySubtitleOffset: Boolean = true
+
+    override fun setSecondarySubtitleOffsetMs(offsetMs: Long): Boolean {
+        if (released || offsetMs !in -60_000L..60_000L) return false
+        mutableState.updateState { it.copy(secondarySubtitleOffsetMs = offsetMs) }
+        return true
+    }
+
+    override val supportsSecondarySubtitleTrack: Boolean = true
+
+    override fun selectSecondarySubtitleTrack(id: String): Boolean {
+        if (released) return false
+        val selected = mutableState.value.subtitleTracks.firstOrNull { it.id == id }
+        if (id != SUBTITLE_OFF && (selected == null || selected.selected)) return false
+        val external = id.takeIf { it.startsWith(EXTERNAL_SUBTITLE_TRACK_PREFIX) }
+        val embedded =
+            if (id == SUBTITLE_OFF || external != null) {
+                null
+            } else {
+                id.removePrefix(SUBTITLE_TRACK_PREFIX).toIntOrNull() ?: return false
+            }
+        submit(Command.SelectSubtitleTrack(embedded, externalTrackId = external, secondary = true))
+        return true
+    }
+
+    override fun selectItem(index: Int) {
+        if (released || index !in request.items.indices) return
+        mutableState.updateState {
+            it.copy(
+                phase = YPlaybackPhase.Preparing,
+                playing = false,
+                buffering = it.playbackRequested,
+                positionMs = 0L,
+                bufferedPositionMs = 0L,
+                currentIndex = index,
+                error = null,
+            )
+        }
+        submit(Command.SelectItem(index))
+    }
+
+    override fun currentPositionMs(): Long = mutableState.value.positionMs
+
+    override fun retry() {
+        if (released) return
+        mutableState.updateState {
+            it.copy(
+                phase = YPlaybackPhase.Preparing,
+                error = null,
+                buffering = it.playbackRequested,
+            )
+        }
+        submit(Command.Prepare)
+    }
+
+    override val releaseCompleted: Boolean get() = worker.isCompleted
+
+    override suspend fun releaseAndJoin() {
+        release()
+        val completed =
+            withContext(NonCancellable) {
+                withTimeoutOrNull(5_000L) {
+                    worker.join()
+                    true
+                }
+            }
+        check(completed == true) {
+            "Previous direct decoder did not finish releasing; replacement was not started"
+        }
+    }
+
+    override fun release() {
+        if (released) return
+        releasedAtMs = System.nanoTime() / 1_000_000L
+        released = true
+        activeSession?.cancelPendingRead()
+        commands.close()
+        wakeSignal.trySend(Unit)
+        worker.invokeOnCompletion { playbackDispatcher.close() }
+        worker.cancel()
+        scope.cancel()
+        mutableState.update { current ->
+            current.copy(
+                phase = YPlaybackPhase.Idle,
+                playing = false,
+                playbackRequested = false,
+                buffering = false,
+            )
+        }
+    }
+
+    private suspend fun runLoop() {
+        val session = NativeSession(appContext)
+        activeSession = session
+        try {
+            while (scope.isActive) {
+                val pendingCommands = mutableListOf<Command>()
+                while (true) {
+                    val command = commands.tryReceive().getOrNull() ?: break
+                    pendingCommands += command
+                }
+                val handledCommand = pendingCommands.isNotEmpty()
+                for (command in coalesceNativeDirectCommands(pendingCommands)) {
+                    if (released || !scope.isActive) return
+                    val failure = runCatching { session.handle(command) }.exceptionOrNull()
+                    if (failure != null) {
+                        if (failure is CancellationException && (released || !scope.isActive)) return
+                        fail(session, failure)
+                        // Commands in this batch were captured before the failure. Processing a
+                        // stale Play/Seek/Surface command after releaseMedia() can partially revive
+                        // a failed session and report rendered frames while its phase is Failed.
+                        // A later explicit retry arrives in a fresh batch and may prepare safely.
+                        break
+                    }
+                }
+
+                val canPump = session.canPump
+                val didWork =
+                    if (canPump) {
+                        val result = runCatching { session.pump() }
+                        val failure = result.exceptionOrNull()
+                        if (failure is CancellationException && (released || !scope.isActive)) return
+                        failure?.let { fail(session, it) }
+                        result.getOrDefault(false)
+                    } else {
+                        false
+                    }
+
+                if (!handledCommand && !didWork) {
+                    if (canPump) {
+                        // A queued command ends the wait at once; otherwise the pump sleeps for its
+                        // interval, which is longer while paused because there is no decoder output
+                        // to collect on a schedule.
+                        withTimeoutOrNull(session.idleDelayMs()) { wakeSignal.receiveCatching() }
+                    } else {
+                        val command = commands.receiveCatching().getOrNull() ?: break
+                        val failure = runCatching { session.handle(command) }.exceptionOrNull()
+                        if (failure is CancellationException && (released || !scope.isActive)) return
+                        failure?.let { fail(session, it) }
+                    }
+                }
+            }
+        } finally {
+            session.releaseAll()
+            activeSession = null
+        }
+    }
+
+    private fun submit(command: Command) {
+        commands.trySend(command)
+        wakeSignal.trySend(Unit)
+    }
+
+    private fun fail(
+        session: NativeSession,
+        throwable: Throwable,
+    ) {
+        if (released || throwable is CancellationException) return
+        session.releaseMedia()
+        val typed = throwable as? YPlaybackException
+        val codecConfigurationFailure = typed?.cause as? YVideoDecoderConfigurationException
+        AppLog.error(
+            category = "player.core2",
+            event = "native_direct_failed",
+            message = "YCore NativeDirect failed",
+            attributes =
+                mapOf(
+                    "category" to (typed?.category?.name ?: YPlaybackFailureCategory.Unknown.name),
+                    "stage" to (typed?.stage?.name ?: YPlaybackFailureStage.Unknown.name),
+                    "detail" to typed?.safeDetail.orEmpty(),
+                    "codecMime" to codecConfigurationFailure?.mime.orEmpty(),
+                    "codecProfile" to (codecConfigurationFailure?.profile?.toString() ?: ""),
+                    "decoderAttempts" to
+                        codecConfigurationFailure
+                            ?.failures
+                            ?.joinToString(",") { it.decoderName }
+                            .orEmpty(),
+                    "decoderErrors" to
+                        codecConfigurationFailure
+                            ?.failures
+                            ?.joinToString(",") { failure -> failure.safeDiagnosticLabel() }
+                            .orEmpty(),
+                ),
+        )
+        mutableState.update { current ->
+            current.copy(
+                phase = YPlaybackPhase.Failed,
+                playing = false,
+                playbackRequested = false,
+                buffering = false,
+                error = yCoreNativeDirectFailureMessage(typed),
+                errorCategory = typed?.category ?: YPlaybackFailureCategory.Unknown,
+                diagnostics =
+                    current.diagnostics.copy(
+                        recoverableNetworkFailure =
+                            typed?.category == YPlaybackFailureCategory.Network &&
+                                isRecoverableMediaReadFailure(typed.cause),
+                        videoOutput = "停止",
+                        audioOutput = "停止",
+                        videoOutputVerified = false,
+                        audioOutputVerified = false,
+                        dolbyVisionOutput = false,
+                        immersiveAudioCarrierOutput = false,
+                        dolbyAtmosSourceDetected = false,
+                        dolbyAtmosOutputMode = YDolbyAtmosOutputMode.None,
+                        audioOutputRoute = "",
+                        audioOutputRouteVerified = false,
+                        dolbyAtmosOutput = false,
+                        spatialAudioOutput = false,
+                        headTrackingAvailable = false,
+                        // Never copy Throwable.message: media/framework exceptions can contain a URL.
+                        reason =
+                            typed?.let { failure ->
+                                buildString {
+                                    append("NativeDirect failed at ")
+                                    append(failure.stage.name)
+                                    failure.safeDetail?.takeIf(String::isNotBlank)?.let { detail ->
+                                        append(": ")
+                                        append(detail)
+                                    }
+                                }
+                            } ?: "NativeDirect failed before typed-stage classification",
+                    ),
+            )
+        }
+    }
+
+    private inner class NativeSession(
+        context: Context,
+    ) {
+        private val demux =
+            AndroidMediaExtractorReadAheadNode(
+                context = context,
+                onBlockingReadStateChanged = ::onTransportBlockingReadStateChanged,
+            )
+        private val videoDecoder = AndroidMediaCodecVideoNode()
+        private val audioDecoder = AndroidMediaCodecAudioNode()
+        private val audioRenderer = AndroidAudioTrackRenderNode(context)
+        private val encodedAudioRenderer = AndroidEncodedAudioTrackRenderNode()
+        private val capabilityProvider = AndroidYCapabilityProvider(context)
+        private val runtimeCapabilities = AndroidRuntimeCapabilityRegistry(context)
+        private val externalSubtitleLoader = AndroidExternalSubtitleLoader(context)
+        private val externalSubtitleSession =
+            AndroidExternalSubtitleSession(
+                scope = scope,
+                load = { source, headers, id -> externalSubtitleLoader.load(source, headers, id) },
+                completed = { submit(Command.ExternalSubtitleReady(it)) },
+            )
+        private val wallClock = YMediaClock(positionUs = request.startPositionMs * MICROS_PER_MILLISECOND)
+        private val frameRateManager = AndroidFrameRateManager(context, frameRateSwitchMode)
+        private var monotonicPositionFloorUs = request.startPositionMs * MICROS_PER_MILLISECOND
+
+        private var currentIndex = request.startIndex
+        private var sourceRemote = false
+        private var sourceBitRateBitsPerSecond = 0L
+        private var bufferPlan = YBufferController.plan(YBufferConditions(remote = false))
+        private var bufferGate =
+            com.yfuse.core2.network
+                .YPlaybackBufferGate(remote = false, resumePlaybackUs = 0L)
+        private var lastBufferReplanNs = 0L
+        private var surfaceOutput: AndroidSurfaceVideoOutput? = null
+        private var videoTrackIndex: Int? = null
+        private var audioTrackIndex: Int? = null
+        private var videoFormat: MediaFormat? = null
+        private var inspectHdr10PlusSamples = false
+        private val hdrAccessUnits = AndroidAccessUnitCache<YExtractorSample, ByteArray?>()
+        private var audioInputFormat: MediaFormat? = null
+        private var subtitleTrackIndex: Int? = null
+        private val subtitleCues = mutableListOf<YSubtitleCue>()
+        private var secondarySubtitleTrackIndex: Int? = null
+        private var secondaryExternalSubtitleId: String? = null
+        private val secondarySubtitleCues = mutableListOf<YSubtitleCue>()
+        private var externalSubtitles = emptyList<AndroidLoadedExternalSubtitle>()
+        private var selectedExternalSubtitleId: String? = null
+        private var audioTrackFormat: YAudioTrackFormat? = null
+        private var audioOutputPath = YAudioOutputPath.None
+        private var audioRendererConfigured = false
+        private var observedAudioRoutingGeneration = 0L
+        private val rejectedPassthroughTracks = mutableSetOf<Int>()
+        private var drmSession: AndroidYCoreDrmSession? = null
+        private var drmBinding: AndroidYCoreDrmBinding? = null
+        private var prepared = false
+        private var videoConfigured = false
+
+        /**
+         * True once a video decoder has rendered into a real Surface for the current media.
+         *
+         * Distinguishes "video output was lost" from "video output was never established". Losing
+         * it must not stop audio; never having had it still gates startup on the Surface.
+         */
+        private var videoOutputEstablished = false
+
+        /** Set when a rebuilt video decoder still needs a sync sample before it can decode. */
+        private var awaitVideoSyncSample = false
+        private var awaitVideoSyncSampleDrops = 0
+
+        @Volatile
+        private var requestedPlay = request.autoPlay
+
+        @Volatile
+        private var speed = 1f
+
+        @Volatile
+        private var lastAvSyncOffsetUs: Long? = null
+
+        private var inputEnded = false
+        private var videoInputEnded = false
+        private var audioInputEnded = false
+        private var videoOutputEnded = false
+        private var audioOutputEnded = false
+        private var pendingVideoOutput: YCodecOutputResult.Buffer? = null
+        private var pendingAudioOutput: YPendingDecodedAudioOutput? = null
+        private var pendingEncodedAudioInput: YPendingEncodedAudioInput? = null
+        private var seekPrerollVideoOutput: YCodecOutputResult.Buffer? = null
+        private var emptyTailSeekRetries = 0
+        private var lastQueuedPresentationUs = 0L
+        private var lastVideoPresentationUs = request.startPositionMs * MICROS_PER_MILLISECOND
+        private var seekTargetVideoUs = request.startPositionMs * MICROS_PER_MILLISECOND
+        private var seekTargetAudioUs = request.startPositionMs * MICROS_PER_MILLISECOND
+
+        @Volatile
+        private var firstVideoFrameRendered = false
+        private val videoOutputEpoch = AndroidVideoOutputEpoch()
+        private val pausedPreview = AndroidPausedVideoPreview()
+        private val videoEosGate = AndroidVideoEosGate()
+        private val surfaceCompletion = AndroidSurfacePlaybackCompletion()
+        private var seekVideoSubmissionPending = false
+
+        /**
+         * Sticky for the whole binding, unlike [firstVideoFrameRendered], which an audio route
+         * change or a recovery restart clears. Buffering before the very first frame is startup,
+         * not a rebuffer; buffering after it is a rebuffer however the pipeline got there.
+         */
+        private var outputHasEverRendered = false
+
+        private val rebufferTracker =
+            com.yfuse.core2.api
+                .YRebufferTracker()
+
+        @Volatile
+        private var transportReadBlocked = false
+
+        @Volatile
+        private var transportBufferingVisible = false
+
+        @Volatile
+        private var transportBlockGeneration = 0L
+        private var droppedFrames = 0
+        private var runtimeRenderRecorded = false
+        private var lastStatePublishNs = 0L
+        private var lastQoePublishNs = 0L
+        private var audioBackpressureCount = 0
+        private var slowPumpCount = 0
+        private var maximumPumpDurationNs = 0L
+
+        @Volatile
+        private var renderedFrameCount = 0L
+
+        @Volatile
+        private var longRenderGapCount = 0
+
+        @Volatile
+        private var maximumRenderGapNs = 0L
+
+        @Volatile
+        private var lastRenderedRealtimeNs = 0L
+
+        private val hasVideoTrack: Boolean get() = videoTrackIndex != null
+
+        private val videoRenderable: Boolean
+            get() = videoConfigured && surfaceOutput?.surface?.isValid == true
+
+        /**
+         * Audio may drive the pump on its own once video output has been established, or when the
+         * media has no video at all.
+         *
+         * Requiring a live Surface for the whole pump is what made a destroyed Surface stop the
+         * sound with it: background listening, lock-screen playback and the PiP transition all go
+         * through exactly that path. Exo's `clearVideoSurface` detaches only the video renderer.
+         */
+        private val audioPumpAllowed: Boolean
+            get() = audioTrackIndex != null && (!hasVideoTrack || videoOutputEstablished)
+
+        /** True when the audio path alone is already carrying playback. */
+        private val audioCarryingPlayback: Boolean
+            get() = audioPumpAllowed && audioRendererConfigured
+
+        /**
+         * True while the product is still waiting for the video output this media is meant to have.
+         *
+         * Once audio is carrying playback a rebuilt video decoder is not a rebuffer - reporting one
+         * would make every Surface reattach flash the buffering state over uninterrupted sound.
+         */
+        private val videoOutputPending: Boolean
+            get() =
+                hasVideoTrack &&
+                    !audioCarryingPlayback &&
+                    (!videoOutputEstablished || (videoRenderable && !firstVideoFrameRendered))
+
+        fun idleDelayMs(): Long =
+            playbackPumpIdleDelayMs(
+                playing = requestedPlay,
+                buffering = mutableState.value.buffering,
+                previewPending = pausedPreview.active,
+            )
+
+        val canPump: Boolean
+            get() =
+                prepared &&
+                    (requestedPlay || pausedPreview.active) &&
+                    (videoRenderable || audioPumpAllowed) &&
+                    mutableState.value.phase != YPlaybackPhase.Failed &&
+                    mutableState.value.phase != YPlaybackPhase.Ended
+
+        fun handle(command: Command) {
+            abortIfReleased()
+            when (command) {
+                Command.Prepare -> prepareCurrent(mutableState.value.positionMs * MICROS_PER_MILLISECOND)
+                Command.Play -> startPlayback()
+                Command.Pause -> pausePlayback()
+                is Command.Seek -> seekTo(command.positionUs)
+                is Command.SetSpeed -> updateSpeed(command.speed)
+                is Command.SetAudioDelay -> updateAudioDelay(command.delayMs)
+                is Command.SetVideoOutput -> setSurface(command.output)
+                is Command.SelectAudioTrack -> selectAudioTrack(command.trackIndex)
+                is Command.SelectSubtitleTrack ->
+                    selectSubtitleTrack(command.trackIndex, command.externalTrackId, command.secondary)
+                is Command.ExternalSubtitleReady -> {
+                    if (externalSubtitleSession.accept(command.result)) {
+                        externalSubtitles = externalSubtitleSession.tracks
+                        mutableState.update {
+                            it.copy(
+                                subtitleTracks = subtitleTracks(),
+                                subtitleCues = activeSubtitleCues(),
+                                secondarySubtitleCues = activeSecondarySubtitleCues(),
+                            )
+                        }
+                    }
+                }
+                is Command.SelectItem -> {
+                    currentIndex = command.index
+                    prepareCurrent(0L)
+                }
+            }
+        }
+
+        fun pump(): Boolean {
+            val pumpStartedNs = System.nanoTime()
+            var didWork = false
+            try {
+                // A timed Surface release can finish between ticks without another codec output.
+                if (requestedPlay && isEnded()) {
+                    finishIfEnded()
+                    return true
+                }
+                if (requestedPlay && !refreshOutputGate()) {
+                    publishClockPosition()
+                    return false
+                }
+                drmSession?.let { session ->
+                    yPlaybackStage(
+                        category = YPlaybackFailureCategory.Drm,
+                        stage = YPlaybackFailureStage.VideoDecoderQueue,
+                        safeDetail = "NativeDirect DRM key refresh",
+                    ) {
+                        if (session.pollKeyRenewal()) {
+                            resetVideoRenderEvidence()
+                            mutableState.update { current ->
+                                current.copy(
+                                    diagnostics =
+                                        current.diagnostics
+                                            .invalidateOutputEvidence(YOutputEvidenceResetReason.DrmKeysChanged)
+                                            .copy(
+                                                videoOutput = "DRM 密钥已更新 · 等待首帧",
+                                                audioOutput = waitingAudioOutputLabel(),
+                                            ),
+                                )
+                            }
+                        }
+                    }
+                }
+                didWork = handleAudioRoutingChange() || didWork
+                if (requestedPlay) {
+                    didWork = drainPendingEncodedAudioInput() || didWork
+                    didWork = drainAudio() || didWork
+                }
+                if (!pausedPreview.submitted) {
+                    didWork = drainVideo() || didWork
+                    if (!pausedPreview.submitted) didWork = feedInput() || didWork
+                } else if (videoConfigured) {
+                    // Older ACodec implementations report render fences while recycling output
+                    // buffers. Keep returning already decoded frames without displaying a second
+                    // preview frame or reading farther into the source.
+                    didWork =
+                        pausedPreview.recycleSubmittedOutput(videoDecoder::dequeueOutput) {
+                            videoDecoder.releaseOutput(it, render = false)
+                        } ||
+                        didWork
+                }
+                if (pausedPreview.active && firstVideoFrameRendered) pausedPreview.frameRendered()
+                if (pausedPreview.finishCallbackWait()) {
+                    mutableState.update { current ->
+                        if (current.diagnostics.videoOutputVerified) {
+                            current
+                        } else {
+                            current.copy(
+                                diagnostics =
+                                    current.diagnostics.copy(videoOutput = "暂停定位帧已提交 · 系统未回调确认"),
+                            )
+                        }
+                    }
+                    didWork = true
+                }
+                if (firstVideoFrameRendered || !hasVideoTrack && mutableState.value.diagnostics.audioOutputVerified) {
+                    externalSubtitleSession.request(selectedExternalSubtitleId)
+                    externalSubtitleSession.request(secondaryExternalSubtitleId)
+                }
+                recoverVideoIfNoSyncSampleArrives()
+                publishClockPosition()
+                if (requestedPlay) finishIfEnded()
+                return didWork
+            } finally {
+                val durationNs = (System.nanoTime() - pumpStartedNs).coerceAtLeast(0L)
+                maximumPumpDurationNs = maxOf(maximumPumpDurationNs, durationNs)
+                if (durationNs >= SLOW_PUMP_THRESHOLD_NS) slowPumpCount++
+            }
+        }
+
+        private fun prepareCurrent(positionUs: Long) {
+            releaseMedia()
+            monotonicPositionFloorUs = positionUs.coerceAtLeast(0L)
+            val item = request.items[currentIndex]
+            mutableState.update { current ->
+                current.copy(
+                    phase = YPlaybackPhase.Preparing,
+                    playing = false,
+                    buffering = requestedPlay,
+                    positionMs = positionUs / MICROS_PER_MILLISECOND,
+                    currentIndex = currentIndex,
+                    itemCount = request.items.size,
+                    error = null,
+                    diagnostics =
+                        current.diagnostics
+                            .invalidateOutputEvidence(YOutputEvidenceResetReason.SourceChanged),
+                )
+            }
+
+            sourceRemote = item.uri.isCore2RemoteMediaUri()
+            yPlaybackStage(
+                category = sourceFailureCategory(),
+                stage = YPlaybackFailureStage.SourceOpen,
+                safeDetail = "NativeDirect source open",
+            ) {
+                demux.open(item.toAndroidSource(), preparedExtractor?.invoke(item))
+            }
+            abortIfReleased()
+            externalSubtitleSession.reset(item.allExternalSubtitles, item.headers)
+            externalSubtitles = externalSubtitleSession.tracks
+            selectedExternalSubtitleId = externalSubtitleSession.defaultId
+            // Audio-only media is a first-class source here: music, audiobooks and audio-only
+            // versions have no video track and must not be rejected at the container stage.
+            videoTrackIndex = demux.findFirstTrack(VIDEO_MIME_PREFIX)
+            val capabilities = capabilityProvider.current()
+            val platformAudioTrackIndices =
+                (0 until demux.trackCount).filter { index ->
+                    demux
+                        .trackFormat(index)
+                        .getString(MediaFormat.KEY_MIME)
+                        .orEmpty()
+                        .startsWith(AUDIO_MIME_PREFIX)
+                }
+            val initialAudioTrack =
+                platformAudioTrackIndices.firstNotNullOfOrNull { index ->
+                    val format = demux.trackFormat(index)
+                    val coreFormat =
+                        runCatching { format.toCore2AudioTrackFormat(item.sourceHints) }.getOrNull()
+                            ?: return@firstNotNullOfOrNull null
+                    val requirement =
+                        YAudioRequirement(
+                            codec = coreFormat.codec,
+                            channelCount = coreFormat.channelCount,
+                            sampleRate = coreFormat.sampleRate,
+                        )
+                    val devicePath = capabilities.audioOutputPath(requirement)
+                    val playable =
+                        if (plannedAudioOutputPath == YAudioOutputPath.DecodePcm) {
+                            devicePath == YAudioOutputPath.DecodePcm
+                        } else {
+                            devicePath != YAudioOutputPath.None
+                        }
+                    index.takeIf { playable }?.let { it to format }
+                }
+            val sourceDeclaresAudio = (item.sourceHints?.audioTrackCount ?: 0) > 0
+            if (sourceDeclaresAudio && platformAudioTrackIndices.isEmpty()) {
+                throw YPlaybackException(
+                    category = YPlaybackFailureCategory.Container,
+                    stage = YPlaybackFailureStage.Demux,
+                    safeDetail =
+                        hiddenServerAudioTrackDetail(NATIVE_DIRECT_HIDDEN_AUDIO_DETAIL, item.sourceHints),
+                )
+            }
+            if (platformAudioTrackIndices.isNotEmpty() && initialAudioTrack == null) {
+                // Name the codecs. Without them this failure is indistinguishable from a device
+                // that simply lacks the decoder, and a diagnostic bundle cannot tell the two apart.
+                val rejectedAudioMimes =
+                    platformAudioTrackIndices
+                        .mapNotNull { index ->
+                            demux.trackFormat(index).getString(MediaFormat.KEY_MIME)?.lowercase()
+                        }.distinct()
+                        .joinToString(",")
+                throw YPlaybackException(
+                    category = YPlaybackFailureCategory.Container,
+                    stage = YPlaybackFailureStage.Demux,
+                    safeDetail = "NativeDirect has no playable platform audio path for $rejectedAudioMimes",
+                )
+            }
+            if (videoTrackIndex == null && initialAudioTrack == null) {
+                throw YPlaybackException(
+                    category = YPlaybackFailureCategory.Container,
+                    stage = YPlaybackFailureStage.Demux,
+                    safeDetail = "NativeDirect source has neither a video nor a playable audio track",
+                )
+            }
+            audioTrackIndex = initialAudioTrack?.first
+            videoFormat =
+                videoTrackIndex
+                    ?.let(demux::trackFormat)
+                    ?.also { format ->
+                        if (plannedDolbyVisionConfig != null) {
+                            format.applyDolbyVisionConfiguration(plannedDolbyVisionConfig)
+                        } else if (confirmedDolbyVisionNalIdentity) {
+                            format.setString(MediaFormat.KEY_MIME, DOLBY_VISION_MIME)
+                        }
+                    }
+            inspectHdr10PlusSamples =
+                videoFormat?.containsKey(MediaFormat.KEY_HDR10_PLUS_INFO) == true ||
+                item.sourceHints
+                    ?.dynamicRange
+                    .orEmpty()
+                    .replace(" ", "")
+                    .let { range ->
+                        range.contains("hdr10+", ignoreCase = true) ||
+                            range.contains("hdr10plus", ignoreCase = true)
+                    }
+            validateNativeDirectDolbyIdentity(
+                required = requireDolbyVisionIdentity,
+                extractedMime = videoFormat?.getString(MediaFormat.KEY_MIME),
+            )
+            audioInputFormat = initialAudioTrack?.second
+            val sourceBitRateBitsPerSecond =
+                maxOf(
+                    item.sourceHints?.bitrateBitsPerSecond ?: 0L,
+                    listOfNotNull(videoFormat, audioInputFormat)
+                        .sumOf { it.longOrZero(MediaFormat.KEY_BIT_RATE) },
+                )
+            this.sourceBitRateBitsPerSecond = sourceBitRateBitsPerSecond
+            demux.setMediaBitRateBitsPerSecond(sourceBitRateBitsPerSecond)
+            applyBufferPlan(measuredThroughputBitsPerSecond = null, force = true)
+            bufferGate =
+                com.yfuse.core2.network.YPlaybackBufferGate(
+                    remote = sourceRemote,
+                    resumePlaybackUs = bufferPlan.resumePlaybackUs,
+                    startupPlaybackUs = bufferPlan.startupPlaybackUs,
+                )
+            item.drmConfiguration?.let { configuration ->
+                val initializationData =
+                    checkNotNull(demux.drmInitializationData(configuration.scheme.yCorePlatformUuid())) {
+                        "NativeDirect DRM initialization data is unavailable"
+                    }
+                val videoMime =
+                    checkNotNull(videoFormat?.getString(MediaFormat.KEY_MIME)) {
+                        "NativeDirect DRM video MIME type is unavailable"
+                    }
+                val session = AndroidYCoreDrmSession(configuration)
+                drmSession = session
+                drmBinding =
+                    yPlaybackStage(
+                        category = YPlaybackFailureCategory.Drm,
+                        stage = YPlaybackFailureStage.SourceOpen,
+                        safeDetail = "NativeDirect DRM session open",
+                    ) {
+                        session.open(initializationData, videoMime)
+                    }
+            }
+            configureAudioPath(audioInputFormat)
+
+            // The same floor that protects MediaCodec also sizes the extractor's staging buffer;
+            // otherwise a large 4K IDR can fail before it ever reaches the codec input guard.
+            videoFormat?.applyVideoMaxInputSizeFloor()
+            audioInputFormat?.applyAudioMaxInputSizeFloor()
+            val sampleCapacity =
+                listOfNotNull(videoFormat, audioInputFormat)
+                    .maxOfOrNull { format -> format.maxInputSizeOr(DEFAULT_SAMPLE_BUFFER_BYTES) }
+                    ?.coerceIn(MIN_SAMPLE_BUFFER_BYTES, MAX_SAMPLE_BUFFER_BYTES)
+                    ?: DEFAULT_SAMPLE_BUFFER_BYTES
+            demux.configureSampleCapacity(sampleCapacity)
+            // Keep the owner free for track metadata and the initial resume seek. Eager filling
+            // here downloads samples at 0, then makes those commands wait behind that download.
+            demux.selectTracks(
+                selectedDemuxTrackIndices(),
+                startReadAhead = false,
+                bufferingTrackIndices = setOfNotNull(videoTrackIndex, audioTrackIndex),
+            )
+
+            if (videoFormat != null) {
+                surfaceOutput?.surface?.takeIf { it.isValid }?.let { surface ->
+                    configureVideoDecoder(surface)
+                }
+            }
+            abortIfReleased()
+
+            prepared = true
+            resetEndState()
+            val durationUs =
+                listOfNotNull(videoFormat, audioInputFormat)
+                    .mapNotNull { format -> format.durationUsOrNull() }
+                    .maxOrNull()
+                    ?: 0L
+            val tracks = audioTracks()
+            mutableState.update { current ->
+                current.copy(
+                    phase = YPlaybackPhase.Ready,
+                    durationMs = durationUs / MICROS_PER_MILLISECOND,
+                    audioTracks = tracks,
+                    subtitleTracks = subtitleTracks(),
+                    subtitleCues = activeSubtitleCues(),
+                    secondarySubtitleCues = activeSecondarySubtitleCues(),
+                    secondarySubtitleTrackId = secondarySubtitleId(),
+                    buffering = requestedPlay,
+                    playbackRequested = requestedPlay,
+                    diagnostics =
+                        current.diagnostics.copy(
+                            route = YPlaybackRoute.NativeDirect,
+                            container = item.containerHint().name,
+                            demuxer = demux.name,
+                            decoder =
+                                listOfNotNull(
+                                    videoDecoder.decoderName,
+                                    audioDecoderDiagnosticName(),
+                                ).joinToString(" + "),
+                            videoDecoderName = videoDecoder.decoderName.orEmpty(),
+                            audioDecoderName = audioDecoderDiagnosticName().orEmpty(),
+                            recoverableNetworkFailure = false,
+                            renderer = if (videoTrackIndex == null) "AudioTrack" else "Surface + AudioTrack",
+                            videoCodec = videoFormat?.getString(MediaFormat.KEY_MIME).orEmpty(),
+                            videoWidth = videoFormat?.intOrZero(MediaFormat.KEY_WIDTH) ?: 0,
+                            videoHeight = videoFormat?.intOrZero(MediaFormat.KEY_HEIGHT) ?: 0,
+                            frameRate = videoFormat?.floatOrZero(MediaFormat.KEY_FRAME_RATE) ?: 0f,
+                            audioCodec = audioInputFormat?.getString(MediaFormat.KEY_MIME).orEmpty(),
+                            bitrateBitsPerSecond = sourceBitRateBitsPerSecond,
+                            dynamicRange = videoFormat.dynamicRangeLabel(),
+                            videoOutput =
+                                when {
+                                    videoTrackIndex == null -> "无视频轨 · 纯音频"
+                                    videoConfigured -> "等待首帧"
+                                    else -> "等待 Surface"
+                                },
+                            audioOutput = waitingAudioOutputLabel(),
+                            videoOutputVerified = false,
+                            audioOutputVerified = false,
+                            dolbyVisionOutput = false,
+                            immersiveAudioCarrierOutput = false,
+                            dolbyAtmosSourceDetected = audioTrackFormat?.codec.isDolbyAtmosSource(),
+                            dolbyAtmosOutputMode = YDolbyAtmosOutputMode.None,
+                            audioOutputRoute = "",
+                            audioOutputRouteVerified = false,
+                            dolbyAtmosOutput = false,
+                            spatialAudioOutput = false,
+                            headTrackingAvailable = false,
+                            reason =
+                                if (videoTrackIndex == null) {
+                                    "Platform demux + audio decode"
+                                } else {
+                                    "Platform demux + hardware decode + direct Surface"
+                                },
+                        ),
+                )
+            }
+
+            val targetUs = positionUs.coerceAtLeast(0L)
+            if (targetUs > 0L) seekTo(targetUs) else wallClock.seek(0L, System.nanoTime())
+            demux.startReadAhead()
+            if (requestedPlay) startPlayback()
+        }
+
+        private fun setSurface(output: AndroidSurfaceVideoOutput?) {
+            val previous = surfaceOutput
+            surfaceOutput = output
+            val newSurface = output?.surface?.takeIf { it.isValid }
+            if (newSurface == null) {
+                videoOutputEpoch.reset()
+                firstVideoFrameRendered = false
+                val positionUs = currentPositionUs()
+                frameRateManager.clear()
+                videoDecoder.release()
+                videoConfigured = false
+                pendingVideoOutput = null
+                seekPrerollVideoOutput = null
+                if (audioPumpAllowed) {
+                    // Detach the video renderer only. The clock, the audio track and the demux
+                    // pump all keep running, which is what background listening, lock-screen
+                    // playback and the PiP transition need.
+                    mutableState.update { current ->
+                        current.copy(
+                            diagnostics =
+                                current.diagnostics
+                                    .invalidateOutputEvidence(YOutputEvidenceResetReason.SurfaceChanged)
+                                    .copy(videoOutput = "Surface 已分离 · 音频继续"),
+                        )
+                    }
+                    return
+                }
+                pausePlaybackInternal(keepRequested = true)
+                wallClock.seek(positionUs, System.nanoTime())
+                mutableState.update { current ->
+                    current.copy(
+                        playing = false,
+                        buffering = requestedPlay,
+                        diagnostics =
+                            current.diagnostics
+                                .invalidateOutputEvidence(YOutputEvidenceResetReason.SurfaceChanged)
+                                .copy(videoOutput = "等待 Surface"),
+                    )
+                }
+                return
+            }
+            if (!hasVideoTrack) return
+            if (previous?.surface === newSurface && videoConfigured) return
+            val audioContinues = audioCarryingPlayback
+            resetVideoRenderEvidence()
+            mutableState.update { current ->
+                current.copy(
+                    playing = if (audioContinues) current.playing else false,
+                    buffering = if (audioContinues) current.buffering else requestedPlay,
+                    diagnostics =
+                        current.diagnostics
+                            .invalidateOutputEvidence(YOutputEvidenceResetReason.SurfaceChanged)
+                            .copy(videoOutput = "硬解已配置 · 等待首帧"),
+                )
+            }
+            if (videoConfigured && previous?.surface?.isValid == true) {
+                runCatching { videoDecoder.setOutputSurface(newSurface) }
+                    .onSuccess {
+                        attachVideoRenderEvidence()
+                        frameRateManager.reattach(newSurface)
+                        if (requestedPlay) startPlayback()
+                        return
+                    }
+            }
+            if (!prepared) return
+            if (audioContinues && !isEnded()) {
+                // Audio never stopped, so the extractor is already at the live position. Rebuild
+                // the decoder in place and let it pick up the next sync sample instead of seeking
+                // the shared extractor, which would have to rewind audio to a keyframe as well.
+                configureVideoDecoder(newSurface)
+                awaitVideoSyncSample = true
+                awaitVideoSyncSampleDrops = 0
+                if (requestedPlay) startPlayback()
+                return
+            }
+            val resumeUs = currentPositionUs()
+            configureVideoDecoder(newSurface)
+            seekTo(resumeUs)
+            if (requestedPlay) startPlayback()
+        }
+
+        private fun startPlayback() {
+            val previewResumeUs = pausedPreview.takeResumePosition()
+            requestedPlay = true
+            if (prepared && previewResumeUs != null) {
+                seekTo(previewResumeUs)
+                return
+            }
+            if (!prepared) {
+                prepareCurrent(mutableState.value.positionMs * MICROS_PER_MILLISECOND)
+                return
+            }
+            if (!videoConfigured && !audioPumpAllowed) {
+                mutableState.update { current ->
+                    current.copy(
+                        playbackRequested = true,
+                        playing = false,
+                        buffering = true,
+                    )
+                }
+                return
+            }
+            if (!refreshOutputGate()) {
+                mutableState.update { current ->
+                    current.copy(playbackRequested = true, playing = false, buffering = true)
+                }
+                return
+            }
+            val now = System.nanoTime()
+            wallClock.start(currentPositionUs(), now)
+            if (audioRendererConfigured) {
+                playAudio()
+            }
+            mutableState.update { current ->
+                current.copy(
+                    playbackRequested = true,
+                    playing = !videoOutputPending && !transportBufferingVisible,
+                    buffering = videoOutputPending || transportBufferingVisible,
+                    phase = if (isEnded()) YPlaybackPhase.Ended else YPlaybackPhase.Ready,
+                )
+            }
+        }
+
+        private fun pausePlayback() {
+            requestedPlay = false
+            pausePlaybackInternal(keepRequested = false)
+            demux.updatePlaybackWindow(YTransportPlaybackWindow(playing = false))
+        }
+
+        private fun pausePlaybackInternal(keepRequested: Boolean) {
+            val positionUs = currentPositionUs()
+            wallClock.pause(positionUs, System.nanoTime())
+            pauseAudio()
+            if (!keepRequested) requestedPlay = false
+            mutableState.update { current ->
+                current.copy(
+                    playbackRequested = requestedPlay,
+                    playing = false,
+                    buffering = false,
+                    positionMs = positionUs / MICROS_PER_MILLISECOND,
+                )
+            }
+        }
+
+        private fun seekTo(
+            positionUs: Long,
+            tailRetry: Boolean = false,
+            flushVideoDecoder: Boolean = true,
+        ) {
+            if (!prepared) return
+            val targetUs = positionUs.coerceAtLeast(0L)
+            if (!requestedPlay && hasVideoTrack) pausedPreview.begin(targetUs) else pausedPreview.clear()
+            seekVideoSubmissionPending = hasVideoTrack
+            AppLog.info(
+                category = "player.core2",
+                event = if (pausedPreview.active) "paused_preview_seek" else "native_direct_seek",
+                message = "NativeDirect started a seek generation",
+                attributes =
+                    mapOf(
+                        "targetUs" to targetUs.toString(),
+                        "playbackRequested" to requestedPlay.toString(),
+                    ),
+            )
+            videoOutputEpoch.reset()
+            if (!tailRetry) emptyTailSeekRetries = 0
+            pendingEncodedAudioInput = null
+            yPlaybackStage(
+                category = sourceFailureCategory(),
+                stage = YPlaybackFailureStage.Seek,
+                safeDetail = "NativeDirect source seek",
+            ) {
+                demux.seekTo(targetUs)
+            }
+            if (videoConfigured && flushVideoDecoder) videoDecoder.flush()
+            if (audioInputFormat != null && !isAudioPassthrough()) {
+                releasePendingAudioOutput()
+                audioDecoder.flush()
+            }
+            if (audioRendererConfigured) flushAudio()
+            subtitleCues.clear()
+            secondarySubtitleCues.clear()
+            resetEndState()
+            seekTargetVideoUs = targetUs
+            bufferGate.reset()
+            rebufferTracker.discontinuity(System.nanoTime() / 1_000_000L)
+            hdrAccessUnits.clear()
+            seekTargetAudioUs = targetUs
+            lastVideoPresentationUs = targetUs
+            lastQueuedPresentationUs = targetUs
+            monotonicPositionFloorUs = targetUs
+            resetVideoRenderEvidence()
+            wallClock.seek(targetUs, System.nanoTime())
+            mutableState.update { current ->
+                current.copy(
+                    phase = YPlaybackPhase.Ready,
+                    playing = false,
+                    buffering = requestedPlay,
+                    positionMs = targetUs / MICROS_PER_MILLISECOND,
+                    subtitleCues = activeSubtitleCues(),
+                    secondarySubtitleCues = activeSecondarySubtitleCues(),
+                    secondarySubtitleTrackId = secondarySubtitleId(),
+                    error = null,
+                    diagnostics =
+                        current.diagnostics
+                            .invalidateOutputEvidence(YOutputEvidenceResetReason.Seek)
+                            .copy(
+                                videoOutput = if (videoConfigured) "硬解已配置 · 等待首帧" else "等待 Surface",
+                                audioOutput = waitingAudioOutputLabel(),
+                                dolbyAtmosSourceDetected = audioTrackFormat?.codec.isDolbyAtmosSource(),
+                            ),
+                )
+            }
+            if (requestedPlay) startPlayback()
+        }
+
+        private fun updateSpeed(value: Float) {
+            if (!value.isFinite() || value <= 0f) return
+            val positionUs = currentPositionUs()
+            speed = value
+            applyBufferPlan(measuredThroughputBitsPerSecond = demux.snapshot().throughputBitsPerSecond, force = true)
+            wallClock.setSpeed(value, positionUs, System.nanoTime())
+            if (isAudioPassthrough() && value != 1f) {
+                switchPassthroughToPcm(countFailure = false)
+                seekTo(positionUs)
+                mutableState.update { current -> current.copy(speed = value) }
+                return
+            }
+            if (audioRendererConfigured && !isAudioPassthrough()) audioRenderer.setSpeed(value)
+            mutableState.update { current -> current.copy(speed = value) }
+        }
+
+        private var audioDelayMs = 0L
+
+        private fun updateAudioDelay(value: Long) {
+            audioDelayMs = value
+            audioRenderer.setAudioDelayMs(value)
+            if (value != 0L && isAudioPassthrough()) {
+                val position = currentPositionUs()
+                switchPassthroughToPcm(countFailure = false)
+                seekTo(position)
+            }
+        }
+
+        private fun selectAudioTrack(trackIndex: Int) {
+            if (!prepared || trackIndex == audioTrackIndex || trackIndex !in 0 until demux.trackCount) return
+            val format = demux.trackFormat(trackIndex)
+            if (format.getString(MediaFormat.KEY_MIME)?.startsWith(AUDIO_MIME_PREFIX) != true) return
+            val positionUs = currentPositionUs()
+            audioTrackIndex = trackIndex
+            audioInputFormat = format
+            demux.selectTracks(
+                selectedDemuxTrackIndices(),
+                bufferingTrackIndices = setOfNotNull(videoTrackIndex, audioTrackIndex),
+            )
+            releaseAudioPath()
+            configureAudioPath(format)
+            seekTo(positionUs)
+            mutableState.update { current ->
+                current.copy(
+                    audioTracks = audioTracks(),
+                    diagnostics =
+                        current.diagnostics.copy(
+                            audioOutput = waitingAudioOutputLabel(),
+                            audioOutputVerified = false,
+                            immersiveAudioCarrierOutput = false,
+                            dolbyAtmosSourceDetected = audioTrackFormat?.codec.isDolbyAtmosSource(),
+                            dolbyAtmosOutputMode = YDolbyAtmosOutputMode.None,
+                            audioOutputRoute = "",
+                            audioOutputRouteVerified = false,
+                            dolbyAtmosOutput = false,
+                            spatialAudioOutput = false,
+                            headTrackingAvailable = false,
+                        ),
+                )
+            }
+        }
+
+        private fun selectSubtitleTrack(
+            trackIndex: Int?,
+            externalTrackId: String?,
+            secondary: Boolean,
+        ) {
+            if (!prepared) return
+            externalSubtitleSession.retry(externalTrackId)
+            if (externalTrackId != null && externalSubtitles.none { it.track.id == externalTrackId }) return
+            val nextFormat = trackIndex?.takeIf { it in 0 until demux.trackCount }?.let(demux::trackFormat)
+            if (trackIndex != null && nextFormat?.subtitleFormatOrNull()?.textOverlaySupported != true) return
+            if (secondary) {
+                if (trackIndex != null &&
+                    trackIndex == subtitleTrackIndex ||
+                    externalTrackId != null &&
+                    externalTrackId == selectedExternalSubtitleId
+                ) {
+                    return
+                }
+                if (trackIndex == secondarySubtitleTrackIndex && externalTrackId == secondaryExternalSubtitleId) return
+            } else if (trackIndex == subtitleTrackIndex && externalTrackId == selectedExternalSubtitleId) {
+                return
+            }
+            val previousEmbedded = selectedDemuxTrackIndices()
+            val positionUs = currentPositionUs()
+            if (secondary) {
+                secondarySubtitleTrackIndex = trackIndex
+                secondaryExternalSubtitleId = externalTrackId
+                secondarySubtitleCues.clear()
+            } else {
+                subtitleTrackIndex = trackIndex
+                selectedExternalSubtitleId = externalTrackId
+                subtitleCues.clear()
+                if (trackIndex != null &&
+                    trackIndex == secondarySubtitleTrackIndex ||
+                    externalTrackId != null &&
+                    externalTrackId == secondaryExternalSubtitleId
+                ) {
+                    secondarySubtitleTrackIndex = null
+                    secondaryExternalSubtitleId = null
+                    secondarySubtitleCues.clear()
+                }
+            }
+            val selectedEmbedded = selectedDemuxTrackIndices()
+            if (selectedEmbedded != previousEmbedded) {
+                demux.selectTracks(
+                    selectedEmbedded,
+                    bufferingTrackIndices = setOfNotNull(videoTrackIndex, audioTrackIndex),
+                )
+                // Track selection clears read-ahead, so re-anchor A/V as well as both subtitle streams.
+                seekTo(positionUs)
+            }
+            mutableState.update { current ->
+                current.copy(
+                    subtitleTracks = subtitleTracks(),
+                    subtitleCues = activeSubtitleCues(),
+                    secondarySubtitleCues = activeSecondarySubtitleCues(),
+                    secondarySubtitleTrackId = secondarySubtitleId(),
+                )
+            }
+        }
+
+        /**
+         * Falls back to a seek when a container never delivers the sync sample video is waiting for.
+         *
+         * The seek-free reattach is the good path because it leaves audio untouched, but a stream
+         * whose sync flags are missing or wrong would otherwise stay silent-with-no-picture forever.
+         */
+        private fun recoverVideoIfNoSyncSampleArrives() {
+            if (!awaitVideoSyncSample || awaitVideoSyncSampleDrops < MAX_VIDEO_SYNC_SAMPLE_DROPS) return
+            awaitVideoSyncSample = false
+            awaitVideoSyncSampleDrops = 0
+            seekTo(currentPositionUs())
+        }
+
+        private fun feedInput(): Boolean {
+            if (pendingEncodedAudioInput != null) {
+                val audioTrack = audioTrackIndex ?: return false
+                val alternate = pollDemuxSample(excludedTrackIndex = audioTrack) ?: return false
+                if (queueDemuxSample(alternate)) return true
+                demux.returnSample(alternate)
+                return false
+            }
+            if (inputEnded) {
+                var queued = false
+                if (!videoInputEnded) {
+                    if (!videoConfigured) {
+                        // Detached video output cannot drain an end-of-stream buffer. Retiring the
+                        // track here is what lets an audio-only tail still reach Ended.
+                        videoInputEnded = true
+                        videoOutputEnded = true
+                        queued = true
+                    } else if (
+                        videoEosGate.mayQueueEndOfStream(firstVideoFrameRendered) &&
+                        videoDecoder.queueEndOfStream(lastQueuedPresentationUs) == YCodecQueueResult.Queued
+                    ) {
+                        videoInputEnded = true
+                        queued = true
+                    }
+                }
+                if (!audioInputEnded && audioInputFormat != null) {
+                    if (isAudioPassthrough()) {
+                        audioInputEnded = true
+                        audioOutputEnded = true
+                        queued = true
+                    } else if (audioDecoder.queueEndOfStream(lastQueuedPresentationUs) == YCodecQueueResult.Queued) {
+                        audioInputEnded = true
+                        queued = true
+                    }
+                }
+                return queued
+            }
+
+            val primary = pollDemuxSample() ?: return false
+            if (queueDemuxSample(primary)) {
+                return true
+            }
+
+            val blockedTrack = primary.trackIndex
+            // Passthrough may have consumed part of the sample into its own pending buffer. All
+            // other TryAgain results leave the sample untouched and safe to return to read-ahead.
+            if (pendingEncodedAudioInput == null || blockedTrack != audioTrackIndex) {
+                demux.returnSample(primary)
+            }
+
+            // A full video codec must not starve the following audio samples (or vice versa).
+            val alternate = pollDemuxSample(excludedTrackIndex = blockedTrack) ?: return false
+            if (queueDemuxSample(alternate)) return true
+            if (pendingEncodedAudioInput == null || alternate.trackIndex != audioTrackIndex) {
+                demux.returnSample(alternate)
+            }
+            return false
+        }
+
+        private fun pollDemuxSample(excludedTrackIndex: Int? = null): YExtractorSample? =
+            when (val queued = demux.pollSample(excludedTrackIndex)) {
+                is YQueuedExtractorResult.Sample -> queued.value
+                is YQueuedExtractorResult.Failed ->
+                    throw YPlaybackException(
+                        category = sourceFailureCategory(),
+                        stage = YPlaybackFailureStage.Demux,
+                        safeDetail = "NativeDirect compressed sample read",
+                        cause = queued.cause,
+                    )
+                YQueuedExtractorResult.Empty -> {
+                    null
+                }
+                YQueuedExtractorResult.EndOfInput -> {
+                    inputEnded = true
+                    null
+                }
+            }
+
+        private fun queueDemuxSample(sample: YExtractorSample): Boolean {
+            val queued =
+                when (sample.trackIndex) {
+                    videoTrackIndex ->
+                        when {
+                            !videoConfigured && videoOutputEstablished ->
+                                // The Surface went away mid-playback. Holding the sample would
+                                // back-pressure the shared queue until audio starved too, so the
+                                // video track is discarded until a Surface returns.
+                                YCodecQueueResult.Queued
+                            !videoConfigured -> YCodecQueueResult.TryAgain
+                            awaitVideoSyncSample &&
+                                sample.flags and MediaExtractor.SAMPLE_FLAG_SYNC == 0 -> {
+                                // A rebuilt decoder cannot start mid-GOP. Dropping to the next sync
+                                // sample resumes video without seeking the shared extractor, which
+                                // is what would have interrupted the audio that never stopped.
+                                awaitVideoSyncSampleDrops++
+                                YCodecQueueResult.Queued
+                            }
+                            else -> {
+                                awaitVideoSyncSample = false
+                                awaitVideoSyncSampleDrops = 0
+                                applyHdr10PlusMetadata(sample)
+                                videoDecoder
+                                    .queueAccessUnit(
+                                        sample.data,
+                                        sample.presentationTimeUs,
+                                        sample.flags,
+                                        sample.cryptoInfo,
+                                    ).also { result ->
+                                        if (result == YCodecQueueResult.Queued) videoEosGate.inputQueued()
+                                    }
+                            }
+                        }
+                    audioTrackIndex ->
+                        if (pausedPreview.active) {
+                            YCodecQueueResult.Queued
+                        } else {
+                            queueAudioSample(
+                                sample.data,
+                                sample.presentationTimeUs,
+                                sample.flags,
+                                sample.cryptoInfo,
+                            )
+                        }
+                    subtitleTrackIndex, secondarySubtitleTrackIndex -> {
+                        require(sample.cryptoInfo == null) { "Encrypted subtitle samples are not executable" }
+                        queueSubtitleSample(sample.trackIndex, sample.data, sample.presentationTimeUs)
+                        YCodecQueueResult.Queued
+                    }
+                    else -> YCodecQueueResult.Queued
+                }
+            if (queued != YCodecQueueResult.Queued) return false
+            hdrAccessUnits.queued(sample)
+            lastQueuedPresentationUs = maxOf(lastQueuedPresentationUs, sample.presentationTimeUs)
+            return true
+        }
+
+        /** MediaExtractor does not consistently forward per-frame ST 2094-40 metadata. */
+        private fun applyHdr10PlusMetadata(sample: YExtractorSample) {
+            val data = sample.data
+            if (!inspectHdr10PlusSamples || !data.hasRemaining()) return
+            val payload = hdrAccessUnits.getOrPrepare(sample) { extractNativeDirectHdr10PlusPayload(data) } ?: return
+            videoDecoder.setHdr10PlusMetadata(payload)
+        }
+
+        private fun drainAudio(): Boolean {
+            if (audioInputFormat == null || audioOutputEnded) return false
+            if (isAudioPassthrough()) return false
+            pendingAudioOutput?.let { return writePendingAudioOutput(it) }
+            return when (val output = audioDecoder.dequeueOutput()) {
+                YAudioCodecOutputResult.TryAgain -> false
+                is YAudioCodecOutputResult.FormatChanged -> {
+                    audioRenderer.configure(output.format)
+                    audioRendererConfigured = true
+                    captureAudioRoutingGeneration()
+                    audioRenderer.setSpeed(speed)
+                    audioRenderer.setAudioDelayMs(audioDelayMs)
+                    if (requestedPlay) audioRenderer.play()
+                    mutableState.update { current ->
+                        current.copy(
+                            diagnostics =
+                                current.diagnostics.copy(
+                                    audioOutput = "等待 PCM 输出",
+                                    audioOutputVerified = false,
+                                ),
+                        )
+                    }
+                    true
+                }
+                is YAudioCodecOutputResult.Buffer -> {
+                    val configBuffer = output.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0
+                    val renderable =
+                        !configBuffer &&
+                            output.size > 0 &&
+                            output.presentationTimeUs >= seekTargetAudioUs
+                    if (!renderable) {
+                        audioDecoder.releaseOutput(output)
+                        if (output.endOfStream) audioOutputEnded = true
+                        true
+                    } else {
+                        if (!audioRendererConfigured) {
+                            // Android normally emits INFO_OUTPUT_FORMAT_CHANGED first; keep the
+                            // failure explicit rather than silently dropping audio if an OEM does not.
+                            error("Audio output arrived before PCM format")
+                        }
+                        val pending =
+                            YPendingDecodedAudioOutput(
+                                output = output,
+                                data = audioDecoder.outputData(output),
+                            )
+                        pendingAudioOutput = pending
+                        writePendingAudioOutput(pending)
+                    }
+                }
+            }
+        }
+
+        private fun writePendingAudioOutput(pending: YPendingDecodedAudioOutput): Boolean {
+            val writtenBytes =
+                audioRenderer.writeNonBlocking(
+                    pending.data,
+                    pending.output.presentationTimeUs,
+                )
+            return when (decodedAudioDrainProgress(writtenBytes, pending.data.remaining())) {
+                YDecodedAudioDrainProgress.Backpressured -> {
+                    audioBackpressureCount++
+                    false
+                }
+                YDecodedAudioDrainProgress.Pending -> {
+                    verifyPcmAudioOutput(writtenBytes)
+                    true
+                }
+                YDecodedAudioDrainProgress.Complete -> {
+                    verifyPcmAudioOutput(writtenBytes)
+                    pendingAudioOutput = null
+                    audioDecoder.releaseOutput(pending.output)
+                    seekTargetAudioUs = 0L
+                    if (pending.output.endOfStream) audioOutputEnded = true
+                    true
+                }
+            }
+        }
+
+        private fun verifyPcmAudioOutput(writtenBytes: Int) {
+            if (writtenBytes <= 0) return
+            val spatialized = audioRenderer.spatialAudioOutput
+            val atmosSource = audioTrackFormat?.codec.isDolbyAtmosSource()
+            val outputMode =
+                if (spatialized && atmosSource) {
+                    YDolbyAtmosOutputMode.AtmosSourceSpatializedPcm
+                } else {
+                    YDolbyAtmosOutputMode.None
+                }
+            mutableState.update { current ->
+                current.copy(
+                    diagnostics =
+                        current.diagnostics.copy(
+                            audioOutput =
+                                when {
+                                    outputMode == YDolbyAtmosOutputMode.AtmosSourceSpatializedPcm &&
+                                        audioRenderer.headTrackingAvailable ->
+                                        "Dolby Atmos 源 · 系统空间音频 · PCM · 头部跟踪可用"
+                                    outputMode == YDolbyAtmosOutputMode.AtmosSourceSpatializedPcm ->
+                                        "Dolby Atmos 源 · 系统空间音频 · PCM"
+                                    audioRenderer.spatialAudioOutput && audioRenderer.headTrackingAvailable ->
+                                        "系统空间音频 · PCM · 头部跟踪可用"
+                                    audioRenderer.spatialAudioOutput -> "系统空间音频 · PCM"
+                                    else -> "PCM · AudioTrack"
+                                },
+                            audioOutputVerified = true,
+                            immersiveAudioCarrierOutput = false,
+                            dolbyAtmosSourceDetected = atmosSource,
+                            dolbyAtmosOutputMode = outputMode,
+                            audioOutputRoute = audioRenderer.audioRouteLabel,
+                            audioOutputFingerprint = audioRenderer.audioRouteFingerprint,
+                            audioOutputRouteVerified = audioRenderer.audioRouteVerified,
+                            dolbyAtmosOutput = false,
+                            spatialAudioOutput = spatialized,
+                            headTrackingAvailable = audioRenderer.headTrackingAvailable,
+                        ),
+                )
+            }
+        }
+
+        private fun drainVideo(): Boolean {
+            if (!videoConfigured || videoOutputEnded) return false
+            val output =
+                pendingVideoOutput ?: when (val dequeued = videoDecoder.dequeueOutput()) {
+                    YCodecOutputResult.TryAgain -> return false
+                    is YCodecOutputResult.FormatChanged -> {
+                        mutableState.update { current ->
+                            current.copy(
+                                diagnostics =
+                                    current.diagnostics.copy(
+                                        videoOutput = "硬解已配置 · 等待首帧",
+                                    ),
+                            )
+                        }
+                        return true
+                    }
+                    is YCodecOutputResult.Buffer -> dequeued
+                }
+
+            val configBuffer = output.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0
+            val renderable = !configBuffer && output.size > 0 && output.presentationTimeUs >= seekTargetVideoUs
+            val seekPreroll =
+                !configBuffer &&
+                    output.size > 0 &&
+                    seekTargetVideoUs > 0L &&
+                    output.presentationTimeUs < seekTargetVideoUs
+            if (seekPreroll) {
+                pendingVideoOutput = null
+                seekPrerollVideoOutput?.let { videoDecoder.releaseOutput(it, render = false) }
+                seekPrerollVideoOutput = output
+                if (!output.endOfStream) return true
+                renderSeekPrerollAtEnd()
+                return true
+            }
+            if (output.endOfStream && seekTargetVideoUs > 0L && seekPrerollVideoOutput != null) {
+                pendingVideoOutput = null
+                videoDecoder.releaseOutput(output, render = false)
+                renderSeekPrerollAtEnd()
+                return true
+            }
+            if (
+                output.endOfStream &&
+                seekTargetVideoUs > 0L &&
+                !firstVideoFrameRendered &&
+                retryEmptyTailSeek(output)
+            ) {
+                return true
+            }
+            if (renderable) {
+                seekPrerollVideoOutput?.let { videoDecoder.releaseOutput(it, render = false) }
+                seekPrerollVideoOutput = null
+                val currentUs = audioRenderer.videoClockPositionUs(currentPositionUs())
+                val nowNs = System.nanoTime()
+                val wallClockRenderNs = wallClock.presentationTimeNs(output.presentationTimeUs)
+                val desiredRenderNs =
+                    if (audioRendererConfigured) {
+                        audioPresentationTimeNs(output.presentationTimeUs, wallClockRenderNs)
+                    } else {
+                        wallClockRenderNs
+                    }
+                val decision =
+                    if (pausedPreview.active) {
+                        YVideoFrameReleaseDecision.Render(nowNs)
+                    } else {
+                        preserveFirstVideoFrame(
+                            decision =
+                                videoFrameReleaseDecision(
+                                    presentationTimeUs = output.presentationTimeUs,
+                                    masterPositionUs = currentUs,
+                                    desiredReleaseTimeNs = desiredRenderNs,
+                                    nowNs = nowNs,
+                                    maximumScheduleAheadUs = MAX_VIDEO_SCHEDULE_AHEAD_US,
+                                    lateDropThresholdNs = LATE_FRAME_DROP_NS,
+                                    lateImmediateAllowanceNs = LATE_FRAME_IMMEDIATE_NS,
+                                ),
+                            firstFrameRendered = firstVideoFrameRendered,
+                            nowNs = nowNs,
+                        )
+                    }
+                when (decision) {
+                    YVideoFrameReleaseDecision.Hold -> {
+                        pendingVideoOutput = output
+                        return false
+                    }
+                    YVideoFrameReleaseDecision.Drop -> {
+                        pendingVideoOutput = null
+                        videoDecoder.releaseOutput(output, render = false)
+                        droppedFrames++
+                    }
+                    is YVideoFrameReleaseDecision.Render -> {
+                        pendingVideoOutput = null
+                        videoOutputEpoch.submitted(output.presentationTimeUs)
+                        videoDecoder.releaseOutput(output, render = true, renderTimeNs = decision.releaseTimeNs)
+                        surfaceCompletion.frameReleased(decision.releaseTimeNs)
+                        recordSeekVideoSubmission(output)
+                        pausedPreview.frameSubmitted()
+                        if (pausedPreview.active) {
+                            AppLog.info(
+                                category = "player.core2",
+                                event = "paused_preview_submitted",
+                                message = "NativeDirect submitted the paused seek frame to Surface",
+                                attributes = mapOf("presentationTimeUs" to output.presentationTimeUs.toString()),
+                            )
+                        }
+                    }
+                }
+                lastVideoPresentationUs = output.presentationTimeUs
+                seekTargetVideoUs = 0L
+            } else {
+                pendingVideoOutput = null
+                videoDecoder.releaseOutput(output, render = false)
+            }
+            if (output.endOfStream) videoOutputEnded = true
+            return true
+        }
+
+        private fun renderSeekPrerollAtEnd() {
+            val candidate = seekPrerollVideoOutput ?: return
+            seekPrerollVideoOutput = null
+            videoOutputEpoch.submitted(candidate.presentationTimeUs)
+            videoDecoder.releaseOutput(candidate, render = true)
+            surfaceCompletion.frameReleased(System.nanoTime())
+            recordSeekVideoSubmission(candidate)
+            pausedPreview.frameSubmitted()
+            lastVideoPresentationUs = candidate.presentationTimeUs
+            seekTargetVideoUs = 0L
+            videoOutputEnded = true
+        }
+
+        private fun recordSeekVideoSubmission(output: YCodecOutputResult.Buffer) {
+            if (!seekVideoSubmissionPending) return
+            seekVideoSubmissionPending = false
+            AppLog.info(
+                category = "player.core2",
+                event = "native_direct_seek_submitted",
+                message = "NativeDirect submitted the first Surface frame after seek",
+                attributes =
+                    mapOf(
+                        "presentationTimeUs" to output.presentationTimeUs.toString(),
+                        "targetUs" to seekTargetVideoUs.toString(),
+                        "outputEvidenceGeneration" to
+                            mutableState.value.diagnostics.outputEvidenceGeneration
+                                .toString(),
+                        "playbackRequested" to requestedPlay.toString(),
+                        "inputEnded" to inputEnded.toString(),
+                        "outputEndOfStream" to output.endOfStream.toString(),
+                        "renderedFrames" to renderedFrameCount.toString(),
+                    ),
+            )
+        }
+
+        private fun retryEmptyTailSeek(output: YCodecOutputResult.Buffer): Boolean {
+            val retryTargetUs =
+                emptyTailSeekRetryTarget(
+                    currentTargetUs = seekTargetVideoUs,
+                    retryCount = emptyTailSeekRetries,
+                ) ?: return false
+            val activeSurface = surfaceOutput?.surface?.takeIf { it.isValid } ?: return false
+            pendingVideoOutput = null
+            videoDecoder.releaseOutput(output, render = false)
+            emptyTailSeekRetries++
+            videoDecoder.release()
+            videoConfigured = false
+            configureVideoDecoder(activeSurface)
+            seekTo(
+                positionUs = retryTargetUs,
+                tailRetry = true,
+                flushVideoDecoder = false,
+            )
+            return true
+        }
+
+        /**
+         * Re-plans the compressed read-ahead once the transport has measured the link.
+         *
+         * Mirrors the Enhanced session: a healthy link keeps the queue shallow and latency low,
+         * and only measured pressure buys depth.
+         */
+        private fun refreshAdaptiveBufferPlan(readAhead: YExtractorReadAheadSnapshot) {
+            if (!sourceRemote || !readAhead.throughputMeasured) return
+            val nowNs = System.nanoTime()
+            if (nowNs - lastBufferReplanNs < BUFFER_REPLAN_INTERVAL_NS) return
+            lastBufferReplanNs = nowNs
+            applyBufferPlan(measuredThroughputBitsPerSecond = readAhead.throughputBitsPerSecond)
+        }
+
+        private fun applyBufferPlan(
+            measuredThroughputBitsPerSecond: Long?,
+            force: Boolean = false,
+        ) {
+            val next =
+                YBufferController.plan(
+                    YBufferConditions(
+                        remote = sourceRemote,
+                        mediaBitRateBitsPerSecond = sourceBitRateBitsPerSecond,
+                        measuredNetworkBitsPerSecond = measuredThroughputBitsPerSecond,
+                        memoryBudgetBytes = MAX_DEMUX_QUEUE_BYTES,
+                        preferredTargetAheadUs = preferredRemoteBufferTargetUs,
+                        speed = speed,
+                    ),
+                )
+            if (!force && next == bufferPlan) return
+            bufferPlan = next
+            bufferGate.updateThresholds(next)
+            demux.configureBufferPlan(
+                targetAheadUs = next.targetAheadUs,
+                maximumBytes = next.maximumBytes.coerceAtMost(MAX_DEMUX_QUEUE_BYTES),
+            )
+        }
+
+        /** Only the codec owner changes playback clocks; network completion is not permission to resume. */
+        private fun refreshOutputGate(): Boolean {
+            val ahead = demux.snapshot()
+            refreshAdaptiveBufferPlan(ahead)
+            if (bufferGate.phase == com.yfuse.core2.network.YPlaybackBufferPhase.Ready &&
+                ahead.starved &&
+                !ahead.endOfInput &&
+                lastQueuedPresentationUs - currentPositionUs() <= 150_000L
+            ) {
+                bufferGate.markStarved()
+            }
+            val decision = bufferGate.evaluate(ahead.bufferedDurationUs, ahead.endOfInput, ahead.atCapacity)
+            if (!decision.outputAllowed && !transportBufferingVisible) {
+                val position = currentPositionUs()
+                monotonicPositionFloorUs = maxOf(monotonicPositionFloorUs, position)
+                wallClock.pause(position, System.nanoTime())
+                pauseAudio()
+                transportBufferingVisible = true
+            } else if (decision.outputAllowed && transportBufferingVisible) {
+                transportBufferingVisible = false
+                if (requestedPlay) {
+                    wallClock.start(monotonicPositionFloorUs, System.nanoTime())
+                    if (audioRendererConfigured) playAudio()
+                }
+            }
+            return decision.outputAllowed
+        }
+
+        private fun publishClockPosition() {
+            if (released) return
+            val nowNs = System.nanoTime()
+            if (nowNs - lastStatePublishNs < STATE_PUBLISH_INTERVAL_NS) return
+            lastStatePublishNs = nowNs
+            val positionUs = currentPositionUs()
+            val currentState = mutableState.value
+            val positionMs =
+                (positionUs / MICROS_PER_MILLISECOND).let { measuredMs ->
+                    if (currentState.durationMs > 0L) measuredMs.coerceAtMost(currentState.durationMs) else measuredMs
+                }
+            val transportQoe = demux.transportQoeSnapshot()
+            val readAhead = demux.snapshot()
+            refreshAdaptiveBufferPlan(readAhead)
+            demux.updatePlaybackWindow(
+                YTransportPlaybackWindow(
+                    targetAheadUs = bufferPlan.forwardCacheTargetUs,
+                    speed = speed,
+                    bufferedUs = readAhead.bufferedDurationUs,
+                    minimumWarmBufferUs = minOf(bufferPlan.targetAheadUs / 2L, 8_000_000L),
+                    playing = requestedPlay && !transportBufferingVisible,
+                ),
+            )
+            val sourceBufferedMs =
+                (transportQoe?.bufferedAheadDurationMs(currentState.durationMs) ?: 0L) +
+                    readAhead.bufferedDurationUs / MICROS_PER_MILLISECOND
+            val bufferedPositionMs =
+                when {
+                    !sourceRemote && currentState.durationMs > 0L -> currentState.durationMs
+                    transportQoe != null -> {
+                        val candidate = positionMs + sourceBufferedMs
+                        if (currentState.durationMs > 0L) {
+                            candidate.coerceAtMost(currentState.durationMs)
+                        } else {
+                            candidate
+                        }
+                    }
+                    else -> currentState.bufferedPositionMs.coerceAtLeast(positionMs)
+                }
+            val playing =
+                requestedPlay && !videoOutputPending && !transportBufferingVisible && !isEnded()
+            val buffering =
+                requestedPlay && (videoOutputPending || transportBufferingVisible) && !isEnded()
+            // Every other engine counts a rebuffer on the playing -> buffering edge. NativeDirect
+            // only counted transport starvation, so a stall that never starved the read-ahead queue
+            // — a pump blocked on the origin, a runtime recovery restart, an audio route change —
+            // reported a clean session and PlaybackHealth graded it as if nothing had happened.
+            val rebuffers =
+                rebufferTracker.observe(
+                    nowNs / NANOS_PER_MILLISECOND,
+                    requestedPlay && !isEnded(),
+                    buffering,
+                    outputHasEverRendered,
+                )
+            mutableState.update { current ->
+                current.copy(
+                    positionMs = positionMs,
+                    bufferedPositionMs = bufferedPositionMs,
+                    subtitleCues = activeSubtitleCues(),
+                    secondarySubtitleCues = activeSecondarySubtitleCues(),
+                    secondarySubtitleTrackId = secondarySubtitleId(),
+                    playing = playing,
+                    buffering = buffering,
+                    diagnostics =
+                        current.diagnostics.copy(
+                            bufferEvents = rebuffers.events,
+                            rebufferDurationMs = rebuffers.durationMs,
+                            longestRebufferMs = rebuffers.longestMs,
+                            droppedFrames = droppedFrames,
+                            videoDecoderName = videoDecoder.decoderName.orEmpty(),
+                            audioDecoderName = audioDecoderDiagnosticName().orEmpty(),
+                            droppedFramesMeasured = true,
+                            // Long forward-cache coverage includes disk bytes, not queued heap input.
+                            sourceQueueBytes = readAhead.queuedBytes,
+                            sourceBufferedMs = sourceBufferedMs,
+                            sourceStarvationCount = readAhead.starvationCount,
+                            audioUnderrunCount =
+                                maxOf(
+                                    current.diagnostics.audioUnderrunCount,
+                                    audioRenderer.underrunCount,
+                                ),
+                            avSyncOffsetMs = lastAvSyncOffsetUs?.div(MICROS_PER_MILLISECOND),
+                            avSyncMeasurement =
+                                if (lastAvSyncOffsetUs != null) {
+                                    "MediaCodec 帧渲染 / AudioTrack 时钟"
+                                } else {
+                                    "等待音视频时钟样本"
+                                },
+                        ),
+                )
+            }
+            publishQoeSnapshot(nowNs, positionUs)
+        }
+
+        private fun publishQoeSnapshot(
+            nowNs: Long,
+            positionUs: Long,
+        ) {
+            if (released) return
+            if (nowNs - lastQoePublishNs < QOE_PUBLISH_INTERVAL_NS) return
+            lastQoePublishNs = nowNs
+            val transportQoe = demux.transportQoeSnapshot()
+            val readAhead = demux.snapshot()
+            AppLog.info(
+                category = "player.core2",
+                event = "native_direct_qoe",
+                message = "YCore sampled device-local playback pacing",
+                attributes =
+                    mapOf(
+                        "decoder" to videoDecoder.decoderName.orEmpty(),
+                        "positionMs" to (positionUs / MICROS_PER_MILLISECOND).toString(),
+                        "renderedFrames" to renderedFrameCount.toString(),
+                        "droppedFrames" to droppedFrames.toString(),
+                        "longRenderGaps" to longRenderGapCount.toString(),
+                        "maximumRenderGapMs" to
+                            (maximumRenderGapNs / NANOS_PER_MILLISECOND).toString(),
+                        "audioUnderruns" to audioRenderer.underrunCount.toString(),
+                        "audioBackpressure" to audioBackpressureCount.toString(),
+                        "pendingAudioBytes" to (pendingAudioOutput?.data?.remaining() ?: 0).toString(),
+                        "audioClockSource" to
+                            if (isAudioPassthrough()) {
+                                "EncodedAudioTrack"
+                            } else {
+                                audioRenderer.clockSource
+                            },
+                        "audioClockStalled" to
+                            (!isAudioPassthrough() && audioRenderer.clockStalled).toString(),
+                        "slowPumps" to slowPumpCount.toString(),
+                        "maximumPumpMs" to (maximumPumpDurationNs / NANOS_PER_MILLISECOND).toString(),
+                        "sourcePrefetchDepth" to (transportQoe?.depthBlocks?.toString() ?: ""),
+                        "sourcePrefetchHits" to (transportQoe?.hitCount?.toString() ?: ""),
+                        "sourceSynchronousLoads" to
+                            (transportQoe?.synchronousLoadCount?.toString() ?: ""),
+                        "sourceMaximumWaitMs" to
+                            (transportQoe?.maximumResolveWaitMs?.toString() ?: ""),
+                        "sourceMaximumLoadMs" to
+                            (transportQoe?.maximumRemoteLoadMs?.toString() ?: ""),
+                        // Without these two a long sourceMaximumWaitMs cannot be attributed: a
+                        // zero load time reads identically whether the bytes came from the disk
+                        // cache or the wait happened inside YCore rather than on the network.
+                        "sourceMaximumCacheMs" to
+                            (transportQoe?.maximumCacheLoadMs?.toString() ?: ""),
+                        // A pump that froze on a stalled origin used to leave no trace. Read live
+                        // rather than from transportQoe: that snapshot is refreshed on the owner
+                        // thread, which is the thread the fetch is blocking.
+                        "sourceBlockedReadMs" to demux.blockedForegroundReadMs().toString(),
+                        "sourcePromotedPrefetches" to
+                            (transportQoe?.promotedPrefetchCount?.toString() ?: ""),
+                        "demuxQueuedSamples" to readAhead.queuedSamples.toString(),
+                        "demuxQueuedBytes" to readAhead.queuedBytes.toString(),
+                        "demuxBufferedMs" to
+                            (readAhead.bufferedDurationUs / MICROS_PER_MILLISECOND).toString(),
+                        "demuxStarvations" to readAhead.starvationCount.toString(),
+                        "rebufferDurationMs" to
+                            mutableState.value.diagnostics.rebufferDurationMs
+                                .toString(),
+                        "longestRebufferMs" to
+                            mutableState.value.diagnostics.longestRebufferMs
+                                .toString(),
+                        "sourceMaximumCacheWriteMs" to (transportQoe?.maximumCacheWriteMs?.toString() ?: ""),
+                        "sourceFailedCacheWrites" to (transportQoe?.failedCacheWriteCount?.toString() ?: ""),
+                        "sourceDroppedCacheWrites" to (transportQoe?.droppedCacheWriteCount?.toString() ?: ""),
+                        "avOffsetMs" to (lastAvSyncOffsetUs?.div(MICROS_PER_MILLISECOND)?.toString() ?: ""),
+                    ),
+            )
+            maximumPumpDurationNs = 0L
+        }
+
+        private fun currentPositionUs(): Long {
+            val candidateUs =
+                audioClockSnapshot()?.positionUs
+                    ?: if (requestedPlay) {
+                        wallClock.positionUs(System.nanoTime())
+                    } else {
+                        maxOf(
+                            mutableState.value.positionMs * MICROS_PER_MILLISECOND,
+                            lastVideoPresentationUs,
+                        )
+                    }
+            return maxOf(candidateUs, monotonicPositionFloorUs).also { positionUs ->
+                monotonicPositionFloorUs = positionUs
+            }
+        }
+
+        private fun finishIfEnded() {
+            if (!isEnded()) return
+            // Do not manufacture completion by snapping an early EOF to the declared duration.
+            // The router compares this real output position with duration before auto-next.
+            val renderedEndUs =
+                maxOf(
+                    lastVideoPresentationUs,
+                    audioClockSnapshot()?.positionUs ?: 0L,
+                )
+            val declaredDurationUs = mutableState.value.durationMs * MICROS_PER_MILLISECOND
+            val endPositionUs =
+                if (declaredDurationUs > 0L) {
+                    renderedEndUs.coerceAtMost(declaredDurationUs)
+                } else {
+                    renderedEndUs
+                }
+            requestedPlay = false
+            pauseAudio()
+            wallClock.pause(endPositionUs, System.nanoTime())
+            mutableState.update { current ->
+                current.copy(
+                    phase = YPlaybackPhase.Ended,
+                    playing = false,
+                    playbackRequested = false,
+                    buffering = false,
+                    positionMs = endPositionUs / MICROS_PER_MILLISECOND,
+                )
+            }
+        }
+
+        private fun isEnded(): Boolean =
+            surfaceCompletion.ended(
+                decoderOutputEnded = videoOutputEnded,
+                audioOutputEnded = audioInputFormat == null || audioOutputEnded,
+                pausedPreviewPending = pausedPreview.resumePending,
+            )
+
+        private fun resetEndState() {
+            videoEosGate.reset()
+            surfaceCompletion.reset()
+            inputEnded = false
+            videoInputEnded = videoTrackIndex == null
+            audioInputEnded = audioInputFormat == null
+            videoOutputEnded = videoTrackIndex == null
+            audioOutputEnded = audioInputFormat == null
+            pendingVideoOutput = null
+            pendingAudioOutput = null
+            seekPrerollVideoOutput = null
+            lastAvSyncOffsetUs = null
+            lastRenderedRealtimeNs = 0L
+        }
+
+        private fun configureAudioPath(format: MediaFormat?) {
+            audioTrackFormat =
+                format?.toCore2AudioTrackFormat(request.items[currentIndex].sourceHints)
+            val coreFormat = audioTrackFormat
+            audioOutputPath =
+                if (
+                    coreFormat != null &&
+                    (
+                        audioDelayMs != 0L ||
+                            requiresPcmAudioPath(
+                                protectedContent = drmBinding != null,
+                                passthroughRejected =
+                                    audioTrackIndex?.let(rejectedPassthroughTracks::contains) == true,
+                                speed = speed,
+                            )
+                    )
+                ) {
+                    YAudioOutputPath.DecodePcm
+                } else {
+                    coreFormat?.let {
+                        plannedAudioOutputPath
+                            ?: capabilityProvider
+                                .current()
+                                .audioOutputPath(
+                                    YAudioRequirement(
+                                        codec = it.codec,
+                                        channelCount = it.channelCount,
+                                        sampleRate = it.sampleRate,
+                                    ),
+                                )
+                    } ?: YAudioOutputPath.None
+                }
+            when {
+                format == null -> audioRendererConfigured = false
+                audioOutputPath == YAudioOutputPath.Passthrough -> {
+                    try {
+                        encodedAudioRenderer.configure(
+                            requireNotNull(coreFormat),
+                            exactDolbyAtmosTransport =
+                                capabilityProvider
+                                    .current()
+                                    .hasExactDolbyAtmosPassthrough(coreFormat.codec),
+                        )
+                        audioRendererConfigured = true
+                    } catch (_: Exception) {
+                        rejectedPassthroughTracks += requireNotNull(audioTrackIndex)
+                        switchPassthroughToPcm(countFailure = true)
+                    }
+                }
+                audioOutputPath == YAudioOutputPath.DecodePcm -> {
+                    audioDecoder.configure(
+                        format = format,
+                        mediaCrypto = drmBinding?.mediaCrypto,
+                        trackFormat = requireNotNull(coreFormat),
+                    )
+                    audioRendererConfigured = false
+                }
+                else -> error("Selected NativeDirect audio track has no platform output path")
+            }
+            captureAudioRoutingGeneration()
+        }
+
+        private fun releaseAudioPath() {
+            releasePendingAudioOutput()
+            runCatching(audioRenderer::release)
+            runCatching(encodedAudioRenderer::release)
+            runCatching(audioDecoder::release)
+            audioRendererConfigured = false
+            audioOutputPath = YAudioOutputPath.None
+            audioTrackFormat = null
+            pendingEncodedAudioInput = null
+            captureAudioRoutingGeneration()
+        }
+
+        private fun queueAudioSample(
+            data: ByteBuffer,
+            presentationTimeUs: Long,
+            flags: Int,
+            cryptoInfo: YExtractorCryptoInfo?,
+        ): YCodecQueueResult {
+            if (!isAudioPassthrough()) {
+                return audioDecoder.queueAccessUnit(data, presentationTimeUs, flags, cryptoInfo)
+            }
+            require(cryptoInfo == null) { "Encrypted audio cannot use passthrough" }
+            if (presentationTimeUs >= seekTargetAudioUs) {
+                try {
+                    val copy =
+                        ByteBuffer
+                            .allocateDirect(data.remaining())
+                            .put(data.duplicate())
+                            .also(ByteBuffer::flip)
+                    val written = encodedAudioRenderer.writeNonBlocking(copy, presentationTimeUs)
+                    if (copy.hasRemaining()) {
+                        pendingEncodedAudioInput =
+                            YPendingEncodedAudioInput(
+                                data = copy,
+                                presentationTimeUs = presentationTimeUs,
+                            )
+                        if (written == 0) audioBackpressureCount++
+                        return YCodecQueueResult.TryAgain
+                    }
+                } catch (_: Exception) {
+                    val resumeUs = currentPositionUs()
+                    rejectedPassthroughTracks += requireNotNull(audioTrackIndex)
+                    switchPassthroughToPcm(countFailure = true)
+                    seekTo(resumeUs)
+                    return YCodecQueueResult.TryAgain
+                }
+                seekTargetAudioUs = 0L
+                verifyEncodedAudioOutput()
+            }
+            return YCodecQueueResult.Queued
+        }
+
+        private fun drainPendingEncodedAudioInput(): Boolean {
+            val pending = pendingEncodedAudioInput ?: return false
+            return try {
+                val written =
+                    encodedAudioRenderer.writeNonBlocking(
+                        pending.data,
+                        pending.presentationTimeUs,
+                    )
+                if (written == 0) audioBackpressureCount++
+                if (pending.data.hasRemaining()) {
+                    written > 0
+                } else {
+                    pendingEncodedAudioInput = null
+                    seekTargetAudioUs = 0L
+                    verifyEncodedAudioOutput()
+                    lastQueuedPresentationUs =
+                        maxOf(lastQueuedPresentationUs, pending.presentationTimeUs)
+                    true
+                }
+            } catch (_: Exception) {
+                val resumeUs = currentPositionUs()
+                audioTrackIndex?.let(rejectedPassthroughTracks::add)
+                pendingEncodedAudioInput = null
+                switchPassthroughToPcm(countFailure = true)
+                seekTo(resumeUs)
+                true
+            }
+        }
+
+        private fun verifyEncodedAudioOutput() {
+            val outputMode = encodedAudioRenderer.dolbyAtmosOutputMode
+            mutableState.update { current ->
+                current.copy(
+                    diagnostics =
+                        current.diagnostics.copy(
+                            audioOutput = activeAudioOutputLabel(),
+                            audioOutputVerified = true,
+                            immersiveAudioCarrierOutput = encodedAudioRenderer.immersiveCarrierOutput,
+                            dolbyAtmosSourceDetected = audioTrackFormat?.codec.isDolbyAtmosSource(),
+                            dolbyAtmosOutputMode = outputMode,
+                            audioOutputRoute = encodedAudioRenderer.audioRouteLabel,
+                            audioOutputFingerprint = encodedAudioRenderer.audioRouteFingerprint,
+                            audioOutputRouteVerified = encodedAudioRenderer.audioRouteVerified,
+                            dolbyAtmosOutput = outputMode.encodedPassthrough,
+                        ),
+                )
+            }
+        }
+
+        private fun switchPassthroughToPcm(countFailure: Boolean) {
+            val format = checkNotNull(audioInputFormat) { "PCM fallback requires an audio track" }
+            runCatching(encodedAudioRenderer::release)
+            runCatching(audioRenderer::release)
+            runCatching(audioDecoder::release)
+            pendingEncodedAudioInput = null
+            audioOutputPath = YAudioOutputPath.DecodePcm
+            audioRendererConfigured = false
+            audioDecoder.configure(
+                format = format,
+                mediaCrypto = drmBinding?.mediaCrypto,
+                trackFormat = requireNotNull(audioTrackFormat),
+            )
+            captureAudioRoutingGeneration()
+            mutableState.update { current ->
+                current.copy(
+                    diagnostics =
+                        current.diagnostics.copy(
+                            audioOutput = "原码不可用 · 自动回落 PCM",
+                            audioOutputVerified = false,
+                            immersiveAudioCarrierOutput = false,
+                            dolbyAtmosSourceDetected = audioTrackFormat?.codec.isDolbyAtmosSource(),
+                            dolbyAtmosOutputMode = YDolbyAtmosOutputMode.None,
+                            audioOutputRoute = "",
+                            audioOutputRouteVerified = false,
+                            dolbyAtmosOutput = false,
+                            spatialAudioOutput = false,
+                            headTrackingAvailable = false,
+                            audioUnderrunCount =
+                                current.diagnostics.audioUnderrunCount +
+                                    if (countFailure) 1 else 0,
+                        ),
+                )
+            }
+        }
+
+        private fun handleAudioRoutingChange(): Boolean {
+            val generation =
+                if (isAudioPassthrough()) {
+                    encodedAudioRenderer.routingChangeGeneration
+                } else {
+                    audioRenderer.routingChangeGeneration
+                }
+            if (generation == observedAudioRoutingGeneration) return false
+            observedAudioRoutingGeneration = generation
+            val preservePausedVideo = !requestedPlay && pausedPreview.resumePending
+            if (pausedPreview.resumePending) {
+                AppLog.info(
+                    category = "player.core2",
+                    event = "paused_preview_audio_route_changed",
+                    message = "NativeDirect preserved the paused video frame across an audio route callback",
+                    attributes = mapOf("frameSubmitted" to pausedPreview.submitted.toString()),
+                )
+            }
+            // Pausing AudioTrack can report a route change after the only preview frame has been
+            // submitted. Its Surface and decoder have not changed; invalidating that epoch would
+            // reject the late callback and leave no second frame eligible for submission.
+            if (!preservePausedVideo) resetVideoRenderEvidence()
+            mutableState.update { current ->
+                current.copy(
+                    diagnostics =
+                        invalidateNativeDirectAudioRoute(current.diagnostics, preservePausedVideo)
+                            .copy(
+                                videoOutput =
+                                    if (preservePausedVideo) {
+                                        current.diagnostics.videoOutput
+                                    } else {
+                                        "音频路由已变化 · 等待新帧"
+                                    },
+                                audioOutput = waitingAudioOutputLabel(),
+                            ),
+                )
+            }
+            val coreFormat = audioTrackFormat ?: return false
+            if (!isAudioPassthrough()) return true
+
+            val capabilities = capabilityProvider.current()
+            val nextPath =
+                capabilities.audioOutputPath(
+                    YAudioRequirement(
+                        codec = coreFormat.codec,
+                        channelCount = coreFormat.channelCount,
+                        sampleRate = coreFormat.sampleRate,
+                    ),
+                )
+            if (nextPath != YAudioOutputPath.Passthrough) {
+                val resumeUs = currentPositionUs()
+                audioTrackIndex?.let(rejectedPassthroughTracks::add)
+                switchPassthroughToPcm(countFailure = true)
+                seekTo(resumeUs)
+            } else {
+                encodedAudioRenderer.updateExactDolbyAtmosTransport(
+                    capabilities.hasExactDolbyAtmosPassthrough(coreFormat.codec),
+                )
+            }
+            refreshActiveAudioEvidence()
+            return true
+        }
+
+        private fun refreshActiveAudioEvidence() {
+            if (!mutableState.value.diagnostics.audioOutputVerified) return
+            if (isAudioPassthrough()) {
+                verifyEncodedAudioOutput()
+            } else {
+                verifyPcmAudioOutput(writtenBytes = 1)
+            }
+        }
+
+        private fun captureAudioRoutingGeneration() {
+            observedAudioRoutingGeneration =
+                if (isAudioPassthrough()) {
+                    encodedAudioRenderer.routingChangeGeneration
+                } else {
+                    audioRenderer.routingChangeGeneration
+                }
+        }
+
+        private fun isAudioPassthrough(): Boolean =
+            audioInputFormat != null && audioOutputPath == YAudioOutputPath.Passthrough
+
+        private fun nativeDolbyVisionOutputVerified(): Boolean =
+            plannedDolbyVisionConfig != null &&
+                videoFormat?.getString(MediaFormat.KEY_MIME) == DOLBY_VISION_MIME &&
+                capabilityProvider
+                    .current()
+                    .supportsDisplayHdr(com.yfuse.core2.capability.YHdrType.DolbyVision)
+
+        private fun audioClockSnapshot(): YAudioClockSnapshot? =
+            if (isAudioPassthrough()) encodedAudioRenderer.clockSnapshot() else audioRenderer.clockSnapshot()
+
+        private fun configureVideoDecoder(surface: Surface) {
+            val format = requireNotNull(videoFormat)
+            check(
+                secureSurfaceRequirementSatisfied(
+                    protectedContent = drmBinding != null,
+                    outputSecure = surfaceOutput?.protectedContent == true,
+                ),
+            ) {
+                "Protected playback requires a secure SurfaceView output"
+            }
+            try {
+                yPlaybackStage(
+                    category = YPlaybackFailureCategory.Decoder,
+                    stage = YPlaybackFailureStage.VideoDecoderConfigure,
+                    safeDetail = "NativeDirect MediaCodec configure",
+                ) {
+                    videoDecoder.configure(
+                        format = format,
+                        surface = surface,
+                        decoderName = decoderName,
+                        mediaCrypto = drmBinding?.mediaCrypto,
+                        isolateFrameTimestamps = true,
+                    )
+                }
+                runtimeCapabilityKey?.let(runtimeCapabilities::recordConfigured)
+            } catch (failure: Throwable) {
+                if (failure is CancellationException) throw failure
+                runtimeCapabilityKey?.let(runtimeCapabilities::recordRejected)
+                throw failure
+            }
+            frameRateManager.attach(surface, format.directFrameRateHint())
+            attachVideoRenderEvidence()
+            videoConfigured = true
+            // A Surface can arrive after prepare(), when only the audio decoder was known.
+            mutableState.update { current ->
+                current.copy(
+                    diagnostics =
+                        current.diagnostics.copy(
+                            decoder =
+                                listOfNotNull(
+                                    videoDecoder.decoderName,
+                                    audioDecoderDiagnosticName(),
+                                ).joinToString(" + "),
+                            videoDecoderName = videoDecoder.decoderName.orEmpty(),
+                            audioDecoderName = audioDecoderDiagnosticName().orEmpty(),
+                        ),
+                )
+            }
+        }
+
+        private fun resetVideoRenderEvidence() {
+            videoOutputEpoch.reset()
+            firstVideoFrameRendered = false
+            if (videoConfigured) attachVideoRenderEvidence()
+        }
+
+        private fun attachVideoRenderEvidence() {
+            val generation = videoOutputEpoch.reset()
+            firstVideoFrameRendered = false
+            var callbackRejectionLogged = false
+            videoDecoder.setOnFrameRenderedListener { presentationTimeUs, realtimeNs ->
+                if (released ||
+                    !videoOutputEpoch.rendered(
+                        generation,
+                        presentationTimeUs,
+                        realtimeNs,
+                        frameIdentityIsolated = videoDecoder.frameTimestampIdentityIsolated,
+                    ) {
+                        markFirstVideoFrameRendered()
+                    }
+                ) {
+                    if (!released && !callbackRejectionLogged) {
+                        callbackRejectionLogged = true
+                        AppLog.info(
+                            category = "player.core2",
+                            event = "native_direct_callback_rejected",
+                            message = "NativeDirect rejected a rendered callback outside the current output evidence",
+                            attributes =
+                                mapOf(
+                                    "presentationTimeUs" to presentationTimeUs.toString(),
+                                    "realtimeNs" to realtimeNs.toString(),
+                                    "callbackGeneration" to generation.toString(),
+                                    "positionMs" to mutableState.value.positionMs.toString(),
+                                    "playbackRequested" to requestedPlay.toString(),
+                                    "inputEnded" to inputEnded.toString(),
+                                    "videoOutputEnded" to videoOutputEnded.toString(),
+                                ),
+                        )
+                    }
+                    return@setOnFrameRenderedListener
+                }
+                val renderTimeTrusted = videoOutputEpoch.recordRenderTime(generation, realtimeNs)
+                if (renderTimeTrusted) {
+                    val previousRealtimeNs = lastRenderedRealtimeNs
+                    if (previousRealtimeNs > 0L && realtimeNs > previousRealtimeNs) {
+                        val gapNs = realtimeNs - previousRealtimeNs
+                        maximumRenderGapNs = maxOf(maximumRenderGapNs, gapNs)
+                        if (gapNs >= LONG_RENDER_GAP_NS) longRenderGapCount++
+                    }
+                }
+                lastRenderedRealtimeNs = if (renderTimeTrusted) realtimeNs else 0L
+                renderedFrameCount++
+                if (pausedPreview.resumePending) {
+                    AppLog.info(
+                        category = "player.core2",
+                        event = "paused_preview_rendered",
+                        message = "NativeDirect received actual rendering evidence for the paused seek frame",
+                        attributes = mapOf("presentationTimeUs" to presentationTimeUs.toString()),
+                    )
+                }
+                if (!runtimeRenderRecorded) {
+                    runtimeRenderRecorded = true
+                    runtimeCapabilityKey?.let(runtimeCapabilities::recordRendered)
+                }
+                val audioClock = if (renderTimeTrusted) audioClockSnapshot() else null
+                lastAvSyncOffsetUs =
+                    audioClock?.let { clock ->
+                        YAvSync.offsetUs(
+                            videoPresentationTimeUs = presentationTimeUs,
+                            videoRenderedRealtimeNs = realtimeNs,
+                            master = YClockSnapshot(clock.positionUs, clock.realtimeNs),
+                            speed = speed,
+                        )
+                    }
+            }
+        }
+
+        private fun markFirstVideoFrameRendered() {
+            if (firstVideoFrameRendered || released) return
+            firstVideoFrameRendered = true
+            outputHasEverRendered = true
+            videoOutputEstablished = true
+            mutableState.updateState { current ->
+                if (released) {
+                    current
+                } else {
+                    current.copy(
+                        phase =
+                            if (current.phase == YPlaybackPhase.Ended) {
+                                YPlaybackPhase.Ended
+                            } else {
+                                YPlaybackPhase.Ready
+                            },
+                        playing =
+                            requestedPlay &&
+                                !transportBufferingVisible &&
+                                current.phase != YPlaybackPhase.Ended,
+                        buffering = requestedPlay && transportBufferingVisible,
+                        diagnostics =
+                            current.diagnostics.copy(
+                                videoOutput = "Surface 直出",
+                                videoOutputVerified = true,
+                                dolbyVisionOutput = nativeDolbyVisionOutputVerified(),
+                            ),
+                    )
+                }
+            }
+        }
+
+        private fun onTransportBlockingReadStateChanged(blocked: Boolean) {
+            if (released) return
+            transportReadBlocked = blocked
+            ++transportBlockGeneration
+        }
+
+        private fun abortIfReleased() {
+            if (released || !scope.isActive) {
+                throw CancellationException("NativeDirect player was released")
+            }
+        }
+
+        private fun audioPresentationTimeNs(
+            presentationTimeUs: Long,
+            fallbackRealtimeNs: Long,
+        ): Long =
+            if (isAudioPassthrough()) {
+                encodedAudioRenderer.presentationTimeNs(presentationTimeUs, fallbackRealtimeNs)
+            } else {
+                audioRenderer.presentationTimeNs(presentationTimeUs, fallbackRealtimeNs)
+            }
+
+        private fun playAudio() {
+            if (isAudioPassthrough()) {
+                encodedAudioRenderer.play()
+            } else {
+                audioRenderer.setSpeed(speed)
+                audioRenderer.play()
+            }
+        }
+
+        private fun pauseAudio() {
+            if (isAudioPassthrough()) encodedAudioRenderer.pause() else audioRenderer.pause()
+        }
+
+        private fun flushAudio() {
+            if (isAudioPassthrough()) encodedAudioRenderer.flush() else audioRenderer.flush()
+        }
+
+        private fun audioDecoderDiagnosticName(): String? =
+            when (audioOutputPath) {
+                YAudioOutputPath.Passthrough -> encodedAudioRenderer.name
+                YAudioOutputPath.DecodePcm -> audioDecoder.decoderName
+                YAudioOutputPath.None -> null
+            }
+
+        private fun waitingAudioOutputLabel(): String =
+            when (audioOutputPath) {
+                YAudioOutputPath.Passthrough -> "等待原码输出"
+                YAudioOutputPath.DecodePcm -> "等待 PCM 输出"
+                YAudioOutputPath.None -> "无音频轨"
+            }
+
+        private fun activeAudioOutputLabel(): String =
+            when (encodedAudioRenderer.dolbyAtmosOutputMode) {
+                YDolbyAtmosOutputMode.Eac3JocPassthrough -> "Dolby Atmos · E-AC-3 JOC 原码 · AudioTrack"
+                YDolbyAtmosOutputMode.TrueHdAtmosPassthrough -> "Dolby Atmos · TrueHD 原码 · AudioTrack"
+                YDolbyAtmosOutputMode.TrueHdCarrierPassthrough ->
+                    "TrueHD 载波 · AudioTrack（未验证 Atmos 对象输出）"
+                YDolbyAtmosOutputMode.CarrierOnly ->
+                    "沉浸音频载波 · AudioTrack（未验证对象输出）"
+                YDolbyAtmosOutputMode.AtmosSourceSpatializedPcm,
+                YDolbyAtmosOutputMode.None,
+                ->
+                    if (encodedAudioRenderer.immersiveCarrierOutput) {
+                        "沉浸音频载波 · AudioTrack（未验证对象输出）"
+                    } else {
+                        "原码直通 · AudioTrack"
+                    }
+            }
+
+        private fun selectedDemuxTrackIndices(): Set<Int> =
+            buildSet {
+                videoTrackIndex?.let { add(it) }
+                audioTrackIndex?.let { add(it) }
+                subtitleTrackIndex?.let { add(it) }
+                secondarySubtitleTrackIndex?.let { add(it) }
+            }
+
+        private fun audioTracks(): List<YTrack> =
+            (0 until demux.trackCount).mapNotNull { index ->
+                val format = demux.trackFormat(index)
+                val mime = format.getString(MediaFormat.KEY_MIME) ?: return@mapNotNull null
+                if (!mime.startsWith(AUDIO_MIME_PREFIX)) return@mapNotNull null
+                val language = format.getString(MediaFormat.KEY_LANGUAGE)
+                YTrack(
+                    id = "$AUDIO_TRACK_PREFIX$index",
+                    type = YTrackType.Audio,
+                    label = language?.takeIf(String::isNotBlank) ?: "Audio ${index + 1}",
+                    language = language,
+                    codec = mime,
+                    selected = index == audioTrackIndex,
+                )
+            }
+
+        private fun subtitleTracks(): List<YTrack> {
+            val embedded =
+                (0 until demux.trackCount).mapNotNull { index ->
+                    val format = demux.trackFormat(index)
+                    val subtitleFormat =
+                        format.subtitleFormatOrNull()?.takeIf { it.textOverlaySupported }
+                            ?: return@mapNotNull null
+                    val language = format.getString(MediaFormat.KEY_LANGUAGE)
+                    YTrack(
+                        id = "$SUBTITLE_TRACK_PREFIX$index",
+                        type = YTrackType.Subtitle,
+                        label = language?.takeIf(String::isNotBlank) ?: "Subtitle ${index + 1}",
+                        language = language,
+                        codec = format.getString(MediaFormat.KEY_MIME) ?: subtitleFormat.name,
+                        selected = selectedExternalSubtitleId == null && index == subtitleTrackIndex,
+                    )
+                }
+            return embedded +
+                externalSubtitles.map { subtitle ->
+                    subtitle.track.copy(selected = subtitle.track.id == selectedExternalSubtitleId)
+                }
+        }
+
+        private fun activeSubtitleCues(): List<YSubtitleCue> =
+            selectedExternalSubtitleId
+                ?.let { id -> externalSubtitles.firstOrNull { it.track.id == id }?.cues }
+                ?: subtitleCues.toList()
+
+        private fun secondarySubtitleId(): String? =
+            secondaryExternalSubtitleId
+                ?: secondarySubtitleTrackIndex?.let { "$SUBTITLE_TRACK_PREFIX$it" }
+
+        private fun activeSecondarySubtitleCues(): List<YSubtitleCue> =
+            secondaryExternalSubtitleId
+                ?.let { id -> externalSubtitles.firstOrNull { it.track.id == id }?.cues }
+                ?: secondarySubtitleCues.toList()
+
+        private fun sourceFailureCategory(): YPlaybackFailureCategory =
+            if (sourceRemote) YPlaybackFailureCategory.Network else YPlaybackFailureCategory.Container
+
+        private fun queueSubtitleSample(
+            trackIndex: Int,
+            data: ByteBuffer,
+            presentationTimeUs: Long,
+        ) {
+            val format = demux.trackFormat(trackIndex).subtitleFormatOrNull() ?: return
+            val cues = if (trackIndex == secondarySubtitleTrackIndex) secondarySubtitleCues else subtitleCues
+            val bytes = ByteArray(data.remaining())
+            data.duplicate().get(bytes)
+            appendUntimedTextSubtitlePacket(
+                cues = cues,
+                data = bytes,
+                format = format,
+                presentationTimeUs = presentationTimeUs,
+                id = "$trackIndex:$presentationTimeUs",
+            )
+            val oldestRetainedUs = currentPositionUs() - SUBTITLE_HISTORY_US
+            cues.removeAll { cue -> cue.endUs < oldestRetainedUs }
+        }
+
+        fun releaseMedia() {
+            val stats = rebufferTracker.stop(releasedAtMs ?: System.nanoTime() / 1_000_000L)
+            mutableState.update {
+                it.copy(
+                    diagnostics =
+                        it.diagnostics.copy(
+                            bufferEvents = stats.events,
+                            rebufferDurationMs = stats.durationMs,
+                            longestRebufferMs = stats.longestMs,
+                        ),
+                )
+            }
+            externalSubtitleSession.close()
+            videoOutputEpoch.reset()
+            pausedPreview.clear()
+            seekVideoSubmissionPending = false
+            pendingVideoOutput?.let { output ->
+                runCatching { videoDecoder.releaseOutput(output, render = false) }
+            }
+            pendingVideoOutput = null
+            releasePendingAudioOutput()
+            pendingEncodedAudioInput = null
+            runCatching(audioRenderer::release)
+            runCatching(encodedAudioRenderer::release)
+            runCatching(audioDecoder::release)
+            runCatching(videoDecoder::release)
+            runCatching { drmSession?.close() }
+            drmBinding = null
+            drmSession = null
+            frameRateManager.clear()
+            runCatching(demux::release)
+            prepared = false
+            videoConfigured = false
+            audioRendererConfigured = false
+            videoTrackIndex = null
+            audioTrackIndex = null
+            subtitleTrackIndex = null
+            secondarySubtitleTrackIndex = null
+            secondaryExternalSubtitleId = null
+            subtitleCues.clear()
+            secondarySubtitleCues.clear()
+            externalSubtitles = emptyList()
+            selectedExternalSubtitleId = null
+            sourceRemote = false
+            sourceBitRateBitsPerSecond = 0L
+            lastBufferReplanNs = 0L
+            videoOutputEstablished = false
+            awaitVideoSyncSample = false
+            awaitVideoSyncSampleDrops = 0
+            videoFormat = null
+            inspectHdr10PlusSamples = false
+            hdrAccessUnits.clear()
+            audioInputFormat = null
+            audioTrackFormat = null
+            audioOutputPath = YAudioOutputPath.None
+            observedAudioRoutingGeneration = 0L
+            rejectedPassthroughTracks.clear()
+            firstVideoFrameRendered = false
+            transportReadBlocked = false
+            transportBufferingVisible = false
+            transportBlockGeneration++
+            droppedFrames = 0
+            runtimeRenderRecorded = false
+            renderedFrameCount = 0L
+            longRenderGapCount = 0
+            maximumRenderGapNs = 0L
+            lastRenderedRealtimeNs = 0L
+            audioBackpressureCount = 0
+            // slowPumpCount and maximumPumpDurationNs deliberately survive releaseMedia(). A
+            // runtime recovery restarts the pipeline precisely because the pump stalled, and
+            // resetting them here erased the measurement that explains the restart.
+            lastQoePublishNs = 0L
+            resetEndState()
+            mutableState.update { current ->
+                current.copy(
+                    diagnostics =
+                        current.diagnostics.copy(
+                            videoOutputVerified = false,
+                            audioOutputVerified = false,
+                            avSyncOffsetMs = null,
+                            avSyncMeasurement = "等待音视频时钟样本",
+                        ),
+                )
+            }
+        }
+
+        fun releaseAll() {
+            releaseMedia()
+            demux.close()
+            surfaceOutput = null
+        }
+
+        fun cancelPendingRead() = demux.cancelPendingRead()
+
+        private fun releasePendingAudioOutput() {
+            val pending = pendingAudioOutput ?: return
+            pendingAudioOutput = null
+            runCatching { audioDecoder.releaseOutput(pending.output) }
+        }
+    }
+
+    internal sealed interface Command {
+        data class SetAudioDelay(
+            val delayMs: Long,
+        ) : Command
+
+        data class ExternalSubtitleReady(
+            val result: AndroidExternalSubtitleSession.Completion,
+        ) : Command
+
+        data object Prepare : Command
+
+        data object Play : Command
+
+        data object Pause : Command
+
+        data class Seek(
+            val positionUs: Long,
+        ) : Command
+
+        data class SetSpeed(
+            val speed: Float,
+        ) : Command
+
+        data class SetVideoOutput(
+            val output: AndroidSurfaceVideoOutput?,
+        ) : Command
+
+        data class SelectAudioTrack(
+            val trackIndex: Int,
+        ) : Command
+
+        data class SelectSubtitleTrack(
+            val trackIndex: Int?,
+            val externalTrackId: String?,
+            val secondary: Boolean = false,
+        ) : Command
+
+        data class SelectItem(
+            val index: Int,
+        ) : Command
+    }
+}
+
+internal fun invalidateNativeDirectAudioRoute(
+    diagnostics: YPlayerDiagnostics,
+    preservePausedVideo: Boolean,
+): YPlayerDiagnostics {
+    val reset = diagnostics.invalidateOutputEvidence(YOutputEvidenceResetReason.AudioRouteChanged)
+    return if (preservePausedVideo) {
+        reset.copy(
+            videoOutputVerified = diagnostics.videoOutputVerified,
+            dolbyVisionOutput = diagnostics.dolbyVisionOutput,
+            dolbyVisionRpuApplied = diagnostics.dolbyVisionRpuApplied,
+            dolbyVisionEnhancementLayerDelivered = diagnostics.dolbyVisionEnhancementLayerDelivered,
+            dolbyVisionFelComposed = diagnostics.dolbyVisionFelComposed,
+        )
+    } else {
+        reset
+    }
+}
+
+internal enum class YDecodedAudioDrainProgress {
+    Backpressured,
+    Pending,
+    Complete,
+}
+
+internal fun decodedAudioDrainProgress(
+    writtenBytes: Int,
+    remainingBytes: Int,
+): YDecodedAudioDrainProgress {
+    require(writtenBytes >= 0)
+    require(remainingBytes >= 0)
+    return when {
+        remainingBytes == 0 -> YDecodedAudioDrainProgress.Complete
+        writtenBytes == 0 -> YDecodedAudioDrainProgress.Backpressured
+        else -> YDecodedAudioDrainProgress.Pending
+    }
+}
+
+private data class YPendingDecodedAudioOutput(
+    val output: YAudioCodecOutputResult.Buffer,
+    val data: ByteBuffer,
+)
+
+private data class YPendingEncodedAudioInput(
+    val data: ByteBuffer,
+    val presentationTimeUs: Long,
+)
+
+private fun createNativeDirectPlaybackDispatcher(): ExecutorCoroutineDispatcher =
+    Executors
+        .newSingleThreadExecutor { task ->
+            Thread(
+                {
+                    Process.setThreadPriority(Process.THREAD_PRIORITY_DISPLAY)
+                    task.run()
+                },
+                NATIVE_DIRECT_THREAD_NAME,
+            )
+        }.asCoroutineDispatcher()
+
+internal fun validateNativeDirectDolbyIdentity(
+    required: Boolean,
+    extractedMime: String?,
+) {
+    if (!required || extractedMime.equals(DOLBY_VISION_MIME, ignoreCase = true)) return
+    throw YPlaybackException(
+        category = YPlaybackFailureCategory.Container,
+        stage = YPlaybackFailureStage.Bitstream,
+        safeDetail = "NativeDirect source did not expose a Dolby Vision track identity",
+    )
+}
+
+internal fun yCoreNativeDirectFailureMessage(failure: YPlaybackException?): String =
+    when (failure?.category) {
+        YPlaybackFailureCategory.Authorization -> "YCore 2.0 片源授权已失效，请刷新播放地址后重试"
+        YPlaybackFailureCategory.Drm -> "YCore 2.0 无法建立当前片源的 DRM 会话"
+        YPlaybackFailureCategory.Network -> "YCore 2.0 无法连接片源，请检查服务器或网络"
+        YPlaybackFailureCategory.Container ->
+            when {
+                failure.stage == YPlaybackFailureStage.Bitstream ->
+                    "YCore 2.0 无法验证当前片源的杜比视界配置"
+                failure.isHiddenServerAudioTrackFailure() -> YCORE_HIDDEN_AUDIO_TRACK_MESSAGE
+                else -> "YCore 2.0 原生解封装无法识别当前片源"
+            }
+        YPlaybackFailureCategory.Decoder -> "YCore 2.0 无法启动当前视频解码器"
+        YPlaybackFailureCategory.Renderer -> "YCore 2.0 无法建立视频输出"
+        YPlaybackFailureCategory.AudioSink -> "YCore 2.0 无法建立音频输出"
+        YPlaybackFailureCategory.Unknown,
+        null,
+        -> "YCore 2.0 原生播放失败，请导出诊断日志"
+    }
+
+internal fun secureSurfaceRequirementSatisfied(
+    protectedContent: Boolean,
+    outputSecure: Boolean,
+): Boolean = !protectedContent || outputSecure
+
+/**
+ * Drops superseded control work before it reaches MediaExtractor/MediaCodec. This turns a scrub
+ * gesture into one seek/flush operation while preserving barriers such as pause, item switch and
+ * track selection.
+ */
+internal fun coalesceNativeDirectCommands(
+    commands: List<AndroidNativeDirectYPlayer.Command>,
+): List<AndroidNativeDirectYPlayer.Command> =
+    commands.fold(mutableListOf()) { result, command ->
+        val previous = result.lastOrNull()
+        if (previous != null && previous.canBeReplacedBy(command)) {
+            result[result.lastIndex] = command
+        } else {
+            result += command
+        }
+        result
+    }
+
+private fun AndroidNativeDirectYPlayer.Command.canBeReplacedBy(next: AndroidNativeDirectYPlayer.Command): Boolean =
+    when (this) {
+        is AndroidNativeDirectYPlayer.Command.ExternalSubtitleReady -> false
+        is AndroidNativeDirectYPlayer.Command.Seek -> next is AndroidNativeDirectYPlayer.Command.Seek
+        is AndroidNativeDirectYPlayer.Command.SetSpeed -> next is AndroidNativeDirectYPlayer.Command.SetSpeed
+        is AndroidNativeDirectYPlayer.Command.SetAudioDelay -> next is AndroidNativeDirectYPlayer.Command.SetAudioDelay
+        is AndroidNativeDirectYPlayer.Command.SetVideoOutput ->
+            next is AndroidNativeDirectYPlayer.Command.SetVideoOutput
+        is AndroidNativeDirectYPlayer.Command.SelectAudioTrack ->
+            next is AndroidNativeDirectYPlayer.Command.SelectAudioTrack
+        is AndroidNativeDirectYPlayer.Command.SelectSubtitleTrack ->
+            next is AndroidNativeDirectYPlayer.Command.SelectSubtitleTrack && secondary == next.secondary
+        is AndroidNativeDirectYPlayer.Command.SelectItem -> next is AndroidNativeDirectYPlayer.Command.SelectItem
+        AndroidNativeDirectYPlayer.Command.Prepare -> next == AndroidNativeDirectYPlayer.Command.Prepare
+        AndroidNativeDirectYPlayer.Command.Play -> next == AndroidNativeDirectYPlayer.Command.Play
+        AndroidNativeDirectYPlayer.Command.Pause -> next == AndroidNativeDirectYPlayer.Command.Pause
+    }
+
+private fun YMediaItem.toAndroidSource(): YAndroidMediaSource =
+    YAndroidMediaSource(
+        uri = uri,
+        headers = headers,
+        credentials = transportCredentials,
+        bitrateBitsPerSecond = sourceHints?.bitrateBitsPerSecond ?: 0L,
+        cacheIdentity = cacheIdentity,
+        cacheMaximumBytes = cacheMaximumBytes,
+    )
+
+/**
+ * Describes an audio track without throwing.
+ *
+ * Every failure here used to be swallowed by the caller's `runCatching { … }.getOrNull()`, which
+ * dropped the track and left the session reporting that the media simply had no audio. An
+ * unrecognised MIME therefore has to reach the capability layer as [YAudioCodec.Unknown] — the
+ * convention `AndroidCore2MediaProbe` already follows — so the device probe decides there is no
+ * output path and the caller's fail-closed guard reports a real reason. `toYAudioCodec` itself
+ * keeps returning null for unmapped types because [AndroidYCapabilityProvider] uses it to build the
+ * decoder capability set, where an Unknown entry would claim support for everything.
+ *
+ * Channel count and sample rate are read defensively for the same reason: `MediaFormat.getInteger`
+ * throws when a container omits the key. Server probe metadata fills those gaps; a codec-aware,
+ * valid AudioTrack geometry is the final fallback instead of the old 1 Hz/mono placeholder.
+ */
+internal fun MediaFormat.toCore2AudioTrackFormat(sourceHints: YMediaSourceHints? = null): YAudioTrackFormat {
+    val mime = requireNotNull(getString(MediaFormat.KEY_MIME)).normalizedAudioMimeType()
+    val profile = intOrZero(MediaFormat.KEY_PROFILE)
+    val baseCodec = mime.toYAudioCodec() ?: YAudioCodec.Unknown
+    val codec =
+        when {
+            baseCodec == YAudioCodec.Eac3 && profile == ATMOS_PROFILE -> YAudioCodec.Eac3Joc
+            baseCodec == YAudioCodec.TrueHd && profile == ATMOS_PROFILE -> YAudioCodec.TrueHdAtmos
+            else -> baseCodec
+        }
+    return YAudioTrackFormat(
+        codec = codec,
+        mimeType = mime,
+        channelCount =
+            resolveNativeDirectAudioChannelCount(
+                codec = codec,
+                extractedChannelCount = intOrZero(MediaFormat.KEY_CHANNEL_COUNT),
+                sourceHintChannelCount = sourceHints?.audioChannelCount ?: 0,
+            ),
+        sampleRate =
+            resolveNativeDirectAudioSampleRate(
+                extractedSampleRateHz = intOrZero(MediaFormat.KEY_SAMPLE_RATE),
+                sourceHintSampleRateHz = sourceHints?.audioSampleRateHz ?: 0,
+            ),
+    )
+}
+
+internal fun resolveNativeDirectAudioChannelCount(
+    codec: YAudioCodec,
+    extractedChannelCount: Int,
+    sourceHintChannelCount: Int,
+): Int =
+    extractedChannelCount.takeIf { it > 0 }
+        ?: sourceHintChannelCount.takeIf { it > 0 }
+        ?: when (codec) {
+            YAudioCodec.Ac3, YAudioCodec.Eac3, YAudioCodec.Eac3Joc, YAudioCodec.Dts -> 6
+            YAudioCodec.TrueHd, YAudioCodec.TrueHdAtmos, YAudioCodec.DtsHd, YAudioCodec.DtsX -> 8
+            else -> 2
+        }
+
+internal fun resolveNativeDirectAudioSampleRate(
+    extractedSampleRateHz: Int,
+    sourceHintSampleRateHz: Int,
+): Int =
+    extractedSampleRateHz.takeIf { it > 0 }
+        ?: sourceHintSampleRateHz.takeIf { it > 0 }
+        ?: DEFAULT_AUDIO_SAMPLE_RATE_HZ
+
+private fun MediaFormat.durationUsOrNull(): Long? =
+    if (containsKey(MediaFormat.KEY_DURATION)) getLong(MediaFormat.KEY_DURATION).coerceAtLeast(0L) else null
+
+private fun MediaFormat.intOrZero(key: String): Int =
+    if (containsKey(key)) {
+        runCatching {
+            getInteger(key)
+        }.getOrDefault(0)
+    } else {
+        0
+    }
+
+private fun MediaFormat.longOrZero(key: String): Long =
+    if (containsKey(key)) {
+        runCatching { getLong(key) }
+            .recoverCatching { getInteger(key).toLong() }
+            .getOrDefault(0L)
+    } else {
+        0L
+    }
+
+private fun MediaFormat.floatOrZero(key: String): Float =
+    if (containsKey(key)) {
+        runCatching { getFloat(key) }
+            .recoverCatching { getInteger(key).toFloat() }
+            .getOrDefault(0f)
+    } else {
+        0f
+    }
+
+private fun MediaFormat.directFrameRateHint() =
+    if (containsKey(MediaFormat.KEY_FRAME_RATE)) {
+        val frameRate =
+            runCatching { getFloat(MediaFormat.KEY_FRAME_RATE) }.getOrNull()
+                ?: runCatching { getInteger(MediaFormat.KEY_FRAME_RATE).toFloat() }.getOrNull()
+        frameRate?.let(::videoFrameRateHint)
+    } else {
+        null
+    }
+
+internal fun MediaFormat.subtitleFormatOrNull(): YSubtitleFormat? = mediaSubtitleFormat(getString(MediaFormat.KEY_MIME))
+
+internal fun mediaSubtitleFormat(mimeType: String?): YSubtitleFormat? =
+    when (mimeType?.lowercase()) {
+        "application/x-subrip" -> YSubtitleFormat.Srt
+        "text/vtt" -> YSubtitleFormat.WebVtt
+        "text/x-ssa", "text/x-ass" -> YSubtitleFormat.Ass
+        "application/pgs" -> YSubtitleFormat.Pgs
+        "application/vobsub" -> YSubtitleFormat.VobSub
+        "application/x-quicktime-tx3g" -> YSubtitleFormat.Tx3g
+        else -> null
+    }
+
+private fun MediaFormat?.dynamicRangeLabel(): String {
+    val format = this ?: return "Unknown"
+    val mime = format.getString(MediaFormat.KEY_MIME)?.lowercase()
+    if (mime == DOLBY_VISION_MIME) return "Dolby Vision"
+    val transfer =
+        if (format.containsKey(MediaFormat.KEY_COLOR_TRANSFER)) {
+            format.getInteger(MediaFormat.KEY_COLOR_TRANSFER)
+        } else {
+            null
+        }
+    return when (transfer) {
+        COLOR_TRANSFER_ST2084 -> "HDR10/PQ"
+        COLOR_TRANSFER_HLG -> "HLG"
+        else -> "SDR/Unknown"
+    }
+}
+
+internal fun extractNativeDirectHdr10PlusPayload(data: ByteBuffer): ByteArray? {
+    if (!data.hasRemaining()) return null
+    val bytes = ByteArray(data.remaining())
+    data.duplicate().get(bytes)
+    return HDR10_PLUS_SAMPLE_PACKINGS
+        .asSequence()
+        .mapNotNull { packing ->
+            runCatching { YBitstream.hdr10PlusItuT35Payload(bytes, packing) }.getOrNull()
+        }.firstOrNull()
+}
+
+private inline fun MutableStateFlow<YPlayerState>.updateState(transform: (YPlayerState) -> YPlayerState) {
+    update(transform)
+}
+
+private fun YVideoDecoderAttemptFailure.safeDiagnosticLabel(): String =
+    buildString {
+        append(decoderName)
+        append(':')
+        append(diagnosticInfo ?: errorType)
+        errorCode?.let { code ->
+            append(':')
+            append(code)
+        }
+        if (recoverable) append(":recoverable")
+        if (transient) append(":transient")
+    }
+
+private const val VIDEO_MIME_PREFIX = "video/"
+private const val AUDIO_MIME_PREFIX = "audio/"
+private const val AUDIO_TRACK_PREFIX = "audio:"
+private const val SUBTITLE_TRACK_PREFIX = "subtitle:"
+private const val SUBTITLE_OFF = "off"
+private const val DOLBY_VISION_MIME = "video/dolby-vision"
+private const val MICROS_PER_MILLISECOND = 1_000L
+private const val DEFAULT_AUDIO_SAMPLE_RATE_HZ = 48_000
+private const val DEFAULT_SAMPLE_BUFFER_BYTES = 8 * 1024 * 1024
+private const val MIN_SAMPLE_BUFFER_BYTES = 256 * 1024
+private const val MAX_SAMPLE_BUFFER_BYTES = 32 * 1024 * 1024
+private const val MAX_VIDEO_SCHEDULE_AHEAD_US = 250_000L
+private const val STATE_PUBLISH_INTERVAL_NS = 200_000_000L
+private const val BUFFER_REPLAN_INTERVAL_NS = 2_000_000_000L
+
+/** Roughly a long GOP. Past this the container is not going to flag a sync sample. */
+private const val MAX_VIDEO_SYNC_SAMPLE_DROPS = 600
+
+/** Heap ceiling for the compressed queue, independent of the planner's byte budget. */
+private const val MAX_DEMUX_QUEUE_BYTES = 24L * 1024L * 1024L
+private const val LATE_FRAME_DROP_NS = 100_000_000L
+private const val LATE_FRAME_IMMEDIATE_NS = 50_000_000L
+private const val SLOW_PUMP_THRESHOLD_NS = 20_000_000L
+private const val LONG_RENDER_GAP_NS = 100_000_000L
+private const val QOE_PUBLISH_INTERVAL_NS = 5_000_000_000L
+private const val NANOS_PER_MILLISECOND = 1_000_000L
+private const val SUBTITLE_HISTORY_US = 60_000_000L
+private const val PUMP_IDLE_DELAY_MS = 2L
+private const val PUMP_PAUSED_IDLE_DELAY_MS = 20L
+private const val TRANSPORT_BUFFERING_DEBOUNCE_MS = 300L
+private const val NATIVE_DIRECT_THREAD_NAME = "YCore-NativeDirect"
+private const val COLOR_TRANSFER_ST2084 = 6
+private const val COLOR_TRANSFER_HLG = 7
+private const val ATMOS_PROFILE = 30
+
+private val HDR10_PLUS_SAMPLE_PACKINGS =
+    listOf(
+        YSamplePacking.AnnexB,
+        YSamplePacking.LengthPrefixed(4),
+        YSamplePacking.LengthPrefixed(2),
+        YSamplePacking.LengthPrefixed(1),
+    )

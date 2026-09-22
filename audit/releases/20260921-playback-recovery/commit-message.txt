@@ -1,0 +1,11 @@
+Fix playback buffering and diagnostics for 1.0.77 [artifact only]
+
+Keep demux refill requests alive at producer handoff and observe read failures while output is buffering. Bound stalled-buffer recovery, relax extra recovery reserve after long waits, and decay starvation history during healthy playback.
+
+Preserve upstream HTTP authorization and missing-source failures through the loopback proxy, probes, and native playback. Isolate retry failure state and retain cancellation semantics. Add startup timing, source adoption, range progress, and per-track buffering diagnostics.
+
+Include the previously delivered 1.0.76 updater status fix and advance checked-in release metadata to 1.0.77 (239), retaining release-note history.
+
+Validation: 862 Core2, playback diagnostic, and updater tests passed; scoped formatting, design system checks, and the signed Release build passed. Actual APK version, production certificate, packaged diagnostic markers, native runtime identity, and ZIP/ELF alignment verified. No testing on the user's OPPO devices or actual media server.
+
+Upload source only; do not trigger production publishing.

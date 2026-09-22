@@ -1,0 +1,21 @@
+--- composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/AccountSessionsScreen.kt
++++ composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/AccountSessionsScreen.kt
+@@ -44,6 +44,7 @@
+ import com.yfuse.core.designsystem.ConfirmDialog
+ import com.yfuse.core.designsystem.Dimens
+ import com.yfuse.core.designsystem.HapticSignal
++import com.yfuse.core.designsystem.InlineLoadingContent
+ import com.yfuse.core.designsystem.LocalAccentColors
+ import com.yfuse.core.designsystem.LocalPalette
+ import com.yfuse.core.designsystem.OrbProgress
+@@ -376,9 +377,7 @@
+                     ).size(44.dp),
+             contentAlignment = Alignment.Center,
+         ) {
+-            if (loading) {
+-                OrbProgress(size = 18.dp, color = palette.sub2)
+-            } else {
++            InlineLoadingContent(loading = loading, slotSize = 20.dp, orbSize = 18.dp, color = palette.sub2) {
+                 Icon(
+                     imageVector = AppIcons.Refresh,
+                     contentDescription = null,

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.playback.PlaybackHdrPolicyTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:06.626Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="sdr_preserves_the_users_engine_and_decoder" classname="com.yfuse.core.playback.PlaybackHdrPolicyTest" time="0.0"/>
+  <testcase name="compatible_dolby_base_layer_is_checked_as_hevc_hdr10" classname="com.yfuse.core.playback.PlaybackHdrPolicyTest" time="0.0"/>
+  <testcase name="dolby_only_source_uses_exo_hardware_when_complete_pipeline_exists" classname="com.yfuse.core.playback.PlaybackHdrPolicyTest" time="0.0"/>
+  <testcase name="unsupported_hdr_routes_to_mpv_tone_mapping_and_hardware_decode" classname="com.yfuse.core.playback.PlaybackHdrPolicyTest" time="0.0"/>
+  <testcase name="dolby_only_source_uses_local_mpv_without_dolby_display" classname="com.yfuse.core.playback.PlaybackHdrPolicyTest" time="0.001"/>
+  <testcase name="exact_decoder_rejection_forces_server_transcode_before_rendering" classname="com.yfuse.core.playback.PlaybackHdrPolicyTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

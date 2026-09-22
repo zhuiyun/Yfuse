@@ -1,0 +1,4212 @@
+{
+  "verified_at": "2026-09-20T06:53:21.365344+00:00",
+  "scope": "Disc software recovery, serialized engine retirement, crash ownership, resumable demux controls, MDK state, proxy and memory bounds",
+  "tests": {
+    "phoneShared": {
+      "totals": {
+        "tests": 2860,
+        "failures": 0,
+        "skipped": 0
+      },
+      "suites": [
+        {
+          "name": "com.yfuse.Android16CompatibilityPolicyTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "8cd68d32c75132b24d248648c1105a472e3968fb98bf5c5a0bb0612f661a5c39"
+        },
+        {
+          "name": "com.yfuse.app.FloatingNavigationInsetsTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "0b3d9d6af401a544a1733638fa4ba35a53c3e95cb8a261bcf21175930e16aa56"
+        },
+        {
+          "name": "com.yfuse.app.NavigationCollapseGuardTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "9653ccbeb49096f3f52cff7a9894121a146d3130cef84be695197e753f9bd49f"
+        },
+        {
+          "name": "com.yfuse.app.NavigationGlassVisualsTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "9b5aea3f3f54da4493933dc1771b081a6ed65ac301328fecce63477a8fdc4c18"
+        },
+        {
+          "name": "com.yfuse.app.RootTabMotionTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "38e0e0b0bfe3292c2b8344a5d731c4603e24fab18f52ceb08a0ae8b82c69a217"
+        },
+        {
+          "name": "com.yfuse.app.SplashTimingPolicyTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "6ba09612ddf0d187c1bfb8dabbb47ec159aa0ecac035dc5126f3f3437387c3a4"
+        },
+        {
+          "name": "com.yfuse.app.TopLevelBackStackTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "ac9daa6e854eb20dd071bb3e49ac676837bf8f64c28d792d5c4aba56cef08e3b"
+        },
+        {
+          "name": "com.yfuse.core.account.AccountAccessTokenSourceTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "a78c289398e7177e5e3d044aca60ef37340c0543da83dd71fbb74ed59621d4a2"
+        },
+        {
+          "name": "com.yfuse.core.account.AccountInviteCapabilityTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "bc14ba9f28aa12c3cb5945a376130846031ebf0d9068cd8fb78ab28a586fa737"
+        },
+        {
+          "name": "com.yfuse.core.account.AccountRepositoryStateTest",
+          "tests": 17,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "911b0d348a16cfa02cc5cd89043e55ddf24a692e1d31a77edbc3c36d4ba4c2a8"
+        },
+        {
+          "name": "com.yfuse.core.account.AccountRepositoryTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "20279af09f119c6f4ab60b94732ca5cba85125eb731c52ad6de6158e3091682d"
+        },
+        {
+          "name": "com.yfuse.core.account.PersonalCloudSyncTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "ee3391b8fcf260033bfb9f97523c22007ff292e7fd57dd47627608c875fbbe91"
+        },
+        {
+          "name": "com.yfuse.core.account.PlaybackCloudApiTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "e90cd3d9bf8cd54ad6d1ba0645838dea40d442fd4b48af9adeab8c015aa10150"
+        },
+        {
+          "name": "com.yfuse.core.account.WatchTogetherAccountPolicyTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "e1a84d7900e7d9ec453af819298bb22029c3dfad44c8cf19ab06f2dc81dfa707"
+        },
+        {
+          "name": "com.yfuse.core.cast.CastResponseBoundaryTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "7ee5070979109a5255d59b59b255c97a3ed0aba57a29fb43818779a2c659fa49"
+        },
+        {
+          "name": "com.yfuse.core.cast.CastStateMachineTest",
+          "tests": 9,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "07e589b19353cc37da35d9551206383991a2be9d49d983fc8fd93767f78c66df"
+        },
+        {
+          "name": "com.yfuse.core.cast.DlnaOperationsTest",
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "0d037f02d2e4f28b5fa96410b4732403d047fdfb2bbce3c701598eeaeeec60fe"
+        },
+        {
+          "name": "com.yfuse.core.data.AiringCalendarMergeTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "e122f076c4ba951f45c5e75052031d60d2b84c19b9e22a463eb7403bf1abb4f0"
+        },
+        {
+          "name": "com.yfuse.core.data.AiringCalendarTest",
+          "tests": 13,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "a9abe9d58fd341c577615a00bd67484b3024134ee3e327369265430540361718"
+        },
+        {
+          "name": "com.yfuse.core.data.AsyncServerSessionStartupTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "d126e955c619e0089a3332d2b19518c8a859071770f07495c8dedb55acbcd1c6"
+        },
+        {
+          "name": "com.yfuse.core.data.CalendarFollowStoreTest",
+          "tests": 12,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "3c5cd8c8035e3325e6bd9c6d4844c277b26552c5e9d51ebefd6bd657739f48a6"
+        },
+        {
+          "name": "com.yfuse.core.data.CalendarIdentityRetentionTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "8c5600b523b0f8dd050e0c4b7ae1fab7164763e6933fe11ead48dd7bbf15adfe"
+        },
+        {
+          "name": "com.yfuse.core.data.CalendarLocalStoreTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "06d4a5fb601206747affb6b76b753a96e38d9d1aa89510f25ae689a85c7b74fd"
+        },
+        {
+          "name": "com.yfuse.core.data.DanmakuTest",
+          "tests": 35,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "1949e017e8913af3bebc159b3da446a8fba1df852a925d13e450da68ed14da6c"
+        },
+        {
+          "name": "com.yfuse.core.data.DiagnosticPreferencesTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "ce6edef53f70cd75fa0da186d5f3758e3948ac866c23bc78936e292f86d3f6c7"
+        },
+        {
+          "name": "com.yfuse.core.data.dto.DolbyVisionLayerMappingTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "756f16131a5f2a30a096ed45b05830cf2b050be8114831a05439dd8ece869d32"
+        },
+        {
+          "name": "com.yfuse.core.data.dto.PlaybackSegmentsTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "c0fd01b8a0e29d4dfda2d4f26e8b4eb5313130e34ad589ca39ec32027a830082"
+        },
+        {
+          "name": "com.yfuse.core.data.EmbyAuthServiceTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "f40b5a8f56563892328b061a67ea7d634abcce9616881ec21d00f4436ecee492"
+        },
+        {
+          "name": "com.yfuse.core.data.EmbyDetailServiceTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "d14175074f66f89d698714bbb0fd5f00364f175ddeb0fbb03594f1450bef7b79"
+        },
+        {
+          "name": "com.yfuse.core.data.EmbyDeviceProfileFactoryTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "45a2d381681f1cb4fd37d64605388e6e32c63cb6490401f991f5df35e5838bb9"
+        },
+        {
+          "name": "com.yfuse.core.data.EmbyHomeServiceTest",
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "b12743c4e978a35e756179211b2243c5d660a04c15eeae9079780ee99febadab"
+        },
+        {
+          "name": "com.yfuse.core.data.EmbyLookupServiceTest",
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "716e8fb5c129d8461fed3c275b0332d00b616c64971826156e176d8eab66cdac"
+        },
+        {
+          "name": "com.yfuse.core.data.EmbyPathContractTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "a5955c2455acb61adbfb83992e267640ee642cf232478129dd1f2c013dae0115"
+        },
+        {
+          "name": "com.yfuse.core.data.EmbyPlaybackServiceTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "b16ac23fb4a1e4f382c4075007580e5e70293e0424c82be0172f69f06131ffb8"
+        },
+        {
+          "name": "com.yfuse.core.data.EmbyRepositoryTest",
+          "tests": 71,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "9c26b545ce91c494209e95f25f3a096017e8019603b7c2c935d39ee08ba18388"
+        },
+        {
+          "name": "com.yfuse.core.data.EmbySearchServiceTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "d65343ec7cf4a71fd92892592142d860753576a013ecd3faaf1a661546eb3bf6"
+        },
+        {
+          "name": "com.yfuse.core.data.EmbyServerServiceTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "8b5f6723083933d5fb0bebbda97e05c99fc1013504a81b2a7c403600840188da"
+        },
+        {
+          "name": "com.yfuse.core.data.EmbySourceServiceTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "9087964a8d2ef3a9f9718c25da20638022c1a894bc15b1c99731714b3af6c694"
+        },
+        {
+          "name": "com.yfuse.core.data.EmbySubtitleServiceTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "ba00145eb2dcd7eed46409bb9b9ce11fbee83fd646e73e3a23090646f52f0213"
+        },
+        {
+          "name": "com.yfuse.core.data.EmbyUserDataServiceTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "c281afcbed5a36474e6ff9f8eb3ea16f859b3cdb816a3ad36a6aa70368848cc5"
+        },
+        {
+          "name": "com.yfuse.core.data.GenreFacetNormalizationTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "bb1afb21df9695148220920de0c2485fea6bc2e2de11421da6774f3f2a7d3e4c"
+        },
+        {
+          "name": "com.yfuse.core.data.LibraryCacheTest",
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "ff8999b35a6107e00d4a5d17d49c5159c0fcf80354c6f05aa1de488751e74655"
+        },
+        {
+          "name": "com.yfuse.core.data.MediaServerKindTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "578312ea4db8840caa5b1ca87a2e18b4d9ff3b1c48f3d52cf1199c6672dc6467"
+        },
+        {
+          "name": "com.yfuse.core.data.MediaVersionSelectionTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "65d9d5e0a946bec6b0d2a0e1e16396d286d29485804803b033c56824a6c11042"
+        },
+        {
+          "name": "com.yfuse.core.data.MetadataEditorServiceTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "f7e07c4dd930d97bbd0d4cafd6abf856ad63dbd91b016d8cc759ee8bb8801df2"
+        },
+        {
+          "name": "com.yfuse.core.data.OfficialAiringScheduleCatalogTest",
+          "tests": 9,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "e2b1a131e0791f151dff3b3677d6e55e5171c816db9876949adfa940eb691f74"
+        },
+        {
+          "name": "com.yfuse.core.data.PlaybackBookmarksTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "5380de790e4eeb71aad95f20114bc303b090d81dc8c5fe48e7814b711f01fc3b"
+        },
+        {
+          "name": "com.yfuse.core.data.PlaybackEventOutboxTest",
+          "tests": 17,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "19a0330347efc91fc48d277c84e05fcb7f4b3039d3763614337dc627c0dab45b"
+        },
+        {
+          "name": "com.yfuse.core.data.PlaybackFailoverRequestTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "9699ea1abb94dafb7bf3271c6fc989f0e51c91a9bb1dbbb5a7e96fd5290fbc98"
+        },
+        {
+          "name": "com.yfuse.core.data.PlaybackMetadataCacheTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "9e8cb3aedadf0a28ace42319fd9842e4624f646319cac95bc09a9b151dcc722f"
+        },
+        {
+          "name": "com.yfuse.core.data.PlaybackNegotiationContractTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "03efe7ff4d0871e229f5c27cc4a89169d491467256ef93c561ebc9faa4cc3630"
+        },
+        {
+          "name": "com.yfuse.core.data.PlaybackPreferencesTest",
+          "tests": 17,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "f61027863024d272a4707cda66b35cc68eb42c13344879ac7d91c6c4f429f25d"
+        },
+        {
+          "name": "com.yfuse.core.data.PlaybackProgressProjectionTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "894acbb0e21a76981d25ed3f4e28054a2987fac93ab83a82d844cd5865b937a0"
+        },
+        {
+          "name": "com.yfuse.core.data.PlaybackTrackRequestTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "89766503906b70c87fec6f7ad3a37ae3e68476bb8f9efaa99c7b33757fcd5ef1"
+        },
+        {
+          "name": "com.yfuse.core.data.PlexCloudAccountServiceTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "5096f762dd40aeb097ff368068a8d7cd738bd81ca89e3bd267b1ceaed3e2d8b7"
+        },
+        {
+          "name": "com.yfuse.core.data.PlexIdentityIsolationTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "59351b641ea8af6457443136a00cb8b373eb718c87e3ab8fe27ee6ea26387069"
+        },
+        {
+          "name": "com.yfuse.core.data.PlexMediaServerAdapterTest",
+          "tests": 12,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "8cc84985b2f8dfad759c664bf1b4924389753624ca4786f4a6b878dc66925976"
+        },
+        {
+          "name": "com.yfuse.core.data.SeriesCalendarLoadingTest",
+          "tests": 11,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "8dd1e631f2206cb0c20f6086d4878fe366bf1b662f7c224b4e57f3bf85bf512b"
+        },
+        {
+          "name": "com.yfuse.core.data.SeriesPlaybackResolutionTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "d1f12eab3a77a29a4a2be98e117c09d146a8c1eba23a929a48c04c6e0e25b016"
+        },
+        {
+          "name": "com.yfuse.core.data.ServerHealthRefreshResultTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "1392e422b206d71cd3325c0f3ec39a9af6054f3d080a27f27b4617eb3bf65d16"
+        },
+        {
+          "name": "com.yfuse.core.data.ServerManagementTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "4ea96658bae8ccf18159fc5dfbffc006f626a04bdc749f6b6e349e2b42bbe5f5"
+        },
+        {
+          "name": "com.yfuse.core.data.ServerRegistryTest",
+          "tests": 18,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "3ce09e2b03b8a390bbd8c57e8f5826cc400d733d24e6e7db97c5c9d7e114f335"
+        },
+        {
+          "name": "com.yfuse.core.data.ServerSessionRecoveryTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "aa6173a3dc9caf16c6065658d153741481894f584ecfa2c55e848968828e0d5e"
+        },
+        {
+          "name": "com.yfuse.core.data.SkipSegmentPreferencesTest",
+          "tests": 11,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "9edc131cf541de9a094cc02433950a77be616fe473483a3f6afce251b30bac16"
+        },
+        {
+          "name": "com.yfuse.core.data.SmartPlaylistStoreTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "36752f24abb92cc9b0f13c8bc9fdf01eceb3630286b9b6a84368edb05c290580"
+        },
+        {
+          "name": "com.yfuse.core.data.SmartSourceSelectionTest",
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "f2a1e1ba009e07c68c806d31c27a2f5752fa9516c6cfb57458e423d8c417a644"
+        },
+        {
+          "name": "com.yfuse.core.data.ThemePreferencesTest",
+          "tests": 11,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "dec79a3a57e860618990054c82b20bdb690d231fa0b8bfe5e9601fcadc8fbfd7"
+        },
+        {
+          "name": "com.yfuse.core.data.TmdbHomeCacheTest",
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "48aa7cd2a47a3ed33f5adeac557d73595881ca6e6d1a8f63c96af609bb5d10bc"
+        },
+        {
+          "name": "com.yfuse.core.data.TmdbHomeRefreshTest",
+          "tests": 11,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "05c5300b57ebb2a497c97807b8b0cdd5b2d7bd994c0581122e8fbca48f1e9397"
+        },
+        {
+          "name": "com.yfuse.core.data.TmdbHomeTimeoutTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "244f3e5123d512353cf559583bda0ed18ff3d4da9c4a919138bf98ff983a48df"
+        },
+        {
+          "name": "com.yfuse.core.data.TmdbRepositoryTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "42e631a8e02f887dbc7aece8ab4330e6abf996ef97b92cb68151242e21c91bed"
+        },
+        {
+          "name": "com.yfuse.core.data.UserAgentPreferencesTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "53991b41b918cff9d01c63ee2a9735ef1d85812fc1456929d69de950ffca1a93"
+        },
+        {
+          "name": "com.yfuse.core.data.WatchTogetherPreferencesTest",
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "24e8603fced3b3e84050d983b214de1d87a4e16f32d966365a908bdce5ce1fbb"
+        },
+        {
+          "name": "com.yfuse.core.designsystem.AmbientLightTest",
+          "tests": 11,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "efd2d47ebbab9918d525363ca03322a8783034c043400ddb3fbc6d8bd8d293a5"
+        },
+        {
+          "name": "com.yfuse.core.designsystem.AmbientLightTransitionTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "0f039fda3549c002c697ba5d12779e5f6fedeea01eec16a996f8936c56e2dae1"
+        },
+        {
+          "name": "com.yfuse.core.designsystem.AnimatedColorStateTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "fde755dc82361edbc62b366803824f78ce853dfde5204eab45b8e3361296e257"
+        },
+        {
+          "name": "com.yfuse.core.designsystem.ArtworkBlurCacheTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "9d6bcb9c955828e5dc840d5e0398c021a0edd5f6210c0da4acf53312d0273f3f"
+        },
+        {
+          "name": "com.yfuse.core.designsystem.ArtworkColorCacheTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "2d88c1e6fca68bc090b1abcc8773abd1414927b26f8a1bbd3cbd021ee37665b4"
+        },
+        {
+          "name": "com.yfuse.core.designsystem.ArtworkColorMotionTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "4a9e5687722a9810a3b08569d75e98db09bfba382d8078c2a30cc2884c40cdf0"
+        },
+        {
+          "name": "com.yfuse.core.designsystem.ArtworkPageSurfaceTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "4871eb579d761f2e2b0b5065e1e2761fb3808330459f117e20b302a43595fc4e"
+        },
+        {
+          "name": "com.yfuse.core.designsystem.ArtworkPageThemeTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "71a2b697173c79055e20f636ce17b71043e40ccea4cb21ec817622adcd3e8dc1"
+        },
+        {
+          "name": "com.yfuse.core.designsystem.BackdropFramesTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "c32e9daf322c0f420b5ffabc09ece0d7d7a4023e18d4d6cddc9a373bfdbbf300"
+        },
+        {
+          "name": "com.yfuse.core.designsystem.CarouselMotionTest",
+          "tests": 9,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "9427e8e907b67490506729438e03a94137a48bb0e1be086f9fd190ac788ec7da"
+        },
+        {
+          "name": "com.yfuse.core.designsystem.ContentHandoffTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "9fbe50d3e3d5dd04e4d56958a92f03c53f1ee59254426ddf83fc9e66a6b23ef5"
+        },
+        {
+          "name": "com.yfuse.core.designsystem.DecorativePhaseTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "b10795e70c6dd04582afe071c1fd36a02450bcad94057fe04d1b27d0829f3efa"
+        },
+        {
+          "name": "com.yfuse.core.designsystem.DesignSystemContractTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "78ae9f171744aeec7dd619b2a6795e6c31ab46c420f21ef6db9661d14f38f66f"
+        },
+        {
+          "name": "com.yfuse.core.designsystem.DialogAnimationTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "60f7dc1b3b950813b4b6b55f59ea9fced1861befda0d727838be430bb3245962"
+        },
+        {
+          "name": "com.yfuse.core.designsystem.DialogMotionPolishTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "6842995704ccaea20540d16b55c9534000659104b9a286f197a19ac6dd20164e"
+        },
+        {
+          "name": "com.yfuse.core.designsystem.DominantColorTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "68cfdd48fa78535152d0d40eb16879f0264aaf3e45cdfb67f3d7b3e88e5f7241"
+        },
+        {
+          "name": "com.yfuse.core.designsystem.GlassButtonStyleTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "60ada270e06db0d89822f57d320fdd881392002a9a79f3206581b2076fb1a052"
+        },
+        {
+          "name": "com.yfuse.core.designsystem.GlassMaterialTest",
+          "tests": 12,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "79f55698f34b001e4c3381a580861f7c26e22714e6f2db5ad7e6cf3e5c09d72c"
+        },
+        {
+          "name": "com.yfuse.core.designsystem.GlassTest",
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "2ce271441fb3569c81e190b51a051e04e0f27b909f616db84f1778ab27db4e2a"
+        },
+        {
+          "name": "com.yfuse.core.designsystem.LightParticlesTest",
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "d25be6dff3983240ae0d4fefe5f3ab36215bfd8a24f35839afd5f73c18754306"
+        },
+        {
+          "name": "com.yfuse.core.designsystem.LivingPosterMetadataTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "023c2577db5a57f3b4a1ff823f7bbf4463e23d95ad5c341eb473529ef35f464a"
+        },
+        {
+          "name": "com.yfuse.core.designsystem.LoadingAnimationTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "0f4163f76e69a7ae30aa4d0619f52dac56ce76d9b2a30513d5d5c30cb94487d5"
+        },
+        {
+          "name": "com.yfuse.core.designsystem.LoadingMotionTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "b126a6122a3d7b96abd2faabe97630c78b2b47e9c92a52747704b1c42a95095b"
+        },
+        {
+          "name": "com.yfuse.core.designsystem.LoopingCarouselTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "27463a806a0cbf3ab960ffb52e6d366e979da07a143210472aa0fc26e34d1890"
+        },
+        {
+          "name": "com.yfuse.core.designsystem.MediaLazyItemKeyTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "77e7ce578335838eca58514048a6a17e8ed6a336330feb5b633346a7523e7e3d"
+        },
+        {
+          "name": "com.yfuse.core.designsystem.MotionAccessibilityPolicyTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "ae48c940f0a3e62805d9d6d501204022c6e52fe15df9faad8770de2089c8e74f"
+        },
+        {
+          "name": "com.yfuse.core.designsystem.MotionHandoffPolicyTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "cca0e7c5c79b68662366e7743ae98f265bdf0e3a1e4fdde478d193a511bcb489"
+        },
+        {
+          "name": "com.yfuse.core.designsystem.NavigationGlassTest",
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "a204bb2e0d048652284507fba949973060321e6b64570136d1fbbf2317e5b2bc"
+        },
+        {
+          "name": "com.yfuse.core.designsystem.NavigationIdentityTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "d2713913460009d4064ea51d96a103a9456dd7ce159e11aa2b97bb6a105ce9e7"
+        },
+        {
+          "name": "com.yfuse.core.designsystem.NavigationPearlGlassTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "2c784b3aa83750c81b72ec2c70ce22a5c1dc50fa83ded5e7b10692b90b31727f"
+        },
+        {
+          "name": "com.yfuse.core.designsystem.NavigationRailPolicyTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "e20b2df8fa1cb056e781c3576c4e8f98d79386156e7353956fa136c763e6b02f"
+        },
+        {
+          "name": "com.yfuse.core.designsystem.OverlayVisibilityTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "bef4d004bd9ba292023f1d6ebd8bcc1d01404868349a1776787d8ff5397f2220"
+        },
+        {
+          "name": "com.yfuse.core.designsystem.PosterRatingTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "cbd31ac271666c2499e2a5cf5dc5fb98caba32a1fd5678976b80bc2f22063fb8"
+        },
+        {
+          "name": "com.yfuse.core.designsystem.SharedMediaTransitionTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "cbc9290eb54771b804159188439c50d712c70ba07a6d729af0ed91a02ab17ef1"
+        },
+        {
+          "name": "com.yfuse.core.designsystem.ThemeCrossfadeStateTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "a1dab9adb95f24350b07a3dd5f97b765b0784bf4491c7cc338817cb30b2a3274"
+        },
+        {
+          "name": "com.yfuse.core.designsystem.ThemeCrossfadeTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "217bee1769e8e35848f589f04d2ac094d389868dfa457f677c189fb7ee06d6b9"
+        },
+        {
+          "name": "com.yfuse.core.designsystem.ToastQueueTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "8c3233326fb122d4f730dbbbfd18c3249e2f28cde6cc26269abcd94cccb986db"
+        },
+        {
+          "name": "com.yfuse.core.designsystem.WaitingPulsePolicyTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "7970b731a45f28e79ceea2777a79a9d64826d89433cb1cae25bc4ae4845e51e5"
+        },
+        {
+          "name": "com.yfuse.core.handoff.AccountHandoffApiTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "b8fe27760ba2829d11c54120725a2b3829973f288d1e54b758a3e811a633caf2"
+        },
+        {
+          "name": "com.yfuse.core.handoff.HandoffControllerTest",
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "ce5d019fc86e84aa61310c9901c64ebf7a5ba26d8410ed27add7051de1c3a5d1"
+        },
+        {
+          "name": "com.yfuse.core.handoff.HandoffPlaybackRegistryTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "2b39cfb9002ab7eb9ff10665e8cf3f96a870fcb29b95463aeb84a0e87feefd4f"
+        },
+        {
+          "name": "com.yfuse.core.handoff.HandoffVaultCipherTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "56ce2768860fb0dbb274ef2b79fa1c6e1f3aa326c9a8ec23ea8b8c5263bde1df"
+        },
+        {
+          "name": "com.yfuse.core.logging.DiagnosticLogBoundaryTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "168cbae56a3afd9b95c67e2cac92b3ace55556ca16664ab4adeb4b79af00306a"
+        },
+        {
+          "name": "com.yfuse.core.logging.DiagnosticRedactorTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "7523bae42457f3a9fcf2fdb074c45b552e6ff68faab7de7d402ffdcd3100f07b"
+        },
+        {
+          "name": "com.yfuse.core.logging.PlaybackDiagnosticTraceTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "dcd512da24c8be0991119410b735a9247fbdb11b773fd85669fcca03f653a877"
+        },
+        {
+          "name": "com.yfuse.core.logging.SafeLogcatOutputGateTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "58aedabf4ec4396e8ea86f8d9d939d5ab82c71fd2fa274f89f00da3d84071838"
+        },
+        {
+          "name": "com.yfuse.core.migration.MigrationRelayApiTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "d3834964b2bc915d03b3b176edea8be8c048683693171be817571a941785412f"
+        },
+        {
+          "name": "com.yfuse.core.migration.MigrationRelayHttpEngineTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "13060d8ffc6609ba78201bbb75154da0e12958f2fe01a5f3254739732def6b24"
+        },
+        {
+          "name": "com.yfuse.core.model.DolbyVisionTest",
+          "tests": 12,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "38ddbf618915380b7ee7df7588ee34850c27c8a3ee04d0d3069b7a9cdf1e7fda"
+        },
+        {
+          "name": "com.yfuse.core.model.DolbyVisionUnknownProfileTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "7e8879c45e81ede63e9025028ef3977539d72ed03cb48260bd0cc14affb226d3"
+        },
+        {
+          "name": "com.yfuse.core.model.MediaServerCapabilitiesTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "b6cfd6baedb4fc4c812a29d9ab6630df13de81078a995eeab2ee423e45e5d5db"
+        },
+        {
+          "name": "com.yfuse.core.model.PlaybackHistoryTest",
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "551b732d8475fc82f5472b389335ea9094454028e16276ab0ee58b90f95f09af"
+        },
+        {
+          "name": "com.yfuse.core.navigation.SingleFlightNavigationGuardTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "cffc6f5175bd78528a929ceb21aeba6fd0dd59832c611728c0c6f02926305689"
+        },
+        {
+          "name": "com.yfuse.core.network.AndroidHttpEnginePolicyTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "f3aef08269dd173253f2714fa9d1611661e5cc4c52e84d987b8d64e617a573b6"
+        },
+        {
+          "name": "com.yfuse.core.network.EmbyAuthTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "4a11743ca088c3e8ead7653684cf575fa58ba987cdd13c4a497bbaa99f5cd65f"
+        },
+        {
+          "name": "com.yfuse.core.network.EmbyErrorMessagesTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "62ddaded69c9a9643b8f3d021d810390bd7ab64cfa14ec1bb6b9efe693683258"
+        },
+        {
+          "name": "com.yfuse.core.network.EmbyImagesTest",
+          "tests": 9,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "3201be7b6c408afb16f742074db2c1f550f29d0c612814976bf1fe5589e14901"
+        },
+        {
+          "name": "com.yfuse.core.network.EmbyStreamTest",
+          "tests": 16,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "c701a01620d39ad5d4e4a7aecee8f53d4bf53b7a277e6dd702d49cb942873962"
+        },
+        {
+          "name": "com.yfuse.core.network.FallbackTranscodeContractTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "e06319495ee4d033bf0c2e4066e98cfa6a68ee2b4b6758317f4bfad5b9863a88"
+        },
+        {
+          "name": "com.yfuse.core.network.HttpClientFactoryTest",
+          "tests": 12,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "f8b059f3f3fb4b13ed609cb9ec4ce902a99084fb431599628a3f0856d4ea87c1"
+        },
+        {
+          "name": "com.yfuse.core.network.ImageCacheKeyTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "7fea71aebc3e233365e51bb0a1c01768b08fa03c53edd08209d7314c05caa986"
+        },
+        {
+          "name": "com.yfuse.core.network.Jellyfin12CompatibilityTest",
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "25ce8863feb5c9cdd5c17f140b9ef4b219b84cb41543841d8397a99bbf7d160d"
+        },
+        {
+          "name": "com.yfuse.core.network.LocalNetworkPermissionTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "ffb987da70831a376705f943ef2a080100cbd9f59ce2dbb75e65d5b37a72d52b"
+        },
+        {
+          "name": "com.yfuse.core.network.ServerEndpointPolicyTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "5534ae4da01e69ba7ed2ae4cc0d4bf58e36b6134a717635483b93ae01ee5e2ab"
+        },
+        {
+          "name": "com.yfuse.core.network.ServiceEndpointPolicyTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "d8d5fda80734dddb62e848462e32b0a6a2a144b2a1c4e87d102092fd2b918733"
+        },
+        {
+          "name": "com.yfuse.core.network.TmdbImagesTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "3c8ff7b99770e332b35da10245a50de5ef90f7a803447c7b404ecf11528a79f7"
+        },
+        {
+          "name": "com.yfuse.core.offline.DownloadSummaryTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "4d4759996ccf9768d7525407bf34d2ae3df71e4d7fca244cdd8c6996d69039bb"
+        },
+        {
+          "name": "com.yfuse.core.offline.OfflineBatchCommandTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "b924cc45f7dd39b60efad03c12cf3b09e7d0d12fa1b9120f93103cbc15ee7e97"
+        },
+        {
+          "name": "com.yfuse.core.offline.OfflineBatchSelectionTest",
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "2498471b7f03af65972020833311246e84fb4735332e1d786a40234609382d52"
+        },
+        {
+          "name": "com.yfuse.core.offline.OfflineCommandQueueTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "21d07b75bde48e292be27411e32d8785efec10796ccbc28ee93a3ab7a93d36af"
+        },
+        {
+          "name": "com.yfuse.core.offline.OfflineDownloadBudgetTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "e940d549153790dae6cf614b629cf0f00eac96d865263c635ccba9db730a26bf"
+        },
+        {
+          "name": "com.yfuse.core.offline.OfflineEnqueueBatchTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "836c5452fdc7a163e88b1319349ce7a706a003e6a8047b67afa3682454868795"
+        },
+        {
+          "name": "com.yfuse.core.offline.OfflineIndexMigrationTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "c33697f418303835ffd26fdb10d802f66823ac64f8f8fd39181c06ccec3045c4"
+        },
+        {
+          "name": "com.yfuse.core.offline.OfflineIndexRecoveryTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "7800693469277230f1c939771f55dec02c041cbd06a3f2f02e52db55a59ed70c"
+        },
+        {
+          "name": "com.yfuse.core.offline.OfflineMediaSecurityTest",
+          "tests": 26,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "f0492716e39b4bbf1691d83b8dbb24b393935bcfb1c167feaea2775bdac506a1"
+        },
+        {
+          "name": "com.yfuse.core.offline.OfflineRetryPolicyTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "3e9a59d5bc9cb2035c3eb9ff7016af8599e01e0b8e02691872047be712c6f212"
+        },
+        {
+          "name": "com.yfuse.core.offline.OfflineWakeWorkTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "852ac0077d28a1ddfef8506a78605403602ec85ce9ce4b1b0c59b9fa40e2d93a"
+        },
+        {
+          "name": "com.yfuse.core.performance.HighRefreshRateTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "79da18dbafd56c697f6488a40c7aa15d23de9f417750a99c223337bac1120567"
+        },
+        {
+          "name": "com.yfuse.core.performance.JankFrameWindowTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "d04f05fe27f20d88e0eba1e8bbb3f3c8f1481b5f3628772754dafb32dc34a1e6"
+        },
+        {
+          "name": "com.yfuse.core.personal.PersonalLibraryRepositoryTest",
+          "tests": 10,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "70fc737daedd3947118b8d99ca3f23b3bdc2367f17b430e3b02e8b749305d731"
+        },
+        {
+          "name": "com.yfuse.core.playback.AndroidBlockingMediaProbeLaneTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "05a9dcf05d6d1b6319782fc256f1b6482f32fd4bc22419a584fc0b3c67367954"
+        },
+        {
+          "name": "com.yfuse.core.playback.DolbyVisionEnhancementValidationTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "a6cc2527959e6104545124cf00b2872862eba33cb3ce8e52047346c29289690b"
+        },
+        {
+          "name": "com.yfuse.core.playback.DolbyVisionMediaEvidenceMappingTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "0ca6c0e5fd7dc408b73cf7598bea9a63f2cfbdb6a0ca1d27c01a1d472722ee45"
+        },
+        {
+          "name": "com.yfuse.core.playback.NativeCrashIsolationTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "56f7fa29668b4269e3b41db87cf1c5b8e7a2b395f7b6e02bb0304431b0ab0b96"
+        },
+        {
+          "name": "com.yfuse.core.playback.OpticalPlaybackReleaseValidationTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "35de58256894cb15226bcc2a86316c50d59e20d674de4ec683905da91e8a6781"
+        },
+        {
+          "name": "com.yfuse.core.playback.PlaybackAdaptiveManifestTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "6a2c5f0ef7f5ef562aff00358ed625bda996f0bd116ab9421258145539b4ed2f"
+        },
+        {
+          "name": "com.yfuse.core.playback.PlaybackBufferPolicyTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "c44c6aabcb9f306bdd4e83240246f7bd5a96b6944277d89dffdaeae1755cb241"
+        },
+        {
+          "name": "com.yfuse.core.playback.PlaybackCodecMappingTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "b0171f67d8bf696bf2a30536c5b2f6ded41dce9c0434b4317a70c4ee0f1bcc28"
+        },
+        {
+          "name": "com.yfuse.core.playback.PlaybackDeviceCapabilitiesAndroidTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "ff41b65cd6403742750b6a53ca1d4ca8af1ba14886102216f81d9439b6cf35ed"
+        },
+        {
+          "name": "com.yfuse.core.playback.PlaybackDiscImageInspectorTest",
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "55beb68c75bdfbebe617860889dc28b70d0b9735be8622314eab6c9c658ff33b"
+        },
+        {
+          "name": "com.yfuse.core.playback.PlaybackDiscNavigationTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "d4c58ddd22f48b46f4a1333f9a273aa1ebe165cfc63b80ca687f5052350d8b77"
+        },
+        {
+          "name": "com.yfuse.core.playback.PlaybackDiscPolicyTest",
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "5c9fa0ad0ac97a9c706be3f0430a2435bca8d59dfe4a45230a2f4d00224a82c3"
+        },
+        {
+          "name": "com.yfuse.core.playback.PlaybackDolbyVisionRoutingTest",
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "d2692be5ebecccd69f8041a71b52db9401a2d5e73b897dddc5ef9d324a5f4192"
+        },
+        {
+          "name": "com.yfuse.core.playback.PlaybackDrmTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "31c3a270151720aed03ba309cd99df38bf0fcdbd244cea7c390aed392ff5c3cd"
+        },
+        {
+          "name": "com.yfuse.core.playback.PlaybackFailureMemoryTest",
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "7405d537ec3cd052ecd41111b84b707eb145b467c68399c457722f543f497f0b"
+        },
+        {
+          "name": "com.yfuse.core.playback.PlaybackHdrPolicyTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "cacfac4fa09d7d43faeafc587aaeb6a874e832f0eef86f160da2ed173ace851d"
+        },
+        {
+          "name": "com.yfuse.core.playback.PlaybackHealthTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "2be399aa62f48e4bceb92628f4d78fda8daf6af717d7f116a7c0230b600a8979"
+        },
+        {
+          "name": "com.yfuse.core.playback.PlaybackNetworkRecoveryControllerTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "4b2e701898324485cf3b68fac070069dc5a0c02230eb5d08e7913a43c6528757"
+        },
+        {
+          "name": "com.yfuse.core.playback.PlaybackOfflineLicenseCatalogTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "9924a8e5bc44fec76aa33383061838af27569cf0776dc5ce56ca25dc5cd51697"
+        },
+        {
+          "name": "com.yfuse.core.playback.PlaybackOfflineLicenseNativeTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "c902fee925157bff7c77b3a1cc1c3a10328683d26ac2f58b8ffad4ec3a56ad70"
+        },
+        {
+          "name": "com.yfuse.core.playback.PlaybackPerformanceMemoryTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "89102fa9672be236f5922e6fd3f6994256666db86bc7553eccc531b6ab526e8f"
+        },
+        {
+          "name": "com.yfuse.core.playback.PlaybackPlannerTest",
+          "tests": 22,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "aa349e1216fdf923a9b5ba8008cc147bee19639bc0f0c7ade765865812bfa68e"
+        },
+        {
+          "name": "com.yfuse.core.playback.PlaybackProxyLimitsTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "aefcc622759d5dc01ef4c184859823bf96ff8a899de112f5e7ef0d0c82305b28"
+        },
+        {
+          "name": "com.yfuse.core.playback.PlaybackQoeReporterTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "7701d5dda5091a6487972a48291bafd3397514aef65d6131fabbe099f64ba780"
+        },
+        {
+          "name": "com.yfuse.core.playback.PlaybackReleaseValidationTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "dcb39432186e0f656bdaf7c754808d381a669ceb129c966404bc1940a5e50cae"
+        },
+        {
+          "name": "com.yfuse.core.playback.PlaybackRuntimeEnvironmentTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "d46d15a10f783f22349ffbf80dfda36e43ed791ba5a8a85062dd0d96b2fa115c"
+        },
+        {
+          "name": "com.yfuse.core.playback.PlaybackRuntimeFaultDetectorTest",
+          "tests": 30,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "351ff142fb6701545cd8d3f862ce33068ced67e92715c5cf0726ce5d329c552b"
+        },
+        {
+          "name": "com.yfuse.core.playback.PlaybackStartupPolicyTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "77644e1b6e89256772911973c242a7301c9f75616996985ce7ea17abdc60c838"
+        },
+        {
+          "name": "com.yfuse.core.playback.ProResPlaybackPlanningTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "f63a71f376cb942f28e03e5a6ce11b56c1eb7671a31fcf45fb9d12bc95951e04"
+        },
+        {
+          "name": "com.yfuse.core.playback.RemoteDiscRoutingTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "94b74aa24a3bf9d71842e7fbb0c62518b8fe8afb5cb97a865441afc3333e88f2"
+        },
+        {
+          "name": "com.yfuse.core.playback.UhdBluRayPlaybackPlannerTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "dab45c3bbfb0254980406ca79df32ea38cfd855eadc2238c3081449d13b588d3"
+        },
+        {
+          "name": "com.yfuse.core.playback.YCorePlaybackSessionTest",
+          "tests": 9,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "fe083de594dd914b321e40d12c86cbaebd94313770536622be9d8fc1e02e490e"
+        },
+        {
+          "name": "com.yfuse.core.security.Base64UrlTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "75515b31472812335a1bab148f0476cea751b622603754f0265119885a63c83f"
+        },
+        {
+          "name": "com.yfuse.core.security.CredentialPersistingSettingsTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "0350657a28d3e94814548cffcb6be27923e6053a72871e118f9337fa7c36ac31"
+        },
+        {
+          "name": "com.yfuse.core.security.SecureStoreEnvelopeCodecTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "af93313a7bbf7252e046e1c6274639697a01fafa64606850cbfed5718a224f59"
+        },
+        {
+          "name": "com.yfuse.core.security.ServerMigrationRelayCryptoTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "5703c9d490cd2c0c978746abf157f00734c784bfba00a4cab93883f9b870be79"
+        },
+        {
+          "name": "com.yfuse.core.security.VaultCryptoTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "68559b006f82267c7c7a8b0c27c2ce10b608c42bfedbdfdc81c069b9e10ec125"
+        },
+        {
+          "name": "com.yfuse.core.sync.ClockSyncTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "ec953c922b1755d2fa18f6ec64a89ec585c24dce126fc3917c40d5ba603a5e68"
+        },
+        {
+          "name": "com.yfuse.core.sync.CloudSyncSnapshotTest",
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "0a6c761c6c98fe03579dec4b6f72974af97bd6ba0501ebf2f22e6772e6c48511"
+        },
+        {
+          "name": "com.yfuse.core.sync.playback.PlaybackCloudSyncPolicyTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "00c16c95fcdf7255b94cb6088b36d53cedd4c32666d127f4f242f16366ffdfb0"
+        },
+        {
+          "name": "com.yfuse.core.sync.playback.PlaybackConflictResolverTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "473e58a9a46e3803c8415e0f302dc8e5d8d111aeb75382cc036a7d03b75c7e10"
+        },
+        {
+          "name": "com.yfuse.core.sync.playback.PlaybackServerApplyPolicyTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "439e2f40d60be7c2039736349c7e93a9fc4548da02c55e4575e44e2dff7e94dd"
+        },
+        {
+          "name": "com.yfuse.core.sync.playback.PlaybackStartPositionTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "3f9a370cf98a891e6c5daac7e197803aa858189ff5efec66bb7ef0cfc08151c7"
+        },
+        {
+          "name": "com.yfuse.core.sync.playback.PlaybackSyncManagerTest",
+          "tests": 9,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "11e7f954a5ca280d79146055358fd0d0410793fceee4727e47d7813b1ba43e72"
+        },
+        {
+          "name": "com.yfuse.core.sync.playback.PlaybackSyncStoreTest",
+          "tests": 19,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "f2ee767c9f6a18d3d7c8f0b7154c3c4576f6c75f82a98b9b1b5c4d8edc48f6ec"
+        },
+        {
+          "name": "com.yfuse.core.sync.playback.PlaybackWireCompatibilityTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "ee2707ae0341e24c8b6cf5eee3bd5f2f11a26769819d95ff117bcf9fbdf12731"
+        },
+        {
+          "name": "com.yfuse.core.sync.ServerSyncManagerTest",
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "3bb0bba94b8a6d87cc8b83466bf77520877c31fc60ee7de92bde50ddc6a54616"
+        },
+        {
+          "name": "com.yfuse.core.sync.UserStateWriterTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "00db4ede7c18c4599e1e9622a6c3572d7224e1707da45c085d6b396c24c8bfc2"
+        },
+        {
+          "name": "com.yfuse.core.sync.WatchConnectionOwnershipTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "2edcd65c703aeab3bad2c59a9bad4b289375bc764831f7e30fd3acb37dbafa80"
+        },
+        {
+          "name": "com.yfuse.core.sync.WatchDurationMismatchTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "497a00b8b8ca1d0c0ea66214bad20f532ab601d86f4da15146f58b9a1da1690f"
+        },
+        {
+          "name": "com.yfuse.core.sync.WatchInviteTest",
+          "tests": 18,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "a756215c914a0e21bff71c8c69a32b0ca5d1cada88fd0a8fdf438ec05734f479"
+        },
+        {
+          "name": "com.yfuse.core.sync.WatchRoomPlaylistTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "65abcfdbd1f1306c668e1abfe4f3a3d9e2968c5ac487ffe7b767014de4e13e51"
+        },
+        {
+          "name": "com.yfuse.core.sync.WatchRoomResumeStoreTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "3f15cb7421797c58c41f8610d56c8ac5b32af94c406801434aeadff21f602b33"
+        },
+        {
+          "name": "com.yfuse.core.sync.WatchStickerTest",
+          "tests": 9,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "769d088109c1968d49f919ade1edb08033b496cd02effbdcf4ad271ef5f1c69d"
+        },
+        {
+          "name": "com.yfuse.core.sync.WatchTogetherCapabilityTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "efef26d8e0dda773735cd9a7901ed7f2ca33514f11f00103d350932a8e650bcb"
+        },
+        {
+          "name": "com.yfuse.core.sync.WatchTogetherChatTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "be8d84f06b7610bb1955eec316977540e1341aad4528e963269cacc157b431a4"
+        },
+        {
+          "name": "com.yfuse.core.sync.WatchTogetherClientTest",
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "5fe15e4358fcaee0143ed3b8df5dc4220c93945ba9debaca14a3ee12ff65700e"
+        },
+        {
+          "name": "com.yfuse.core.sync.WatchTogetherOutgoingQueueTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "ee8b4704406ff24619c341d92d19f33444b95d1f041ef978ab636e21cc30a24a"
+        },
+        {
+          "name": "com.yfuse.core.sync.WatchTogetherTransportTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "2f005e46cfe4be4a2e3980d0fc87759fb1958e24799f858b25b6fa67021dd3b0"
+        },
+        {
+          "name": "com.yfuse.core.trakt.HttpTraktApiTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "c83ed7c6f97cc0d1cdd296d716eebe6fc08f1fd771635b1aa478623915ed9f09"
+        },
+        {
+          "name": "com.yfuse.core.trakt.TraktRepositoryTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "bcb4f74b4134661969d227f1fddada7dd9f07e2188674a610aaf6c939e8251a2"
+        },
+        {
+          "name": "com.yfuse.core.util.DateWindowTest",
+          "tests": 11,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "9651b1bf22673dc52876617a0fc1423a28ba09cc98ff17d1e68029540fafaa4e"
+        },
+        {
+          "name": "com.yfuse.core.util.UnicodeTextTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "4636ce94d11e46d01154e18801aaa4ecf5c568a2d0b40abb9cb3e572db196960"
+        },
+        {
+          "name": "com.yfuse.core2.adaptive.YAdaptiveBitrateTest",
+          "tests": 9,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "552eb964a402ea1c680ecd7421f9b1078ea15fb4124090fc6c4b119332be4ee3"
+        },
+        {
+          "name": "com.yfuse.core2.adaptive.YAdaptiveReopenCompatibilityTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "382a741adf1d4392ee20beda3771f9b89b2c761c041868dfe8047e86256af310"
+        },
+        {
+          "name": "com.yfuse.core2.adaptive.YDashFinitePlaybackTimelineTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "d2878fbbb8bc192dea85edd6bd94878d943c40d04e42bbaa351fe97deced5e43"
+        },
+        {
+          "name": "com.yfuse.core2.adaptive.YDashParserTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "3b61000f8abde9cbd7211da6a45bda07cd7cd7c6d72134db5c265800d9ef3b93"
+        },
+        {
+          "name": "com.yfuse.core2.adaptive.YDashPresentationTimelineTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "429374cc3516faf4ec29e046d88b4f63cf9b466e43e3a15fb41f936a70ef798b"
+        },
+        {
+          "name": "com.yfuse.core2.adaptive.YHlsParserTest",
+          "tests": 10,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "5c88b29f4a0c3dc5faf2b6fc4d637619b538fdc231f46869e7b8319650812bcf"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidActiveAudioOutputFingerprintTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "32d7578583152822eb16d646985fc4fd9a867c660992107d2fbf5ebab7bc9f1c"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidAdaptiveCore2RecoveryPlanTest",
+          "tests": 10,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "8f26eff5184df4da6fda9b281efe2d16e9446c5d3761314775c3a012359cd8f1"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidAdaptiveDrmInitializationDataTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "bbcfdb8778fd887839340d31dda1391712c06457d1b8c42b50fc26afd20e40cb"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidAdaptiveHttpMediaTransportTest",
+          "tests": 17,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "d3efbc366a08f58fc0132ff3b70075f485d98452a87107a36bdb7d8c63ec3ca0"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidAdaptiveManifestDiscoveryTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "cd711cee89557beeca5faa3a0a323ecd94c6bf19cfd62b9767312ba83b347717"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidAdaptivePresentationStateTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "55c3a4f11befa86a2edc61fc5285c908952b4c0295afacc061c9a20fd4ed9169"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidAdaptiveProxyTransitionTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "d29d6e267ab67eb9017ceee3b3de23d076f1ae0171de1704e1d38be859feaf71"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidAssSubtitleRendererTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "f8dad81f83a88d4caeba5ca679375c9025e2db11e4932cfd2a1e6619c3402f9b"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidAudioClockProgressGuardTest",
+          "tests": 11,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "e4891000060e337b2f975a83acfc7539ceb4c71037385b7d834a09d540e995ce"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidAudioCodecMappingTest",
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "75599d4885b429367e19a1ce60277cf8d8e1539de79c40278b00cfdad5ba2e4d"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidAudioRouteEvidenceTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "b17fd8785cf945217bd7fad2ad4014185983cb58dcaee0478667311656b052a2"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidAudioTrackRenderNodePolicyTest",
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "704fa42e763ca2f3bbdfdafb9f27022417b410f6379ab6cb91c8dd13f3bc22e6"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidBoundedProbeTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "b12ee510655d29a8e48c44bae2b7a78412a3507df508babbd09a2c8ded45c7bd"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidCore2DolbyTrialGuardTest",
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "d991706fbb1dc903b987e928c0da6db33591129bd9c2bbc479fc62ff2fa0907d"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidCore2FallbackPolicyTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "784e4455c9b340cf8578b733ac9f2287bfb74cdab49f6bc2bed66e7ad5672a61"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidCore2ProbeTruthMergeTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "02f4916f9c100fae2f76d77f3b6d89c4bc3124425810a58fb38a5f29494ec3d9"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidCore2SoftwareRouteTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "5e3f7c5e06dc57955c6a1dba902afe39e485626cf64616b5481af96618229c89"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidCore2TrialTest",
+          "tests": 11,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "a893f49045d0dd50f4848254f62cb1cd85fa645633a5c96d67b1c89c72e07bed"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidCronetHostHealthTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "1f8115d6d91c3bda977b0175f09908fe3968180ee75be0af112cf55a9c7df0c7"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidDemuxAnalysisPolicyTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "995dae06f85d2a5624cd531285e4ac19b25984d6de736d081803247c8a5aae59"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidDemuxReadAheadNodeTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "3437754b0cb2b5439fc5a7abb284e3945a161c23c73eb4c0ec9c46e92fbcb08a"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidDemuxReadControlTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "f7afed5a307c7be1fb3ae65f6b6464a5b3f9c571aa5a4f3cfdd12e17ea3d7712"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidDolbyProfileMappingTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "3727e3f9a2a1df77ab40709179490de2e83937814f94e5cc54890bc20eb5cb22"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidEncodedAudioTrackRenderNodeTest",
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "be672d85633bcd99e12b504e95cdc1a0099fdd80e5dfe6557b5e3a06fd8f241b"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidEnhancedAudioSelectionTest",
+          "tests": 12,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "08faa00d14208a49272a4c2338c325da179a861edcc65f6a560ace25f3fb6b2f"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidEnhancedMediaProbeFailureMemoryTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "3254fb80642e28dcbcfe4584a57db713d72633034ca94e3934faad20608a60ac"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidExternalSubtitleCancellationTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "edad868b004b5d59fd14c05f1cf8f3a62acb23778eda600583b889cebdde9baa"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidExternalSubtitleSessionTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "3a2e6b0b7aa90486f1e8b6d41967ef9c1507eb9aef659d42362457db67cc9f5f"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidFfmpegDemuxerMappingTest",
+          "tests": 16,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "2a8ff596a17124d94cc60aaa88325bccdf40ed89602682ef1a1e54cd524b7ed2"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidForwardCacheWarmerTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "b1735544ca562d0a02f4c5ac73687b75b0be93a7605ef39782c5721d7b2a2db4"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidHttpMediaTransportTest",
+          "tests": 15,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "10b0fe7719834daed60a66ef867479a3ff79b2ae7c3cdc374cc4d391c2ebdbd3"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidHttpRangeHeadersTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "6a6fa4c789fe7750261bfe3ebc9772c07ddfeac2689f33c20761c9303448dfd0"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidHttpRangeMediaDataSourceTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "2cc529364336d23ffbaf2703bbd69eea2bf47bd796c0bbf59daeddb3d16c4598"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidMediaCodecVideoNodePolicyTest",
+          "tests": 24,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "b255353742cc8a885741fb7a7e556d077a3a31d97da8901d5f6b6c3b3ce7d728"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidMediaExtractorReadAheadNodeTest",
+          "tests": 21,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "3b543c5c8c60ca1c9c5e2a54d4e62b0602cc926bfc2e5cf8b89af6bef8180199"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidMetadataProbeStageTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "1141d1948a9dcc869eab1cda5ba5d332ee7a067f14d53ca1f551ed8b04b068ab"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidNativeDirectAudioRoutePreviewTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "5609279d0e9b6ebdb2bb98c875bb10e2b59e762157aa2667891e9db83351cc14"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidNetworkRecoveryWindowTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "5514d52a0f6eaa9d6f3a0dcc3ae45931608d1c43dfe3b5274bc874e668a47fbb"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidNextItemPreloadWindowTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "29c1dbb514f8a0f32d06e8a319868d61210b97b936f2eda97ff1f6996fbc980a"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidNextItemPreparationTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "f90db73ed99d0637db93096e88190b0be26c8f0813f27b8628d42de1c2fc8ae0"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidPausedVideoPreviewTest",
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "dc9c3d86efe1ad4d39aa4db00f0e42494ccd65c36e0fbebe64f11982ca39bdd0"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidPlaybackMemoryBudgetTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "29884776b61df1e2f43e99418773065c68518bc2c83d25a7f338cff9f9c20112"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidPlaybackProbeFactsTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "ed84c3edb2c78d58b5d8c25e696a12627ff726488975954d30415847bff091e2"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidPlaybackProxyAdmissionTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "8df1e54b506152bc840d96b4f3f5f5794b9efae7c68bbbf7fa7452b405854b66"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidPlaybackStagingBufferTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "2cf296f48a7c7f2c36ec4d1cd5e7f4bcdb6631ef131812563b8af5fceb8ad489"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidPlaybackTimingTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "25a3d5d70dd30cc740895232883c73b29d04934743b20b16e86ca7e219d3caa7"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidPlaybackWorkerStepTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "f2a988a3b1564772c8fe37458a4991616c8cde0e4ad33376ab4fdc7cd4736ee1"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidPreparedMediaSlotTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "ff33ce53c0ed20d8f87c453010fdc6a9106a3985cc0f6e38dda1775208b9b885"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidProbeBudgetTest",
+          "tests": 9,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "4cfce685364ca29f252af7e25128757d93f2ce3ed595952b976615f847c7d252"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidProxyMediaSessionsTest",
+          "tests": 10,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "703dafda21dfc9750a159211a597012956e2d38c1a7e2d68cd3bf2e1bcd0f6d5"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidQueueCursorTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "f9cfa0a545f4e4d5f65cf6734a5f751dfb169c70984f10892d7c1b73368d2dbe"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidRangeReadWatchdogTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "309a00577ad2f87f0c884b999475f418dba37ab7cea8b2285642368ee58b8ce7"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidRuntimeCapabilityRegistryTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "81cd1306e95766dd9c5eed458d0ac5397f64f3ca03cec5929084f92f79892570"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidSecureSurfacePolicyTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "345ba6c03fbfac8bb7d54b4a929dfcdfb3c028994dc295f597dbdfe2de7b6c76"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidSourceRouteStateRegistryTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "fd562710dfc44d7edc9c1c3ed93c201072300c57cfc7be4990699317f7517c80"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidSurfacePlaybackCompletionTest",
+          "tests": 9,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "ef1ecaa069d3bed62a0f9679a4168e1094b65983ea6308bacd396193e9044104"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidTransportCancellationTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "8a9cbb27001198f74c062e17211dac60e689f249d7201740836d3216be3ee0f7"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidTransportDiscBlockSourceTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "25f57f05fb1f91955c71c7a9cb1ff0ca4f7b73c55e9056aad4f281ca1d9b2e4b"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidTransportMediaDataSourcePrefetchTest",
+          "tests": 16,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "c1e846c061da0f9767c1a5e0b43bec1e4bc5d3049e49db7da97422ab960bea4c"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidTransportMemoryPressureTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "f29a64fbd96cc4b1d293cc6af01a905f605177e38212f6deb644dadd56699886"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidTransportRequestFactoryTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "900fabf9be9335b0ffdc889bdfebccfd71104f7eb8834f8af3de864eecfe7530"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidTransportStartupAndResumeTest",
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "f86787a9a88716b98207f0793317ca43316a974260fb9df4908a697120cca114"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidTunnelSeekAudioTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "b3986598fd94fbc40687a2d4f899b5dbdccf1d8e2ebf865df4f414da8494a266"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidVideoEosGateTest",
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "16a0bb12d7c7c5acd7cd280e209bf5f02fcb587c7c788608f2fd4947828b9f0e"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidVideoOutputEpochTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "43cbc2053194c1aa5baa4a372943dee39a1a085d0c103f9a3618dee7768c903d"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidYCoreBlockCacheTest",
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "1fad24fe890688f0c527057531b0912a53511f00d0ac9eb01c4bf067251ee79b"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidYCoreBluRayPlayerReleaseTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "0cbc6133c6c085877e2f5096fd670affc26f5c8040b048a5cdb565f4fdf8980a"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidYCoreCryptoInfoTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "ed7577b6bb4db808641d5e5876ef7665a5cb5339fd058812691a890dbb1b224b"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidYCoreHttpProxyTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "ca0c805aaaad0d164214b982dd6c558d18cca9adc25c32e3e9f6fc53de3a052b"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidYCoreProxyCloseTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "4ba23b60d9a4655cedd08024b2e8405fc27d386ec09353cb7f245ecaafbc391c"
+        },
+        {
+          "name": "com.yfuse.core2.android.AndroidYCoreVerifiedRouteMemoryTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "dcde5045f71d20708937677c150e0bab7c26cbba4adf1736e87c69f02c6b3ce8"
+        },
+        {
+          "name": "com.yfuse.core2.android.Anime4KFrameLedgerTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "c092a270b54aab3713d1f2102627e40ff74fa7da3372a82c2a2a22817ac74c0c"
+        },
+        {
+          "name": "com.yfuse.core2.android.BoundedFrameLeasePoolTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "fb3bb817345edf5fff6eda55fc33213bd8c8e5aab4bc5bdb95710f3695043ce7"
+        },
+        {
+          "name": "com.yfuse.core2.android.CodecFrameTimestampMapperTest",
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "68a188f4ac80d701bc7bfe1e1ece9382a705957cdbaa233745544694b4e68c31"
+        },
+        {
+          "name": "com.yfuse.core2.android.Core2NativeBaselineTest",
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "c02b964757cecc44a684da242a357ed302200bc193c40ca26e25cc784bcf2101"
+        },
+        {
+          "name": "com.yfuse.core2.android.NativeDirectCommandPolicyTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "d29becc28f9367282238232114e171a3dc2b411d030c5cc5be42fd890e4227ed"
+        },
+        {
+          "name": "com.yfuse.core2.android.NativeDirectHdr10PlusTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "2c29fce930053b875f5df12b0b9e9973f8bde8696e8741794b837b66bb557e44"
+        },
+        {
+          "name": "com.yfuse.core2.android.NativeDirectPacingPolicyTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "322b09d1540db216ed0b5b728ceddd8084dca2f82bba139e9ff0f62923b24572"
+        },
+        {
+          "name": "com.yfuse.core2.android.NativeEnhancedCommandPolicyTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "703b4f5e586742af5d79bd3ffa2f9428c816de182280f4d02cb1584c8302249c"
+        },
+        {
+          "name": "com.yfuse.core2.android.NextItemCancellationTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "cb5de77c4f9cadc285226d44cf8d9d2f4930728ab2a6d3cd2aab333b2652465c"
+        },
+        {
+          "name": "com.yfuse.core2.android.NextItemOutputHandoffTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "732ed0eeff9f95992473036e7766fd7ba0c430d1c30dbe935845b5edd571f7e1"
+        },
+        {
+          "name": "com.yfuse.core2.android.NextItemRangeReuseTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "6841416c03c570444a66972b16031f3af7440121cded852e13e81a7f3e4ad84c"
+        },
+        {
+          "name": "com.yfuse.core2.android.PlaybackAuditRegressionTest",
+          "tests": 10,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "6b6144a46ae36e775b7b6fbf03698c7525f06b44e54ba4028405039660c1940a"
+        },
+        {
+          "name": "com.yfuse.core2.android.PlaybackTransportAuditTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "4efcd9dcbd004b698546a86d36f63637f887bff3159d99bba6b7fc40af7c0867"
+        },
+        {
+          "name": "com.yfuse.core2.android.SharedOriginConnectionPoolTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "d0fc61b4eab5ee1f083a42f96dfe042af10c718eed87a35424e078ca6520c2ab"
+        },
+        {
+          "name": "com.yfuse.core2.android.YAdaptiveBufferModelTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "aad56632ffd5eb0950588c351d5dca72fc81a5e3acf06bf21971ae564a48ea8c"
+        },
+        {
+          "name": "com.yfuse.core2.android.YAdaptiveReopenGateTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "1f7080095f2d69a37e85f2c90ed7d85dc1487639609417e0dcb897f587ce28e8"
+        },
+        {
+          "name": "com.yfuse.core2.android.YEnhancedAudioSelectionTest",
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "d3a1dce10d20110c8bf1b8c34a18cc3a8cafb4dfad5810e303b6c1f39d09f24b"
+        },
+        {
+          "name": "com.yfuse.core2.android.YEnhancedDemuxSourceTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "cc63f12aea2d4db7a3c2d72581bb684afcd7feaf1c55247d980fcc50cecca6d8"
+        },
+        {
+          "name": "com.yfuse.core2.api.YDualDolbyEvidenceTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "ff0701632bb83777013f2eea560c728e2e3a05ba3d6cc80a54f868e1895b7ff6"
+        },
+        {
+          "name": "com.yfuse.core2.api.YInitialTrackSelectionTest",
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "5e3a5c7379d9db5cfda9d0a19d723e9eb8939ab98ece559e860e8d2b88baad5f"
+        },
+        {
+          "name": "com.yfuse.core2.api.YPlayerDiagnosticsTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "2e826e101984d3819d86b661ae8b505b9e22f973b25f6b65a84c3db4063e3624"
+        },
+        {
+          "name": "com.yfuse.core2.api.YPlayerQueueTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "06f4f3a6f659478f74982463d0d06e308ffedf86a856e36c1e14d8ccb142a419"
+        },
+        {
+          "name": "com.yfuse.core2.api.YRebufferTrackerTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "1698db97149b302195ae4625eb3019a814662979333d2d0291742c1b81f75fa1"
+        },
+        {
+          "name": "com.yfuse.core2.bitstream.YBitstreamTest",
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "0c7afc937b48f17100035a22b9c86fb26e63f94835d4c5dd93e552720ac5c992"
+        },
+        {
+          "name": "com.yfuse.core2.bitstream.YCodecConfigurationTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "59180869bba62428a0ab5426a85e8ee9a35dcc08a139a79ef45c392f9b4a681a"
+        },
+        {
+          "name": "com.yfuse.core2.capability.YCapabilityTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "b639f022c654a6571d5f6d1338e33d7ea800447423f495eadcd33ac5476bfa5e"
+        },
+        {
+          "name": "com.yfuse.core2.dolby.YDolbyVisionBitstreamTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "0522b70f52775a32242b079f4a1e8748beeb7bbdbe26bd4100af1b5e44713786"
+        },
+        {
+          "name": "com.yfuse.core2.dolby.YDolbyVisionConfigEncodingTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "7899e14b0718f7b2cad472471a63006c6f6c1848059b4c86fe1c1e552a631237"
+        },
+        {
+          "name": "com.yfuse.core2.dolby.YDolbyVisionConfigTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "4d38c24ce90a574a556af5e0ad3a21d697c44f9782a0c738188ed2f163dc6def"
+        },
+        {
+          "name": "com.yfuse.core2.dolby.YDolbyVisionFelEvidenceProviderTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "5a5509934de9b7253cbfc8744cede799ae7be95e41c0b72559833c67e35b5304"
+        },
+        {
+          "name": "com.yfuse.core2.dolby.YDolbyVisionLayerSynchronizerTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "d82e7f31669e9537efe2c5acb1b15ba2dda439712bc27d8927b0c49d647bff9b"
+        },
+        {
+          "name": "com.yfuse.core2.dolby.YDolbyVisionRouterTest",
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "92d196007dafb2ebe1ca3a5e8ecf317a7aefd34563cf85898fb09a371801c969"
+        },
+        {
+          "name": "com.yfuse.core2.dolby.YMatroskaDolbyVisionMetadataParserTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "225ef6c729828a7a9cbb1a22e875d04054418a32568633421e0c182444960827"
+        },
+        {
+          "name": "com.yfuse.core2.dolby.YMatroskaTrackCodecParserTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "692148d925339738e3391f189db115a96cee326337f23988b88d60b0fcb7e298"
+        },
+        {
+          "name": "com.yfuse.core2.drm.YDrmRenewalPolicyTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "aba21c02db40f4116120310536f9018aa0e1291e89d16f446746db0d445c17bd"
+        },
+        {
+          "name": "com.yfuse.core2.graph.YPlaybackGraphTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "a95773e5a33a894829b66737bf4575dfa9ceb3880c29ce18982f200de0623eee"
+        },
+        {
+          "name": "com.yfuse.core2.hdr.YHdr10PlusParserTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "815e40c7c2568bd7400bec491c127aa0773f52f2a0beae9099e6623ed771e526"
+        },
+        {
+          "name": "com.yfuse.core2.hdr.YHdrMetadataTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "3d20ab86ae06c56db9a10ec66ffc7baf90ac3667a2872ed6ebf0aeea2c20abfd"
+        },
+        {
+          "name": "com.yfuse.core2.hdr.YHdrRouterTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "fbf6a289e5bdcda9140495cabe17c68ba815f9eab92650cf41c20ff379b52631"
+        },
+        {
+          "name": "com.yfuse.core2.learning.YPlaybackLearningTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "3be124ce3b6c2a70f452f63f72b44d7576103e038071a11b650effeeabde880d"
+        },
+        {
+          "name": "com.yfuse.core2.legacy.AndroidMpvCore2FallbackFactoryTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "6c8c7d4f7b6e6c483f51bfd11ba51262fb7094e384b23a923a11d50f1131b36a"
+        },
+        {
+          "name": "com.yfuse.core2.legacy.LegacyYPlayerAdapterTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "2b3217ac2c351b7258c5679c71de748f2f8cdc51539abdadc070d087caf3f930"
+        },
+        {
+          "name": "com.yfuse.core2.legacy.YPlayerVideoEngineAdapterTest",
+          "tests": 12,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "92242c287ed1aefbe015c51643808185e7b5c3eacfea0e023e2abf83f3c513c0"
+        },
+        {
+          "name": "com.yfuse.core2.network.YAggregateBandwidthMeterTest",
+          "tests": 10,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "cb66f805b1b9d7437df9393689ac748851112aab1af15971d9943680a3c6d525"
+        },
+        {
+          "name": "com.yfuse.core2.network.YBufferControllerTest",
+          "tests": 14,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "e5cf5d560772651e39051cc198040a762412aa971e1ecf8305172286568f3ff0"
+        },
+        {
+          "name": "com.yfuse.core2.network.YMediaTransportTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "ed0683f205bc3a90623b259de9ab6c8744f91d68a3013f36aa528ed4f841b620"
+        },
+        {
+          "name": "com.yfuse.core2.network.YTransportRetryPolicyTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "f683e70b93592c01a3e18a35747d9f1470bfa981d28aacf80bb92ebc68d4b798"
+        },
+        {
+          "name": "com.yfuse.core2.quirk.YCore2FailureLedgerTest",
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "d57549073230611118faaae57bc7bc9b8d499c979eaffb71b7b856f4aa217816"
+        },
+        {
+          "name": "com.yfuse.core2.quirk.YDeviceQuirkDatabaseTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "98dc41ce9c4f4e0439eaa86faeee29663078774e18685a22501395557660b223"
+        },
+        {
+          "name": "com.yfuse.core2.recovery.YAudioHandoverPolicyTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "9676def87ad2ffb2fc4faa18486974fbfd3d098bd3c860ce5cf2679fffc6f991"
+        },
+        {
+          "name": "com.yfuse.core2.recovery.YPlaybackRecoveryPolicyTest",
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "f367486fbb5d2dbe626e9c6a36544f618e4c8ece8c3e76faaaad047bb850c45e"
+        },
+        {
+          "name": "com.yfuse.core2.release.YCoreNativeReadinessTest",
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "0da1337383d7cf96a889936ceb9cf721844f5184a11b44c388056d598afcf171"
+        },
+        {
+          "name": "com.yfuse.core2.render.YFrameRatePolicyTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "ced2850f5ce8993df9538e5df2bee01c33795a6d9626ab9579a1f903f2746dcc"
+        },
+        {
+          "name": "com.yfuse.core2.render.YGpuColorPipelineTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "de5f7b8c91fb8235052407eb04339b2d35f805ca99a06c8700fdb4e91279fe03"
+        },
+        {
+          "name": "com.yfuse.core2.render.YGpuPipelineTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "76c611efa10ce64ab156e8e40b40aa43c1f14b596c018c4034db7b748c405a29"
+        },
+        {
+          "name": "com.yfuse.core2.render.YNativeGpuRuntimeTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "4c27376a8f6cdfc943d460b4f66864f65bb946dc235e7b8865207bbabb3fdd7e"
+        },
+        {
+          "name": "com.yfuse.core2.security.YCoreMalformedInputFuzzTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "6b4422c1df1882cb11625011cdea7437cfa9a64053665930a0629c9724ee1b51"
+        },
+        {
+          "name": "com.yfuse.core2.strategy.YAudioOnlyStrategyTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "e0f2139801d5d3a9b32003f6459c327b4801b366c9c1758bae5ebb5fda8b8d49"
+        },
+        {
+          "name": "com.yfuse.core2.strategy.YPlatformAudioDemuxStrategyTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "2153a24e30830fd29a370d994b75e6ee508955a681ac573088293607055cdc7e"
+        },
+        {
+          "name": "com.yfuse.core2.strategy.YPlaybackStrategyTest",
+          "tests": 16,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "15e8bbfe06e0387d2522b67efd8034c28681cc90c52674f0c9afe7c78299f007"
+        },
+        {
+          "name": "com.yfuse.core2.strategy.YProbeTruthPolicyTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "5663b8f28ed0fceea7d66f6020b6a23b47707e708fb5a48b07e039f4ed84c02a"
+        },
+        {
+          "name": "com.yfuse.core2.strategy.YTunnelPolicyTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "6ccf39c62e3d401f26253f374c46664a594becd9e4c0033a2f037812c44b65cc"
+        },
+        {
+          "name": "com.yfuse.core2.subtitle.YDualSubtitleTimelineTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "ff9c1ae4d9f465682f48e67941c1a730ecd6255bd67171b733427b810717febe"
+        },
+        {
+          "name": "com.yfuse.core2.subtitle.YEmbeddedTextSubtitleQueueTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "fa664b0e3c8e3a1175da134f36ef4054e9d4c8ade336c73a03857c7e58a61e5c"
+        },
+        {
+          "name": "com.yfuse.core2.subtitle.YSubtitleClockAnchorTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "1d18f988f3b4e423469723d75863b8c438a2e769691febb0b17046cce5aea47e"
+        },
+        {
+          "name": "com.yfuse.core2.subtitle.YSubtitleCueBufferTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "65b370548a8839ab5c71eb76482d8fd1e9000c5fd630eb029d665010509b7f7b"
+        },
+        {
+          "name": "com.yfuse.core2.subtitle.YSubtitleParserCancellationTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "94111861ea0fa60be7943a3bfb76e1a357781f57718679105a79fe6a417585ef"
+        },
+        {
+          "name": "com.yfuse.core2.subtitle.YSubtitleRegexRegressionTest",
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "5acee304e05f9688370c41f6b02c9a21b982169a8fe33ba2785ba86c2ff524f4"
+        },
+        {
+          "name": "com.yfuse.core2.subtitle.YTextSubtitleParserTest",
+          "tests": 9,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "7b91cae7be3f5a85fc5cc1a829afdfda33f871d671729e1a31bfd26b3e4f8fb9"
+        },
+        {
+          "name": "com.yfuse.core2.sync.YAvSyncTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "5f0bcd57df41254cb96a459a86457cb250eeea0af246eb653cae2bd668ff8494"
+        },
+        {
+          "name": "com.yfuse.core2.sync.YMediaClockTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "40f1a09ba4da08463be53c9513ab5b83fb462bab868990e400e85fdbb1586583"
+        },
+        {
+          "name": "com.yfuse.core2.sync.YMediaTimestampTimelineTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "7c1bf01083d3314f1801cc63cdc4ed55ac4b6add77a1b848db6e8efd62a5465d"
+        },
+        {
+          "name": "com.yfuse.core2.test.YMediaTestSuiteTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "f65f14dad60a87ebb1bd8bf0b45cd10a0736d393c330d49db5533bc03b8e7ee8"
+        },
+        {
+          "name": "com.yfuse.feature.calendar.AiringShowCalendarDialogTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "021be3d2e3dd69e06941da82680de5999bfbc56cf10033ad339cf275c5c5ab4e"
+        },
+        {
+          "name": "com.yfuse.feature.calendar.CalendarFilterTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "7f11ba14433698384973c4633e7417f9e370605fa9f0bc47f6fa1aacaa09e6bd"
+        },
+        {
+          "name": "com.yfuse.feature.calendar.CalendarIcsTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "4c2bb14f901d5ce8b5bb944949d03fe05e2b3227a81f48228ea791faa286a6b4"
+        },
+        {
+          "name": "com.yfuse.feature.calendar.CalendarLoadDeadlineTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "5e170efb78f52b811eb66a7bff310314decca9f9f8f205fb8ca2c0087aac2bd2"
+        },
+        {
+          "name": "com.yfuse.feature.calendar.CalendarStateTest",
+          "tests": 13,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "4e47c608af9d540b809e70f35ceb73b933e0729cff77cff5c743b03cb4c098a7"
+        },
+        {
+          "name": "com.yfuse.feature.detail.DetailActionColorTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "807f9ac4579108a3aab3698b9a8b26ca4b52645fad57755f744f97cf6eaf081e"
+        },
+        {
+          "name": "com.yfuse.feature.detail.DetailActionFormattingTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "d82493a073db4c15cfdc1ef55a90a41fc2d4e0d4f1c52fea7fc096609fc6fcc5"
+        },
+        {
+          "name": "com.yfuse.feature.detail.DetailHeroPhysicsTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "71ac46eefa6642c8478e61106844df692e864006865863bc2054b1c9e0509a37"
+        },
+        {
+          "name": "com.yfuse.feature.detail.DetailPlaybackSelectionTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "e2b2070f9234119deed046f3f21cf2aa9a1a16f74e8a0cb9f1c083b2f6118897"
+        },
+        {
+          "name": "com.yfuse.feature.detail.DetailStateColorsTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "eb289756ef562ad94b845efb428b97dbf2eb3c7cf807e660b0160ef3d3604775"
+        },
+        {
+          "name": "com.yfuse.feature.detail.DetailStoreTest",
+          "tests": 32,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "4d63c1ab1bb1bf238fb8ed61af53b269a101d36146879aacd559d341d82fdd89"
+        },
+        {
+          "name": "com.yfuse.feature.detail.EpisodeFocusTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "751c2808929e5ab0e1b2bf6b2167a910ee2b6ec368dbe4420f7dc042459c00a1"
+        },
+        {
+          "name": "com.yfuse.feature.detail.EpisodeProgressReducerTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "69f39186500e8294c7b68d477ffc8219017aabf5eb819a1a86c1472093bcecb1"
+        },
+        {
+          "name": "com.yfuse.feature.detail.MediaQualitySortingTest",
+          "tests": 11,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "346753dd699ae254c6b8612f20762e8e7de11efac5639472ac92fc8637a36c3d"
+        },
+        {
+          "name": "com.yfuse.feature.detail.OfflineDownloadDraftTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "ed8ca768de57e2b6ce533a5fe5bb7cfa0373c10e14c142f8c558897c1a5e03b7"
+        },
+        {
+          "name": "com.yfuse.feature.detail.SeriesAiringCalendarTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "f10955e5d2d8448d06dd7243f861d512a22b13df6a91ed2307f8694096f7fd9c"
+        },
+        {
+          "name": "com.yfuse.feature.detail.SourceSelectionPresentationTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "4a6727c03d58388bf16a580df920f06a8d58a13dcb460f1b9d4c4e20954a05e4"
+        },
+        {
+          "name": "com.yfuse.feature.handoff.HandoffTargetIdentityTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "737bef450220c5ffd2878da0587a276fe5b98df056a17d71eb4e56c6f255deba"
+        },
+        {
+          "name": "com.yfuse.feature.handoff.HandoffTimelineTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "535da11601c4b7313146360881fdbb92e756af1ccad60296f05c7ba45e6016a0"
+        },
+        {
+          "name": "com.yfuse.feature.home.HomeCalendarOpenTargetTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "92f1de76738473da7b5c9705186cbe7c71382eb4b69062cf855193ba0ce00cfd"
+        },
+        {
+          "name": "com.yfuse.feature.home.HomePlaybackRecoveryTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "e7a609cae4ff9398a37856713c1f9313f55109a6077bfbcb09a0b453d9cf76f3"
+        },
+        {
+          "name": "com.yfuse.feature.home.HomePlayerRouteAutoplayTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "9ebcb81ae3597df9328926966e2ed826359b40f393782c104969c17730bb1eac"
+        },
+        {
+          "name": "com.yfuse.feature.home.HomeStoreTest",
+          "tests": 18,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "adc9ed78b74c41906dde7e3b573803d9bf4ca759e3db2debbd45326d7fac1121"
+        },
+        {
+          "name": "com.yfuse.feature.library.LibraryContainerRouteTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "657bb950cf7df6e588cbff36d8020f9febef8594321eed628e188a3e48bf81d0"
+        },
+        {
+          "name": "com.yfuse.feature.library.LibraryFreshnessTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "aa98780706e0a3e072df104ee47a413853f6cf9e1e898dccd2a1bacd9e83dbca"
+        },
+        {
+          "name": "com.yfuse.feature.library.LibraryGridStoreTest",
+          "tests": 17,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "5e2b5c556ea0b4914476b22b154e50e8cc630f70c24565e9c4f1146113ced95d"
+        },
+        {
+          "name": "com.yfuse.feature.library.LibraryHeroUiContractTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "fe8dfdb8fdc42cfcadf6fbe4f67339d05a4a1dc811830d8ca32ee886079cbb77"
+        },
+        {
+          "name": "com.yfuse.feature.library.LibraryStoreTest",
+          "tests": 11,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "26ded367bdf92dc6bf07d41727c1a295abdd4be6e15f35c40300ddca485dcb50"
+        },
+        {
+          "name": "com.yfuse.feature.library.PlayerRouteLaunchGateTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "1144d670c0d6ccf5a59a741be33b4ab67287eee7d2fa39d5126d1a88be5934a1"
+        },
+        {
+          "name": "com.yfuse.feature.library.UnifiedLibraryPagerTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "ceb5e5f2c5e1c65b7d663fc26e856e80a6178800a434e4dbff4ccdf3203e6209"
+        },
+        {
+          "name": "com.yfuse.feature.player.ActivePlaybackTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "a4fac00838757f44b9070dc77484853f3a42143d190e4a116cd4d3b054c56ea5"
+        },
+        {
+          "name": "com.yfuse.feature.player.AdaptiveStartupLoadControlTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "6ba0c9cef04aa622b01fd17dfca5479716a034ab74fc6333fa371156936d79df"
+        },
+        {
+          "name": "com.yfuse.feature.player.AmbientCopyTest",
+          "tests": 13,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "ff8946f2b5490c108d2dad47fc27e5c9bafb6ce0bca6194d64fd61c842a2b555"
+        },
+        {
+          "name": "com.yfuse.feature.player.AmbientSamplingPolicyTest",
+          "tests": 12,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "a63b7949a590d9033773b779802aa5be2e4e0c99d8a237b2b733d5849a695c66"
+        },
+        {
+          "name": "com.yfuse.feature.player.AndroidDolbyVisionRuntimeTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "246a16ef71b4571ec084308f9271dd877b04c46e0917ef59ee284a2076aa4ca9"
+        },
+        {
+          "name": "com.yfuse.feature.player.AndroidPlaybackHttpProxyTest",
+          "tests": 9,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "7842424b85399bad58ca248d1329acbca8f2ac5a8d25244fe54332623888a2ea"
+        },
+        {
+          "name": "com.yfuse.feature.player.AndroidPlaybackOutputTest",
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "52b95bec82e88ab647c3bbc7c4e6b5ce042d7bf503eb2728cb1bab138db717f6"
+        },
+        {
+          "name": "com.yfuse.feature.player.ArtworkProgressBarTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "b0fc25cc3cb25faa97583e53053f28fbc5bced1b6a2c7fba2a37e34889bc3eb0"
+        },
+        {
+          "name": "com.yfuse.feature.player.AudioControlPolicyTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "c2fb354ab22eadb3a252dd679f42fca9f77a4b41148387265a9079089677d0d7"
+        },
+        {
+          "name": "com.yfuse.feature.player.AudioOutputDelayPreferencesTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "a1ea6c3232e25994eaa26aa197a1e46ebdf9d0b33ddbd14ebd12636b918f19b3"
+        },
+        {
+          "name": "com.yfuse.feature.player.AudioTrackMatchingTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "421ab3a164e73dcfcf816978efaab26fd4cd70d1340363c14cb0ce1a753ef08c"
+        },
+        {
+          "name": "com.yfuse.feature.player.BackgroundPlaybackProbePolicyTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "490d8906e700973ba870b92abb251f161a0bbae2ec6da35129eb50a9855b5325"
+        },
+        {
+          "name": "com.yfuse.feature.player.BdJDiscNavigationBackendTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "80000aa2c1363f4ef4dc3a93ee6f687aa7fb86ef2b44f89513da4441baba4818"
+        },
+        {
+          "name": "com.yfuse.feature.player.BufferedPositionTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "627c0269e02d49b503b449456e70db4b6beceb0cd7ef379ad6ceb3fb4f28324c"
+        },
+        {
+          "name": "com.yfuse.feature.player.CastMediaProfileTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "e9042877a9257a7826ca621890d2b92dabeab6cd2190f1f9943e5a33449a26af"
+        },
+        {
+          "name": "com.yfuse.feature.player.Core2SurfaceTest",
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "233576888cd3b78d0e4aa0e48b5377feab6972818e4381e8531be7eb859f8abf"
+        },
+        {
+          "name": "com.yfuse.feature.player.DanmakuLayoutTest",
+          "tests": 9,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "9b480312c4d54df92089e964f038094335ad3182342af5eed86590b3b8ea2382"
+        },
+        {
+          "name": "com.yfuse.feature.player.DiscMenuAndroidInputTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "de870d5713c4a58d96b05f7f064c74786c42274f30ffc8876d0ba15d791c210d"
+        },
+        {
+          "name": "com.yfuse.feature.player.DiscNavigationBackendTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "e546b08be94324c0dba7ff525692a60f5bece20efd75df025917570b3f1c7375"
+        },
+        {
+          "name": "com.yfuse.feature.player.DualSubtitlePreferencesTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "c4423bb0dada5e61126b02218ba1af4bae82be58b3a5af48dbd9a957bdcd45e8"
+        },
+        {
+          "name": "com.yfuse.feature.player.EpisodeStripTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "d72dca3ad9466c28fad56f46b2118792439c3fc55d2dd2811e579939edfe70f1"
+        },
+        {
+          "name": "com.yfuse.feature.player.ExoDrmConfigurationTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "422331dee0ddafa06143213a794faad9eada87f24706a2c88d8219cda302b2cc"
+        },
+        {
+          "name": "com.yfuse.feature.player.ExoDualSubtitleCueMergerTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "1a431480360e122c759b3cc355290a63ccf1af64a56992791817a3ca787fa68d"
+        },
+        {
+          "name": "com.yfuse.feature.player.ExoMainFeatureSupportTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "1387e396a5bbec621a9d43d9c58681f0e6eb71481180b6079f7ebcec3f4332fc"
+        },
+        {
+          "name": "com.yfuse.feature.player.ExoSecondarySubtitleRecoveryTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "3ce5bb1b075bd029f83e6667e70794fefcfc1d208d288ac593b8bcefb4d06822"
+        },
+        {
+          "name": "com.yfuse.feature.player.HandoffPreferenceResolutionTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "3cc40df2d0f0361df4983d730fc06070eadba3246020811ea54cc25a1f3772c5"
+        },
+        {
+          "name": "com.yfuse.feature.player.HdmvDiscNavigationBackendTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "6587f1cc8e6a3405b22ae97ea100fad871a53b26fcd3f6bc14f802c81b9c6f35"
+        },
+        {
+          "name": "com.yfuse.feature.player.HdmvOverlayMappingTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "c40921ee8c7a0af7c92e3aedb7901b3206945465590ddb030eac9f54ec920859"
+        },
+        {
+          "name": "com.yfuse.feature.player.HlsManifestGuardDataSourceTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "b4432846f3f03f4779922be5a06c54f9aeecd47ced5ae96bc5b47cff00148069"
+        },
+        {
+          "name": "com.yfuse.feature.player.InitialPlaybackTracksTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "0c2449e6a8d007b939b10f3617cb763974e5460a4f8264f11a764645f7c43aec"
+        },
+        {
+          "name": "com.yfuse.feature.player.ManifestTrackDeduplicationTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "5a3fb1fa1383ac737ec98cb0821bb0d2905fba0b88a782f101d2141de3f3fc76"
+        },
+        {
+          "name": "com.yfuse.feature.player.MdkEndStateGateTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "edfa8d01284723164e2fbc89442d94279efce2b06adaf8117c8749f01829718d"
+        },
+        {
+          "name": "com.yfuse.feature.player.MdkLoadStateGateTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "ac76322edb4a714d62b585b87dbd5a8586568790ca8f3b5bc61c232bda1f937e"
+        },
+        {
+          "name": "com.yfuse.feature.player.MdkPlaybackEvidenceTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "bb67a50c8f7520d11a886d5fcf59df3512b8a14ba74783ad0fe07d6e96031689"
+        },
+        {
+          "name": "com.yfuse.feature.player.MpvDiscNavigationMetadataTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "67aacec1123cab2d99d0798c077872ee1ed64bde7ff32bfac6c05164d1135822"
+        },
+        {
+          "name": "com.yfuse.feature.player.MpvDiscPlaybackUrlTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "8d458c778a338bedc7bb6554c2faab3c344489a16aa257298ff2ec9c2247d9b6"
+        },
+        {
+          "name": "com.yfuse.feature.player.MpvDolbyRuntimeEvidenceTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "9b799f7e750053d00a008181ab69c0b7e5ea3c233fc65f3fa422ecc6f6378fd7"
+        },
+        {
+          "name": "com.yfuse.feature.player.MpvEndFileTrackerTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "6d9187f710ed543e3b3d970586b98e5465bab12d4a90f2450c9893684493a51e"
+        },
+        {
+          "name": "com.yfuse.feature.player.MpvExternalSubtitleCommandTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "b52e781d8b5e61e77e485ea3d5770a5bd222871c059de8813037858e02ffef6e"
+        },
+        {
+          "name": "com.yfuse.feature.player.MpvFileLoadWatchdogTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "461c375cf9bb2f4c1ad86d1de5e5cdc6204864d50589415f0f2d979524702fd7"
+        },
+        {
+          "name": "com.yfuse.feature.player.MpvNativeBuildCapabilitiesTest",
+          "tests": 10,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "1bdce209d80f8359330f4b58acd3b2abec644c62464fe516b6abd02de40e59fa"
+        },
+        {
+          "name": "com.yfuse.feature.player.MpvOutputStateTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "d0defc44395bc49f325c4b231af5da3cf46673d15d256d09577673844718b71c"
+        },
+        {
+          "name": "com.yfuse.feature.player.MpvSubtitleTextTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "6031440a202863ab5b2d7305c5e7051923b8d151e8fa85d104725b73789c3b48"
+        },
+        {
+          "name": "com.yfuse.feature.player.MpvVideoReadinessGateTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "5c2bbdd6b12c7de93c013f6126511ff4a74f36276b456727b9bcf694375e94b0"
+        },
+        {
+          "name": "com.yfuse.feature.player.NativeCrashContextOwnershipTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "2efdf3644bc7740e2632fb103bf539b947dd6c999b07b373da8a1672b5ac2266"
+        },
+        {
+          "name": "com.yfuse.feature.player.NativeLocalBdmvPathTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "dab81e9fd9e6350e84b3a562fb0dc68bfbd673a995ce01f95d278ba7cd0b3d2d"
+        },
+        {
+          "name": "com.yfuse.feature.player.NativePlaybackFailureTest",
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "a8eda6e3fb25d3a1c7207ee3df6f67af0b88fc3029686e15e5006f19980ed3ad"
+        },
+        {
+          "name": "com.yfuse.feature.player.NativeRemoteBluRayPlanningTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "0177b31d56bfe177ab38cfa16f69f8be8fe4e81f833dfecddf035f9adb7fcba4"
+        },
+        {
+          "name": "com.yfuse.feature.player.NativeRemoteBluRayPreflightTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "d11368ff63607a0374c91ce9e68e9062f83813ea896e98c81c4ad37924172e2a"
+        },
+        {
+          "name": "com.yfuse.feature.player.NextItemCreditsBoundaryTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "d9cd0e74dc13810ae27e3479665ce76b10536ce58f14b2afeaf82b4a259dfdab"
+        },
+        {
+          "name": "com.yfuse.feature.player.NextUpRingCompositionTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "e3708e3c61e3602e9fc69e08da56e7e5cf9affa48bb3d6120cbd73fd3134c324"
+        },
+        {
+          "name": "com.yfuse.feature.player.NextUpRingStateTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "e254a2a755149a7d5188743ccac9421b9f8852e70fa094c249d8877ae9d3b16f"
+        },
+        {
+          "name": "com.yfuse.feature.player.OfflineSubtitleConfigurationTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "a19f98fc1da6579ceacba37c83904641fa29cb0da46bfb42ba1699e4ab959ad2"
+        },
+        {
+          "name": "com.yfuse.feature.player.PersistentPlaybackCachePolicyTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "4add61dbe181da36dc4b5e6eb3c9a04f7580d83b51b47cdf2aed994de4aff284"
+        },
+        {
+          "name": "com.yfuse.feature.player.PictureInPictureAspectRatioTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "a513abbf8fd22162c82b1cf08d545592cc8c06816f7c5cb95dbf604dcb708b69"
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackBackgroundFlushTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "56a3a856c89d657c5a96bddc1f09e6653cd36845c3303a5fa6057a7e565db985"
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackBackgroundNotifierTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "01d2122f724057fc82ea2feb5c047f8919fc9c68b05f3da5cefc583939ee09d1"
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackDiagnosticsTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "ded9343ba922e1b13fc0a212353a01f8af951d771f566254cb27e90fc26115d1"
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackEngineBindingLabelTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "0ca50fd484cf9312a9cacc7de9a74537e6fec67002cdbd213b8fa00e432c7270"
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackEngineSlotTest",
+          "tests": 10,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "af49c9a28186f7c779ae66554a98f31695f04587403726080c43fa55e55c35a0"
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackFailoverPolicyTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "2b6a34903967a13431b5f0b78c29d6ca2e7d42dac0b4d1254053c12a30bef450"
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackFailureKindReportingTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "09a893f78219aed56ebae9b7df4c1cfab47f672a8f100a0d622b509df7412a67"
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackHandoverTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "5cf6909fe244690874196a9b7d7990a2c801561a54fe4569b19254a20ec8afca"
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackKeepAliveServiceTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "9debec61ff33c965bcc53708612c6586d920c8ae006d547c927d042036dd4986"
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackLaunchTimingTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "d784d1cbbe74bfd6d24b63e7ab72d431185f0ab04b5bf17a58688bdd1fae7509"
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackLifecyclePolicyTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "3bb714b1e9d72a2076e1effa288d47337ce989194c6ceb6bffa0e30e702ded27"
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackNegotiationPolicyTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "ae5f1832594188a226c4b3e4ef940c59f9f535a6d361d5f0ced7da787a38e642"
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackOutboxWorkTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "8e0e524c9bccbccc47b245f8014dea5b4defd8d8fb77b981a4b10996e0d0c935"
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackOutputCapabilitiesTest",
+          "tests": 9,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "9fe98810dfc8e65d4dc2a9c3c29931b42d133e3d9c27a6a5f8b061863714b879"
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackOutputEvidenceTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "d1ea3e50a4a4a5ecb331401386aae81376184b9d5de9b5bfafcb016c27d0c11b"
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackOutputReadinessTest",
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "a4448ad5f0a48207255d0c5170f5b44687a3bc9e5ffe4742e9931f6e8b2efcb1"
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackPreloaderPolicyTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "b841f2f052ae0855f1865c247080d7ffdf9bbabf19d97d249c433ff4fb9b0485"
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackPreloadTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "67309d909246c030181fb40cb012c243fe78ac4f250b4701bf587968630e5aee"
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackProbeCompletionGateTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "8b19672c210b31c87229371e7a9ecfdd5ca6dbfe7d73e15d1e9a7ab80a296622"
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackProblemExplanationTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "e7ad09f676d575535e6b17bb66d4fcdc2c523eb84156d568d1307150fc5458dd"
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackProgressReporterTest",
+          "tests": 11,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "748cc4e9e29e4b8ffb831da8fab615e973f64b76dcba00226cb3384b44288eed"
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackProxyRequestsTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "c1658c3486eaeab95ec7aa4f986e4fddd30248159feca756eeea89b8ea99fed5"
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackProxyRoutesTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "1839fee4bc7829aa838fd74849d60823eccef820694af086fddbfeb486a081c8"
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackQueueUpdateTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "de6a28895cd75bcea0336f46be4eb16de4e1b227577f54f9d30df913b8026d42"
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackReleaseTimingTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "80cb21befe23417212f29c209545dbe79a0a44d9d21227d8d7bad58643a00e1a"
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackRemotePolicyTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "99a049dd43bd7f5024767c9582cdcaf2120152c951256d54ecc308ccd8716b26"
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackReportingCoordinatorTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "922d0188f53665e3ab68d13f54b194316003282096091358a5f04544a91a5845"
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackReportingTargetTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "cddc8125618a35086f8a5fc37ac58d87da76cc809cedf116ac3e283e9c2a0417"
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackReportOriginTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "4c79d0f03e7c00d63018e18281cbede6481cc47893612582146e021e55b4f7f4"
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackResourceCleanupTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "3fdcc047a1912bb0878f0628fb99f5beff3b7d232641d8ce4024e0e8672de102"
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackRoadmapTest",
+          "tests": 17,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "be38038d291746ceaecb7887b04616e333fcf6185a172936cde8e808097faadf"
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackRuntimeCadenceTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "77829b248d6eb3ad94e252e6db72b9916192c16f12783fdf2b36fcb716c46975"
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackRuntimeContentTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "dcaf3003b531a73d1fc5d804b2663137afeb4bf38bc7f4916562eafef44ff727"
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackSourceSwitchCoordinatorTest",
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "1cdca3c79fb34be1d4d4b776532c1b16cd284d4a02f3069eed2235d6cb66dd80"
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackStateFanoutTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "750e1824a3c962a111fa30822fff29c977d1065f66c473d101b127d86d0068f6"
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackTrackRestoreTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "93c4fd6294104989d9f52df3ad58d2e6e2e6dd911e1be94d4a195af5fedfd242"
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackTransportStateTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "dc4f1bc67749c727e207e941cf5d368fc949acf30f564606096dc02416b7b257"
+        },
+        {
+          "name": "com.yfuse.feature.player.PlaybackTruthTest",
+          "tests": 13,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "4060cc2caac694ba02b7f04cf162422351a7a31d0cedf412580dba8d6ebabbeb"
+        },
+        {
+          "name": "com.yfuse.feature.player.PlayerArtworkTransformTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "d3bed5b4520ce34a45ae240980fc5127066f524254d0119d2f31cd4bd69bf9e7"
+        },
+        {
+          "name": "com.yfuse.feature.player.PlayerAudioSourceHintsTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "896aee49533c97f64e0a86461182ecdea7df214e4ce4b1b65bfe7c575ac79ceb"
+        },
+        {
+          "name": "com.yfuse.feature.player.PlayerBackendExtensionsTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "7d73af33bdfe1cb21cbe97046255dc3f7ed208752df9eb522fda3e4e86d01ed7"
+        },
+        {
+          "name": "com.yfuse.feature.player.PlayerBatteryStatusTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "d6186601039bfd5e93c5b522b52bd7c82e46230deb00b4b0ebdf493546ca4cac"
+        },
+        {
+          "name": "com.yfuse.feature.player.PlayerControlFormattingDolbyTest",
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "b2aa5d13136aa3beb27e36d9c9eb6eaa057c6f16f3c533003d0571527e2b9610"
+        },
+        {
+          "name": "com.yfuse.feature.player.PlayerControlFormattingTest",
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "83a6fc1b14748326b83b96f28989493a1794fca3fc8e54cef425afe15fe1a5c9"
+        },
+        {
+          "name": "com.yfuse.feature.player.PlayerControlSnapshotTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "b2f2de5478a58d8d8efc538b7308276607ded1870114ba19786dc9d567f8bc90"
+        },
+        {
+          "name": "com.yfuse.feature.player.PlayerDragGesturesTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "44b562e8bc9bb650de7ed5915b6ce54e464e35314a962fe16bd368bed47d76c9"
+        },
+        {
+          "name": "com.yfuse.feature.player.PlayerEngineFactoryPolicyTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "63db328e25b04d56a37e95b76bee83d8ad50229cc22b7ed5b86f17abca839a04"
+        },
+        {
+          "name": "com.yfuse.feature.player.PlayerLaunchRegistryTest",
+          "tests": 11,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "1e955920b47e2d19d88764108ca3b845cdbb50d21f90fa9ce388b4459eab0eed"
+        },
+        {
+          "name": "com.yfuse.feature.player.PlayerMicroMotionTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "443917efc605c35785736a9b7bdc800f2dc89b1737f30e9f3530bdc134f82b34"
+        },
+        {
+          "name": "com.yfuse.feature.player.PlayerMotionPhysicsTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "17ade904d02c1d291b1e3010ec0e6226e1aa5b92ff87de3c5c6d51064a8afede"
+        },
+        {
+          "name": "com.yfuse.feature.player.PlayerSeriesLaunchTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "34aa1e49b2eda974aa743bcc9d18cd5429b2e68f2314cb3f3103ac6a08715bcb"
+        },
+        {
+          "name": "com.yfuse.feature.player.PlayerSkipCoordinatorTest",
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "091557c3af099016052bd8a4f9a609a1efd1b31e753f0031993daa6b9bc7016a"
+        },
+        {
+          "name": "com.yfuse.feature.player.PlayerStoreTest",
+          "tests": 23,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "b3602cb8db6a15e925b46752fbef7f51a10452480bc56d0935f51fbbe02d0628"
+        },
+        {
+          "name": "com.yfuse.feature.player.PlayerVersionMarshallingTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "5df98476bba584a7b497d70d40a93e35aadfd2224b0866a846aa673a377f6e23"
+        },
+        {
+          "name": "com.yfuse.feature.player.PlexPlaybackRouteTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "41413d9f4f693f458969782eec27f7275ced330ac37da9a5fdec1110440a95c1"
+        },
+        {
+          "name": "com.yfuse.feature.player.PreparingPlaybackGateTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "8382f84f083fe2a394631dc9e02e44868e6dad9e798a2552f1896ec131152d90"
+        },
+        {
+          "name": "com.yfuse.feature.player.ProResPlaybackTruthTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "7443837db9c115e33ae76bd65f84f412444f9a584a0c89a0f6f445eaad167c39"
+        },
+        {
+          "name": "com.yfuse.feature.player.RemoteCastPlaybackTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "76b4a3a110b632609c0611c305523fb4c849aa21292b4cd2bfc589507f811011"
+        },
+        {
+          "name": "com.yfuse.feature.player.RemoteDiscAuthRetryTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "cf631280c4ad4ed6c3afa923a778d4865f300a6c97fd6df30c820fbb2b8e62d8"
+        },
+        {
+          "name": "com.yfuse.feature.player.RemoteDiscBlockSourceTest",
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "b556ebf97107362f2024e9e1fb95460d71720c82ee25d98a52f0c5941f0004d0"
+        },
+        {
+          "name": "com.yfuse.feature.player.ResumeNoticeTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "24c0f0a2baea034e5d691480be4444042acd393d4f4fe6ec412db47492af7503"
+        },
+        {
+          "name": "com.yfuse.feature.player.SeekFeedbackTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "e7c8380cb3f68302fb98980962e3818c1696669c52c23711153aa10c6a6e9d78"
+        },
+        {
+          "name": "com.yfuse.feature.player.ServerTranscodeFallbackPolicyTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "c4866ae67ef63433bb1335b3b2fe84b24a0c7f3f5e1e5ca3f6ca8962b60bbd30"
+        },
+        {
+          "name": "com.yfuse.feature.player.ServerTranscodeFallbackTruthTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "b8d89624bb96da8c850f97725532900ccd325b33a058c9d61a00dc293f2f40d2"
+        },
+        {
+          "name": "com.yfuse.feature.player.SkipTimeInputTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "b51674ea49b9e7f58ea539675e23918274103cda27230319f54591ecd0f3e5db"
+        },
+        {
+          "name": "com.yfuse.feature.player.StartupTransferEvidenceTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "98960c2add0592f6ac14de769798500c735275e5efcaa3981c3da28f8542bbf0"
+        },
+        {
+          "name": "com.yfuse.feature.player.SubtitleAppearanceTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "9da0620310f2d0a0a99301a44412775ddc43095913287fe7a09c1e391595495b"
+        },
+        {
+          "name": "com.yfuse.feature.player.SubtitleBitmapCanvasTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "6dbac80320b5f0bf8ad294b4572aad2601dff7d3263e48e7441ec9354d7a7ec8"
+        },
+        {
+          "name": "com.yfuse.feature.player.SubtitleLibraryPolicyTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "cdab5bbacfbdbbeb8f01e7b277d4a497702b217394c472f0482d4c3190416d54"
+        },
+        {
+          "name": "com.yfuse.feature.player.SystemVolumeMathTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "ef83d19cebdd6c7019d56383e37f177c35f55d56b17f367c7d77d30a968b69f7"
+        },
+        {
+          "name": "com.yfuse.feature.player.TrickplayRegionTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "2ab94f5ef67b2bda004cfee77ba7c5ce45660ea37f881125bfc2b375cad36d3a"
+        },
+        {
+          "name": "com.yfuse.feature.player.UhdBluRayPlaybackTruthTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "d7d18f3e6803ec78b6d138c5d98c5ea3f0a7de954d3eb5e18643d2f215662051"
+        },
+        {
+          "name": "com.yfuse.feature.player.UhdBluRayServerStreamTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "1530ea8ee96cf5694473336c1af5db20347ff3ad6f2488d190bab9b3ab398180"
+        },
+        {
+          "name": "com.yfuse.feature.player.VersionFallbackTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "36242f2fa9a5ce7e9d4ae16b08f47e3257f36d9e1c75344f5bca30a2a91ecfb9"
+        },
+        {
+          "name": "com.yfuse.feature.player.VideoCacheKeyTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "ffda817125e67e9f1d69b2e8e42968e58f980b7bc2b35981a683475f794281f8"
+        },
+        {
+          "name": "com.yfuse.feature.player.WatchChatDanmakuOverlayTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "d42cbc4f7d0ab1a427d97219cc817b65541509660c0e5bda55ec37b30e66e29c"
+        },
+        {
+          "name": "com.yfuse.feature.player.WatchPlaybackPolicyTest",
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "8dffc220b68761f00ca8aedda8b724f23a40b5d343c0d0ae49b33274a00a896e"
+        },
+        {
+          "name": "com.yfuse.feature.player.WatchPlaylistPlaybackRequestTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "300f59cb4b9523a45cdeac2299076a8ff4a69cc17cf5a110816a5f416f1f75d5"
+        },
+        {
+          "name": "com.yfuse.feature.player.WatchTogetherStatusTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "5c1e7db5092472746b4432ed8bc691a5d379ae4db348f42ff210249d7fbae4cf"
+        },
+        {
+          "name": "com.yfuse.feature.profile.AccountInviteUiContractTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "000f5c050d478bc8806ec971bae28c355de37a3b405ba436e0ea27c20267d602"
+        },
+        {
+          "name": "com.yfuse.feature.profile.AccountSessionsUiContractTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "27324d47aaff19329b764f76d69fc13c68f3a3ac96241ab3f986b0847c3b50d9"
+        },
+        {
+          "name": "com.yfuse.feature.profile.DownloadTrackGeometryTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "f1976c8f7cf65ba956c18b34397716bb6b40f916ded4cc9b5e8f32666d444034"
+        },
+        {
+          "name": "com.yfuse.feature.profile.ProfileSettingsLogicTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "7fbe7938a69c808daf798c3c8964fe79566fc2ca9875e544cec2e007f8945594"
+        },
+        {
+          "name": "com.yfuse.feature.profile.ServerBackupPayloadTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "be1ad0a51611e6a1fc40a0b569585fac15603e2ddfd938c91751cb3e4c9ad48c"
+        },
+        {
+          "name": "com.yfuse.feature.search.AggregatedSearchRankingTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "a44a810e83958905e9e8a288753139968b3ecfd8060848f72b2269837872975f"
+        },
+        {
+          "name": "com.yfuse.feature.search.SearchResultsHandoffTest",
+          "tests": 16,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "ea2619bff1e41375bee0376a6bbee20b1b0fb7cfda27099d76e3f0e86746d984"
+        },
+        {
+          "name": "com.yfuse.feature.search.SearchStoreTest",
+          "tests": 12,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "5ef38e0c9b09419353a09d9bf8cffd813691c352b27c6a0e8922639bdbdac233"
+        },
+        {
+          "name": "com.yfuse.feature.servers.PlexLoginFormTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "e5e42ff05b73f269b334acacb26d89a20c308d776246f37321ec90202a4fcae7"
+        },
+        {
+          "name": "com.yfuse.feature.servers.ServerConnectionPermissionTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "79762b4da3ef14ec56bc7c2365632bf97d22ffdc637c286357f644cafe46ddca"
+        },
+        {
+          "name": "com.yfuse.feature.servers.ServerListPolicyTest",
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "33c546f7e829e2f5b22f1d8bbb7a61c429b1d83d70932dc0f6dc55551c5202fd"
+        },
+        {
+          "name": "com.yfuse.feature.servers.ServerManagementControllerTest",
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "d24693c7d3cef5066c4f5b49899765b5a51b33ac8e31ad2e5109a1778292f03c"
+        },
+        {
+          "name": "com.yfuse.feature.servers.ServerRefreshStateTest",
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "db30384d3f50c3be5047a8bd88bd7bdd1c1e18154083e6033b16212f9fdb5d94"
+        },
+        {
+          "name": "com.yfuse.feature.servers.ServersStoreTest",
+          "tests": 18,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "f9f30baac33c947a2326171308895a43c5841e4d379e04eee2bb12d857acdc6e"
+        },
+        {
+          "name": "com.yfuse.feature.servers.ServerStatsRefreshTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "20672aa9f654ba733d8f4d972948850df1738ce918cb5347a8dda7d17554c1af"
+        },
+        {
+          "name": "com.yfuse.tv.focus.FocusRepositoryTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "03ea5483126ba20ab03d4f37564401269acb8de27fde9fd3da233386f8892121"
+        },
+        {
+          "name": "com.yfuse.tv.focus.FocusRestorePolicyTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "62619b1e094d09a7683496059ac9d66239c6a116fdca87ff9097e492489d6217"
+        },
+        {
+          "name": "com.yfuse.tv.focus.FocusScopeStateMachineTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "3484c87f96abb411799abd43dfbd41be97310e40b7b2285371f8baddf9673ebb"
+        },
+        {
+          "name": "com.yfuse.tv.focus.RemoteKeyIntentTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "d59648f1cc2e13eebdbb52ad02a596fab5b40e1f901b5082b6c5c6e3a8b5ed72"
+        },
+        {
+          "name": "com.yfuse.tv.integration.CastConnectLoadMapperTest",
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "17c39d876fcf700dd46280a89fdaf04e6023a3109b1f35e4eb255bad5eae5489"
+        },
+        {
+          "name": "com.yfuse.tv.integration.ContinueWatchingPolicyTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "8836c88f3777c2ae3b916327656f5e29cdae83ac0584b406f818852f1e38efa2"
+        },
+        {
+          "name": "com.yfuse.tv.integration.EngageContinueWatchingPublisherTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "dcec29eff385ec16fa529eafb7cc493ffc422778d5b2eaf484059698a9060d60"
+        },
+        {
+          "name": "com.yfuse.tv.integration.TvContinueWatchingWorkTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "725a0d6702b0ef798b50fa4b431c08aeb9905334b0b68393e06289f599e5fa16"
+        },
+        {
+          "name": "com.yfuse.tv.integration.TvPlaybackDeepLinkTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "b8fd1fcfd2ca973066e4cd349627f944bdc72897b7b14597dc7f52b720d899c7"
+        },
+        {
+          "name": "com.yfuse.tv.player.TvLocalPlaybackPolicyTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "11f5a2082a7a72c2e118885758c7f1af43b8250620b661904eda9b4684eda2fa"
+        },
+        {
+          "name": "com.yfuse.tv.player.TvMediaSessionAdapterTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "6d0b140c522dca442b16abf9193173700d9b9e2896f629613c9a0571b8b5e8a9"
+        },
+        {
+          "name": "com.yfuse.tv.player.TvPlayerChromeControllerTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "d7ec479db4c08e0373a00a0b565cdc82b19d8304ab8b6193e37d09bd4e193133"
+        },
+        {
+          "name": "com.yfuse.tv.player.TvRemoteInputControllerTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "3694e2d1e8aa675068eaa0046a9459e52ef43b9ae6d78742d18c274c65c3b1cd"
+        },
+        {
+          "name": "com.yfuse.update.AutomaticUpdateCheckGateTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "c8bd54f395d36930cab45877bab8bca8984a4a4aad83228d59bd0d7b5848ed75"
+        },
+        {
+          "name": "com.yfuse.update.UpdateCheckPolicyTest",
+          "tests": 15,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "0b045dd5d2fa985e6ae12465fc4a756aa94e6fe45dd5a414c0c90b15571333f7"
+        },
+        {
+          "name": "com.yfuse.update.UpdateDownloadBoundaryTest",
+          "tests": 11,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "1b9a8dd1104c87075043e8c93528ec4f4d5a52a668f8607c55401e48f0a04967"
+        },
+        {
+          "name": "com.yfuse.update.UpdateManifestPolicyTest",
+          "tests": 10,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "d45e405b38796299bec6147a9ac6f04e6b5dae4d8515af203aa4a959e87647ee"
+        },
+        {
+          "name": "com.yfuse.update.UpdatePackageIdentityTest",
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "005e7b090b9f3ecca5af4344d9eb9f08b0072c006c6a416c9f003573387976fd"
+        },
+        {
+          "name": "com.yfuse.update.UpdateRestoreTrustTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "561826f02a5100be6c048343668cdd43c217fe95f45f648b435e23fca07cb8aa"
+        },
+        {
+          "name": "com.yfuse.update.UpdateResumePolicyTest",
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "f4f9c0f55d2091e47e15fea0222a38c8d255b6e88e8ebdeedc41e57b928e1399"
+        }
+      ],
+      "report": ".gradle-tmp/kernel-fixes-build/phoneShared/build/reports/tests/testAndroidHostTest/index.html"
+    },
+    "tvShared": {
+      "totals": {
+        "tests": 63,
+        "failures": 0,
+        "skipped": 0
+      },
+      "suites": [
+        {
+          "name": "com.yfuse.tv.focus.FocusRepositoryTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "c1ed46da1cdc33e3fd8ab8b3e881db2cb02d3f6de989b7fafb2353b6848ad80f"
+        },
+        {
+          "name": "com.yfuse.tv.focus.FocusRestorePolicyTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "4b975c0562f45c0ae47adf335cab864284d79b20389c54c517a72f8c50b7f78a"
+        },
+        {
+          "name": "com.yfuse.tv.focus.FocusScopeStateMachineTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "943ffcfe9efb88aab4b362afa0347f095ecaa341f65c9c18af27b905f3f66b91"
+        },
+        {
+          "name": "com.yfuse.tv.focus.RemoteKeyIntentTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "37c438d7837d53bc53d08f6d7878c15119af03ef4d66c2db321558ca8b32facd"
+        },
+        {
+          "name": "com.yfuse.tv.integration.CastConnectLoadMapperTest",
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "a17f166605776103ea1e11011f2526dbfa41faa9e2088cb1eb4511a15dfbcf0a"
+        },
+        {
+          "name": "com.yfuse.tv.integration.ContinueWatchingPolicyTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "6b42e1ab04598ebd71fe3ed89009f9bc757a20856c0abc362c73a757a7c4c561"
+        },
+        {
+          "name": "com.yfuse.tv.integration.EngageContinueWatchingPublisherTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "d0c395979c3a6c92d08ad38117b77a0259475da4fd52309f239a6c69a7077caa"
+        },
+        {
+          "name": "com.yfuse.tv.integration.TvContinueWatchingWorkTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "2c5261bd1c3fe5668893b784ba5138f4cd50aef49c295ef8ec45f66b3de7606c"
+        },
+        {
+          "name": "com.yfuse.tv.integration.TvPlaybackDeepLinkTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "b9baf9545590c58a2b2d654513f0a51070ced149d885ba3d604d1908719681c4"
+        },
+        {
+          "name": "com.yfuse.tv.player.TvLocalPlaybackPolicyTest",
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "7a50cb390729f16815c751f9309a011eb246de400bd399bafa6833f4147558b0"
+        },
+        {
+          "name": "com.yfuse.tv.player.TvMediaSessionAdapterTest",
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "c380e915785dace05099594ef0e04884d4e41d46d3c4848c11779e3614ee325b"
+        },
+        {
+          "name": "com.yfuse.tv.player.TvPlayerChromeControllerTest",
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "631cd044a28a78cdd32a35631b2601a0b7c71e934627b164a5c39cb869586874"
+        },
+        {
+          "name": "com.yfuse.tv.player.TvRemoteInputControllerTest",
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "1fd27d8de94ffc0e449955087c383a6b2b57a56f87571be7f6bca3091cb75ca4"
+        },
+        {
+          "name": "com.yfuse.tv.ui.TvServerBackupFilesTest",
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "5756d8a671a82f12ee7859172136848036693fb125c63895095de182d12424e8"
+        },
+        {
+          "name": "com.yfuse.tv.ui.TvSettingsSearchTest",
+          "tests": 9,
+          "failures": 0,
+          "skipped": 0,
+          "result_sha256": "034b979b2ebbbf9b35ff88943b68e4a1e793a9e5d69d72bcf782ea1a99d22ec1"
+        }
+      ],
+      "report": ".gradle-tmp/kernel-fixes-build/tvShared/build/reports/tests/testAndroidHostTest/index.html"
+    }
+  },
+  "required_regression_suites_observed": [
+    "PlaybackProxyLimitsTest",
+    "AndroidAdaptiveCore2RecoveryPlanTest",
+    "AndroidDemuxReadControlTest",
+    "AndroidPlaybackProxyAdmissionTest",
+    "AndroidPlaybackStagingBufferTest",
+    "AndroidTransportDiscBlockSourceTest",
+    "AndroidYCoreBluRayPlayerReleaseTest",
+    "MdkLoadStateGateTest",
+    "NativeCrashContextOwnershipTest",
+    "PlaybackEngineSlotTest",
+    "PlaybackResourceCleanupTest",
+    "PreparingPlaybackGateTest",
+    "YPlaybackRecoveryPolicyTest"
+  ],
+  "source_inputs_unchanged_during_verification": true,
+  "compile": [
+    "phone and TV shared/application Kotlin",
+    "phone instrumented-test Kotlin",
+    "MDK arm64 JNI"
+  ],
+  "lint": [
+    "phone",
+    "TV",
+    "design-system usage"
+  ],
+  "native": {
+    "compiled_source_sha256": {
+      "ycore_demux_jni.cpp": "3be885d7a22826a5d9b191cc45c2136f8d74582d2d64bbcf6db82f56042ad628",
+      "ycore_demux_interrupt.h": "8e6706cea146b6340080e1f88314c0530ddf154a52b15345b782871a4105f3f7",
+      "ycore_disc_uri.h": "7b479e151dfb76017c332c2cde6f046de5c2d472b0b00d5e3d211e974a4e4633",
+      "ycore_extradata_budget.h": "5615a1f284dcb001b91779ccaebde2db900f5bb2ac0a59fc38ac5b57a3c32db2",
+      "ycore_ffmpeg_compat.h": "3b22ade76ed9fa5733303f725fb679a507ef47f194b7b799e610f8b20489d9d5",
+      "ycore_gpu_capability.h": "bd9937a3776cd4c7e48242aafaeb3685658a1f1cdc503d7065fd3c1bcc13dfa8",
+      "ycore_overlay_plane.h": "60a36bc6dcca68d39cf45156ac0d5119fecd4b8f9b95e00c6466b5cc34dfd82e",
+      "ycore_tone_map.h": "7a6e50fa676b87348f02f4ab6678dd601ae00f78a49e2bdbaf3799afa109662a"
+    },
+    "static_dependency_sha256": {
+      ".native-build\\ycore-arm64-prefix\\lib\\libass.a": "eab53498342df9712142ed52cb99f63b95a50529fb72e77d054b74702927c732",
+      ".native-build\\ycore-arm64-prefix\\lib\\libharfbuzz.a": "232c432dd93120cd7a883e0594e8d0df86df1452a4ea41df51f0dd0940bea186",
+      ".native-build\\ycore-arm64-prefix\\lib\\libfreetype.a": "dc0ec19ccbc144a82905c85dcd739735f0498c43acc95e419d89bd9ea7f55a4a",
+      ".native-build\\ycore-arm64-prefix\\lib\\libfribidi.a": "92418274700be370cf0ea484c086911183e82e69033825967c259e20c00be507",
+      ".native-build\\ycore-arm64-prefix\\lib\\libunibreak.a": "d0566e8e2fc58fd55e894d75355f01b3881a1319b8a8648be7ac002a26b860ec",
+      ".native-build\\libbluray-prefix\\lib\\libbluray.a": "fcae80d51c0a8615815d3e49d9f560e149bb2980b4cf0c3c2b5dd1bcef682a2a"
+    },
+    "ffmpeg_revision": "b79d4c4c0a160fc46988e98505af6039a53ad53e",
+    "ffmpeg_archive_sha256": "f7c63be8f824f8f4766ea9c375fb3d5c290d9924dfa8e6db343dbd6026dd0bbd",
+    "carrier_sha256": "db5f9f2f81d42457e2c6dfa84c6645ee4e140473c8a862a85699aaa02522c75a",
+    "gpu_companion_sha256": "8ff27ee0d58fcc553d6ea26818daeaf4d42caa323aeb52f2b3d172039a42562e",
+    "demux_sha256": "b41fe7b1a45dc1610a4f932c510dd22f65956a7207c6e20d66112fae12677d34",
+    "aar_sha256": "17bca3e04999a3d30726f6f534c37ba561337a2c2e150a0b150c8431e9db796b",
+    "validation": [
+      "current source compiled",
+      "--no-undefined linked",
+      "required JNI methods present",
+      "16KiB LOAD alignment for all libraries",
+      "pinned shared dependencies identical",
+      "GPU bytes unchanged",
+      "embedded provenance equals sidecar"
+    ],
+    "device_validation": "not run"
+  },
+  "artifact_gate": "Standalone YCore and GPU companion Gradle gates passed; updated read-control API and extradata markers were checked with the final build configuration. Kotlin/Java/native source fingerprints match the preceding unified test/lint run.",
+  "native_helper_tests": "Both cross-compiled/syntax-checked with Android NDK; binaries were not executed on this Windows host. CI execution is configured, not observed.",
+  "device_validation": "Not run; no device operated, no performance measurements",
+  "apk_delivery": "None; no version bump, push or publication requested",
+  "source_sha256": {
+    ".github/workflows/build-yfuse-mpv-dolby.yml": "d3b55ac97bf129288ccf56c49f7ef5ff2ca65e4b12596628e4dc9262a8af6e69",
+    "composeApp/build.gradle.kts": "89e15e3d9454cd545688cfea484267f635d1fb418b8ec9dc144352d91de8ec4f",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core/playback/PlaybackProxyLimits.kt": "ac2ae99f30b86b21b26980d017f5f70ca9cc9eb815f0acd6bccf9a097d5963ac",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidAdaptiveCore2YPlayer.kt": "48db38674bda61f1bd23a206989eeda9515560bb29e37b7324557c7e8cf0d203",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidCore2DiscRouteFactory.kt": "80473fa2bbaa0c5fab9cd81dd867c95b7e3cae0472659bb7437e48eadd5abb2c",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidDemuxReadAheadNode.kt": "985bd6d7ab85cc89137bb7c101f9894f1aed2a8e15b0f23b1ae446b8ca60dd93",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidDemuxReadControl.kt": "855d090fd8a18feddecace3b8a13962965eb3fa0d64e77329f05bab957ef28ac",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidEnhancedPlaybackSession.kt": "594d3cc32b14e49de974e63de44525395a20b6fdcbd03275d7860fd2df47c815",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidFfmpegDemuxer.kt": "639493d4694d32f68bfe95e57ce937151c487d40e8d8489396a1f46bff99cd51",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidFfmpegSoftwareDecoderNode.kt": "8244497abab61e984177803d5c64d1cf2c42adcd102bd1eff9e52bbd697b7955",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidNativeEnhancedYPlayer.kt": "36faaf26f4ab190f8444b8fa3a8c7fa47f094524bcef089fe268f98f35cb743e",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidPlaybackMemoryBudget.kt": "ab244899a7a9077baf03816b622ffb654c0710ce5e0ed5ae9354314f730a5b6e",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidPlaybackStagingBuffer.kt": "7f3efd1787ce26068c5b460dbea5085cc3175a4b7f54db709c5eae4028ed97da",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidRequiredSoftwarePlan.kt": "cbaadba24a965d2ddaa49e243c2e721081b72cd96878fd296871cbdcc20ddf64",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidSoftwareVideoRenderNode.kt": "b2155e2de2b703e1a5d0dccf74aafc2a5d732281619ec12475b9d22259fb6a21",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidYCoreBluRaySource.kt": "dc5f5e8027c4cb1d5c5aae08a5614333064c2c7d7c3527767d4b6103d4804942",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidYCoreHttpProxy.kt": "f1aae5fdd75fabbbbaa3ccf628c5447abce9a7e92022dd34ce5b1b28de729e96",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/FfmpegNativeBridge.kt": "f3f0e2c47d5d4a1376b35c1de6278083719a15f432c531628b722ac7d772cb8a",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/YCoreDiscBlockSource.kt": "00d261f3aa390e4cca238b76dded65c161ef657d854b7090dc40d6dd8da7638a",
+    "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/AndroidNativeCrashMonitor.kt": "d4fbc03cd09640dbc45fffdd5e6734b727afa992cd75354152e180f42af63b69",
+    "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/AndroidPlaybackHttpProxy.kt": "9c758e8f02a692ed7b7d47e0a03559a23c9102dec06d1832b20eed72a7a83932",
+    "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/ExoVideoEngine.kt": "169969841d407f73195ce3887ea5d180d683555ab81f89a8d9e2b2355679d116",
+    "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/MdkVideoEngine.kt": "e2d5d86d56882648fbdb42c5e2b25f22e64aaa1704b20d0923918843620c4c73",
+    "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/MpvVideoEngine.kt": "a33ec629ce2934504d66bad071588813dcd7abc9b26b5078af55f768f4121f42",
+    "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/NativeCrashContextOwnership.kt": "0d54df15c2a295a3df2e8871941bad1b63971911ea656dba570a66e726002641",
+    "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/NativePlaybackStateSupport.kt": "135dfaac03ac2c17b5428a2bfe24f03d8adec2a34bb9349477dcc96d1151024e",
+    "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlaybackEngineSlot.kt": "52faedd65ba66493ddcf9003c88df7c3cf109c53551f200efcb3f7db613a9cf3",
+    "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlaybackResourceCleanup.kt": "eef79851b52dfd8d672b886a17bb80d6a23aa73144edf7358ac63e10d482511e",
+    "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerEngineFactory.kt": "f51d1bb4195506530050beb414b1b8a50f9fe4e8c7c80489a98b597b46a726bb",
+    "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerRoot.kt": "3ef344672c408e2ef37a0548a192b14562ddbe2f405197787e91cfd4b03f0af0",
+    "composeApp/src/androidUnitTest/kotlin/com/yfuse/core/playback/PlaybackProxyLimitsTest.kt": "ac3294890c9868431c6212e3a1a3e0eb81e092d771349c02d2848e0ca529f729",
+    "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidAdaptiveCore2RecoveryPlanTest.kt": "e9eaaafc6d1948a68b3da0b2c5e0e65c1a13128b15a5d1c37e4f7ce294970382",
+    "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidDemuxReadControlTest.kt": "b9ae934176921a4c15afcfd2094ff97ac8fecd0ba7637f1a0b778f3c32fc229c",
+    "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidPlaybackProxyAdmissionTest.kt": "e9a89abab5c7a06fc1f5d3047cfc4db487055937a8bb19d21e86d455d485d7b3",
+    "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidPlaybackStagingBufferTest.kt": "ebbe9841bb1965f5082c1fb85000d71433bea0f7952635d09bde69e8508431b7",
+    "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidTransportDiscBlockSourceTest.kt": "de1dacae16d28c81f9b8d905691307261459f2faaf16bad69454c55c0debf92f",
+    "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidYCoreBluRayPlayerReleaseTest.kt": "4917bd616b54dfc3d3ab0aaabd45d304ad1a31a4e83feb86d46d0188b2da45ff",
+    "composeApp/src/androidUnitTest/kotlin/com/yfuse/feature/player/MdkLoadStateGateTest.kt": "27b1c57b2bc4ceacdee003ece01bfb28109105cf4626f50ae1972f1c14955a3d",
+    "composeApp/src/androidUnitTest/kotlin/com/yfuse/feature/player/NativeCrashContextOwnershipTest.kt": "96bb80337166fba8720e5dc5660ab7a65763af436b4b37394807fa8837423503",
+    "composeApp/src/androidUnitTest/kotlin/com/yfuse/feature/player/PlaybackEngineSlotTest.kt": "7d66d0bc8c8ef47cff62a673ce72d888fc3c734303aa2dfdcaf5c78c92af95a9",
+    "composeApp/src/androidUnitTest/kotlin/com/yfuse/feature/player/PlaybackResourceCleanupTest.kt": "d2ed9b34f8e4d3e4c4a503a9e5367e7033d16e19ccc79f7eef83295a4146994f",
+    "composeApp/src/androidUnitTest/kotlin/com/yfuse/feature/player/PreparingPlaybackGateTest.kt": "d813299de5669e26dfc018cc5ae14b7b4086ce4c2a074857112a260e14a0a65d",
+    "composeApp/src/commonMain/kotlin/com/yfuse/core2/recovery/YPlaybackRecoveryPolicy.kt": "10dbd8c5e7029562cf3e26ca7dddcb78b2005ba831f5415b5c134f11940b86f9",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/WatchGatedPlayback.kt": "35c45ef7091f765ccc9dc5846c13b989842738b7a2eb3f49afa64d65c9e6483d",
+    "composeApp/src/commonTest/kotlin/com/yfuse/core2/recovery/YPlaybackRecoveryPolicyTest.kt": "8107a021705eefa38dce916b6218796bc6c268af13c11720a17dd3fe854ebbe9",
+    "docs/KERNEL_FIXES_20260920.md": "a7b66fa5322ed2760ba9104fe8059ebff8a2757b404a5ed6c948362ba6abf1b2",
+    "docs/ycore-resource-bounds.md": "8e8f9d33da9ea5fad1a4dd0d3e75a7634b4f0e5f60051161353fa73a6696b513",
+    "mdkAndroid/src/main/cpp/MDKPlayerJNI.cpp": "30c12763b0d87e359e6c2bc958362fd113ca9ebd58d489cbea0622dc5da49afe",
+    "scripts/build-ycore-demux.sh": "e059b8ae29d5aee7bf681421b0780d7cf184b25a0cadd75897af835bbf8f44c3",
+    "scripts/build-ycore-native.sh": "5ef4ceef0253dbee8f60a783a9c0be2b1a6067df9960195c7027e5f4640f85af",
+    "scripts/native/ycore_demux_interrupt_test.cpp": "3fd07cc14159b7e0b79284f09ed9853b45be30be44e45bb541ab831fc54585aa",
+    "scripts/native/ycore_demux_interrupt.h": "8e6706cea146b6340080e1f88314c0530ddf154a52b15345b782871a4105f3f7",
+    "scripts/native/ycore_demux_jni.cpp": "3be885d7a22826a5d9b191cc45c2136f8d74582d2d64bbcf6db82f56042ad628",
+    "scripts/native/ycore_extradata_budget_test.cpp": "e9ba4bf574e2c23d3a7586680ecaf5176f5442a6bf0f007b97da9e7e5bfcc8b5",
+    "scripts/native/ycore_extradata_budget.h": "5615a1f284dcb001b91779ccaebde2db900f5bb2ac0a59fc38ac5b57a3c32db2",
+    "scripts/test-ycore-demux-interrupt.sh": "4939554e36072be13c34718f9acb01a2b102fa11c4420b60f025d3721eeeed0c",
+    "scripts/test-ycore-extradata-budget.sh": "da76e3b57ae4b274d8773328b2f94c60482e48b92d7b15396c930529d2670194",
+    "scripts/verify-ycore-native.sh": "8d222af066b2eff83218645517d8315d3c190b81c415dea09b98e7ea358400c7"
+  }
+}

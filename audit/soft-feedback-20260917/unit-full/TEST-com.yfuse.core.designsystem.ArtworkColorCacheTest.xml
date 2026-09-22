@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.designsystem.ArtworkColorCacheTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:04.467Z" hostname="DESKTOP-HM2J0FM" time="0.019">
+  <properties/>
+  <testcase name="lru_is_bounded_and_access_refreshes_recency" classname="com.yfuse.core.designsystem.ArtworkColorCacheTest" time="0.009"/>
+  <testcase name="unavailable_colours_are_not_cached_as_success" classname="com.yfuse.core.designsystem.ArtworkColorCacheTest" time="0.001"/>
+  <testcase name="page_keys_preserve_crop_fade_and_algorithm_identity_with_invalid_inputs_normalized" classname="com.yfuse.core.designsystem.ArtworkColorCacheTest" time="0.001"/>
+  <testcase name="no_more_than_two_decodes_run_and_cancelled_queued_requests_never_start" classname="com.yfuse.core.designsystem.ArtworkColorCacheTest" time="0.002"/>
+  <testcase name="last_subscriber_cancellation_stops_extraction_and_returning_can_retry" classname="com.yfuse.core.designsystem.ArtworkColorCacheTest" time="0.004"/>
+  <testcase name="equal_requests_share_work_and_one_hidden_subscriber_does_not_cancel_the_other" classname="com.yfuse.core.designsystem.ArtworkColorCacheTest" time="0.002"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.PlaybackTransportStateTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:15.984Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="diagnostics_do_not_change_transport_and_ticks_do_not_change_buttons" classname="com.yfuse.feature.player.PlaybackTransportStateTest" time="0.001"/>
+  <testcase name="queue_and_playback_changes_reach_buttons_without_diagnostic_dependencies" classname="com.yfuse.feature.player.PlaybackTransportStateTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

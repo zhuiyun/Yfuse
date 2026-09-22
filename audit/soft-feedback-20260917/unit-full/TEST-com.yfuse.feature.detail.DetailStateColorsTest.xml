@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.detail.DetailStateColorsTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:13.593Z" hostname="DESKTOP-HM2J0FM" time="0.002">
+  <properties/>
+  <testcase name="dark_detail_background_keeps_state_text_readable" classname="com.yfuse.feature.detail.DetailStateColorsTest" time="0.002"/>
+  <testcase name="low_contrast_dynamic_accent_is_darkened_for_light_detail_background" classname="com.yfuse.feature.detail.DetailStateColorsTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

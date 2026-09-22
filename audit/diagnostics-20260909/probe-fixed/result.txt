@@ -1,0 +1,16 @@
+PASS deadline cancels a blocked source without waiting for its normal timeout
+PASS deadline cancels suspended manifest discovery without cancelling router
+PASS release timeout stays a barrier across retries until old codec owner finishes
+PASS blocked platform owner does not suppress an independent enhanced probe
+PASS exit interrupts actual source and rejects a late vendor result before reentry
+PASS completed preparation does not later cancel adopted playback resources
+PASS deadline closes a real stalled network socket
+PASS invalidating old generation cannot cancel or complete a concurrently begun generation
+PASS platform enhanced and recovery candidates spend one deadline
+PASS timeout_includes_blocking_open_and_does_not_accumulate_probe_workers
+PASS interrupted_caller_returns_unclaimed_resources_before_a_queued_worker_starts
+PASS sequential_candidate_probes_never_skip_an_already_completed_owner
+PASS timeout_returns_while_vendor_is_blocked_and_repeated_requests_never_add_workers
+PASS inline_continuation_can_start_the_next_probe_without_skipping_or_losing_ownership
+PASS caller_cancellation_does_not_wait_for_native_cleanup_and_late_results_are_discarded
+PASS 15 production Kotlin probe regressions

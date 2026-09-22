@@ -1,0 +1,113 @@
+package com.yfuse.core.designsystem
+
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.findRootCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
+import kotlin.time.TimeSource
+
+internal data class PlayerArtworkOrigin(
+    val key: MediaSharedElementKey,
+    val bounds: Rect,
+    val viewport: Rect,
+    val urls: List<String>,
+)
+
+/** Geometry/URLs only. Never retains Activities, Views, bitmaps, or layout coordinates. */
+internal object PlayerArtworkOrigins {
+    private val sources = linkedMapOf<Any, PlayerArtworkOrigin>()
+    private var pending: Pair<PlayerArtworkOrigin, kotlin.time.TimeMark>? = null
+    private var sequence = 0L
+    private val launches = linkedMapOf<Long, Pair<PlayerArtworkOrigin, kotlin.time.TimeMark>>()
+
+    fun register(
+        owner: Any,
+        origin: PlayerArtworkOrigin,
+    ) {
+        sources[owner] = origin
+        while (sources.size > 96) sources.remove(sources.keys.first())
+    }
+
+    fun remove(owner: Any) {
+        sources.remove(owner)
+    }
+
+    fun resolve(key: MediaSharedElementKey): PlayerArtworkOrigin? = sources.values.lastOrNull { it.key == key }
+
+    fun begin(key: MediaSharedElementKey?) {
+        pending = key?.let(::resolve)?.let { it to TimeSource.Monotonic.markNow() }
+    }
+
+    fun issueLaunch(): Long? {
+        val candidate = pending.also { pending = null } ?: return null
+        if (candidate.second.elapsedNow().inWholeMilliseconds > 5000L) return null
+        val token = ++sequence
+        launches[token] = candidate
+        while (launches.size > 4) launches.remove(launches.keys.first())
+        return token
+    }
+
+    fun consume(token: Long): PlayerArtworkOrigin? =
+        launches
+            .remove(token)
+            ?.takeIf {
+                it.second.elapsedNow().inWholeMilliseconds <= 10000L
+            }?.first
+}
+
+@Composable
+internal fun Modifier.playerArtworkSource(
+    key: MediaSharedElementKey?,
+    urls: List<String?>,
+): Modifier {
+    val owner = remember { Any() }
+    val enabled = key != null && LocalRouteVisible.current && !LocalAccessibilityOptions.current.reduceMotion
+    DisposableEffect(owner, enabled) { onDispose { PlayerArtworkOrigins.remove(owner) } }
+    return onGloballyPositioned { coordinates ->
+        if (enabled && key != null) {
+            val bounds = coordinates.boundsInWindow()
+            val viewport = coordinates.findRootCoordinates().boundsInWindow()
+            val candidates = urls.filterNotNull().filter(String::isNotBlank)
+            if (bounds.width > 0f &&
+                bounds.height > 0f &&
+                viewport.width > 0f &&
+                viewport.height > 0f &&
+                candidates.isNotEmpty()
+            ) {
+                PlayerArtworkOrigins.register(owner, PlayerArtworkOrigin(key, bounds, viewport, candidates))
+            } else {
+                PlayerArtworkOrigins.remove(owner)
+            }
+        }
+    }
+}
+
+@Composable
+internal fun playerArtworkOnClick(
+    key: MediaSharedElementKey?,
+    onClick: () -> Unit,
+): () -> Unit {
+    val reduced = LocalAccessibilityOptions.current.reduceMotion
+    return {
+        PlayerArtworkOrigins.begin(key.takeUnless { reduced })
+        onClick()
+    }
+}
+
+/** Normalized coordinates survive a phone's portrait/landscape Activity boundary. */
+internal fun playerArtworkRect(
+    origin: PlayerArtworkOrigin,
+    width: Float,
+    height: Float,
+): Rect {
+    val viewport = origin.viewport
+
+    fun x(value: Float) = ((value - viewport.left) / viewport.width).coerceIn(0f, 1f) * width
+
+    fun y(value: Float) = ((value - viewport.top) / viewport.height).coerceIn(0f, 1f) * height
+    return Rect(x(origin.bounds.left), y(origin.bounds.top), x(origin.bounds.right), y(origin.bounds.bottom))
+}

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.detail.SeriesAiringCalendarTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:15.086Z" hostname="DESKTOP-HM2J0FM" time="0.006">
+  <properties/>
+  <testcase name="only_a_series_with_a_numeric_tmdb_provider_id_offers_the_calendar" classname="com.yfuse.feature.detail.SeriesAiringCalendarTest" time="0.0"/>
+  <testcase name="date_selector_keeps_three_days_around_the_selection" classname="com.yfuse.feature.detail.SeriesAiringCalendarTest" time="0.004"/>
+  <testcase name="calendar_opens_on_the_date_closest_to_today" classname="com.yfuse.feature.detail.SeriesAiringCalendarTest" time="0.0"/>
+  <testcase name="date_selector_uses_compact_chinese_month_day_copy" classname="com.yfuse.feature.detail.SeriesAiringCalendarTest" time="0.0"/>
+  <testcase name="reminder_mode_cycles_through_every_supported_choice" classname="com.yfuse.feature.detail.SeriesAiringCalendarTest" time="0.002"/>
+  <testcase name="calendar_dates_are_explained_relative_to_today" classname="com.yfuse.feature.detail.SeriesAiringCalendarTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,104 @@
+--- composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerSkipCoordinator.kt (before turn)
++++ composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerSkipCoordinator.kt
+@@ -2,12 +2,15 @@
+ 
+ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.LaunchedEffect
++import androidx.compose.runtime.State
+ import androidx.compose.runtime.collectAsState
++import androidx.compose.runtime.derivedStateOf
+ import androidx.compose.runtime.getValue
+ import androidx.compose.runtime.mutableStateOf
+ import androidx.compose.runtime.remember
+ import androidx.compose.runtime.rememberUpdatedState
+ import androidx.compose.runtime.setValue
++import androidx.compose.runtime.snapshotFlow
+ import com.yfuse.core.data.SkipMode
+ import com.yfuse.core.data.SkipSegmentPreferences
+ import com.yfuse.core.data.SkipTimes
+@@ -80,11 +83,12 @@
+ @Composable
+ internal fun rememberPlayerSkipController(
+     currentItem: PlayerMediaItem?,
+-    playbackState: PlaybackState,
++    playback: State<PlaybackState>,
+     preferences: SkipSegmentPreferences,
+     playbackGate: WatchGatedPlayback,
+     watchGuest: Boolean,
+ ): PlayerSkipController {
++    val playbackState by remember(playback) { derivedStateOf { playback.value.runtimeProjection() } }
+     val timesBySeries by preferences.bySeries.collectAsState()
+     val mode by preferences.skipMode.collectAsState()
+     val legacySeriesId = currentItem?.seriesId?.takeIf(::skipSegmentsAvailableFor)
+@@ -135,10 +139,16 @@
+                 )
+             }
+         }
+-    val activeSegment = segments.firstOrNull { it.contains(playbackState.positionMs, playbackState.durationMs) }
++    val activeSegment by remember(segments, playback) {
++        derivedStateOf {
++            playback.value.let { current ->
++                segments.firstOrNull { it.contains(current.positionMs, current.durationMs) }
++            }
++        }
++    }
+     val skipSegment: () -> Unit = {
+         when (activeSegment?.type) {
+-            PlaybackSegmentType.Intro -> activeSegment.endMs?.let(playbackGate::seekTo)
++            PlaybackSegmentType.Intro -> activeSegment?.endMs?.let(playbackGate::seekTo)
+             PlaybackSegmentType.Credits ->
+                 if (playbackState.hasNext) {
+                     playbackGate.selectNext()
+@@ -156,29 +166,29 @@
+     var lastOutsideCreditsPositionMs by remember(currentItem?.id) { mutableStateOf<Long?>(null) }
+     var countdownSeconds by remember { mutableStateOf<Int?>(null) }
+     val occurrence = activeSegment?.let { segment -> currentItem?.id?.let { it to segment.type } }
+-    LaunchedEffect(
+-        currentItem?.id,
+-        activeSegment?.type,
+-        playbackState.playing,
+-        playbackState.buffering,
+-        playbackState.positionMs,
+-    ) {
+-        if (currentItem == null) return@LaunchedEffect
+-        val playbackReady = playbackState.playing && !playbackState.buffering
+-        if (
+-            observedForwardPlaybackOutsideCredits(
+-                previousPositionMs = lastOutsideCreditsPositionMs,
+-                positionMs = playbackState.positionMs,
+-                segmentType = activeSegment?.type,
+-                playbackReady = playbackReady,
+-            )
+-        ) {
+-            creditsEnteredFromPlayback = true
+-        }
+-        if (playbackReady && activeSegment?.type != PlaybackSegmentType.Credits) {
+-            lastOutsideCreditsPositionMs = playbackState.positionMs
+-        }
+-    }
++    LaunchedEffect(currentItem?.id, segments, playback) {
++        snapshotFlow { playback.value }.collect { current ->
++            if (currentItem != null) {
++                val active = segments.firstOrNull { it.contains(current.positionMs, current.durationMs) }
++                val ready = current.playing && !current.buffering
++                if (observedForwardPlaybackOutsideCredits(
++                        previousPositionMs = lastOutsideCreditsPositionMs,
++                        positionMs = current.positionMs,
++                        segmentType = active?.type,
++                        playbackReady = ready,
++                    )
++                ) {
++                    creditsEnteredFromPlayback = true
++                }
++                if (ready &&
++                    active?.type != PlaybackSegmentType.Credits
++                ) {
++                    lastOutsideCreditsPositionMs = current.positionMs
++                }
++            }
++        }
++    }
++
+     val playbackReady = playbackState.playing && !playbackState.buffering
+     var armedOccurrence by remember(currentItem?.id) {
+         mutableStateOf<Pair<String, PlaybackSegmentType>?>(null)

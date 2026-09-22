@@ -1,0 +1,48 @@
+--- composeApp\src\androidMain\kotlin\com\yfuse\core2\android\AndroidCore2MediaProbe.kt
++++ composeApp\src\androidMain\kotlin\com\yfuse\core2\android\AndroidCore2MediaProbe.kt
+@@ -513,7 +513,21 @@
+     private val codecSampleProbe: AndroidCodecSampleProbe = AndroidCodecSampleProbe(context),
+     private val nativeGpuRuntimeProbe: YNativeGpuRuntimeProbe = AndroidYCoreGpuRuntime.probe(context),
+ ) {
++    private val appContext = context.applicationContext
+     private val platformProbe = AndroidCore2MediaProbe(context)
++
++    /** Separate resource ownership, identical decoder/optimization/quirk policy. */
++    fun newPreparationEvaluator(): AndroidCore2RouteEvaluator =
++        AndroidCore2RouteEvaluator(
++            context = appContext,
++            decoderPreference = decoderPreference,
++            optimizationPreference = optimizationPreference,
++            capabilityProvider = capabilityProvider,
++            strategy = strategy,
++            quirkDatabase = quirkDatabase,
++            deviceIdentity = deviceIdentity,
++            nativeGpuRuntimeProbe = nativeGpuRuntimeProbe,
++        )
+ 
+     fun takePreparedExtractor(item: YMediaItem): YPlatformExtractorSource? = platformProbe.takePreparedExtractor(item)
+ 
+@@ -523,6 +537,23 @@
+         enhancedProbe.takePreparedDemux(item)
+ 
+     fun closePreparedEnhancedDemux() = enhancedProbe.closePreparedDemux()
++
++    fun adoptPreparedSources(
++        item: YMediaItem,
++        prepared: AndroidNextItemSources,
++    ): Boolean {
++        var adopted = false
++        prepared.extractor.take(item)?.let {
++            platformProbe.returnPreparedExtractor(item, it)
++            adopted = true
++        }
++        prepared.enhanced.take(item)?.let {
++            enhancedProbe.returnPreparedDemux(item, it)
++            adopted = true
++        }
++        prepared.close()
++        return adopted
++    }
+ 
+     private val runtimeCapabilities = AndroidRuntimeCapabilityRegistry(context)
+ 

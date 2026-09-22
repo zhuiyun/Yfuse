@@ -1,0 +1,533 @@
+[
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/BackOverlay.kt",
+    "created": false,
+    "sha256": "0714837429f0564c3d990cc0dd8802b5e404a3f9bd1e9f87fa928280d0025fe9",
+    "beforeLines": 68,
+    "afterLines": 70,
+    "added": 4,
+    "removed": 2
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/OfficialNavDisplay.kt",
+    "created": false,
+    "sha256": "eb1ad53ed600cb26fabd2acef0e15265a0476e9a2778e44f205e15488f391f21",
+    "beforeLines": 241,
+    "afterLines": 259,
+    "added": 20,
+    "removed": 2
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/SegmentIndicator.kt",
+    "created": false,
+    "sha256": "1a6850db441a5765a6c808e1990092b8c8259bd9544e13c5a33fe2498bfdfde4",
+    "beforeLines": 71,
+    "afterLines": 105,
+    "added": 38,
+    "removed": 4
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/library/LibraryGridScreen.kt",
+    "created": false,
+    "sha256": "8347c6365885573737c05efd55eeae9cae97158ab9342e7f28df72ef9dd71d49",
+    "beforeLines": 729,
+    "afterLines": 721,
+    "added": 25,
+    "removed": 33
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileTabScreen.kt",
+    "created": false,
+    "sha256": "f647dc44567f25c3f614e54e0cbb2e5ee69e55abdbc4fc4bde8bc4b40ac3fe28",
+    "beforeLines": 13,
+    "afterLines": 20,
+    "added": 9,
+    "removed": 2
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/search/SearchResultsHandoff.kt",
+    "created": false,
+    "sha256": "c6f2c2604f3c87e952d7377343ec35ad96c704d0a8f13f9c6f3d4d125a2cb868",
+    "beforeLines": 270,
+    "afterLines": 345,
+    "added": 86,
+    "removed": 11
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/search/SearchScreen.kt",
+    "created": false,
+    "sha256": "55d6ab2c8637cbf9d29dd39952950516cd84ddce80afe85bd5ead0f1f164c3ab",
+    "beforeLines": 1119,
+    "afterLines": 1124,
+    "added": 24,
+    "removed": 19
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerChromeTransition.kt",
+    "created": false,
+    "sha256": "675e2f7e20442e6b7364aba9e01df6ca4effa33756f85516b2fe783d8b351899",
+    "beforeLines": 111,
+    "afterLines": 150,
+    "added": 42,
+    "removed": 3
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/calendar/CalendarScreen.kt",
+    "created": false,
+    "sha256": "c15d79e9f80eba5227c017d643d9b4c87cf8c7a49e0b6fc77706c5e25cac5c58",
+    "beforeLines": 1945,
+    "afterLines": 1942,
+    "added": 86,
+    "removed": 89
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/SkeletonHandoff.kt",
+    "created": true,
+    "sha256": "d92ff173bfecfb304b2e5104e741b9e0f3796593a457fe5028fb83853ee3900d",
+    "beforeLines": 0,
+    "afterLines": 110,
+    "added": 110,
+    "removed": 0
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/MotionLazyItems.kt",
+    "created": true,
+    "sha256": "71379fc5dacb2e803ca6cfd2b6c94c196650f84a3157468e1fd2e8e5f51cf2a9",
+    "beforeLines": 0,
+    "afterLines": 159,
+    "added": 159,
+    "removed": 0
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/home/HomeScreen.kt",
+    "created": false,
+    "sha256": "dd59e0bf61abd898a87c00acb8150c1f732e0fa0ef19d539339e50a10441bcdc",
+    "beforeLines": 1480,
+    "afterLines": 1479,
+    "added": 156,
+    "removed": 157
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/home/TmdbInfoScreen.kt",
+    "created": false,
+    "sha256": "ca1012325c022c70c4f9662e61307e44bab547d53fe6578dc3a0ba65af42e3a6",
+    "beforeLines": 535,
+    "afterLines": 536,
+    "added": 8,
+    "removed": 7
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/home/TmdbRowPage.kt",
+    "created": false,
+    "sha256": "3913450810120b86b0874d88a691e4392c67bab7501d9d93c9860fb251bcead1",
+    "beforeLines": 150,
+    "afterLines": 150,
+    "added": 2,
+    "removed": 2
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/library/LibraryHomeScreen.kt",
+    "created": false,
+    "sha256": "06fa5f0158d72844445b377b197b3354f052a313065d3e9219be2e71902941a0",
+    "beforeLines": 1414,
+    "afterLines": 1420,
+    "added": 256,
+    "removed": 250
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailDialogs.kt",
+    "created": false,
+    "sha256": "0366b04b163b240e3e61b3e06275191b6dbd6c98b0a1391a47d823e9d59980b1",
+    "beforeLines": 329,
+    "afterLines": 329,
+    "added": 3,
+    "removed": 3
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailEpisodes.kt",
+    "created": false,
+    "sha256": "a35fb87c2d2b5c96ed356fec850adaaf93c92e53570793d8ad31d9b6b749226e",
+    "beforeLines": 602,
+    "afterLines": 602,
+    "added": 2,
+    "removed": 2
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailFileSections.kt",
+    "created": false,
+    "sha256": "e09c09713197c0ac74f1508400b9a4d0e3f39a17dbfa2a87a120a11e848032f8",
+    "beforeLines": 839,
+    "afterLines": 840,
+    "added": 9,
+    "removed": 8
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailPlaybackPanel.kt",
+    "created": false,
+    "sha256": "cc736cea5849a8bbae94011213d3cae5915e062322aa334277a8600bce363636",
+    "beforeLines": 399,
+    "afterLines": 399,
+    "added": 2,
+    "removed": 2
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailRelated.kt",
+    "created": false,
+    "sha256": "d3d078b9fb796d13dca307dbf6c9907c2080797fe8c4b6d5d7c377460b0d2f22",
+    "beforeLines": 105,
+    "afterLines": 105,
+    "added": 2,
+    "removed": 2
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailScreen.kt",
+    "created": false,
+    "sha256": "0de7794a283bcf952f321ed541fd48f2b9f8c06b9d1123dce8370e33d401eea6",
+    "beforeLines": 1073,
+    "afterLines": 1075,
+    "added": 38,
+    "removed": 36
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailSections.kt",
+    "created": false,
+    "sha256": "aaf38710d0fb74d6ddfb5199aa67a649aaeb3aa4894624c57d9dc84b6e66fe20",
+    "beforeLines": 343,
+    "afterLines": 343,
+    "added": 3,
+    "removed": 3
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/EpisodeProgressManager.kt",
+    "created": false,
+    "sha256": "68777bf765822ca7e9e6ba2f509de25eb532047658623e5995d1e59c67c86b7c",
+    "beforeLines": 309,
+    "afterLines": 310,
+    "added": 7,
+    "removed": 6
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/SeasonEpisodesPage.kt",
+    "created": false,
+    "sha256": "c98806b4d4870ab4c01e446e134d9552f5f7b92075d14f7a3b14d7b0174054fe",
+    "beforeLines": 394,
+    "afterLines": 395,
+    "added": 4,
+    "removed": 3
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/SeriesAiringCalendarSheet.kt",
+    "created": false,
+    "sha256": "f1a87eb5917246aaeecfbf4cb217705c14f76499fafdc73734a8c7d706d9afe2",
+    "beforeLines": 1066,
+    "afterLines": 1067,
+    "added": 8,
+    "removed": 7
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/AccountSessionsScreen.kt",
+    "created": false,
+    "sha256": "231bdb51adf6883131526b8a515a30c59c1188c4b26ddca65ac1ee9be88b1a10",
+    "beforeLines": 630,
+    "afterLines": 631,
+    "added": 12,
+    "removed": 11
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/AccountSettingsScreen.kt",
+    "created": false,
+    "sha256": "099823751ce5d92c80ed3a2d175d95e408beeb161556a962911289b78f843581",
+    "beforeLines": 1291,
+    "afterLines": 1292,
+    "added": 9,
+    "removed": 8
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/DialogAnimationSheet.kt",
+    "created": false,
+    "sha256": "16c49eb606eb852c951b2838818434d650d9edc8266767508a4fd7f93867458e",
+    "beforeLines": 145,
+    "afterLines": 145,
+    "added": 2,
+    "removed": 2
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/DownloadsScreen.kt",
+    "created": false,
+    "sha256": "4625b429d42fb76f35b7093d0ce4074ef4df82b94a795f461bb75859b5c42261",
+    "beforeLines": 851,
+    "afterLines": 851,
+    "added": 15,
+    "removed": 15
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileScreen.kt",
+    "created": false,
+    "sha256": "38388e04cd6303cafda2a6b184c4ca8f8d6dbbcf4ff9bf02aab289d4d147fd55",
+    "beforeLines": 1696,
+    "afterLines": 1705,
+    "added": 181,
+    "removed": 172
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/search/SearchFilters.kt",
+    "created": false,
+    "sha256": "2e4a71621d8149ee2987813a141dfe29327f4a59dcdb2850beca1b1b392b53ed",
+    "beforeLines": 245,
+    "afterLines": 247,
+    "added": 7,
+    "removed": 5
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/servers/ServersScreen.kt",
+    "created": false,
+    "sha256": "979771aea38a433d917fd375697aa11726a3e2e07abf142e4fe504a7adbe0c1f",
+    "beforeLines": 1039,
+    "afterLines": 1040,
+    "added": 4,
+    "removed": 3
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/servers/ServersTabScreen.kt",
+    "created": false,
+    "sha256": "aac875e26303df985d28cf9f77fb920d7cc6f23ace0512990605262856d71df9",
+    "beforeLines": 2199,
+    "afterLines": 2211,
+    "added": 105,
+    "removed": 93
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileStore.kt",
+    "created": false,
+    "sha256": "b96e4d54b20d20b873a8feb438dea512282ea906be67a0ad55f6716279237e52",
+    "beforeLines": 83,
+    "afterLines": 84,
+    "added": 2,
+    "removed": 1
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/servers/ServersStore.kt",
+    "created": false,
+    "sha256": "e29e00b17cef1e4b852dc1bfc3105a315e6be52257a84384b67ade0d52c7786d",
+    "beforeLines": 1353,
+    "afterLines": 1354,
+    "added": 2,
+    "removed": 1
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerControls.kt",
+    "created": false,
+    "sha256": "17c161f17a86609dc5fae399a7141cbd114755cf84c4132eab2fea4b1db48765",
+    "beforeLines": 1449,
+    "afterLines": 1474,
+    "added": 620,
+    "removed": 595
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/WatchTogetherDialogs.kt",
+    "created": false,
+    "sha256": "d1d77f8f779a172f8404c891d7ed2eb030411f3b282e15a035e553260105b6c0",
+    "beforeLines": 510,
+    "afterLines": 520,
+    "added": 43,
+    "removed": 33
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/SubtitleHandoff.kt",
+    "created": true,
+    "sha256": "67e071f69db75ce28b805ed533276198175abf9cb1424f43cc492894faf4ed52",
+    "beforeLines": 0,
+    "afterLines": 29,
+    "added": 29,
+    "removed": 0
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/BottomSubtitleStack.kt",
+    "created": false,
+    "sha256": "7506f3d3b4785cd5a180af2316f1974e0b7d12d1961c7846b9d96fc90f2eef80",
+    "beforeLines": 97,
+    "afterLines": 112,
+    "added": 33,
+    "removed": 18
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/Core2Surface.kt",
+    "created": false,
+    "sha256": "5d431c1ed1bb9ff4d5c85b5df9b19d2bb79993c61548d4e5a7b6795d6fc9339d",
+    "beforeLines": 569,
+    "afterLines": 572,
+    "added": 74,
+    "removed": 71
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/PlayerArtworkOrigin.kt",
+    "created": true,
+    "sha256": "fb8824292aef594346b88f5ed47e1b7c95e92c575373b4f7ad6133619c85affc",
+    "beforeLines": 0,
+    "afterLines": 113,
+    "added": 113,
+    "removed": 0
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/Poster.kt",
+    "created": false,
+    "sha256": "3c3851ff05f5fc3d3df48b8edd608694427a429c1dad5ef6ae8fa682618269b8",
+    "beforeLines": 500,
+    "afterLines": 501,
+    "added": 1,
+    "removed": 0
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailHero.kt",
+    "created": false,
+    "sha256": "d2ab5a93c69023d997186cdeddc428cdc008bc9008c961807deaef93ff0e0a29",
+    "beforeLines": 611,
+    "afterLines": 613,
+    "added": 2,
+    "removed": 0
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerArtworkMorph.android.kt",
+    "created": true,
+    "sha256": "91ea4fb40d467c646b759a7f9c1b0f1ba9771aced89f3aac73a0102457fc9675",
+    "beforeLines": 0,
+    "afterLines": 156,
+    "added": 156,
+    "removed": 0
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/VideoPlayer.android.kt",
+    "created": false,
+    "sha256": "45af033304585850406ce79cebbc98845f973fd00c2420ae5fcf8ab81ea3d903",
+    "beforeLines": 114,
+    "afterLines": 120,
+    "added": 6,
+    "removed": 0
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerActivity.kt",
+    "created": false,
+    "sha256": "5396de59e977def8aec44869332ea8197457e30380aa4788a5ebab237839353b",
+    "beforeLines": 1800,
+    "afterLines": 1827,
+    "added": 42,
+    "removed": 15
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerRoot.kt",
+    "created": false,
+    "sha256": "26e3ed467f4b379f739046750d48de59c5ad288b83d6e3828e33d1046c676e1d",
+    "beforeLines": 3320,
+    "afterLines": 3335,
+    "added": 16,
+    "removed": 1
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/Interaction.kt",
+    "created": false,
+    "sha256": "b18c1a3f3bc37e30dd97691cba35e655e37a0b501aa15b8f82cddca5207a7ef4",
+    "beforeLines": 325,
+    "afterLines": 341,
+    "added": 19,
+    "removed": 3
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/SeekBurstFeedback.kt",
+    "created": false,
+    "sha256": "71ea5f21de9b983824fbe07f95f493386c400ddc6d44dec4bb8d26e027523753",
+    "beforeLines": 45,
+    "afterLines": 78,
+    "added": 33,
+    "removed": 0
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerActivityMotion.android.kt",
+    "created": false,
+    "sha256": "7ee81223a4201f4326f7a48fee2634e23963e2476ffafe562e49e75b99984d58",
+    "beforeLines": 54,
+    "afterLines": 57,
+    "added": 7,
+    "removed": 4
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/Tokens.kt",
+    "created": false,
+    "sha256": "cb62d2fb640ad0844d2e2a6619d1276c2fcc11740bf99ca204490840f04996c3",
+    "beforeLines": 793,
+    "afterLines": 793,
+    "added": 1,
+    "removed": 1
+  },
+  {
+    "path": "composeApp/src/commonTest/kotlin/com/yfuse/feature/search/SearchResultsHandoffTest.kt",
+    "created": false,
+    "sha256": "190534fd5629a7fa443c9c758d17f9e811c37ece6ae6638933ac45902b77c907",
+    "beforeLines": 200,
+    "afterLines": 235,
+    "added": 43,
+    "removed": 8
+  },
+  {
+    "path": "composeApp/src/commonTest/kotlin/com/yfuse/core/designsystem/MotionHandoffPolicyTest.kt",
+    "created": true,
+    "sha256": "5a2648c1789f7d04c05a9b4e800c28c42d8100b1ce7296ded9de017ccfd54f63",
+    "beforeLines": 0,
+    "afterLines": 45,
+    "added": 45,
+    "removed": 0
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/DanmakuPanel.kt",
+    "created": false,
+    "sha256": "c214c94240616a72449f39db7c94a6cc75217d8fad8242e218c0fdadcc5f70a3",
+    "beforeLines": 632,
+    "afterLines": 632,
+    "added": 3,
+    "removed": 3
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/EpisodeStrip.kt",
+    "created": false,
+    "sha256": "f305a7fc1e13211fc9f19162fee2bdc13b6aa69c828b0d1ad4c8571d968ba220",
+    "beforeLines": 207,
+    "afterLines": 207,
+    "added": 3,
+    "removed": 3
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/WatchChatPanel.kt",
+    "created": false,
+    "sha256": "217987ddf8e34cddf9f9514757f4e5762d67783be07f62bcaf548f341afeca7b",
+    "beforeLines": 511,
+    "afterLines": 510,
+    "added": 3,
+    "removed": 4
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/WatchStickerTray.kt",
+    "created": false,
+    "sha256": "aa2e9bda6d0f845e97dc8917fa09d09fe4b8b79223de2e0880b8bc8f18d171df",
+    "beforeLines": 347,
+    "afterLines": 347,
+    "added": 3,
+    "removed": 3
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/calendar/AiringShowCalendarDialog.kt",
+    "created": false,
+    "sha256": "7d9cea040cac088f636f24f0e8599ddb629edf58372e5daa997ed662273b0846",
+    "beforeLines": 728,
+    "afterLines": 729,
+    "added": 7,
+    "removed": 6
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerControlComponents.kt",
+    "created": false,
+    "sha256": "67fdaf4ceb428a06b1bea56b665df8cc4f8ee6c7dc41015f32aabc0e70be682e",
+    "beforeLines": 290,
+    "afterLines": 291,
+    "added": 8,
+    "removed": 7
+  }
+]

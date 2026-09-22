@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.account.AccountRepositoryTest" tests="1" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:00.640Z" hostname="DESKTOP-HM2J0FM" time="1.04">
+  <properties/>
+  <testcase name="encrypted_sync_hides_secrets_and_restores_them_on_a_new_device" classname="com.yfuse.core.account.AccountRepositoryTest" time="1.04"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

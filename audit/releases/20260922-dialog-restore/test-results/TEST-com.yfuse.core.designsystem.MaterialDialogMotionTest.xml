@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.designsystem.MaterialDialogMotionTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-22T01:21:16.875Z" hostname="DESKTOP-HM2J0FM" time="0.003">
+  <properties/>
+  <testcase name="liquid_reveal_grows_from_center_without_exceeding_panel_bounds" classname="com.yfuse.core.designsystem.MaterialDialogMotionTest" time="0.001"/>
+  <testcase name="four_pieces_share_exact_edges_and_cover_odd_sized_panels" classname="com.yfuse.core.designsystem.MaterialDialogMotionTest" time="0.002"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

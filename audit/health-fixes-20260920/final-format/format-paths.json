@@ -1,0 +1,7 @@
+[
+  "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/Tokens.kt",
+  "composeApp/src/commonTest/kotlin/com/yfuse/core/data/EmbyDetailServiceTest.kt",
+  "composeApp/src/commonTest/kotlin/com/yfuse/core/data/EmbyUserDataServiceTest.kt",
+  "composeApp/src/commonTest/kotlin/com/yfuse/core/sync/WatchTogetherClientTest.kt",
+  "watchTogetherProtocol/src/commonMain/kotlin/com/yfuse/watch/protocol/WatchProtocol.kt"
+]

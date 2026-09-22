@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.adaptive.YHlsParserTest" tests="10" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:43:53.364Z" hostname="DESKTOP-HM2J0FM" time="0.017">
+  <properties/>
+  <testcase name="supplemental_dolby_vision_codec_and_compatibility_brand_survive_rewrite" classname="com.yfuse.core2.adaptive.YHlsParserTest" time="0.007"/>
+  <testcase name="master_playlist_preserves_variants_and_resolves_relative_urls" classname="com.yfuse.core2.adaptive.YHlsParserTest" time="0.0"/>
+  <testcase name="low_latency_playlist_can_start_with_partial_segments_only" classname="com.yfuse.core2.adaptive.YHlsParserTest" time="0.001"/>
+  <testcase name="playback_selection_keeps_dual_dolby_ladder_only_when_output_route_supports_it" classname="com.yfuse.core2.adaptive.YHlsParserTest" time="0.002"/>
+  <testcase name="low_latency_media_playlist_exposes_reload_window_parts_and_rendition_state" classname="com.yfuse.core2.adaptive.YHlsParserTest" time="0.001"/>
+  <testcase name="playback_master_keeps_alternate_audio_renditions_in_the_selected_group" classname="com.yfuse.core2.adaptive.YHlsParserTest" time="0.002"/>
+  <testcase name="master_playlist_recognizes_dolby_vision_and_atmos_renditions" classname="com.yfuse.core2.adaptive.YHlsParserTest" time="0.001"/>
+  <testcase name="media_playlist_preserves_init_ranges_encryption_and_timeline" classname="com.yfuse.core2.adaptive.YHlsParserTest" time="0.0"/>
+  <testcase name="supplemental_dolby_vision_with_contradictory_range_is_not_selected" classname="com.yfuse.core2.adaptive.YHlsParserTest" time="0.001"/>
+  <testcase name="resource_rewriter_keeps_every_hls_fetch_inside_the_transport_boundary" classname="com.yfuse.core2.adaptive.YHlsParserTest" time="0.002"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

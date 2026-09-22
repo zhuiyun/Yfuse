@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.AndroidPlaybackMemoryBudgetTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:43:56.645Z" hostname="DESKTOP-HM2J0FM" time="0.002">
+  <properties/>
+  <testcase name="small_heap_and_low_ram_devices_use_smaller_budgets" classname="com.yfuse.core2.android.AndroidPlaybackMemoryBudgetTest" time="0.0"/>
+  <testcase name="expired_trim_requires_both_foreground_and_recovered_heap" classname="com.yfuse.core2.android.AndroidPlaybackMemoryBudgetTest" time="0.0"/>
+  <testcase name="concurrent_players_share_one_ceiling_and_release_returns_capacity" classname="com.yfuse.core2.android.AndroidPlaybackMemoryBudgetTest" time="0.0"/>
+  <testcase name="pressure_reclaims_speculation_and_halves_active_budget_then_recovers" classname="com.yfuse.core2.android.AndroidPlaybackMemoryBudgetTest" time="0.0"/>
+  <testcase name="os_trim_survives_heap_sampling_and_repeated_trim_extends_the_cooldown" classname="com.yfuse.core2.android.AndroidPlaybackMemoryBudgetTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

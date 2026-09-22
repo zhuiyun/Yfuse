@@ -1,0 +1,6 @@
+[
+  "composeApp/src\\androidMain\\kotlin\\com\\yfuse\\core2\\android\\AndroidNativeDirectYPlayer.kt",
+  "composeApp/src\\androidMain\\kotlin\\com\\yfuse\\core2\\android\\AndroidNativeEnhancedYPlayer.kt",
+  "composeApp/src\\androidMain\\kotlin\\com\\yfuse\\core2\\android\\AndroidNativeTunnelYPlayer.kt",
+  "composeApp/src\\commonMain\\kotlin\\com\\yfuse\\core2\\api\\YDualDolbyEvidence.kt"
+]

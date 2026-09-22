@@ -1,0 +1,124 @@
+--- composeApp\src\androidMain\kotlin\com\yfuse\core2\android\AndroidNativeDirectYPlayer.kt
++++ composeApp\src\androidMain\kotlin\com\yfuse\core2\android\AndroidNativeDirectYPlayer.kt
+@@ -82,8 +82,17 @@
+     private val requireDolbyVisionIdentity: Boolean = false,
+     private val preferredRemoteBufferTargetUs: Long? = null,
+     private val preparedExtractor: ((YMediaItem) -> YPlatformExtractorSource?)? = null,
++    private val videoHandoff: AndroidVideoDecoderHandoff? = null,
+ ) : YPlayer,
+     AndroidSerializedPlayerRelease {
++    @Volatile
++    private var videoHandoffRequested = false
++
++    /** The router calls this only for an adjacent, prepared SDR/PCM direct-play route. */
++    fun prepareVideoHandoff() {
++        videoHandoffRequested = videoHandoff != null && mutableState.value.diagnostics.videoOutputVerified
++    }
++
+     private val appContext = context.applicationContext
+     private val mutableState =
+         MutableStateFlow(
+@@ -470,7 +479,8 @@
+                 context = context,
+                 onBlockingReadStateChanged = ::onTransportBlockingReadStateChanged,
+             )
+-        private val videoDecoder = AndroidMediaCodecVideoNode()
++        private var videoDecoder = AndroidMediaCodecVideoNode()
++        private var audioDrainStartedNs: Long? = null
+         private val audioDecoder = AndroidMediaCodecAudioNode()
+         private val audioRenderer = AndroidAudioTrackRenderNode(context)
+         private val encodedAudioRenderer = AndroidEncodedAudioTrackRenderNode()
+@@ -2058,6 +2068,19 @@
+ 
+         private fun finishIfEnded() {
+             if (!isEnded()) return
++            // Decoder EOS means all PCM was submitted, not that AudioTrack played its tail.
++            // Explicit credits skips intentionally bypass this natural-end drain.
++            if (!isAudioPassthrough() && audioInputFormat != null && audioRenderer.hasPendingPcm()) {
++                val now = System.nanoTime()
++                val started = audioDrainStartedNs ?: now.also { audioDrainStartedNs = it }
++                if (now - started < 2_000_000_000L) return
++                AppLog.warning(
++                    category = "player.core2",
++                    event = "next_item_audio_drain_timeout",
++                    message = "PCM tail did not drain within the bounded end-of-item window",
++                )
++            }
++            audioDrainStartedNs = null
+             // Do not manufacture completion by snapping an early EOF to the declared duration.
+             // The router compares this real output position with duration before auto-next.
+             val renderedEndUs =
+@@ -2094,6 +2117,7 @@
+             )
+ 
+         private fun resetEndState() {
++            audioDrainStartedNs = null
+             videoEosGate.reset()
+             surfaceCompletion.reset()
+             inputEnded = false
+@@ -2417,13 +2441,24 @@
+                     stage = YPlaybackFailureStage.VideoDecoderConfigure,
+                     safeDetail = "NativeDirect MediaCodec configure",
+                 ) {
+-                    videoDecoder.configure(
+-                        format = format,
+-                        surface = surface,
+-                        decoderName = decoderName,
+-                        mediaCrypto = drmBinding?.mediaCrypto,
+-                        isolateFrameTimestamps = true,
+-                    )
++                    val reused =
++                        if (drmBinding == null && !isAudioPassthrough()) {
++                            videoHandoff?.take(videoDecoderReuseKey(format, decoderName), surface)
++                        } else {
++                            null
++                        }
++                    if (reused != null) {
++                        videoDecoder.release()
++                        videoDecoder = reused
++                    } else {
++                        videoDecoder.configure(
++                            format = format,
++                            surface = surface,
++                            decoderName = decoderName,
++                            mediaCrypto = drmBinding?.mediaCrypto,
++                            isolateFrameTimestamps = true,
++                        )
++                    }
+                 }
+                 runtimeCapabilityKey?.let(runtimeCapabilities::recordConfigured)
+             } catch (failure: Throwable) {
+@@ -2740,11 +2775,31 @@
+             runCatching(audioRenderer::release)
+             runCatching(encodedAudioRenderer::release)
+             runCatching(audioDecoder::release)
+-            runCatching(videoDecoder::release)
++            val retainedVideo =
++                runCatching {
++                    val surface = surfaceOutput?.surface
++                    val key = videoFormat?.let { videoDecoderReuseKey(it, decoderName) }
++                    if (videoHandoffRequested &&
++                        videoConfigured &&
++                        drmBinding == null &&
++                        !isAudioPassthrough() &&
++                        key != null &&
++                        surface?.isValid == true &&
++                        videoHandoff != null
++                    ) {
++                        videoHandoff.offer(key, surface, videoDecoder)
++                        videoDecoder = AndroidMediaCodecVideoNode()
++                        true
++                    } else {
++                        false
++                    }
++                }.getOrDefault(false)
++            videoHandoffRequested = false
++            if (!retainedVideo) runCatching(videoDecoder::release)
+             runCatching { drmSession?.close() }
+             drmBinding = null
+             drmSession = null
+-            frameRateManager.clear()
++            if (!retainedVideo) frameRateManager.clear()
+             runCatching(demux::release)
+             prepared = false
+             videoConfigured = false

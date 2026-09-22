@@ -1,0 +1,35 @@
+{
+  "jvm": {
+    "tests": 26.0,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "suites": [
+      {
+        "name": "com.yfuse.core.data.ThemePreferencesTest",
+        "tests": 11,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "name": "com.yfuse.core.designsystem.GlassMaterialTest",
+        "tests": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "name": "com.yfuse.core.designsystem.GlassTest",
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    ]
+  },
+  "phoneAndTvMainCompilation": "passed; audit/glass-adjustments-20260918/verify-final.log",
+  "scopedFormatting": "passed; 13 Kotlin files",
+  "deviceUiTested": false,
+  "playbackTested": false
+}

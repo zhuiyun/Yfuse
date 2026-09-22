@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.subtitle.YSubtitleCueBufferTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:44:00.609Z" hostname="DESKTOP-HM2J0FM" time="0.032">
+  <properties/>
+  <testcase name="clearingOneTrackDoesNotAffectTheOtherAndSeekDropsPreviousGeneration" classname="com.yfuse.core2.subtitle.YSubtitleCueBufferTest" time="0.0"/>
+  <testcase name="clearBoundariesSurviveReorderedOutputAndEqualPtsReplacesTheWholeDisplay" classname="com.yfuse.core2.subtitle.YSubtitleCueBufferTest" time="0.001"/>
+  <testcase name="longPgsPlaybackRetainsOnlyTheHistoryWindowAndLatestOpenDisplay" classname="com.yfuse.core2.subtitle.YSubtitleCueBufferTest" time="0.029"/>
+  <testcase name="futureBitmapPressurePreservesTheCurrentAndNearestPictureWithoutBlockingAvProgress" classname="com.yfuse.core2.subtitle.YSubtitleCueBufferTest" time="0.001"/>
+  <testcase name="finiteBitmapExpiryAndAuthoredOverlappingTextArePreserved" classname="com.yfuse.core2.subtitle.YSubtitleCueBufferTest" time="0.0"/>
+  <testcase name="prefetchedPgsDisplaysReplaceAllRectanglesAndClearAtTheirPresentationTime" classname="com.yfuse.core2.subtitle.YSubtitleCueBufferTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

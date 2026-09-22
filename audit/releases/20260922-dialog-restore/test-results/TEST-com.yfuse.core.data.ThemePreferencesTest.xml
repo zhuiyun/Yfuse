@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.data.ThemePreferencesTest" tests="11" skipped="0" failures="0" errors="0" timestamp="2026-09-22T01:21:16.419Z" hostname="DESKTOP-HM2J0FM" time="0.124">
+  <properties/>
+  <testcase name="unknown_loading_choice_falls_back_and_can_be_replaced" classname="com.yfuse.core.data.ThemePreferencesTest" time="0.072"/>
+  <testcase name="library_carousel_defaults_to_original_layout_and_remembers_explicit_choice" classname="com.yfuse.core.data.ThemePreferencesTest" time="0.001"/>
+  <testcase name="all_custom_material_parameters_survive_restart_and_do_not_modify_the_other_theme" classname="com.yfuse.core.data.ThemePreferencesTest" time="0.032"/>
+  <testcase name="corrupt_glass_parameters_are_normalized_before_rendering_or_saving" classname="com.yfuse.core.data.ThemePreferencesTest" time="0.001"/>
+  <testcase name="glass_parameters_survive_restart_and_reset_each_theme_independently" classname="com.yfuse.core.data.ThemePreferencesTest" time="0.001"/>
+  <testcase name="retired_variant_keys_are_scrubbed_and_restored_dialog_names_are_preserved" classname="com.yfuse.core.data.ThemePreferencesTest" time="0.0"/>
+  <testcase name="pulse_sweep_can_be_disabled_and_restored_independently_of_reduced_motion" classname="com.yfuse.core.data.ThemePreferencesTest" time="0.0"/>
+  <testcase name="player_preferences_survive_recreation" classname="com.yfuse.core.data.ThemePreferencesTest" time="0.0"/>
+  <testcase name="all_material_presets_and_fine_tuning_persist_independently_per_theme" classname="com.yfuse.core.data.ThemePreferencesTest" time="0.01"/>
+  <testcase name="theme_defaults_to_dark_and_particle_light_keeps_its_level" classname="com.yfuse.core.data.ThemePreferencesTest" time="0.0"/>
+  <testcase name="all_loading_choices_survive_restart_without_changing_accessibility" classname="com.yfuse.core.data.ThemePreferencesTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

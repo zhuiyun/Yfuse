@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.test.YMediaTestSuiteTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:13.511Z" hostname="DESKTOP-HM2J0FM" time="0.026">
+  <properties/>
+  <testcase name="device observation captures required runtime health dimensions" classname="com.yfuse.core2.test.YMediaTestSuiteTest" time="0.002"/>
+  <testcase name="manifest labels cannot substitute for different observed media" classname="com.yfuse.core2.test.YMediaTestSuiteTest" time="0.012"/>
+  <testcase name="incomplete corpus reports every missing coverage family" classname="com.yfuse.core2.test.YMediaTestSuiteTest" time="0.011"/>
+  <testcase name="corpus paths cannot escape the supplied media root" classname="com.yfuse.core2.test.YMediaTestSuiteTest" time="0.001"/>
+  <testcase name="device observation rejects impossible operation evidence" classname="com.yfuse.core2.test.YMediaTestSuiteTest" time="0.0"/>
+  <testcase name="observed media facts prove the manifest declaration" classname="com.yfuse.core2.test.YMediaTestSuiteTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

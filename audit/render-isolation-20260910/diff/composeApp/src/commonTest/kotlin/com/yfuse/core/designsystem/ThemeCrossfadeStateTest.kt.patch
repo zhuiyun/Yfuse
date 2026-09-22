@@ -1,0 +1,117 @@
+--- composeApp/src/commonTest/kotlin/com/yfuse/core/designsystem/ThemeCrossfadeStateTest.kt (before turn)
++++ composeApp/src/commonTest/kotlin/com/yfuse/core/designsystem/ThemeCrossfadeStateTest.kt
+@@ -1,58 +1,72 @@
+ package com.yfuse.core.designsystem
+ 
+-import androidx.compose.runtime.BroadcastFrameClock
+-import kotlinx.coroutines.cancelAndJoin
+-import kotlinx.coroutines.launch
+-import kotlinx.coroutines.test.runCurrent
++import androidx.compose.ui.graphics.Color
+ import kotlinx.coroutines.test.runTest
++import kotlin.math.abs
+ import kotlin.test.Test
+ import kotlin.test.assertEquals
+ import kotlin.test.assertNotEquals
++import kotlin.test.assertTrue
+ 
+-@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+ class ThemeCrossfadeStateTest {
+-    private val light = ThemeColors(LightPalette, resolveAccentColors(Brand.Primary, dark = false))
+-    private val dark = ThemeColors(DarkPalette, resolveAccentColors(Brand.Primary, dark = true))
+-
+     @Test
+-    fun reducingMotionMidTransitionFinishesTheUnchangedTarget() =
++    fun changing_accent_does_not_snap_an_in_progress_background_transition() =
+         runTest {
+-            val clock = BroadcastFrameClock()
+-            val state = ThemeCrossfadeState(light)
+-            val transition = launch(clock) { state.retarget(dark, animate = true) }
+-            runCurrent()
+-            clock.sendFrame(0L)
+-            runCurrent()
+-            clock.sendFrame(100_000_000L)
+-            runCurrent()
+-            assertNotEquals(light, state.value)
+-            assertNotEquals(dark, state.value)
+-            transition.cancelAndJoin()
+-            state.retarget(dark, animate = false)
+-            assertEquals(dark, state.value)
++            themeConsumerTest {
++                theme.value = dark
++                apply()
++                advance(100)
++                val before = shown.value
++                theme.value = dark.copy(accent = resolveAccentColors(Color.Cyan, dark = true))
++                apply()
++                assertEquals(before, shown.value)
++                assertNotEquals(dark.palette.background, shown.value)
++                advance(500)
++                assertEquals(dark.palette.background, shown.value)
++            }
+         }
+ 
+     @Test
+-    fun rapidThemeReversalStartsFromTheVisibleColour() =
++    fun reducing_motion_mid_transition_finishes_the_unchanged_target() =
+         runTest {
+-            val clock = BroadcastFrameClock()
+-            val state = ThemeCrossfadeState(light)
+-            val first = launch(clock) { state.retarget(dark, animate = true) }
+-            runCurrent()
+-            clock.sendFrame(0L)
+-            runCurrent()
+-            clock.sendFrame(100_000_000L)
+-            runCurrent()
+-            val visible = state.value
+-            first.cancelAndJoin()
+-            val reversed = launch(clock) { state.retarget(light, animate = true) }
+-            runCurrent()
+-            assertEquals(visible, state.value)
+-            clock.sendFrame(110_000_000L)
+-            runCurrent()
+-            clock.sendFrame(600_000_000L)
+-            runCurrent()
+-            assertEquals(light, state.value)
+-            reversed.join()
++            themeConsumerTest {
++                theme.value = dark
++                apply()
++                advance(100)
++                assertNotEquals(dark.palette.background, shown.value)
++                reduced.value = true
++                repeat(3) { apply() }
++                assertEquals(dark.palette.background, shown.value)
++            }
++        }
++
++    @Test
++    fun rapid_theme_reversal_starts_from_the_visible_colour() =
++        runTest {
++            themeConsumerTest {
++                theme.value = dark
++                apply()
++                advance(100)
++                val before = shown.value
++                theme.value = light
++                apply()
++                assertTrue(abs(before.red - shown.value.red) < 0.01f)
++                advance(500)
++                assertEquals(light.palette.background, shown.value)
++            }
++        }
++
++    @Test
++    fun hidden_routes_take_the_target_without_an_animation_clock() =
++        runTest {
++            themeConsumerTest {
++                visible.value = false
++                theme.value = dark
++                repeat(3) { apply() }
++                assertEquals(dark.palette.background, shown.value)
++                val count = compositions
++                advance(100)
++                assertEquals(count, compositions)
++            }
+         }
+ }

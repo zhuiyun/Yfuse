@@ -1,0 +1,1 @@
+package: name='com.yfuse.softfeedback' versionCode='231' versionName='1.0.69' platformBuildVersionName='17' platformBuildVersionCode='37' compileSdkVersion='37' compileSdkVersionCodename='17'

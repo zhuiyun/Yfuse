@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The mark, set slightly further inside the adaptive icon's canvas.
+
+  An adaptive icon is 108dp with only the middle 72dp guaranteed visible, and the mark was
+  drawn to fill more of that than it needed to: on a launcher that masks to a circle it came
+  close enough to the edge to read as cropped. 7dp on each side is about 13% off the drawing
+  and leaves the mark comfortably inside every mask shape without making it look lost.
+-->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@mipmap/ic_launcher_foreground"
+    android:insetLeft="7dp"
+    android:insetTop="7dp"
+    android:insetRight="7dp"
+    android:insetBottom="7dp" />

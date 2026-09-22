@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.detail.OfflineDownloadDraftTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:15.084Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="television_unwatched_batch_keeps_original_quality_and_follow_rule" classname="com.yfuse.feature.detail.OfflineDownloadDraftTest" time="0.001"/>
+  <testcase name="switching_versions_clears_an_index_that_means_a_different_language" classname="com.yfuse.feature.detail.OfflineDownloadDraftTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

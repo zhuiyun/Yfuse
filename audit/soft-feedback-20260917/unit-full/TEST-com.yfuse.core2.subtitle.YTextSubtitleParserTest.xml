@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.subtitle.YTextSubtitleParserTest" tests="9" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:13.493Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="parses ASS dialogue text and rendering overrides" classname="com.yfuse.core2.subtitle.YTextSubtitleParserTest" time="0.0"/>
+  <testcase name="inherits ASS named style before applying inline overrides" classname="com.yfuse.core2.subtitle.YTextSubtitleParserTest" time="0.0"/>
+  <testcase name="applies positive subtitle delay without changing cue data" classname="com.yfuse.core2.subtitle.YTextSubtitleParserTest" time="0.0"/>
+  <testcase name="resolves external subtitle format from content type extension and content" classname="com.yfuse.core2.subtitle.YTextSubtitleParserTest" time="0.0"/>
+  <testcase name="parses SRT markup and millisecond timing" classname="com.yfuse.core2.subtitle.YTextSubtitleParserTest" time="0.0"/>
+  <testcase name="decodes Matroska ASS packets using container timing" classname="com.yfuse.core2.subtitle.YTextSubtitleParserTest" time="0.001"/>
+  <testcase name="decodes tx3g length-prefixed UTF-8 text" classname="com.yfuse.core2.subtitle.YTextSubtitleParserTest" time="0.0"/>
+  <testcase name="parses WebVTT cue ids and settings" classname="com.yfuse.core2.subtitle.YTextSubtitleParserTest" time="0.0"/>
+  <testcase name="decodes UTF-16 little endian external subtitle" classname="com.yfuse.core2.subtitle.YTextSubtitleParserTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,1003 @@
+{
+  "tests": {
+    "tests": 862,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "suites": {
+    "com.yfuse.core2.adaptive.YAdaptiveBitrateTest": {
+      "tests": 9,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.adaptive.YAdaptiveReopenCompatibilityTest": {
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.adaptive.YDashFinitePlaybackTimelineTest": {
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.adaptive.YDashParserTest": {
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.adaptive.YDashPresentationTimelineTest": {
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.adaptive.YHlsParserTest": {
+      "tests": 10,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidActiveAudioOutputFingerprintTest": {
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidAdaptiveCore2RecoveryPlanTest": {
+      "tests": 10,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidAdaptiveDrmInitializationDataTest": {
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidAdaptiveHttpMediaTransportTest": {
+      "tests": 17,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidAdaptiveManifestDiscoveryTest": {
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidAdaptivePresentationStateTest": {
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidAdaptiveProxyTransitionTest": {
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidAssSubtitleRendererTest": {
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidAudioClockProgressGuardTest": {
+      "tests": 11,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidAudioCodecMappingTest": {
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidAudioRouteEvidenceTest": {
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidAudioTrackRenderNodePolicyTest": {
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidBoundedProbeTest": {
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidBufferWaitMonitorTest": {
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidCore2DolbyTrialGuardTest": {
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidCore2FallbackPolicyTest": {
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidCore2ProbeTruthMergeTest": {
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidCore2SoftwareRouteTest": {
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidCore2TrialTest": {
+      "tests": 11,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidCronetHostHealthTest": {
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidDemuxAnalysisPolicyTest": {
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidDemuxReadAheadNodeTest": {
+      "tests": 9,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidDemuxReadControlTest": {
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidDolbyProfileMappingTest": {
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidEncodedAudioTrackRenderNodeTest": {
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidEnhancedAudioSelectionTest": {
+      "tests": 12,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidEnhancedMediaProbeFailureMemoryTest": {
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidExternalSubtitleCancellationTest": {
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidExternalSubtitleSessionTest": {
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidFfmpegDemuxerMappingTest": {
+      "tests": 16,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidForwardCacheWarmerTest": {
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidHttpMediaTransportTest": {
+      "tests": 15,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidHttpRangeHeadersTest": {
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidHttpRangeMediaDataSourceTest": {
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidMediaCodecVideoNodePolicyTest": {
+      "tests": 24,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidMediaExtractorReadAheadNodeTest": {
+      "tests": 21,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidMediaSourceFailureTest": {
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidMetadataProbeStageTest": {
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidNativeDirectAudioRoutePreviewTest": {
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidNetworkRecoveryWindowTest": {
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidNextItemPreloadWindowTest": {
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidNextItemPreparationTest": {
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidPausedVideoPreviewTest": {
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidPlaybackMemoryBudgetTest": {
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidPlaybackProbeFactsTest": {
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidPlaybackProxyAdmissionTest": {
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidPlaybackStagingBufferTest": {
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidPlaybackTimingTest": {
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidPlaybackWorkerStepTest": {
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidPreparedMediaSlotTest": {
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidProbeBudgetTest": {
+      "tests": 9,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidProxyMediaSessionsTest": {
+      "tests": 10,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidQueueCursorTest": {
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidRangeReadWatchdogTest": {
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidRuntimeCapabilityRegistryTest": {
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidSecureSurfacePolicyTest": {
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidSourceRouteStateRegistryTest": {
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidSurfacePlaybackCompletionTest": {
+      "tests": 9,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidTransportCancellationTest": {
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidTransportDiscBlockSourceTest": {
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidTransportMediaDataSourcePrefetchTest": {
+      "tests": 16,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidTransportMemoryPressureTest": {
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidTransportRequestFactoryTest": {
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidTransportStartupAndResumeTest": {
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidTunnelSeekAudioTest": {
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidVideoEosGateTest": {
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidVideoOutputEpochTest": {
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidYCoreBlockCacheTest": {
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidYCoreBluRayPlayerReleaseTest": {
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidYCoreCryptoInfoTest": {
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidYCoreHttpProxyTest": {
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidYCoreProxyCloseTest": {
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.AndroidYCoreVerifiedRouteMemoryTest": {
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.Anime4KFrameLedgerTest": {
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.BoundedFrameLeasePoolTest": {
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.CodecFrameTimestampMapperTest": {
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.Core2NativeBaselineTest": {
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.NativeDirectCommandPolicyTest": {
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.NativeDirectHdr10PlusTest": {
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.NativeDirectPacingPolicyTest": {
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.NativeEnhancedCommandPolicyTest": {
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.NextItemCancellationTest": {
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.NextItemOutputHandoffTest": {
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.NextItemRangeReuseTest": {
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.PlaybackAuditRegressionTest": {
+      "tests": 10,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.PlaybackTransportAuditTest": {
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.SharedOriginConnectionPoolTest": {
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.YAdaptiveBufferModelTest": {
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.YAdaptiveReopenGateTest": {
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.YEnhancedAudioSelectionTest": {
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.android.YEnhancedDemuxSourceTest": {
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.api.YDualDolbyEvidenceTest": {
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.api.YInitialTrackSelectionTest": {
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.api.YPlayerDiagnosticsTest": {
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.api.YPlayerQueueTest": {
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.api.YRebufferTrackerTest": {
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.bitstream.YBitstreamTest": {
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.bitstream.YCodecConfigurationTest": {
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.capability.YCapabilityTest": {
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.dolby.YDolbyVisionBitstreamTest": {
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.dolby.YDolbyVisionConfigEncodingTest": {
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.dolby.YDolbyVisionConfigTest": {
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.dolby.YDolbyVisionFelEvidenceProviderTest": {
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.dolby.YDolbyVisionLayerSynchronizerTest": {
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.dolby.YDolbyVisionRouterTest": {
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.dolby.YMatroskaDolbyVisionMetadataParserTest": {
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.dolby.YMatroskaTrackCodecParserTest": {
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.drm.YDrmRenewalPolicyTest": {
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.graph.YPlaybackGraphTest": {
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.hdr.YHdr10PlusParserTest": {
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.hdr.YHdrMetadataTest": {
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.hdr.YHdrRouterTest": {
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.learning.YPlaybackLearningTest": {
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.legacy.AndroidMpvCore2FallbackFactoryTest": {
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.legacy.LegacyYPlayerAdapterTest": {
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.legacy.YPlayerVideoEngineAdapterTest": {
+      "tests": 12,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.network.YAggregateBandwidthMeterTest": {
+      "tests": 10,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.network.YBufferControllerTest": {
+      "tests": 16,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.network.YMediaTransportTest": {
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.network.YTransportRetryPolicyTest": {
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.quirk.YCore2FailureLedgerTest": {
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.quirk.YDeviceQuirkDatabaseTest": {
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.recovery.YAudioHandoverPolicyTest": {
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.recovery.YPlaybackRecoveryPolicyTest": {
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.release.YCoreNativeReadinessTest": {
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.render.YFrameRatePolicyTest": {
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.render.YGpuColorPipelineTest": {
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.render.YGpuPipelineTest": {
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.render.YNativeGpuRuntimeTest": {
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.render.YRenderedFrameRateSamplerTest": {
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.security.YCoreMalformedInputFuzzTest": {
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.strategy.YAudioOnlyStrategyTest": {
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.strategy.YPlatformAudioDemuxStrategyTest": {
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.strategy.YPlaybackStrategyTest": {
+      "tests": 16,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.strategy.YProbeTruthPolicyTest": {
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.strategy.YTunnelPolicyTest": {
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.subtitle.YDualSubtitleTimelineTest": {
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.subtitle.YEmbeddedTextSubtitleQueueTest": {
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.subtitle.YSubtitleClockAnchorTest": {
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.subtitle.YSubtitleCueBufferTest": {
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.subtitle.YSubtitleParserCancellationTest": {
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.subtitle.YSubtitleRegexRegressionTest": {
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.subtitle.YTextSubtitleParserTest": {
+      "tests": 9,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.sync.YAvSyncTest": {
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.sync.YMediaClockTest": {
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.sync.YMediaTimestampTimelineTest": {
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.core2.test.YMediaTestSuiteTest": {
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.feature.player.PlaybackDiagnosticsTest": {
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.update.AutomaticUpdateCheckGateTest": {
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.update.UpdateCheckPolicyTest": {
+      "tests": 16,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.update.UpdateDownloadBoundaryTest": {
+      "tests": 11,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.update.UpdateManifestPolicyTest": {
+      "tests": 10,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.update.UpdatePackageIdentityTest": {
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.update.UpdateRestoreTrustTest": {
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.yfuse.update.UpdateResumePolicyTest": {
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "fullAppSuiteRerun": false,
+  "changedInputsFromPreviousRelease": [
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidAdaptiveCore2YPlayer.kt",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidBufferWaitMonitor.kt",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidCore2MediaProbe.kt",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidDemuxReadAheadNode.kt",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidEnhancedMediaProbe.kt",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidEnhancedPlaybackSession.kt",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidFfmpegDemuxer.kt",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidMediaExtractorDemuxNode.kt",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidMediaSourceFailure.kt",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidNativeEnhancedYPlayer.kt",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidRangeReadDiagnostics.kt",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidRangeReadWatchdog.kt",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidTransportMediaDataSource.kt",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidYCoreHttpProxy.kt",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/YCoreStartupTiming.kt",
+    "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidBufferWaitMonitorTest.kt",
+    "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidDemuxReadAheadNodeTest.kt",
+    "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidMediaSourceFailureTest.kt",
+    "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidYCoreProxyCloseTest.kt",
+    "composeApp/src/commonMain/kotlin/com/yfuse/core2/network/YBufferController.kt",
+    "composeApp/src/commonTest/kotlin/com/yfuse/core2/network/YBufferControllerTest.kt",
+    "release-notes.txt",
+    "version.properties"
+  ],
+  "deviceTested": false
+}

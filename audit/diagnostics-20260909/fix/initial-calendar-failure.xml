@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.data.SeriesCalendarLoadingTest" tests="11" skipped="0" failures="1" errors="0" timestamp="2026-09-09T02:07:05.347Z" hostname="DESKTOP-HM2J0FM" time="60.077">
+  <properties/>
+  <testcase name="cancelling_calendar_storage_stops_the_load_instead_of_reporting_a_write_failure" classname="com.yfuse.core.data.SeriesCalendarLoadingTest" time="60.016">
+    <failure message="kotlinx.coroutines.test.UncompletedCoroutinesError: After waiting for 1m, the test body did not run to completion" type="kotlinx.coroutines.test.UncompletedCoroutinesError">kotlinx.coroutines.test.UncompletedCoroutinesError: After waiting for 1m, the test body did not run to completion
+	at kotlinx.coroutines.test.TestBuildersKt__TestBuildersKt$runTest$2$1$2.invokeSuspend$lambda$0(TestBuilders.kt:353)
+	at kotlinx.coroutines.InvokeOnCancelling.invoke(JobSupport.kt:1571)
+	at kotlinx.coroutines.JobSupport.notifyCancelling(JobSupport.kt:1603)
+	at kotlinx.coroutines.JobSupport.tryMakeCancelling(JobSupport.kt:826)
+	at kotlinx.coroutines.JobSupport.makeCancelling(JobSupport.kt:786)
+	at kotlinx.coroutines.JobSupport.cancelImpl$kotlinx_coroutines_core(JobSupport.kt:702)
+	at kotlinx.coroutines.JobSupport.cancelCoroutine(JobSupport.kt:689)
+	at kotlinx.coroutines.TimeoutCoroutine.run(Timeout.kt:243)
+	at kotlinx.coroutines.EventLoopImplBase$DelayedRunnableTask.run(EventLoop.common.kt:498)
+	at kotlinx.coroutines.EventLoopImplBase.processNextEvent(EventLoop.common.kt:256)
+	at kotlinx.coroutines.DefaultExecutor.run(DefaultExecutor.kt:105)
+	at java.base/java.lang.Thread.run(Thread.java:840)
+	Suppressed: org.junit.ComparisonFailure: expected:&lt;[Cancelled binding_read]&gt; but was:&lt;[The test timed out]&gt;
+		at org.junit.Assert.assertEquals(Assert.java:117)
+		at kotlin.test.junit.JUnitAsserter.assertEquals(JUnitSupport.kt:32)
+		at kotlin.test.AssertionsKt__AssertionsKt.assertEquals(Assertions.kt:63)
+		at kotlin.test.AssertionsKt.assertEquals(Unknown Source)
+		at kotlin.test.AssertionsKt__AssertionsKt.assertEquals$default(Assertions.kt:62)
+		at kotlin.test.AssertionsKt.assertEquals$default(Unknown Source)
+		at com.yfuse.core.data.SeriesCalendarLoadingTest$cancelling_calendar_storage_stops_the_load_instead_of_reporting_a_write_failure$1.invokeSuspend(SeriesCalendarLoadingTest.kt:354)
+		at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:34)
+		at kotlinx.coroutines.internal.ScopeCoroutine.afterResume(Scopes.kt:35)
+		at kotlinx.coroutines.AbstractCoroutine.resumeWith(AbstractCoroutine.kt:101)
+		at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:47)
+		at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:98)
+		at kotlinx.coroutines.test.TestDispatcher.processEvent$kotlinx_coroutines_test(TestDispatcher.kt:24)
+		at kotlinx.coroutines.test.TestCoroutineScheduler.tryRunNextTaskUnless$kotlinx_coroutines_test(TestCoroutineScheduler.kt:98)
+		at kotlinx.coroutines.test.TestBuildersKt__TestBuildersKt$runTest$2$1$workRunner$1.invokeSuspend(TestBuilders.kt:326)
+		at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:34)
+		at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:100)
+		at kotlinx.coroutines.EventLoopImplBase.processNextEvent(EventLoop.common.kt:256)
+		at kotlinx.coroutines.BlockingCoroutine.joinBlocking(Builders.kt:54)
+		at kotlinx.coroutines.BuildersKt__BuildersKt.runBlockingImpl(Builders.kt:30)
+		at kotlinx.coroutines.BuildersKt.runBlockingImpl(Unknown Source)
+		at kotlinx.coroutines.BuildersKt__Builders_concurrentKt.runBlockingK(Builders.concurrent.kt:172)
+		at kotlinx.coroutines.BuildersKt.runBlockingK(Unknown Source)
+		at kotlinx.coroutines.BuildersKt__Builders_concurrentKt.runBlockingK$default(Builders.concurrent.kt:157)
+		at kotlinx.coroutines.BuildersKt.runBlockingK$default(Unknown Source)
+		at kotlinx.coroutines.test.TestBuildersJvmKt.createTestResult(TestBuildersJvm.kt:10)
+		at kotlinx.coroutines.test.TestBuildersKt__TestBuildersKt.runTest-8Mi8wO0(TestBuilders.kt:309)
+		at kotlinx.coroutines.test.TestBuildersKt.runTest-8Mi8wO0(TestBuilders.kt:1)
+		at kotlinx.coroutines.test.TestBuildersKt__TestBuildersKt.runTest-8Mi8wO0(TestBuilders.kt:167)
+		at kotlinx.coroutines.test.TestBuildersKt.runTest-8Mi8wO0(TestBuilders.kt:1)
+		at kotlinx.coroutines.test.TestBuildersKt__TestBuildersKt.runTest-8Mi8wO0$default(TestBuilders.kt:159)
+		at kotlinx.coroutines.test.TestBuildersKt.runTest-8Mi8wO0$default(TestBuilders.kt:1)
+		at com.yfuse.core.data.SeriesCalendarLoadingTest.cancelling_calendar_storage_stops_the_load_instead_of_reporting_a_write_failure(SeriesCalendarLoadingTest.kt:313)
+		at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+		at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+		at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+		at java.base/java.lang.reflect.Method.invoke(Method.java:568)
+		at org.junit.runners.model.FrameworkMethod$1.runReflectiveCall(FrameworkMethod.java:59)
+		at org.junit.internal.runners.model.ReflectiveCallable.run(ReflectiveCallable.java:12)
+		at org.junit.runners.model.FrameworkMethod.invokeExplosively(FrameworkMethod.java:56)
+		at org.junit.internal.runners.statements.InvokeMethod.evaluate(InvokeMethod.java:17)
+		at org.junit.runners.ParentRunner$3.evaluate(ParentRunner.java:306)
+		at org.junit.runners.BlockJUnit4ClassRunner$1.evaluate(BlockJUnit4ClassRunner.java:100)
+		at org.junit.runners.ParentRunner.runLeaf(ParentRunner.java:366)
+		at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:103)
+		at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:63)
+		at org.junit.runners.ParentRunner$4.run(ParentRunner.java:331)
+		at org.junit.runners.ParentRunner$1.schedule(ParentRunner.java:79)
+		at org.junit.runners.ParentRunner.runChildren(ParentRunner.java:329)
+		at org.junit.runners.ParentRunner.access$100(ParentRunner.java:66)
+		at org.junit.runners.ParentRunner$2.evaluate(ParentRunner.java:293)
+		at org.junit.runners.ParentRunner$3.evaluate(ParentRunner.java:306)
+		at org.junit.runners.ParentRunner.run(ParentRunner.java:413)
+		at org.junit.runner.JUnitCore.run(JUnitCore.java:137)
+		at org.junit.runner.JUnitCore.run(JUnitCore.java:115)
+		at org.gradle.api.internal.tasks.testing.junit.JUnitTestExecutor.runRequest(JUnitTestExecutor.java:175)
+		at org.gradle.api.internal.tasks.testing.junit.JUnitTestExecutor.accept(JUnitTestExecutor.java:84)
+		at org.gradle.api.internal.tasks.testing.junit.JUnitTestExecutor.accept(JUnitTestExecutor.java:47)
+		at org.gradle.api.internal.tasks.testing.junit.AbstractJUnitTestDefinitionProcessor.processTestDefinition(AbstractJUnitTestDefinitionProcessor.java:65)
+		at org.gradle.api.internal.tasks.testing.SuiteTestDefinitionProcessor.processTestDefinition(SuiteTestDefinitionProcessor.java:53)
+		at jdk.internal.reflect.GeneratedMethodAccessor10.invoke(Unknown Source)
+		at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+		at java.base/java.lang.reflect.Method.invoke(Method.java:568)
+		at org.gradle.internal.dispatch.MethodInvocation.invokeOn(MethodInvocation.java:77)
+		at org.gradle.internal.dispatch.ReflectionDispatch.dispatch(ReflectionDispatch.java:28)
+		at org.gradle.internal.dispatch.ReflectionDispatch.dispatch(ReflectionDispatch.java:19)
+		at org.gradle.internal.dispatch.ContextClassLoaderDispatch.dispatch(ContextClassLoaderDispatch.java:33)
+		at org.gradle.internal.dispatch.ProxyDispatchAdapter$DispatchingInvocationHandler.invoke(ProxyDispatchAdapter.java:88)
+		at jdk.proxy1/jdk.proxy1.$Proxy4.processTestDefinition(Unknown Source)
+		at org.gradle.api.internal.tasks.testing.worker.TestWorker$2.run(TestWorker.java:178)
+		at org.gradle.api.internal.tasks.testing.worker.TestWorker.executeAndMaintainThreadName(TestWorker.java:126)
+		at org.gradle.api.internal.tasks.testing.worker.TestWorker.execute(TestWorker.java:103)
+		at org.gradle.api.internal.tasks.testing.worker.TestWorker.execute(TestWorker.java:63)
+		at org.gradle.process.internal.worker.child.ActionExecutionWorker.execute(ActionExecutionWorker.java:56)
+		at org.gradle.process.internal.worker.child.SystemApplicationClassLoaderWorker.call(SystemApplicationClassLoaderWorker.java:122)
+		at org.gradle.process.internal.worker.child.SystemApplicationClassLoaderWorker.call(SystemApplicationClassLoaderWorker.java:72)
+		at worker.org.gradle.process.internal.worker.GradleWorkerMain.run(GradleWorkerMain.java:69)
+		at worker.org.gradle.process.internal.worker.GradleWorkerMain.main(GradleWorkerMain.java:74)
+</failure>
+  </testcase>
+  <testcase name="an_external_timeout_without_library_or_cached_dates_is_a_retryable_failure" classname="com.yfuse.core.data.SeriesCalendarLoadingTest" time="0.003"/>
+  <testcase name="a_real_binding_write_failure_keeps_resolved_calendar_rows_available" classname="com.yfuse.core.data.SeriesCalendarLoadingTest" time="0.005"/>
+  <testcase name="all_calendar_entry_points_only_request_the_server_schedule_feed" classname="com.yfuse.core.data.SeriesCalendarLoadingTest" time="0.014"/>
+  <testcase name="server_episodes_without_dates_do_not_get_invented_broadcast_dates" classname="com.yfuse.core.data.SeriesCalendarLoadingTest" time="0.0"/>
+  <testcase name="global_calendar_resolves_inventory_before_a_stalled_publication_refresh" classname="com.yfuse.core.data.SeriesCalendarLoadingTest" time="0.01"/>
+  <testcase name="fast_server_reports_playable_while_another_server_and_schedule_refresh_are_still_pending" classname="com.yfuse.core.data.SeriesCalendarLoadingTest" time="0.01"/>
+  <testcase name="a_partial_detail_season_does_not_mark_other_seasons_missing" classname="com.yfuse.core.data.SeriesCalendarLoadingTest" time="0.0"/>
+  <testcase name="known_library_episode_is_visible_before_stalled_external_schedules_finish" classname="com.yfuse.core.data.SeriesCalendarLoadingTest" time="0.005"/>
+  <testcase name="tracked_series_reads_its_own_episodes_before_external_requests_or_catalog_scans" classname="com.yfuse.core.data.SeriesCalendarLoadingTest" time="0.006"/>
+  <testcase name="tracking_artwork_uses_the_plex_poster_path_and_current_server_token" classname="com.yfuse.core.data.SeriesCalendarLoadingTest" time="0.007"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,11 @@
+{
+  "archive": "yfuse-watch-2eff8485-handoff.tar.gz",
+  "sha256": "a1e16f21795f67fd0b1f7512710ed784c92707a9bbd487d4c972aef590daa7f8",
+  "bytes": 23008467,
+  "gitSha": "2eff84853c06c492dd1f1431adbebada1b0a53c6",
+  "target": "47.112.219.60",
+  "service": "yfuse-update",
+  "entries": 34,
+  "layout": "bin launchers and lib jars only",
+  "status": "deployed and verified"
+}

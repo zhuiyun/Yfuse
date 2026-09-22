@@ -1,0 +1,62 @@
+[
+  {
+    "dependency": "ch.qos.logback:logback-core:1.3.14",
+    "id": "GHSA-25qh-j22f-pwp8",
+    "severity": "MEDIUM",
+    "summary": "QOS.CH logback-core is vulnerable to Arbitrary Code Execution through file processing"
+  },
+  {
+    "dependency": "ch.qos.logback:logback-core:1.3.14",
+    "id": "GHSA-6v67-2wr5-gvf4",
+    "severity": "LOW",
+    "summary": "QOS.CH logback-core Server-Side Request Forgery vulnerability"
+  },
+  {
+    "dependency": "ch.qos.logback:logback-core:1.3.14",
+    "id": "GHSA-jhq6-gfmj-v8fx",
+    "severity": "LOW",
+    "summary": "Logback vulnerable to Object Injection through HardenedObjectInputStream modules"
+  },
+  {
+    "dependency": "ch.qos.logback:logback-core:1.3.14",
+    "id": "GHSA-p47f-322f-whfh",
+    "severity": "LOW",
+    "summary": "QOS.CH Sarl logback logback-core has a deserialization of untrusted data vulnerability"
+  },
+  {
+    "dependency": "ch.qos.logback:logback-core:1.3.14",
+    "id": "GHSA-pr98-23f8-jwxv",
+    "severity": "MEDIUM",
+    "summary": "QOS.CH logback-core Expression Language Injection vulnerability"
+  },
+  {
+    "dependency": "ch.qos.logback:logback-core:1.3.14",
+    "id": "GHSA-qqpg-mvqg-649v",
+    "severity": "LOW",
+    "summary": "Logback allows an attacker to instantiate classes already present on the class path"
+  },
+  {
+    "dependency": "io.netty:netty-codec-http:4.1.136.Final",
+    "id": "GHSA-8c42-7qj2-3j46",
+    "severity": "MEDIUM",
+    "summary": "Netty Vulnerable to Cache Poisoning and Information Disclosure via CORS Vary Header Overwrite"
+  },
+  {
+    "dependency": "io.netty:netty-handler:4.1.136.Final",
+    "id": "GHSA-c4c3-7fpv-j4q5",
+    "severity": "CRITICAL",
+    "summary": "Netty: SNI Routing Bypass via Fragmented TLS ClientHello Causing Fallback to Default SslContext"
+  },
+  {
+    "dependency": "io.netty:netty-handler:4.1.136.Final",
+    "id": "GHSA-fccg-mwvh-qqg4",
+    "severity": "MEDIUM",
+    "summary": "Netty: Fragmented ClientHello records trigger quadratic pre-handshake reassembly in default SNI parsing"
+  },
+  {
+    "dependency": "io.opentelemetry:opentelemetry-api:1.41.0",
+    "id": "GHSA-rcgg-9c38-7xpx",
+    "severity": "MEDIUM",
+    "summary": "OpenTelemetry Java SDK has Unbounded Memory Allocation in W3C Baggage Propagation"
+  }
+]

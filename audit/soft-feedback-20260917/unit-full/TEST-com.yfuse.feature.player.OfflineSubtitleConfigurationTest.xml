@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.OfflineSubtitleConfigurationTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:15.849Z" hostname="DESKTOP-HM2J0FM" time="0.002">
+  <properties/>
+  <testcase name="local_sidecar_becomes_default_subrip_track" classname="com.yfuse.feature.player.OfflineSubtitleConfigurationTest" time="0.001"/>
+  <testcase name="sidecar_does_not_override_the_selected_engine" classname="com.yfuse.feature.player.OfflineSubtitleConfigurationTest" time="0.001"/>
+  <testcase name="unknown_sidecar_format_keeps_the_previous_subrip_fallback" classname="com.yfuse.feature.player.OfflineSubtitleConfigurationTest" time="0.0"/>
+  <testcase name="supported_sidecar_formats_use_their_media3_mime_type" classname="com.yfuse.feature.player.OfflineSubtitleConfigurationTest" time="0.0"/>
+  <testcase name="ordinary_stream_has_no_external_subtitle" classname="com.yfuse.feature.player.OfflineSubtitleConfigurationTest" time="0.0"/>
+  <testcase name="plex_sidecars_are_all_attached_with_codec_and_selection_metadata" classname="com.yfuse.feature.player.OfflineSubtitleConfigurationTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

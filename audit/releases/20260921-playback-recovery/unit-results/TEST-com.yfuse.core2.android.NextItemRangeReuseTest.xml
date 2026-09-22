@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.NextItemRangeReuseTest" tests="1" skipped="0" failures="0" errors="0" timestamp="2026-09-21T01:44:00.161Z" hostname="DESKTOP-HM2J0FM" time="0.099">
+  <properties/>
+  <testcase name="warmed_ranges_are_consumed_by_a_new_ycore_reader_with_the_same_cache_identity" classname="com.yfuse.core2.android.NextItemRangeReuseTest" time="0.099"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

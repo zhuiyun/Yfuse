@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.data.WatchTogetherPreferencesTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-09-17T09:47:04.415Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="endpoint_state_cannot_be_changed_after_a_legacy_value_is_migrated" classname="com.yfuse.core.data.WatchTogetherPreferencesTest" time="0.0"/>
+  <testcase name="blocked_domain_endpoint_is_migrated_to_ip_https" classname="com.yfuse.core.data.WatchTogetherPreferencesTest" time="0.0"/>
+  <testcase name="official_endpoint_policy_rejects_aliases_paths_and_other_transports" classname="com.yfuse.core.data.WatchTogetherPreferencesTest" time="0.001"/>
+  <testcase name="profile_is_normalized_and_persisted" classname="com.yfuse.core.data.WatchTogetherPreferencesTest" time="0.0"/>
+  <testcase name="persisted_custom_endpoints_are_always_migrated_even_after_old_migration_markers" classname="com.yfuse.core.data.WatchTogetherPreferencesTest" time="0.0"/>
+  <testcase name="default_endpoint_uses_the_official_https_relay" classname="com.yfuse.core.data.WatchTogetherPreferencesTest" time="0.0"/>
+  <testcase name="legacy_official_endpoint_is_migrated_to_the_account_service" classname="com.yfuse.core.data.WatchTogetherPreferencesTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>
