@@ -25,7 +25,7 @@ media3 = "1.9.0"
 palette = "1.0.0"
 turbine = "1.2.0"
 # Effective version: scripts/security-overrides.properties forces every BC artifact to this release.
-bouncycastle = "1.85"
+bouncycastle = "1.86"
 zxing = "3.5.4"
 google-cast = "22.3.1"
 google-cast-tv = "21.1.1"
