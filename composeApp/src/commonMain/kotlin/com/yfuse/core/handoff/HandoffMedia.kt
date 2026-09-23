@@ -159,4 +159,7 @@ interface HandoffPlaybackBridge {
     suspend fun resumeSource()
 
     fun finishTransfer() {}
+
+    /** Why receiving failed on this device, when the receiver knows; read before [releasePrepared]. */
+    fun receiveFailureReason(): String? = null
 }

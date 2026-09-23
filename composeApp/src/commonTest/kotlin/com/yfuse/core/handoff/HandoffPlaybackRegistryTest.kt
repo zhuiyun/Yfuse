@@ -1,11 +1,13 @@
 package com.yfuse.core.handoff
 
 import kotlinx.coroutines.async
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -25,7 +27,7 @@ class HandoffPlaybackRegistryTest {
                     override suspend fun resume() {}
                 }
             registry.source = source
-            val result = async { registry.awaitPlaying(media) }
+            val result = async { registry.awaitPlayback(media) }
             registry.publish(source, ActiveHandoffPlayback(media, ready = true, playing = false))
             runCurrent()
             assertFalse(result.isCompleted)
@@ -34,8 +36,94 @@ class HandoffPlaybackRegistryTest {
             assertFalse(result.isCompleted)
             registry.publish(source, ActiveHandoffPlayback(media, true, true))
             runCurrent()
-            assertEquals(media, result.await().media)
+            assertEquals(media, assertIs<HandoffStartResult.Playing>(result.await()).last.media)
         }
+
+    @Test
+    fun aSlowStartupThatKeepsMovingIsNotCutOff() =
+        runTest {
+            val registry = HandoffPlaybackRegistry()
+            val source = source(registry)
+            val result = async { registry.awaitPlayback(media) }
+            // The evening that prompted this: data trickling in for well past the old 15 s limit.
+            repeat(8) { tick ->
+                advanceTimeBy(5_000)
+                registry.publish(source, ActiveHandoffPlayback(media, false, false, progress = tick.toLong()))
+                runCurrent()
+                assertFalse(result.isCompleted, "cut off after ${(tick + 1) * 5} s")
+            }
+            registry.publish(source, ActiveHandoffPlayback(media, true, true, progress = 99))
+            runCurrent()
+            assertIs<HandoffStartResult.Playing>(result.await())
+        }
+
+    @Test
+    fun aStartupWithNoProgressStallsAndReportsWhatItLastSaw() =
+        runTest {
+            val registry = HandoffPlaybackRegistry()
+            val source = source(registry)
+            val slow =
+                ActiveHandoffPlayback(
+                    media,
+                    ready = false,
+                    playing = false,
+                    progress = 1,
+                    networkBitsPerSecond = 2_000_000,
+                    sourceBitsPerSecond = 13_000_000,
+                )
+            val result = async { registry.awaitPlayback(media) }
+            registry.publish(source, slow)
+            runCurrent()
+            // Republishing the same state is not progress.
+            advanceTimeBy(15_000)
+            registry.publish(source, slow.copy())
+            runCurrent()
+            assertFalse(result.isCompleted)
+            advanceTimeBy(5_001)
+            runCurrent()
+            assertEquals(slow, assertIs<HandoffStartResult.Stalled>(result.await()).last)
+        }
+
+    @Test
+    fun aFailedPlayerEndsTheWaitAtOnce() =
+        runTest {
+            val registry = HandoffPlaybackRegistry()
+            val source = source(registry)
+            val result = async { registry.awaitPlayback(media) }
+            registry.publish(source, ActiveHandoffPlayback(media, false, false, failed = true))
+            runCurrent()
+            assertIs<HandoffStartResult.Failed>(result.await())
+        }
+
+    @Test
+    fun theReceiverExplainsItsOwnFailure() =
+        runTest {
+            val registry = HandoffPlaybackRegistry()
+            registry.receiver =
+                object : HandoffPlaybackRegistry.Receiver {
+                    override suspend fun prepare(media: HandoffMedia) = false
+
+                    override suspend fun start(media: HandoffMedia) = false
+
+                    override suspend fun release() {}
+
+                    override fun failureReason() = "本机正在播放其他影片"
+                }
+            assertNull(registry.receiveFailureReason())
+            assertFalse(registry.prepare(media))
+            assertEquals("本机正在播放其他影片", registry.receiveFailureReason())
+            registry.releasePrepared()
+            assertNull(registry.receiveFailureReason())
+        }
+
+    private fun source(registry: HandoffPlaybackRegistry) =
+        object : HandoffPlaybackRegistry.Source {
+            override fun snapshot() = media
+
+            override suspend fun pauseAndSnapshot() = media
+
+            override suspend fun resume() {}
+        }.also { registry.source = it }
 
     @Test
     fun failureReleasesButSuccessOnlyDropsPreparedHandle() =

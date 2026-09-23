@@ -166,6 +166,54 @@ class HandoffControllerTest {
         }
 
     @Test
+    fun theReceiverSaysWhyItCouldNotPlayAndOffersLastLongEnoughToLoad() =
+        runTest {
+            val api =
+                FakeApi { testScheduler.currentTime }.apply {
+                    currentSession = "target"
+                    request =
+                        HandoffRequest(
+                            "request-0000000002",
+                            "source",
+                            "target",
+                            "Phone",
+                            120_000,
+                            HandoffEnvelope("nonce", "payload"),
+                        )
+                }
+            val bridge =
+                FakePlayback().apply {
+                    startSucceeds = false
+                    failureReason = "本机网速约 2.1 Mbps，低于片源 13.3 Mbps"
+                }
+            val controller = controller(api, bridge)
+            controller.start()
+            runCurrent()
+            controller.accept(api.request!!)
+            runCurrent()
+            api.request = api.request!!.copy(status = HandoffStatus.Committed)
+            advanceTimeBy(3_000)
+            runCurrent()
+            assertEquals(1, bridge.starts)
+            assertEquals(HandoffStatus.Failed, api.request!!.status)
+            assertEquals("本机网速约 2.1 Mbps，低于片源 13.3 Mbps，来源设备会继续播放", controller.state.value.error)
+            // The receiving player has closed; the reason has to reach the viewer on its own.
+            assertEquals(controller.state.value.error, controller.state.value.receiveFailure)
+            controller.dismissReceiveFailure()
+            assertNull(controller.state.value.receiveFailure)
+            controller.close()
+
+            val sender = FakeApi { testScheduler.currentTime }
+            val source = controller(sender, FakePlayback())
+            source.start()
+            runCurrent()
+            source.send("target")
+            runCurrent()
+            assertEquals(HANDOFF_OFFER_LIFETIME_SECONDS, sender.lastOffer!!.lifetimeSeconds)
+            source.close()
+        }
+
+    @Test
     fun nullSnapshotAfterPausingStillResumesSource() =
         runTest {
             val api = FakeApi { testScheduler.currentTime }
@@ -227,6 +275,7 @@ class HandoffControllerTest {
         var heartbeatFails = false
         var heartbeatFailure: Exception? = null
         var heartbeatGate: CompletableDeferred<Unit>? = null
+        var lastOffer: HandoffOffer? = null
 
         override suspend fun heartbeat(value: HandoffHeartbeat): HandoffInbox {
             heartbeatGate?.await()
@@ -245,7 +294,10 @@ class HandoffControllerTest {
                 "Phone",
                 now() + 60_000,
                 value.payload,
-            ).also { request = it }
+            ).also {
+                request = it
+                lastOffer = value
+            }
 
         override suspend fun transition(
             id: String,
@@ -294,6 +346,8 @@ class HandoffControllerTest {
         var starts = 0
         var releases = 0
         var preparationSucceeds = true
+        var startSucceeds = true
+        var failureReason: String? = null
         var snapshotAfterPause: HandoffMedia? = media.copy(positionMs = 9_000)
 
         override fun snapshot() = media
@@ -307,8 +361,10 @@ class HandoffControllerTest {
 
         override suspend fun startPrepared(media: HandoffMedia): Boolean {
             starts++
-            return true
+            return startSucceeds
         }
+
+        override fun receiveFailureReason() = failureReason
 
         override suspend fun releasePrepared() {
             releases++

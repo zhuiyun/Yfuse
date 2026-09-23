@@ -1,5 +1,7 @@
 package com.yfuse.feature.handoff
 
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -13,7 +15,10 @@ import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.ConfirmDialog
 import com.yfuse.core.designsystem.Dimens
+import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.OverlayButton
+import com.yfuse.core.designsystem.OverlayButtonTone
 import com.yfuse.core.designsystem.Section
 import com.yfuse.core.designsystem.SettingRow
 import com.yfuse.core.designsystem.SettingsCard
@@ -88,6 +93,15 @@ fun DeviceHandoffScreen(
 @Composable
 fun HandoffIncomingPrompt(controller: HandoffController) {
     val state by controller.state.collectAsState()
+    state.receiveFailure?.takeIf { state.incoming == null }?.let { reason ->
+        GlassDialog(onDismiss = controller::dismissReceiveFailure) {
+            ThemeText("未能接收播放", style = AppTypography.section.strong, color = LocalPalette.current.text)
+            Spacer(Modifier.height(Dimens.space.sm))
+            ThemeText(reason, style = AppTypography.body.regular, color = LocalPalette.current.body)
+            Spacer(Modifier.height(Dimens.space.lg))
+            OverlayButton("知道了", onClick = controller::dismissReceiveFailure, tone = OverlayButtonTone.Primary)
+        }
+    }
     val request = state.incoming ?: return
     if (!state.busy) {
         ConfirmDialog(
@@ -110,6 +124,10 @@ fun HandoffPlaybackBinding(
     resumeSource: suspend () -> Unit,
     ready: Boolean = false,
     playing: Boolean = false,
+    failed: Boolean = false,
+    progress: Long = 0L,
+    networkBitsPerSecond: Long = 0L,
+    sourceBitsPerSecond: Long = 0L,
 ) {
     val latestSnapshot by rememberUpdatedState(snapshot)
     val latestPause by rememberUpdatedState(pauseAndSnapshot)
@@ -133,5 +151,12 @@ fun HandoffPlaybackBinding(
             }
         }
     }
-    SideEffect { registry.publish(source, latestSnapshot()?.let { ActiveHandoffPlayback(it, ready, playing) }) }
+    SideEffect {
+        registry.publish(
+            source,
+            latestSnapshot()?.let {
+                ActiveHandoffPlayback(it, ready, playing, failed, progress, networkBitsPerSecond, sourceBitsPerSecond)
+            },
+        )
+    }
 }

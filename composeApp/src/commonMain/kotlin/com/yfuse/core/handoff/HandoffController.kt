@@ -1,5 +1,6 @@
 package com.yfuse.core.handoff
 
+import com.yfuse.core.logging.AppLog
 import com.yfuse.watch.protocol.HandoffDevice
 import com.yfuse.watch.protocol.HandoffHeartbeat
 import com.yfuse.watch.protocol.HandoffOffer
@@ -10,6 +11,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -32,6 +34,11 @@ data class HandoffUiState(
     val error: String? = null,
     val connectionError: String? = null,
     val signedIn: Boolean = false,
+    /**
+     * Why this device could not take over a transfer. The receiving player has closed by then, so
+     * [error] alone - shown only on the 设备接力 page - left the viewer with no answer at all.
+     */
+    val receiveFailure: String? = null,
 ) {
     val connectionLabel: String
         get() =
@@ -149,15 +156,28 @@ class HandoffController(
         transfer =
             transferScope.launch {
                 val id = UUID.randomUUID().toString()
+                val startedAt = now()
                 var paused = false
                 var completed = false
                 try {
-                    val offered = api.offer(HandoffOffer(id, targetSessionId, cipher.encrypt(id, media)))
+                    // The longest the service allows: the receiving viewer has to confirm, and the
+                    // receiving player then has to load the title over whatever link it has.
+                    val offered =
+                        api.offer(
+                            HandoffOffer(
+                                id,
+                                targetSessionId,
+                                cipher.encrypt(id, media),
+                                lifetimeSeconds = HANDOFF_OFFER_LIFETIME_SECONDS,
+                            ),
+                        )
+                    log("offer_sent", id, startedAt)
                     withTimeout(remaining(offered)) {
                         awaitStatus(id, HandoffStatus.Ready)
                         check(owner.value == currentOwner)
                         // The latest position is captured only after the receiving player is ready.
                         paused = true
+                        log("source_paused", id, startedAt)
                         val finalMedia = playback.pauseAndSnapshot() ?: error("来源影片已关闭")
                         check(
                             finalMedia.mediaKey == media.mediaKey &&
@@ -170,12 +190,15 @@ class HandoffController(
                         api.transition(id, HandoffTransition(HandoffStatus.Committed, cipher.encrypt(id, finalMedia)))
                         awaitStatus(id, HandoffStatus.Completed)
                         completed = true
+                        log("completed", id, startedAt)
                         _state.update { it.copy(message = "另一台设备已接续播放", error = null) }
                     }
                 } catch (cancelled: CancellationException) {
+                    log("failed", id, startedAt, "paused" to paused.toString(), failure = cancelled)
                     _state.update { it.copy(message = null, error = "接力已取消或超时") }
                     throw cancelled
-                } catch (_: Exception) {
+                } catch (failure: Exception) {
+                    log("failed", id, startedAt, "paused" to paused.toString(), failure = failure)
                     _state.update { it.copy(message = null, error = "接力未完成，来源播放已保留") }
                 } finally {
                     try {
@@ -214,12 +237,15 @@ class HandoffController(
         _state.update { it.copy(busy = true, incoming = null, error = null, message = "正在准备接收影片") }
         transfer =
             transferScope.launch {
+                val startedAt = now()
                 var completed = false
+                log("accepted", request.id, startedAt, "remainingMs" to remaining(request).toString())
                 try {
                     withTimeout(remaining(request)) {
                         api.transition(request.id, HandoffTransition(HandoffStatus.Preparing))
                         val media = cipher.decrypt(request.id, request.payload)
                         check(playback.prepare(media)) { "接收设备无法准备该影片" }
+                        log("prepared", request.id, startedAt)
                         api.transition(request.id, HandoffTransition(HandoffStatus.Ready))
                         val committed = awaitStatus(request.id, HandoffStatus.Committed)
                         val finalMedia = cipher.decrypt(request.id, committed.payload)
@@ -230,16 +256,33 @@ class HandoffController(
                                 finalMedia.mediaSourceId == media.mediaSourceId,
                         )
                         check(remaining(committed) > 3_000)
+                        log("committed", request.id, startedAt, "remainingMs" to remaining(committed).toString())
                         check(playback.startPrepared(finalMedia)) { "接收播放失败" }
                         completeWithConfirmation(request.id)
                         completed = true
+                        log("completed", request.id, startedAt)
                         _state.update { it.copy(message = "已接收影片", error = null) }
                     }
                 } catch (cancelled: CancellationException) {
-                    _state.update { it.copy(message = null, error = "接力已取消或超时") }
+                    // Read before the finally block releases the receiver that knows the reason.
+                    val reason = playback.receiveFailureReason()
+                    log("failed", request.id, startedAt, "reason" to reason.orEmpty(), failure = cancelled)
+                    val error =
+                        when {
+                            reason != null -> "$reason，来源设备会继续播放"
+                            cancelled is TimeoutCancellationException -> "接力超时，来源设备会继续播放"
+                            else -> null
+                        }
+                    // A transfer the viewer cancelled needs no explanation.
+                    _state.update {
+                        it.copy(message = null, error = error ?: "接力已取消或超时", receiveFailure = error)
+                    }
                     throw cancelled
-                } catch (_: Exception) {
-                    _state.update { it.copy(message = null, error = "无法接收影片，来源设备会继续播放") }
+                } catch (failure: Exception) {
+                    val reason = playback.receiveFailureReason()
+                    log("failed", request.id, startedAt, "reason" to reason.orEmpty(), failure = failure)
+                    val error = "${reason ?: "无法接收影片"}，来源设备会继续播放"
+                    _state.update { it.copy(message = null, error = error, receiveFailure = error) }
                 } finally {
                     try {
                         if (!completed) {
@@ -288,6 +331,36 @@ class HandoffController(
         transfer?.cancel()
     }
 
+    fun dismissReceiveFailure() {
+        _state.update { it.copy(receiveFailure = null) }
+    }
+
+    /** Every step of a transfer, on both devices: a failed one used to leave no trace at all. */
+    private fun log(
+        event: String,
+        id: String,
+        startedAt: Long,
+        vararg extra: Pair<String, String>,
+        failure: Throwable? = null,
+    ) {
+        val attributes =
+            mapOf(
+                "transfer" to id.take(8),
+                "elapsedMs" to (now() - startedAt).coerceAtLeast(0L).toString(),
+            ) + extra
+        if (failure == null) {
+            AppLog.info(category = "handoff", event = event, message = "Device handoff $event", attributes = attributes)
+        } else {
+            AppLog.warning(
+                category = "handoff",
+                event = event,
+                message = "Device handoff did not complete",
+                throwable = failure,
+                attributes = attributes,
+            )
+        }
+    }
+
     private fun remaining(request: HandoffRequest): Long =
         (request.expiresAtEpochMs - (now() + clockOffset)).coerceAtLeast(1)
 
@@ -317,3 +390,6 @@ class HandoffController(
         return request
     }
 }
+
+/** The most the handoff service accepts. */
+internal const val HANDOFF_OFFER_LIFETIME_SECONDS = 120

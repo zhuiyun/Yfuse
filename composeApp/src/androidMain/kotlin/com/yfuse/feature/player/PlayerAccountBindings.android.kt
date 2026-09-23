@@ -14,6 +14,7 @@ import com.yfuse.core.trakt.TraktRepository
 import com.yfuse.core.trakt.traktPlaybackMedia
 import com.yfuse.core2.api.YPlaybackPhase
 import com.yfuse.core2.api.YPlayer
+import com.yfuse.core2.api.YPlayerState
 import com.yfuse.feature.handoff.HandoffPlaybackBinding
 import com.yfuse.feature.trakt.TraktPlaybackReportingEffect
 import kotlinx.coroutines.flow.StateFlow
@@ -44,6 +45,11 @@ internal fun PlayerAccountBindings(
     val transport by remember(player) {
         player.state.map { Triple(it.phase, it.playing, it.buffering) }.distinctUntilChanged()
     }.collectAsState(Triple(player.state.value.phase, player.state.value.playing, player.state.value.buffering))
+    // What a handoff receiver needs while it waits for the first frame. Constant once playing, so an
+    // ordinary session does not recompose on every buffer tick.
+    val startup by remember(player) {
+        player.state.map(::handoffStartupEvidence).distinctUntilChanged()
+    }.collectAsState(handoffStartupEvidence(player.state.value))
     var pausedOwner by remember { mutableStateOf<SubtitleItemKey?>(null) }
     var resumeAfterFailure by remember { mutableStateOf(false) }
     val reportSession =
@@ -102,6 +108,10 @@ internal fun PlayerAccountBindings(
             },
             ready = transport.first == YPlaybackPhase.Ready,
             playing = transport.second && !transport.third,
+            failed = transport.first == YPlaybackPhase.Failed,
+            progress = startup.progress,
+            networkBitsPerSecond = startup.networkBitsPerSecond,
+            sourceBitsPerSecond = startup.sourceBitsPerSecond,
         )
     }
     LaunchedEffect(player, item?.subtitleItemKey(), item?.playSessionId, personal, ownerToken) {
@@ -144,3 +154,26 @@ internal fun PlayerAccountBindings(
         }
     }
 }
+
+private data class HandoffStartupEvidence(
+    val progress: Long = 0L,
+    val networkBitsPerSecond: Long = 0L,
+    val sourceBitsPerSecond: Long = 0L,
+)
+
+private fun handoffStartupEvidence(state: YPlayerState): HandoffStartupEvidence =
+    if (state.playing && !state.buffering) {
+        HandoffStartupEvidence()
+    } else {
+        HandoffStartupEvidence(
+            progress =
+                listOf(
+                    state.phase.ordinal.toLong(),
+                    state.bufferedPositionMs,
+                    state.diagnostics.sourceBufferedMs,
+                    state.diagnostics.sourceQueueBytes,
+                ).hashCode().toLong(),
+            networkBitsPerSecond = state.diagnostics.networkBitsPerSecond,
+            sourceBitsPerSecond = state.diagnostics.bitrateBitsPerSecond,
+        )
+    }
