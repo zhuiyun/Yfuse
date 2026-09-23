@@ -2081,6 +2081,13 @@ internal class AndroidNativeDirectYPlayer(
                             sourceQueueBytes = readAhead.queuedBytes,
                             sourceBufferedMs = sourceBufferedMs,
                             sourceStarvationCount = readAhead.starvationCount,
+                            // The transport already measures the link; NativeDirect never passed it
+                            // on, so the player could not tell a slow server from any other wait.
+                            networkBitsPerSecond =
+                                transportQoe
+                                    ?.takeIf { it.throughputMeasured }
+                                    ?.throughputBitsPerSecond
+                                    ?: current.diagnostics.networkBitsPerSecond,
                             audioUnderrunCount =
                                 maxOf(
                                     current.diagnostics.audioUnderrunCount,

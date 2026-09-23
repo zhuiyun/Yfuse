@@ -2595,7 +2595,11 @@ internal fun PlayerRoot(
                     when {
                         networkRecovery.pending -> "网络已恢复，正在续播"
                         live.currentIndex != startIndex && live.positionMs < 3_000L -> "正在衔接下一集"
-                        else -> "正在准备画面"
+                        else ->
+                            networkShortfallMessage(
+                                live.diagnostics.networkBitsPerSecond,
+                                live.diagnostics.bitrateBitsPerSecond,
+                            ) ?: "正在准备画面"
                     }
                 }
             }
@@ -2610,9 +2614,7 @@ internal fun PlayerRoot(
                         ) / 1_000
                     when {
                         networkRecovery.pending -> "网络已恢复，正在续播"
-                        diagnostics.networkBitsPerSecond > 0L &&
-                            diagnostics.bitrateBitsPerSecond > 0L &&
-                            diagnostics.networkBitsPerSecond < diagnostics.bitrateBitsPerSecond ->
+                        networkCannotCarrySource(diagnostics.networkBitsPerSecond, diagnostics.bitrateBitsPerSecond) ->
                             "网络速度不足 · 已缓冲 $bufferedSeconds 秒"
                         else -> "正在重新缓冲 · 已缓冲 $bufferedSeconds 秒"
                     }
