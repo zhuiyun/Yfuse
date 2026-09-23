@@ -49,6 +49,7 @@ import com.yfuse.core.designsystem.overlayDismiss
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.resolveAccentColors
 import com.yfuse.core.designsystem.touchTarget
+import com.yfuse.feature.personal.PersonalMediaLists
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
 
@@ -76,6 +77,15 @@ internal fun DetailMoreActionsDialog(
     isPlex: Boolean,
     watchAvailable: Boolean,
     watchActive: Boolean,
+    /** Whether this server kind keeps favourites at all. */
+    serverFavoriteAvailable: Boolean,
+    serverFavorite: Boolean,
+    serverWatchLater: Boolean,
+    serverWatchLaterMutating: Boolean,
+    /** The selected profile's own lists; null when the title has no server to key them by. */
+    personalLists: PersonalMediaLists?,
+    onToggleServerFavorite: () -> Unit,
+    onToggleServerWatchLater: () -> Unit,
     onDownload: () -> Unit,
     onCalendar: () -> Unit,
     onToggleFollow: () -> Unit,
@@ -166,6 +176,18 @@ internal fun DetailMoreActionsDialog(
                     )
                 }
                 DetailQuickActionStrip(actions = quickActions)
+
+                Spacer(Modifier.height(2.dp))
+                DetailMoreSectionLabel(label = "收藏", color = DecorativeTints.coral)
+                DetailCollectionActions(
+                    serverFavoriteAvailable = serverFavoriteAvailable,
+                    serverFavorite = serverFavorite,
+                    serverWatchLater = serverWatchLater,
+                    serverWatchLaterMutating = serverWatchLaterMutating,
+                    personalLists = personalLists,
+                    onToggleServerFavorite = onToggleServerFavorite,
+                    onToggleServerWatchLater = onToggleServerWatchLater,
+                )
 
                 Spacer(Modifier.height(2.dp))
                 DetailMoreSectionLabel(label = "管理", color = DecorativeTints.plum)
@@ -426,6 +448,71 @@ private fun RowScope.DetailQuickActionItem(action: DetailQuickAction) {
 private fun DetailQuickActionDivider() {
     val palette = LocalPalette.current
     Box(Modifier.width(1.dp).height(38.dp).background(palette.border))
+}
+
+/**
+ * The four list switches that used to sit under the play key. They change state in place, so the
+ * sheet stays open and each row shows its new state at once.
+ */
+@Composable
+private fun DetailCollectionActions(
+    serverFavoriteAvailable: Boolean,
+    serverFavorite: Boolean,
+    serverWatchLater: Boolean,
+    serverWatchLaterMutating: Boolean,
+    personalLists: PersonalMediaLists?,
+    onToggleServerFavorite: () -> Unit,
+    onToggleServerWatchLater: () -> Unit,
+) {
+    val palette = LocalPalette.current
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .flatGlass(AppShapes.card, palette.card2, palette.border),
+    ) {
+        if (serverFavoriteAvailable) {
+            DetailManagementRow(
+                icon = if (serverFavorite) AppIcons.HeartFilled else AppIcons.Heart,
+                label = "服务器收藏",
+                description = "保存在当前服务器的收藏中",
+                color = DecorativeTints.coral,
+                checked = serverFavorite,
+                onClick = onToggleServerFavorite,
+            )
+            DetailManagementDivider()
+        }
+        DetailManagementRow(
+            icon = if (serverWatchLater) AppIcons.Check else AppIcons.Bookmark,
+            label = "服务器稍后看",
+            description = if (serverWatchLaterMutating) "正在同步到服务器…" else "加入当前服务器的稍后观看",
+            color = DecorativeTints.amber,
+            checked = serverWatchLater,
+            onClick = { if (!serverWatchLaterMutating) onToggleServerWatchLater() },
+        )
+        personalLists?.let { lists ->
+            DetailManagementDivider()
+            DetailManagementRow(
+                icon = if (lists.favorite) AppIcons.HeartFilled else AppIcons.Heart,
+                label = "收藏到个人清单",
+                description = if (lists.allowed) "只属于当前资料，跨服务器同步" else "当前资料无权访问此服务器",
+                color = DecorativeTints.coral,
+                checked = lists.favorite,
+                onClick = lists.toggleFavorite,
+            )
+            DetailManagementDivider()
+            DetailManagementRow(
+                icon = if (lists.wanted) AppIcons.Check else AppIcons.Bookmark,
+                label = "加入个人想看",
+                description = if (lists.allowed) "只属于当前资料，跨服务器同步" else "当前资料无权访问此服务器",
+                color = DecorativeTints.teal,
+                checked = lists.wanted,
+                onClick = lists.toggleWanted,
+            )
+        }
+    }
+    personalLists?.error?.let { error ->
+        Text(error, style = AppTypography.caption.regular, color = palette.error)
+    }
 }
 
 @Composable

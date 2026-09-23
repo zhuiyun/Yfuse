@@ -21,14 +21,22 @@ import com.yfuse.core.sync.watchKey
 import com.yfuse.feature.detail.GlassActionButton
 import org.koin.core.context.GlobalContext
 
-/** These lists belong to the selected family profile; server lists remain separately available. */
+/** A title's place in the selected family profile's own lists, and the switches that change it. */
+class PersonalMediaLists(
+    val favorite: Boolean,
+    val wanted: Boolean,
+    /** False when this profile may not use the title's server; the lists are then read-only. */
+    val allowed: Boolean,
+    val error: String?,
+    val toggleFavorite: () -> Unit,
+    val toggleWanted: () -> Unit,
+)
+
 @Composable
-fun PersonalMediaActions(
+fun rememberPersonalMediaLists(
     detail: MediaDetail,
     serverId: String,
-    modifier: Modifier = Modifier,
-    accent: androidx.compose.ui.graphics.Color = LocalAccentColors.current.accent,
-) {
+): PersonalMediaLists {
     val personal = remember { GlobalContext.get().get<PersonalLibraryRepository>() }
     val state by personal.state.collectAsState()
     val media =
@@ -49,28 +57,46 @@ fun PersonalMediaActions(
         }
     val favorite = state.favorites.any { it.media.identity == media.identity }
     val wanted = state.watchLater.any { it.media.identity == media.identity }
-    val allowed = personal.canAccessServer(serverId)
+    return PersonalMediaLists(
+        favorite = favorite,
+        wanted = wanted,
+        allowed = personal.canAccessServer(serverId),
+        error = state.error,
+        toggleFavorite = { if (personal.canAccessServer(serverId)) personal.setFavorite(media, !favorite) },
+        toggleWanted = { if (personal.canAccessServer(serverId)) personal.setWatchLater(media, !wanted) },
+    )
+}
+
+/** These lists belong to the selected family profile; server lists remain separately available. */
+@Composable
+fun PersonalMediaActions(
+    detail: MediaDetail,
+    serverId: String,
+    modifier: Modifier = Modifier,
+    accent: androidx.compose.ui.graphics.Color = LocalAccentColors.current.accent,
+) {
+    val lists = rememberPersonalMediaLists(detail, serverId)
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             GlassActionButton(
-                icon = if (favorite) AppIcons.HeartFilled else AppIcons.Heart,
-                label = if (favorite) "已收藏到个人清单" else "收藏到个人清单",
-                active = favorite,
+                icon = if (lists.favorite) AppIcons.HeartFilled else AppIcons.Heart,
+                label = if (lists.favorite) "已收藏到个人清单" else "收藏到个人清单",
+                active = lists.favorite,
                 accent = accent,
-                enabled = allowed,
-                onClick = { if (personal.canAccessServer(serverId)) personal.setFavorite(media, !favorite) },
+                enabled = lists.allowed,
+                onClick = lists.toggleFavorite,
                 modifier = Modifier.weight(1f),
             )
             GlassActionButton(
-                icon = if (wanted) AppIcons.Check else AppIcons.Bookmark,
-                label = if (wanted) "已加入个人想看" else "加入个人想看",
-                active = wanted,
+                icon = if (lists.wanted) AppIcons.Check else AppIcons.Bookmark,
+                label = if (lists.wanted) "已加入个人想看" else "加入个人想看",
+                active = lists.wanted,
                 accent = accent,
-                enabled = allowed,
-                onClick = { if (personal.canAccessServer(serverId)) personal.setWatchLater(media, !wanted) },
+                enabled = lists.allowed,
+                onClick = lists.toggleWanted,
                 modifier = Modifier.weight(1f),
             )
         }
-        state.error?.let { ThemeText(it, style = AppTypography.caption.regular) }
+        lists.error?.let { ThemeText(it, style = AppTypography.caption.regular) }
     }
 }

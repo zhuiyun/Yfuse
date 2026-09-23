@@ -561,14 +561,6 @@ fun DetailScreen(component: DetailComponent) {
                                                 detailLine = playDetailLine,
                                                 resumeTimeLabel = formatResumePosition(state.playPositionTicks),
                                                 resolving = state.resolvingPlay,
-                                                favoriteAvailable =
-                                                    state.playServer
-                                                        ?.kind
-                                                        ?.capabilities()
-                                                        ?.favorites != false,
-                                                favorite = detail.isFavorite,
-                                                watchLater = state.watchLater,
-                                                watchLaterMutating = state.watchLaterMutating,
                                                 canPlayFromStart = state.playPositionTicks > 0L,
                                                 onPlay =
                                                     playerArtworkOnClick(
@@ -578,32 +570,28 @@ fun DetailScreen(component: DetailComponent) {
                                                     playerArtworkOnClick(sharedHeroKey) {
                                                         component.store.accept(DetailIntent.PlayFromStart)
                                                     },
-                                                onFavorite = {
-                                                    component.store.accept(DetailIntent.ToggleFavorite)
-                                                },
-                                                onWatchLater = {
-                                                    component.store.accept(DetailIntent.ToggleWatchLater)
-                                                },
                                             )
                                         }
                                     }
                                 }
 
-                                state.server?.let { server ->
-                                    motionItem(key = "personal-lists") {
+                                // 收藏 / 稍后看 and the personal lists live in the 更多操作 sheet: under the play
+                                // key they pushed the synopsis and the sources below the fold.
+                                val overview = detail.overview
+                                if (!overview.isNullOrBlank()) {
+                                    motionItem(key = "overview") {
                                         AnimatedColorContent(detailAccentState) { detailAccent ->
-                                            com.yfuse.feature.personal.PersonalMediaActions(
-                                                detail,
-                                                server.id,
-                                                Modifier
-                                                    .padding(
-                                                        horizontal = Dimens.pageHorizontal,
-                                                    ).padding(top = 10.dp),
+                                            OverviewSection(
+                                                text = overview,
+                                                expanded = overviewExpanded,
+                                                onToggle = { overviewExpanded = !overviewExpanded },
                                                 accent = detailAccent,
+                                                modifier = Modifier.sectionPadding(),
                                             )
                                         }
                                     }
                                 }
+
                                 if (state.server != null) {
                                     motionItem(key = "sources") {
                                         AnimatedColorContent(detailAccentState) { detailAccent ->
@@ -621,21 +609,6 @@ fun DetailScreen(component: DetailComponent) {
                                                 },
                                                 onSeeAll = { sourceListOpen = true },
                                                 modifier = Modifier.padding(top = Dimens.sectionGap),
-                                            )
-                                        }
-                                    }
-                                }
-
-                                val overview = detail.overview
-                                if (!overview.isNullOrBlank()) {
-                                    motionItem(key = "overview") {
-                                        AnimatedColorContent(detailAccentState) { detailAccent ->
-                                            OverviewSection(
-                                                text = overview,
-                                                expanded = overviewExpanded,
-                                                onToggle = { overviewExpanded = !overviewExpanded },
-                                                accent = detailAccent,
-                                                modifier = Modifier.sectionPadding(),
                                             )
                                         }
                                     }
@@ -861,6 +834,21 @@ fun DetailScreen(component: DetailComponent) {
                         isPlex = state.server?.kind == com.yfuse.core.model.MediaServerKind.Plex,
                         watchAvailable = watchAvailable,
                         watchActive = watchState.roomCode != null,
+                        serverFavoriteAvailable =
+                            state.playServer
+                                ?.kind
+                                ?.capabilities()
+                                ?.favorites != false,
+                        serverFavorite = detail.isFavorite,
+                        serverWatchLater = state.watchLater,
+                        serverWatchLaterMutating = state.watchLaterMutating,
+                        personalLists =
+                            state.server?.let { server ->
+                                com.yfuse.feature.personal
+                                    .rememberPersonalMediaLists(detail, server.id)
+                            },
+                        onToggleServerFavorite = { component.store.accept(DetailIntent.ToggleFavorite) },
+                        onToggleServerWatchLater = { component.store.accept(DetailIntent.ToggleWatchLater) },
                         onDownload = {
                             moreSheetOpen = false
                             downloadSheetOpen = true

@@ -68,16 +68,10 @@ internal fun DetailActionDock(
     /** Resume position shown immediately to the left of the chevron. */
     resumeTimeLabel: String?,
     resolving: Boolean,
-    favoriteAvailable: Boolean = true,
-    favorite: Boolean,
-    watchLater: Boolean,
-    watchLaterMutating: Boolean,
     /** Shown only when there is progress to discard. */
     canPlayFromStart: Boolean,
     onPlay: () -> Unit,
     onPlayFromStart: () -> Unit,
-    onFavorite: () -> Unit,
-    onWatchLater: () -> Unit,
 ) {
     val actionInk = primaryActionContentColor(accent)
     val playInteractions = remember { MutableInteractionSource() }
@@ -208,37 +202,6 @@ internal fun DetailActionDock(
                     )
                 }
             }
-        }
-
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            if (favoriteAvailable) {
-                GlassActionButton(
-                    icon = if (favorite) AppIcons.HeartFilled else AppIcons.Heart,
-                    label = if (favorite) "服务器已收藏" else "服务器收藏",
-                    active = favorite,
-                    accent = accent,
-                    onClick = onFavorite,
-                    modifier = Modifier.weight(1f),
-                )
-            }
-            GlassActionButton(
-                icon = if (watchLater) AppIcons.Check else AppIcons.Bookmark,
-                label =
-                    when {
-                        watchLaterMutating -> "同步中"
-                        watchLater -> "服务器已加入"
-                        else -> "服务器稍后看"
-                    },
-                active = watchLater,
-                accent = accent,
-                enabled = !watchLaterMutating,
-                loading = watchLaterMutating,
-                onClick = onWatchLater,
-                modifier = Modifier.weight(1f),
-            )
         }
     }
 }

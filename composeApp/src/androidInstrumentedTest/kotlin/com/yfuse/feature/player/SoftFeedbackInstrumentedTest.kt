@@ -190,14 +190,9 @@ class SoftFeedbackInstrumentedTest {
                                     detailLine = "S1 E4",
                                     resumeTimeLabel = "12:34",
                                     resolving = resolving,
-                                    favorite = false,
-                                    watchLater = false,
-                                    watchLaterMutating = false,
                                     canPlayFromStart = true,
                                     onPlay = { plays.incrementAndGet() },
                                     onPlayFromStart = { restarts.incrementAndGet() },
-                                    onFavorite = {},
-                                    onWatchLater = {},
                                 )
                             }
                         }
