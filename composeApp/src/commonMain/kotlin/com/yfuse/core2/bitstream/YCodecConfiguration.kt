@@ -111,6 +111,37 @@ object YCodecConfiguration {
     }
 
     fun parseHvcC(data: ByteArray): YHevcConfiguration {
+        val record = readHvcC(data)
+        return YHevcConfiguration(
+            lengthBytes = record.lengthBytes,
+            vps = record.vps,
+            sps = record.sps,
+            pps = record.pps,
+        )
+    }
+
+    /**
+     * The decoder configuration an `hvcC` carries, or null when it carries no complete set.
+     *
+     * Some muxers write a record with no parameter-set arrays and repeat VPS/SPS/PPS in every
+     * keyframe instead. The platform extractor plays those, and so does a decoder given no csd-0;
+     * [parseHvcC] rejecting the record left one Dolby Vision Profile 5 MKV unplayable on the
+     * enhanced route ("HEVC configuration contains no SPS"). A malformed record still fails.
+     */
+    fun hevcParameterSetsAnnexB(data: ByteArray): ByteArray? {
+        val record = readHvcC(data)
+        if (record.sps.isEmpty() || record.pps.isEmpty()) return null
+        return (record.vps + record.sps + record.pps).joinAnnexB()
+    }
+
+    private class HvcCRecord(
+        val lengthBytes: Int,
+        val vps: List<ByteArray>,
+        val sps: List<ByteArray>,
+        val pps: List<ByteArray>,
+    )
+
+    private fun readHvcC(data: ByteArray): HvcCRecord {
         require(data.size >= HEVC_ARRAYS_OFFSET && data[0].u8() == 1) { "Invalid hvcC configuration" }
         val lengthBytes = (data[21].u8() and 0x03) + 1
         val arrayCount = data[22].u8()
@@ -135,12 +166,7 @@ object YCodecConfiguration {
                 }
             }
         }
-        return YHevcConfiguration(
-            lengthBytes = lengthBytes,
-            vps = vps,
-            sps = sps,
-            pps = pps,
-        )
+        return HvcCRecord(lengthBytes, vps, sps, pps)
     }
 }
 

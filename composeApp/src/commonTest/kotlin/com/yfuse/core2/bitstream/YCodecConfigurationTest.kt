@@ -4,6 +4,7 @@ import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNull
 
 class YCodecConfigurationTest {
     @Test
@@ -61,6 +62,36 @@ class YCodecConfigurationTest {
                 byteArrayOf(0, 0, 0, 1) + pps,
             config.csd0AnnexB(),
         )
+    }
+
+    @Test
+    fun `an hvcC without parameter sets leaves them to the keyframes instead of failing`() {
+        // What one Dolby Vision Profile 5 MKV carried: a valid record with no NAL arrays at all.
+        val empty =
+            ByteArray(23).apply {
+                this[0] = 1
+                this[21] = 0xff.toByte()
+            }
+        assertNull(YCodecConfiguration.hevcParameterSetsAnnexB(empty))
+        assertFailsWith<IllegalArgumentException> { YCodecConfiguration.parseHvcC(empty) }
+
+        val vps = byteArrayOf(0x40, 0x01, 0x0c)
+        val sps = byteArrayOf(0x42, 0x01, 0x01)
+        val pps = byteArrayOf(0x44, 0x01, 0xc0.toByte())
+        val complete =
+            empty.copyOf().apply { this[22] = 3 } + hevcArray(32, vps) + hevcArray(33, sps) + hevcArray(34, pps)
+        assertContentEquals(
+            YCodecConfiguration.parseHvcC(complete).csd0AnnexB(),
+            YCodecConfiguration.hevcParameterSetsAnnexB(complete),
+        )
+        // Only an SPS is still no usable configuration.
+        assertNull(
+            YCodecConfiguration.hevcParameterSetsAnnexB(empty.copyOf().apply { this[22] = 1 } + hevcArray(33, sps)),
+        )
+        // A record that is malformed, rather than merely empty, still fails.
+        assertFailsWith<IllegalArgumentException> {
+            YCodecConfiguration.hevcParameterSetsAnnexB(empty.copyOf().apply { this[22] = 1 })
+        }
     }
 
     @Test

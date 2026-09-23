@@ -134,8 +134,8 @@ internal object AndroidMediaFormatFactory {
         samplePacking: YSamplePacking?,
     ) {
         if (looksLikeConfigurationRecord(extra)) {
-            val config = YCodecConfiguration.parseHvcC(extra)
-            format.setByteBuffer(CSD_0, ByteBuffer.wrap(config.csd0AnnexB()))
+            // A record without parameter sets means they arrive in-band with each keyframe.
+            YCodecConfiguration.hevcParameterSetsAnnexB(extra)?.let { format.setByteBuffer(CSD_0, ByteBuffer.wrap(it)) }
             return
         }
         if (samplePacking == YSamplePacking.AnnexB || looksLikeAnnexB(extra)) {
