@@ -43,10 +43,12 @@ import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.ArtworkPageTheme
+import com.yfuse.core.designsystem.DialogAnimation
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LocalAccentColors
+import com.yfuse.core.designsystem.LocalDialogAnimation
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.artworkPageSurface
 import com.yfuse.core.designsystem.flatGlass
@@ -167,6 +169,8 @@ internal fun AiringShowCalendarDialog(
             scrollable = false,
             liquidButtons = false,
             contentPadding = 0.dp,
+            // The artwork header carries 磁吸归位's handle; the panel itself takes the drag.
+            dragHandle = false,
         ) {
             val palette = LocalPalette.current
             Column(
@@ -249,6 +253,18 @@ private fun DialogHero(
                     ),
                 ),
         )
+        // Only 磁吸归位 marks a centred dialog as something to pull; the others close by tap.
+        if (LocalDialogAnimation.current == DialogAnimation.MagneticDrag) {
+            Box(
+                Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 8.dp)
+                    .width(38.dp)
+                    .height(4.dp)
+                    .clip(CircleShape)
+                    .background(Color.White.copy(alpha = 0.72f)),
+            )
+        }
         Icon(
             AppIcons.Close,
             contentDescription = "关闭播出日历",

@@ -120,6 +120,11 @@ fun GlassDialog(
     dismissEnabled: Boolean = true,
     maxWidth: Dp = OverlayMaxWidth,
     properties: DialogProperties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+    // False when the content opens with an edge-to-edge header that draws its own handle. 磁吸归位's
+    // handle is a 28dp row above the content, so it would push that header down and leave a band
+    // of bare glass - a second sheet peeking out above the first. The gesture is unaffected: a
+    // panel that is not scrollable is itself the drag surface.
+    dragHandle: Boolean = true,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val parentMotionHost = LocalDialogMotionHost.current
@@ -280,9 +285,7 @@ fun GlassDialog(
                             },
                         ),
                 ) {
-                    if (animation ==
-                        DialogAnimation.MagneticDrag
-                    ) {
+                    if (dragHandle && animation == DialogAnimation.MagneticDrag) {
                         DialogDragHandle(drag, !dragOff && canDismiss && !leaving)
                     }
                     content()

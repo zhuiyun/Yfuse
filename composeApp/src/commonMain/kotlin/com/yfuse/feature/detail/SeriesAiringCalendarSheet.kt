@@ -153,13 +153,14 @@ internal fun SeriesAiringCalendarDialog(
             alignment = Alignment.BottomCenter,
             windowPadding = PaddingValues(start = 12.dp, top = 72.dp, end = 12.dp, bottom = 0.dp),
             shape = AppShapes.sheet,
+            // The artwork header carries the handle; the panel itself takes the drag.
+            dragHandle = false,
         ) {
             val palette = LocalPalette.current
             val lavender = resolveAccentColors(DecorativeTints.lavender, palette.isDark)
             Column(
                 Modifier
                     .fillMaxSize()
-                    .clip(AppShapes.sheet)
                     .background(
                         Brush.verticalGradient(
                             0f to palette.background.copy(alpha = 0.04f),
