@@ -22,7 +22,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.yfuse.core.designsystem.AppIcons
 
 /**
@@ -49,9 +48,8 @@ internal enum class TvSettingsPage(
     AdvancedPlayback("高级播放", "内核、解码与设备输出"),
     Danmaku("弹幕", "开关、显示与过滤"),
     WatchTogether("一起看", "房间资料与聊天显示"),
-    Appearance("外观与辅助", "主题、背景、启动位置与辅助显示"),
+    Appearance("外观与辅助", "玻璃、背景、启动位置与辅助显示"),
     GlassMaterial("玻璃材质", "底色、透明度与背景遮罩"),
-    Splash("开屏动画", "启动时播放的品牌动画"),
     Downloads("下载与离线库", "离线内容、队列与存储位置"),
     ServerBackup("服务器备份与迁移", "导出、导入与换机搬迁"),
     PermissionHealth("权限检查", "影响播放与发现的系统权限"),
@@ -78,15 +76,15 @@ internal fun TvSettingsPageScaffold(
                 Text(
                     page.title,
                     color = TvOnSurface,
-                    fontSize = 32.sp,
+                    fontSize = TvType.display,
                     fontWeight = FontWeight.ExtraBold,
                 )
                 if (page.subtitle.isNotEmpty()) {
-                    Text(page.subtitle, color = TvOnSurfaceMuted, fontSize = 15.sp)
+                    Text(page.subtitle, color = TvOnSurfaceMuted, fontSize = TvType.caption)
                 }
                 if (!status.isNullOrBlank()) {
                     Spacer(Modifier.height(6.dp))
-                    Text(status, color = TvAccent, fontSize = 14.sp)
+                    Text(status, color = TvAccent, fontSize = TvType.caption)
                 }
                 Spacer(Modifier.height(10.dp))
             }
@@ -104,7 +102,7 @@ internal fun TvSettingsSectionTitle(
     Text(
         title,
         color = TvOnSurface,
-        fontSize = 21.sp,
+        fontSize = TvType.section,
         fontWeight = FontWeight.Bold,
         modifier = modifier.padding(top = 16.dp),
     )
@@ -120,7 +118,7 @@ internal fun TvSettingsNote(
     Text(
         text,
         color = tone,
-        fontSize = 14.sp,
+        fontSize = TvType.caption,
         modifier = modifier.padding(top = 4.dp, bottom = 4.dp),
     )
 }
@@ -179,11 +177,11 @@ internal fun TvSettingRow(
                 Text(
                     title,
                     color = if (enabled) TvOnSurface else TvOnSurface.copy(alpha = 0.45f),
-                    fontSize = 18.sp,
+                    fontSize = TvType.body,
                     fontWeight = FontWeight.SemiBold,
                 )
                 if (subtitle != null) {
-                    Text(subtitle, color = TvOnSurfaceMuted, fontSize = 14.sp, maxLines = 2)
+                    Text(subtitle, color = TvOnSurfaceMuted, fontSize = TvType.caption, maxLines = 2)
                 }
             }
             if (value.isNotBlank()) {
@@ -191,7 +189,7 @@ internal fun TvSettingRow(
                 Text(
                     value,
                     color = if (enabled) TvOnSurfaceMuted else TvOnSurfaceMuted.copy(alpha = 0.45f),
-                    fontSize = 15.sp,
+                    fontSize = TvType.caption,
                 )
             }
             Spacer(Modifier.width(12.dp))

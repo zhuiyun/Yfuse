@@ -31,7 +31,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.designsystem.AppIcons
@@ -115,14 +114,14 @@ internal fun TvTmdbInfoScreen(
                     Text(
                         item.title,
                         color = Color.White,
-                        fontSize = 42.sp,
+                        fontSize = TvType.display,
                         fontWeight = FontWeight.ExtraBold,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
                     state.detail.tagline?.takeIf(String::isNotBlank)?.let { tagline ->
                         Spacer(Modifier.height(7.dp))
-                        Text(tagline, color = TvAccent, fontSize = 17.sp, maxLines = 1)
+                        Text(tagline, color = TvAccent, fontSize = TvType.body, maxLines = 1)
                     }
                     Spacer(Modifier.height(10.dp))
                     Text(
@@ -137,14 +136,14 @@ internal fun TvTmdbInfoScreen(
                                 .takeIf(String::isNotBlank),
                         ).joinToString("  ·  "),
                         color = Color.White.copy(alpha = 0.82f),
-                        fontSize = 16.sp,
+                        fontSize = TvType.caption,
                     )
                     Spacer(Modifier.height(10.dp))
                     Text(
                         item.overview.orEmpty(),
                         color = Color.White.copy(alpha = 0.74f),
-                        fontSize = 16.sp,
-                        lineHeight = 23.sp,
+                        fontSize = TvType.caption,
+                        lineHeight = TvType.readingLineHeight,
                         maxLines = 4,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -175,7 +174,7 @@ internal fun TvTmdbInfoScreen(
                     }
                     state.error?.let { error ->
                         Spacer(Modifier.height(10.dp))
-                        Text(error, color = Color(0xFFFFB4AB), fontSize = 14.sp)
+                        Text(error, color = TvDanger, fontSize = TvType.caption)
                     }
                 }
             }
@@ -217,14 +216,14 @@ internal fun TvTmdbInfoScreen(
                     Modifier.padding(horizontal = TvSafeHorizontal),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    Text("演职人员", color = TvOnSurface, fontSize = 23.sp, fontWeight = FontWeight.Bold)
+                    Text("演职人员", color = TvOnSurface, fontSize = TvType.section, fontWeight = FontWeight.Bold)
                     Text(
                         state.detail.cast.take(10).joinToString("   ") { person ->
                             listOfNotNull(person.name, person.role).joinToString(" · ")
                         },
                         color = TvOnSurfaceMuted,
-                        fontSize = 16.sp,
-                        lineHeight = 25.sp,
+                        fontSize = TvType.caption,
+                        lineHeight = TvType.readingLineHeight,
                     )
                 }
             }
@@ -273,7 +272,7 @@ internal fun TvCalendarScreen(
                             icon = AppIcons.ChevronLeft,
                             focusRequester = primaryRequester,
                         )
-                        Text("追剧日历", color = TvOnSurface, fontSize = 32.sp, fontWeight = FontWeight.ExtraBold)
+                        Text("追剧日历", color = TvOnSurface, fontSize = TvType.display, fontWeight = FontWeight.ExtraBold)
                     }
                     TvActionButton(
                         label = "刷新",

@@ -14,15 +14,15 @@ import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.ConfirmDialog
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.Section
+import com.yfuse.core.designsystem.SettingRow
+import com.yfuse.core.designsystem.SettingsCard
+import com.yfuse.core.designsystem.SettingsDivider
 import com.yfuse.core.designsystem.ThemeText
 import com.yfuse.core.handoff.ActiveHandoffPlayback
 import com.yfuse.core.handoff.HandoffController
 import com.yfuse.core.handoff.HandoffMedia
 import com.yfuse.core.handoff.HandoffPlaybackRegistry
-import com.yfuse.feature.profile.Section
-import com.yfuse.feature.profile.SettingRow
-import com.yfuse.feature.profile.SettingsCard
-import com.yfuse.feature.profile.SettingsDivider
 import com.yfuse.feature.profile.SettingsPage
 
 /** Reusable on phone, tablet and TV; every action has an explicit focusable button. */
@@ -50,7 +50,7 @@ fun DeviceHandoffScreen(
                         SettingsDivider()
                         SettingRow(
                             device.name,
-                            device.platform + if (state.busy) " · 接力中" else " · 接力播放 ›",
+                            device.platform + if (state.busy) " · 接力中" else " · 接力播放",
                             embedded = true,
                             icon = AppIcons.Play,
                             onClick = if (state.busy) null else ({ controller.send(device.sessionId) }),

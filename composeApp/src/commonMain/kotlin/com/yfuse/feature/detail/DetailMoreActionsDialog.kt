@@ -37,10 +37,11 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.DecorativeTints
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassDialog
-import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.flatGlass
@@ -52,12 +53,6 @@ import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
 
 private val DetailMoreHeroHeight = 136.dp
-private val DetailMoreTeal = Color(0xFF147E79)
-private val DetailMoreCoral = Color(0xFFC96662)
-private val DetailMoreAmber = Color(0xFFC4872E)
-private val DetailMorePlum = Color(0xFF76527E)
-private val DetailMoreEmerald = Color(0xFF238963)
-private val DetailMoreLavender = Color(0xFF9582B3)
 
 private data class DetailQuickAction(
     val icon: ImageVector,
@@ -102,7 +97,7 @@ internal fun DetailMoreActionsDialog(
                 DetailQuickAction(
                     icon = AppIcons.Download,
                     label = "下载到本地",
-                    color = DetailMoreTeal,
+                    color = DecorativeTints.teal,
                     onClick = onDownload,
                 ),
             )
@@ -111,7 +106,7 @@ internal fun DetailMoreActionsDialog(
                     DetailQuickAction(
                         icon = AppIcons.WatchCalendar,
                         label = "播出日历",
-                        color = DetailMoreCoral,
+                        color = DecorativeTints.coral,
                         onClick = onCalendar,
                     ),
                 )
@@ -120,7 +115,7 @@ internal fun DetailMoreActionsDialog(
                 DetailQuickAction(
                     icon = AppIcons.Check,
                     label = if (played) "标记未看" else "标记已看",
-                    color = DetailMoreEmerald,
+                    color = DecorativeTints.emerald,
                     onClick = onTogglePlayed,
                 ),
             )
@@ -134,14 +129,14 @@ internal fun DetailMoreActionsDialog(
         contentPadding = 0.dp,
         alignment = Alignment.BottomCenter,
         windowPadding = PaddingValues(start = 12.dp, top = 72.dp, end = 12.dp, bottom = 0.dp),
-        shape = GlassShapes.sheet,
+        shape = AppShapes.sheet,
     ) {
         val palette = LocalPalette.current
-        val lavender = resolveAccentColors(DetailMoreLavender, palette.isDark)
+        val lavender = resolveAccentColors(DecorativeTints.lavender, palette.isDark)
         Column(
             Modifier
                 .fillMaxSize()
-                .clip(GlassShapes.sheet)
+                .clip(AppShapes.sheet)
                 .background(
                     Brush.verticalGradient(
                         0f to palette.background.copy(alpha = 0.04f),
@@ -162,7 +157,7 @@ internal fun DetailMoreActionsDialog(
                     .padding(horizontal = 14.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                DetailMoreSectionLabel(label = "观看", color = DetailMoreTeal)
+                DetailMoreSectionLabel(label = "观看", color = DecorativeTints.teal)
                 if (watchAvailable) {
                     DetailWatchTogetherAction(
                         active = watchActive,
@@ -172,7 +167,7 @@ internal fun DetailMoreActionsDialog(
                 DetailQuickActionStrip(actions = quickActions)
 
                 Spacer(Modifier.height(2.dp))
-                DetailMoreSectionLabel(label = "管理", color = DetailMorePlum)
+                DetailMoreSectionLabel(label = "管理", color = DecorativeTints.plum)
                 DetailManagementActions(
                     isSeries = isSeries,
                     followed = followed,
@@ -201,7 +196,7 @@ private fun DetailMoreHero(
             .height(DetailMoreHeroHeight)
             .background(
                 Brush.linearGradient(
-                    listOf(DetailMorePlum, DetailMoreTeal, DetailMoreCoral),
+                    listOf(DecorativeTints.plum, DecorativeTints.teal, DecorativeTints.coral),
                 ),
             ),
     ) {
@@ -227,7 +222,7 @@ private fun DetailMoreHero(
                 .background(
                     Brush.verticalGradient(
                         0f to Color.Black.copy(alpha = 0.16f),
-                        0.46f to DetailMorePlum.copy(alpha = 0.2f),
+                        0.46f to DecorativeTints.plum.copy(alpha = 0.2f),
                         1f to Color.Black.copy(alpha = 0.76f),
                     ),
                 ),
@@ -316,7 +311,7 @@ private fun DetailWatchTogetherAction(
 ) {
     val palette = LocalPalette.current
     val artwork = LocalAccentColors.current
-    val plum = resolveAccentColors(DetailMorePlum, palette.isDark)
+    val plum = resolveAccentColors(DecorativeTints.plum, palette.isDark)
     val iconFill = lerp(plum.container, artwork.container, 0.46f)
     Row(
         Modifier
@@ -326,7 +321,7 @@ private fun DetailWatchTogetherAction(
             .semantics {
                 stateDescription = if (active) "一起看房间已创建" else "尚未创建一起看房间"
             }.flatGlass(
-                GlassShapes.card,
+                AppShapes.card,
                 lerp(palette.card2, iconFill, 0.76f),
                 lerp(plum.border, artwork.border, 0.4f).copy(alpha = 0.72f),
             ).padding(horizontal = 13.dp, vertical = 11.dp),
@@ -379,7 +374,7 @@ private fun DetailQuickActionStrip(actions: List<DetailQuickAction>) {
         Modifier
             .fillMaxWidth()
             .height(82.dp)
-            .flatGlass(GlassShapes.card, palette.card2, palette.border),
+            .flatGlass(AppShapes.card, palette.card2, palette.border),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         actions.forEachIndexed { index, action ->
@@ -447,7 +442,7 @@ private fun DetailManagementActions(
     Column(
         Modifier
             .fillMaxWidth()
-            .flatGlass(GlassShapes.card, palette.card2, palette.border),
+            .flatGlass(AppShapes.card, palette.card2, palette.border),
     ) {
         var needsDivider = false
 
@@ -456,7 +451,7 @@ private fun DetailManagementActions(
                 icon = AppIcons.Bell,
                 label = if (followed) "已加入追剧" else "加入追剧",
                 description = if (followed) "追剧中心优先显示并接收更新提醒" else "关注排期和新集入库",
-                color = DetailMoreTeal,
+                color = DecorativeTints.teal,
                 checked = followed,
                 onClick = onToggleFollow,
             )
@@ -468,7 +463,7 @@ private fun DetailManagementActions(
             icon = AppIcons.Grid,
             label = "加入合集或播放列表",
             description = "选择服务器上已有的容器",
-            color = DetailMoreAmber,
+            color = DecorativeTints.amber,
             onClick = onOrganization,
         )
         DetailManagementDivider()
@@ -476,7 +471,7 @@ private fun DetailManagementActions(
             icon = AppIcons.Edit,
             label = "编辑元数据与图片",
             description = "修改标题、简介或选择海报",
-            color = DetailMorePlum,
+            color = DecorativeTints.plum,
             onClick = onEditMetadata,
         )
         DetailManagementDivider()
@@ -484,7 +479,7 @@ private fun DetailManagementActions(
             icon = AppIcons.Refresh,
             label = "刷新服务器元数据",
             description = "保留已锁定字段与现有图片",
-            color = DetailMoreCoral,
+            color = DecorativeTints.coral,
             onClick = onRefresh,
         )
         if (isPlex) {
@@ -493,7 +488,7 @@ private fun DetailManagementActions(
                 icon = AppIcons.Cloud,
                 label = "分析 Plex 媒体",
                 description = "重新分析文件、音视频轨与章节",
-                color = DetailMorePlum,
+                color = DecorativeTints.plum,
                 onClick = onAnalyze,
             )
         }

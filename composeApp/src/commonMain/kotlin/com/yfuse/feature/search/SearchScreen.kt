@@ -48,15 +48,12 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.arkivanov.decompose.extensions.compose.subscribeAsState
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.designsystem.AppIcons
@@ -67,8 +64,6 @@ import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.DisclosureContent
 import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.FallbackImage
-import com.yfuse.core.designsystem.GlassShapes
-import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
@@ -84,6 +79,7 @@ import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.SkeletonBlock
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.TabBarInset
+import com.yfuse.core.designsystem.YfChip
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.mediaLazyItemKey
 import com.yfuse.core.designsystem.motionItem
@@ -92,7 +88,6 @@ import com.yfuse.core.designsystem.motionItemsIndexed
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberDisclosureProgress
 import com.yfuse.core.designsystem.searchFieldArrival
-import com.yfuse.core.designsystem.selectionColor
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.skeletonFill
 import com.yfuse.core.designsystem.skeletonSweep
@@ -192,7 +187,7 @@ private fun SearchHomeScreen(
             contentPadding = PaddingValues(top = Dimens.contentTop, bottom = TabBarInset),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            motionItem {
+            motionItem(key = "search-field") {
                 Column {
                     SearchField(
                         query = state.query,
@@ -208,7 +203,7 @@ private fun SearchHomeScreen(
                 }
             }
             state.person?.let { person ->
-                motionItem {
+                motionItem(key = "search-person-banner") {
                     PersonBanner(
                         person = person,
                         onClear = { store.accept(SearchIntent.SelectPerson(null)) },
@@ -218,7 +213,7 @@ private fun SearchHomeScreen(
 
             val awaitingFirstResults = state.loading && state.groups.isEmpty()
             if (awaitingFirstResults) {
-                motionItem { SearchSkeleton() }
+                motionItem(key = "search-skeleton") { SearchSkeleton() }
             }
 
             // Nothing typed yet: the chip row alone, no empty results heading.
@@ -351,7 +346,7 @@ private fun SearchHomeScreen(
             }
 
             if (!state.hasSearched && state.query.isBlank()) {
-                motionItem {
+                motionItem(key = "search-recent") {
                     RecentSearches(
                         title = if (state.recent.isEmpty()) "试试搜索" else "搜索记录",
                         terms = state.recent.ifEmpty { suggestedTerms },
@@ -475,40 +470,16 @@ private fun ResultsHeading(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 types.forEach { type ->
-                    TypeChip(
+                    YfChip(
                         label = type.label,
                         selected = type == selected,
                         onClick = { onSelectType(type) },
+                        onClickLabel = "筛选 ${type.label}",
                     )
                 }
             }
         }
     }
-}
-
-@Composable
-private fun TypeChip(
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-) {
-    val palette = LocalPalette.current
-    val accent = LocalAccentColors.current
-    Text(
-        label,
-        style = if (selected) AppTypography.caption.strong else AppTypography.caption.medium,
-        color = selectionColor(if (selected) accent.accent else palette.body),
-        modifier =
-            Modifier
-                .pressable(haptic = HapticSignal.Select, role = Role.RadioButton, onClick = onClick)
-                .semantics { this.selected = selected }
-                .touchTarget()
-                .glass(
-                    shape = GlassShapes.chip,
-                    fill = selectionColor(if (selected) accent.container else palette.card2),
-                    border = selectionColor(if (selected) accent.border else palette.border),
-                ).padding(horizontal = 11.dp, vertical = 5.dp),
-    )
 }
 
 /** Cast matches, newest kind of result first. Tapping one opens their titles. */
@@ -591,7 +562,7 @@ private fun PersonBanner(
         Modifier
             .fillMaxWidth()
             .padding(horizontal = Dimens.pageHorizontal)
-            .glass(GlassShapes.chip, palette.card2, palette.border)
+            .glass(AppShapes.chip, palette.card2, palette.border)
             .padding(horizontal = 14.dp, vertical = 10.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -661,7 +632,7 @@ private fun ServerGroup(
                 group.error,
                 style = AppTypography.caption.regular,
                 color = palette.hint,
-                modifier = Modifier.fillMaxWidth().glass(GlassShapes.card).padding(12.dp),
+                modifier = Modifier.fillMaxWidth().glass(AppShapes.card).padding(12.dp),
             )
         } else if (group.items.size > 1) {
             LazyRow(
@@ -706,7 +677,7 @@ private fun ServerGroup(
                         onClickLabel = if (group.loadMoreError == null) "加载更多结果" else "重试加载更多",
                         onClick = onLoadMore,
                     ).touchTarget()
-                    .glass(GlassShapes.chip, palette.card2, palette.border)
+                    .glass(AppShapes.chip, palette.card2, palette.border)
                     .padding(horizontal = 14.dp, vertical = 9.dp),
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
@@ -741,7 +712,7 @@ private fun SearchCoverageNotice(
     Column(
         Modifier
             .fillMaxWidth()
-            .glass(GlassShapes.card, palette.card2, palette.border),
+            .glass(AppShapes.card, palette.card2, palette.border),
     ) {
         Row(
             Modifier
@@ -792,7 +763,7 @@ private fun SearchCoverageNotice(
                     Column(
                         Modifier
                             .fillMaxWidth()
-                            .glass(GlassShapes.chip, palette.card3, palette.border)
+                            .glass(AppShapes.chip, palette.card3, palette.border)
                             .padding(horizontal = 11.dp, vertical = 9.dp),
                     ) {
                         Text(
@@ -845,7 +816,7 @@ private fun EmptyResults(filtered: Boolean) {
             } else {
                 "所有服务器中都没有找到相关内容\n试试片名的一部分"
             },
-            style = AppTypography.caption.regular.copy(lineHeight = 19.5.sp),
+            style = AppTypography.caption.reading,
             color = palette.hint,
             textAlign = TextAlign.Center,
         )
@@ -874,7 +845,7 @@ private fun SearchSkeleton() {
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .glass(GlassShapes.card)
+                    .glass(AppShapes.card)
                     .padding(8.dp),
                 horizontalArrangement = Arrangement.spacedBy(11.dp),
             ) {
@@ -932,7 +903,7 @@ private fun ResultRow(
     Row(
         modifier
             .pressable(onClick = onClick)
-            .glass(GlassShapes.card)
+            .glass(AppShapes.card)
             .padding(8.dp),
         horizontalArrangement = Arrangement.spacedBy(11.dp),
     ) {
@@ -987,7 +958,7 @@ private fun ResultRow(
                 Spacer(Modifier.height(5.dp))
                 Row(
                     Modifier
-                        .clip(GlassShapes.chip)
+                        .clip(AppShapes.chip)
                         .background(accent.container)
                         .padding(horizontal = 8.dp, vertical = 4.dp),
                     horizontalArrangement = Arrangement.spacedBy(5.dp),
@@ -1022,7 +993,7 @@ private fun ResultRow(
                 Spacer(Modifier.height(6.dp))
                 Text(
                     overview,
-                    style = AppTypography.caption.regular.copy(lineHeight = 17.sp),
+                    style = AppTypography.caption.reading,
                     color = palette.hint,
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
@@ -1099,7 +1070,7 @@ private fun RecentSearches(
                             onLongClickLabel = if (canEdit) "删除搜索记录" else null,
                             onClick = { if (editing) onForget(term) else onSelect(term) },
                         ).touchTarget()
-                        .glass(GlassShapes.chip, palette.card2)
+                        .glass(AppShapes.chip, palette.card2)
                         .padding(horizontal = 13.dp, vertical = 7.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -1142,7 +1113,7 @@ private fun HistoryAction(
                 .pressable(onClick = onClick)
                 .touchTarget()
                 .glass(
-                    shape = GlassShapes.chip,
+                    shape = AppShapes.chip,
                     fill = if (accent) accentColors.container else palette.card2,
                     border = if (accent) accentColors.border else palette.border,
                 ).padding(horizontal = 11.dp, vertical = 6.dp),

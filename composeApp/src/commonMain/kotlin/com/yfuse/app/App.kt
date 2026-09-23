@@ -1,24 +1,17 @@
 package com.yfuse.app
 
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
@@ -29,25 +22,21 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
-import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -61,9 +50,6 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
-import androidx.compose.ui.input.nestedscroll.NestedScrollSource
-import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.Role
@@ -71,7 +57,6 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
-import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import com.arkivanov.decompose.extensions.compose.subscribeAsState
 import com.yfuse.app.RootComponent.Tab
@@ -175,17 +160,10 @@ private val tabs =
         TabItem(Tab.Profile, "我的", AppIcons.TabProfile),
     )
 
-/**
- * Legacy fixed clearance for screens not yet migrated to [floatingNavigationContentInset].
- * Root library/profile pages use the dynamic helper so the system navigation inset is exact.
- */
-val TabBarInset = Dimens.contentBottom
-
 @Composable
 fun App(root: RootComponent) {
     BindBackgroundServices(root)
     val mode by root.themePreferences.mode.collectAsState()
-    val accent by root.themePreferences.accent.collectAsState()
     val reduceTransparency by root.themePreferences.reduceTransparency.collectAsState()
     val largeText by root.themePreferences.largeText.collectAsState()
     val reduceMotion by root.themePreferences.reduceMotion.collectAsState()
@@ -199,7 +177,6 @@ fun App(root: RootComponent) {
     val motionOff = reduceMotion || systemMotionOff
     val pulseSweep by root.themePreferences.pulseSweep.collectAsState()
     val particleLight by root.themePreferences.particleLight.collectAsState()
-    val particleStyle by root.themePreferences.particleStyle.collectAsState()
     val dialogAnimation by root.themePreferences.dialogAnimation.collectAsState()
     val glassStyle by root.themePreferences.glassStyle.collectAsState()
     val loadingAnimation by root.themePreferences.loadingAnimation.collectAsState()
@@ -210,7 +187,6 @@ fun App(root: RootComponent) {
 
     YfuseTheme(
         dark = dark,
-        accent = accent,
         accessibility =
             AccessibilityOptions(
                 reduceTransparency = reduceTransparency,
@@ -226,7 +202,6 @@ fun App(root: RootComponent) {
         loadingAnimation = loadingAnimation,
         glassMaterials = glassMaterials,
         particleLight = particleLight,
-        particleStyle = particleStyle,
     ) {
         BindProductServices(root)
         val savedServers by root.dependencies.serverRegistry.data
@@ -318,9 +293,10 @@ fun App(root: RootComponent) {
         val showBottomBar = atRoot
 
         // An overlay owned by one of the tab screens composes below this shell's floating
-        // furniture, so the bar has to be told to get out of its way. Share the theme's
-        // counter: it also enables the backdrop capture used by these same dialogs.
-        val overlays = checkNotNull(LocalOverlayVisibility.current)
+        // furniture, so the bar has to be told to get out of its way. The visibility is the
+        // theme's own: the dialog backdrop capture listens to the same object, and a second one
+        // provided here would leave that capture waiting on a counter no dialog ever reaches.
+        val overlays = LocalOverlayVisibility.current
 
         var roomInfoOpen by remember { mutableStateOf(false) }
 
@@ -335,6 +311,11 @@ fun App(root: RootComponent) {
         // is a sibling drawn after it, which is the arrangement that keeps the bar out of
         // its own backdrop — see [backdropSource].
         val backdrop = rememberBackdropState()
+        // Whether anything is sampling [backdrop]. The dock is its only consumer, and it is
+        // composed exactly while it is visible or still animating out — so a pushed page, which
+        // owns the whole screen and may capture a backdrop of its own, is not also recorded here.
+        // Written from the dock's effect and read only inside the capture's draw.
+        val dockOnScreen = remember { mutableStateOf(false) }
         CompositionLocalProvider(
             LocalPulseSweepEnabled provides pulseSweep,
             LocalTabReselected provides root.tabReselected,
@@ -354,26 +335,10 @@ fun App(root: RootComponent) {
                                 root.selectTab(tab)
                             }
                         }
-                        // Reading gets the screen; navigating gets it back. Not saveable on
-                        // purpose: a collapsed bar is a transient consequence of where the finger
-                        // just went, and restoring one after process death would leave the user
-                        // looking at an app with no visible navigation and no idea why.
-                        var navCollapsed by remember { mutableStateOf(false) }
-                        val navCollapseGuard = remember { NavigationCollapseGuard() }
-                        // Arriving anywhere new is a fresh page, and a fresh page shows its bar.
-                        LaunchedEffect(active) {
-                            navCollapsed = false
-                            navCollapseGuard.reset()
-                        }
                         Box(
                             Modifier
                                 .fillMaxSize()
-                                // Only root pages with the bottom dock need scroll-to-collapse.
-                                // Secondary pages own the whole screen and have no root navigation
-                                // to collapse or expand.
-                                .then(
-                                    Modifier,
-                                ).backdropSource(backdrop),
+                                .backdropSource(backdrop, record = { dockOnScreen.value }),
                         ) {
                             val previousRootTab = remember { arrayOf(active) }
                             val rootMotion = remember(active) { rootTabMotion(previousRootTab[0], active) }
@@ -409,10 +374,9 @@ fun App(root: RootComponent) {
                         // route animates the content over Motion.PUSH while the bar was simply
                         // dropped out of composition, so the one piece of furniture that stays
                         // still across the whole app was also the only thing that ever blinked.
-                        // Whether the dock is *composed* still follows [showBottomBar] alone —
-                        // see the nested-scroll branch above — so nothing that reasons about the
-                        // bar's presence is now waiting on an animation.
-                        val dockShown = showBottomBar && !overlays.any
+                        // Whether the dock is *wanted* still follows [showBottomBar] alone, so
+                        // nothing that reasons about the bar's presence is waiting on an animation.
+                        val dockShown = showBottomBar && overlays?.any != true
                         // The dock leaves when a route is pushed and comes back when one is popped,
                         // so those are its durations — they used to be the other way round, which
                         // made the bar linger after the page it belonged to had already gone.
@@ -443,17 +407,13 @@ fun App(root: RootComponent) {
                             exit = dockExitTransition,
                             label = "bottomNavigationDock",
                         ) {
+                            DisposableEffect(dockOnScreen) {
+                                dockOnScreen.value = true
+                                onDispose { dockOnScreen.value = false }
+                            }
                             BottomNavigationDock(
                                 active = active,
-                                collapsed = navCollapsed,
                                 onSelect = onSelectTab,
-                                onExpand = {
-                                    // A tap during fling is explicit navigation intent. Keep
-                                    // the expanded dock pinned until that fling finishes or
-                                    // the user starts a new direct scroll gesture.
-                                    navCollapseGuard.onManualExpand()
-                                    navCollapsed = false
-                                },
                                 onSearch = { onSelectTab(Tab.Search) },
                                 backdrop = backdrop,
                                 cueKey = pendingInvite?.roomCode,
@@ -469,10 +429,9 @@ fun App(root: RootComponent) {
                                 .navigationBarsPadding()
                                 .widthIn(max = 520.dp)
                                 .padding(horizontal = Dimens.tabBarInset)
-                                .padding(
-                                    bottom =
-                                        Dimens.tabBarHeight + 22.dp,
-                                )
+                                // The dock's own height — it grows with the font scale — plus
+                                // its margin below and a step of air above it.
+                                .padding(bottom = dockHeight() + Dimens.tabBarInset + Dimens.space.sm)
                         // Video backgrounding is represented by Android PiP. The old long,
                         // music-like mini controller duplicated transport controls and only
                         // appeared at tab roots, so it is intentionally not rendered here.
@@ -579,140 +538,55 @@ fun App(root: RootComponent) {
 internal fun topLevelBackStack(active: Tab): List<Tab> =
     if (active == Tab.Home) listOf(Tab.Home) else listOf(Tab.Home, active)
 
-/** How far a drag has to travel in one direction before the bar answers it. */
-private val NavCollapseThreshold = 42.dp
+/** The glyph box inside a tab cell, and the glyph inside it — see [LiquidGlassTabIcon]. */
+private val DockIconBox = 34.dp
+private val DockIconGlyph = 25.dp
 
-/** Prevents leftover fling deltas from undoing an explicit tap on the collapsed dock. */
-internal class NavigationCollapseGuard {
-    private var suppressAnimatedCollapse = false
-
-    fun onManualExpand() {
-        suppressAnimatedCollapse = true
-    }
-
-    fun acceptsScroll(userInput: Boolean): Boolean {
-        if (userInput) {
-            suppressAnimatedCollapse = false
-            return true
-        }
-        return !suppressAnimatedCollapse
-    }
-
-    fun onFlingFinished() {
-        suppressAnimatedCollapse = false
-    }
-
-    fun reset() {
-        suppressAnimatedCollapse = false
-    }
-}
+/** What is left of [Dimens.tabBarHeight] around the glyph box and one caption line at 1× type. */
+private val DockVerticalPadding = 13.dp
 
 /**
- * Collapses the bar while the user is reading down a page and brings it back on the way up.
+ * The dock's height: [Dimens.tabBarHeight], or as tall as the glyph and its caption need.
  *
- * Accumulated rather than per-event: a single fling delivers dozens of small deltas, and
- * reacting to each one would flip the bar back and forth inside one gesture. The accumulator
- * resets on every direction change, so the threshold is "42dp of travel *this way*", not
- * 42dp of net movement since the page loaded.
- *
- * Reaching the top always restores the bar regardless of travel: at rest at the top of a page
- * there is no reading in progress to protect, and it is the one position where a user who has
- * lost the bar will reliably look for it.
+ * 62dp holds a 34dp glyph box and one caption line at the default font scale. Under 大号文字
+ * on top of a large system font the caption line alone grows past what is left, and a fixed
+ * height clipped the label. The density read here is the theme's, so both scales are in it.
  */
 @Composable
-private fun rememberNavCollapseConnection(
-    collapsed: Boolean,
-    onCollapsedChange: (Boolean) -> Unit,
-    guard: NavigationCollapseGuard,
-): NestedScrollConnection {
-    val threshold = with(LocalDensity.current) { NavCollapseThreshold.toPx() }
-    val state = rememberUpdatedState(collapsed to onCollapsedChange)
-    return remember(threshold) {
-        object : NestedScrollConnection {
-            private var travel = 0f
-
-            override fun onPreScroll(
-                available: Offset,
-                source: NestedScrollSource,
-            ): Offset {
-                if (!guard.acceptsScroll(source == NestedScrollSource.UserInput)) {
-                    travel = 0f
-                    return Offset.Zero
-                }
-                val delta = available.y
-                if (delta == 0f) return Offset.Zero
-                if (delta > 0f != travel > 0f) travel = 0f
-                travel += delta
-                val (isCollapsed, setCollapsed) = state.value
-                when {
-                    // Dragging up moves content down: the user is reading forward.
-                    travel <= -threshold && !isCollapsed -> {
-                        travel = 0f
-                        setCollapsed(true)
-                    }
-                    travel >= threshold && isCollapsed -> {
-                        travel = 0f
-                        setCollapsed(false)
-                    }
-                }
-                return Offset.Zero
-            }
-
-            override fun onPostScroll(
-                consumed: Offset,
-                available: Offset,
-                source: NestedScrollSource,
-            ): Offset {
-                // Unconsumed downward scroll means the list is already at its top.
-                if (available.y > 0f && state.value.first) {
-                    travel = 0f
-                    state.value.second(false)
-                }
-                return Offset.Zero
-            }
-
-            override suspend fun onPostFling(
-                consumed: Velocity,
-                available: Velocity,
-            ): Velocity {
-                travel = 0f
-                guard.onFlingFinished()
-                return Velocity.Zero
-            }
+internal fun dockHeight(): Dp {
+    val captionLine =
+        with(LocalDensity.current) {
+            AppTypography.caption.regular.lineHeight
+                .toDp()
         }
-    }
+    return dockHeight(captionLine)
 }
 
+internal fun dockHeight(captionLine: Dp): Dp =
+    maxOf(Dimens.tabBarHeight, DockIconBox + captionLine + DockVerticalPadding)
+
 /**
- * The bottom furniture: the four destinations, and 搜索 as its own control beside them.
- *
- * Two shapes for one row. Expanded, the tabs fill a capsule and search is a circle at its
- * end. Collapsed, the capsule contracts to a single button carrying the icon of wherever the
- * user is — enough to say "navigation lives here" without spending a bar's worth of screen on
- * four destinations nobody is looking at while reading — and tapping it brings the row back.
- * Search does not collapse: it is one tap from anywhere, and that is the point of moving it
- * out of the row.
+ * The bottom furniture: the four destinations in a capsule, and 搜索 as its own round key at
+ * the end of the row — one tap from anywhere, which is the point of moving it out of the row.
  */
 @Composable
 private fun BottomNavigationDock(
     active: Tab,
-    collapsed: Boolean,
     onSelect: (Tab) -> Unit,
-    onExpand: () -> Unit,
     onSearch: () -> Unit,
     backdrop: BackdropState,
     modifier: Modifier = Modifier,
     /** Changes to a non-null value when something arrives for the user — a 一起看 invite. */
     cueKey: Any? = null,
 ) {
-    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val height = dockHeight()
     Row(
         modifier
             .widthIn(max = 520.dp)
             .fillMaxWidth()
             .padding(horizontal = Dimens.tabBarInset)
             .padding(bottom = Dimens.tabBarInset)
-            .height(Dimens.tabBarHeight)
+            .height(height)
             // One accent sweep across the dock as the invite lands, before its sheet opens:
             // the bar is where the user is looking, and it is the surface the invite belongs to.
             .attentionSweep(cueKey),
@@ -721,106 +595,19 @@ private fun BottomNavigationDock(
         horizontalArrangement = Arrangement.spacedBy(Dimens.tabBarInset),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        BoxWithConstraints(Modifier.weight(1f)) {
-            val expandedWidth = maxWidth
-            val dockWidth =
-                animateDpAsState(
-                    targetValue = if (collapsed) Dimens.tabBarHeight else maxWidth,
-                    animationSpec = if (reduceMotion) snap() else spring(dampingRatio = 0.92f, stiffness = 360f),
-                    label = "navigationDockWidth",
-                )
-            // A single continuous lens changes width; content fades inside its clipped bounds.
-            // The fixed outer slot keeps search still, including when a fling is interrupted.
-            AnimatedContent(
-                targetState = collapsed,
-                modifier =
-                    Modifier
-                        .clip(CircleShape)
-                        .navigationGlass(backdrop, CircleShape)
-                        .navigationDockViewport(dockWidth, expandedWidth),
-                contentAlignment = Alignment.CenterStart,
-                transitionSpec = {
-                    val duration = if (reduceMotion) 0 else Motion.EMPHASIZED
-                    (
-                        (
-                            fadeIn(
-                                tween(duration),
-                            ) + scaleIn(tween(duration, easing = Motion.Curve), initialScale = 0.96f)
-                        ) togetherWith
-                            (
-                                fadeOut(tween(if (reduceMotion) 0 else Motion.QUICK)) +
-                                    scaleOut(tween(duration), targetScale = 0.98f)
-                            )
-                    ).using(null)
-                },
-                label = "navigationDockContent",
-            ) { isCollapsed ->
-                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
-                    if (isCollapsed) {
-                        CollapsedNavButton(active = active, backdrop = backdrop, onClick = onExpand, drawShell = false)
-                    } else {
-                        GlassTabBar(
-                            active = active,
-                            onSelect = onSelect,
-                            backdrop = backdrop,
-                            drawShell = false,
-                            modifier =
-                                Modifier
-                                    .wrapContentWidth(
-                                        Alignment.Start,
-                                        unbounded = true,
-                                    ).requiredWidth(expandedWidth),
-                        )
-                    }
-                }
-            }
-        }
+        GlassTabBar(
+            active = active,
+            onSelect = onSelect,
+            backdrop = backdrop,
+            modifier = Modifier.weight(1f),
+            height = height,
+        )
         SearchButton(
             selected = active == Tab.Search,
             backdrop = backdrop,
+            diameter = height,
             onClick = onSearch,
         )
-    }
-}
-
-/** Measure tab content once at its resting width; animation only changes the surrounding clipped viewport. */
-internal fun Modifier.navigationDockViewport(
-    animatedWidth: State<Dp>,
-    expandedWidth: Dp,
-): Modifier =
-    layout { measurable, constraints ->
-        val fullWidth = expandedWidth.roundToPx().coerceIn(constraints.minWidth, constraints.maxWidth)
-        val content = measurable.measure(constraints.copy(minWidth = fullWidth, maxWidth = fullWidth))
-        // The width clock is deliberately read during layout, never while composing the tab buttons.
-        val visibleWidth = animatedWidth.value.roundToPx().coerceIn(constraints.minWidth, fullWidth)
-        layout(visibleWidth, content.height) { content.placeRelative(0, 0) }
-    }
-
-/** The bar contracted to one key — the current tab's glyph, and a way back to the rest. */
-@Composable
-private fun CollapsedNavButton(
-    active: Tab,
-    backdrop: BackdropState,
-    onClick: () -> Unit,
-    drawShell: Boolean = true,
-) {
-    val accent = LocalAccentColors.current
-    val item = tabs.firstOrNull { it.tab == active } ?: tabs.first()
-    Box(
-        Modifier
-            .size(Dimens.tabBarHeight)
-            .pressable(
-                pressedScale = 0.96f,
-                haptic = HapticSignal.Select,
-                onClickLabel = "展开导航栏",
-                onClick = onClick,
-            )
-            // Round, like the search key beside it and like the capsule it collapsed out of.
-            // A rounded square made the pair read as two unrelated controls.
-            .then(if (drawShell) Modifier.navigationGlass(backdrop, CircleShape) else Modifier),
-        contentAlignment = Alignment.Center,
-    ) {
-        LiquidGlassTabIcon(item = item, tint = accent.accent, compact = true)
     }
 }
 
@@ -829,7 +616,7 @@ private fun CollapsedNavButton(
  *
  * Round where the tabs are a capsule, because it is not one of them: it does not hold a
  * position in the app, it takes you out of wherever you are and hands you back somewhere
- * else. It stays put when the bar collapses.
+ * else. It is as tall as the capsule beside it — see [dockHeight].
  *
  * Its resting state is the same ink as the tabs, at full size. It used to be grey and
  * shrunk like an unselected tab, which is the language of "not where you are" — but
@@ -840,6 +627,7 @@ private fun CollapsedNavButton(
 private fun SearchButton(
     selected: Boolean,
     backdrop: BackdropState,
+    diameter: Dp,
     onClick: () -> Unit,
 ) {
     val palette = LocalPalette.current
@@ -859,7 +647,7 @@ private fun SearchButton(
     )
     Box(
         Modifier
-            .size(Dimens.tabBarHeight)
+            .size(diameter)
             .searchDockSource()
             .pressable(
                 pressedScale = 0.96f,
@@ -901,7 +689,7 @@ private fun SearchButton(
 }
 
 /**
- * `.tabbar` — 浮层: left/right 14, bottom 14, height 62, a full capsule, items spaced
+ * `.tabbar` — 浮层: left/right 14, bottom 14, [dockHeight] tall, a full capsule, items spaced
  * `space-around`. The material is the navigation lens — see `Modifier.navigationGlass`.
  *
  * §3 fixes the bottom stack as 内容 → 迷你播放器 → tab bar, with the mini player sharing
@@ -913,7 +701,7 @@ internal fun GlassTabBar(
     onSelect: (Tab) -> Unit,
     backdrop: BackdropState,
     modifier: Modifier = Modifier,
-    drawShell: Boolean = true,
+    height: Dp = dockHeight(),
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
@@ -959,10 +747,10 @@ internal fun GlassTabBar(
             // reading four unrelated controls.
             .selectableGroup()
             .then(liquidMotion?.gestures ?: Modifier)
-            .height(Dimens.tabBarHeight)
+            .height(height)
             // A true capsule rather than a rounded rectangle, so the shell stays soft at the
             // taller bar height.
-            .then(if (drawShell) Modifier.navigationGlass(backdrop, CircleShape) else Modifier)
+            .navigationGlass(backdrop, CircleShape)
             // After the material and before the buttons: the island belongs to the glass, not
             // over the icons.
             .drawBehind {
@@ -1064,7 +852,7 @@ private fun RowScope.TabButton(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        LiquidGlassTabIcon(item = item, tint = tint, compact = true, selected = selected, describeIcon = false)
+        LiquidGlassTabIcon(item = item, tint = tint, selected = selected)
         Text(item.label, style = AppTypography.caption.regular, color = tint, maxLines = 1)
     }
 }
@@ -1080,9 +868,7 @@ private fun RowScope.TabButton(
 private fun LiquidGlassTabIcon(
     item: TabItem,
     tint: Color,
-    compact: Boolean = false,
     selected: Boolean = false,
-    describeIcon: Boolean = true,
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val emphasis by animateFloatAsState(
@@ -1090,10 +876,8 @@ private fun LiquidGlassTabIcon(
         animationSpec = Motion.tabIcon(reduceMotion),
         label = "tabSelectionScale",
     )
-    val boxSize = if (compact) 34.dp else 38.dp
-    val iconSize = if (compact) 25.dp else 28.dp
     Box(
-        Modifier.size(boxSize).graphicsLayer {
+        Modifier.size(DockIconBox).graphicsLayer {
             scaleX = 1f + 0.10f * emphasis
             scaleY = scaleX
             translationY = if (reduceMotion) 0f else -1.dp.toPx() * emphasis
@@ -1102,9 +886,10 @@ private fun LiquidGlassTabIcon(
     ) {
         Icon(
             item.icon,
-            contentDescription = item.label.takeIf { describeIcon },
+            // The visible caption labels the merged tab; the glyph would only repeat it.
+            contentDescription = null,
             tint = tint,
-            modifier = Modifier.size(iconSize),
+            modifier = Modifier.size(DockIconGlyph),
         )
     }
 }

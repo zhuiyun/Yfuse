@@ -68,7 +68,6 @@ import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.Dimens
-import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
@@ -76,7 +75,6 @@ import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.OfficialNavDisplay
 import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.StatusBarIconStyle
-import com.yfuse.core.designsystem.formDivider
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.pressable
@@ -170,8 +168,8 @@ fun ServersScreen(component: ServersComponent) {
                                 modifier = Modifier.padding(bottom = 8.dp),
                             )
                             // `--pg-card` over 1px `--pg-border`, `radius:16px`, `padding:4px`.
-                            Column(Modifier.fillMaxWidth().glass(GlassShapes.card).padding(4.dp)) {
-                                FormField(label = "服务类型", divider = true) {
+                            Column(Modifier.fillMaxWidth().glass(AppShapes.card).padding(4.dp)) {
+                                ServerFormRow(label = "服务类型", divider = true, labelBottomPadding = 6.dp) {
                                     Row(
                                         modifier = Modifier.selectableGroup(),
                                         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -181,7 +179,7 @@ fun ServersScreen(component: ServersComponent) {
                                             MediaServerKind.Jellyfin to "Jellyfin",
                                             MediaServerKind.Plex to "Plex",
                                         ).forEach { (kind, label) ->
-                                            ProtocolSegment(
+                                            ServerProtocolSegment(
                                                 label = label,
                                                 selected = form.kind == kind,
                                                 modifier = Modifier.weight(1f),
@@ -189,24 +187,24 @@ fun ServersScreen(component: ServersComponent) {
                                         }
                                     }
                                 }
-                                FormField(label = "协议", divider = true) {
+                                ServerFormRow(label = "协议", divider = true, labelBottomPadding = 6.dp) {
                                     Row(
                                         modifier = Modifier.selectableGroup(),
                                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                                     ) {
-                                        ProtocolSegment(
+                                        ServerProtocolSegment(
                                             label = "HTTPS",
                                             selected = form.https,
                                             modifier = Modifier.weight(1f),
                                         ) { sendIntent(ServersIntent.ProtocolChanged(true)) }
-                                        ProtocolSegment(
+                                        ServerProtocolSegment(
                                             label = "HTTP",
                                             selected = !form.https,
                                             modifier = Modifier.weight(1f),
                                         ) { sendIntent(ServersIntent.ProtocolChanged(false)) }
                                     }
                                 }
-                                FormInput(
+                                ServerFormInput(
                                     label = "服务器地址",
                                     value = form.host,
                                     placeholder = "https://media.example.com/emby",
@@ -215,7 +213,7 @@ fun ServersScreen(component: ServersComponent) {
                                     divider = true,
                                     onValueChange = { sendIntent(ServersIntent.HostChanged(it)) },
                                 )
-                                FormInput(
+                                ServerFormInput(
                                     label = "端口",
                                     value = form.port,
                                     enabled = !form.submitting,
@@ -223,7 +221,7 @@ fun ServersScreen(component: ServersComponent) {
                                     divider = true,
                                     onValueChange = { sendIntent(ServersIntent.PortChanged(it)) },
                                 )
-                                FormInput(
+                                ServerFormInput(
                                     label = "基础路径（可选）",
                                     value = form.basePath,
                                     placeholder = "/emby",
@@ -233,7 +231,7 @@ fun ServersScreen(component: ServersComponent) {
                                     onValueChange = { sendIntent(ServersIntent.BasePathChanged(it)) },
                                 )
                                 if (form.kind == MediaServerKind.Plex) {
-                                    FormInput(
+                                    ServerFormInput(
                                         label = "Plex Token",
                                         value = form.password,
                                         placeholder = "输入 X-Plex-Token",
@@ -243,14 +241,14 @@ fun ServersScreen(component: ServersComponent) {
                                         onValueChange = { sendIntent(ServersIntent.PasswordChanged(it)) },
                                     )
                                 } else {
-                                    FormInput(
+                                    ServerFormInput(
                                         label = "用户名",
                                         value = form.username,
                                         enabled = !form.submitting,
                                         divider = true,
                                         onValueChange = { sendIntent(ServersIntent.UsernameChanged(it)) },
                                     )
-                                    FormInput(
+                                    ServerFormInput(
                                         label = "密码",
                                         value = form.password,
                                         enabled = !form.submitting,
@@ -703,7 +701,7 @@ private fun OnboardingScreen(
                                     .pressable(onClick = onManual)
                                     .heightIn(min = 48.dp)
                                     .glass(
-                                        shape = GlassShapes.chip,
+                                        shape = AppShapes.chip,
                                         fill = palette.card2,
                                         border = palette.border,
                                     ).padding(horizontal = 18.dp, vertical = 14.dp),
@@ -1045,142 +1043,5 @@ private fun OnboardInput(
                 }
             }
         }
-    }
-}
-
-/** Form row — `padding:11px 14px`, hairline `rgba(0,0,0,.06)` between rows. */
-@Composable
-private fun FormField(
-    label: String,
-    divider: Boolean,
-    labelBottomPadding: androidx.compose.ui.unit.Dp = 6.dp,
-    content: @Composable () -> Unit,
-) {
-    val palette = LocalPalette.current
-    Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 11.dp)) {
-        Text(
-            label,
-            style = AppTypography.caption.regular,
-            color = palette.sub2,
-            modifier = Modifier.padding(bottom = labelBottomPadding),
-        )
-        content()
-    }
-    if (divider) {
-        Box(Modifier.fillMaxWidth().height(1.dp).background(formDivider()))
-    }
-}
-
-/** Same row with a `500 13px Manrope` text input; label sits 3px above it. */
-@Composable
-private fun FormInput(
-    label: String,
-    value: String,
-    onValueChange: (String) -> Unit,
-    divider: Boolean,
-    enabled: Boolean = true,
-    placeholder: String? = null,
-    password: Boolean = false,
-    keyboardType: KeyboardType = KeyboardType.Text,
-) {
-    val palette = LocalPalette.current
-    val focusManager = LocalFocusManager.current
-    var revealPassword by rememberSaveable { mutableStateOf(false) }
-    val accent = LocalAccentColors.current
-    FormField(label = label, divider = divider, labelBottomPadding = 3.dp) {
-        Box(contentAlignment = Alignment.CenterStart) {
-            if (value.isEmpty() && placeholder != null) {
-                Text(placeholder, style = AppTypography.body.medium, color = palette.hint)
-            }
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                BasicTextField(
-                    value = value,
-                    onValueChange = onValueChange,
-                    enabled = enabled,
-                    singleLine = true,
-                    textStyle = AppTypography.body.medium.copy(color = palette.text),
-                    cursorBrush = SolidColor(accent.accent),
-                    visualTransformation =
-                        if (password &&
-                            !revealPassword
-                        ) {
-                            PasswordVisualTransformation()
-                        } else {
-                            VisualTransformation.None
-                        },
-                    keyboardOptions =
-                        KeyboardOptions(
-                            keyboardType = keyboardType,
-                            imeAction = if (password) ImeAction.Done else ImeAction.Next,
-                        ),
-                    keyboardActions =
-                        KeyboardActions(
-                            onNext = { focusManager.moveFocus(FocusDirection.Down) },
-                            onDone = { focusManager.clearFocus() },
-                        ),
-                    modifier =
-                        Modifier
-                            .weight(1f)
-                            .semantics { contentDescription = label },
-                )
-                if (password) {
-                    Text(
-                        if (revealPassword) "隐藏" else "显示",
-                        style = AppTypography.caption.strong,
-                        color = accent.accent,
-                        modifier =
-                            Modifier
-                                .pressable(
-                                    onClickLabel = if (revealPassword) "隐藏密码" else "显示密码",
-                                ) { revealPassword = !revealPassword }
-                                .touchTarget()
-                                .padding(start = 8.dp),
-                    )
-                }
-            }
-        }
-    }
-}
-
-/**
- * Protocol segment — `padding:6px 0`, `radius:9px`; selected is
- * `700 11.5px Manrope` `#3D64C9` on `rgba(61,100,201,.12)`, otherwise `500` `--pg-sub2`.
- */
-@Composable
-private fun ProtocolSegment(
-    label: String,
-    selected: Boolean,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit,
-) {
-    val palette = LocalPalette.current
-    val accent = LocalAccentColors.current
-    Box(
-        modifier
-            .pressable(role = Role.RadioButton, onClick = onClick)
-            .semantics { this.selected = selected }
-            .touchTarget(48.dp)
-            .glass(
-                shape = AppShapes.thumb,
-                fill =
-                    if (selected) {
-                        accent.container
-                    } else {
-                        palette.card2
-                    },
-                border =
-                    if (selected) {
-                        accent.border
-                    } else {
-                        palette.border.copy(alpha = 0.55f)
-                    },
-            ).padding(vertical = 6.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            label,
-            style = if (selected) AppTypography.caption.strong else AppTypography.caption.medium,
-            color = if (selected) accent.accent else palette.sub2,
-        )
     }
 }

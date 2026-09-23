@@ -66,6 +66,7 @@ import com.yfuse.tv.player.TvPlayerChromeLayer
 import com.yfuse.tv.player.TvPlayerChromePanel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.isActive
 import kotlin.math.abs
 import kotlin.time.TimeSource
 import com.yfuse.core.designsystem.ThemeText as Text
@@ -614,7 +615,7 @@ internal fun PlayerControls(
         val direction = holdSeekDirection
         if (direction == 0) return@LaunchedEffect
         var heldMs = 0L
-        while (true) {
+        while (isActive) {
             val span = latestDuration.coerceAtLeast(1L)
             val step = if (heldMs < HOLD_SEEK_RAMP_MS) HOLD_SEEK_STEP_MS else HOLD_SEEK_FAST_STEP_MS
             holdSeekTarget = (holdSeekTarget + direction * step).coerceIn(0L, span)

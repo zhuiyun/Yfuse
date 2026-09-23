@@ -270,10 +270,14 @@ fun Modifier.backdropBlur(
         .onGloballyPositioned { origin = it.positionInRoot() }
         .clip(shape)
         .drawBehind {
-            if (!state.hasContent) return@drawBehind
             val visibility = alpha().coerceIn(0f, 1f)
             if (visibility <= 0f) return@drawBehind
+            // Sampled before the content check, because sampling is also the subscription. A
+            // source that records on demand may not have drawn yet when its first surface
+            // does — a dialog's first frame — and a surface that returned without subscribing
+            // would never hear that the capture had arrived.
             val source = state.sample()
+            if (!state.hasContent) return@drawBehind
             if (refraction != null && size != refractive.size) {
                 refractive.size = size
                 refractive.effect =

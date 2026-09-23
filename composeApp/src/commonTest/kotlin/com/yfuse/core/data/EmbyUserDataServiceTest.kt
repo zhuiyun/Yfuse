@@ -73,7 +73,8 @@ class EmbyUserDataServiceTest {
                             )
                         request.url.parameters["Filters"] == "IsResumable" ->
                             json(
-                                """{"Items":[{"Id":"r1","Name":"Resume","UserData":{"PlaybackPositionTicks":500}}],""" +
+                                """{"Items":[{"Id":"r1","Name":"Resume",""" +
+                                    """"UserData":{"PlaybackPositionTicks":500}}],""" +
                                     """"TotalRecordCount":1}""",
                             )
                         request.url.parameters["IsPlayed"] == "true" ->
@@ -112,7 +113,9 @@ class EmbyUserDataServiceTest {
                     requests++
                     assertEquals("IsFavorite", request.url.parameters["Filters"])
                     json(
-                        """{"Items":[{"Id":"f1","Name":"Fav","UserData":{"IsFavorite":true,"Played":true,"PlaybackPositionTicks":9}}],"TotalRecordCount":1}""",
+                        """{"Items":[{"Id":"f1","Name":"Fav",""" +
+                            """"UserData":{"IsFavorite":true,"Played":true,"PlaybackPositionTicks":9}}],""" +
+                            """"TotalRecordCount":1}""",
                     )
                 }
             try {

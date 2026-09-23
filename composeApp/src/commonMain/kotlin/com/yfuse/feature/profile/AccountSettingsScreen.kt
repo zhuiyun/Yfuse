@@ -20,7 +20,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.selection.selectableGroup
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -50,7 +49,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.SecureFlagPolicy
-import com.yfuse.app.TabBarInset
 import com.yfuse.core.account.AccountRepository
 import com.yfuse.core.account.AccountState
 import com.yfuse.core.account.IssuedInviteCode
@@ -65,14 +63,14 @@ import com.yfuse.core.designsystem.ConfirmDialog
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.DisclosureContent
 import com.yfuse.core.designsystem.GlassDialog
-import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HapticSignal
-import com.yfuse.core.designsystem.InlineLoadingContent
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.OverlayButton
 import com.yfuse.core.designsystem.OverlayButtonTone
+import com.yfuse.core.designsystem.SettingRow
+import com.yfuse.core.designsystem.TabBarInset
 import com.yfuse.core.designsystem.WatchAvatar
 import com.yfuse.core.designsystem.YfButton
 import com.yfuse.core.designsystem.YfButtonTone
@@ -123,7 +121,11 @@ internal fun AccountSettingsScreen(
             onOpenSyncStatus?.let { open ->
                 motionItem {
                     YfButton("个人数据与播放同步状态", open)
-                    Text("个人清单与历史合并同步；下面的服务器与设置备份仍需手动操作。", color = palette.sub)
+                    Text(
+                        "个人清单与历史合并同步；下面的服务器与设置备份仍需手动操作。",
+                        style = AppTypography.caption.regular,
+                        color = palette.sub,
+                    )
                 }
             }
             when (val current = state) {
@@ -501,7 +503,7 @@ private fun SignedInAccountCard(
         icon = AppIcons.Lock,
     ) {
         if (user.canIssueInvites()) {
-            AccountActionRow(
+            SettingRow(
                 title = "注册邀请",
                 supporting = "生成一次性邀请码，明文仅显示一次",
                 trailingLabel = "生成",
@@ -522,7 +524,7 @@ private fun SignedInAccountCard(
             )
             AccountSectionDivider()
         }
-        AccountActionRow(
+        SettingRow(
             title = "登录与会话",
             supporting = "查看和管理已登录设备",
             trailingLabel = sessionCount?.let { "$it" },
@@ -535,7 +537,7 @@ private fun SignedInAccountCard(
         title = "数据与隐私",
         icon = AppIcons.Download,
     ) {
-        AccountActionRow(
+        SettingRow(
             title = "安全导出账号数据",
             supporting = "不包含密码或登录令牌",
             enabled = !busy,
@@ -552,7 +554,7 @@ private fun SignedInAccountCard(
             },
         )
         AccountSectionDivider()
-        AccountActionRow(
+        SettingRow(
             title = "永久删除账号",
             supporting = "账号、会话与云端数据将不可恢复",
             destructive = true,
@@ -619,11 +621,12 @@ private fun SignedInAccountCard(
         title = "账号操作",
         icon = AppIcons.User,
     ) {
-        AccountActionRow(
+        SettingRow(
             title = "退出 Yfuse 账号",
             destructive = true,
             enabled = !busy && !state.syncing,
             loading = busy,
+            dense = true,
             onClick = {
                 busy = true
                 // Posted from the press rather than from the continuation: signing out replaces
@@ -776,7 +779,7 @@ internal fun InviteCredentialSheet(
     GlassDialog(
         onDismiss = onDismiss,
         alignment = Alignment.BottomCenter,
-        shape = GlassShapes.sheet,
+        shape = AppShapes.sheet,
         contentPadding = 20.dp,
         properties =
             DialogProperties(
@@ -997,7 +1000,7 @@ private fun AccountHeader(onBack: () -> Unit) {
 @Composable
 private fun AccountCard(content: @Composable ColumnScope.() -> Unit) {
     val palette = LocalPalette.current
-    val shape = RoundedCornerShape(26.dp)
+    val shape = AppShapes.sheet
     Column(
         modifier =
             Modifier
@@ -1098,83 +1101,6 @@ private fun AccountStatusBadge(
 }
 
 @Composable
-private fun AccountActionRow(
-    title: String,
-    onClick: () -> Unit,
-    supporting: String? = null,
-    trailingLabel: String? = null,
-    destructive: Boolean = false,
-    enabled: Boolean = true,
-    loading: Boolean = false,
-    showChevron: Boolean = true,
-) {
-    val palette = LocalPalette.current
-    val accent = LocalAccentColors.current
-    val titleColor = if (destructive) palette.error else palette.text
-    val alpha = if (enabled) 1f else 0.46f
-    Row(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .heightIn(min = 54.dp)
-                .pressable(
-                    enabled = enabled && !loading,
-                    haptic = HapticSignal.Confirm.takeIf { destructive },
-                    onClickLabel = title,
-                    onClick = onClick,
-                ).touchTarget()
-                .padding(horizontal = 2.dp, vertical = 7.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(
-                title,
-                style = AppTypography.body.strong,
-                color = titleColor.copy(alpha = alpha),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            supporting?.let {
-                Spacer(Modifier.height(3.dp))
-                Text(
-                    it,
-                    style = AppTypography.caption.regular,
-                    color = palette.sub2.copy(alpha = alpha),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
-        Spacer(Modifier.width(10.dp))
-        InlineLoadingContent(
-            loading = loading,
-            slotSize = 17.dp,
-            orbSize = 16.dp,
-            color = if (destructive) palette.error else accent.accent,
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                trailingLabel?.let {
-                    Text(
-                        text = it,
-                        style = AppTypography.caption.strong,
-                        color = if (destructive) palette.error else accent.accent,
-                    )
-                    Spacer(Modifier.width(6.dp))
-                }
-                if (showChevron) {
-                    Icon(
-                        imageVector = AppIcons.ChevronRight,
-                        contentDescription = null,
-                        tint = if (destructive) palette.error.copy(alpha = alpha) else palette.sub2.copy(alpha = alpha),
-                        modifier = Modifier.size(17.dp),
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
 private fun AccountSectionDivider() {
     val palette = LocalPalette.current
     Box(
@@ -1244,7 +1170,7 @@ private fun EncryptionInfoCard() {
             Spacer(Modifier.height(13.dp))
             Text(
                 "服务器令牌、弹幕源链接、绑定和同步设置会在本机使用 AES-256-GCM " +
-                    "加密后上传，服务端数据库只保存密文；加密密钥由账号密码派生。",
+                    "加密后上传，服务器数据库只保存密文；加密密钥由账号密码派生。",
                 style = AppTypography.caption.regular,
                 color = palette.sub,
             )

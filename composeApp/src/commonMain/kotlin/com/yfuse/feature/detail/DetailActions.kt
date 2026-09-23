@@ -24,11 +24,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.BurstIcon
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.GlassLift
-import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.InlineLoadingContent
 import com.yfuse.core.designsystem.LocalPalette
@@ -92,13 +92,13 @@ internal fun DetailActionDock(
                 .fillMaxWidth()
                 .height(DetailPlayButtonHeight)
                 .softActionSurface(playInteractions, enabled = !resolving)
-                .shadow(GlassLift.key, GlassShapes.card)
-                .clip(GlassShapes.card)
+                .shadow(GlassLift.key, AppShapes.card)
+                .clip(AppShapes.card)
                 .background(actionKeyBrush(accent))
-                .waitingPulse(active = resolving, shape = GlassShapes.card, color = actionInk)
+                .waitingPulse(active = resolving, shape = AppShapes.card, color = actionInk)
                 .softSelectionSurface(
                     interactionSource = playInteractions,
-                    shape = GlassShapes.card,
+                    shape = AppShapes.card,
                     pressedColor = actionInk.copy(alpha = 0.08f),
                     enabled = !resolving,
                 ),
@@ -160,7 +160,7 @@ internal fun DetailActionDock(
                         modifier =
                             Modifier
                                 .padding(start = 8.dp, end = 5.dp)
-                                .clip(GlassShapes.thumb)
+                                .clip(AppShapes.thumb)
                                 .background(actionInk.copy(alpha = 0.16f))
                                 .padding(horizontal = 7.dp, vertical = 3.dp),
                     )
@@ -280,15 +280,15 @@ internal fun GlassActionButton(
                 lightFeedback = false,
                 haptic = HapticSignal.Confirm,
                 onClick = onClick,
-            ).shadow(GlassLift.control, GlassShapes.card)
+            ).shadow(GlassLift.control, AppShapes.card)
             .liquidGlass(
-                shape = GlassShapes.card,
+                shape = AppShapes.card,
                 fill = fill,
                 border = edge,
                 sheen = 0.72f,
             ).waitingPulse(
                 active = loading,
-                shape = GlassShapes.card,
+                shape = AppShapes.card,
                 color = if (active) stateColors.foreground else accent,
             ).padding(horizontal = 11.dp),
         horizontalArrangement = Arrangement.spacedBy(9.dp),

@@ -37,7 +37,7 @@ internal class EmbyAuthService(
                         setBody(AuthRequestDto(Username = username, Pw = password))
                     }.body()
             val serverInfo =
-                runCatching {
+                runCatchingCancellable {
                     client.get("$url/System/Info/Public").body<PublicInfoDto>()
                 }.onFailure {
                     AppLog.warning(

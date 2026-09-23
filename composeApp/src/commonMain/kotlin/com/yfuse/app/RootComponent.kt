@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.serialization.builtins.serializer
 
 /**
  * App shell: five always-alive tabs — 首页 / 库 / 服务器 / 搜索 / 我的.
@@ -51,15 +52,24 @@ class RootComponent(
     // 首页's TMDB recommendations are the right first screen only until there is a library to
     // show — at which point they double as the prompt to go and add one. The other values are
     // the user overriding that guess; see [StartupTab].
+    //
+    // A restored process is not a cold start. Every tab's own stack comes back through its
+    // serializer, so without the saved tab the shell reopened on the startup tab while the page
+    // the user had actually been on — and its scroll position — sat stranded in another one.
     private val _activeTab =
         MutableValue(
-            startupTab(
-                themePreferences.startupTab.value,
-                registry.data.value.servers
-                    .isNotEmpty(),
-            ),
+            restoredTab(stateKeeper.consume(ACTIVE_TAB_STATE_KEY, String.serializer()))
+                ?: startupTab(
+                    themePreferences.startupTab.value,
+                    registry.data.value.servers
+                        .isNotEmpty(),
+                ),
         )
     val activeTab: Value<Tab> = _activeTab
+
+    init {
+        stateKeeper.register(ACTIVE_TAB_STATE_KEY, String.serializer()) { _activeTab.value.name }
+    }
 
     private val scope = componentScope(lifecycle)
     private val watchTogether: WatchTogetherClient = dependencies.watchTogether
@@ -348,6 +358,15 @@ class RootComponent(
         openSearch()
     }
 }
+
+private const val ACTIVE_TAB_STATE_KEY = "root.activeTab"
+
+/**
+ * The tab a saved instance state names, or null for none. Stored by name, so a build that
+ * reorders or drops a tab falls back to the startup rule instead of landing somewhere arbitrary.
+ */
+internal fun restoredTab(saved: String?): RootComponent.Tab? =
+    RootComponent.Tab.entries.firstOrNull { it.name == saved }
 
 /** The tab a cold start opens on. Extracted so the rule is testable without a component. */
 internal fun startupTab(

@@ -25,10 +25,10 @@ import com.yfuse.core.data.MetadataArtwork
 import com.yfuse.core.data.MetadataDraft
 import com.yfuse.core.data.MetadataEditorService
 import com.yfuse.core.data.plexArtworkTag
+import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassDialog
-import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.OverlayOptionRow
@@ -144,7 +144,7 @@ internal fun MetadataEditorDialog(
                                 .width(if (artwork.type == "Primary") 110.dp else 190.dp)
                                 .pressable(onClick = { if (!busy) selected = artwork })
                                 .flatGlass(
-                                    GlassShapes.card,
+                                    AppShapes.card,
                                     palette.card2,
                                     if (selected ==
                                         artwork
@@ -212,7 +212,7 @@ private fun MetadataField(
             Modifier
                 .fillMaxWidth()
                 .semantics { contentDescription = label }
-                .flatGlass(GlassShapes.card, palette.card2, palette.border)
+                .flatGlass(AppShapes.card, palette.card2, palette.border)
                 .padding(12.dp),
     )
 }

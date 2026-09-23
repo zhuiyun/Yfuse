@@ -2,7 +2,9 @@ package com.yfuse.core2.android
 
 import com.yfuse.core2.api.YPlaybackPhase
 import com.yfuse.core2.api.YPlayerState
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 
 /**
  * Optional metadata traffic must never win over the current episode. There is deliberately no
@@ -13,7 +15,7 @@ internal suspend fun awaitCore2NextItemPreloadWindow(currentState: () -> YPlayer
     delay(NEXT_ITEM_PRELOAD_DELAY_MS)
     var elapsedMs = 0L
     var healthySinceMs: Long? = null
-    while (true) {
+    while (currentCoroutineContext().isActive) {
         AndroidPlaybackMemoryBudget.refreshPressure()
         val state = currentState() ?: return false
         if (state.phase == YPlaybackPhase.Ended || state.phase == YPlaybackPhase.Failed) return false
@@ -35,6 +37,7 @@ internal suspend fun awaitCore2NextItemPreloadWindow(currentState: () -> YPlayer
         delay(NEXT_ITEM_PRELOAD_POLL_MS)
         elapsedMs += NEXT_ITEM_PRELOAD_POLL_MS
     }
+    return false
 }
 
 private const val NEXT_ITEM_PRELOAD_DELAY_MS = 15_000L

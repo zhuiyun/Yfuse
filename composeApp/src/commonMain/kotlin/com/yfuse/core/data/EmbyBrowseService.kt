@@ -19,7 +19,6 @@ import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.parameter
 import io.ktor.client.request.post
-import io.ktor.http.encodeURLPathPart
 import kotlinx.coroutines.CancellationException
 
 internal class EmbyBrowseService(
@@ -54,8 +53,8 @@ internal class EmbyBrowseService(
         embyApiCall("add_item_to_media_container") {
             val path =
                 when (kind) {
-                    MediaContainerKind.BoxSet -> "Collections/${containerId.encodeURLPathPart()}/Items"
-                    MediaContainerKind.Playlist -> "Playlists/${containerId.encodeURLPathPart()}/Items"
+                    MediaContainerKind.BoxSet -> "Collections/${embyPath(containerId)}/Items"
+                    MediaContainerKind.Playlist -> "Playlists/${embyPath(containerId)}/Items"
                 }
             client.post("${server.baseUrl}/$path") {
                 header("X-Emby-Token", server.accessToken)

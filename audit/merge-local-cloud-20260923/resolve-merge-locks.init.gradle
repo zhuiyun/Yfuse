@@ -1,0 +1,24 @@
+// Refresh every previously locked configuration touched by merged dependency upgrades.
+gradle.projectsEvaluated {
+    gradle.rootProject.allprojects.each { target ->
+        def lock = target.file('gradle.lockfile')
+        if (!lock.isFile()) return
+        def affected = ['io.ktor:', 'org.jetbrains.kotlinx:kotlinx-serialization', 'org.bouncycastle:']
+        def names = lock.readLines().findAll { line -> affected.any { line.startsWith(it) } }
+            .collectMany { it.split('=', 2)[1].split(',').toList() }.toSet()
+        target.tasks.register('resolveMergeLocks') {
+            doLast {
+                target.configurations.findAll { it.canBeResolved && names.contains(it.name) }
+                    .sort { it.name }.each { configuration ->
+                        logger.lifecycle("Resolving ${target.path}:${configuration.name}")
+                        def unresolved = configuration.incoming.resolutionResult.allDependencies.findAll {
+                            it instanceof org.gradle.api.artifacts.result.UnresolvedDependencyResult
+                        }
+                        if (!unresolved.empty) {
+                            throw new GradleException("Cannot resolve ${configuration.name}", unresolved.first().failure)
+                        }
+                    }
+            }
+        }
+    }
+}

@@ -20,7 +20,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.model.CalendarDay
@@ -69,8 +68,8 @@ internal fun TvDetailMoreDialog(
             Modifier.fillMaxWidth().tvFocusScope(trapFocus = true),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text("更多操作", color = TvOnSurface, fontSize = 27.sp, fontWeight = FontWeight.ExtraBold)
-            status?.let { Text(it, color = TvAccent, fontSize = 15.sp) }
+            Text("更多操作", color = TvOnSurface, fontSize = TvType.section, fontWeight = FontWeight.ExtraBold)
+            status?.let { Text(it, color = TvAccent, fontSize = TvType.caption) }
 
             if (isSeries) {
                 TvSettingRow(
@@ -216,18 +215,18 @@ internal fun TvOrganizationDialog(
             Modifier.fillMaxWidth().tvFocusScope(trapFocus = true),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text("加入合集或播放列表", color = TvOnSurface, fontSize = 27.sp, fontWeight = FontWeight.ExtraBold)
-            status?.let { Text(it, color = TvAccent, fontSize = 15.sp) }
-            state.organizationError?.let { Text(it, color = TvDanger, fontSize = 15.sp) }
+            Text("加入合集或播放列表", color = TvOnSurface, fontSize = TvType.section, fontWeight = FontWeight.ExtraBold)
+            status?.let { Text(it, color = TvAccent, fontSize = TvType.caption) }
+            state.organizationError?.let { Text(it, color = TvDanger, fontSize = TvType.caption) }
 
             when {
                 state.organizationLoading ->
-                    Text("正在读取…", color = TvOnSurfaceMuted, fontSize = 15.sp)
+                    Text("正在读取…", color = TvOnSurfaceMuted, fontSize = TvType.caption)
                 state.organizationContainers.isEmpty() ->
                     Text(
                         "这台服务器上还没有可写入的合集或播放列表。",
                         color = TvOnSurfaceMuted,
-                        fontSize = 15.sp,
+                        fontSize = TvType.caption,
                     )
                 else ->
                     LazyColumn(
@@ -301,13 +300,13 @@ internal fun TvAiringCalendarDialog(
             Modifier.fillMaxWidth().tvFocusScope(trapFocus = true),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text("播出日历", color = TvOnSurface, fontSize = 27.sp, fontWeight = FontWeight.ExtraBold)
-            Text(detail.title, color = TvOnSurfaceMuted, fontSize = 15.sp)
+            Text("播出日历", color = TvOnSurface, fontSize = TvType.section, fontWeight = FontWeight.ExtraBold)
+            Text(detail.title, color = TvOnSurfaceMuted, fontSize = TvType.caption)
 
             when {
-                error != null -> Text(error.orEmpty(), color = TvDanger, fontSize = 15.sp)
-                loading && days.isEmpty() -> Text("正在读取…", color = TvOnSurfaceMuted, fontSize = 15.sp)
-                days.isEmpty() -> Text("暂时没有已公布的播出安排。", color = TvOnSurfaceMuted, fontSize = 15.sp)
+                error != null -> Text(error.orEmpty(), color = TvDanger, fontSize = TvType.caption)
+                loading && days.isEmpty() -> Text("正在读取…", color = TvOnSurfaceMuted, fontSize = TvType.caption)
+                days.isEmpty() -> Text("暂时没有已公布的播出安排。", color = TvOnSurfaceMuted, fontSize = TvType.caption)
                 else ->
                     LazyColumn(
                         modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp),
@@ -318,7 +317,7 @@ internal fun TvAiringCalendarDialog(
                                 Text(
                                     day.date,
                                     color = TvAccent,
-                                    fontSize = 16.sp,
+                                    fontSize = TvType.caption,
                                     fontWeight = FontWeight.Bold,
                                 )
                             }
@@ -335,7 +334,7 @@ internal fun TvAiringCalendarDialog(
                                             entry.episode.episodeTitle?.let { append("  $it") }
                                         },
                                         color = TvOnSurface,
-                                        fontSize = 15.sp,
+                                        fontSize = TvType.caption,
                                     )
                                 }
                             }
@@ -374,11 +373,11 @@ internal fun TvEpisodeProgressDialog(
             Modifier.fillMaxWidth().tvFocusScope(trapFocus = true),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text("剧集进度管理", color = TvOnSurface, fontSize = 27.sp, fontWeight = FontWeight.ExtraBold)
+            Text("剧集进度管理", color = TvOnSurface, fontSize = TvType.section, fontWeight = FontWeight.ExtraBold)
             Text(
                 "已选 ${state.progressSelection.size} / ${state.episodes.size} 集",
                 color = TvOnSurfaceMuted,
-                fontSize = 15.sp,
+                fontSize = TvType.caption,
             )
 
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -438,7 +437,7 @@ internal fun TvEpisodeProgressDialog(
                 )
             }
             if (state.progressSaving) {
-                Text("正在写入服务器…", color = TvAccent, fontSize = 14.sp)
+                Text("正在写入服务器…", color = TvAccent, fontSize = TvType.caption)
             }
         }
     }

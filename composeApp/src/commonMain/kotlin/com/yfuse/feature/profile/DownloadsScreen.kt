@@ -46,36 +46,37 @@ import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.selected
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
-import com.yfuse.app.TabBarInset
 import com.yfuse.core.designsystem.ActionToast
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.Dimens
-import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LightEffect
-import com.yfuse.core.designsystem.LocalAccent
+import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.MinTouchTarget
 import com.yfuse.core.designsystem.Motion
+import com.yfuse.core.designsystem.Section
 import com.yfuse.core.designsystem.Semantic
+import com.yfuse.core.designsystem.SettingRow
 import com.yfuse.core.designsystem.SettingTint
+import com.yfuse.core.designsystem.SettingsCard
+import com.yfuse.core.designsystem.SettingsDivider
+import com.yfuse.core.designsystem.SwitchRow
+import com.yfuse.core.designsystem.TabBarInset
+import com.yfuse.core.designsystem.YfChip
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.lightOnChange
 import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberDecorativePhase
-import com.yfuse.core.designsystem.selectionColor
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.offline.DownloadStatus
 import com.yfuse.core.offline.OfflineIndexStatus
@@ -148,7 +149,7 @@ internal fun DownloadsScreen(
     onPlay: (OfflineMedia) -> Unit,
 ) {
     val palette = LocalPalette.current
-    val accent = LocalAccent.current.color
+    val accent = LocalAccentColors.current.accent
     val largeText = LocalDensity.current.fontScale >= 1.3f
     val personal =
         remember {
@@ -275,7 +276,7 @@ internal fun DownloadsScreen(
             motionItem(key = "download-settings-toggle") {
                 SettingRow(
                     title = if (showSettings) "收起下载设置" else "下载设置",
-                    value = if (access.canManageServers) "Wi-Fi、容量、自动追更 ›" else "请切换至家长资料管理",
+                    value = if (access.canManageServers) "Wi-Fi、容量、自动追更" else "请切换至家长资料管理",
                     onClick = { if (access.canManageServers) showSettings = !showSettings },
                 )
             }
@@ -341,7 +342,7 @@ internal fun DownloadsScreen(
                             SettingsDivider()
                             SettingRow(
                                 title = "保存位置",
-                                value = "${policy.storageLabel ?: "应用内部存储"} ›",
+                                value = policy.storageLabel ?: "应用内部存储",
                                 embedded = true,
                                 onClick = pickStorageDirectory,
                                 icon = AppIcons.Download,
@@ -351,7 +352,7 @@ internal fun DownloadsScreen(
                                 SettingsDivider()
                                 SettingRow(
                                     title = "改回内部存储",
-                                    value = "仅影响新下载 ›",
+                                    value = "仅影响新下载",
                                     embedded = true,
                                     onClick = { manager.setStorageDirectory(null) },
                                 )
@@ -401,10 +402,9 @@ internal fun DownloadsScreen(
                                     }
                                     LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                         motionItems(listOf(1, 3, 5, 10)) { count ->
-                                            DownloadChip(
+                                            YfChip(
                                                 label = count.toString(),
-                                                active = policy.autoDownloadItemLimit == count,
-                                                role = Role.RadioButton,
+                                                selected = policy.autoDownloadItemLimit == count,
                                                 onClickLabel = "每季保留 $count 集",
                                                 onClick = { manager.setAutoDownloadItemLimit(count) },
                                             )
@@ -414,7 +414,7 @@ internal fun DownloadsScreen(
                                 SettingsDivider()
                                 SettingRow(
                                     title = "清除追更规则",
-                                    value = "$autoDownloadRuleCount 条 ›",
+                                    value = "$autoDownloadRuleCount 条",
                                     embedded = true,
                                     onClick = manager::clearAutoDownloadRules,
                                 )
@@ -432,10 +432,9 @@ internal fun DownloadsScreen(
                                 }
                                 LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                     motionItems((1..3).toList()) { count ->
-                                        DownloadChip(
+                                        YfChip(
                                             label = count.toString(),
-                                            active = policy.maxConcurrentDownloads == count,
-                                            role = Role.RadioButton,
+                                            selected = policy.maxConcurrentDownloads == count,
                                             onClickLabel = "同时下载 $count 个任务",
                                             onClick = { manager.setMaxConcurrentDownloads(count) },
                                         )
@@ -472,10 +471,9 @@ internal fun DownloadsScreen(
                         ) {
                             motionItems(DownloadFilter.entries) { value ->
                                 val active = filter == value
-                                DownloadChip(
+                                YfChip(
                                     label = value.label,
-                                    active = active,
-                                    role = Role.RadioButton,
+                                    selected = active,
                                     onClickLabel = "筛选${value.label}下载",
                                     onClick = { filter = value },
                                 )
@@ -484,10 +482,9 @@ internal fun DownloadsScreen(
                             // looks like, and it used to sit in another card's header where it read
                             // as a label rather than a control.
                             motionItem {
-                                DownloadChip(
+                                YfChip(
                                     label = "排序 · ${sort.label}",
-                                    active = false,
-                                    role = Role.Button,
+                                    selected = false,
                                     onClickLabel = "更改排序，当前${sort.label}",
                                     onClick = {
                                         sort =
@@ -547,7 +544,7 @@ internal fun DownloadsScreen(
                                     top = DownloadBarGap,
                                     start = Dimens.pageHorizontal,
                                     end = Dimens.pageHorizontal,
-                                ).glass(GlassShapes.card, palette.card2, palette.border)
+                                ).glass(AppShapes.card, palette.card2, palette.border)
                                 .padding(10.dp)
                         if (largeText) {
                             Column(
@@ -695,37 +692,6 @@ private fun downloadRevealExit(vertical: Boolean): ExitTransition {
     }
 }
 
-/** Filter and sort controls share one chip so the row reads as one set of controls. */
-@Composable
-private fun DownloadChip(
-    label: String,
-    active: Boolean,
-    role: Role,
-    onClickLabel: String,
-    onClick: () -> Unit,
-) {
-    val palette = LocalPalette.current
-    val accent = LocalAccent.current.color
-    Text(
-        label,
-        style = if (active) AppTypography.body.strong else AppTypography.body.medium,
-        // Selection is a colour change, and every other chip in the app eases it — this one
-        // cut between the two states, which on a filter row reads as the chips being redrawn.
-        color = selectionColor(if (active) accent else palette.body),
-        maxLines = 1,
-        modifier =
-            Modifier
-                .pressable(role = role, onClickLabel = onClickLabel, onClick = onClick)
-                .touchTarget()
-                .then(if (role == Role.RadioButton) Modifier.semantics { selected = active } else Modifier)
-                .glass(
-                    GlassShapes.chip,
-                    selectionColor(if (active) accent.copy(alpha = 0.13f) else palette.card2),
-                    selectionColor(if (active) accent.copy(alpha = 0.28f) else palette.border),
-                ).padding(horizontal = 13.dp, vertical = 7.dp),
-    )
-}
-
 @Composable
 private fun BatchAction(
     label: String,
@@ -735,7 +701,7 @@ private fun BatchAction(
     onClick: () -> Unit,
 ) {
     val palette = LocalPalette.current
-    val accent = LocalAccent.current.color
+    val accent = LocalAccentColors.current.accent
     Text(
         label,
         style = AppTypography.body.strong,
@@ -750,7 +716,7 @@ private fun BatchAction(
             modifier
                 .pressable(enabled = enabled, onClickLabel = label, onClick = onClick)
                 .touchTarget()
-                .glass(GlassShapes.chip, palette.card3, palette.border)
+                .glass(AppShapes.chip, palette.card3, palette.border)
                 .padding(horizontal = 11.dp, vertical = 7.dp),
     )
 }
@@ -768,7 +734,7 @@ private fun DownloadTaskRow(
     modifier: Modifier = Modifier,
 ) {
     val palette = LocalPalette.current
-    val accent = LocalAccent.current.color
+    val accent = LocalAccentColors.current.accent
     Column(
         modifier
             .fillMaxWidth()
@@ -791,7 +757,7 @@ private fun DownloadTaskRow(
                     },
             ).heightIn(min = MinTouchTarget)
             .glass(
-                GlassShapes.card,
+                AppShapes.card,
                 if (selected) accent.copy(alpha = 0.10f) else palette.card,
                 if (selected) accent.copy(alpha = 0.30f) else palette.border,
             ).padding(13.dp),

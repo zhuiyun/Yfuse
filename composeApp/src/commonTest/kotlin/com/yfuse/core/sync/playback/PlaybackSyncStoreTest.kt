@@ -8,6 +8,164 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class PlaybackSyncStoreTest {
+    private class CountingSettings(
+        val backing: MapSettings = MapSettings(),
+    ) : Settings by backing {
+        var documentWrites = 0
+
+        override fun putString(
+            key: String,
+            value: String,
+        ) {
+            if (key == "playback.cross_platform.documents.v1") documentWrites++
+            backing.putString(key, value)
+        }
+    }
+
+    private fun PlaybackSyncStore.play(
+        positionMs: Long,
+        trigger: PlaybackSyncTrigger,
+        mediaKey: String = "tmdb:1",
+    ) = updatePlayback(
+        mediaKey = mediaKey,
+        aliases = emptyList(),
+        positionMs = positionMs,
+        durationMs = 100_000L,
+        played = false,
+        sessionId = "session",
+        serverId = "server-a",
+        serverItemId = "item-a",
+        mutationKind = PlaybackMutationKind.AutoProgress,
+        trigger = trigger,
+    )
+
+    private fun persistedPosition(
+        settings: CountingSettings,
+        mediaKey: String = "tmdb:1",
+    ): Long? =
+        PlaybackSyncStore(settings.backing)
+            .find(mediaKey)
+            ?.document
+            ?.state
+            ?.positionMs
+
+    @Test
+    fun periodicProgressIsCoalescedUntilATerminalTriggerWritesItThrough() {
+        val settings = CountingSettings()
+        val store = PlaybackSyncStore(settings) { 1_000L }
+        store.play(0L, PlaybackSyncTrigger.Started)
+        assertEquals(1, settings.documentWrites)
+
+        (1..30).forEach { tick -> store.play(tick * 10_000L % 90_000L + 1L, PlaybackSyncTrigger.Periodic) }
+
+        // Thirty ticks cost no serialization, yet every reader of this store sees the newest one.
+        assertEquals(1, settings.documentWrites)
+        assertEquals(
+            30_001L,
+            store
+                .find("tmdb:1")
+                ?.document
+                ?.state
+                ?.positionMs,
+        )
+        assertEquals(0L, persistedPosition(settings))
+
+        store.play(42_000L, PlaybackSyncTrigger.Pause)
+        assertEquals(2, settings.documentWrites)
+        assertEquals(42_000L, persistedPosition(settings))
+    }
+
+    @Test
+    fun everyTriggerThatCanEndASessionIsWrittenThrough() {
+        listOf(
+            PlaybackSyncTrigger.Pause,
+            PlaybackSyncTrigger.Seek,
+            PlaybackSyncTrigger.Stop,
+            PlaybackSyncTrigger.Background,
+            PlaybackSyncTrigger.Completed,
+            PlaybackSyncTrigger.Manual,
+        ).forEach { trigger ->
+            val settings = CountingSettings()
+            val store = PlaybackSyncStore(settings) { 1_000L }
+            store.play(0L, PlaybackSyncTrigger.Started)
+            store.play(10_000L, PlaybackSyncTrigger.Periodic)
+            store.play(20_000L, trigger)
+            assertEquals(20_000L, persistedPosition(settings), "trigger=$trigger")
+        }
+    }
+
+    @Test
+    fun flushAndTheAgeLimitBoundWhatAProcessDeathCanLose() {
+        val settings = CountingSettings()
+        var now = 1_000L
+        val store = PlaybackSyncStore(settings) { now }
+        store.play(0L, PlaybackSyncTrigger.Started)
+
+        store.play(10_000L, PlaybackSyncTrigger.Periodic)
+        assertEquals(0L, persistedPosition(settings))
+        store.flush()
+        assertEquals(10_000L, persistedPosition(settings))
+        val afterFlush = settings.documentWrites
+        store.flush()
+        assertEquals(afterFlush, settings.documentWrites)
+
+        now += 59_000L
+        store.play(20_000L, PlaybackSyncTrigger.Periodic)
+        assertEquals(10_000L, persistedPosition(settings))
+        now += 1_000L
+        store.play(30_000L, PlaybackSyncTrigger.Periodic)
+        assertEquals(30_000L, persistedPosition(settings))
+    }
+
+    @Test
+    fun theFirstTickOfANewRecordAndOtherMutationsCarryCoalescedProgressToDisk() {
+        val settings = CountingSettings()
+        val store = PlaybackSyncStore(settings) { 1_000L }
+        store.play(0L, PlaybackSyncTrigger.Started)
+        store.play(10_000L, PlaybackSyncTrigger.Periodic)
+
+        // A record that does not exist yet is never deferred, and the write is the whole list.
+        store.play(5_000L, PlaybackSyncTrigger.Periodic, mediaKey = "tmdb:2")
+        assertEquals(5_000L, persistedPosition(settings, "tmdb:2"))
+        assertEquals(10_000L, persistedPosition(settings))
+
+        store.play(20_000L, PlaybackSyncTrigger.Periodic)
+        store.markManual("tmdb:2", watched = true)
+        assertEquals(20_000L, persistedPosition(settings))
+    }
+
+    @Test
+    fun aDeferredUploadAcknowledgementOnlyCostsAResendAfterProcessDeath() {
+        val settings = CountingSettings()
+        val store = PlaybackSyncStore(settings) { 1_000L }
+        val pending = store.play(40_000L, PlaybackSyncTrigger.Stop)
+        val writes = settings.documentWrites
+
+        store.markUploaded(
+            mediaKey = "tmdb:1",
+            aliases = emptyList(),
+            entityKey = "entity",
+            mutationId = pending.mutationId,
+            cursor = 5L,
+        )
+
+        assertEquals(writes, settings.documentWrites)
+        assertTrue(store.pending().isEmpty())
+        val restarted = PlaybackSyncStore(settings.backing)
+        assertEquals(pending.mutationId, restarted.pending().single().mutationId)
+        assertEquals(
+            40_000L,
+            restarted
+                .find("tmdb:1")
+                ?.document
+                ?.state
+                ?.positionMs,
+        )
+
+        store.flush()
+        assertTrue(PlaybackSyncStore(settings.backing).pending().isEmpty())
+    }
+
     @Test
     fun a_missing_entity_rebase_survives_restart_without_losing_the_local_mutation() {
         val settings = MapSettings()

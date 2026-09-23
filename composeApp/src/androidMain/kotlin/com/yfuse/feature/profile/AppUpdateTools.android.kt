@@ -12,7 +12,9 @@ import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.SettingRow
 import com.yfuse.core.designsystem.SettingTint
+import com.yfuse.core.designsystem.SettingsCard
 import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.sc
 import com.yfuse.update.LocalAppUpdateManager

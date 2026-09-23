@@ -20,12 +20,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.DolbyChip
 import com.yfuse.core.designsystem.GlassDialog
-import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OverlayHeader
+import com.yfuse.core.designsystem.RecommendBadge
 import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.solidGlass
@@ -144,7 +145,7 @@ private fun SourceRow(
             .fillMaxWidth()
             .pressable(onClick = onSelect)
             .solidGlass(
-                shape = GlassShapes.card,
+                shape = AppShapes.card,
                 fill =
                     if (palette.isDark) {
                         Color.White.copy(alpha = 0.06f)
@@ -154,7 +155,7 @@ private fun SourceRow(
                 border = null,
             ).then(
                 if (selected) {
-                    Modifier.border(0.75.dp, accent.copy(alpha = 0.65f), GlassShapes.card)
+                    Modifier.border(0.75.dp, accent.copy(alpha = 0.65f), AppShapes.card)
                 } else {
                     Modifier
                 },
@@ -185,16 +186,7 @@ private fun SourceRow(
                 modifier = Modifier.weight(1f, fill = false),
             )
             if (best) {
-                Text(
-                    "推荐",
-                    style = AppTypography.caption.strong,
-                    color = Color(0xFF9A6B12),
-                    modifier =
-                        Modifier
-                            .clip(GlassShapes.chip)
-                            .background(Color(0xFFF5C86A).copy(alpha = 0.30f))
-                            .padding(horizontal = 6.dp, vertical = 2.dp),
-                )
+                RecommendBadge()
             }
             Spacer(Modifier.weight(1f))
             Text(
@@ -233,7 +225,7 @@ private fun FactChip(label: String) {
         maxLines = 1,
         modifier =
             Modifier
-                .clip(GlassShapes.chip)
+                .clip(AppShapes.chip)
                 .background(
                     if (palette.isDark) {
                         Color.White.copy(alpha = 0.08f)

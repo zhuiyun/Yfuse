@@ -405,7 +405,7 @@ internal class PlexMediaServerAdapter(
             var shows = 0
             libraries(server).getOrThrow().forEach { library ->
                 val count =
-                    container(server, "/library/sections/${library.id}/all") {
+                    container(server, "/library/sections/${plexPath(library.id)}/all") {
                         parameter("X-Plex-Container-Start", 0)
                         parameter("X-Plex-Container-Size", 0)
                     }.effectiveTotal()
@@ -817,7 +817,7 @@ internal class PlexMediaServerAdapter(
             val candidates =
                 hubPeople.ifEmpty {
                     libraries(server).getOrThrow().flatMap { library ->
-                        container(server, "/library/sections/${library.id}/actor") {
+                        container(server, "/library/sections/${plexPath(library.id)}/actor") {
                             parameter("X-Plex-Container-Start", 0)
                             parameter("X-Plex-Container-Size", PLEX_CONTAINER_LIMIT)
                         }.Directory.mapNotNull { it.toPerson() }
@@ -839,7 +839,7 @@ internal class PlexMediaServerAdapter(
             libraries(server).getOrThrow().forEach { library ->
                 if (items.size >= limit) return@forEach
                 val response =
-                    container(server, "/library/sections/${library.id}/all") {
+                    container(server, "/library/sections/${plexPath(library.id)}/all") {
                         parameter("actor", personId)
                         parameter("sort", "year:desc,titleSort:asc")
                         parameter("includeGuids", 1)
@@ -868,7 +868,7 @@ internal class PlexMediaServerAdapter(
                 var total = Int.MAX_VALUE
                 while (start < total) {
                     val page =
-                        container(server, "/library/sections/${library.id}/all") {
+                        container(server, "/library/sections/${plexPath(library.id)}/all") {
                             parameter("includeUserState", 1)
                             parameter("X-Plex-Container-Start", start)
                             parameter("X-Plex-Container-Size", PLEX_SNAPSHOT_PAGE_SIZE)
@@ -1226,7 +1226,7 @@ internal class PlexMediaServerAdapter(
                 libraries(server).getOrThrow().flatMap { library ->
                     container(
                         server,
-                        "/library/sections/${library.id}/all",
+                        "/library/sections/${plexPath(library.id)}/all",
                     ) {
                         parameter("type", PLEX_COLLECTION_TYPE)
                         parameter("includeCollections", 1)

@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -33,7 +34,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.GlassDialog
@@ -110,11 +110,11 @@ internal fun TvServersScreen(
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Column {
-                Text("服务器", color = TvOnSurface, fontSize = 32.sp, fontWeight = FontWeight.ExtraBold)
+                Text("服务器", color = TvOnSurface, fontSize = TvType.display, fontWeight = FontWeight.ExtraBold)
                 Text(
                     "Emby、Jellyfin 与 Plex",
                     color = TvOnSurfaceMuted,
-                    fontSize = 15.sp,
+                    fontSize = TvType.caption,
                 )
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -235,21 +235,21 @@ private fun TvServerCard(
                         ),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text(server.iconEmoji ?: server.serverName.take(1), fontSize = 23.sp)
+                    Text(server.iconEmoji ?: server.serverName.take(1), fontSize = TvType.section)
                 }
                 Spacer(Modifier.width(13.dp))
                 Column {
                     Text(
                         server.serverName,
                         color = if (focused) Color.White else TvOnSurface,
-                        fontSize = 21.sp,
+                        fontSize = TvType.section,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
                     )
                     Text(
                         "${server.kind.name} · ${server.userName}",
                         color = if (focused) Color.White.copy(alpha = 0.68f) else TvOnSurfaceMuted,
-                        fontSize = 15.sp,
+                        fontSize = TvType.caption,
                     )
                 }
             }
@@ -257,7 +257,7 @@ private fun TvServerCard(
                 Text(
                     server.baseUrl,
                     color = if (focused) Color.White.copy(alpha = 0.74f) else TvOnSurfaceMuted,
-                    fontSize = 15.sp,
+                    fontSize = TvType.caption,
                     maxLines = 1,
                 )
                 Spacer(Modifier.height(12.dp))
@@ -265,13 +265,13 @@ private fun TvServerCard(
                     Text(
                         if (selected) "当前服务器" else "确定键切换并打开",
                         color = if (selected) TvAccent else Color.White.copy(alpha = 0.66f),
-                        fontSize = 15.sp,
+                        fontSize = TvType.caption,
                         fontWeight = FontWeight.SemiBold,
                     )
                     Text(
                         "长按菜单可编辑",
                         color = Color.White.copy(alpha = 0.6f),
-                        fontSize = 14.sp,
+                        fontSize = TvType.caption,
                     )
                 }
             }
@@ -311,7 +311,7 @@ private fun TvServerDialog(
             Text(
                 if (state.editingServerId == null) "添加服务器" else "编辑服务器",
                 color = TvOnSurface,
-                fontSize = 29.sp,
+                fontSize = TvType.section,
                 fontWeight = FontWeight.ExtraBold,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -349,12 +349,12 @@ private fun TvServerDialog(
                     icon = AppIcons.Search,
                 )
             }
-            state.scanError?.let { Text(it, color = Color(0xFFFFC66D), fontSize = 14.sp) }
+            state.scanError?.let { Text(it, color = TvWarning, fontSize = TvType.caption) }
             if (state.discovered.isNotEmpty()) {
                 Text(
                     "在本网络中找到 ${state.discovered.size} 台服务器",
                     color = TvOnSurfaceMuted,
-                    fontSize = 14.sp,
+                    fontSize = TvType.caption,
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     state.discovered.take(4).forEach { found ->
@@ -373,7 +373,7 @@ private fun TvServerDialog(
                 Text(
                     "搜索会寻找同一网络里的 Emby 与 Jellyfin 服务器，Plex 请直接登录账号。",
                     color = TvOnSurfaceMuted,
-                    fontSize = 14.sp,
+                    fontSize = TvType.caption,
                 )
             }
             Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -427,15 +427,16 @@ private fun TvServerDialog(
                     Text(
                         "快速连接代码：${quick.code}，请在另一台设备批准登录。",
                         color = TvAccent,
-                        fontSize = 17.sp,
+                        fontSize = TvType.body,
                         fontWeight = FontWeight.Bold,
                     )
-                is QuickConnectUiState.Error -> Text(quick.message, color = Color(0xFFFF9B9B))
-                is QuickConnectUiState.Unsupported -> Text(quick.reason, color = TvOnSurfaceMuted)
-                QuickConnectUiState.Expired -> Text("快速连接代码已过期", color = Color(0xFFFFC66D))
+                is QuickConnectUiState.Error -> Text(quick.message, color = TvDanger, fontSize = TvType.caption)
+                is QuickConnectUiState.Unsupported ->
+                    Text(quick.reason, color = TvOnSurfaceMuted, fontSize = TvType.caption)
+                QuickConnectUiState.Expired -> Text("快速连接代码已过期", color = TvWarning, fontSize = TvType.caption)
                 else -> Unit
             }
-            state.form.error?.let { Text(it, color = Color(0xFFFF9B9B), fontSize = 14.sp) }
+            state.form.error?.let { Text(it, color = TvDanger, fontSize = TvType.caption) }
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.End,
@@ -494,7 +495,9 @@ private fun TvServerTextField(
             modifier
                 .then(requester)
                 .onFocusChanged { if (it.isFocused) focusMemory.remember("server-dialog", stableId) },
-        label = { Text(label) },
+        // Material's field type is the phone's 13sp body; a remote-driven form is read from a sofa.
+        textStyle = LocalTextStyle.current.copy(fontSize = TvType.body),
+        label = { Text(label, fontSize = TvType.caption) },
         singleLine = true,
         visualTransformation = if (secret) PasswordVisualTransformation() else VisualTransformation.None,
     )

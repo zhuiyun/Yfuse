@@ -12,7 +12,12 @@ import com.yfuse.core.data.PlaybackPreferences
 import com.yfuse.core.data.VideoCacheSize
 import com.yfuse.core.data.YCoreBufferDuration
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.Section
+import com.yfuse.core.designsystem.SettingRow
 import com.yfuse.core.designsystem.SettingTint
+import com.yfuse.core.designsystem.SettingsCard
+import com.yfuse.core.designsystem.SettingsDivider
+import com.yfuse.core.designsystem.SwitchRow
 import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlayerEngine
@@ -225,7 +230,7 @@ internal fun PlaybackSettingsScreen(
                         onChange = onSmartCrossServerSource,
                     )
                     SettingsDivider()
-                    SettingRow("视频缓存大小", "${videoCacheSize.label} ›", true, onVideoCache)
+                    SettingRow("视频缓存大小", videoCacheSize.label, true, onVideoCache)
                     SettingsDivider()
                     SettingRow("片头片尾", skipSegments, true, onSkipSegments)
                 }
@@ -236,14 +241,14 @@ internal fun PlaybackSettingsScreen(
                 SettingsCard {
                     SettingRow(
                         "视频版本偏好",
-                        "${mediaVersionPreference.playbackOptionCopy().label} ›",
+                        mediaVersionPreference.playbackOptionCopy().label,
                         true,
                         onMediaVersionPreference,
                     )
                     SettingsDivider()
                     SettingRow(
                         "播放模式",
-                        "${optimizationMode.simplePlaybackLabel()} ›",
+                        optimizationMode.simplePlaybackLabel(),
                         true,
                         onPlaybackMode,
                     )
@@ -255,7 +260,7 @@ internal fun PlaybackSettingsScreen(
                 SettingsCard {
                     SettingRow(
                         "高级播放设置",
-                        "内核、解码与音视频输出 ›",
+                        "内核、解码与音视频输出",
                         true,
                         onOpenAdvanced,
                     )
@@ -307,14 +312,14 @@ internal fun AdvancedPlaybackSettingsScreen(
                 SettingsCard {
                     SettingRow(
                         "YCore 播放策略",
-                        "${optimizationMode.playbackOptionCopy().label} ›",
+                        optimizationMode.playbackOptionCopy().label,
                         true,
                         onOptimizationMode,
                     )
                     SettingsDivider()
                     SettingRow(
                         "播放内核",
-                        "${engineSelection.playbackOptionCopy().label} ›",
+                        engineSelection.playbackOptionCopy().label,
                         true,
                         onEngine,
                     )
@@ -335,14 +340,14 @@ internal fun AdvancedPlaybackSettingsScreen(
                     SettingsDivider()
                     SettingRow(
                         "解码方式",
-                        "${decoder.playbackOptionCopy().label} ›",
+                        decoder.playbackOptionCopy().label,
                         true,
                         onDecoder,
                     )
                     SettingsDivider()
                     SettingRow(
                         "YCore 前向缓存时长",
-                        "${yCoreBufferDuration.label} ›",
+                        yCoreBufferDuration.label,
                         true,
                         onYCoreBufferDuration,
                     )
@@ -379,7 +384,7 @@ internal fun AdvancedPlaybackSettingsScreen(
                     )
                     SettingsDivider()
                     if (engineSelection == PlaybackEngineSelection.LockMdk) {
-                        SettingRow("音频直通", "MDK 暂不支持", false, {})
+                        SettingRow("音频直通", "MDK 暂不支持", false, null)
                     } else {
                         SettingSegmentRow(
                             title = "音频直通",
@@ -446,12 +451,12 @@ internal fun WatchTogetherSettingsScreen(
                 SettingsCard {
                     SettingRow(
                         if (connected) "当前房间" else "加入房间",
-                        if (connected) "房间 ${roomCode.orEmpty()} · 查看 ›" else "输入房间码 ›",
+                        if (connected) "房间 ${roomCode.orEmpty()} · 查看" else "输入房间码",
                         true,
                         onJoin,
                     )
                     SettingsDivider()
-                    SettingRow("一起看资料", "$nickname ›", true, onProfile)
+                    SettingRow("一起看资料", nickname, true, onProfile)
                 }
             }
         }
@@ -549,7 +554,7 @@ internal fun AppearanceSettingsScreen(
                     SettingsDivider()
                     SettingRow(
                         "玻璃材质",
-                        "底色、透明度与背景遮罩 ›",
+                        "底色、透明度与背景遮罩",
                         true,
                         onGlassMaterial,
                         icon = AppIcons.Grid,

@@ -37,7 +37,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.designsystem.AppIcons
@@ -287,7 +286,7 @@ private fun TvHomeHero(
             .height(390.dp)
             .padding(horizontal = 8.dp)
             .clip(RoundedCornerShape(18.dp))
-            .background(Color(0xFF151B25)),
+            .background(TvPlaceholder),
     ) {
         Crossfade(
             targetState = item,
@@ -327,14 +326,14 @@ private fun TvHomeHero(
             Text(
                 text = "今日精选",
                 color = TvAccent,
-                fontSize = 14.sp,
+                fontSize = TvType.caption,
                 fontWeight = FontWeight.Bold,
             )
             Spacer(Modifier.height(9.dp))
             Text(
                 text = item?.title ?: "欢迎使用 Yfuse",
                 color = Color.White,
-                fontSize = 38.sp,
+                fontSize = TvType.display,
                 fontWeight = FontWeight.ExtraBold,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
@@ -349,14 +348,14 @@ private fun TvHomeHero(
                             item.runtimeMinutes?.let { "$it 分钟" },
                         ).joinToString("  ·  "),
                     color = Color.White.copy(alpha = 0.82f),
-                    fontSize = 16.sp,
+                    fontSize = TvType.caption,
                 )
                 Spacer(Modifier.height(10.dp))
                 Text(
                     text = item.overview.orEmpty(),
                     color = Color.White.copy(alpha = 0.74f),
-                    fontSize = 16.sp,
-                    lineHeight = 23.sp,
+                    fontSize = TvType.caption,
+                    lineHeight = TvType.readingLineHeight,
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -391,7 +390,7 @@ private fun TvHomeHero(
             Text(
                 text = "${index + 1} / $count",
                 color = Color.White.copy(alpha = 0.65f),
-                fontSize = 13.sp,
+                fontSize = TvType.caption,
                 modifier = Modifier.align(Alignment.BottomEnd).padding(22.dp),
             )
         }

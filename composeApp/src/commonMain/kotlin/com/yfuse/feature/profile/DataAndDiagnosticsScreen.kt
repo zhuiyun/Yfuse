@@ -6,6 +6,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import com.yfuse.core.data.VideoCacheSize
 import com.yfuse.core.designsystem.Dimens
+import com.yfuse.core.designsystem.Section
+import com.yfuse.core.designsystem.SettingRow
+import com.yfuse.core.designsystem.SettingsCard
+import com.yfuse.core.designsystem.SettingsDivider
 import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.security.RelayMigrationDescriptor
 import com.yfuse.core.security.RelayMigrationPackage
@@ -39,7 +43,7 @@ internal fun DataAndDiagnosticsScreen(
                 SettingsCard {
                     SettingRow(
                         "自定义 User-Agent",
-                        if (customUserAgent.isBlank()) "应用默认 ›" else "已启用 ›",
+                        if (customUserAgent.isBlank()) "应用默认" else "已启用",
                         true,
                         onUserAgent,
                     )
@@ -64,8 +68,8 @@ internal fun DataAndDiagnosticsScreen(
                 SettingsCard {
                     SettingRow(
                         "清除图片缓存",
-                        imageCacheUsageBytes?.let { "已用 ${formatDownloadBytes(it)} · 不影响离线下载 ›" }
-                            ?: "正在计算 · 不影响离线下载 ›",
+                        imageCacheUsageBytes?.let { "已用 ${formatDownloadBytes(it)} · 不影响离线下载" }
+                            ?: "正在计算 · 不影响离线下载",
                         true,
                         onClearCache,
                     )
@@ -93,8 +97,8 @@ internal fun videoCacheUsageSummary(
     cacheSize: VideoCacheSize,
 ): String =
     when {
-        usedBytes == null -> "正在计算 · 上限 ${cacheSize.label} ›"
-        cacheSize.bytes <= 0L && usedBytes <= 0L -> "已关闭 · 无缓存 ›"
-        cacheSize.bytes <= 0L -> "已关闭 · 已用 ${formatDownloadBytes(usedBytes)} ›"
-        else -> "已用 ${formatDownloadBytes(usedBytes)} / ${cacheSize.label} ›"
+        usedBytes == null -> "正在计算 · 上限 ${cacheSize.label}"
+        cacheSize.bytes <= 0L && usedBytes <= 0L -> "已关闭 · 无缓存"
+        cacheSize.bytes <= 0L -> "已关闭 · 已用 ${formatDownloadBytes(usedBytes)}"
+        else -> "已用 ${formatDownloadBytes(usedBytes)} / ${cacheSize.label}"
     }

@@ -504,8 +504,13 @@ fun DetailScreen(component: DetailComponent) {
                                     .fillMaxSize()
                                     .nestedScroll(overscrollConnection)
                                     // What the collapsed top bar blurs. The bar is a sibling drawn after
-                                    // this, which is what keeps it out of its own backdrop.
-                                    .backdropSource(detailBackdrop),
+                                    // this, which is what keeps it out of its own backdrop. Captured only
+                                    // while something samples it: the bar once it has begun to fade in,
+                                    // or the season list.
+                                    .backdropSource(
+                                        detailBackdrop,
+                                        record = { topBarProgress.value > 0f || seasonPickerOpen },
+                                    ),
                                 state = listState,
                                 contentPadding = PaddingValues(bottom = Dimens.contentBottom),
                             ) {

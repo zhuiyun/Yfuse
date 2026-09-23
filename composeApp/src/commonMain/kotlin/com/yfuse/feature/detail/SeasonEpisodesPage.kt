@@ -30,13 +30,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.BackOverlay
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.FallbackImage
-import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.Poster
@@ -210,7 +209,7 @@ private fun EpisodeRow(
         modifier
             .fillMaxWidth()
             .pressable(onClick = onPlay)
-            .clip(GlassShapes.card)
+            .clip(AppShapes.card)
             .background(
                 if (current) {
                     selectedHighlight.copy(alpha = if (palette.isDark) 0.24f else 0.30f)
@@ -219,7 +218,7 @@ private fun EpisodeRow(
                 },
             ).then(
                 if (current) {
-                    Modifier.border(3.dp, selectedHighlight, GlassShapes.card)
+                    Modifier.border(3.dp, selectedHighlight, AppShapes.card)
                 } else {
                     Modifier
                 },
@@ -237,7 +236,7 @@ private fun EpisodeRow(
                         accessToken = accessToken,
                     ),
                 fallbackUrls = listOfNotNull(seriesPosterUrl),
-                shape = GlassShapes.thumb,
+                shape = AppShapes.thumb,
                 progress = episode.playedPercentage?.let { (it / 100.0).toFloat() },
                 modifier = Modifier.fillMaxSize(),
             )
@@ -255,7 +254,7 @@ private fun EpisodeRow(
                         Modifier
                             .align(Alignment.BottomEnd)
                             .padding(6.dp)
-                            .clip(GlassShapes.chip)
+                            .clip(AppShapes.chip)
                             .background(Color.Black.copy(alpha = 0.55f))
                             .padding(horizontal = 6.dp, vertical = 2.dp),
                         horizontalArrangement = Arrangement.spacedBy(3.dp),
@@ -310,7 +309,7 @@ private fun EpisodeRow(
                 Spacer(Modifier.height(5.dp))
                 Text(
                     episode.overview,
-                    style = AppTypography.caption.regular.copy(lineHeight = 17.sp),
+                    style = AppTypography.caption.reading,
                     color = palette.sub,
                     // Three lines: enough to recognise an episode by, short enough that
                     // ten of them still scan as a list.

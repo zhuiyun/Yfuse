@@ -26,9 +26,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.selected
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
@@ -41,8 +38,6 @@ import com.yfuse.core.designsystem.CaptionedPoster
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.GlassDialog
-import com.yfuse.core.designsystem.GlassShapes
-import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.MotionSwap
@@ -56,11 +51,11 @@ import com.yfuse.core.designsystem.SKELETON_PHASE_STEP_MS
 import com.yfuse.core.designsystem.SkeletonHandoff
 import com.yfuse.core.designsystem.SkeletonPosterTile
 import com.yfuse.core.designsystem.StatusBarIconStyle
+import com.yfuse.core.designsystem.YfChip
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.pressable
-import com.yfuse.core.designsystem.selectionColor
 import com.yfuse.core.designsystem.skeletonSweep
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.LibraryResolution
@@ -146,7 +141,7 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                         .pressable(onClickLabel = "返回上一页", onClick = component.onBack)
                         .touchTarget()
                         .size(34.dp)
-                        .glass(GlassShapes.chip),
+                        .glass(AppShapes.chip),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
@@ -344,7 +339,7 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                                                     Modifier
                                                         .size(30.dp)
                                                         .glass(
-                                                            shape = GlassShapes.chip,
+                                                            shape = AppShapes.chip,
                                                             fill = palette.background.copy(alpha = 0.82f),
                                                             border = palette.border,
                                                         ),
@@ -514,7 +509,7 @@ private fun GenreLoadErrorRow(
                     .pressable(onClickLabel = "重新加载分类", onClick = onRetry)
                     .touchTarget()
                     .glass(
-                        shape = GlassShapes.chip,
+                        shape = AppShapes.chip,
                         fill = accent.container,
                         border = accent.border.copy(alpha = 0.28f),
                     ).padding(horizontal = 14.dp, vertical = 7.dp),
@@ -535,15 +530,15 @@ private fun GenreFilterRow(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         motionItem(key = "genre-all") {
-            GenreChip("全部", selected == null) { onSelect(null) }
+            YfChip(label = "全部", selected = selected == null, onClick = { onSelect(null) }, onClickLabel = "选择分类 全部")
         }
         motionItems(genres, key = { it }) { genre ->
             // The facet arrives after the first page, so the row grows under the header.
-            GenreChip(
+            YfChip(
                 label = genre,
                 selected = selected == genre,
-                modifier = Modifier,
                 onClick = { onSelect(genre) },
+                onClickLabel = "选择分类 $genre",
             )
         }
     }
@@ -571,53 +566,21 @@ private fun ResolutionFilterRow(
             )
         }
         motionItems(LibraryResolution.entries, key = { it.name }) { resolution ->
-            GenreChip(
+            YfChip(
                 label = resolution.label,
                 selected = selected == resolution,
-                modifier = Modifier,
                 onClick = { onSelect(resolution) },
+                onClickLabel = "选择规格 ${resolution.label}",
             )
         }
         motionItem(key = "unplayed-only") {
-            GenreChip(
+            YfChip(
                 label = "只看未看",
                 selected = unplayedOnly,
-                modifier = Modifier,
                 onClick = { onUnplayedOnly(!unplayedOnly) },
             )
         }
     }
-}
-
-@Composable
-private fun GenreChip(
-    label: String,
-    selected: Boolean,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit,
-) {
-    val palette = LocalPalette.current
-    val accent = LocalAccentColors.current
-    Text(
-        label,
-        style = if (selected) AppTypography.body.strong else AppTypography.body.medium,
-        color = selectionColor(if (selected) accent.accent else palette.body),
-        maxLines = 1,
-        modifier =
-            modifier
-                .pressable(
-                    haptic = HapticSignal.Select,
-                    role = Role.RadioButton,
-                    onClickLabel = "选择分类",
-                    onClick = onClick,
-                ).semantics { this.selected = selected }
-                .touchTarget()
-                .glass(
-                    shape = GlassShapes.chip,
-                    fill = selectionColor(if (selected) accent.container else palette.card2),
-                    border = selectionColor(if (selected) accent.border.copy(alpha = 0.34f) else palette.border),
-                ).padding(horizontal = 13.dp, vertical = 7.dp),
-    )
 }
 
 /** Placeholder tiles in the grid's own geometry, so nothing shifts when the page lands. */
@@ -675,7 +638,7 @@ private fun GridFooter(
                             .pressable(onClickLabel = "重新加载更多内容", onClick = onRetry)
                             .touchTarget()
                             .glass(
-                                shape = GlassShapes.chip,
+                                shape = AppShapes.chip,
                                 fill = accent.container,
                                 border = accent.border.copy(alpha = 0.28f),
                             ).padding(horizontal = 14.dp, vertical = 7.dp),

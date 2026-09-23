@@ -26,6 +26,10 @@ class PlaybackSyncStore(
     private val serverApplySerializer = ListSerializer(PendingPlaybackServerApply.serializer())
     private val lock = personal?.coordinationLock ?: Any()
     private var documents = loadDocuments().toMutableList()
+
+    /** True while [documents] holds coalesced progress that settings have not received yet. */
+    private var documentsUnsaved = false
+    private var lastDocumentsPersistAtEpochMs = Long.MIN_VALUE
     private var batchingServerProgress = false
     private var serverProgressBatchChanged = false
     private var serverApplies = loadServerApplies().toMutableList()
@@ -55,6 +59,7 @@ class PlaybackSyncStore(
             if (previous == userId) return@synchronized false
 
             documents.clear()
+            documentsUnsaved = false
             serverApplies.clear()
             settings.remove(KEY_DOCUMENTS)
             settings.remove(KEY_SERVER_APPLIES)
@@ -408,61 +413,41 @@ class PlaybackSyncStore(
             val now = nowEpochMs()
             val index = findIndexLocked(mediaKey, aliases, serverId)
             val existing = documents.getOrNull(index)
-            val previous = existing?.document
-            val previousState = previous?.state
-            val canonicalMediaKey = previousState?.mediaKey?.takeIf(String::isNotBlank) ?: mediaKey
-            val revision = (previousState?.revision ?: 0L) + 1L
-            val normalizedAliases =
-                (previousState?.aliases.orEmpty() + aliases + mediaKey + previousState?.mediaKey.orEmpty())
-                    .asSequence()
-                    .filter(String::isNotBlank)
-                    .filterNot { it == canonicalMediaKey }
-                    .distinct()
-                    .take(32)
-                    .toList()
             val startsNewGeneration =
                 trigger == PlaybackSyncTrigger.Started &&
                     positionMs.coerceAtLeast(0L) <= NEW_GENERATION_START_WINDOW_MS &&
                     (
-                        previousState?.played == true ||
-                            previousState?.mutationKind?.isManual == true
+                        existing?.document?.state?.played == true ||
+                            existing
+                                ?.document
+                                ?.state
+                                ?.mutationKind
+                                ?.isManual == true
                     )
             val state =
-                PlaybackStateRecord(
-                    profileId = activeProfileId,
-                    mediaKey = canonicalMediaKey,
-                    aliases = normalizedAliases,
-                    positionMs = positionMs.coerceAtLeast(0L),
-                    durationMs = durationMs.coerceAtLeast(0L),
-                    played = played,
-                    lastPlayedAtEpochMs = now,
-                    progressEpoch =
-                        if (startsNewGeneration) {
-                            nextProgressEpoch(previousState?.progressEpoch ?: 0L)
-                        } else {
-                            previousState?.progressEpoch ?: 0L
-                        },
-                    deviceId = deviceId,
-                    sessionId = sessionId?.takeIf(String::isNotBlank),
-                    serverId = serverId?.takeIf(String::isNotBlank),
-                    serverItemId = serverItemId?.takeIf(String::isNotBlank),
-                    revision = revision,
-                    mutationKind = mutationKind,
-                )
-            val history = updateHistory(previous?.history.orEmpty(), state, trigger, now)
-            val stored =
-                StoredPlaybackDocument(
-                    document =
-                        PlaybackSyncDocument(
-                            state = state,
-                            preference = previous?.preference,
-                            history = history,
-                        ),
-                    remoteCursors = existing?.remoteCursors.orEmpty(),
-                    dirty = true,
-                    mutationId = newId("mutation"),
-                )
-            replaceLocked(index, stored)
+                buildState(existing?.document?.state, mediaKey, aliases, now) { base ->
+                    base.copy(
+                        positionMs = positionMs.coerceAtLeast(0L),
+                        durationMs = durationMs.coerceAtLeast(0L),
+                        played = played,
+                        progressEpoch =
+                            if (startsNewGeneration) {
+                                nextProgressEpoch(base.progressEpoch)
+                            } else {
+                                base.progressEpoch
+                            },
+                        sessionId = sessionId?.takeIf(String::isNotBlank),
+                        // Playback names the server it runs on; it never inherits an earlier one.
+                        serverId = serverId?.takeIf(String::isNotBlank),
+                        serverItemId = serverItemId?.takeIf(String::isNotBlank),
+                        mutationKind = mutationKind,
+                    )
+                }
+            val history = updateHistory(existing?.document?.history.orEmpty(), state, trigger, now)
+            val stored = locallyMutatedLocked(existing, state, history)
+            // The ten-second tick of an existing record is the one write that may wait; a new
+            // record, and every trigger that can be the last of a session, is written through.
+            replaceLocked(index, stored, deferrable = trigger == PlaybackSyncTrigger.Periodic && index >= 0)
             stored
         }
 
@@ -495,45 +480,21 @@ class PlaybackSyncStore(
         synchronized(lock) {
             val index = findIndexLocked(mediaKey, aliases, serverId)
             val existing = documents.getOrNull(index)
-            val previous = existing?.document?.state
-            val canonicalMediaKey = previous?.mediaKey?.takeIf(String::isNotBlank) ?: mediaKey
-            val now = nowEpochMs()
             val state =
-                PlaybackStateRecord(
-                    profileId = activeProfileId,
-                    mediaKey = canonicalMediaKey,
-                    aliases =
-                        (previous?.aliases.orEmpty() + aliases + mediaKey + previous?.mediaKey.orEmpty())
-                            .filter(String::isNotBlank)
-                            .filterNot { it == canonicalMediaKey }
-                            .distinct()
-                            .take(32),
-                    positionMs = 0L,
-                    durationMs = previous?.durationMs ?: 0L,
-                    played = false,
-                    lastPlayedAtEpochMs = now,
-                    progressEpoch = nextProgressEpoch(previous?.progressEpoch ?: 0L),
-                    deviceId = deviceId,
-                    sessionId = null,
-                    serverId = serverId ?: previous?.serverId,
-                    serverItemId = serverItemId ?: previous?.serverItemId,
-                    revision = (previous?.revision ?: 0L) + 1L,
-                    // Keep the v1 enum closed for rolling-upgrade compatibility. The generation and
-                    // zero position carry restart semantics for newer clients.
-                    mutationKind = PlaybackMutationKind.AutoProgress,
-                )
-            val stored =
-                StoredPlaybackDocument(
-                    document =
-                        PlaybackSyncDocument(
-                            state = state,
-                            preference = existing?.document?.preference,
-                            history = existing?.document?.history.orEmpty(),
-                        ),
-                    remoteCursors = existing?.remoteCursors.orEmpty(),
-                    dirty = true,
-                    mutationId = newId("mutation"),
-                )
+                buildState(existing?.document?.state, mediaKey, aliases, nowEpochMs()) { base ->
+                    base.copy(
+                        positionMs = 0L,
+                        played = false,
+                        progressEpoch = nextProgressEpoch(base.progressEpoch),
+                        sessionId = null,
+                        serverId = serverId ?: base.serverId,
+                        serverItemId = serverItemId ?: base.serverItemId,
+                        // Keep the v1 enum closed for rolling-upgrade compatibility. The generation and
+                        // zero position carry restart semantics for newer clients.
+                        mutationKind = PlaybackMutationKind.AutoProgress,
+                    )
+                }
+            val stored = locallyMutatedLocked(existing, state, existing?.document?.history.orEmpty())
             replaceLocked(index, stored)
             stored
         }
@@ -548,44 +509,19 @@ class PlaybackSyncStore(
         synchronized(lock) {
             val index = findIndexLocked(mediaKey, aliases, serverId)
             val existing = documents.getOrNull(index)
-            val previous = existing?.document?.state
-            val canonicalMediaKey = previous?.mediaKey?.takeIf(String::isNotBlank) ?: mediaKey
-            val now = nowEpochMs()
             val state =
-                PlaybackStateRecord(
-                    profileId = activeProfileId,
-                    mediaKey = canonicalMediaKey,
-                    aliases =
-                        (previous?.aliases.orEmpty() + aliases + mediaKey + previous?.mediaKey.orEmpty())
-                            .filter(String::isNotBlank)
-                            .filterNot { it == canonicalMediaKey }
-                            .distinct()
-                            .take(32),
-                    positionMs = if (watched) maxOf(previous?.positionMs ?: 0L, previous?.durationMs ?: 0L) else 0L,
-                    durationMs = previous?.durationMs ?: 0L,
-                    played = watched,
-                    lastPlayedAtEpochMs = now,
-                    progressEpoch = nextProgressEpoch(previous?.progressEpoch ?: 0L),
-                    deviceId = deviceId,
-                    sessionId = previous?.sessionId,
-                    serverId = serverId ?: previous?.serverId,
-                    serverItemId = serverItemId ?: previous?.serverItemId,
-                    revision = (previous?.revision ?: 0L) + 1L,
-                    mutationKind =
-                        if (watched) PlaybackMutationKind.ManualWatched else PlaybackMutationKind.ManualUnwatched,
-                )
-            val stored =
-                StoredPlaybackDocument(
-                    document =
-                        PlaybackSyncDocument(
-                            state = state,
-                            preference = existing?.document?.preference,
-                            history = existing?.document?.history.orEmpty(),
-                        ),
-                    remoteCursors = existing?.remoteCursors.orEmpty(),
-                    dirty = true,
-                    mutationId = newId("mutation"),
-                )
+                buildState(existing?.document?.state, mediaKey, aliases, nowEpochMs()) { base ->
+                    base.copy(
+                        positionMs = if (watched) maxOf(base.positionMs, base.durationMs) else 0L,
+                        played = watched,
+                        progressEpoch = nextProgressEpoch(base.progressEpoch),
+                        serverId = serverId ?: base.serverId,
+                        serverItemId = serverItemId ?: base.serverItemId,
+                        mutationKind =
+                            if (watched) PlaybackMutationKind.ManualWatched else PlaybackMutationKind.ManualUnwatched,
+                    )
+                }
+            val stored = locallyMutatedLocked(existing, state, existing?.document?.history.orEmpty())
             replaceLocked(index, stored)
             stored
         }
@@ -596,10 +532,15 @@ class PlaybackSyncStore(
         val needsUpload: Boolean,
     )
 
+    /**
+     * [deferPersist] is for a caller applying a whole pulled page: it must [flush] before it
+     * advances the cursor, or a crash would skip the unsaved documents for good.
+     */
     fun applyRemote(
         remote: PlaybackSyncDocument,
         entityKey: String,
         cursor: Long,
+        deferPersist: Boolean = false,
     ): RemoteApplyResult =
         synchronized(lock) {
             val index =
@@ -618,7 +559,7 @@ class PlaybackSyncStore(
                         dirty = false,
                         mutationId = newId("remote"),
                     )
-                replaceLocked(-1, stored)
+                replaceLocked(-1, stored, deferrable = deferPersist)
                 return@synchronized RemoteApplyResult(remote, changedLocal = true, needsUpload = false)
             }
             val localMediaKey = existing.document.state.mediaKey
@@ -630,10 +571,7 @@ class PlaybackSyncStore(
                             mediaKey = localMediaKey,
                             aliases =
                                 (mergedRaw.state.aliases + mergedRaw.state.mediaKey)
-                                    .filter(String::isNotBlank)
-                                    .filterNot { it == localMediaKey }
-                                    .distinct()
-                                    .take(32),
+                                    .normalizedAliases(localMediaKey),
                         ),
                 )
             val changedLocal = merged != existing.document
@@ -652,7 +590,7 @@ class PlaybackSyncStore(
                             existing.mutationId
                         },
                 )
-            replaceLocked(index, stored)
+            replaceLocked(index, stored, deferrable = deferPersist)
             RemoteApplyResult(merged, changedLocal, needsUpload)
         }
 
@@ -689,14 +627,85 @@ class PlaybackSyncStore(
         val index = findIndexLocked(mediaKey, aliases, serverId, profileId)
         val existing = documents.getOrNull(index) ?: return@synchronized
         if (existing.mutationId != mutationId) return@synchronized
+        // Losing an acknowledgement only re-sends a mutation the cloud already holds, and it
+        // follows every debounced progress push - writing it through would undo the coalescing.
         replaceLocked(
             index,
             existing.copy(
                 remoteCursors = existing.remoteCursors + (entityKey to cursor),
                 dirty = false,
             ),
+            deferrable = true,
         )
     }
+
+    /**
+     * Writes coalesced progress now. For the moments the process may go away without another
+     * playback event: the app leaving the foreground, or a caller that needs the settings
+     * value itself to be current.
+     */
+    fun flush() =
+        synchronized(lock) {
+            if (documentsUnsaved) persistLocked()
+        }
+
+    /**
+     * The record a local mutation produces. Everything a mutation does not name is carried over
+     * from [previous]; the identity, clock, device and revision are derived the same way for
+     * all of them, and [overrides] states only what this particular mutation changes.
+     */
+    private fun buildState(
+        previous: PlaybackStateRecord?,
+        mediaKey: String,
+        aliases: List<String>,
+        now: Long,
+        overrides: (base: PlaybackStateRecord) -> PlaybackStateRecord,
+    ): PlaybackStateRecord {
+        val canonicalMediaKey = previous?.mediaKey?.takeIf(String::isNotBlank) ?: mediaKey
+        return PlaybackStateRecord(
+            profileId = activeProfileId,
+            mediaKey = canonicalMediaKey,
+            aliases =
+                (previous?.aliases.orEmpty() + aliases + mediaKey + previous?.mediaKey.orEmpty())
+                    .normalizedAliases(canonicalMediaKey),
+            positionMs = previous?.positionMs ?: 0L,
+            durationMs = previous?.durationMs ?: 0L,
+            played = previous?.played ?: false,
+            lastPlayedAtEpochMs = now,
+            progressEpoch = previous?.progressEpoch ?: 0L,
+            deviceId = deviceId,
+            sessionId = previous?.sessionId,
+            serverId = previous?.serverId,
+            serverItemId = previous?.serverItemId,
+            revision = (previous?.revision ?: 0L) + 1L,
+        ).let(overrides)
+    }
+
+    /** Every other name a title is known by, without blanks, repeats or its canonical key. */
+    private fun List<String>.normalizedAliases(canonicalMediaKey: String): List<String> =
+        asSequence()
+            .filter(String::isNotBlank)
+            .filterNot { it == canonicalMediaKey }
+            .distinct()
+            .take(MAX_ALIASES)
+            .toList()
+
+    private fun locallyMutatedLocked(
+        existing: StoredPlaybackDocument?,
+        state: PlaybackStateRecord,
+        history: List<PlaybackHistoryEntry>,
+    ): StoredPlaybackDocument =
+        StoredPlaybackDocument(
+            document =
+                PlaybackSyncDocument(
+                    state = state,
+                    preference = existing?.document?.preference,
+                    history = history,
+                ),
+            remoteCursors = existing?.remoteCursors.orEmpty(),
+            dirty = true,
+            mutationId = newId("mutation"),
+        )
 
     private fun updateHistory(
         current: List<PlaybackHistoryEntry>,
@@ -748,31 +757,60 @@ class PlaybackSyncStore(
         }
     }
 
+    /**
+     * [deferrable] marks a write whose loss costs at most [DEFERRED_PERSIST_MAX_AGE_MS] of
+     * progress. Persisting is a full re-serialization of up to [MAX_LOCAL_DOCUMENTS] documents
+     * - hundreds of KB for a long-time user - and used to run on every ten-second tick. Such
+     * writes now only mark the list unsaved; the next written-through mutation (pause, seek,
+     * stop, background, completion, anything manual or remote), [flush], or the age limit
+     * carries them to disk. In-memory reads are unaffected either way.
+     */
     private fun replaceLocked(
         index: Int,
         value: StoredPlaybackDocument,
+        deferrable: Boolean = false,
     ) {
         if (index >= 0) documents[index] = value else documents += value
         if (batchingServerProgress) {
             serverProgressBatchChanged = true
             return
         }
-        trimAndPersistDocumentsLocked()
+        trimDocumentsLocked()
+        if (deferrable && !deferredPersistOverdueLocked()) {
+            documentsUnsaved = true
+            return
+        }
+        persistLocked()
+    }
+
+    private fun deferredPersistOverdueLocked(): Boolean {
+        val last = lastDocumentsPersistAtEpochMs
+        if (last == Long.MIN_VALUE) return true
+        // A clock that moved backwards counts as overdue rather than postponing the write.
+        return nowEpochMs() - last !in 0L until DEFERRED_PERSIST_MAX_AGE_MS
     }
 
     private fun trimAndPersistDocumentsLocked() {
+        trimDocumentsLocked()
+        persistLocked()
+    }
+
+    private fun trimDocumentsLocked() {
         documents =
             documents
                 .sortedBy { it.document.state.lastPlayedAtEpochMs }
                 .takeLast(MAX_LOCAL_DOCUMENTS)
                 .toMutableList()
-        persistLocked()
     }
 
     private fun persistLocked() {
         runCatching {
             settings.putString(KEY_DOCUMENTS, json.encodeToString(serializer, documents))
+            documentsUnsaved = false
+            lastDocumentsPersistAtEpochMs = nowEpochMs()
         }.onFailure { error ->
+            // Still unsaved: the next write-through or flush tries again.
+            documentsUnsaved = true
             AppLog.error(
                 category = "playback.sync",
                 event = "local_persist_failed",
@@ -852,6 +890,10 @@ class PlaybackSyncStore(
         const val KEY_ACCOUNT_USER_ID = "playback.cross_platform.account_user.v1"
         const val KEY_SERVER_APPLIES = "playback.cross_platform.server_applies.v1"
         const val MAX_LOCAL_DOCUMENTS = 512
+        const val MAX_ALIASES = 32
+
+        /** The most playback progress a process death can cost; see [replaceLocked]. */
+        const val DEFERRED_PERSIST_MAX_AGE_MS = 60_000L
         const val MAX_STORED_BYTES = 4 * 1024 * 1024
         const val MAX_SERVER_APPLIES = 512
         const val MAX_SERVER_APPLY_BATCH = 32

@@ -13,9 +13,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.unit.dp
+import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.GlassDialog
-import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LightEffect
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
@@ -66,7 +66,7 @@ internal fun ParticleLightSheet(
                         .height(48.dp)
                         .lightFeedback(light)
                         .pressable(lightFeedback = false, onClick = { light.emit(effect) })
-                        .flatGlass(GlassShapes.chip, palette.card2, palette.border)
+                        .flatGlass(AppShapes.chip, palette.card2, palette.border)
                         .padding(horizontal = 16.dp),
                     contentAlignment = Alignment.Center,
                 ) {

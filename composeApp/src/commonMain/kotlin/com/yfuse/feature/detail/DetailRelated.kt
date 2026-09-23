@@ -17,12 +17,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.Dimens
-import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.MediaSharedElementKey
 import com.yfuse.core.designsystem.Poster
+import com.yfuse.core.designsystem.SectionHeader
 import com.yfuse.core.designsystem.motionItemsIndexed
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.sharedMediaOnClick
@@ -70,7 +71,7 @@ internal fun RelatedSection(
                                 maxHeight = 480,
                                 accessToken = accessToken,
                             ),
-                        shape = GlassShapes.poster,
+                        shape = AppShapes.card,
                         rating = item.communityRating,
                         sharedTransitionKey = sharedKey,
                         modifier = Modifier.fillMaxWidth().height(140.dp),

@@ -1,6 +1,7 @@
 # This is a Gradle generated file for dependency locking.
 # Manual edits can break the build and are not advised.
 # This file is expected to be part of source control.
+# To regenerate this file, run: ./gradlew :mdkAndroid:dependencies --write-locks
 com.android.tools.analytics-library:protos:32.1.1=_internal-unified-test-platform-android-test-plugin-result-listener-gradle
 com.android.tools.analytics-library:shared:32.1.1=_internal-unified-test-platform-android-test-plugin-result-listener-gradle
 com.android.tools.build:aapt2-proto:9.1.1-14792394=_internal-unified-test-platform-android-test-plugin-result-listener-gradle

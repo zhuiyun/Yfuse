@@ -78,6 +78,7 @@ import com.yfuse.core.designsystem.softSelectionSurface
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.util.currentClockTime
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
 
@@ -210,7 +211,7 @@ internal fun PlaybackErrorOverlay(
 internal fun PlayerClock() {
     var now by remember { mutableStateOf(currentClockTime()) }
     LaunchedEffect(Unit) {
-        while (true) {
+        while (isActive) {
             val millisIntoMinute = System.currentTimeMillis() % 60_000L
             delay(60_000L - millisIntoMinute)
             now = currentClockTime()

@@ -27,6 +27,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlin.concurrent.Volatile
 
 data class PlaybackCloudSyncState(
     val syncing: Boolean = false,
@@ -57,22 +58,40 @@ class PlaybackSyncManager(
     private val syncMutex = Mutex()
     private val serverApplier = EmbyCompatiblePlaybackStateApplier(repo, registry, nowEpochMs, personal)
     private val sessionOwners = mutableMapOf<String, String>()
+
+    /**
+     * Guards the job slots, the startup-pull sets and every compound update of the backoff
+     * fields below. Playback events arrive on the player's thread while the session collector
+     * and each sync run on [scope]; unguarded, two of them could both find a slot empty and
+     * launch duplicate urgent or retry jobs. Never held across a suspension point.
+     */
+    private val scheduleLock = Any()
     private var lastForegroundRefresh = Long.MIN_VALUE
 
     /** Explicit recovery may retry a previously unavailable endpoint; it never blocks playback. */
     fun refreshNow() {
         scope.launch {
-            cloudPlaybackEndpointUnavailable = false
-            retryNotBeforeEpochMs = Long.MIN_VALUE
+            synchronized(scheduleLock) {
+                cloudPlaybackEndpointUnavailable = false
+                retryNotBeforeEpochMs = Long.MIN_VALUE
+            }
             syncNow(pullRemote = true)
         }
     }
 
     fun setAppForeground(foreground: Boolean) {
-        if (!foreground) return
+        if (!foreground) {
+            // Periodic progress is coalesced in memory, and a backgrounded process may not come
+            // back. Launched rather than run here: this is a lifecycle callback on the main
+            // thread and the write is a full encode of the local history.
+            scope.launch { store.flush() }
+            return
+        }
         val now = nowEpochMs()
-        if (lastForegroundRefresh != Long.MIN_VALUE && now - lastForegroundRefresh < 30_000) return
-        lastForegroundRefresh = now
+        synchronized(scheduleLock) {
+            if (lastForegroundRefresh != Long.MIN_VALUE && now - lastForegroundRefresh < 30_000) return
+            lastForegroundRefresh = now
+        }
         scope.launch { syncNow(pullRemote = true) }
     }
 
@@ -81,10 +100,15 @@ class PlaybackSyncManager(
     private var urgentJob: Job? = null
     private var retryJob: Job? = null
     private var serverRetryJob: Job? = null
-    private var lastCloudAttemptAtEpochMs = Long.MIN_VALUE
     private var cloudFailureStreak = 0
-    private var retryNotBeforeEpochMs = Long.MIN_VALUE
-    private var cloudPlaybackEndpointUnavailable = false
+
+    // Written under [scheduleLock] or [syncMutex]; single reads also happen outside both, on the
+    // scheduling fast path and inside a launched job.
+    @Volatile private var lastCloudAttemptAtEpochMs = Long.MIN_VALUE
+
+    @Volatile private var retryNotBeforeEpochMs = Long.MIN_VALUE
+
+    @Volatile private var cloudPlaybackEndpointUnavailable = false
     private val startupPullAttemptedUserIds = mutableSetOf<String>()
     private val startupPullPendingUserIds = mutableSetOf<String>()
     private val _state =
@@ -97,8 +121,10 @@ class PlaybackSyncManager(
     val state: StateFlow<PlaybackCloudSyncState> = _state.asStateFlow()
 
     fun start() {
-        if (started) return
-        started = true
+        synchronized(scheduleLock) {
+            if (started) return
+            started = true
+        }
         scope.launch {
             combine(
                 accessTokens.sessionAvailable,
@@ -108,20 +134,15 @@ class PlaybackSyncManager(
                 sessionAvailable && enabled
             }.collectLatest { active ->
                 if (!active) {
-                    debounceJob?.cancel()
-                    debounceJob = null
-                    urgentJob?.cancel()
-                    urgentJob = null
-                    retryJob?.cancel()
-                    retryJob = null
-                    serverRetryJob?.cancel()
-                    serverRetryJob = null
+                    cancelScheduledJobs()
                     _state.update { it.copy(syncing = false) }
                     return@collectLatest
                 }
                 val userId = cipher.currentUserId() ?: return@collectLatest
                 if (store.bindAccount(userId)) updatePendingState()
-                if (startupPullAttemptedUserIds.add(userId)) startupPullPendingUserIds.add(userId)
+                synchronized(scheduleLock) {
+                    if (startupPullAttemptedUserIds.add(userId)) startupPullPendingUserIds.add(userId)
+                }
                 syncNow()
             }
         }
@@ -253,14 +274,16 @@ class PlaybackSyncManager(
             }
             val userId = cipher.currentUserId() ?: return
             if (store.bindAccount(userId)) updatePendingState()
-            val shouldPull = pullRemote || userId in startupPullPendingUserIds
+            val shouldPull =
+                pullRemote || synchronized(scheduleLock) { userId in startupPullPendingUserIds }
             drainServerApplyQueue()
             if (cloudPlaybackEndpointUnavailable) return
             // Token acquisition can itself refresh over the network. Respect the cloud
             // backoff before touching it, not only before the playback endpoint request.
             val now = nowEpochMs()
-            if (now < retryNotBeforeEpochMs) {
-                scheduleCloudRetry(retryNotBeforeEpochMs - now)
+            val retryNotBefore = retryNotBeforeEpochMs
+            if (now < retryNotBefore) {
+                scheduleCloudRetry(retryNotBefore - now)
                 return
             }
             lastCloudAttemptAtEpochMs = now
@@ -320,7 +343,7 @@ class PlaybackSyncManager(
             if (!progressSyncEnabled.value) return
             val userId = cipher.currentUserId()
             pullAll(accessToken)
-            userId?.let(startupPullPendingUserIds::remove)
+            userId?.let { synchronized(scheduleLock) { startupPullPendingUserIds.remove(it) } }
         }
         if (!progressSyncEnabled.value) return
         pushPending(accessToken)
@@ -341,6 +364,7 @@ class PlaybackSyncManager(
                         remote = document,
                         entityKey = encrypted.entityKey,
                         cursor = encrypted.cursor,
+                        deferPersist = true,
                     )
                 if (applied.changedLocal && document.state.deviceId != store.deviceId) {
                     store.enqueueServerApply(
@@ -349,6 +373,8 @@ class PlaybackSyncManager(
                     )
                 }
             }
+            // The page is written once, and before the cursor moves past it.
+            store.flush()
             store.updateCursor(response.cursor)
             pages++
         } while (response.hasMore && pages < MAX_PULL_PAGES_PER_SYNC)
@@ -430,8 +456,10 @@ class PlaybackSyncManager(
     }
 
     private suspend fun drainServerApplyQueue() {
-        serverRetryJob?.cancel()
-        serverRetryJob = null
+        synchronized(scheduleLock) {
+            serverRetryJob?.cancel()
+            serverRetryJob = null
+        }
         try {
             repeat(MAX_SERVER_APPLIES_PER_SYNC) {
                 if (!progressSyncEnabled.value) return
@@ -523,46 +551,68 @@ class PlaybackSyncManager(
     private fun scheduleServerApplyRetry() {
         if (!progressSyncEnabled.value || !accessTokens.sessionAvailable.value) return
         val nextAttempt = store.nextServerApplyAtEpochMs() ?: return
-        serverRetryJob =
-            scope.launch {
-                delay((nextAttempt - nowEpochMs()).coerceAtLeast(1_000L))
-                serverRetryJob = null
-                syncMutex.withLock {
-                    if (progressSyncEnabled.value && accessTokens.sessionAvailable.value) drainServerApplyQueue()
+        synchronized(scheduleLock) {
+            serverRetryJob =
+                scope.launch {
+                    delay((nextAttempt - nowEpochMs()).coerceAtLeast(1_000L))
+                    // Free the slot first: the drain below cancels whatever job still occupies it.
+                    val self = coroutineContext[Job]
+                    synchronized(scheduleLock) { if (serverRetryJob === self) serverRetryJob = null }
+                    syncMutex.withLock {
+                        if (progressSyncEnabled.value && accessTokens.sessionAvailable.value) {
+                            drainServerApplyQueue()
+                        }
+                    }
                 }
-            }
+        }
     }
+
+    private fun cancelScheduledJobs() =
+        synchronized(scheduleLock) {
+            debounceJob?.cancel()
+            debounceJob = null
+            urgentJob?.cancel()
+            urgentJob = null
+            retryJob?.cancel()
+            retryJob = null
+            serverRetryJob?.cancel()
+            serverRetryJob = null
+        }
 
     private fun scheduleCloudSync(immediate: Boolean) {
         if (!progressSyncEnabled.value) return
         if (cloudPlaybackEndpointUnavailable) return
         if (!accessTokens.sessionAvailable.value) return
-        if (immediate) {
-            debounceJob?.cancel()
-            debounceJob = null
-            if (urgentJob?.isActive == true) return
-            urgentJob =
-                scope.launch {
-                    val now = nowEpochMs()
-                    val elapsed =
-                        if (lastCloudAttemptAtEpochMs == Long.MIN_VALUE) {
-                            Long.MAX_VALUE
-                        } else {
-                            (now - lastCloudAttemptAtEpochMs).coerceAtLeast(0L)
+        // Check-then-launch is one step: the player thread and a sync run may both get here.
+        synchronized(scheduleLock) {
+            if (immediate) {
+                debounceJob?.cancel()
+                debounceJob = null
+                if (urgentJob?.isActive == true) return
+                urgentJob =
+                    scope.launch {
+                        val now = nowEpochMs()
+                        val lastAttempt = lastCloudAttemptAtEpochMs
+                        val elapsed =
+                            if (lastAttempt == Long.MIN_VALUE) {
+                                Long.MAX_VALUE
+                            } else {
+                                (now - lastAttempt).coerceAtLeast(0L)
+                            }
+                        if (elapsed < MIN_URGENT_CLOUD_GAP_MS) {
+                            delay(MIN_URGENT_CLOUD_GAP_MS - elapsed)
                         }
-                    if (elapsed < MIN_URGENT_CLOUD_GAP_MS) {
-                        delay(MIN_URGENT_CLOUD_GAP_MS - elapsed)
+                        syncNow(pullRemote = false)
                     }
+                return
+            }
+            if (debounceJob?.isActive == true || urgentJob?.isActive == true) return
+            debounceJob =
+                scope.launch {
+                    delay(CLOUD_DEBOUNCE_MS)
                     syncNow(pullRemote = false)
                 }
-            return
         }
-        if (debounceJob?.isActive == true || urgentJob?.isActive == true) return
-        debounceJob =
-            scope.launch {
-                delay(CLOUD_DEBOUNCE_MS)
-                syncNow(pullRemote = false)
-            }
     }
 
     private fun updatePendingState() {
@@ -582,12 +632,14 @@ class PlaybackSyncManager(
     }
 
     private fun markCloudPlaybackEndpointUnavailable(error: AccountApiException) {
-        if (cloudPlaybackEndpointUnavailable) return
-        retryJob?.cancel()
-        retryJob = null
-        cloudPlaybackEndpointUnavailable = true
-        cloudFailureStreak = 0
-        retryNotBeforeEpochMs = Long.MAX_VALUE
+        synchronized(scheduleLock) {
+            if (cloudPlaybackEndpointUnavailable) return
+            retryJob?.cancel()
+            retryJob = null
+            cloudPlaybackEndpointUnavailable = true
+            cloudFailureStreak = 0
+            retryNotBeforeEpochMs = Long.MAX_VALUE
+        }
         val pendingCount = store.pending(128).size
         val attributes =
             mapOf(
@@ -623,8 +675,12 @@ class PlaybackSyncManager(
 
     private fun recordFailure(error: Throwable) {
         if (error is CancellationException) throw error
-        cloudFailureStreak = (cloudFailureStreak + 1).coerceAtMost(MAX_CLOUD_FAILURE_STREAK)
-        val backoffMs = playbackCloudRetryBackoffMs(cloudFailureStreak)
+        val failureStreak =
+            synchronized(scheduleLock) {
+                cloudFailureStreak = (cloudFailureStreak + 1).coerceAtMost(MAX_CLOUD_FAILURE_STREAK)
+                cloudFailureStreak
+            }
+        val backoffMs = playbackCloudRetryBackoffMs(failureStreak)
         retryNotBeforeEpochMs = nowEpochMs() + backoffMs
         val apiError = error as? AccountApiException
         AppLog.warning(
@@ -634,7 +690,7 @@ class PlaybackSyncManager(
             throwable = error,
             attributes =
                 buildMap {
-                    put("failureStreak", cloudFailureStreak.toString())
+                    put("failureStreak", failureStreak.toString())
                     put("backoffMs", backoffMs.toString())
                     apiError?.let {
                         put("status", it.status.value.toString())
@@ -651,27 +707,36 @@ class PlaybackSyncManager(
             )
         // Previously a timeout only wrote a deadline. No job retried it unless another
         // playback event happened, so the final Stop could remain unsynced indefinitely.
-        retryJob?.cancel()
-        retryJob = null
+        synchronized(scheduleLock) {
+            retryJob?.cancel()
+            retryJob = null
+        }
         scheduleCloudRetry(backoffMs)
     }
 
     private fun scheduleCloudRetry(delayMs: Long) {
-        if (retryJob?.isActive == true || !progressSyncEnabled.value) return
-        retryJob =
-            scope.launch {
-                delay(delayMs.coerceAtLeast(0L))
-                retryJob = null
-                if (progressSyncEnabled.value && accessTokens.sessionAvailable.value) syncNow()
-            }
+        if (!progressSyncEnabled.value) return
+        synchronized(scheduleLock) {
+            if (retryJob?.isActive == true) return
+            retryJob =
+                scope.launch {
+                    delay(delayMs.coerceAtLeast(0L))
+                    // Free the slot before syncing: a failure inside that sync cancels the slot's
+                    // occupant and schedules the next retry, which must not be this very job.
+                    val self = coroutineContext[Job]
+                    synchronized(scheduleLock) { if (retryJob === self) retryJob = null }
+                    if (progressSyncEnabled.value && accessTokens.sessionAvailable.value) syncNow()
+                }
+        }
     }
 
-    private fun markCloudSyncSucceeded() {
-        retryJob?.cancel()
-        retryJob = null
-        cloudFailureStreak = 0
-        retryNotBeforeEpochMs = Long.MIN_VALUE
-    }
+    private fun markCloudSyncSucceeded() =
+        synchronized(scheduleLock) {
+            retryJob?.cancel()
+            retryJob = null
+            cloudFailureStreak = 0
+            retryNotBeforeEpochMs = Long.MIN_VALUE
+        }
 
     private companion object {
         const val CLOUD_DEBOUNCE_MS = 20_000L

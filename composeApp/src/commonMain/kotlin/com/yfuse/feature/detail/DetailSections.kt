@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -32,17 +31,17 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassLift
-import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.Poster
+import com.yfuse.core.designsystem.SectionHeader
 import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.motionItemsIndexed
 import com.yfuse.core.designsystem.pressable
@@ -77,9 +76,9 @@ internal fun GenreSection(
                         Modifier
                             .let { base ->
                                 if (onGenreClick != null) base.pressable { onGenreClick(genre) } else base
-                            }.shadow(GlassLift.control, GlassShapes.chip)
+                            }.shadow(GlassLift.control, AppShapes.chip)
                             .liquidGlass(
-                                shape = GlassShapes.chip,
+                                shape = AppShapes.chip,
                                 fill =
                                     if (palette.isDark) {
                                         Color.White.copy(alpha = 0.075f)
@@ -139,7 +138,7 @@ internal fun ArtworkSection(
                         Modifier
                             .width(232.dp)
                             .height(130.dp)
-                            .clip(GlassShapes.card),
+                            .clip(AppShapes.card),
                 )
             }
         }
@@ -163,9 +162,9 @@ internal fun ExternalLinksSection(
                 Row(
                     Modifier
                         .pressable { runCatching { uriHandler.openUri(url) } }
-                        .shadow(GlassLift.control, GlassShapes.chip)
+                        .shadow(GlassLift.control, AppShapes.chip)
                         .liquidGlass(
-                            shape = GlassShapes.chip,
+                            shape = AppShapes.chip,
                             fill =
                                 if (palette.isDark) {
                                     Color.White.copy(alpha = 0.075f)
@@ -208,22 +207,6 @@ internal fun externalLinks(providerIds: Map<String, String>): List<Pair<String, 
     }
 }
 
-@Composable
-internal fun SectionHeader(
-    title: String,
-    modifier: Modifier = Modifier,
-    trailing: @Composable () -> Unit = {},
-) {
-    Row(
-        modifier.fillMaxWidth().padding(bottom = 10.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(title, style = AppTypography.section.strong, color = LocalPalette.current.text)
-        trailing()
-    }
-}
-
 /** 简介 — capped at three lines so the episode list stays reachable. */
 @Composable
 internal fun OverviewSection(
@@ -259,7 +242,7 @@ internal fun OverviewSection(
         SectionHeader("剧情简介")
         Text(
             text,
-            style = AppTypography.body.regular.copy(lineHeight = 21.sp),
+            style = AppTypography.body.reading,
             color = palette.body,
             maxLines = if (expanded) Int.MAX_VALUE else 3,
             overflow = TextOverflow.Ellipsis,
