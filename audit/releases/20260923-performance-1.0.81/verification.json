@@ -1,0 +1,47 @@
+{
+  "verifiedAtUtc": "2026-09-23T03:33:15.873382+00:00",
+  "previousDeliveredApk": "artifacts/releases/dialog-restore-1.0.79-241/Yfuse-1.0.79-241-full-arm64-signed.apk",
+  "previousVersionName": "1.0.79",
+  "previousVersionCode": 241,
+  "previousCertificateSha256": "373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84",
+  "projectMetadataMatches": true,
+  "releaseNotesMatch": true,
+  "profiles": {
+    "full": {
+      "apk": "Yfuse-1.0.81-243-full-arm64-signed.apk",
+      "bytes": 29276861,
+      "sha256": "82b6e92acba86cea52a5abd09d933d1f6789cf3088c1329231db735ca01b4504",
+      "applicationId": "com.yfuse",
+      "versionName": "1.0.81",
+      "versionCode": 243,
+      "certificateSha256": "373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84",
+      "signatureV2Verified": true,
+      "zipalign16KiBVerified": true,
+      "zipCrcVerified": true,
+      "arm64Only": true,
+      "ycoreBytesMatch": true,
+      "mdkIncluded": true,
+      "startupTimingMarkersPresent": true,
+      "debuggable": false
+    },
+    "compact": {
+      "apk": "Yfuse-1.0.81-243-compact-arm64-signed.apk",
+      "bytes": 23028105,
+      "sha256": "432a66791eec8e59e8529b18c8b96f7bf284bf46a6b8011ccea33b339347639a",
+      "applicationId": "com.yfuse",
+      "versionName": "1.0.81",
+      "versionCode": 243,
+      "certificateSha256": "373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84",
+      "signatureV2Verified": true,
+      "zipalign16KiBVerified": true,
+      "zipCrcVerified": true,
+      "arm64Only": true,
+      "ycoreBytesMatch": true,
+      "mdkIncluded": false,
+      "startupTimingMarkersPresent": true,
+      "debuggable": false
+    }
+  },
+  "installed": false,
+  "published": false
+}

@@ -574,7 +574,7 @@ internal fun PlayerRoot(
             fun stage(name: String) {
                 val now = SystemClock.elapsedRealtime()
                 val item = latestStartupItems.value.getOrNull(state.currentIndex)
-                launch?.stage(name, output = true)
+                launch?.stage(name, output = releasesPlaybackBackgroundWork(name, item?.mediaType))
                 AppLog.info(
                     category = "player",
                     event = "playback_startup_stage",

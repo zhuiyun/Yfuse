@@ -96,7 +96,7 @@ class DetailStoreTest {
     }
 
     @Test
-    fun cached_detail_is_playable_while_refresh_waits_and_refresh_keeps_selected_version() = runTest {
+    fun fresh_cached_detail_skips_the_request_until_retry_and_keeps_selected_version() = runTest {
         val refreshStarted = CompletableDeferred<Unit>()
         val releaseRefresh = CompletableDeferred<Unit>()
         val registry = testRegistry().apply {
@@ -126,13 +126,15 @@ class DetailStoreTest {
             syncManager = testSyncManager,
         ).create()
         try {
-            refreshStarted.await()
             assertEquals(cached.title, store.state.detail?.title)
             assertEquals("m1", store.state.playTarget?.id)
             assertEquals(false, store.state.loading)
             assertEquals(false, store.state.selectionLoading)
+            assertEquals(1, detailRequests)
             store.accept(DetailIntent.SelectVersion("v2"))
             assertEquals("v2", store.state.selectedVersionId)
+            store.accept(DetailIntent.Retry)
+            refreshStarted.await()
             releaseRefresh.complete(Unit)
             store.states.first { it.detail?.title == "更新后的电影" }
             assertEquals("v2", store.state.selectedVersionId)
@@ -420,6 +422,11 @@ class DetailStoreTest {
                         awaitItem(),
                     )
                     assertTrue(!store.state.resolvingPlay)
+                    assertTrue(!store.state.sourcesLoading)
+                    com.yfuse.feature.player.PlaybackLaunchTimings
+                        .find("one", "e1")
+                        ?.stage("first_video_output", output = true)
+                    store.states.first { it.sources.isNotEmpty() }
                     cancelAndConsumeRemainingEvents()
                 }
             } finally {
@@ -431,21 +438,77 @@ class DetailStoreTest {
     @Test
     fun playback_resolution_has_a_deadline_and_clears_the_spinner() =
         runTest {
+            var initialRequests = 0
             val store =
                 seriesStore(
-                    beforeInitialEpisodes = { awaitCancellation() },
+                    beforeInitialEpisodes = {
+                        initialRequests++
+                        awaitCancellation()
+                    },
                     playbackResolutionTimeoutMs = 50L,
                     mainContext = UnconfinedTestDispatcher(testScheduler),
                 )
             try {
                 store.states.first { it.detail != null && !it.selectionLoading }
                 assertTrue(!store.state.resolvingPlay)
+                assertTrue(!store.state.sourcesLoading)
 
                 store.accept(DetailIntent.Play)
                 store.states.first { it.actionMessage == "播放信息加载超时，请检查网络后重试" }
 
                 assertTrue(!store.state.resolvingPlay)
+                assertEquals(1, initialRequests)
             } finally {
+                store.dispose()
+            }
+        }
+
+    @Test
+    fun cached_resume_episode_without_files_fetches_playback_fields_before_publishing_target() =
+        runTest {
+            var playbackFieldRequests = 0
+            val store =
+                seriesStore(
+                    seedLightEpisodeSnapshot = true,
+                    onFirstEpisodeDetail = { fields ->
+                        if (fields?.contains("MediaSources") == true) playbackFieldRequests++
+                    },
+                    mainContext = UnconfinedTestDispatcher(testScheduler),
+                )
+            try {
+                val ready = store.states.first { it.playTarget?.versions?.isNotEmpty() == true }
+                assertEquals("e1", ready.playTarget?.id)
+                assertEquals("ev1", ready.playTarget?.versions?.singleOrNull()?.id)
+                assertEquals(1, playbackFieldRequests)
+            } finally {
+                store.dispose()
+            }
+        }
+
+    @Test
+    fun late_playback_resolution_is_reused_by_the_play_tap() =
+        runTest {
+            val release = CompletableDeferred<Unit>()
+            var initialRequests = 0
+            val store =
+                seriesStore(
+                    beforeInitialEpisodes = { release.await() },
+                    onFirstEpisodesRequest = { if (it == null) initialRequests++ },
+                    playbackResolutionTimeoutMs = 50L,
+                    mainContext = UnconfinedTestDispatcher(testScheduler),
+                )
+            try {
+                store.states.first { it.detail != null && !it.selectionLoading }
+                release.complete(Unit)
+                testScheduler.runCurrent()
+                store.labels.test {
+                    store.accept(DetailIntent.Play)
+                    assertEquals(DetailLabel.Play("one", "e1", 10_000_000L, "ev1"), awaitItem())
+                    assertEquals(1, initialRequests)
+                    cancelAndConsumeRemainingEvents()
+                }
+            } finally {
+                release.complete(Unit)
                 store.dispose()
             }
         }
@@ -593,7 +656,7 @@ class DetailStoreTest {
         }
 
     @Test
-    fun initial_series_directory_is_reused_for_the_episode_list() =
+    fun initial_series_target_uses_its_own_directory_before_the_episode_list() =
         runTest {
             var episodeDirectoryRequests = 0
             val store =
@@ -604,12 +667,28 @@ class DetailStoreTest {
             try {
                 store.states.first { it.playTarget?.id == "e1" && it.episodes.size == 2 }
 
-                assertEquals(1, episodeDirectoryRequests)
+                assertEquals(2, episodeDirectoryRequests)
                 assertEquals(listOf("e1", "e2"), store.state.episodes.map { it.id })
             } finally {
                 store.dispose()
             }
         }
+
+    @Test
+    fun resource_comparison_reuses_the_resolved_current_version() = runTest {
+        val lookupHosts = mutableListOf<String>()
+        val store = movieStore(
+            onSourceLookup = { lookupHosts += it },
+            mainContext = UnconfinedTestDispatcher(testScheduler),
+        )
+        try {
+            store.states.first { it.sources.size == 2 && !it.sourcesLoading }
+            assertEquals(listOf("two"), lookupHosts)
+            assertEquals("m1", store.state.sources.first { it.isCurrent }.itemId)
+        } finally {
+            store.dispose()
+        }
+    }
 
     @Test
     fun episode_selection_timeout_clears_loading_and_restores_the_committed_episode() =
@@ -1151,6 +1230,7 @@ class DetailStoreTest {
         watchLaterDeleteFailure: (() -> Throwable?)? = null,
         onWatchLaterDelete: (String?) -> Unit = {},
         beforeWatchLaterLookup: suspend () -> Unit = {},
+        onSourceLookup: (String) -> Unit = {},
         mainContext: CoroutineDispatcher = Dispatchers.Unconfined,
     ): com.arkivanov.mvikotlin.core.store.Store<
         DetailIntent,
@@ -1223,7 +1303,10 @@ class DetailStoreTest {
                         json(MOVIE_THREE)
                     }
                     path.endsWith("/Similar") -> json("""{"Items":[]}""")
-                    path.endsWith("/Items") ->
+                    path.endsWith("/Items") -> {
+                        if (request.url.parameters["SearchTerm"] == "电影" ||
+                            request.url.parameters["AnyProviderIdEquals"] != null
+                        ) onSourceLookup(host)
                         json(
                             if (host == "one") {
                                 """{"Items":[$movieOneBody]}"""
@@ -1233,6 +1316,7 @@ class DetailStoreTest {
                                 """{"Items":[$MOVIE_THREE]}"""
                             },
                         )
+                    }
                     else -> json("{}")
                 }
             }
@@ -1251,6 +1335,8 @@ class DetailStoreTest {
 
     private fun seriesStore(
         includeSecondSource: Boolean = false,
+        seedLightEpisodeSnapshot: Boolean = false,
+        onFirstEpisodeDetail: (String?) -> Unit = {},
         beforeEpisodeTwoDetail: suspend () -> Unit = {},
         beforeInitialEpisodes: suspend () -> Unit = {},
         onFirstEpisodesRequest: (String?) -> Unit = {},
@@ -1289,7 +1375,11 @@ class DetailStoreTest {
                 when {
                     path.endsWith("/Items/s1") -> json(SERIES)
                     path.endsWith("/Items/s2") -> json(SERIES_TWO)
-                    path.endsWith("/Items/e1") -> json(EPISODE_ONE)
+                    path.endsWith("/Items/e1") -> {
+                        val fields = request.url.parameters["Fields"]
+                        onFirstEpisodeDetail(fields)
+                        json(if (fields?.contains("MediaSources") == true) EPISODE_ONE else EPISODE_ONE_LIGHT)
+                    }
                     path.endsWith("/Items/e2") -> {
                         beforeEpisodeTwoDetail()
                         json(EPISODE_TWO)
@@ -1358,6 +1448,16 @@ class DetailStoreTest {
                     else -> json("{}")
                 }
             }
+        if (seedLightEpisodeSnapshot) {
+            runBlocking {
+                repo.itemDetail(
+                    registry.serverById("one")!!,
+                    "e1",
+                    includeInheritedPeople = false,
+                    includePlaybackFields = false,
+                ).getOrThrow()
+            }
+        }
         return DetailStoreFactory(
             DefaultStoreFactory(),
             repo,
@@ -1406,6 +1506,12 @@ class DetailStoreTest {
                 """"UserData":{"PlaybackPositionTicks":10000000},"MediaSources":[""" +
                 """{"Id":"ev1","Name":"第一集版本","MediaStreams":[""" +
                 """{"Type":"Video","Height":1080}]}]}"""
+
+        const val EPISODE_ONE_LIGHT =
+            """{"Id":"e1","Name":"第一集","Type":"Episode",""" +
+                """"SeriesId":"s1","SeriesName":"剧集","ParentIndexNumber":1,""" +
+                """"IndexNumber":1,"SeasonId":"season1",""" +
+                """"UserData":{"PlaybackPositionTicks":10000000}}"""
 
         const val EPISODE_TWO =
             """{"Id":"e2","Name":"第二集","Type":"Episode",""" +

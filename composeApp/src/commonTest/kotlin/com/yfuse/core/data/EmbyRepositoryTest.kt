@@ -680,10 +680,14 @@ class EmbyRepositoryTest {
                 }
 
             assertTrue(repo.isInWatchLater(server, "m1").getOrThrow())
+            assertTrue(repo.isInWatchLater(server, "m1").getOrThrow())
+            assertEquals(1, membershipReads)
             repo.removeFromWatchLater(server, "m1").getOrThrow()
 
             assertEquals(2, membershipReads)
             assertEquals("entry-1,entry-2", deletedEntryIds)
+            assertTrue(repo.isInWatchLater(server, "m1").getOrThrow())
+            assertEquals(3, membershipReads)
         }
 
     @Test
@@ -1396,6 +1400,27 @@ class EmbyRepositoryTest {
             assertEquals(listOf("e1", "e2"), resolution.episodes?.map { it.id })
             assertEquals(1, directoryRequests)
         }
+
+    @Test
+    fun detail_play_target_requests_only_progress_fields_and_reprojects_local_progress() = runTest {
+        var requests = 0
+        val progress = PlaybackSyncStore(MapSettings()) { 1_000L }
+        val repo = testRepo(progressProjection = PlaybackProgressProjection(progress)) { request ->
+            requests++
+            assertEquals("/Shows/s1/Episodes", request.url.encodedPath)
+            assertEquals("UserData", request.url.parameters["Fields"])
+            json(
+                """{"Items":[{"Id":"e1","Name":"First","Type":"Episode"},""" +
+                    """{"Id":"e2","Name":"Second","Type":"Episode"}]}""",
+            )
+        }
+        val series = detail("s1", "Series")
+
+        assertEquals("e1", repo.resolveDetailPlayTarget(server, series).getOrThrow().target.itemId)
+        progress.seedServerProgressIfAbsent(server.id, "e1", positionMs = 0L, played = true)
+        assertEquals("e2", repo.resolveDetailPlayTarget(server, series).getOrThrow().target.itemId)
+        assertEquals(1, requests)
+    }
 
     @Test
     fun resolvePlayTarget_series_falls_back_to_first_episode() =

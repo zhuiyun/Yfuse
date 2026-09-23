@@ -781,6 +781,7 @@ class PlayerStoreFactory(
     private val healthMonitor: ServerHealthMonitor? = null,
     private val queueLoadTimeoutMs: Long = PLAYER_QUEUE_LOAD_TIMEOUT_MS,
     private val isSeriesLaunch: Boolean = false,
+    private val optionalEnrichmentGate: (suspend () -> Unit)? = null,
 ) {
     fun create(): Store<PlayerIntent, PlayerState, Nothing> =
         storeFactory.create(
@@ -1293,7 +1294,11 @@ class PlayerStoreFactory(
                     recordStage("current_item_ready", currentItem.id, server.id, currentItem.playSessionId)
                     // A synchronous Ready observer may dispose the store immediately.
                     currentCoroutineContext().ensureActive()
-                    PlaybackLaunchTimings.find(server.id, effectiveItemId)?.awaitForeground()
+                    if (optionalEnrichmentGate != null) {
+                        optionalEnrichmentGate.invoke()
+                    } else {
+                        PlaybackLaunchTimings.find(server.id, effectiveItemId)?.awaitForeground()
+                    }
                     coroutineScope {
                         launch {
                             val fallbacks =

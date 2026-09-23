@@ -1,10 +1,19 @@
 package com.yfuse.core.network
 
+import com.yfuse.core.logging.AppLog
 import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.engine.okhttp.OkHttp
+import okhttp3.Call
+import okhttp3.Connection
 import okhttp3.ConnectionPool
 import okhttp3.Dispatcher
+import okhttp3.EventListener
+import okhttp3.Response
+import java.io.IOException
+import java.net.InetSocketAddress
+import java.net.Proxy
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Uses OkHttp's Android TLS stack so certificate-chain and hostname checks stay platform aware.
@@ -47,7 +56,104 @@ internal fun embyRequestDispatcher(): Dispatcher =
 actual fun embyHttpEngine(): HttpClientEngine =
     OkHttp.create {
         config {
-            dispatcher(embyRequestDispatcher())
+            val apiDispatcher = embyRequestDispatcher()
+            dispatcher(apiDispatcher)
             connectionPool(sharedOriginConnectionPool)
+            eventListenerFactory(EventListener.Factory { call -> EmbyApiRequestTiming(call, apiDispatcher) })
         }
     }
+
+/** Only anonymous timing and request class reach diagnostics; never a URL, path or credential. */
+private class EmbyApiRequestTiming(
+    call: Call,
+    private val dispatcher: Dispatcher,
+) : EventListener() {
+    @Volatile private var startedNs = System.nanoTime()
+    private val group =
+        call.request().url.encodedPath.let { path ->
+            when {
+                path.endsWith("/PlaybackInfo", ignoreCase = true) -> "playback_info"
+                path.contains("/Shows/", ignoreCase = true) && path.endsWith("/Episodes", ignoreCase = true) -> "episodes"
+                path.contains("/Items/", ignoreCase = true) -> "item_detail"
+                else -> "other"
+            }
+        }
+    @Volatile private var queuedAtStart = 0
+    @Volatile private var runningAtStart = 0
+    private val finished = AtomicBoolean(false)
+
+    @Volatile private var firstNetworkNs = 0L
+    @Volatile private var connectionNs = 0L
+    @Volatile private var requestHeadersNs = 0L
+    @Volatile private var responseHeadersNs = 0L
+    @Volatile private var responseBodyNs = 0L
+    @Volatile private var responseBytes = -1L
+    @Volatile private var statusCode = 0
+
+    override fun callStart(call: Call) {
+        startedNs = System.nanoTime()
+        queuedAtStart = dispatcher.queuedCallsCount()
+        runningAtStart = dispatcher.runningCallsCount()
+    }
+
+    override fun dnsStart(call: Call, domainName: String) = markNetworkStart()
+
+    override fun connectStart(call: Call, inetSocketAddress: InetSocketAddress, proxy: Proxy) = markNetworkStart()
+
+    override fun connectionAcquired(call: Call, connection: Connection) {
+        markNetworkStart()
+        connectionNs = System.nanoTime()
+    }
+
+    override fun requestHeadersStart(call: Call) {
+        markNetworkStart()
+        requestHeadersNs = System.nanoTime()
+    }
+
+    override fun responseHeadersEnd(call: Call, response: Response) {
+        responseHeadersNs = System.nanoTime()
+        statusCode = response.code
+    }
+
+    override fun responseBodyEnd(call: Call, byteCount: Long) {
+        responseBodyNs = System.nanoTime()
+        responseBytes = byteCount
+    }
+
+    override fun callEnd(call: Call) = finish("completed")
+
+    override fun callFailed(call: Call, ioe: IOException) = finish("failed")
+
+    private fun markNetworkStart() {
+        if (firstNetworkNs == 0L) firstNetworkNs = System.nanoTime()
+    }
+
+    private fun finish(outcome: String) {
+        if (!finished.compareAndSet(false, true)) return
+        val endedNs = System.nanoTime()
+        val totalMs = (endedNs - startedNs) / 1_000_000L
+        if (totalMs < 500L && group == "other" && outcome == "completed") return
+        fun elapsed(from: Long, to: Long): String =
+            if (from > 0L && to >= from) ((to - from) / 1_000_000L).toString() else "unavailable"
+        AppLog.info(
+            "network.emby",
+            "api_request_timing",
+            "Emby API request timing",
+            mapOf(
+                "group" to group,
+                "outcome" to outcome,
+                "status" to statusCode.takeIf { it > 0 }?.toString().orEmpty(),
+                "totalMs" to totalMs.toString(),
+                // Includes OkHttp dispatch scheduling; it is not a pure queue-wait measurement.
+                "beforeNetworkMs" to elapsed(startedNs, firstNetworkNs),
+                "connectionMs" to elapsed(firstNetworkNs, connectionNs),
+                "responseHeadersMs" to elapsed(requestHeadersNs, responseHeadersNs),
+                "responseBodyMs" to elapsed(responseHeadersNs, responseBodyNs),
+                "responseBytes" to responseBytes.takeIf { it >= 0L }?.toString().orEmpty(),
+                "queuedAtStart" to queuedAtStart.toString(),
+                "runningAtStart" to runningAtStart.toString(),
+                "queuedAtEnd" to dispatcher.queuedCallsCount().toString(),
+            ),
+        )
+    }
+}

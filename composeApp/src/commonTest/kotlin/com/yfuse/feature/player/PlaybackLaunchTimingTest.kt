@@ -9,6 +9,15 @@ import kotlin.test.assertTrue
 
 class PlaybackLaunchTimingTest {
     @Test
+    fun video_launch_keeps_background_work_paused_after_first_audio() {
+        assertFalse(releasesPlaybackBackgroundWork("first_audio_output", "Movie"))
+        assertFalse(releasesPlaybackBackgroundWork("first_audio_output", null))
+        assertTrue(releasesPlaybackBackgroundWork("first_audio_output", "Audio"))
+        assertTrue(releasesPlaybackBackgroundWork("first_video_output", "Movie"))
+        assertTrue(releasesPlaybackBackgroundWork("startup_error", "Movie"))
+    }
+
+    @Test
     fun optional_requests_wait_for_output_or_failure() =
         runTest {
             for (stage in listOf("first_video_output", "first_audio_output", "startup_error")) {

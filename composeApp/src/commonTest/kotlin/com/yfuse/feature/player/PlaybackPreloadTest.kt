@@ -2,6 +2,8 @@ package com.yfuse.feature.player
 
 import com.arkivanov.mvikotlin.core.rx.Disposable
 import com.arkivanov.mvikotlin.core.rx.Observer
+import kotlinx.coroutines.async
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -11,6 +13,29 @@ import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class PlaybackPreloadTest {
+    @Test
+    fun prepared_queue_enrichment_waits_for_claim_and_video_output() =
+        runTest {
+            val key = PlaybackPreloadKey("server", "episode", 0L, "source")
+            val store = FakePreparedStore()
+            val gate = PreparedPlaybackGate()
+            PreparedPlaybackRegistry.register(key, store, gate)
+            val enrichment = async { gate.awaitRelease() }
+            runCurrent()
+            assertFalse(enrichment.isCompleted)
+
+            val timing = PlaybackLaunchTiming().also { it.claim() }
+            assertSame(store, PreparedPlaybackRegistry.claim(key, timing))
+            runCurrent()
+            assertFalse(enrichment.isCompleted)
+            timing.stage("first_audio_output")
+            runCurrent()
+            assertFalse(enrichment.isCompleted)
+            timing.stage("first_video_output", output = true)
+            runCurrent()
+            assertTrue(enrichment.isCompleted)
+        }
+
     @Test
     fun prepared_queue_can_be_claimed_by_only_one_player_launch() {
         val key =

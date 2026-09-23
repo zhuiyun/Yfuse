@@ -57,8 +57,12 @@ internal class AndroidPlaybackSourcePreloader(
         startPositionMs: Long,
         tracks: com.yfuse.core.data.PlaybackTrackRequest.Tracks?,
     ): PlaybackSourcePreload {
-        val source = item.persistentPlaybackCacheUrl() ?: return noOpPlaybackSourcePreload()
+        val source = item.persistentPlaybackCacheUrl() ?: run {
+            logSourcePreloadSkipped("no_persistent_source")
+            return noOpPlaybackSourcePreload()
+        }
         if (playbackPreferences.videoCacheSize.value.bytes <= 0L) {
+            logSourcePreloadSkipped("cache_disabled")
             return noOpPlaybackSourcePreload()
         }
         val networkClass = currentPlaybackNetworkClass()
@@ -102,11 +106,21 @@ internal class AndroidPlaybackSourcePreloader(
                     ),
             )
         ) {
+            logSourcePreloadSkipped(
+                when {
+                    networkClass != PlaybackNetworkClass.Unmetered -> "metered_or_offline"
+                    powerSaveMode -> "power_save"
+                    else -> "engine_does_not_use_cache"
+                },
+            )
             return noOpPlaybackSourcePreload()
         }
 
         val cacheKey = secureMediaCacheKeyForUrl(source)
-        if (jobs[cacheKey]?.isActive == true) return noOpPlaybackSourcePreload()
+        if (jobs[cacheKey]?.isActive == true) {
+            logSourcePreloadSkipped("already_running")
+            return noOpPlaybackSourcePreload()
+        }
         val preloadBytes = playbackPreloadBytes(item.activeVersion?.sourceBitrateBps)
         val cancelled = AtomicBoolean(false)
         val writerRef = AtomicReference<CacheWriter?>()
@@ -115,12 +129,14 @@ internal class AndroidPlaybackSourcePreloader(
             scope.launch(start = CoroutineStart.LAZY) {
                 val memory = AndroidPlaybackMemoryBudget.acquire(PlaybackBufferKind.Preload, 128L * 1024L)
                 if (memory.limitBytes < 32L * 1024L) {
+                    logSourcePreloadSkipped("memory_pressure")
                     memory.close()
                     return@launch
                 }
                 val cacheBytes = playbackPreferences.videoCacheSize.value.bytes
                 val handle =
                     VideoCachePool.acquire(applicationContext, cacheBytes) ?: run {
+                        logSourcePreloadSkipped("cache_unavailable")
                         memory.close()
                         return@launch
                     }
@@ -183,6 +199,7 @@ internal class AndroidPlaybackSourcePreloader(
             }
         val existing = jobs.putIfAbsent(cacheKey, job)
         if (existing != null) {
+            logSourcePreloadSkipped("already_running")
             job.cancel()
             return noOpPlaybackSourcePreload()
         }
@@ -194,6 +211,15 @@ internal class AndroidPlaybackSourcePreloader(
             if (jobs.remove(cacheKey, job)) job.cancel()
         }
     }
+}
+
+private fun logSourcePreloadSkipped(reason: String) {
+    AppLog.info(
+        category = "feature.player",
+        event = "source_preload_skipped",
+        message = "Optional source preload was skipped",
+        attributes = mapOf("reason" to reason),
+    )
 }
 
 internal fun shouldWarmPlaybackCache(

@@ -6,6 +6,14 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.random.Random
 import kotlin.time.TimeSource
 
+internal fun releasesPlaybackBackgroundWork(
+    stage: String,
+    mediaType: String?,
+): Boolean =
+    stage == "first_video_output" ||
+        stage == "startup_error" ||
+        (stage == "first_audio_output" && mediaType.equals("Audio", ignoreCase = true))
+
 /** One tap, across detail resolution, prepared-store handoff, Activity and decoder output. */
 internal class PlaybackLaunchTiming {
     private val started = TimeSource.Monotonic.markNow()
@@ -50,6 +58,11 @@ internal class PlaybackLaunchTiming {
 
     suspend fun awaitForeground() {
         if (!synchronized(reported) { claimed }) return
+        awaitOutputOrDeadline()
+    }
+
+    /** Detail work queued behind a tap waits even if the player has not mounted yet. */
+    suspend fun awaitOutputOrDeadline() {
         // Background catalogs still recover when no player UI is mounted or output never arrives.
         val released =
             withTimeoutOrNull(30_000L) {

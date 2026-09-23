@@ -236,6 +236,7 @@ class EmbyRepository(
     private val detailService = EmbyDetailService(client, progressProjection)
     private val playbackDetails = PlaybackMetadataCache<Pair<SavedServer, String>, MediaDetail>()
     private val detailSnapshots = PlaybackMetadataCache<Pair<SavedServer, String>, MediaDetail>(ttlMs = 30_000L)
+    private val watchLaterMembership = PlaybackMetadataCache<Pair<SavedServer, String>, Boolean>(ttlMs = 30_000L)
     private val sourceService = EmbySourceService(client, detailService)
     private val sourceLookupCooldown = SourceLookupCooldown()
     private val libraryService = EmbyLibraryService(client)
@@ -450,17 +451,25 @@ class EmbyRepository(
     suspend fun addToWatchLater(
         server: SavedServer,
         itemId: String,
-    ): Result<Unit> = adapterFor(server).addToWatchLater(server, itemId)
+    ): Result<Unit> = adapterFor(server).addToWatchLater(server, itemId).onSuccess {
+        watchLaterMembership.invalidate { it == (server to itemId) }
+    }
 
     suspend fun isInWatchLater(
         server: SavedServer,
         itemId: String,
-    ): Result<Boolean> = adapterFor(server).isInWatchLater(server, itemId)
+    ): Result<Boolean> = runCatchingCancellable {
+        watchLaterMembership.get(server to itemId) {
+            adapterFor(server).isInWatchLater(server, itemId).getOrThrow()
+        }
+    }
 
     suspend fun removeFromWatchLater(
         server: SavedServer,
         itemId: String,
-    ): Result<Unit> = adapterFor(server).removeFromWatchLater(server, itemId)
+    ): Result<Unit> = adapterFor(server).removeFromWatchLater(server, itemId).onSuccess {
+        watchLaterMembership.invalidate { it == (server to itemId) }
+    }
 
     suspend fun reportPlaybackStarted(
         server: SavedServer,
@@ -630,6 +639,17 @@ class EmbyRepository(
         server: SavedServer,
         detail: MediaDetail,
     ): Result<PlayTargetResolution> = adapterFor(server).resolvePlayTargetWithEpisodes(server, detail)
+
+    /** The detail button only needs a target; the full episode catalog loads after it is ready. */
+    internal suspend fun resolveDetailPlayTarget(
+        server: SavedServer,
+        detail: MediaDetail,
+    ): Result<PlayTargetResolution> =
+        if (server.kind == MediaServerKind.Plex) {
+            adapterFor(server).resolvePlayTargetWithEpisodes(server, detail)
+        } else {
+            detailService.resolveDetailPlayTarget(server, detail)
+        }
 
     internal suspend fun resolveSeriesPlayback(
         server: SavedServer,

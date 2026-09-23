@@ -42,7 +42,7 @@ class PlayerComponent(
             startPositionTicks = startPositionTicks,
             mediaSourceId = mediaSourceId,
         )
-    private val preparedStore = PreparedPlaybackRegistry.claim(preloadKey)
+    private val preparedStore = PreparedPlaybackRegistry.claim(preloadKey, launchTiming)
 
     /**
      * A detail page starts this exact Store before the tap. Claiming it preserves both a

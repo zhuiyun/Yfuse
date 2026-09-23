@@ -9,6 +9,7 @@ import com.yfuse.core.data.dto.toMediaDetail
 import com.yfuse.core.data.dto.toMediaItem
 import com.yfuse.core.data.dto.toPerson
 import com.yfuse.core.data.dto.toSeason
+import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.Episode
 import com.yfuse.core.model.MediaDetail
 import com.yfuse.core.model.MediaItem
@@ -25,12 +26,14 @@ import io.ktor.client.call.body
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.parameter
+import io.ktor.http.HttpHeaders
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlin.math.roundToInt
+import kotlin.time.TimeSource
 
 internal data class PlayTargetResolution(
     val target: PlayTarget,
@@ -44,6 +47,8 @@ internal class EmbyDetailService(
     // Raw DTOs only: re-project local progress on every use, including after marking an episode played.
     private val episodeDirectories =
         PlaybackMetadataCache<Triple<SavedServer, String, Boolean>, List<BaseItemDto>>(ttlMs = 30_000L)
+    private val targetDirectories =
+        PlaybackMetadataCache<Pair<SavedServer, String>, List<BaseItemDto>>(ttlMs = 30_000L)
 
     /** Real Emby recommendations used by the detail page's compact poster rail. */
     suspend fun similarItems(
@@ -106,6 +111,47 @@ internal class EmbyDetailService(
                             projectedTarget.UserData?.PlaybackPositionTicks ?: 0L,
                         ),
                     episodes = projected.map { it.second.toEpisode() },
+                )
+            }
+        }
+
+    /** Selects the initial play target without downloading episode descriptions and images. */
+    suspend fun resolveDetailPlayTarget(
+        server: SavedServer,
+        detail: MediaDetail,
+    ): Result<PlayTargetResolution> =
+        embyApiCall("resolve_detail_play_target") {
+            if (detail.type != "Series") {
+                PlayTargetResolution(PlayTarget(detail.id, detail.resumePositionTicks ?: 0L))
+            } else {
+                val directory =
+                    episodeDirectories.peek(Triple(server, detail.id, false))
+                        ?: episodeDirectories.peek(Triple(server, detail.id, true))
+                        ?: targetDirectories.get(server to detail.id) {
+                            val started = TimeSource.Monotonic.markNow()
+                            val response =
+                                client.get("${server.baseUrl}/Shows/${embyPath(detail.id)}/Episodes") {
+                                    header("X-Emby-Token", server.accessToken)
+                                    parameter("UserId", server.userId)
+                                    parameter("Fields", "UserData")
+                                }
+                            val headersMs = started.elapsedNow().inWholeMilliseconds
+                            val decoded: ItemsResponseDto = response.body()
+                            logDetailDecodeTiming(
+                                "target_directory", server.kind,
+                                headersMs, started.elapsedNow().inWholeMilliseconds - headersMs,
+                                response.headers[HttpHeaders.ContentLength],
+                            )
+                            decoded.Items
+                        }
+                val projected = directory.map { item -> item to progress.project(server, item) }
+                val episode =
+                    requireNotNull(selectLocalNextUp(server, projected) ?: directory.firstOrNull()) {
+                        "no episodes"
+                    }
+                val target = progress.project(server, episode)
+                PlayTargetResolution(
+                    PlayTarget(target.Id, target.UserData?.PlaybackPositionTicks ?: 0L),
                 )
             }
         }
@@ -324,7 +370,8 @@ internal class EmbyDetailService(
         playbackOnly: Boolean = false,
     ): Result<MediaDetail> =
         embyApiCall("item_detail") {
-            val dto: BaseItemDto =
+            val started = TimeSource.Monotonic.markNow()
+            val response =
                 client
                     .get("${server.baseUrl}/Users/${embyPath(server.userId)}/Items/${embyPath(itemId)}") {
                         header("X-Emby-Token", server.accessToken)
@@ -348,7 +395,14 @@ internal class EmbyDetailService(
                                     "Path,DateCreated,Chapters,ProviderIds"
                             },
                         )
-                    }.body()
+                    }
+            val headersMs = started.elapsedNow().inWholeMilliseconds
+            val dto: BaseItemDto = response.body()
+            logDetailDecodeTiming(
+                if (playbackOnly) "playback_item" else "item_detail", server.kind,
+                headersMs, started.elapsedNow().inWholeMilliseconds - headersMs,
+                response.headers[HttpHeaders.ContentLength],
+            )
             val detail = progress.project(server, dto).toMediaDetail()
 
             // Emby returns no cast on episodes; borrow the series' cast instead.
@@ -362,6 +416,27 @@ internal class EmbyDetailService(
                 detail
             }
         }
+
+    private fun logDetailDecodeTiming(
+        group: String,
+        kind: MediaServerKind,
+        headersMs: Long,
+        bodyAndDecodeMs: Long,
+        declaredBytes: String?,
+    ) {
+        AppLog.info(
+            category = "network.emby",
+            event = "detail_decode_timing",
+            message = "Detail response received and decoded",
+            attributes = mapOf(
+                "group" to group,
+                "serverKind" to kind.name,
+                "headersMs" to headersMs.toString(),
+                "bodyAndDecodeMs" to bodyAndDecodeMs.toString(),
+                "declaredBytes" to declaredBytes.orEmpty(),
+            ),
+        )
+    }
 
     /** Optional enrichment, requested separately by the detail screen after its first content. */
     suspend fun inheritedEpisodePeople(

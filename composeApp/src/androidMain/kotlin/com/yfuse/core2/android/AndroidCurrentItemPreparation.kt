@@ -50,7 +50,14 @@ internal object AndroidCurrentItemPreparation {
                 .toCore2MediaItems(userAgent, cacheBytes)
                 .single()
                 .copy(initialTrackSelection = initialTrackSelection?.orNull())
-        if (!nextItemSourceEligible(item) || !nextItemNetworkAllowed(context)) return noOpPlaybackSourcePreload()
+        if (!nextItemSourceEligible(item)) {
+            logCurrentItemPreparationSkipped("source_ineligible")
+            return noOpPlaybackSourcePreload()
+        }
+        if (!nextItemNetworkAllowed(context)) {
+            logCurrentItemPreparationSkipped("network_power_or_memory")
+            return noOpPlaybackSourcePreload()
+        }
         val entry = Entry(item)
         val previous =
             synchronized(lock) {
@@ -128,6 +135,13 @@ internal object AndroidCurrentItemPreparation {
                         }
                     }
                 } catch (cancelled: CancellationException) {
+                    logCurrentItemPreparationSkipped(
+                        if (!synchronized(lock) { entry.accepting }) {
+                            "selection_changed_or_handoff"
+                        } else {
+                            "budget_or_resource_pressure"
+                        },
+                    )
                     throw cancelled
                 } catch (failure: Exception) {
                     AppLog.info(
@@ -174,14 +188,19 @@ internal object AndroidCurrentItemPreparation {
                     current = null
                     it.accepting = false
                 }
-            } ?: return null
+            } ?: run {
+                logCurrentItemPreparationSkipped("no_pending_preparation")
+                return null
+            }
         entry.job?.cancel()
         if (!entry.item.matchesPreparedSource(item) || entry.item.sourceHints != item.sourceHints) {
+            logCurrentItemPreparationSkipped("source_changed")
             entry.slot.close()
             return null
         }
         val result =
             entry.slot.take(item) ?: run {
+                logCurrentItemPreparationSkipped("not_ready_or_expired")
                 entry.slot.close()
                 return null
             }
@@ -189,7 +208,17 @@ internal object AndroidCurrentItemPreparation {
             AppLog.info("player.core2", "current_item_preparation_reused", "Playback adopted the prepared source")
             return result
         }
+        logCurrentItemPreparationSkipped("position_changed")
         result.close()
         return null
     }
+}
+
+private fun logCurrentItemPreparationSkipped(reason: String) {
+    AppLog.info(
+        category = "player.core2",
+        event = "current_item_preparation_skipped",
+        message = "Current source preparation was not reused",
+        attributes = mapOf("reason" to reason),
+    )
 }

@@ -215,6 +215,57 @@ class PlayerStoreTest {
         }
 
     @Test
+    fun prepared_store_does_not_request_backup_before_first_frame() =
+        runTest {
+            val backupRequests = AtomicInteger()
+            val registry =
+                testRegistry().apply {
+                    addOrUpdate(SavedServer("primary", "http://primary", "primary", "u1", "user", "tok"))
+                    addOrUpdate(SavedServer("backup", "http://backup", "backup", "u1", "user", "tok"))
+                }
+            val failover =
+                PlaybackFailoverRequest().apply {
+                    set(PlaybackFailoverPlan("movie", "tmdb:603", listOf("backup")))
+                }
+            val repo =
+                testRepo(dispatcher = UnconfinedTestDispatcher(testScheduler)) { request ->
+                    if (request.url.host == "backup") backupRequests.incrementAndGet()
+                    when {
+                        request.url.encodedPath.endsWith("/PlaybackInfo") -> json("""{"MediaSources":[]}""")
+                        request.url.parameters["AnyProviderIdEquals"] != null -> json("""{"Items":[]}""")
+                        else -> json("""{"Id":"movie","Name":"Movie","Type":"Movie","ProviderIds":{"Tmdb":"603"}}""")
+                    }
+                }
+            val gate = PreparedPlaybackGate()
+            val store =
+                PlayerStoreFactory(
+                    DefaultStoreFactory(),
+                    repo,
+                    registry,
+                    "movie",
+                    0L,
+                    serverId = "primary",
+                    failoverRequest = failover,
+                    optionalEnrichmentGate = gate::awaitRelease,
+                ).create()
+            try {
+                val ready = store.states.first { !it.loading }
+                assertNull(ready.error)
+                assertTrue(ready.enrichmentPending)
+                assertEquals(0, backupRequests.get())
+
+                val timing = PlaybackLaunchTiming().also { it.claim() }
+                gate.claim(timing)
+                assertEquals(0, backupRequests.get())
+                timing.stage("first_video_output", output = true)
+                store.states.first { !it.enrichmentPending }
+                assertTrue(backupRequests.get() > 0)
+            } finally {
+                store.dispose()
+            }
+        }
+
+    @Test
     fun episode_metadata_waits_until_current_playback_negotiation_completes() =
         runBlocking {
             val seriesRequested = CompletableDeferred<Unit>()

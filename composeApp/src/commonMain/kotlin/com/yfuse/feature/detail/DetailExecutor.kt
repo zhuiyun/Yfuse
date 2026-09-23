@@ -24,7 +24,9 @@ import com.yfuse.core.network.toUserMessage
 import com.yfuse.core.sync.ServerSyncManager
 import com.yfuse.core.sync.watchKey
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -71,9 +73,12 @@ internal class DetailExecutor(
     private var sourceLoadGeneration = 0L
     private var sourceLoadJob: Job? = null
     private var relatedLoadGeneration = 0L
+    private var relatedLoadJob: Job? = null
     private var detailLoadGeneration = 0L
     private var detailLoadJob: Job? = null
     private var playbackSelectionLoadJob: Job? = null
+    private var initialPlaybackResolution: Deferred<Result<ResolvedPlaybackSelection>>? = null
+    private var initialPlaybackResolutionGeneration = 0L
     private var detailLoadStarted = TimeSource.Monotonic.markNow()
 
     private fun detailStage(stage: String, outcome: String = "ready") {
@@ -90,6 +95,7 @@ internal class DetailExecutor(
     }
     private var peopleLoadJob: Job? = null
     private var watchLaterLoadGeneration = 0L
+    private var watchLaterLoadJob: Job? = null
     private var organizationLoadGeneration = 0L
     private val sourceCoordinator = SourceSelectionCoordinator(repo)
     private val seriesCatalogLoader = SeriesCatalogLoader(repo)
@@ -111,7 +117,7 @@ internal class DetailExecutor(
 
     override fun executeIntent(intent: DetailIntent) {
         when (intent) {
-            DetailIntent.Retry -> load()
+            DetailIntent.Retry -> load(forceRefresh = true)
             DetailIntent.RetrySources -> {
                 val current = state()
                 val sourceServer = current.playServer ?: current.server
@@ -265,15 +271,19 @@ internal class DetailExecutor(
             else -> null
         }
 
-    private fun load() {
+    private fun load(forceRefresh: Boolean = false) {
         val generation = ++detailLoadGeneration
         detailLoadStarted = TimeSource.Monotonic.markNow()
         detailLoadJob?.cancel()
         playbackSelectionLoadJob?.cancel()
+        initialPlaybackResolution?.cancel()
+        initialPlaybackResolution = null
         sourceLoadJob?.cancel()
         ++sourceLoadGeneration
         cancelInitialCatalogLoad()
         peopleLoadJob?.cancel()
+        relatedLoadJob?.cancel()
+        watchLaterLoadJob?.cancel()
         val server = if (serverId == null) registry.defaultServer else registry.serverById(serverId)
         dispatch(DetailMsg.Loading)
         detailStage("started")
@@ -290,12 +300,15 @@ internal class DetailExecutor(
                 }
                 val cached = repo.cachedItemDetail(server, itemId)
                 if (cached != null) {
-                    dispatch(DetailMsg.Loaded(cached, server))
+                    if (forceRefresh && state().server?.id == server.id && state().detail?.id == cached.id) {
+                        dispatch(DetailMsg.Refreshed(cached, server))
+                    } else {
+                        dispatch(DetailMsg.Loaded(cached, server))
+                    }
                     detailStage("content_ready", "cache")
-                    loadWatchLater(server, cached.id)
                     loadPlaybackSelection(server, cached)
-                    loadRelated(server, cached)
-                    loadPeople(server, cached)
+                    loadOptionalContent(server, cached)
+                    if (!forceRefresh) return@launch
                 }
                 repo
                     .itemDetail(
@@ -309,10 +322,8 @@ internal class DetailExecutor(
                         detailStage(if (cached == null) "content_ready" else "refresh_ready", "network")
                         if (cached == null) {
                             dispatch(DetailMsg.Loaded(detail, server))
-                            loadWatchLater(server, detail.id)
                             loadPlaybackSelection(server, detail)
-                            loadRelated(server, detail)
-                            loadPeople(server, detail)
+                            loadOptionalContent(server, detail)
                         } else {
                             dispatch(DetailMsg.Refreshed(detail, server))
                         }
@@ -335,6 +346,18 @@ internal class DetailExecutor(
                         dispatch(DetailMsg.Failed(it.toUserMessage("加载失败")))
                     }
             }
+    }
+
+    private fun loadOptionalContent(server: SavedServer, detail: MediaDetail) {
+        val generation = detailLoadGeneration
+        scope.launch {
+            // Give the playback target a head start on the same host before optional requests.
+            withTimeoutOrNull(750L) { initialPlaybackResolution?.await() }
+            if (generation != detailLoadGeneration) return@launch
+            loadWatchLater(server, detail.id)
+            loadRelated(server, detail)
+            loadPeople(server, detail)
+        }
     }
 
     private fun loadPeople(
@@ -373,10 +396,19 @@ internal class DetailExecutor(
     ) {
         val generation = detailLoadGeneration
         playbackSelectionLoadJob?.cancel()
+        initialPlaybackResolution?.cancel()
+        val resolution =
+            scope.async {
+                withTimeoutOrNull(playbackResolutionTimeoutMs.coerceAtMost(5_000L) * 3L) {
+                    resolveInitialPlaybackSelection(server, detail)
+                } ?: Result.failure(PlaybackResolutionTimeoutException())
+            }
+        initialPlaybackResolution = resolution
+        initialPlaybackResolutionGeneration = generation
         playbackSelectionLoadJob = scope.launch {
             val result =
                 withTimeoutOrNull(playbackResolutionTimeoutMs) {
-                    resolveInitialPlaybackSelection(server, detail)
+                    resolution.await()
                 } ?: Result.failure(PlaybackResolutionTimeoutException())
             if (generation != detailLoadGeneration) return@launch
             detailStage("play_target_ready", if (result.isSuccess) "ready" else "failed")
@@ -389,13 +421,18 @@ internal class DetailExecutor(
                         state().playServer?.id == server.id &&
                         state().playSourceDetail?.id == detail.id
                     ) {
-                        dispatchPlaybackSelection(selection)
-                        loadInitialSeriesCatalog(selection)
+                        val queuedLaunchTiming = pendingLaunchTiming.takeIf { playWhenSelectionReady }
+                        val existing = state()
+                        val retainedVersionId =
+                            existing.selectedVersionId.takeIf {
+                                existing.playTarget?.id == selection.target.id
+                            }
+                        dispatchPlaybackSelection(selection, preferredVersionId = retainedVersionId)
+                        loadInitialSeriesCatalogAfterPriority(selection, queuedLaunchTiming)
                     }
                 }.onFailure {
-                    // Comparison remains useful even when resolving the initial episode
-                    // fails; without a coordinate the repository uses its fallback.
-                    loadSources(server, detail, seasonNumber = null, episodeNumber = null)
+                    // A timed-out play target must not start an even wider cross-server scan.
+                    // The source list can be loaded after a usable target is selected.
                     if (
                         pendingSourceServerId == null &&
                         state().playServer?.id == server.id &&
@@ -446,11 +483,18 @@ internal class DetailExecutor(
             }
 
             repo.cachedResumeEpisode(server, sourceDetail.id)?.let { target ->
+                val playableTarget =
+                    if (target.versions.isNotEmpty()) {
+                        target
+                    } else {
+                        repo.playbackItemDetail(server, target.id).getOrThrow()
+                    }
                 return@cancellableResult ResolvedPlaybackSelection(
-                    server, sourceDetail, target, target.resumePositionTicks ?: 0L,
+                    server, sourceDetail, playableTarget,
+                    target.resumePositionTicks ?: playableTarget.resumePositionTicks ?: 0L,
                 )
             }
-            val resolution = repo.resolvePlayTargetWithEpisodes(server, sourceDetail).getOrThrow()
+            val resolution = repo.resolveDetailPlayTarget(server, sourceDetail).getOrThrow()
             val targetDetail =
                 repo
                     .playbackItemDetail(server, resolution.target.itemId).getOrThrow()
@@ -462,6 +506,21 @@ internal class DetailExecutor(
                 catalogEpisodes = resolution.episodes,
             )
         }
+
+    /** Loads the series picker after the play target has already made the button usable. */
+    private fun loadInitialSeriesCatalogAfterPriority(
+        selection: ResolvedPlaybackSelection,
+        launchTiming: com.yfuse.feature.player.PlaybackLaunchTiming?,
+    ) {
+        if (launchTiming == null) {
+            loadInitialSeriesCatalog(selection)
+        } else {
+            scope.launch {
+                launchTiming.awaitOutputOrDeadline()
+                if (isCurrentInitialSelection(selection)) loadInitialSeriesCatalog(selection)
+            }
+        }
+    }
 
     /** Loads the series picker after the play target has already made the button usable. */
     private fun loadInitialSeriesCatalog(selection: ResolvedPlaybackSelection) {
@@ -550,6 +609,19 @@ internal class DetailExecutor(
         sourceLoadJob = scope.launch {
             try {
                 val completed = linkedMapOf<String, ServerSource>()
+                val current = state()
+                val target = current.playTarget?.takeIf { current.playServer?.id == server.id }
+                val version =
+                    target?.versions?.firstOrNull { it.id == current.selectedVersionId }
+                        ?: target?.versions?.firstOrNull()
+                val knownCurrent =
+                    emptyList<ServerSource>()
+                        .withResolvedCurrentSource(version, server.id, server.serverName, target?.id)
+                        .firstOrNull()
+                if (knownCurrent != null) {
+                    completed[server.id] = knownCurrent
+                    dispatch(DetailMsg.SourcesLoaded(servers.mapNotNull { completed[it.id] }, complete = false))
+                }
                 val tmdbId =
                     detail.providerIds.entries
                         .firstOrNull { it.key.equals("Tmdb", ignoreCase = true) }
@@ -557,7 +629,7 @@ internal class DetailExecutor(
                         ?.toIntOrNull()
                 val sources =
                     repo.compareSources(
-                        servers = servers,
+                        servers = servers.filterNot { knownCurrent != null && it.id == server.id },
                         currentServerId = server.id,
                         title = detail.title,
                         tmdbId = tmdbId,
@@ -581,7 +653,8 @@ internal class DetailExecutor(
                         },
                     )
                 if (generation == sourceLoadGeneration) {
-                    dispatch(DetailMsg.SourcesLoaded(sources))
+                    sources.forEach { completed[it.serverId] = it }
+                    dispatch(DetailMsg.SourcesLoaded(servers.mapNotNull { completed[it.id] }))
                 }
             } catch (failure: Throwable) {
                 if (failure is CancellationException) throw failure
@@ -595,7 +668,7 @@ internal class DetailExecutor(
         detail: MediaDetail,
     ) {
         val generation = ++relatedLoadGeneration
-        scope.launch {
+        relatedLoadJob = scope.launch {
             repo
                 .similarItems(server, detail.id)
                 .onSuccess {
@@ -758,6 +831,11 @@ internal class DetailExecutor(
         compareSources: Boolean = true,
     ) {
         val visible = state()
+        val queuedLaunchTiming = pendingLaunchTiming.takeIf { playWhenSelectionReady }
+        if (queuedLaunchTiming != null) {
+            sourceLoadJob?.cancel()
+            ++sourceLoadGeneration
+        }
         val selectedVersionId =
             preferredVersionId
                 ?.takeIf { requested -> selection.target.versions.any { it.id == requested } }
@@ -782,12 +860,26 @@ internal class DetailExecutor(
             ),
         )
         if (compareSources) {
-            loadSources(
-                server = selection.server,
-                detail = selection.sourceDetail,
-                seasonNumber = selection.target.seasonNumber,
-                episodeNumber = selection.target.episodeNumber,
-            )
+            if (queuedLaunchTiming == null) {
+                loadSources(
+                    server = selection.server,
+                    detail = selection.sourceDetail,
+                    seasonNumber = selection.target.seasonNumber,
+                    episodeNumber = selection.target.episodeNumber,
+                )
+            } else {
+                scope.launch {
+                    queuedLaunchTiming.awaitOutputOrDeadline()
+                    if (isCurrentInitialSelection(selection)) {
+                        loadSources(
+                            server = selection.server,
+                            detail = selection.sourceDetail,
+                            seasonNumber = selection.target.seasonNumber,
+                            episodeNumber = selection.target.episodeNumber,
+                        )
+                    }
+                }
+            }
         }
         if (sourceChanged) {
             loadWatchLater(selection.server, selection.sourceDetail.id)
@@ -1170,19 +1262,37 @@ internal class DetailExecutor(
         val target = current.playTarget
         if (target == null) {
             val sourceDetail = current.playSourceDetail ?: return
+            val generation = detailLoadGeneration
             dispatch(DetailMsg.Resolving(true))
             scope.launch {
                 val result =
                     withTimeoutOrNull(playbackResolutionTimeoutMs) {
-                        resolveInitialPlaybackSelection(server, sourceDetail)
+                        initialPlaybackResolution
+                            ?.takeIf {
+                                initialPlaybackResolutionGeneration == detailLoadGeneration
+                            }
+                            ?.await()
+                            ?.takeIf { it.isSuccess }
+                            ?: resolveInitialPlaybackSelection(server, sourceDetail)
                     } ?: Result.failure(PlaybackResolutionTimeoutException())
                 result
                     .onSuccess { selection ->
+                        if (
+                            generation != detailLoadGeneration ||
+                            state().playServer?.id != server.id ||
+                            state().playSourceDetail?.id != sourceDetail.id
+                        ) return@onSuccess
+                        val launchTiming = pendingLaunchTiming
                         dispatchPlaybackSelection(selection, compareSources = false)
-                        loadInitialSeriesCatalog(selection)
+                        loadInitialSeriesCatalogAfterPriority(selection, launchTiming)
                         dispatch(DetailMsg.Resolving(false))
                         publishPlay(state(), fromStart)
                     }.onFailure {
+                        if (
+                            generation != detailLoadGeneration ||
+                            state().playServer?.id != server.id ||
+                            state().playSourceDetail?.id != sourceDetail.id
+                        ) return@onFailure
                         dispatch(DetailMsg.Resolving(false))
                         dispatch(
                             DetailMsg.ActionMessage(
@@ -1275,6 +1385,30 @@ internal class DetailExecutor(
     ) {
         val target = current.playTarget ?: return
         val server = current.playServer ?: return
+        pendingLaunchTiming?.let { timing ->
+            if (sourceLoadJob?.isActive == true) {
+                sourceLoadJob?.cancel()
+                ++sourceLoadGeneration
+                val sourceDetail = current.playSourceDetail
+                if (sourceDetail != null) {
+                    scope.launch {
+                        timing.awaitOutputOrDeadline()
+                        if (
+                            state().playServer?.id == server.id &&
+                            state().playSourceDetail?.id == sourceDetail.id &&
+                            state().playTarget?.id == target.id
+                        ) {
+                            loadSources(
+                                server,
+                                sourceDetail,
+                                target.seasonNumber,
+                                target.episodeNumber,
+                            )
+                        }
+                    }
+                }
+            }
+        }
         pendingLaunchTiming?.let {
             com.yfuse.feature.player.PlaybackLaunchTimings
                 .register(server.id, target.id, it)
@@ -1468,8 +1602,9 @@ internal class DetailExecutor(
         itemId: String,
     ) {
         val generation = ++watchLaterLoadGeneration
+        watchLaterLoadJob?.cancel()
         dispatch(DetailMsg.WatchLaterLoading(server.id, itemId, true))
-        scope.launch {
+        watchLaterLoadJob = scope.launch {
             repo
                 .isInWatchLater(server, itemId)
                 .onSuccess { value ->

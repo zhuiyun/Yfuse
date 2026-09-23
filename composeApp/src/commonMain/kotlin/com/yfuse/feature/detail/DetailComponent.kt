@@ -30,6 +30,7 @@ import com.yfuse.core.util.componentScope
 import com.yfuse.feature.calendar.loadCalendarWithDeadline
 import com.yfuse.feature.player.PlaybackPreloadKey
 import com.yfuse.feature.player.PlaybackSourcePreload
+import com.yfuse.feature.player.PreparedPlaybackGate
 import com.yfuse.feature.player.PlayerStoreFactory
 import com.yfuse.feature.player.PreparedPlaybackRegistry
 import com.yfuse.feature.player.PreparedPlayerStore
@@ -319,9 +320,8 @@ class DetailComponent(
                 }
             }.launchIn(scope)
 
-        // Build the exact queue the play button will need while the user is still reading the
-        // detail page. For episodes this resolves the series queue and all MediaSources in one
-        // pass, so the next episode already has concrete direct/transcode addresses as well.
+        // Prepare the selected item while the user reads the detail page. The full episode queue
+        // and backup sources wait until the player claims this Store and shows its first frame.
         store.states
             .onEach detailState@{ state ->
                 val target = state.playTarget ?: return@detailState
@@ -374,6 +374,7 @@ class DetailComponent(
                 } else {
                     dependencies.playbackFailoverRequest.clear()
                 }
+                val enrichmentGate = PreparedPlaybackGate()
                 val prepared =
                     PlayerStoreFactory(
                         storeFactory = storeFactory,
@@ -386,11 +387,12 @@ class DetailComponent(
                         mediaVersionPreference = dependencies.playbackPreferences.mediaVersionPreference.value,
                         failoverRequest = dependencies.playbackFailoverRequest,
                         healthMonitor = dependencies.serverHealthMonitor,
+                        optionalEnrichmentGate = enrichmentGate::awaitRelease,
                     ).create()
                 preloadKey = key
                 preloadStore = prepared
                 PreparedPlaybackRegistry
-                    .register(key, prepared)
+                    .register(key, prepared, enrichmentGate)
                     ?.takeIf { previous -> previous !== prepared }
                     ?.dispose()
 

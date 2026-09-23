@@ -145,6 +145,16 @@ internal class PlaybackEngineSlot(
     private var generation = 0L
     private var closed = false
 
+    private fun launchStage(
+        name: String,
+        input: PlaybackEngineInput,
+    ) {
+        val item = input.items.getOrNull(input.handover.itemIndex) ?: return
+        PlaybackLaunchTimings
+            .find(item.serverId, item.id, item.playSessionId.takeIf(String::isNotBlank))
+            ?.stage(name)
+    }
+
     fun request(next: PlaybackEngineRequest) {
         if (closed || request === next) return
         request = next
@@ -156,6 +166,7 @@ internal class PlaybackEngineSlot(
         input: PlaybackEngineInput,
     ) {
         val token = ++generation
+        launchStage("engine_slot_requested", input)
         build?.cancel()
         retire(mutableBinding.value)
         val preparing = PreparingVideoEngine(input)
@@ -169,11 +180,14 @@ internal class PlaybackEngineSlot(
                 var construction: CompletableDeferred<Unit>? = null
                 try {
                     withTimeout(waitTimeoutMs) { construction = retirements.reserveConstruction() }
+                    launchStage("engine_retirement_done", input)
                     coroutineContext.ensureActive()
                     if (closed || generation != token) return@launch
                     val snapshot = preparing.snapshot()
                     val allocatedOwner = newOwner().also { owner = it }
+                    launchStage("engine_construct_started", snapshot)
                     created = next.create(snapshot, allocatedOwner)
+                    launchStage("engine_constructed", snapshot)
                     coroutineContext.ensureActive()
                     if (closed || generation != token) return@launch
                     // A suspending factory may have yielded while controls remained usable.
@@ -191,6 +205,7 @@ internal class PlaybackEngineSlot(
                         if (latest.handover.playbackRequested) created.play() else created.pause()
                     }
                     mutableBinding.value = PlaybackEngineBinding(created, latest, allocatedOwner, next.kind)
+                    launchStage("engine_binding_published", latest)
                     published = true
                 } catch (cancelled: CancellationException) {
                     if (closed || generation != token || !coroutineContext[Job]!!.isActive) throw cancelled
