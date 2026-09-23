@@ -437,6 +437,68 @@ class AndroidTransportMediaDataSourcePrefetchTest {
     }
 
     @Test
+    fun `alternating reads of a non interleaved file keep each run's read ahead`() {
+        val media = ByteArray(TEST_BLOCK_BYTES * 32) { it.toByte() }
+        val openedRanges = CopyOnWriteArrayList<Long>()
+        val completedRanges = CopyOnWriteArrayList<Long>()
+        val video = TEST_BLOCK_BYTES.toLong() * 2L
+        val audio = TEST_BLOCK_BYTES.toLong() * 20L
+        val audioNext = audio + TEST_BLOCK_BYTES
+        val source =
+            AndroidTransportMediaDataSource(
+                uri = "https://example.invalid/video.mp4",
+                protocol = YSourceProtocol.Https,
+                headers = emptyMap(),
+                createTransport = {
+                    MemoryRangeTransport(media) { start, completed ->
+                        if (completed) completedRanges += start else openedRanges += start
+                    }
+                },
+                blockSizeOverride = TEST_BLOCK_BYTES,
+            )
+        val worker = Executors.newSingleThreadExecutor()
+
+        fun read(position: Long) =
+            assertEquals(1, worker.submit<Int> { source.readAt(position, ByteArray(1), 0, 1) }.get(2, TimeUnit.SECONDS))
+        try {
+            // The extractor goes back and forth between the video run and the audio run.
+            read(video)
+            read(audio)
+            read(video)
+            read(audio)
+            // Until both runs have been returned to, a switch still drops the other run's blocks,
+            // so the next audio block may have been fetched twice by now. Let that settle.
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
+            var settledSinceNs = Long.MAX_VALUE
+            while (System.nanoTime() - settledSinceNs < TimeUnit.MILLISECONDS.toNanos(100)) {
+                assertTrue(System.nanoTime() < deadline, "audio read-ahead never settled: $openedRanges")
+                val settled =
+                    audioNext in completedRanges &&
+                        completedRanges.count { it == audioNext } == openedRanges.count { it == audioNext }
+                settledSinceNs = if (!settled) Long.MAX_VALUE else minOf(settledSinceNs, System.nanoTime())
+                Thread.sleep(5)
+            }
+
+            // Reading video used to discard the audio block that had already arrived, so the next
+            // audio read waited for the same bytes again.
+            val audioNextOpens = openedRanges.count { it == audioNext }
+            read(video)
+            val synchronousLoads = source.qoeSnapshot().synchronousLoadCount
+            read(audioNext)
+
+            assertEquals(
+                synchronousLoads,
+                source.qoeSnapshot().synchronousLoadCount,
+                "audio read waited: $openedRanges",
+            )
+            assertEquals(audioNextOpens, openedRanges.count { it == audioNext }, "audio fetched again: $openedRanges")
+        } finally {
+            source.close()
+            worker.shutdownNow()
+        }
+    }
+
+    @Test
     fun `foreground joins an in flight range instead of opening the same bytes again`() {
         // Larger than the 128 KiB startup slice: this exercises the former cancel/reopen branch.
         val blockBytes = 256 * 1024

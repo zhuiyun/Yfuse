@@ -273,6 +273,7 @@ internal class AndroidTransportMediaDataSource(
     private var maximumCacheLoadMs = 0L
     private var promotedPrefetchCount = 0L
     private var latestReadPosition = 0L
+    private val readHeads = YTransportReadHeads()
 
     private val activePrefetchTransports = mutableSetOf<YMediaTransport>()
     private val transportRouteLogged = AtomicBoolean(false)
@@ -313,7 +314,9 @@ internal class AndroidTransportMediaDataSource(
         validatePersistentCache()
         ensureRepresentationCurrent()
         if (knownSize >= 0L && position >= knownSize) return -1
-        if (kotlin.math.abs(position - latestReadPosition) > blockSize.toLong() * 2L) {
+        // Returning to the other run of a non-interleaved file is not a seek.
+        val continuesRun = readHeads.record(position / blockSize, System.nanoTime())
+        if (!continuesRun && kotlin.math.abs(position - latestReadPosition) > blockSize.toLong() * 2L) {
             forwardCache?.updateWindow(0L, 0L)
             startupSlice = null
             startupReadServed = false
@@ -377,8 +380,12 @@ internal class AndroidTransportMediaDataSource(
             (mediaBitRateBitsPerSecond / 8.0 * playbackWindow.targetAheadUs / 1_000_000.0)
                 .toLong()
                 .coerceAtMost(cacheMaximumBytes / 5L * 4L)
-        val first = latestReadPosition / blockSize + prefetchDepthBlocks + 1L
-        val end = minOf((knownSize + blockSize - 1L) / blockSize, (latestReadPosition + targetBytes) / blockSize)
+        // Follow the heavier run. Handing the warmer each run in turn made every alternation a
+        // disjoint window, which abandons the disk request it had in flight.
+        val base =
+            readHeads.primaryBlock(System.nanoTime())?.let { it * blockSize } ?: latestReadPosition
+        val first = base / blockSize + prefetchDepthBlocks + 1L
+        val end = minOf((knownSize + blockSize - 1L) / blockSize, (base + targetBytes) / blockSize)
         warmer.updateWindow(first, end)
     }
 
@@ -1024,11 +1031,29 @@ internal class AndroidTransportMediaDataSource(
                 desired.add(index)
             }
         }
-        // MP4 audio/video/index reads can alternate distant regions. Give at most two moving
-        // ranges a chance to finish instead of repeatedly discarding them as that window moves.
+        // A non-interleaved file is read in two runs; the one not being read right now keeps a
+        // window of its own instead of losing its read-ahead at every alternation.
+        val otherRuns = otherRunPrefetchBlocks(blockIndex - 1L, activeDepth)
+        // Index reads can still land anywhere. Give at most two moving ranges a chance to finish
+        // instead of repeatedly discarding them as that window moves.
         retainMovingPrefetches(desired)
-        cancelPrefetchOutside(desired)
+        cancelPrefetchOutside(desired + otherRuns)
+        // The current run first: under a tight memory budget it is the one about to be read.
         desired.sorted().forEach(::schedulePrefetchBlock)
+        otherRuns.sorted().forEach(::schedulePrefetchBlock)
+    }
+
+    private fun otherRunPrefetchBlocks(
+        currentBlock: Long,
+        activeDepth: Int,
+    ): Set<Long> {
+        val depth = maxOf(OTHER_RUN_MIN_PREFETCH_BLOCKS, activeDepth / 2).toLong()
+        return readHeads
+            .otherHeads(currentBlock, System.nanoTime())
+            .flatMap { head -> (1L..depth).map { head.saturatedAdd(it) } }
+            .filter { candidate ->
+                shouldPrefetchTransportBlock(candidate, blockSize, knownSize) && !blocks.containsKey(candidate)
+            }.toSet()
     }
 
     private fun schedulePrefetchBlock(blockIndex: Long) {
@@ -1134,11 +1159,13 @@ internal class AndroidTransportMediaDataSource(
     private fun shedSpeculativeWorkFor(blockIndex: Long) {
         if (playbackWindow.bufferedUs / playbackWindow.speed >= 2_000_000L) return
         forwardCache?.updateWindow(0L, 0L)
+        val otherRuns = readHeads.otherHeads(blockIndex, System.nanoTime())
         val retained =
             prefetchedBlocks
                 .filter { (index, pending) ->
                     pending.future.isDone ||
-                        index in blockIndex..blockIndex.saturatedAdd(2L)
+                        index in blockIndex..blockIndex.saturatedAdd(2L) ||
+                        otherRuns.any { head -> index in head..head.saturatedAdd(2L) }
                 }.keys.toMutableSet()
         retainMovingPrefetches(retained)
         cancelPrefetchOutside(retained)
@@ -1602,6 +1629,9 @@ private const val MAX_EMPTY_TRANSPORT_READS = 64
 private const val TRANSPORT_PREFETCH_THREAD_NAME = "YCore-TransportPrefetch"
 private const val DEFAULT_TRANSPORT_PREFETCH_DEPTH_BLOCKS = 2
 private const val MAX_TRANSPORT_PREFETCH_DEPTH_BLOCKS = 24
+
+/** Read-ahead for the run of a non-interleaved file that is not being read at this moment. */
+private const val OTHER_RUN_MIN_PREFETCH_BLOCKS = 2
 
 // Six ordered ranges hide the long-tail range latency observed on remote high-bitrate remuxes
 // without allowing the full twenty-second window to open one socket per block.
