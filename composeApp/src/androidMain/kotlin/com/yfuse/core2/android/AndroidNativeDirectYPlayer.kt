@@ -410,15 +410,23 @@ internal class AndroidNativeDirectYPlayer(
         session.releaseMedia()
         val typed = throwable as? YPlaybackException
         val codecConfigurationFailure = typed?.cause as? YVideoDecoderConfigurationException
+        // An untyped failure used to leave nothing but its class name: one startup
+        // IllegalStateException in a diagnostic could not be traced to any line. The throwable
+        // carries the stack (retraceable with the build's mapping); the exporter redacts hosts.
+        val root = typed?.cause ?: throwable
+        val origin = root.stackTrace.firstOrNull()?.let { "${it.className}.${it.methodName}:${it.lineNumber}" }
         AppLog.error(
             category = "player.core2",
             event = "native_direct_failed",
             message = "YCore NativeDirect failed",
+            throwable = throwable,
             attributes =
                 mapOf(
                     "category" to (typed?.category?.name ?: YPlaybackFailureCategory.Unknown.name),
                     "stage" to (typed?.stage?.name ?: YPlaybackFailureStage.Unknown.name),
                     "detail" to typed?.safeDetail.orEmpty(),
+                    "exceptionType" to root.javaClass.simpleName,
+                    "origin" to origin.orEmpty(),
                     "codecMime" to codecConfigurationFailure?.mime.orEmpty(),
                     "codecProfile" to (codecConfigurationFailure?.profile?.toString() ?: ""),
                     "decoderAttempts" to
