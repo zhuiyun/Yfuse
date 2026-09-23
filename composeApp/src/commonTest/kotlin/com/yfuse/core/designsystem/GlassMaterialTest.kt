@@ -100,7 +100,7 @@ class GlassMaterialTest {
     @Test
     fun presets_round_trip_with_adjustments_and_sanitize_using_their_own_defaults() {
         assertEquals(
-            listOf("01", "02", "03", "04", "05", "06", "S1", "S2", "S3"),
+            listOf("01", "02", "03", "04", "05", "06", "S1", "S2", "S3", "L1", "L2", "L3", "L4", "L5", "L6"),
             GlassMaterialPreset.selectable.map {
                 it.number
             },
@@ -131,6 +131,62 @@ class GlassMaterialTest {
         assertEquals(DarkPalette.text, smoke.text)
         assertEquals(false, smoke.isDark)
         assertEquals(LightPalette, GlassMaterialPreset.SoftMist.material(false).contentPalette(LightPalette))
+    }
+
+    @Test
+    fun liquidSeriesBendsTheEdgeHarderThanItFrostsAndKeepsBodyTextReadable() {
+        val liquid =
+            listOf(
+                GlassMaterialPreset.Lens,
+                GlassMaterialPreset.Dew,
+                GlassMaterialPreset.Aurora,
+                GlassMaterialPreset.Glacier,
+                GlassMaterialPreset.Amber,
+                GlassMaterialPreset.Obsidian,
+            )
+        assertEquals(liquid, GlassMaterialPreset.selectable.filter { it.number.startsWith("L") })
+        for (preset in liquid) {
+            assertTrue(preset.refraction >= 5f, preset.id)
+            assertTrue(preset.rim >= 0.40f, preset.id)
+            assertTrue(preset.material(false).rimWidth >= 0.8f, preset.id)
+        }
+        // L1 is the clearest glass the app offers: least frost, most lensing and colour.
+        assertTrue(GlassMaterialPreset.selectable.all { it.blur >= GlassMaterialPreset.Lens.blur })
+        assertTrue(GlassMaterialPreset.selectable.all { it.refraction <= GlassMaterialPreset.Lens.refraction })
+        assertTrue(GlassMaterialPreset.selectable.all { it.saturation <= GlassMaterialPreset.Lens.saturation })
+        // Obsidian is a dark mirror in either theme, like smoke.
+        assertEquals(
+            GlassMaterialPreset.Obsidian
+                .material(true)
+                .tint(true)
+                .copy(alpha = 1f),
+            GlassMaterialPreset.Obsidian
+                .material(false)
+                .tint(false)
+                .copy(alpha = 1f),
+        )
+        assertEquals(
+            DarkPalette.text,
+            GlassMaterialPreset.Obsidian
+                .material(false)
+                .contentPalette(LightPalette)
+                .text,
+        )
+        // Thin glass over a lit page is where every clear preset already trades contrast for
+        // clarity; there the liquid ones must read at least as well as 清水薄璃. Everywhere else,
+        // and on the dense ones everywhere, body text clears AA.
+        val clear = GlassMaterialPreset.Clear.material(false).textContrast(LightPalette)
+        val thin = setOf(GlassMaterialPreset.Lens, GlassMaterialPreset.Dew, GlassMaterialPreset.Aurora)
+        for (palette in listOf(LightPalette, DarkPalette)) {
+            for (preset in liquid) {
+                for (opaque in listOf(false, true)) {
+                    val contrast = preset.material(palette.isDark).textContrast(palette, opaque)
+                    val floor =
+                        if (preset in thin && !palette.isDark && !opaque) clear else GlassMaterial.MIN_TEXT_CONTRAST
+                    assertTrue(contrast >= floor, "${preset.id} dark=${palette.isDark} opaque=$opaque: $contrast")
+                }
+            }
+        }
     }
 
     @Test

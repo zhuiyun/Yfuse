@@ -24,12 +24,12 @@ data class GlassMaterial(
     val saturation: Float = preset.saturation,
     val refraction: Float = preset.refraction,
     val rim: Float = preset.rim,
-    val rimWidth: Float = if (preset == GlassMaterialPreset.Prism) 1f else 0.6f,
-    val prism: Float = if (preset == GlassMaterialPreset.Prism) 1f else 0f,
-    val pearl: Float = if (preset == GlassMaterialPreset.Pearl) 1f else 0f,
-    val fluted: Float = if (preset == GlassMaterialPreset.Fluted) 1f else 0f,
-    val fluteWidth: Float = 12f,
-    val ink: GlassInk = if (preset == GlassMaterialPreset.Smoke) GlassInk.Light else GlassInk.Theme,
+    val rimWidth: Float = preset.rimWidth,
+    val prism: Float = preset.prism,
+    val pearl: Float = preset.pearl,
+    val fluted: Float = preset.fluted,
+    val fluteWidth: Float = preset.fluteWidth,
+    val ink: GlassInk = preset.ink,
 ) {
     fun normalized(dark: Boolean): GlassMaterial {
         val fallback = preset.material(dark)
@@ -63,7 +63,7 @@ data class GlassMaterial(
     /** [tint] of a recipe that is already normalized - the renderer normalizes once per read. */
     private fun rawTint(dark: Boolean): Color {
         tintRgb?.let { return Color(it or (0xFF shl 24)).copy(alpha = opacity) }
-        val (start, end) = tintRange(dark)
+        val (start, end) = preset.tintRange(dark)
         val color =
             when (tone) {
                 0f -> start
@@ -145,19 +145,6 @@ data class GlassMaterial(
         val darker = minOf(text.luminance(), surface.luminance())
         return (lighter + 0.05f) / (darker + 0.05f)
     }
-
-    private fun tintRange(dark: Boolean): Pair<Color, Color> =
-        when (preset) {
-            GlassMaterialPreset.Default ->
-                if (dark) Color(0xFF191E27) to Color(0xFF878F9B) else Color(0xFF878F9B) to Color(0xFFE4E9F0)
-            GlassMaterialPreset.Smoke -> Color(0xFF152330) to Color(0xFF344856)
-            GlassMaterialPreset.Pearl ->
-                if (dark) Color(0xFF423C51) to Color(0xFF746573) else Color(0xFFBBBACB) to Color(0xFFF2ECF0)
-            GlassMaterialPreset.Fluted ->
-                if (dark) Color(0xFF1C435D) to Color(0xFF7294A6) else Color(0xFF8CAAB7) to Color(0xFFD1E2E4)
-            else ->
-                if (dark) Color(0xFF222D3A) to Color(0xFF778998) else Color(0xFFA5B5C3) to Color(0xFFEFF4F6)
-        }
 
     /** Ink is independent of the source preset; retain the app theme's storage identity. */
     fun contentPalette(
