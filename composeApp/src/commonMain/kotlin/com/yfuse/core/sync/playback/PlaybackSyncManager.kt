@@ -475,6 +475,7 @@ class PlaybackSyncManager(
                 }
                 val result = serverApplier.apply(task.document, serverId)
                 if (result.isSuccess) {
+                    serverApplier.markReachable(serverId)
                     store.markServerApplySucceeded(task.id, serverId)
                     return@repeat
                 }
@@ -516,6 +517,32 @@ class PlaybackSyncManager(
                                 mapOf(
                                     "serverId" to serverId,
                                     "cooldownMs" to PLAYBACK_SERVER_ACCESS_DENIED_COOLDOWN_MS.toString(),
+                                    "pendingCount" to store.serverApplyCount().toString(),
+                                ),
+                        )
+                    }
+
+                    PlaybackServerApplyFailurePolicy.BackOffServer -> {
+                        // An unreachable or failing server fails every task queued for it, and
+                        // each attempt can hold a request for its whole timeout. Backing off only
+                        // the task that failed let the next queued task try the same dead server
+                        // straight away: one diagnostic showed a 30 s timeout every 30-90 s for
+                        // half an hour while the per-task attempt counts kept restarting at 1.
+                        val streak = serverApplier.markUnreachable(serverId)
+                        val until = nowEpochMs() + playbackServerApplyBackoffMs(streak)
+                        serverApplier.coolDownServer(serverId, until)
+                        store.deferServerAppliesForServer(serverId, until)
+                        AppLog.warning(
+                            category = "playback.sync",
+                            event = "server_apply_deferred",
+                            message = "Cloud playback state remains queued for a media server",
+                            throwable = failure,
+                            attributes =
+                                mapOf(
+                                    "serverId" to serverId,
+                                    "scope" to "server",
+                                    "failureStreak" to streak.toString(),
+                                    "backoffMs" to (until - nowEpochMs()).coerceAtLeast(0L).toString(),
                                     "pendingCount" to store.serverApplyCount().toString(),
                                 ),
                         )
@@ -764,6 +791,9 @@ internal fun playbackServerApplyBackoffMs(failureStreak: Int): Long {
 internal enum class PlaybackServerApplyFailurePolicy {
     DropTarget,
     CooldownServer,
+
+    /** Transient, but server-wide: every queued task for the server waits out one backoff. */
+    BackOffServer,
     Retry,
 }
 
@@ -775,6 +805,11 @@ internal fun playbackServerApplyFailurePolicy(error: Throwable?): PlaybackServer
         // The item is gone from this server. Retrying cannot make it reappear, and the task stays
         // queued forever while every sync re-sends it and logs another deferral.
         EmbyError.NotFound -> PlaybackServerApplyFailurePolicy.DropTarget
+        // A timeout, a dropped connection or a 5xx says nothing about this item: the next task
+        // for the same server would fail the same way.
+        EmbyError.Network,
+        is EmbyError.Server,
+        -> PlaybackServerApplyFailurePolicy.BackOffServer
         else -> PlaybackServerApplyFailurePolicy.Retry
     }
 
@@ -809,6 +844,7 @@ private class EmbyCompatiblePlaybackStateApplier(
     private val personal: PersonalLibraryRepository? = null,
 ) {
     private val unavailableUntilByServerId = mutableMapOf<String, Long>()
+    private val failureStreakByServerId = mutableMapOf<String, Int>()
 
     fun serverMissing(serverId: String): Boolean = registry.allDataForSync().servers.none { it.id == serverId }
 
@@ -817,6 +853,17 @@ private class EmbyCompatiblePlaybackStateApplier(
         untilEpochMs: Long,
     ) {
         unavailableUntilByServerId[serverId] = untilEpochMs
+    }
+
+    /** One more consecutive transient failure for [serverId]; returns the new streak. */
+    fun markUnreachable(serverId: String): Int {
+        val streak = (failureStreakByServerId[serverId] ?: 0) + 1
+        failureStreakByServerId[serverId] = streak
+        return streak
+    }
+
+    fun markReachable(serverId: String) {
+        failureStreakByServerId.remove(serverId)
     }
 
     fun targetServerIds(document: PlaybackSyncDocument): List<String> {

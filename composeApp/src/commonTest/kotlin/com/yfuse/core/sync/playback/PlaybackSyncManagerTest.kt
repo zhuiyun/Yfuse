@@ -18,6 +18,7 @@ import com.yfuse.core.data.SkipSegmentPreferences
 import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.UserAgentPreferences
 import com.yfuse.core.data.WatchTogetherPreferences
+import com.yfuse.core.model.SavedServer
 import com.yfuse.core.security.TestSecureStore
 import com.yfuse.core.security.VaultCrypto
 import com.yfuse.core.sync.ServerSyncManager
@@ -404,17 +405,84 @@ class PlaybackSyncManagerTest {
             }
         }
 
+    @Test
+    fun an_unreachable_server_is_asked_once_per_backoff_not_once_per_queued_title() =
+        runTest {
+            var embyRequests = 0
+            val fixture =
+                fixture(
+                    servers = listOf(SERVER),
+                    embyHandler = {
+                        embyRequests++
+                        throw SocketTimeoutException("server did not answer")
+                    },
+                )
+            try {
+                // Tonight's diagnostic: ~20 titles queued for one server that only timed out.
+                repeat(5) { index ->
+                    val document =
+                        fixture.store
+                            .updatePlayback(
+                                mediaKey = "tmdb:${100 + index}",
+                                aliases = emptyList(),
+                                positionMs = 30_000L,
+                                durationMs = 100_000L,
+                                played = false,
+                                sessionId = "other-device-$index",
+                                serverId = null,
+                                serverItemId = null,
+                                mutationKind = PlaybackMutationKind.AutoProgress,
+                                trigger = PlaybackSyncTrigger.Stop,
+                            ).document
+                    fixture.store.enqueueServerApply(document, listOf(SERVER.id))
+                }
+                fixture.manager.start()
+                runCurrent()
+
+                // One title found the server down; the other four wait instead of each paying
+                // for their own timeout.
+                assertEquals(1, embyRequests)
+                assertEquals(5, fixture.store.serverApplyCount())
+
+                advanceTimeBy(10_000L)
+                runCurrent()
+                assertEquals(1, embyRequests)
+
+                // After the first 15 s backoff one title probes again, and the next wait doubles.
+                advanceTimeBy(6_000L)
+                runCurrent()
+                assertEquals(2, embyRequests)
+                advanceTimeBy(20_000L)
+                runCurrent()
+                assertEquals(2, embyRequests)
+                assertEquals(5, fixture.store.serverApplyCount())
+            } finally {
+                fixture.close()
+            }
+        }
+
     private suspend fun TestScope.fixture(
         tokenProvider: suspend () -> String? = { "access" },
         refreshProvider: suspend () -> String? = { "refreshed" },
         cloudHandler: suspend MockRequestHandleScope.(HttpRequestData) -> HttpResponseData =
             { successfulPlaybackResponse(it) },
+        servers: List<SavedServer> = emptyList(),
+        embyHandler: suspend MockRequestHandleScope.(HttpRequestData) -> HttpResponseData =
+            { error("Unexpected Emby request") },
     ): Fixture {
         val settings = MapSettings()
         val secureStore = TestSecureStore()
         val registry = ServerRegistry(settings, TestSecureStore())
         val crypto = VaultCrypto()
-        val embyClient = HttpClient(MockEngine { error("Unexpected Emby request") })
+        val embyClient =
+            HttpClient(
+                MockEngine(
+                    MockEngineConfig().apply {
+                        dispatcher = StandardTestDispatcher(testScheduler)
+                        addHandler(embyHandler)
+                    },
+                ),
+            )
         val emby = EmbyRepository(embyClient)
         val tokens = AccountAccessTokenSource(ACCOUNT_ORIGIN)
         val accountClient =
@@ -449,6 +517,7 @@ class PlaybackSyncManagerTest {
                 accessTokenSource = tokens,
             )
         account.register("viewer_01", "correct horse battery".toCharArray()).getOrThrow()
+        servers.forEach(registry::addOrUpdate)
         tokens.bind(tokenProvider, refreshProvider)
         val cloudClient =
             HttpClient(
@@ -536,6 +605,7 @@ class PlaybackSyncManagerTest {
     private companion object {
         const val ACCOUNT_ORIGIN = "https://account.example.test"
         const val MEDIA_KEY = "tmdb:1"
+        val SERVER = SavedServer("server", "https://library.example", "家庭影院", "user", "用户", "token")
 
         fun MockRequestHandleScope.respondJson(body: String): HttpResponseData =
             respond(

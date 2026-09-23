@@ -67,18 +67,34 @@ class PlaybackServerApplyPolicyTest {
     }
 
     @Test
-    fun transient_network_and_server_errors_still_retry() {
+    fun transient_network_and_server_errors_back_off_the_whole_server() {
         assertEquals(
-            PlaybackServerApplyFailurePolicy.Retry,
+            PlaybackServerApplyFailurePolicy.BackOffServer,
             playbackServerApplyFailurePolicy(EmbyErrorException(EmbyError.Network)),
         )
         assertEquals(
-            PlaybackServerApplyFailurePolicy.Retry,
+            PlaybackServerApplyFailurePolicy.BackOffServer,
             playbackServerApplyFailurePolicy(EmbyErrorException(EmbyError.Server(503))),
         )
+    }
+
+    @Test
+    fun errors_unrelated_to_the_server_retry_only_their_own_task() {
         assertEquals(
             PlaybackServerApplyFailurePolicy.Retry,
             playbackServerApplyFailurePolicy(IllegalStateException("temporary")),
         )
+        assertEquals(
+            PlaybackServerApplyFailurePolicy.Retry,
+            playbackServerApplyFailurePolicy(EmbyErrorException(EmbyError.Unknown("parse"))),
+        )
+    }
+
+    @Test
+    fun server_backoff_grows_from_fifteen_seconds_to_a_sixteen_minute_ceiling() {
+        assertEquals(15_000L, playbackServerApplyBackoffMs(1))
+        assertEquals(30_000L, playbackServerApplyBackoffMs(2))
+        assertEquals(960_000L, playbackServerApplyBackoffMs(7))
+        assertEquals(960_000L, playbackServerApplyBackoffMs(40))
     }
 }

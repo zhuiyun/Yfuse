@@ -150,8 +150,11 @@ internal class EmbyLookupService(
             // place in it. Resolved in two steps because that's how Emby indexes it: nothing
             // queries "episode 5 of the show with this Tmdb id" directly.
             parseEpisodeWatchKey(mediaKey)?.let { coordinate ->
+                // Only a settled miss means "no such episode here". A timeout on the series step
+                // used to read as a miss too, and playback sync then dropped the progress it was
+                // meant to write back instead of retrying it.
                 val series =
-                    findByMediaKey(server, coordinate.seriesKey).getOrNull()
+                    findByMediaKey(server, coordinate.seriesKey).getOrThrow()
                         ?: return@embyApiCall null
                 val dto: ItemsResponseDto =
                     client

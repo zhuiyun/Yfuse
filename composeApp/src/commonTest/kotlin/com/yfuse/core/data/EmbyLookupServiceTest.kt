@@ -19,6 +19,7 @@ import io.ktor.client.request.HttpResponseData
 import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.runTest
+import java.net.SocketTimeoutException
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -201,6 +202,21 @@ class EmbyLookupServiceTest {
                     ),
                     catalog,
                 )
+            } finally {
+                client.close()
+            }
+        }
+
+    @Test
+    fun an_episode_whose_series_lookup_times_out_fails_instead_of_reading_as_missing() =
+        runTest {
+            val client = client { throw SocketTimeoutException("server did not answer") }
+            try {
+                val result = EmbyLookupService(client).findByMediaKey(server, "tmdb:1399/s2e5")
+
+                // A miss would let playback sync drop the progress it was asked to write back.
+                assertTrue(result.isFailure)
+                assertEquals(EmbyError.Network, assertIs<EmbyErrorException>(result.exceptionOrNull()).error)
             } finally {
                 client.close()
             }
