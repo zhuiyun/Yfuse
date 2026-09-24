@@ -34,6 +34,7 @@ import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.OverlayOptionRow
 import com.yfuse.core.designsystem.TabBarInset
+import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.LibrarySort
@@ -158,10 +159,11 @@ fun UnifiedLibraryScreen(
                 OverlayOptionRow(
                     label = "${hit.serverName} · ${hit.item.year ?: "年份未知"}",
                     selected = hit == group.recommended,
-                    onClick = {
-                        sources = null
-                        if (registry.serverById(hit.serverId) != null) onOpenItem(hit.serverId, hit.item.id)
-                    },
+                    onClick =
+                        overlayAction {
+                            sources = null
+                            if (registry.serverById(hit.serverId) != null) onOpenItem(hit.serverId, hit.item.id)
+                        },
                 )
             }
         }

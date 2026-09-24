@@ -56,6 +56,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.arkivanov.decompose.extensions.compose.subscribeAsState
 import com.arkivanov.mvikotlin.extensions.coroutines.states
+import com.yfuse.app.floatingNavigationContentInset
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
@@ -78,7 +79,6 @@ import com.yfuse.core.designsystem.ScrollToTopOnReselect
 import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.SkeletonBlock
 import com.yfuse.core.designsystem.StatusBarIconStyle
-import com.yfuse.core.designsystem.TabBarInset
 import com.yfuse.core.designsystem.YfChip
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.mediaLazyItemKey
@@ -159,6 +159,9 @@ private fun SearchHomeScreen(
             presentationKey = state.presentationKey(),
         )
     var coverageExpanded by remember(state.searchedQuery) { mutableStateOf(false) }
+    // Clears the floating dock as it is actually laid out, not a fixed 122dp that left the last
+    // result under the glass with three-button navigation or large text.
+    val bottomContentInset = floatingNavigationContentInset()
     StatusBarIconStyle(darkIcons = !palette.isDark)
     ScrollToTopOnReselect(component.listState)
 
@@ -185,7 +188,7 @@ private fun SearchHomeScreen(
         LazyColumn(
             state = component.listState,
             modifier = Modifier.fillMaxSize().statusBarsPadding(),
-            contentPadding = PaddingValues(top = Dimens.contentTop, bottom = TabBarInset),
+            contentPadding = PaddingValues(top = Dimens.contentTop, bottom = bottomContentInset),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             motionItem(key = "search-field") {

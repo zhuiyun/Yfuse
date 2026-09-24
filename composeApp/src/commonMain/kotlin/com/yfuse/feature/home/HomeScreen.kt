@@ -54,6 +54,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
+import com.yfuse.app.floatingNavigationContentInset
 import com.yfuse.core.designsystem.ActionToast
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
@@ -84,9 +85,10 @@ import com.yfuse.core.designsystem.MediaSizing
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.OrbProgressDefaults
+import com.yfuse.core.designsystem.OverlayActionRow
 import com.yfuse.core.designsystem.OverlayHeader
-import com.yfuse.core.designsystem.OverlayOptionRow
 import com.yfuse.core.designsystem.OverlayOptionSpacing
+import com.yfuse.core.designsystem.OverlayPage
 import com.yfuse.core.designsystem.Poster
 import com.yfuse.core.designsystem.PrimaryGradient
 import com.yfuse.core.designsystem.RefreshIndicator
@@ -116,6 +118,7 @@ import com.yfuse.core.designsystem.loopingCarouselTargetPage
 import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.motionItemsIndexed
+import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.playerArtworkOnClick
 import com.yfuse.core.designsystem.playerArtworkSource
 import com.yfuse.core.designsystem.pressable
@@ -290,6 +293,9 @@ internal fun HomeContentBody(
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val heroHeight = livingPosterHeroHeight(maxHeight, wideLayout = maxWidth >= 600.dp)
+        // Clears the floating dock as it is actually laid out: the fixed 122dp left the last shelf
+        // under the glass with three-button navigation or large text.
+        val bottomContentInset = floatingNavigationContentInset()
         val showSidePreview = maxWidth >= 600.dp || maxWidth > maxHeight
         // The artwork alpha dissolves directly into this one opaque, poster-derived colour.
         // No seam overlay or local colour band exists between the hero and the page.
@@ -362,7 +368,7 @@ internal fun HomeContentBody(
                             .arrivalSweep(refreshArrival)
                             .testTag("home-feed"),
                     state = listState,
-                    contentPadding = PaddingValues(bottom = TabBarInset),
+                    contentPadding = PaddingValues(bottom = bottomContentInset),
                     verticalArrangement = Arrangement.spacedBy(Dimens.sectionGap),
                 ) {
                     // Navigation in the hero header must remain available even when the remote
@@ -566,7 +572,9 @@ internal fun HomeContentBody(
             HomeQuickActionsSheet(sheet = sheet, onDismiss = { quickActions = null })
         }
 
-        expandedRow?.let { row ->
+        // Pushed and popped like a route rather than cut in and out; the reel above holds still
+        // while it is up (see HomeHeroCarousel's `held`).
+        OverlayPage(value = expandedRow, onBack = { expandedRow = null }) { row ->
             TmdbRowPage(
                 title = row.title,
                 items = row.items,
@@ -1190,13 +1198,14 @@ private fun HomeQuickActionsSheet(
         OverlayHeader(title = sheet.title, onClose = onDismiss)
         Column(verticalArrangement = Arrangement.spacedBy(OverlayOptionSpacing)) {
             sheet.actions.forEach { action ->
-                OverlayOptionRow(
+                OverlayActionRow(
                     label = action.label,
-                    selected = false,
-                    onClick = {
-                        onDismiss()
-                        action.onSelect()
-                    },
+                    // The sheet leaves the way it came before the action takes over the page.
+                    onClick =
+                        overlayAction {
+                            onDismiss()
+                            action.onSelect()
+                        },
                 )
             }
         }

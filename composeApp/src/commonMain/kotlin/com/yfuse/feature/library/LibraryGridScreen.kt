@@ -39,6 +39,7 @@ import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.CaptionedPoster
+import com.yfuse.core.designsystem.DialogPresence
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.GlassDialog
@@ -47,6 +48,7 @@ import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.MotionSwap
+import com.yfuse.core.designsystem.OverlayActionRow
 import com.yfuse.core.designsystem.OverlayButtonRow
 import com.yfuse.core.designsystem.OverlayButtonTone
 import com.yfuse.core.designsystem.OverlayHeader
@@ -62,6 +64,7 @@ import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.motionAwareScrollToItem
 import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.motionItems
+import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberDelayedBusy
 import com.yfuse.core.designsystem.skeletonSweep
@@ -447,44 +450,47 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
         // app, and the one shape the overlay system exists to replace. Centred like every
         // other overlay outside the player now; see [com.yfuse.core.designsystem.GlassDialog].
         // A long press on a poster: the handful of things people do to a title without opening
-        // it. Every action is optimistic; the sync manager owns the write from here.
+        // it. Every action is optimistic; the sync manager owns the write from here. Each choice
+        // lets the sheet leave the way it came before it takes effect.
         quickActionsItem?.let { item ->
             GlassDialog(onDismiss = { quickActionsItem = null }) {
                 OverlayHeader(title = item.title, onClose = { quickActionsItem = null })
                 Column(verticalArrangement = Arrangement.spacedBy(OverlayOptionSpacing)) {
-                    OverlayOptionRow(
+                    OverlayActionRow(
                         label = "查看详情",
-                        selected = false,
-                        onClick = {
-                            quickActionsItem = null
-                            component.onOpenItem(item.id)
-                        },
+                        onClick =
+                            overlayAction {
+                                quickActionsItem = null
+                                component.onOpenItem(item.id)
+                            },
                     )
                     OverlayOptionRow(
                         label = if (item.isFavorite) "取消收藏" else "收藏",
                         selected = item.isFavorite,
-                        onClick = {
-                            quickActionsItem = null
-                            component.store.accept(GridIntent.SetFavorite(item.id, !item.isFavorite))
-                        },
+                        onClick =
+                            overlayAction {
+                                quickActionsItem = null
+                                component.store.accept(GridIntent.SetFavorite(item.id, !item.isFavorite))
+                            },
                     )
                     OverlayOptionRow(
                         label = if (item.played) "标记为未看" else "标记为已看",
                         selected = item.played,
-                        onClick = {
-                            quickActionsItem = null
-                            component.store.accept(GridIntent.SetPlayed(item.id, !item.played))
-                        },
+                        onClick =
+                            overlayAction {
+                                quickActionsItem = null
+                                component.store.accept(GridIntent.SetPlayed(item.id, !item.played))
+                            },
                     )
                     if (state.containerKind != null) {
-                        OverlayOptionRow(
+                        OverlayActionRow(
                             label =
                                 if (state.containerKind == MediaContainerKind.Playlist) "从播放列表移除" else "从合集移除",
-                            selected = false,
-                            onClick = {
-                                quickActionsItem = null
-                                component.store.accept(GridIntent.RequestRemove(item.id))
-                            },
+                            onClick =
+                                overlayAction {
+                                    quickActionsItem = null
+                                    component.store.accept(GridIntent.RequestRemove(item.id))
+                                },
                         )
                     }
                 }
@@ -499,18 +505,20 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                         OverlayOptionRow(
                             label = sortLabels[option].orEmpty(),
                             selected = state.sort == option,
-                            onClick = {
-                                refilterOrigin = GridRefilterOrigin.Sort
-                                component.store.accept(GridIntent.SetSort(option))
-                                sortOpen = false
-                            },
+                            onClick =
+                                overlayAction {
+                                    refilterOrigin = GridRefilterOrigin.Sort
+                                    component.store.accept(GridIntent.SetSort(option))
+                                    sortOpen = false
+                                },
                         )
                     }
                 }
             }
         }
 
-        state.pendingRemoval?.let { item ->
+        // The store closes this one, the moment the removal starts; it still leaves the way it came.
+        DialogPresence(state.pendingRemoval) { item ->
             val containerLabel =
                 if (state.containerKind == MediaContainerKind.Playlist) {
                     "播放列表"
