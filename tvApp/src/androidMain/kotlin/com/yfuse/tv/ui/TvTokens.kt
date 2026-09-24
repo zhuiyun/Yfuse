@@ -15,6 +15,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.DarkPalette
+import com.yfuse.core.designsystem.DialogAnimation
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.Semantic
 import com.yfuse.core.designsystem.resolveAccentColors
@@ -112,6 +113,18 @@ internal object TvFocusMotion {
         reduceMotion: Boolean,
     ): Float = if (reduceMotion) 1f else requested
 }
+
+// ---------------------------------------------------------------- dialogs
+
+/**
+ * The dialog entrances a television offers: 柔和浮起 and 底部升起 move the panel as one piece.
+ * The other styles fold, scan, slice or sample the page behind it, every frame of every dialog, on
+ * a GPU that was chosen to decode video.
+ */
+internal val TvDialogAnimations: List<DialogAnimation> = listOf(DialogAnimation.Lift, DialogAnimation.Slide)
+
+/** What this style plays as on the television: a style picked before the list above, as 柔和浮起. */
+internal fun DialogAnimation.onTv(): DialogAnimation = if (this in TvDialogAnimations) this else DialogAnimation.Lift
 
 // ---------------------------------------------------------------- waiting
 

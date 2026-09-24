@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -51,7 +52,9 @@ import com.yfuse.app.effectiveGlassStyle
 import com.yfuse.app.rememberAppAccessibilityOptions
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
+import com.yfuse.core.designsystem.LocalDialogBackdrop
 import com.yfuse.core.designsystem.Motion
+import com.yfuse.core.designsystem.ParticleLight
 import com.yfuse.core.designsystem.YfuseTheme
 import com.yfuse.core.network.LocalNetworkAccessNotice
 import com.yfuse.feature.home.HomeTabComponent
@@ -99,19 +102,27 @@ fun TvApp(component: RootComponent) {
         dark = true,
         accessibility = accessibility,
         glassStyle = effectiveGlassStyle(glassStyle, accessibility.reduceTransparency),
-        dialogAnimation = dialogAnimation,
+        dialogAnimation = dialogAnimation.onTv(),
+        // A set-top GPU pays for no decoration it does not have to: the phone's default 轻柔
+        // particles lit on every focus of a shared control, and there is no setting for them here.
+        particleLight = ParticleLight.Off,
         loadingAnimation = loadingAnimation,
         glassMaterials = glassMaterials,
     ) {
-        com.yfuse.app.BindProductServices(component)
-        val savedServers by component.dependencies.serverRegistry.data
-            .collectAsState()
-        val permissionScope = rememberCoroutineScope()
-        LocalNetworkAccessNotice(hasServers = savedServers.servers.isNotEmpty()) {
-            permissionScope.launch { component.dependencies.serverHealthMonitor.refreshAll() }
+        // Dialog panels stay opaque, like every other plate on the television (see TvTokens):
+        // with no page backdrop to sample, the shared dialog paints its solid body instead of
+        // blurring the whole page behind it for as long as it is open.
+        CompositionLocalProvider(LocalDialogBackdrop provides null) {
+            com.yfuse.app.BindProductServices(component)
+            val savedServers by component.dependencies.serverRegistry.data
+                .collectAsState()
+            val permissionScope = rememberCoroutineScope()
+            LocalNetworkAccessNotice(hasServers = savedServers.servers.isNotEmpty()) {
+                permissionScope.launch { component.dependencies.serverHealthMonitor.refreshAll() }
+            }
+            TvRoot(component)
+            PlaybackReportingWarning(component.dependencies.playbackReportingCoordinator)
         }
-        TvRoot(component)
-        PlaybackReportingWarning(component.dependencies.playbackReportingCoordinator)
     }
 }
 

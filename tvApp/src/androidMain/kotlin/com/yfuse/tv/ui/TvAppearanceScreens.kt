@@ -8,7 +8,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.focus.FocusRequester
 import com.yfuse.core.designsystem.AppIcons
-import com.yfuse.core.designsystem.DialogAnimation
 import com.yfuse.core.designsystem.GlassStyle
 import com.yfuse.core.designsystem.LoadingAnimation
 import com.yfuse.core.model.ServerLayout
@@ -70,17 +69,20 @@ internal fun TvAppearanceSettingsPage(
             )
         }
         item(key = "appearance-dialog-animation") {
+            // Only the calm entrances — see [TvDialogAnimations]; forty-odd styles were offered
+            // here, most of them work a set-top box does every frame of every dialog.
+            val shown = dialogAnimation.onTv()
             TvChoiceRow(
                 title = "弹窗动画",
-                options = DialogAnimation.entries,
-                selected = dialogAnimation,
+                options = TvDialogAnimations,
+                selected = shown,
                 label = { it.label },
                 stableId = "appearance:dialog-animation",
                 focusMemory = focusMemory,
                 onSelect = prefs::setDialogAnimation,
                 icon = AppIcons.Refresh,
                 focusScope = focusScope,
-                subtitle = dialogAnimation.description,
+                subtitle = shown.description,
                 navigationRequester = navigationRequester,
             )
         }
