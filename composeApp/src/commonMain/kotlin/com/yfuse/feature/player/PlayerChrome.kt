@@ -1,14 +1,19 @@
 package com.yfuse.feature.player
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.snap
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
@@ -42,7 +47,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
@@ -65,14 +74,15 @@ import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.LightEffect
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
+import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.Motion
-import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.PlayerTokens
 import com.yfuse.core.designsystem.PressFeedback
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.lightFeedback
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberAccentColorsForSurface
+import com.yfuse.core.designsystem.rememberDelayedBusy
 import com.yfuse.core.designsystem.rememberLightFeedback
 import com.yfuse.core.designsystem.softSelectionSurface
 import com.yfuse.core.designsystem.touchTarget
@@ -253,21 +263,14 @@ internal fun TransportRow(
     onSeekForward: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var bufferingIndicatorVisible by remember { mutableStateOf(false) }
-    LaunchedEffect(state.buffering) {
-        if (!state.buffering) {
-            bufferingIndicatorVisible = false
-        } else {
-            delay(BUFFERING_INDICATOR_DELAY_MS)
-            bufferingIndicatorVisible = true
-        }
+    // The same wait as the status chip's, so a seek's short stall shows nothing in either place.
+    val bufferingIndicatorVisible =
+        rememberDelayedBusy(state.buffering, showAfterMillis = BUFFERING_INDICATOR_DELAY_MS.toInt())
+    var settledPlaying by remember { mutableStateOf<Boolean?>(null) }
+    LaunchedEffect(state.playing, state.buffering) {
+        if (!state.buffering) settledPlaying = state.playing
     }
-    val visualState =
-        transportVisualState(
-            playing = state.playing,
-            buffering = state.buffering,
-            bufferingIndicatorVisible = bufferingIndicatorVisible,
-        )
+    val showsPause = transportShowsPause(state.playing, state.buffering, settledPlaying)
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
 
     Row(
@@ -291,53 +294,58 @@ internal fun TransportRow(
             enabled = !locked && state.seekable,
             onClick = onSeekBackward,
         )
-        AnimatedContent(
-            targetState = visualState,
-            transitionSpec = {
-                if (reduceMotion) {
-                    fadeIn(snap()) togetherWith fadeOut(snap())
-                } else {
-                    (
-                        fadeIn(tween(Motion.QUICK, easing = Motion.Curve)) +
-                            scaleIn(
-                                animationSpec = Motion.settle(),
-                                initialScale = 0.82f,
-                            )
-                    ) togetherWith
-                        (
-                            fadeOut(tween(Motion.QUICK, easing = Motion.Curve)) +
-                                scaleOut(
-                                    tween(Motion.QUICK, easing = Motion.Curve),
-                                    targetScale = 0.88f,
+        // Buffering never takes the key away: a stalled film can still be paused, and a spoken
+        // cursor resting on the key does not lose it. The stall is a ring round the key instead.
+        Box(Modifier.size(TransportKeySize + ControlTouchPadding * 2), contentAlignment = Alignment.Center) {
+            AnimatedContent(
+                targetState = showsPause,
+                transitionSpec = {
+                    val swap =
+                        if (reduceMotion) {
+                            fadeIn(snap()) togetherWith fadeOut(snap())
+                        } else {
+                            (
+                                fadeIn(Motion.tween(Motion.QUICK)) +
+                                    scaleIn(
+                                        animationSpec = Motion.settle(),
+                                        initialScale = ICON_SWAP_SCALE_IN,
+                                    )
+                            ) togetherWith
+                                (
+                                    fadeOut(Motion.tween(Motion.QUICK)) +
+                                        scaleOut(
+                                            Motion.tween(Motion.QUICK),
+                                            targetScale = ICON_SWAP_SCALE_OUT,
+                                        )
                                 )
-                        )
-                }
-            },
-            contentAlignment = Alignment.Center,
-            modifier = Modifier.size(TransportKeySize + ControlTouchPadding * 2),
-            label = "transport-state",
-        ) { visual ->
-            when (visual) {
-                TransportVisualState.Buffering ->
-                    Box(
-                        Modifier.size(TransportKeySize + ControlTouchPadding * 2),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        OrbProgress(size = 16.dp, color = Color.White)
-                    }
-                TransportVisualState.Pause,
-                TransportVisualState.Play,
-                -> {
-                    val playing = visual == TransportVisualState.Pause
-                    CircleControl(
-                        if (playing) AppIcons.Pause else AppIcons.Play,
-                        if (playing) "暂停" else "播放",
-                        TransportKeySize,
-                        TransportIconSize,
-                        enabled = !locked && !state.buffering,
-                        onClick = onPlayPause,
-                    )
-                }
+                        }
+                    swap using Motion.sizeTransform(reduceMotion)
+                },
+                contentAlignment = Alignment.Center,
+                label = "transport-state",
+            ) { pause ->
+                CircleControl(
+                    if (pause) AppIcons.Pause else AppIcons.Play,
+                    if (pause) "暂停" else "播放",
+                    TransportKeySize,
+                    TransportIconSize,
+                    enabled = !locked,
+                    onClick = {
+                        // Nothing will report the answer until the stall ends; the key gives it now.
+                        if (state.buffering) settledPlaying = !pause
+                        onPlayPause()
+                    },
+                    modifier = Modifier.semantics { if (bufferingIndicatorVisible) stateDescription = "缓冲中" },
+                )
+            }
+            // Drawn over the key but never hit: a tap on the ring is a tap on the key.
+            AnimatedVisibility(
+                visible = bufferingIndicatorVisible,
+                enter = fadeIn(Motion.tween(if (reduceMotion) 0 else Motion.QUICK)),
+                exit = fadeOut(Motion.tween(if (reduceMotion) 0 else Motion.QUICK)),
+                label = "transport-buffering",
+            ) {
+                BufferingRing(Modifier.size(TransportKeySize + BufferingRingGap * 2))
             }
         }
 
@@ -358,6 +366,53 @@ internal fun TransportRow(
             enabled = !locked && state.hasNext,
             onClick = onNext,
         )
+    }
+}
+
+/**
+ * A stall, drawn round the transport key rather than in its place: a short arc running the rim.
+ * Under 减弱动态效果 the rim is simply lit — the key's 「缓冲中」 says the rest without motion.
+ */
+@Composable
+private fun BufferingRing(modifier: Modifier = Modifier) {
+    val moving = !LocalAccessibilityOptions.current.reduceMotion && LocalRouteVisible.current
+    // Only a ring that moves has a clock; a still one requests no frames at all.
+    val turn =
+        if (moving) {
+            rememberInfiniteTransition(label = "buffering-ring").animateFloat(
+                initialValue = 0f,
+                targetValue = 360f,
+                animationSpec = infiniteRepeatable(Motion.tween(Motion.REFRESH_SPIN, easing = LinearEasing)),
+                label = "buffering-turn",
+            )
+        } else {
+            null
+        }
+    Canvas(modifier) {
+        val stroke = BufferingRingStroke.toPx()
+        val rim = Size(size.width - stroke, size.height - stroke)
+        val topLeft = Offset(stroke / 2f, stroke / 2f)
+        drawArc(
+            color = Color.White.copy(alpha = if (turn != null) 0.18f else 0.62f),
+            startAngle = 0f,
+            sweepAngle = 360f,
+            useCenter = false,
+            topLeft = topLeft,
+            size = rim,
+            style = Stroke(stroke),
+        )
+        // Read here, so the turn redraws the ring and nothing else.
+        turn?.let {
+            drawArc(
+                color = Color.White,
+                startAngle = it.value - 90f,
+                sweepAngle = BUFFERING_ARC_DEGREES,
+                useCenter = false,
+                topLeft = topLeft,
+                size = rim,
+                style = Stroke(stroke, cap = StrokeCap.Round),
+            )
+        }
     }
 }
 
@@ -513,6 +568,12 @@ internal fun skipCountdownLabel(
     // 跳过片头 -> 片头. The type's own label is the only place this wording lives.
     val what = skipSegmentLabel?.removePrefix("跳过").orEmpty()
     return "$seconds 秒后跳过$what · 点击取消"
+}
+
+/** The same countdown as a screen reader hears it: once, and without the seconds that tick. */
+internal fun skipCountdownAnnouncement(skipSegmentLabel: String?): String {
+    val what = skipSegmentLabel?.removePrefix("跳过").orEmpty()
+    return "即将自动跳过$what"
 }
 
 @Composable
@@ -702,6 +763,13 @@ internal fun CircleControl(
 private val TransportKeySize = 28.dp
 
 private val TransportIconSize = 14.dp
+
+/** Clear of the key's own hairline, so the stall reads as a second ring and not a thicker first one. */
+private val BufferingRingGap = 5.dp
+
+private val BufferingRingStroke = 2.dp
+
+private const val BUFFERING_ARC_DEGREES = 100f
 
 /**
  * The paused key over the middle of the frame — the one control drawn away from an edge.

@@ -16,8 +16,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.platform.LocalAccessibilityManager
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.liveStatus
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.touchTarget
 import kotlinx.coroutines.delay
@@ -89,8 +91,13 @@ internal fun PlayerResumeNotice(
     val caption = AppTypography.caption.medium.copy(shadow = Shadow(Color.Black.copy(alpha = 0.8f), blurRadius = 4f))
     ChromeVisibility(notice.visible, modifier = modifier, edge = ChromeEdge.Bottom) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("已续播", style = caption, color = Color.White.copy(alpha = 0.55f))
-            Text("·", style = caption, color = Color.White.copy(alpha = 0.4f))
+            Text("已续播", style = caption, color = Color.White.copy(alpha = 0.55f), modifier = Modifier.liveStatus())
+            Text(
+                "·",
+                style = caption,
+                color = Color.White.copy(alpha = 0.4f),
+                modifier = Modifier.clearAndSetSemantics {},
+            )
             Text(
                 "从头播放",
                 style = caption,

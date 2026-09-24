@@ -1027,8 +1027,11 @@ internal fun PlayerControls(
 
                 // Auto-skip is a small floating status chip. It is intentionally outside BottomBar's
                 // Column so the progress rail never moves when the countdown appears or disappears.
-                val lastAutoSkip = remember { arrayOf("") }
-                skip.countdownSeconds?.let { lastAutoSkip[0] = skipCountdownLabel(skip.segmentLabel, it) }
+                val lastAutoSkip = remember { arrayOf("", "") }
+                skip.countdownSeconds?.let {
+                    lastAutoSkip[0] = skipCountdownLabel(skip.segmentLabel, it)
+                    lastAutoSkip[1] = skipCountdownAnnouncement(skip.segmentLabel)
+                }
                 ChromeVisibility(
                     visible = skip.countdownSeconds != null,
                     edge = ChromeEdge.Bottom,
@@ -1040,6 +1043,7 @@ internal fun PlayerControls(
                 ) {
                     CompactAutoSkipPill(
                         label = lastAutoSkip[0],
+                        announcement = lastAutoSkip[1],
                         onCancel = {
                             if (skip.countdownSeconds != null) {
                                 poke()

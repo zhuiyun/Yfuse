@@ -2711,13 +2711,13 @@ internal fun PlayerRoot(
                 {
                     val live = livePlayback.value
                     when {
-                        networkRecovery.pending -> "网络已恢复，正在续播"
-                        live.currentIndex != startIndex && live.positionMs < 3_000L -> "正在衔接下一集"
+                        networkRecovery.pending -> PlaybackStatusLine("网络已恢复，正在续播")
+                        live.currentIndex != startIndex && live.positionMs < 3_000L -> PlaybackStatusLine("正在衔接下一集")
                         else ->
                             networkShortfallMessage(
                                 live.diagnostics.networkBitsPerSecond,
                                 live.diagnostics.bitrateBitsPerSecond,
-                            ) ?: "正在准备画面"
+                            )?.let { PlaybackStatusLine("网速低于片源码率", it) } ?: PlaybackStatusLine("正在准备画面")
                     }
                 }
             }
@@ -2731,10 +2731,10 @@ internal fun PlayerRoot(
                             diagnostics.sourceBufferedMs,
                         ) / 1_000
                     when {
-                        networkRecovery.pending -> "网络已恢复，正在续播"
+                        networkRecovery.pending -> PlaybackStatusLine("网络已恢复，正在续播")
                         networkCannotCarrySource(diagnostics.networkBitsPerSecond, diagnostics.bitrateBitsPerSecond) ->
-                            "网络速度不足 · 已缓冲 $bufferedSeconds 秒"
-                        else -> "正在重新缓冲 · 已缓冲 $bufferedSeconds 秒"
+                            PlaybackStatusLine("网络速度不足", "网络速度不足 · 已缓冲 $bufferedSeconds 秒")
+                        else -> PlaybackStatusLine("正在重新缓冲", "正在重新缓冲 · 已缓冲 $bufferedSeconds 秒")
                     }
                 }
             }
@@ -2849,9 +2849,7 @@ internal fun PlayerRoot(
                     layer = PlayerTransitionLayerKind.Entrance,
                 )
                 PlaybackStatusChip(
-                    visible =
-                        state.diagnostics.effectiveVideoReadiness == PlaybackOutputReadiness.Rendering &&
-                            (state.buffering || networkRecovery.pending),
+                    visible = pictureReady && (state.buffering || networkRecovery.pending),
                     message = statusChipMessage,
                     modifier = statusChipModifier,
                 )

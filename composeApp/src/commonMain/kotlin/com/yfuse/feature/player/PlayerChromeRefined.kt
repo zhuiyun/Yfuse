@@ -72,6 +72,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
@@ -100,8 +102,11 @@ import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.lightFeedback
 import com.yfuse.core.designsystem.lightOnAppear
 import com.yfuse.core.designsystem.lightOnChange
+import com.yfuse.core.designsystem.liveStatus
+import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberAnimatedArtworkAccent
 import com.yfuse.core.designsystem.rememberLightFeedback
+import com.yfuse.core.designsystem.touchTarget
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.abs
@@ -668,6 +673,8 @@ private fun RefinedBottomBarContent(
 @Composable
 internal fun CompactAutoSkipPill(
     label: String,
+    /** The countdown's meaning without its seconds — said once, as the pill arrives. */
+    announcement: String,
     onCancel: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -678,7 +685,12 @@ internal fun CompactAutoSkipPill(
                 shape = AppShapes.pill,
                 fill = Color.Black.copy(alpha = 0.58f),
                 border = Color.White.copy(alpha = 0.22f),
-            ).noRippleClickable(onCancel)
+            ).pressable(onClickLabel = "取消自动跳过", onClick = onCancel)
+            .touchTarget()
+            // Live, but with the ticking label left out of the spoken tree: every second would
+            // otherwise be read out. The live region goes before the clear, which would drop it.
+            .liveStatus()
+            .clearAndSetSemantics { contentDescription = announcement }
             .padding(horizontal = 10.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
