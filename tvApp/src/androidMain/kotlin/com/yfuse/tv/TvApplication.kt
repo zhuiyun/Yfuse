@@ -13,6 +13,7 @@ import coil3.disk.DiskCache
 import coil3.intercept.Interceptor
 import coil3.memory.MemoryCache
 import coil3.network.ktor3.KtorNetworkFetcherFactory
+import coil3.request.crossfade
 import com.russhwolf.settings.SharedPreferencesSettings
 import com.yfuse.core.account.AccountRepository
 import com.yfuse.core.cast.initializeCastApplicationContext
@@ -23,6 +24,7 @@ import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.UserAgentPreferences
 import com.yfuse.core.data.androidFeedCacheSettings
 import com.yfuse.core.data.observeFeedCacheCleanup
+import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.logging.DiagnosticLogStore
 import com.yfuse.core.logging.SafeLogcatOutputGate
@@ -235,7 +237,13 @@ open class TvApplication :
                     .directory(cacheDir.resolve("tv_image_cache_v1").toOkioPath())
                     .maxSizeBytes(if (lowRamDevice) 64L * 1024L * 1024L else 256L * 1024L * 1024L)
                     .build()
-            }.build()
+            }
+            // Artwork fades in on the poster clock instead of cutting in when it lands; a memory-cache
+            // hit is not faded, so a row scrolled back into view does not flicker. The phone leaves
+            // this off because its FallbackImage owns the fade; the television's cards are plain
+            // AsyncImages with nothing else to do it.
+            .crossfade(Motion.POSTER_FADE)
+            .build()
 
     private companion object {
         const val PREFERENCES_NAME = "yfuse"

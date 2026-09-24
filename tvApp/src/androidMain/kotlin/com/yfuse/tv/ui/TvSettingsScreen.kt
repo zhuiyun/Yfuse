@@ -1,6 +1,7 @@
 package com.yfuse.tv.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -18,11 +19,14 @@ import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.account.AccountState
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.LocalAccessibilityOptions
+import com.yfuse.core.designsystem.Motion
 import com.yfuse.feature.profile.GlassMaterialSettingsScreen
 import com.yfuse.feature.profile.ProfileComponent
 import com.yfuse.feature.profile.ProfileIntent
@@ -44,34 +48,56 @@ internal fun TvSettingsScreen(
     contentRequester: FocusRequester,
 ) {
     var page by rememberSaveable { mutableStateOf(TvSettingsPage.Root) }
-    val pageRequester = remember { FocusRequester() }
     // Each page keeps its saveable state — the root list's scroll position above all — while
     // another is open. A bare `when` rebuilt the root from the top, so back from a sub-page far
     // down the list could not find the row that had opened it.
     val pageStates = rememberSaveableStateHolder()
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val travel = with(LocalDensity.current) { TvPageMotion.travel.roundToPx() }
 
     BackHandler(enabled = page != TvSettingsPage.Root) {
         page = if (page == TvSettingsPage.GlassMaterial) TvSettingsPage.Appearance else TvSettingsPage.Root
     }
 
-    // A page swap leaves focus on a row that no longer exists, which strands the remote. Pulling
-    // focus to the new page's first row keeps every transition navigable.
-    LaunchedEffect(page) {
-        if (page != TvSettingsPage.Root) pageRequester.requestFocusWhenAttached()
-    }
-
-    pageStates.SaveableStateProvider(page.name) {
-        TvSettingsPageContent(
-            page = page,
-            component = component,
-            focusMemory = focusMemory,
-            navigationRequester = navigationRequester,
-            contentRequester = contentRequester,
-            pageRequester = pageRequester,
-            onOpen = { page = it },
-        )
+    AnimatedContent(
+        targetState = page,
+        transitionSpec = {
+            // Into a sub-page arrives from the right, and back arrives from the left.
+            val direction = if (targetState.depth >= initialState.depth) 1 else -1
+            TvPageMotion.transform(reduceMotion, travel * direction) using Motion.sizeTransform(reduceMotion)
+        },
+        label = "tv-settings-page",
+    ) { shown ->
+        // Every page asks for its own first row: while two pages crossfade, a requester they shared
+        // would be attached to the leaving page's row as well, and could hand focus to it.
+        val pageRequester = remember { FocusRequester() }
+        // A page swap leaves focus on a row that no longer exists, which strands the remote.
+        // Pulling focus to the new page's first row keeps every transition navigable.
+        LaunchedEffect(Unit) {
+            if (shown != TvSettingsPage.Root) pageRequester.requestFocusWhenAttached()
+        }
+        pageStates.SaveableStateProvider(shown.name) {
+            TvSettingsPageContent(
+                page = shown,
+                component = component,
+                focusMemory = focusMemory,
+                navigationRequester = navigationRequester,
+                contentRequester = contentRequester,
+                pageRequester = pageRequester,
+                onOpen = { page = it },
+            )
+        }
     }
 }
+
+/** How far below the settings root a page sits; a deeper page arrives from the right. */
+private val TvSettingsPage.depth: Int
+    get() =
+        when (this) {
+            TvSettingsPage.Root -> 0
+            TvSettingsPage.AccountSessions, TvSettingsPage.GlassMaterial -> 2
+            else -> 1
+        }
 
 @Composable
 private fun TvSettingsPageContent(

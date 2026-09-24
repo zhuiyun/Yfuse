@@ -1,14 +1,20 @@
 package com.yfuse.tv.ui
 
+import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.DarkPalette
+import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.Semantic
 import com.yfuse.core.designsystem.resolveAccentColors
 
@@ -97,4 +103,35 @@ internal object TvFocusMotion {
         requested: Float,
         reduceMotion: Boolean,
     ): Float = if (reduceMotion) 1f else requested
+}
+
+// ---------------------------------------------------------------- pages
+
+/**
+ * How one page gives way to the next — a pushed route, a tab, a settings sub-page. They all cut
+ * before. The television takes the calm register: the arriving page fades in over
+ * [Motion.STANDARD] from at most [travel] away, the leaving one fades out over [Motion.QUICK]
+ * where it stands, and nothing scales or samples the page behind. Under 减少动态效果 it is a cut.
+ */
+internal object TvPageMotion {
+    val travel = 8.dp
+
+    /**
+     * [travelPx] is signed: positive arrives from the end side (going deeper), negative from the
+     * start side (coming back), and 0 moves nothing — pages of one level, like the tabs.
+     */
+    fun transform(
+        reduceMotion: Boolean,
+        travelPx: Int,
+    ): ContentTransform {
+        if (reduceMotion) return fadeIn(snap()) togetherWith fadeOut(snap())
+        val fade = fadeIn(Motion.tween(Motion.STANDARD))
+        val arrive =
+            if (travelPx == 0) {
+                fade
+            } else {
+                fade + slideInHorizontally(Motion.tween(Motion.STANDARD)) { travelPx }
+            }
+        return arrive togetherWith fadeOut(Motion.tween(Motion.QUICK))
+    }
 }
