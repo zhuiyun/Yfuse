@@ -1143,8 +1143,10 @@ internal class DetailExecutor(
         val playServerId = server.id
         val playSourceItemId = sourceDetail.id
         val previousSeasonId = current.selectedSeasonId
-        dispatch(DetailMsg.SeasonsLoaded(current.seasons, seasonId))
+        // Loading first: no state may name the new season over the old season's episodes
+        // without also saying they are being replaced.
         dispatch(DetailMsg.EpisodesLoading)
+        dispatch(DetailMsg.SeasonsLoaded(current.seasons, seasonId))
         dispatch(DetailMsg.SelectionLoading(true))
         scope.launch {
             retryTransientDetailRequest(

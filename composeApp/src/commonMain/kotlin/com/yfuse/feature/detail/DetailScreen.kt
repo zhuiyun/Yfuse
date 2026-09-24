@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -206,6 +207,11 @@ fun DetailScreen(component: DetailComponent) {
     var seasonPickerOpen by remember { mutableStateOf(false) }
     // Where the season title sits, in root coordinates; the floating season list opens from it.
     var seasonPickerAnchor by remember { mutableStateOf<Rect?>(null) }
+    // The season whose episodes the rail is showing. It trails the selection while a newly picked
+    // season loads: the header already names that season, the cards are still the last one's.
+    val listedSeason = remember { arrayOf(state.selectedSeasonId) }
+    val listedSeasonId = if (state.episodesLoading) listedSeason[0] else state.selectedSeasonId
+    SideEffect { listedSeason[0] = listedSeasonId }
     var overviewExpanded by remember { mutableStateOf(false) }
     // Hoisted out of the list: the hero badges what this copy is, and 媒体信息 at the foot
     // of the page spells the same file out — one answer to "which file", read twice.
@@ -638,6 +644,8 @@ fun DetailScreen(component: DetailComponent) {
                                                         ?: "剧集",
                                                 availableEpisodeCount = state.episodes.size,
                                                 seasonCount = state.seasons.size,
+                                                seasonLoading = listedSeasonId != state.selectedSeasonId,
+                                                listedSeasonId = listedSeasonId,
                                                 pickerOpen = seasonPickerOpen,
                                                 onTogglePicker = { seasonPickerOpen = !seasonPickerOpen },
                                                 onPickerAnchor = { seasonPickerAnchor = it },

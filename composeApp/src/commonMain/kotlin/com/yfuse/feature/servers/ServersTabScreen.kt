@@ -76,6 +76,7 @@ import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.ConfirmDialog
+import com.yfuse.core.designsystem.DialogPresence
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassLift
@@ -481,9 +482,11 @@ fun ServersTabScreen(component: ServersTabComponent) {
         }
     }
 
-    if (state.dialogVisible) {
+    // Held through its exit: a connection that succeeds closes the form from the store in the
+    // same step that empties it, so it leaves showing what was entered instead of vanishing.
+    DialogPresence(state.takeIf { it.dialogVisible }) { shown ->
         AddServerDialog(
-            state = state,
+            state = shown,
             onIntent = component.store::accept,
             onDismiss = { component.store.accept(ServersIntent.DismissDialog) },
         )

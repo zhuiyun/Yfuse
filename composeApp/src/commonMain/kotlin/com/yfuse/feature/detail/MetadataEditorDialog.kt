@@ -88,7 +88,9 @@ internal fun MetadataEditorDialog(
             draft = loaded.draft
         }
     }
-    GlassDialog(onDismiss = onDismiss, dismissEnabled = !busy) {
+    // Edited text is not something a fast flick should be able to throw away.
+    val editing = original?.let { draft != it.draft } == true
+    GlassDialog(onDismiss = onDismiss, dismissEnabled = !busy, dragToDismiss = !editing) {
         OverlayHeader("编辑元数据", "修改将保存到 ${server.serverName}，需要服务器编辑权限")
         if (original != null) {
             MetadataField("标题", draft.title, 500, true, busy) { draft = draft.copy(title = it) }
