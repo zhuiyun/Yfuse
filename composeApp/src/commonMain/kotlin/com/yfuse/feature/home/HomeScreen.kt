@@ -110,6 +110,7 @@ import com.yfuse.core.designsystem.heroMediaTypeLabel
 import com.yfuse.core.designsystem.heroScrollCollapse
 import com.yfuse.core.designsystem.heroTopScrim
 import com.yfuse.core.designsystem.lightFeedback
+import com.yfuse.core.designsystem.liveStatus
 import com.yfuse.core.designsystem.livingPosterFrame
 import com.yfuse.core.designsystem.livingPosterHeroHeight
 import com.yfuse.core.designsystem.loopingCarouselItemIndex
@@ -452,7 +453,9 @@ internal fun HomeContentBody(
                                     text = notice,
                                     style = AppTypography.body.medium,
                                     color = palette.sub,
-                                    modifier = Modifier.weight(1f),
+                                    // How a pull that failed, or only partly landed, is told: the
+                                    // shelves no longer rise for it, so it has to be heard too.
+                                    modifier = Modifier.weight(1f).liveStatus(),
                                 )
                                 Text(
                                     text = "重新刷新",
