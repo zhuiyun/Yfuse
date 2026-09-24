@@ -155,8 +155,20 @@ internal class PlayerTransitionState(
 
     val playerTime: Float get() = now - (lag ?: 0f)
 
-    /** ms since the way out began; negative until then (including while the gesture is live). */
-    val exitTime: Float get() = exitAt?.let { now - it } ?: -1f
+    /**
+     * How much faster than it was drawn the way out plays. Each set's exit runs 440–920 ms on its
+     * own clock, and the page cannot be touched until it is over, so it is played close to
+     * [Motion.CONTINUITY_EXIT] — evenly, which keeps every set ending on the very frame the page
+     * picks up from — but never more than [MAX_EXIT_PACE] times faster, past which a turn of the
+     * whole picture stops reading as one.
+     */
+    private val exitPace = (timing.exitFinish.toFloat() / Motion.CONTINUITY_EXIT).coerceIn(1f, MAX_EXIT_PACE)
+
+    /**
+     * ms since the way out began, on the set's own drawn clock (see [exitPace]); negative until
+     * then, including while the gesture is live.
+     */
+    val exitTime: Float get() = exitAt?.let { (now - it) * exitPace } ?: -1f
 
     /**
      * Advances the clock. [handsOverLate] is set by a host with a continuity overlay under the
@@ -1047,6 +1059,7 @@ private const val FRAME_MS = 16f
 private const val BACK_CANCEL_MS = 220f
 private const val GESTURE_REACH = 0.85f
 private const val SNAPSHOT_TIMEOUT_MS = 160L
+private const val MAX_EXIT_PACE = 2f
 private const val HANDOFF_DELAY_MS = 40f
 private const val GATE_OPENING_MS = 180f
 private const val CURTAIN_CHROME_AFTER_LAND = 40f

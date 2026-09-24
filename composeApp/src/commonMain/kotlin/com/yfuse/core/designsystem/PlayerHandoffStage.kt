@@ -59,9 +59,10 @@ import kotlin.time.TimeSource
  *
  * On a launch the page plays its way out and then holds its last frame for as long as the player
  * is up — the player fades in over, and later out over, exactly that frame. When the player comes
- * back it hands over from the same frame and the page plays its way in. Touches are held for the
- * duration, so a second tap cannot start a second launch under the first. Idle, this is the
- * modifier it was applied to and nothing else.
+ * back it hands over from the same frame and the page plays its way in. Touches are held while the
+ * page is leaving, so a second tap cannot start a second launch under the first; on the way back
+ * the page is already the page again, and holding them there kept it out of reach for most of a
+ * second after 关闭. Idle, this is the modifier it was applied to and nothing else.
  */
 @Composable
 internal fun Modifier.playerHandoffStage(): Modifier {
@@ -107,7 +108,8 @@ internal fun Modifier.playerHandoffStage(): Modifier {
         .pointerInput(launch) {
             awaitPointerEventScope {
                 while (true) {
-                    awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
+                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                    if (PlayerHandoff.phase == HandoffPhase.Leaving) event.changes.forEach { it.consume() }
                 }
             }
         }.drawWithContent {
