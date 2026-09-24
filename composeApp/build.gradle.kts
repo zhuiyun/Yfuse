@@ -68,7 +68,7 @@ val packagedYCoreGpu =
  */
 val verifyDesignSystemUsage by tasks.registering {
     group = "verification"
-    description = "Rejects raw UI typography, radii, and fixed functional colours."
+    description = "Rejects raw UI typography, radii, fixed functional colours, and motion off the house curve."
     val designSources =
         fileTree("src/commonMain/kotlin/com/yfuse") {
             include("app/App.kt", "core/designsystem/**/*.kt", "feature/**/*.kt")
@@ -80,7 +80,18 @@ val verifyDesignSystemUsage by tasks.registering {
                 "core/designsystem/WatchAvatar.kt",
             )
         }
-    inputs.files(designSources)
+    // Motion is checked wherever it is written: shared code, Android code, and the television.
+    val motionSources =
+        files(
+            fileTree("src/commonMain/kotlin/com/yfuse") {
+                include("**/*.kt")
+                // Motion.tween and the curves themselves are defined here.
+                exclude("core/designsystem/Tokens.kt")
+            },
+            fileTree("src/androidMain/kotlin/com/yfuse") { include("**/*.kt") },
+            fileTree(rootProject.file("tvApp/src/androidMain/kotlin")) { include("**/*.kt") },
+        )
+    inputs.files(designSources, motionSources)
 
     doLast {
         val sourceRules =
@@ -90,34 +101,84 @@ val verifyDesignSystemUsage by tasks.registering {
                 "direct continuous radius" to Regex("""continuousRounded\("""),
                 "fixed danger colour" to Regex("""Brand\.Danger"""),
                 "legacy fixed-blue shadow" to Regex("""Shadows\.primaryButton(?!\s*\()"""),
-                "literal tween duration" to Regex("""\btween\(\s*\d"""),
+                "literal tween duration" to Regex("""\btween\(\s*(?:durationMillis\s*=\s*)?\d"""),
                 "uncontrolled content-size animation" to Regex("""animateContentSize\(\s*\)"""),
                 // Scan the source occurrence itself, not only a same-line `color =` assignment:
                 // otherwise `val tint = Brand.Primary` and multiline arguments bypass the guard.
                 "fixed interactive brand colour" to Regex("""\bBrand\.Primary\b"""),
             )
+        // Preserve newlines while masking comments/imports so multiline calls are checked and
+        // diagnostics still point at the original source line.
+        val masking = Regex("""(?s)/\*.*?\*/|//[^\r\n]*|(?m)^\s*import\b[^\r\n]*""")
+
+        fun masked(original: String): String =
+            masking.replace(original) { match ->
+                buildString(match.value.length) {
+                    match.value.forEach { char ->
+                        append(if (char == '\r' || char == '\n') char else ' ')
+                    }
+                }
+            }
+
+        fun lineOf(
+            text: String,
+            index: Int,
+        ): Int = text.take(index).count { it == '\n' } + 1
+
+        // The argument list of the call whose opening parenthesis ends at [start].
+        fun callArguments(
+            text: String,
+            start: Int,
+        ): String {
+            var depth = 1
+            var index = start
+            while (depth > 0 && index < text.length) {
+                when (text[index]) {
+                    '(' -> depth++
+                    ')' -> depth--
+                }
+                index++
+            }
+            return text.substring(start, (index - 1).coerceAtLeast(start))
+        }
+        // A bare `tween(` takes Compose's FastOutSlowIn unless told otherwise; Motion.tween is
+        // the house curve. A literal duration names no token; an AnimatedContent without a size
+        // decision grows with the default spring — `using Motion.sizeTransform(…)`, an explicit
+        // SizeTransform or a `…Transform(` helper that makes the decision all count.
+        val bareTween = Regex("""(?<![\w.])tween(?:<[^>]*>)?\(""")
+        val literalMotionTween = Regex("""\bMotion\.tween\(\s*(?:durationMillis\s*=\s*)?\d""")
+        val animatedContent = Regex("""(?<![\w.])AnimatedContent\(""")
+        val sizeDecision = Regex("""\busing\b|\bSizeTransform\b|\w+Transform\(""")
         val violations =
             buildList {
+                motionSources.files.sortedBy { it.path }.forEach { source ->
+                    val scanned = masked(source.readText())
+                    val where = source.relativeTo(rootDir)
+                    bareTween.findAll(scanned).forEach { match ->
+                        if ("easing" !in callArguments(scanned, match.range.last + 1)) {
+                            val line = lineOf(scanned, match.range.first)
+                            add("$where:$line: tween without an easing (use Motion.tween)")
+                        }
+                    }
+                    literalMotionTween.findAll(scanned).forEach { match ->
+                        add("$where:${lineOf(scanned, match.range.first)}: literal Motion.tween duration")
+                    }
+                    animatedContent.findAll(scanned).forEach { match ->
+                        if (!sizeDecision.containsMatchIn(callArguments(scanned, match.range.last + 1))) {
+                            add(
+                                "$where:${lineOf(scanned, match.range.first)}: AnimatedContent without a size " +
+                                    "decision (using Motion.sizeTransform)",
+                            )
+                        }
+                    }
+                }
                 designSources.files.sortedBy { it.path }.forEach { source ->
                     val original = source.readText()
-                    // Preserve newlines while masking comments/imports so multiline calls are
-                    // checked and diagnostics still point at the original source line.
-                    val scanned =
-                        Regex("""(?s)/\*.*?\*/|//[^\r\n]*|(?m)^\s*import\b[^\r\n]*""")
-                            .replace(original) { match ->
-                                buildString(match.value.length) {
-                                    match.value.forEach { char ->
-                                        append(if (char == '\r' || char == '\n') char else ' ')
-                                    }
-                                }
-                            }
+                    val scanned = masked(original)
                     val originalLines = original.lines()
                     sourceRules.forEach { (label, pattern) ->
                         pattern.findAll(scanned).forEach { match ->
-                            val lineNumber =
-                                scanned
-                                    .take(match.range.first)
-                                    .count { it == '\n' } + 1
+                            val lineNumber = lineOf(scanned, match.range.first)
                             val originalLine = originalLines.getOrElse(lineNumber - 1) { "" }
                             val explicitlyBrandIdentity =
                                 "design-system: brand-identity" in originalLine
