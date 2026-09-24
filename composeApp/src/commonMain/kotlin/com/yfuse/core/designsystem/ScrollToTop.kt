@@ -55,11 +55,10 @@ fun ScrollToTopOnReselect(listState: LazyListState) {
     val signal = LocalTabReselected.current ?: return
     val tabIdentity = LocalTabIdentity.current ?: return
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
-    val haptics = LocalHaptics.current
     // Effects restart when accessibility options change. Remember the consumed occurrence so
     // StateFlow's replay cannot make an old tap scroll the page a second time.
     var lastHandledOccurrence by rememberSaveable(tabIdentity) { mutableLongStateOf(0L) }
-    LaunchedEffect(signal, tabIdentity, listState, reduceMotion, haptics) {
+    LaunchedEffect(signal, tabIdentity, listState, reduceMotion) {
         signal.collect { event ->
             if (event == null) {
                 // A real tab switch — and a fresh RootComponent after process recreation —
@@ -70,7 +69,7 @@ fun ScrollToTopOnReselect(listState: LazyListState) {
                 event.occurrence > lastHandledOccurrence
             ) {
                 lastHandledOccurrence = event.occurrence
-                haptics.play(HapticSignal.Select)
+                // No tick of its own: the tab the finger pressed has already given one.
                 if (listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0) {
                     return@collect
                 }
@@ -86,9 +85,8 @@ fun ScrollToTopOnReselect(gridState: LazyGridState) {
     val signal = LocalTabReselected.current ?: return
     val tabIdentity = LocalTabIdentity.current ?: return
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
-    val haptics = LocalHaptics.current
     var lastHandledOccurrence by rememberSaveable(tabIdentity) { mutableLongStateOf(0L) }
-    LaunchedEffect(signal, tabIdentity, gridState, reduceMotion, haptics) {
+    LaunchedEffect(signal, tabIdentity, gridState, reduceMotion) {
         signal.collect { event ->
             if (event == null) {
                 lastHandledOccurrence = 0L
@@ -96,7 +94,6 @@ fun ScrollToTopOnReselect(gridState: LazyGridState) {
                 event.occurrence > lastHandledOccurrence
             ) {
                 lastHandledOccurrence = event.occurrence
-                haptics.play(HapticSignal.Select)
                 if (gridState.firstVisibleItemIndex == 0 && gridState.firstVisibleItemScrollOffset == 0) {
                     return@collect
                 }

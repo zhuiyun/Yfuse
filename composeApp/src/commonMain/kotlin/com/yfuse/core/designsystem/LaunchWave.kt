@@ -35,23 +35,27 @@ import kotlin.time.TimeSource
  * 「水火潮涌」: the cold-start arrival of the library page.
  *
  * One wave leaves the top of the window and runs to the bottom in [TRAVEL_MS]. Each element it
- * reaches rises, sinks and settles in a damped swing, and each picture it reaches fades in and
+ * reaches rises, dips once below rest and settles, and each picture it reaches fades in and
  * shrinks to size at that same moment, so the page reads as one surface being pushed rather than
  * cards arriving one by one. Everything is a draw-phase layer transform: layout, hit areas and
- * scrolling never move.
+ * scrolling never move. The tab dock is not part of the page and does not ride the wave.
  */
 object LaunchWaveSpec {
     /** Time for the wave to cross one window height. */
     const val TRAVEL_MS = 650f
 
-    /** Height of the first rise. */
-    const val AMPLITUDE_DP = 24f
+    /**
+     * Scale of the swing. The envelope has already decayed by the time the first rise peaks, so
+     * the highest an element actually lifts is about half of this: under 8dp. It used to be 24dp
+     * and three swings, which read as the page wobbling rather than arriving.
+     */
+    const val AMPLITUDE_DP = 16f
 
     /** One full rise and fall. */
     const val PERIOD_MS = 420f
 
-    /** Envelope time constant; about three visible swings before the element rests. */
-    const val DECAY_MS = 190f
+    /** Envelope time constant: one rise, one small dip below rest (about 1dp), then rest. */
+    const val DECAY_MS = 110f
 
     /** Scale follows the swing in phase, so a lifted element reads as floating. */
     const val SCALE_SWING = 0.015f
@@ -68,8 +72,11 @@ object LaunchWaveSpec {
     /** Below half a pixel the swing is invisible; the clock stops there. */
     val TOTAL_MS: Float = TRAVEL_MS + DECAY_MS * ln(AMPLITUDE_DP / 0.5f) + 60f
 
-    /** A slow network still gets the wave; a page that shows up later than this does not. */
-    const val ARMED_WINDOW_MS = 15_000L
+    /**
+     * A page that shows up later than this does not get the wave. Past a few seconds the person
+     * is already looking at the page, waiting — and a wave then is the page moving under them.
+     */
+    const val ARMED_WINDOW_MS = 3_000L
 }
 
 /** Displacement (px, negative is up) and scale of one element [tauMs] after the wave reached it. */

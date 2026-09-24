@@ -1,13 +1,17 @@
 package com.yfuse.app
 
+import android.app.Activity
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.res.Configuration
 import android.content.res.Resources
+import android.graphics.drawable.ColorDrawable
 import android.provider.Settings
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,6 +30,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -36,8 +41,11 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.imageResource
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -115,6 +123,16 @@ fun AnimatedSplashApp(
             splashHistory.edit().putBoolean(SPLASH_HISTORY_SEEN_KEY, true).apply()
         }
     }
+    // The window was painted in the system's colour so the first splash frame could match it.
+    // Once the splash is gone that colour only ever shows through a gap — the arrival fade below,
+    // an activity transition — and there it has to be the app's, or a light phone running the
+    // dark app blinks white between the splash and the first screen.
+    val activity = remember(context) { context.findActivity() }
+    LaunchedEffect(activity, splashVisible, dark) {
+        if (!splashVisible) {
+            activity?.window?.setBackgroundDrawable(ColorDrawable(splashBackground(dark).toArgb()))
+        }
+    }
 
     // The hand-off used to be a removal: the splash layer left the tree and the first screen was
     // simply already there, at full strength, in the one frame nobody animates. This is the app's
@@ -135,12 +153,22 @@ fun AnimatedSplashApp(
         }
     }
 
-    Box(Modifier.fillMaxSize()) {
+    val appBackground = splashBackground(dark)
+    Box(
+        Modifier
+            .fillMaxSize()
+            // Under the arriving app, the colour it arrives on: the splash's last frame. Without it
+            // the fade from alpha 0 showed whatever the window held.
+            .drawBehind { if (arrival.value < 1f) drawRect(appBackground) },
+    ) {
         val parentRouteVisible = LocalRouteVisible.current
         CompositionLocalProvider(LocalRouteVisible provides (parentRouteVisible && !splashVisible)) {
             Box(
                 Modifier
                     .fillMaxSize()
+                    // Composed and laid out behind the splash but not drawn: nothing in it may be
+                    // found by a screen reader either.
+                    .then(if (splashVisible) Modifier.clearAndSetSemantics { } else Modifier)
                     .graphicsLayer {
                         // Both halves of the arrival live here. While the splash is still up the
                         // layer is fully transparent, which is also the cheapest possible frame:
@@ -208,9 +236,14 @@ private fun AnimatedSplashScreen(
     onFinished: () -> Unit,
 ) {
     StatusBarIconStyle(darkIcons = !dark)
+    val finish by rememberUpdatedState(onFinished)
 
     val choreography = variant.choreography
-    val clock = remember(choreography) { Animatable(0f) }
+    // Where on the authored timeline this launch starts: 0 for the whole welcome, later for the
+    // compact returning launch. The clock always runs at the speed the beats were drawn for.
+    val clockStart =
+        if (stillFrame) 0f else splashClockStart(choreography.fadeStartMs, timing.motionDurationMs)
+    val clock = remember(choreography) { Animatable(clockStart) }
 
     LaunchedEffect(choreography, stillFrame, timing) {
         if (stillFrame) {
@@ -221,8 +254,6 @@ private fun AnimatedSplashScreen(
         } else {
             clock.animateTo(
                 targetValue = choreography.fadeStartMs,
-                // The drawings keep their authored timeline; startup policy controls how
-                // quickly the clock travels through it.
                 animationSpec = tween(timing.motionDurationMs, easing = LinearEasing),
             )
         }
@@ -245,8 +276,12 @@ private fun AnimatedSplashScreen(
         modifier =
             Modifier
                 .fillMaxSize()
+                // The app is already laid out underneath, transparent. A tap here used to land on
+                // whatever hero button or tab sat under the finger; now the splash takes every
+                // touch, and a tap is the way to skip it.
+                .pointerInput(Unit) { detectTapGestures { finish() } }
                 .drawBehind {
-                    val tint = smooth(span(clock.value, 0f, ENTRY_TINT_MS))
+                    val tint = smooth(span(clock.value, clockStart, ENTRY_TINT_MS))
                     drawRect(lerpColor(entryColor, targetColor, tint))
                 },
         contentAlignment = Alignment.Center,
@@ -259,7 +294,11 @@ private fun AnimatedSplashScreen(
                         // Only the artwork fades. The splash surface remains opaque until this
                         // whole layer is removed, so startup content can never leak through in a
                         // half-composed frame during the hand-off.
+                        // A launch that joins the timeline part-way fades the half-formed mark in
+                        // rather than cutting to it.
+                        val joined = if (clockStart > 0f) smooth(span(clock.value, clockStart, JOIN_FADE_MS)) else 1f
                         alpha =
+                            joined *
                             splashForegroundAlpha(
                                 nowMs = clock.value,
                                 fadeStartMs = choreography.fadeStartMs,
@@ -379,8 +418,19 @@ internal data class SplashTiming(
 )
 
 /**
- * The full illustration is a first-launch welcome, not a compulsory two-second gate.
- * Later launches retain the same choreography at a compact media-client pace.
+ * Where a launch joins the authored timeline so that [motionDurationMs] of it plays at 1×.
+ *
+ * The beats are drawn against their own clock, so a shorter launch never speeds them up — it
+ * starts later, on the part where the mark resolves and the name arrives.
+ */
+internal fun splashClockStart(
+    fadeStartMs: Float,
+    motionDurationMs: Int,
+): Float = (fadeStartMs - motionDurationMs).coerceAtLeast(0f)
+
+/**
+ * The full illustration is a first-launch welcome, not a compulsory gate on every launch.
+ * Later launches play its closing part — the mark resolving, the name arriving — in 600ms.
  */
 internal fun splashTiming(
     firstLaunch: Boolean,
@@ -419,7 +469,10 @@ private const val SPLASH_HISTORY_SEEN_KEY = "has_seen_full_splash"
 
 private const val FIRST_LAUNCH_MOTION_MS = 1_080
 private const val FIRST_LAUNCH_FADE_MS = 120
-private const val RETURNING_LAUNCH_MOTION_MS = 1_080
+
+// The welcome was seen once; 600ms is a greeting where 1.2s on every launch is a wait. The
+// clock still runs at 1× — the launch joins the timeline later (see [splashClockStart]).
+private const val RETURNING_LAUNCH_MOTION_MS = 480
 private const val RETURNING_LAUNCH_FADE_MS = 120
 private const val REDUCED_MOTION_HOLD_MS = 260L
 private const val REDUCED_MOTION_FADE_MS = 80
@@ -427,10 +480,13 @@ private const val SYSTEM_ANIMATIONS_OFF_HOLD_MS = 180L
 
 private const val ENTRY_TINT_MS = 300f
 
+/** How long a launch that joins the timeline part-way takes to fade its artwork in. */
+private const val JOIN_FADE_MS = 120f
+
 /**
  * How far back the first screen starts. Restrained on purpose: this is a whole page arriving, not
- * a card, and the app's own 平级切 tab scale is 0.986 — a deeper zoom on the first thing the user
- * sees reads as the launch not being finished yet.
+ * a card, and a deeper zoom on the first thing the user sees reads as the launch not being
+ * finished yet.
  */
 private const val SPLASH_HANDOFF_SCALE_FROM = 0.98f
 
@@ -452,3 +508,10 @@ private val WordmarkBrush =
                 1f to Color(0xFFEAB308),
             ),
     )
+
+private tailrec fun Context.findActivity(): Activity? =
+    when (this) {
+        is Activity -> this
+        is ContextWrapper -> baseContext.findActivity()
+        else -> null
+    }
