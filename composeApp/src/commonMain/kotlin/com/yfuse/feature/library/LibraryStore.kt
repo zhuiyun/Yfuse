@@ -5,6 +5,7 @@ import com.arkivanov.mvikotlin.core.store.Store
 import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.arkivanov.mvikotlin.extensions.coroutines.CoroutineExecutor
 import com.arkivanov.mvikotlin.extensions.coroutines.coroutineBootstrapper
+import com.yfuse.app.ProductSession
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.LibraryCache
 import com.yfuse.core.data.ServerRegistry
@@ -16,12 +17,68 @@ import com.yfuse.core.network.toUserMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.koin.core.context.GlobalContext
+import kotlin.concurrent.Volatile
 import kotlin.coroutines.CoroutineContext
 import kotlin.time.TimeSource
+
+/**
+ * Whether the app left the foreground at any point at or after [sinceEpochMs].
+ *
+ * A backgrounded process can be frozen outright - no code runs at all until it thaws - so a
+ * library load that "took" 92 s can really be a few real seconds plus a long frozen gap that
+ * only ends once the app returns to the foreground. Sampling the foreground flag once, at
+ * either end of the measured interval, misses exactly that case: both ends can read as
+ * foreground while everything in between was not. A transition timestamp does not. Mirrors
+ * `appLeftForegroundSince` in HttpClientFactory.android.kt, which needs its own copy because
+ * that one runs from androidMain.
+ */
+internal fun libraryLoadLeftForegroundSince(
+    sinceEpochMs: Long,
+    currentlyForeground: Boolean,
+    lastTransitionEpochMs: Long,
+): Boolean = !currentlyForeground || lastTransitionEpochMs >= sinceEpochMs
+
+/**
+ * Re-times [ProductSession.foreground] transitions in epoch milliseconds so a measured library
+ * load can ask [libraryLoadLeftForegroundSince]. `drop(1)` skips the replay of the flow's
+ * current value on subscription - that is not a transition, and counting it as one would flag
+ * the very first load timed after the app starts regardless of when it actually ran.
+ */
+private object LibraryForegroundTimeline {
+    @Volatile private var currentlyForeground = true
+
+    @Volatile private var lastTransitionEpochMs = 0L
+    private var started = false
+
+    @Synchronized
+    private fun ensureStarted() {
+        if (started) return
+        started = true
+        // No session yet (e.g. a very early load during startup) leaves the timeline at its
+        // default - foreground, no known transition - which never flags a sample as backgrounded.
+        runCatching {
+            val session = GlobalContext.get().get<ProductSession>()
+            currentlyForeground = session.foreground.value
+            session.scope.launch {
+                session.foreground.drop(1).collect { value ->
+                    currentlyForeground = value
+                    lastTransitionEpochMs = System.currentTimeMillis()
+                }
+            }
+        }
+    }
+
+    fun leftForegroundSince(sinceEpochMs: Long): Boolean {
+        ensureStarted()
+        return libraryLoadLeftForegroundSince(sinceEpochMs, currentlyForeground, lastTransitionEpochMs)
+    }
+}
 
 enum class LibraryContentSource {
     None,
@@ -130,6 +187,16 @@ class LibraryStoreFactory(
      */
     private val favoriteWriter: LibraryFavoriteWriter = { _, _, _, _ -> Result.success(Unit) },
     private val workContext: CoroutineContext = Dispatchers.Default,
+    /**
+     * True if the app was ever out of the foreground at or after the given epoch ms. A frozen
+     * background process can make a load "take" 90+ seconds that were mostly a frozen gap, not a
+     * stall - `load_completed` tags those instead of reporting them as slow. Default reads the
+     * app's own lifecycle signal ([com.yfuse.app.ProductSession.foreground]); tests substitute a
+     * deterministic fake.
+     */
+    private val appBackgroundedSince: (Long) -> Boolean = { since ->
+        LibraryForegroundTimeline.leftForegroundSince(since)
+    },
 ) {
     fun create(): Store<LibraryIntent, LibraryState, Nothing> =
         storeFactory.create(
@@ -226,6 +293,7 @@ class LibraryStoreFactory(
                     }
                     val initialContent = state().content
                     val started = TimeSource.Monotonic.markNow()
+                    val startedAtEpochMs = nowEpochMs()
                     var firstProgress = true
                     val logAttributes = mapOf("serverId" to server.id, "generation" to generation.toString())
                     AppLog.info("feature.library", "load_started", "Media library load started", logAttributes)
@@ -272,7 +340,12 @@ class LibraryStoreFactory(
                                 "load_completed",
                                 "Media library load completed",
                                 logAttributes +
-                                    ("durationMs" to started.elapsedNow().inWholeMilliseconds.toString()),
+                                    ("durationMs" to started.elapsedNow().inWholeMilliseconds.toString()) +
+                                    // A backgrounded, frozen process can hold this load open for
+                                    // minutes without it being a stall (see load of 92 s in the
+                                    // 1.0.83 diagnostics); readers should not average it in with
+                                    // one that actually ran that long in the foreground.
+                                    ("appBackgrounded" to appBackgroundedSince(startedAtEpochMs).toString()),
                             )
                         }.onFailure { error ->
                             if (!ownsLoad(generation, connection)) return@onFailure

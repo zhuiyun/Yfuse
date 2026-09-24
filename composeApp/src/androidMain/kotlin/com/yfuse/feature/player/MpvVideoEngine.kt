@@ -827,7 +827,10 @@ class MpvVideoEngine(
                     bufferProfile.readaheadSeconds.toString(),
                 )
                 instance.optionalOption("cache-pause-initial", "yes")
-                instance.optionalOption("cache-pause-wait", "1")
+                // Initial pausing keeps a start from stuttering on its first bytes, but at 1 s every
+                // remote start waited a whole second of cache before its first frame (and so did each
+                // resume after an underrun). 0.3 s still absorbs first-read jitter without that delay.
+                instance.optionalOption("cache-pause-wait", "0.3")
             }
             // Every source is already a resolved media URL. Running ytdl after an upstream error
             // only adds misleading failures and delays the real fallback path.

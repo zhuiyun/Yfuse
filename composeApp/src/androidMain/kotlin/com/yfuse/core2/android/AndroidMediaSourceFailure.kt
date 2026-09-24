@@ -39,17 +39,22 @@ internal fun Throwable.mediaSourceFailure(): YPlaybackException? {
             cause = this,
         )
     }
-    val networkFailure = generateSequence(this) { it.cause.takeUnless { cause -> cause === it } }
-        .take(8)
-        .firstOrNull {
-            it is java.net.SocketTimeoutException || it is java.net.UnknownHostException ||
-                it is java.net.ConnectException || it is javax.net.ssl.SSLException ||
-                it is YRangeReadException && it.failureKind in setOf(
-                    com.yfuse.core2.network.YTransportFailureKind.TransientIo,
-                    com.yfuse.core2.network.YTransportFailureKind.ServerBusy,
-                    com.yfuse.core2.network.YTransportFailureKind.PrematureEof,
-                )
-        }
+    val networkFailure =
+        generateSequence(this) { it.cause.takeUnless { cause -> cause === it } }
+            .take(8)
+            .firstOrNull {
+                it is java.net.SocketTimeoutException ||
+                    it is java.net.UnknownHostException ||
+                    it is java.net.ConnectException ||
+                    it is javax.net.ssl.SSLException ||
+                    it is YRangeReadException &&
+                    it.failureKind in
+                    setOf(
+                        com.yfuse.core2.network.YTransportFailureKind.TransientIo,
+                        com.yfuse.core2.network.YTransportFailureKind.ServerBusy,
+                        com.yfuse.core2.network.YTransportFailureKind.PrematureEof,
+                    )
+            }
     if (networkFailure != null) {
         return YPlaybackException(
             category = YPlaybackFailureCategory.Network,
@@ -91,6 +96,6 @@ internal fun skipEnhancedProbeAfterDeadline(
     item: com.yfuse.core2.api.YMediaItem,
 ): Boolean =
     result is YCore2ProbeResult.Failure &&
-        result.reason == YCore2ProbeFailure.DeadlineOrBusy &&
+        (result.reason == YCore2ProbeFailure.Deadline || result.reason == YCore2ProbeFailure.Busy) &&
         item.drmConfiguration == null &&
         item.sourceHints?.dolbyVision != true

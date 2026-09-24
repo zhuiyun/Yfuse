@@ -64,7 +64,10 @@ internal sealed interface DetailMsg {
     ) : DetailMsg
 
     /** Refresh presentation without resetting a selection the user already made. */
-    data class Refreshed(val detail: MediaDetail, val server: SavedServer) : DetailMsg
+    data class Refreshed(
+        val detail: MediaDetail,
+        val server: SavedServer,
+    ) : DetailMsg
 
     data class Failed(
         val message: String,

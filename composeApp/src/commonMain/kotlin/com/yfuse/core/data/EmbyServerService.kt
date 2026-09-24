@@ -1,6 +1,7 @@
 package com.yfuse.core.data
 
 import com.yfuse.core.model.SavedServer
+import com.yfuse.core.network.exemptFromServerCooldown
 import com.yfuse.core.network.normalizeBaseUrl
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
@@ -22,6 +23,8 @@ internal class EmbyServerService(
             val mark = TimeSource.Monotonic.markNow()
             client
                 .get("${normalizeBaseUrl(baseUrl)}/System/Info") {
+                    // The probe is how a cooled-down server is found to be back; it must reach it.
+                    exemptFromServerCooldown()
                     header("X-Emby-Token", accessToken)
                 }.bodyAsText()
             mark.elapsedNow().inWholeMilliseconds

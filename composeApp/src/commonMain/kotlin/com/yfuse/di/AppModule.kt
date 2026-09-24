@@ -202,6 +202,8 @@ fun appModule(
             identityResolver = get(),
             followStore = get(),
             localStore = get(),
+            // Skips servers the monitor has marked as needing re-login or backing off.
+            serverHealth = get(),
         )
     }
     single(named("danmaku-http")) { createDanmakuClient() } onClose { it?.close() }
@@ -242,6 +244,10 @@ fun appModule(
             registry = get(),
             progressSyncEnabled = get<ServerSyncManager>().syncProgress,
             personal = get(),
+            // Skips servers the monitor has marked as needing re-login or backing off, and
+            // persists the per-server apply backoff across restarts (see PlaybackSyncManager).
+            serverHealth = get(),
+            settings = get(),
         )
     }
     single { com.yfuse.app.ProductSession(get(), get()) }

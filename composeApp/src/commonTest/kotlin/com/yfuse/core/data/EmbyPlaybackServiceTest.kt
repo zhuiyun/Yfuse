@@ -131,6 +131,24 @@ class EmbyPlaybackServiceTest {
         }
 
     @Test
+    fun an_unnamed_play_session_never_asks_the_server_to_end_encodings() =
+        runTest {
+            var requests = 0
+            val client =
+                client {
+                    requests++
+                    respond(content = "", status = HttpStatusCode.NoContent)
+                }
+            try {
+                // DeviceId alone would end every encoding this device has running.
+                assertTrue(service(client).stopTranscoding(server, " ").isSuccess)
+                assertEquals(0, requests)
+            } finally {
+                client.close()
+            }
+        }
+
+    @Test
     fun a_transcoder_server_error_still_surfaces_as_a_failure() =
         runTest {
             val client = client { respond(content = "", status = HttpStatusCode.InternalServerError) }

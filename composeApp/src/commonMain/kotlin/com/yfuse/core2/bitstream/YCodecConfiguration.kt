@@ -83,6 +83,39 @@ object YCodecConfiguration {
     }
 
     fun parseAvcC(data: ByteArray): YAvcConfiguration {
+        val record = readAvcC(data)
+        return YAvcConfiguration(
+            lengthBytes = record.lengthBytes,
+            sps = record.sps,
+            pps = record.pps,
+        )
+    }
+
+    /**
+     * The parameter sets an `avcC` carries, with empty lists where it carries none.
+     *
+     * Muxers that repeat SPS/PPS in every keyframe may write a record without them. [parseAvcC]
+     * rejects such a record as a configuration; playback takes the sets from the first keyframe
+     * instead. A malformed record, rather than an empty one, still fails.
+     */
+    fun avcRecordParameterSets(data: ByteArray): YParameterSets {
+        val record = readAvcC(data)
+        return YParameterSets(sps = record.sps, pps = record.pps)
+    }
+
+    /** `hvcC` counterpart of [avcRecordParameterSets]. */
+    fun hevcRecordParameterSets(data: ByteArray): YParameterSets {
+        val record = readHvcC(data)
+        return YParameterSets(vps = record.vps, sps = record.sps, pps = record.pps)
+    }
+
+    private class AvcCRecord(
+        val lengthBytes: Int,
+        val sps: List<ByteArray>,
+        val pps: List<ByteArray>,
+    )
+
+    private fun readAvcC(data: ByteArray): AvcCRecord {
         require(data.size >= AVC_MIN_BYTES && data[0].u8() == 1) { "Invalid avcC configuration" }
         val lengthBytes = (data[4].u8() and 0x03) + 1
         var cursor = 5
@@ -103,11 +136,7 @@ object YCodecConfiguration {
             pps += data.readBytes(cursor, length)
             cursor += length
         }
-        return YAvcConfiguration(
-            lengthBytes = lengthBytes,
-            sps = sps,
-            pps = pps,
-        )
+        return AvcCRecord(lengthBytes, sps, pps)
     }
 
     fun parseHvcC(data: ByteArray): YHevcConfiguration {

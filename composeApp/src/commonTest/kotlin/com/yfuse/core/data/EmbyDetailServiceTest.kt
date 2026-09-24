@@ -65,7 +65,12 @@ class EmbyDetailServiceTest {
                         .itemDetail(server, "m1", includePlaybackFields = false)
                         .getOrThrow()
 
-                val fields = requireNotNull(seen).url.parameters["Fields"].orEmpty().split(',').toSet()
+                val fields =
+                    requireNotNull(seen)
+                        .url.parameters["Fields"]
+                        .orEmpty()
+                        .split(',')
+                        .toSet()
                 assertTrue("Overview" in fields)
                 assertTrue("MediaSources" !in fields)
                 assertTrue("MediaStreams" !in fields)

@@ -8,9 +8,13 @@ import com.yfuse.core2.capability.YVideoRequirement
 import com.yfuse.core2.network.YCacheIdentity
 import com.yfuse.core2.network.YTransportCredentials
 import com.yfuse.core2.strategy.YPlaybackRequest
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertTrue
 
 class AndroidEnhancedMediaProbeFailureMemoryTest {
     private val item =
@@ -62,6 +66,48 @@ class AndroidEnhancedMediaProbeFailureMemoryTest {
         assertIs<YCore2ProbeResult.Success>(probe.probe(item))
         assertIs<YCore2ProbeResult.Success>(probe.probe(item))
         assertEquals(2, opens)
+    }
+
+    @Test
+    fun busyLaneIsNeverRememberedAsASourceFailure() {
+        var opens = 0
+        val probe =
+            AndroidEnhancedMediaProbe(
+                clock = { 0L },
+                probeSource = {
+                    opens++
+                    success()
+                },
+            )
+        val holder = Executors.newSingleThreadExecutor()
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        try {
+            // Next-item or detail-page preparation still owns the process-wide deep-probe lane.
+            val held =
+                holder.submit<Int> {
+                    AndroidMetadataProbeLane.enhanced.run(10_000L, { -1 }) {
+                        entered.countDown()
+                        release.await()
+                        1
+                    }
+                }
+            assertTrue(entered.await(2L, TimeUnit.SECONDS))
+            AndroidProbeBudget().use { preparation ->
+                val busy = assertIs<YCore2ProbeResult.Failure>(probe.probe(item, budget = preparation))
+                assertEquals(YCore2ProbeFailure.Busy, busy.reason)
+            }
+            release.countDown()
+            assertEquals(1, held.get(2L, TimeUnit.SECONDS))
+
+            AndroidProbeBudget().use { next ->
+                assertIs<YCore2ProbeResult.Success>(probe.probe(item, budget = next))
+            }
+            assertEquals(1, opens)
+        } finally {
+            release.countDown()
+            holder.shutdownNow()
+        }
     }
 
     @Test

@@ -4,6 +4,7 @@ import io.ktor.http.Url
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlin.concurrent.Volatile
 
 /**
  * In-memory bridge from the account session owner to authenticated services such as 一起看.
@@ -15,7 +16,13 @@ class AccountAccessTokenSource(
     accountOrigin: String = ACCOUNT_BASE_URL,
 ) {
     private val trustedOrigin = Url(accountOrigin)
+
+    // Bound once by the account repository and read from whatever thread opens a socket; without a
+    // barrier such a reader could keep seeing the unbound `{ null }` and treat the session as absent.
+    @Volatile
     private var provider: suspend () -> String? = { null }
+
+    @Volatile
     private var refreshProvider: suspend () -> String? = { null }
     private val _sessionAvailable = MutableStateFlow(false)
     val sessionAvailable: StateFlow<Boolean> = _sessionAvailable.asStateFlow()

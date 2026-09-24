@@ -21,6 +21,7 @@ import com.yfuse.core2.render.YRenderedFrameRateSampler
 import com.yfuse.core2.render.videoFrameRateHint
 import com.yfuse.core2.sync.YMediaClock
 import kotlinx.coroutines.CancellationException
+import java.io.IOException
 import java.nio.ByteBuffer
 
 internal data class YTunnelPlaybackSnapshot(
@@ -134,10 +135,7 @@ internal class AndroidNativeTunnelSession(
                 AndroidTunnelConfigurationFactory.create(context)
                     ?: error("Platform did not provide a valid tunnel audio session id")
             }
-        yPlaybackStage(
-            category = sourceFailureCategory(),
-            stage = YPlaybackFailureStage.SourceOpen,
-        ) {
+        sourceStage(YPlaybackFailureStage.SourceOpen) {
             demuxer.open(source)
         }
         demuxer.configureBufferPlan(bufferPlan.targetAheadUs, bufferPlan.maximumBytes)
@@ -184,7 +182,9 @@ internal class AndroidNativeTunnelSession(
         } catch (failure: Throwable) {
             if (failure is CancellationException) throw failure
             if (!videoConfiguredForProbe) {
-                runtimeCapabilityKey?.let(runtimeCapabilities::recordRejected)
+                // Only a MediaCodec refusal counts against the decoder; a format or demux failure
+                // before configure proves nothing about it (see recordConfigureFailure).
+                runtimeCapabilityKey?.let { key -> runtimeCapabilities.recordConfigureFailure(key, failure) }
             }
             frameRateManager.clear()
             runCatching(videoDecoder::release)
@@ -276,10 +276,7 @@ internal class AndroidNativeTunnelSession(
         pendingAudioOutput?.let { runCatching { audioDecoder.releaseOutput(it.output) } }
         pendingAudioOutput = null
         demuxer.pauseReadAhead()
-        yPlaybackStage(
-            category = sourceFailureCategory(),
-            stage = YPlaybackFailureStage.Seek,
-        ) {
+        sourceStage(YPlaybackFailureStage.Seek) {
             demuxer.seekTo(target)
         }
         val nextPreviewDecoder = !playing && previewWhilePaused
@@ -433,8 +430,23 @@ internal class AndroidNativeTunnelSession(
         demuxer.close()
     }
 
-    private fun sourceFailureCategory() =
-        if (sourceRemote) YPlaybackFailureCategory.Network else YPlaybackFailureCategory.Container
+    /** [yPlaybackStage] for source I/O, categorised by what failed rather than by where the source lives. */
+    private inline fun <T> sourceStage(
+        stage: YPlaybackFailureStage,
+        block: () -> T,
+    ): T =
+        try {
+            block()
+        } catch (failure: YPlaybackException) {
+            throw failure
+        } catch (failure: Throwable) {
+            if (failure is CancellationException) throw failure
+            throw YPlaybackException(
+                category = tunnelSourceFailureCategory(sourceRemote, failure),
+                stage = stage,
+                cause = failure,
+            )
+        }
 
     private fun attachVideoRenderEvidence() {
         renderedFrameRateSampler.reset()
@@ -471,11 +483,12 @@ internal class AndroidNativeTunnelSession(
                 bufferedDurationUs = readAhead.bufferedDurationUs,
                 endOfInput = readAhead.endOfInput,
                 bufferFull = readAhead.atCapacity,
-                rebufferWaitUs = bufferWaitClock.observe(
-                    System.nanoTime(),
-                    playing && bufferGate.phase == com.yfuse.core2.network.YPlaybackBufferPhase.Rebuffering,
-                    readAhead.generation,
-                ),
+                rebufferWaitUs =
+                    bufferWaitClock.observe(
+                        System.nanoTime(),
+                        playing && bufferGate.phase == com.yfuse.core2.network.YPlaybackBufferPhase.Rebuffering,
+                        readAhead.generation,
+                    ),
             )
         if (decision.outputAllowed && !outputActive) {
             val position = currentPositionUs()
@@ -533,7 +546,7 @@ internal class AndroidNativeTunnelSession(
             when (val next = demuxer.peekSample()) {
                 is YQueuedExtractorResult.Sample -> next.value
                 is YQueuedExtractorResult.Failed -> throw YPlaybackException(
-                    category = sourceFailureCategory(),
+                    category = tunnelSourceFailureCategory(sourceRemote, next.cause),
                     stage = YPlaybackFailureStage.Demux,
                     safeDetail = "Tunnel compressed sample read-ahead",
                     cause = next.cause,
@@ -755,6 +768,29 @@ internal class AndroidNativeTunnelSession(
         var bytesWritten: Int = 0,
     )
 }
+
+/**
+ * Category of a failure opening, seeking or reading a Tunnel source. For a remote source only transport
+ * evidence is Network: a typed HTTP/socket failure, or any I/O error in the chain - the extractor
+ * rethrows the read failure its data source recorded, and its own open failure over HTTP cannot be told
+ * apart from one. An extractor state or argument error, a malformed sample, is Container as it would be
+ * for a local file; calling every remote failure Network hid those from the failure memory.
+ */
+internal fun tunnelSourceFailureCategory(
+    remote: Boolean,
+    failure: Throwable,
+): YPlaybackFailureCategory {
+    if (!remote) return YPlaybackFailureCategory.Container
+    failure.mediaSourceFailure()?.let { return it.category }
+    // A read abandoned mid-teardown is not evidence against the container either.
+    val transportFailure =
+        generateSequence(failure) { current -> current.cause.takeUnless { it === current } }
+            .take(MAX_TUNNEL_FAILURE_CAUSE_DEPTH)
+            .any { it is IOException || it is CancellationException }
+    return if (transportFailure) YPlaybackFailureCategory.Network else YPlaybackFailureCategory.Container
+}
+
+private const val MAX_TUNNEL_FAILURE_CAUSE_DEPTH = 8
 
 internal fun tunnelSeekAudioSkipBytes(
     presentationTimeUs: Long,

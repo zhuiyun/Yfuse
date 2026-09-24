@@ -5,12 +5,26 @@ import com.yfuse.core.data.dto.ItemsResponseDto
 import com.yfuse.core.data.dto.toMediaItem
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.SavedServer
+import com.yfuse.core.network.EmbyError
+import com.yfuse.core.network.EmbyErrorException
 import com.yfuse.core.sync.parseEpisodeWatchKey
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.parameter
+import kotlinx.coroutines.withTimeoutOrNull
+
+/**
+ * Local per-call budget for [EmbyLookupService.findByMediaKey].
+ *
+ * The shared Emby client's own request/socket timeout is 30s, which is fine for a lookup the
+ * user is waiting on but not for background callers (playback sync, a handoff receiver, an
+ * invite resolver) that can queue many of these against a server that is not answering at all -
+ * one diagnostics session saw 101 of these each held for the full 30s. Matches the budget
+ * [EmbySourceService] already uses for the same class of cross-server lookup.
+ */
+internal const val FIND_BY_MEDIA_KEY_TIMEOUT_MS = 8_000L
 
 internal class EmbyLookupService(
     private val client: HttpClient,
@@ -146,61 +160,78 @@ internal class EmbyLookupService(
         mediaKey: String,
     ): Result<MediaItem?> =
         embyApiCall("find_item_by_media_key") {
-            // `tmdb:1399/s2e5` — the show is identified by provider id, the episode by its
-            // place in it. Resolved in two steps because that's how Emby indexes it: nothing
-            // queries "episode 5 of the show with this Tmdb id" directly.
-            parseEpisodeWatchKey(mediaKey)?.let { coordinate ->
-                // Only a settled miss means "no such episode here". A timeout on the series step
-                // used to read as a miss too, and playback sync then dropped the progress it was
-                // meant to write back instead of retrying it.
-                val series =
-                    findByMediaKey(server, coordinate.seriesKey).getOrThrow()
-                        ?: return@embyApiCall null
-                val dto: ItemsResponseDto =
-                    client
-                        .get(
-                            "${server.baseUrl}/Shows/${embyPath(series.id)}/Episodes",
-                        ) {
-                            header("X-Emby-Token", server.accessToken)
-                            parameter("UserId", server.userId)
-                            parameter("Season", coordinate.seasonNumber)
-                            parameter("Fields", "ProductionYear,Overview,ProviderIds")
-                        }.body()
-                return@embyApiCall dto.Items
-                    .firstOrNull { it.IndexNumber == coordinate.episodeNumber }
-                    ?.let { progress.project(server, it).toMediaItem() }
-            }
-            val provider = mediaKey.substringBefore(':', "")
-            val value = mediaKey.substringAfter(':', "")
-            if (provider.isBlank() || value.isBlank()) {
-                return@embyApiCall null
-            }
-            if (provider.equals("emby", ignoreCase = true)) {
-                // `value` came from the room, not from this server: it is a path segment only.
-                val dto: BaseItemDto =
-                    client
-                        .get(
-                            "${server.baseUrl}/Users/${embyPath(server.userId)}/Items/${embyPath(value)}",
-                        ) {
-                            header("X-Emby-Token", server.accessToken)
-                            parameter("Fields", "ProductionYear,Overview,ProviderIds")
-                        }.body()
-                return@embyApiCall progress.project(server, dto).toMediaItem()
-            }
+            // A server past its local budget maps to the same EmbyError.Network a dead socket
+            // would produce, so callers that already branch on it (retry, cooldown, "无法连接")
+            // behave exactly as they did against the old 30s failure - just sooner. The result
+            // is boxed because a settled miss is also null and must stay a miss, not a timeout.
+            val settled =
+                withTimeoutOrNull(FIND_BY_MEDIA_KEY_TIMEOUT_MS) {
+                    MediaKeyLookup(resolveMediaKey(server, mediaKey))
+                } ?: throw EmbyErrorException(EmbyError.Network)
+            settled.item
+        }
+
+    private class MediaKeyLookup(
+        val item: MediaItem?,
+    )
+
+    private suspend fun resolveMediaKey(
+        server: SavedServer,
+        mediaKey: String,
+    ): MediaItem? {
+        // `tmdb:1399/s2e5` — the show is identified by provider id, the episode by its
+        // place in it. Resolved in two steps because that's how Emby indexes it: nothing
+        // queries "episode 5 of the show with this Tmdb id" directly.
+        parseEpisodeWatchKey(mediaKey)?.let { coordinate ->
+            // Only a settled miss means "no such episode here". A timeout on the series step
+            // used to read as a miss too, and playback sync then dropped the progress it was
+            // meant to write back instead of retrying it.
+            val series = findByMediaKey(server, coordinate.seriesKey).getOrThrow() ?: return null
             val dto: ItemsResponseDto =
                 client
-                    .get("${server.baseUrl}/Users/${embyPath(server.userId)}/Items") {
+                    .get(
+                        "${server.baseUrl}/Shows/${embyPath(series.id)}/Episodes",
+                    ) {
                         header("X-Emby-Token", server.accessToken)
-                        parameter("Recursive", true)
-                        parameter("IncludeItemTypes", "Movie,Series,Episode")
-                        parameter("AnyProviderIdEquals", "${provider.lowercase()}.$value")
+                        parameter("UserId", server.userId)
+                        parameter("Season", coordinate.seasonNumber)
                         parameter("Fields", "ProductionYear,Overview,ProviderIds")
-                        parameter("EnableImageTypes", "Primary,Backdrop")
-                        parameter("ImageTypeLimit", 2)
-                        parameter("Limit", 1)
                     }.body()
-            dto.Items.firstOrNull()?.let { progress.project(server, it).toMediaItem() }
+            return dto.Items
+                .firstOrNull { it.IndexNumber == coordinate.episodeNumber }
+                ?.let { progress.project(server, it).toMediaItem() }
         }
+        val provider = mediaKey.substringBefore(':', "")
+        val value = mediaKey.substringAfter(':', "")
+        if (provider.isBlank() || value.isBlank()) {
+            return null
+        }
+        if (provider.equals("emby", ignoreCase = true)) {
+            // `value` came from the room, not from this server: it is a path segment only.
+            val dto: BaseItemDto =
+                client
+                    .get(
+                        "${server.baseUrl}/Users/${embyPath(server.userId)}/Items/${embyPath(value)}",
+                    ) {
+                        header("X-Emby-Token", server.accessToken)
+                        parameter("Fields", "ProductionYear,Overview,ProviderIds")
+                    }.body()
+            return progress.project(server, dto).toMediaItem()
+        }
+        val dto: ItemsResponseDto =
+            client
+                .get("${server.baseUrl}/Users/${embyPath(server.userId)}/Items") {
+                    header("X-Emby-Token", server.accessToken)
+                    parameter("Recursive", true)
+                    parameter("IncludeItemTypes", "Movie,Series,Episode")
+                    parameter("AnyProviderIdEquals", "${provider.lowercase()}.$value")
+                    parameter("Fields", "ProductionYear,Overview,ProviderIds")
+                    parameter("EnableImageTypes", "Primary,Backdrop")
+                    parameter("ImageTypeLimit", 2)
+                    parameter("Limit", 1)
+                }.body()
+        return dto.Items.firstOrNull()?.let { progress.project(server, it).toMediaItem() }
+    }
 }
 
 data class LibrarySeriesIdentity(

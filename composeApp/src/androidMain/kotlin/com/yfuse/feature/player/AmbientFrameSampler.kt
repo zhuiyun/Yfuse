@@ -21,6 +21,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntRect
@@ -239,13 +241,71 @@ class AmbientFrameSampler {
         }
     }
 
+    /**
+     * The picture as it is on screen now, [width] pixels wide, for a transition to carry away.
+     *
+     * Shares the copy lane with sampling, so it waits at most for one read in flight. Null when
+     * the surface cannot be read (DRM, some HDR and tunnelled outputs) — those copies come back
+     * black rather than failing, so a frame with nothing brighter than the darkest grey is
+     * treated the same way and the caller falls back to the artwork. Main thread.
+     */
+    suspend fun snapshot(width: Int = SNAPSHOT_WIDTH): ImageBitmap? {
+        val target = view ?: return null
+        if (target.width <= 0 || target.height <= 0 || !target.holder.surface.isValid) return null
+        val frame = target.holder.surfaceFrame
+        val source =
+            ambientCopyRect(
+                letterboxed,
+                picture,
+                IntSize(target.width, target.height),
+                IntSize(frame.width(), frame.height()),
+            )?.let { Rect(it.left, it.top, it.right, it.bottom) }
+        val aspect =
+            source?.let { it.width().toFloat() / it.height().coerceAtLeast(1) }
+                ?: (frame.width().toFloat() / frame.height().coerceAtLeast(1))
+        if (!aspect.isFinite() || aspect <= 0f) return null
+        val height = (width / aspect).roundToInt().coerceIn(1, width * 4)
+        return copies.copy(
+            create = { Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888) },
+            request = { bitmap, complete ->
+                if (target !== view || !target.holder.surface.isValid) {
+                    throw IllegalArgumentException("Snapshot source changed before copy")
+                }
+                PixelCopy.request(target, source, bitmap, { complete(it == PixelCopy.SUCCESS) }, handler)
+            },
+            read = { bitmap -> bitmap.takeUnless(::looksBlank)?.copy(Bitmap.Config.ARGB_8888, false)?.asImageBitmap() },
+            release = Bitmap::recycle,
+        )
+    }
+
     private companion object {
         // The copy scales with linear filtering and no mipmaps, so a tiny target is a few stray
         // pixels rather than an average. 96×54 is still ~5k pixels to add up twice a second.
         const val WIDTH = 96
         const val HEIGHT = 54
+        const val SNAPSHOT_WIDTH = 640
     }
 }
+
+/** An 8×8 probe: a protected surface copies as solid black instead of failing. */
+private fun looksBlank(bitmap: Bitmap): Boolean {
+    val stepX = (bitmap.width / 8).coerceAtLeast(1)
+    val stepY = (bitmap.height / 8).coerceAtLeast(1)
+    var y = stepY / 2
+    while (y < bitmap.height) {
+        var x = stepX / 2
+        while (x < bitmap.width) {
+            val pixel = bitmap.getPixel(x, y)
+            val brightest = maxOf((pixel shr 16) and 0xFF, (pixel shr 8) and 0xFF, pixel and 0xFF)
+            if (brightest > BLANK_CEILING) return false
+            x += stepX
+        }
+        y += stepY
+    }
+    return true
+}
+
+private const val BLANK_CEILING = 6
 
 /** Both sampling and the paced colour animation stop when the player is no longer visible. */
 @Composable

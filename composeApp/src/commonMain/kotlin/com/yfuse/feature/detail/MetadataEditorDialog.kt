@@ -126,7 +126,7 @@ internal fun MetadataEditorDialog(
             images?.let { candidates ->
                 if (candidates.isEmpty()) Text("服务器暂无可选图片", style = AppTypography.caption.regular, color = palette.sub)
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    items(candidates) { artwork ->
+                    items(candidates, key = { it.url }) { artwork ->
                         val preview =
                             if (server.kind == MediaServerKind.Plex) {
                                 EmbyImages.primary(

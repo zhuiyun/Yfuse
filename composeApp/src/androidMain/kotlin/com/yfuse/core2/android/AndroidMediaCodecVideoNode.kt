@@ -112,6 +112,7 @@ internal class AndroidMediaCodecVideoNode(
     private val frameListenerVersion = AtomicLong()
     private val frameCallbackGate = Any()
     private var endOfStreamPositionUs: Long? = null
+    private var inputQueuedSinceFlush = false
 
     val frameTimestampIdentityIsolated: Boolean get() = started && frameTimestampMapper != null
 
@@ -399,6 +400,8 @@ internal class AndroidMediaCodecVideoNode(
         if (frameTimestampMapper?.canQueue() == false) return YCodecQueueResult.TryAgain
         val inputIndex = decoder.dequeueInputBuffer(0L)
         if (inputIndex < 0) return YCodecQueueResult.TryAgain
+        // A dequeued input buffer already belongs to this generation; only flush() returns it.
+        inputQueuedSinceFlush = true
 
         val input = decoder.getInputBuffer(inputIndex) ?: error("MediaCodec input buffer unavailable")
         input.clear()
@@ -453,6 +456,7 @@ internal class AndroidMediaCodecVideoNode(
         if (frameTimestampMapper?.canQueue() == false) return YCodecQueueResult.TryAgain
         val inputIndex = decoder.dequeueInputBuffer(0L)
         if (inputIndex < 0) return YCodecQueueResult.TryAgain
+        inputQueuedSinceFlush = true
         val mapper = frameTimestampMapper
         val codecTimeUs = mapper?.queue(presentationTimeUs) ?: presentationTimeUs.coerceAtLeast(0L)
         try {
@@ -555,11 +559,17 @@ internal class AndroidMediaCodecVideoNode(
         }
     }
 
+    /**
+     * Discards decoder input for a seek. A decoder that took no input buffer since it was configured
+     * or flushed has nothing to discard; flushing a codec straight after start() gained nothing and
+     * was part of the startup sequence that failed NativeDirect on one tablet (incident E).
+     */
     override fun flush() {
         animeOutput?.flush()
         synchronized(frameCallbackGate) { frameTimestampMapper?.flush() }
         endOfStreamPositionUs = null
-        if (started) codec?.flush()
+        if (started && inputQueuedSinceFlush) codec?.flush()
+        inputQueuedSinceFlush = false
     }
 
     override fun release() {
@@ -569,6 +579,7 @@ internal class AndroidMediaCodecVideoNode(
             frameTimestampMapper = null
         }
         endOfStreamPositionUs = null
+        inputQueuedSinceFlush = false
         val decoder = codec
         codec = null
         val wasStarted = started

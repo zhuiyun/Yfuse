@@ -3,8 +3,55 @@ package com.yfuse.core2.android
 import android.media.AudioFormat
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class AndroidAudioTrackRenderNodePolicyTest {
+    @Test
+    fun `an empty declared channel mask falls back to the layout for the channel count`() {
+        // Codec2 AAC declares channel-mask 0 until it decodes; the replayed format carried that 0.
+        assertEquals(AudioFormat.CHANNEL_OUT_STEREO, audioTrackChannelMask(declaredMask = 0, channelCount = 2))
+        assertEquals(AudioFormat.CHANNEL_OUT_5POINT1, audioTrackChannelMask(declaredMask = null, channelCount = 6))
+    }
+
+    @Test
+    fun `a declared mask that describes another channel count is ignored`() {
+        assertEquals(
+            AudioFormat.CHANNEL_OUT_5POINT1,
+            audioTrackChannelMask(declaredMask = AudioFormat.CHANNEL_OUT_STEREO, channelCount = 6),
+        )
+        // CHANNEL_OUT_DEFAULT has one bit but names no output position.
+        assertEquals(AudioFormat.CHANNEL_OUT_MONO, audioTrackChannelMask(declaredMask = 1, channelCount = 1))
+    }
+
+    @Test
+    fun `a declared mask matching the channel count is kept`() {
+        // 3.1 is not the quad layout channelMaskForCount(4) would pick, so this proves it was kept.
+        val threePointOne =
+            AudioFormat.CHANNEL_OUT_FRONT_LEFT or
+                AudioFormat.CHANNEL_OUT_FRONT_RIGHT or
+                AudioFormat.CHANNEL_OUT_FRONT_CENTER or
+                AudioFormat.CHANNEL_OUT_LOW_FREQUENCY
+
+        assertEquals(threePointOne, audioTrackChannelMask(declaredMask = threePointOne, channelCount = 4))
+    }
+
+    @Test
+    fun `truly unsupported layouts still fail closed`() {
+        assertEquals(AudioFormat.CHANNEL_INVALID, audioTrackChannelMask(declaredMask = 0, channelCount = 9))
+    }
+
+    @Test
+    fun `pause and resume around a rebuffer are not an audio route change`() {
+        val filter = AudioRouteChangeFilter()
+
+        assertFalse(filter.routed("2:7"), "the first route is the initial one")
+        assertFalse(filter.routed(null), "a paused track reports no routed device")
+        assertFalse(filter.routed("2:7"), "resuming on the same device")
+        assertTrue(filter.routed("8:12"), "a different output device")
+        assertFalse(filter.routed("8:12"))
+    }
+
     @Test
     fun `stereo pcm keeps two seconds of decoded audio`() {
         assertEquals(

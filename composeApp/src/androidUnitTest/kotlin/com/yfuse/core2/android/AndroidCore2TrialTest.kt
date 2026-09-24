@@ -32,11 +32,12 @@ class AndroidCore2TrialTest {
     fun loopbackLocalizationDoesNotReceiveUpstreamAuthenticationHeaders() {
         val item = mediaItem("https://host/Videos/1/stream?api_key=secret&UserId=user")
         val mapped =
-            listOf(item).toCore2MediaItems(
-                customUserAgent = "player",
-                appVersion = { "1" },
-                localize = { _, _ -> "http://127.0.0.1:1234/media/session" },
-            ).single()
+            listOf(item)
+                .toCore2MediaItems(
+                    customUserAgent = "player",
+                    appVersion = { "1" },
+                    localize = { _, _ -> "http://127.0.0.1:1234/media/session" },
+                ).single()
         assertEquals(mapOf("User-Agent" to "player"), mapped.headers)
     }
 

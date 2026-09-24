@@ -136,6 +136,13 @@ internal fun rememberYCoreRuntimeAssessmentState(
     networkRecoveryAttempts: Int = 0,
     networkRecoverySuccesses: Int = 0,
     sessionRevision: Int = 0,
+    /**
+     * Tap-to-first-frame, when the caller still has it. `PlaybackHealthSession.observe`'s own
+     * `startupTimeMs` is anchored to this composable's current [session], which is rebuilt on
+     * every [sessionRevision] bump (chiefly a rebuffer recovery) - so after one it measures
+     * time-since-the-rebuffer, not time-since-the-tap. See [playbackHealthStartupMs].
+     */
+    tapAnchoredStartupMs: Long? = null,
 ): State<YCoreRuntimeAssessment> {
     val qoeReporter =
         remember {
@@ -172,6 +179,7 @@ internal fun rememberYCoreRuntimeAssessmentState(
     val latestRuntimeEnvironment by rememberUpdatedState(runtimeEnvironment)
     val latestNetworkRecoveryAttempts by rememberUpdatedState(networkRecoveryAttempts)
     val latestNetworkRecoverySuccesses by rememberUpdatedState(networkRecoverySuccesses)
+    val latestTapAnchoredStartupMs by rememberUpdatedState(tapAnchoredStartupMs)
     LaunchedEffect(
         session,
         player,
@@ -203,7 +211,7 @@ internal fun rememberYCoreRuntimeAssessmentState(
                 DanmakuRuntimeRecoveryFence.markRecovery()
             }
             if (observed.reportHealth) {
-                logHealth(effectiveEngineLabel, observed)
+                logHealth(effectiveEngineLabel, observed, latestTapAnchoredStartupMs)
                 // The anonymous protocol currently enumerates compatibility PlayerEngine values.
                 // NativeDirect may sit behind an Exo-selected plan; reporting it as Exo would make
                 // aggregated telemetry lie in the same way persistent failure memory used to.
@@ -351,9 +359,22 @@ private fun createYCorePlaybackSession(
         initialDroppedFrames = initialDroppedFrames,
     )
 
+/**
+ * The `startupMs` `logHealth` reports: the tap-anchored value when the caller has one, since
+ * `PlaybackHealthSession`'s own `startupTimeMs` is anchored to a session that gets rebuilt on
+ * every rebuffer recovery and then measures time-since-the-rebuffer instead of
+ * time-since-the-tap (one sample logged 2888 ms while the tap actually waited 6727 ms for its
+ * first frame).
+ */
+internal fun playbackHealthStartupMs(
+    tapAnchoredStartupMs: Long?,
+    sessionStartupTimeMs: Long?,
+): Long? = tapAnchoredStartupMs ?: sessionStartupTimeMs
+
 private fun logHealth(
     engineLabel: String,
     assessment: YCoreRuntimeAssessment,
+    tapAnchoredStartupMs: Long? = null,
 ) {
     AppLog.info(
         category = "player.health",
@@ -363,7 +384,8 @@ private fun logHealth(
             mapOf(
                 "engine" to engineLabel,
                 "grade" to assessment.health.grade.name,
-                "startupMs" to assessment.health.startupTimeMs.toString(),
+                "startupMs" to
+                    playbackHealthStartupMs(tapAnchoredStartupMs, assessment.health.startupTimeMs).toString(),
                 "rebufferEvents" to assessment.health.rebufferEvents.toString(),
                 "droppedFrames" to assessment.health.droppedFrames.toString(),
                 "powerProfile" to assessment.power.profile.name,

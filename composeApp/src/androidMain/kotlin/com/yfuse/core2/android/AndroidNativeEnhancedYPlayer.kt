@@ -2,6 +2,9 @@ package com.yfuse.core2.android
 
 import android.content.Context
 import com.yfuse.core.logging.AppLog
+import com.yfuse.core.logging.diagnosticOrigin
+import com.yfuse.core.logging.diagnosticRootCause
+import com.yfuse.core.logging.diagnosticTypeName
 import com.yfuse.core2.api.YDolbyAtmosOutputMode
 import com.yfuse.core2.api.YPlaybackException
 import com.yfuse.core2.api.YPlaybackFailureCategory
@@ -19,6 +22,7 @@ import com.yfuse.core2.capability.YHdrType
 import com.yfuse.core2.demux.YDemuxOpenResult
 import com.yfuse.core2.demux.YDemuxTrackType
 import com.yfuse.core2.demux.YTrackId
+import com.yfuse.core2.recovery.YPlaybackFailureReporter
 import com.yfuse.core2.render.YFrameRateSwitchMode
 import com.yfuse.core2.strategy.YDemuxPath
 import com.yfuse.core2.strategy.YPlaybackPlan
@@ -61,7 +65,12 @@ internal class AndroidNativeEnhancedYPlayer(
     private val initialDecision: YCore2RouteDecision? = null,
     private val initialProbeBudget: AndroidProbeBudget? = null,
 ) : YPlayer,
-    AndroidSerializedPlayerRelease {
+    AndroidSerializedPlayerRelease,
+    YPlaybackFailureReporter {
+    @Volatile
+    override var lastPlaybackFailure: Throwable? = null
+        private set
+
     private val appContext = context.applicationContext
     private val capabilityProvider = AndroidYCapabilityProvider(context)
     private val externalSubtitleLoader = AndroidExternalSubtitleLoader(context)
@@ -425,7 +434,8 @@ internal class AndroidNativeEnhancedYPlayer(
             }
             val item = request.items[currentIndex]
             val inheritedBudget = pendingProbeBudget.also { pendingProbeBudget = null }
-            val budget = inheritedBudget ?: AndroidProbeBudget()
+            // Playback is waiting on this evaluation, exactly as on the router's own budget.
+            val budget = inheritedBudget ?: AndroidProbeBudget(foreground = true)
             activeProbeBudget = budget
             val cancellation =
                 budget.onCancel {
@@ -812,8 +822,14 @@ internal class AndroidNativeEnhancedYPlayer(
             if (caught is CancellationException) throw caught
             val failure = proxy?.sourceFailure(request.items[currentIndex].uri) ?: caught
             if (failure is CancellationException) throw failure
+            // Before the Failed state below: the router reads it on that edge.
+            lastPlaybackFailure = failure
             finishRebuffer()
             val typed = failure as? YPlaybackException
+            // The deepest cause names what failed; one level down can still be a wrapper. Its first
+            // non-library frame is retraceable with the build's mapping, where "first com.yfuse
+            // frame" matched nothing in a release build and left every 1.0.83 origin empty.
+            val root = failure.diagnosticRootCause()
             AppLog.error(
                 category = "core2.native",
                 event = "native_enhanced_failed",
@@ -824,6 +840,9 @@ internal class AndroidNativeEnhancedYPlayer(
                         "failureCategory" to (typed?.category?.name ?: "Unknown"),
                         "failureStage" to (typed?.stage?.name ?: "Unknown"),
                         "failureDetail" to typed?.safeDetail.orEmpty(),
+                        "deterministic" to (typed?.deterministic == true).toString(),
+                        "exceptionType" to root.diagnosticTypeName(),
+                        "origin" to root.diagnosticOrigin(),
                         "itemIndex" to currentIndex.toString(),
                         "sourceScheme" to
                             request.items[currentIndex]

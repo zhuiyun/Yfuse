@@ -28,7 +28,7 @@ class AndroidPlaybackProxyAdmissionTest {
                     Socket(coreUri.host, coreUri.port).use {
                         awaitConnections(coreAdmission, 1)
                         Socket(legacyUri.host, legacyUri.port).use(::assertDisconnected)
-                        Socket(coreUri.host, coreUri.port).use(::assertDisconnected)
+                        Socket(coreUri.host, coreUri.port).use(::assertAnsweredBusy)
                         assertEquals(1, legacyAdmission.activeConnections)
                         assertEquals(1, coreAdmission.activeConnections)
                     }
@@ -79,6 +79,14 @@ class AndroidPlaybackProxyAdmissionTest {
             client.getOutputStream().write("GET ${uri.rawPath} HTTP/1.1\r\nX: pending".encodeToByteArray())
             assertDisconnected(client)
         }
+    }
+
+    /** FFmpeg treats a bare close as a failed read; the YCore proxy answers a retryable 503 first. */
+    private fun assertAnsweredBusy(client: Socket) {
+        client.soTimeout = 2_000
+        val response = client.getInputStream().readBytes().decodeToString()
+        assertTrue(response.startsWith("HTTP/1.1 503 Service Unavailable\r\n"), response)
+        assertTrue("\r\nRetry-After: 1\r\n" in response, response)
     }
 
     private fun assertDisconnected(client: Socket) {

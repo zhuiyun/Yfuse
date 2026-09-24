@@ -13,6 +13,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.toArgb
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import com.arkivanov.decompose.retainedComponent
 import com.arkivanov.mvikotlin.core.store.StoreFactory
@@ -52,6 +53,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import org.koin.core.Koin
 import org.koin.core.context.GlobalContext
 
 class MainActivity : ComponentActivity() {
@@ -103,8 +105,6 @@ class MainActivity : ComponentActivity() {
         // and eases towards the app theme. Repainting the window to the app theme here used to
         // produce a system -> app -> system -> app flash when those themes differed.
         val koin = GlobalContext.get()
-        serverHealthMonitor = koin.get()
-        serverSyncManager = koin.get()
         val themePreferences = koin.get<ThemePreferences>()
         val systemDark = resources.isNightMode()
         val appDark = themePreferences.mode.value.resolveDark(systemDark)
@@ -116,6 +116,31 @@ class MainActivity : ComponentActivity() {
             )
         window.setBackgroundDrawable(ColorDrawable(splashBackground(windowDark).toArgb()))
 
+        // Application-scoped: a download started here has to survive this activity, so the
+        // update check that starts one is triggered from the UI (see AppUpdateOverlay) rather
+        // than from onCreate. It needs no saved session, so onResume can always reach it.
+        updateManager = koin.get<AppUpdateManager>()
+
+        if (ServerSessionRecovery.isReady) {
+            showApp(koin, themePreferences)
+        } else {
+            // A cold start restores the saved sessions on a worker, a Keystore decrypt per token.
+            // Everything showApp resolves depends on that registry, and resolving it here made this
+            // thread wait on the restore behind Koin's lock - or run the decrypts itself when it
+            // got there first. The window already shows the launch colour meanwhile.
+            lifecycleScope.launch {
+                ServerSessionRecovery.awaitReady()
+                showApp(koin, themePreferences)
+            }
+        }
+    }
+
+    private fun showApp(
+        koin: Koin,
+        themePreferences: ThemePreferences,
+    ) {
+        serverHealthMonitor = koin.get()
+        serverSyncManager = koin.get()
         val root =
             retainedComponent { ctx ->
                 RootComponent(
@@ -163,10 +188,6 @@ class MainActivity : ComponentActivity() {
         observeCalendarNotificationPermission(koin.get())
         observeDownloadNotificationPermission(koin.get())
 
-        // Application-scoped: a download started here has to survive this activity, so the
-        // update check that starts one is triggered from the UI (see AppUpdateOverlay) rather
-        // than from onCreate.
-        updateManager = koin.get<AppUpdateManager>()
         setContent {
             CompositionLocalProvider(LocalAppUpdateManager provides updateManager) {
                 AnimatedSplashApp(root) {
@@ -191,6 +212,9 @@ class MainActivity : ComponentActivity() {
         consumeCalendarIntent(intent)
         consumeDownloadIntent(intent)
         consumeWidgetIntent(intent)
+        // Built after a deferred restore, the activity may already be started: onStart skipped
+        // the foreground wiring then because none of this existed yet.
+        if (lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) startForegroundWork()
     }
 
     /**
@@ -355,16 +379,28 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         if (!::serverHealthMonitor.isInitialized || !::serverSyncManager.isInitialized) return
+        startForegroundWork()
+    }
+
+    private fun startForegroundWork() {
         jankMonitor?.start()
         // Background work follows the player as well as this activity. Entering picture-in-picture
         // restarts MainActivity underneath the PiP window, and claiming foreground there resumed
         // sixty-second health probes across every server and address plus library sync - over the
         // one connection the PiP window is still streaming on.
+        //
+        // The full-screen player also stops this activity while it covers it, so most starts are
+        // the user closing the player - which is still flagged visible here, its onStop running
+        // after ours. Publishing that before the foreground keeps the return from counting as the
+        // app coming back, which re-probed every saved server, dead ones included, after each
+        // playback. Only a start with no player on screen does.
+        serverHealthMonitor.setPlayerVisible(PlayerForegroundRegistry.visible.value)
+        serverHealthMonitor.setAppForeground(true)
         playerVisibilityJob?.cancel()
         playerVisibilityJob =
             lifecycleScope.launch {
                 PlayerForegroundRegistry.visible.collect { playerVisible ->
-                    serverHealthMonitor.setAppForeground(!playerVisible)
+                    serverHealthMonitor.setPlayerVisible(playerVisible)
                     serverSyncManager.setAppForeground(!playerVisible)
                 }
             }

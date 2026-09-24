@@ -450,6 +450,25 @@ internal class AndroidSourceRouteStateRegistry(
 private const val SOURCE_ROUTE_STATE_ENTRIES = 8
 
 /**
+ * OkHttp media transport for [uri] that reads and records its redirect target in the process-wide
+ * [AndroidSourceRouteStateRegistry], the memory the platform extractor path already uses. The FFmpeg
+ * proxy and the next-item warm-up open the same media URIs; without it each paid the redirect chain
+ * again. A remembered cross-origin target keeps its credential stripping, exactly as when first
+ * followed, and a stale target still falls back to the origin.
+ */
+internal fun sharedRouteHttpMediaTransport(uri: String): AndroidHttpMediaTransport =
+    AndroidHttpMediaTransport(
+        followSafeRedirects = true,
+        allowCrossProtocolRedirects = true,
+        // Whichever open creates the entry fixes its callback: pass the extractor path's own, so a
+        // later Cronet refusal for this URI still reaches the host health memory.
+        redirectState =
+            AndroidSourceRouteStateRegistry.shared
+                .forSource(uri, onCronetDisabled = AndroidCronetHostHealth.shared::recordFailure)
+                .redirectState,
+    )
+
+/**
  * Process-wide memory of origins whose Cronet probe already failed.
  *
  * [AndroidAdaptiveHttpRouteState] only lives for one media source, so without this every new

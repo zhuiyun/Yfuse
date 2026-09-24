@@ -10,6 +10,7 @@ import com.yfuse.core.data.SearchHistory
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.TmdbRepository
+import com.yfuse.core.designsystem.LaunchWaveGate
 import com.yfuse.core.designsystem.TabReselection
 import com.yfuse.core.model.StartupTab
 import com.yfuse.core.sync.ServerSyncManager
@@ -56,9 +57,11 @@ class RootComponent(
     // A restored process is not a cold start. Every tab's own stack comes back through its
     // serializer, so without the saved tab the shell reopened on the startup tab while the page
     // the user had actually been on — and its scroll position — sat stranded in another one.
+    private val savedTab = restoredTab(stateKeeper.consume(ACTIVE_TAB_STATE_KEY, String.serializer()))
+    private val restoredLaunch = savedTab != null
     private val _activeTab =
         MutableValue(
-            restoredTab(stateKeeper.consume(ACTIVE_TAB_STATE_KEY, String.serializer()))
+            savedTab
                 ?: startupTab(
                     themePreferences.startupTab.value,
                     registry.data.value.servers
@@ -69,6 +72,9 @@ class RootComponent(
 
     init {
         stateKeeper.register(ACTIVE_TAB_STATE_KEY, String.serializer()) { _activeTab.value.name }
+        // 「水火潮涌」 plays only on a true cold start that lands on 库. A restored process keeps
+        // its page as it was, and a retained root (rotation) is never constructed twice.
+        if (!restoredLaunch && _activeTab.value == Tab.Browse) LaunchWaveGate.arm()
     }
 
     private val scope = componentScope(lifecycle)
@@ -188,6 +194,7 @@ class RootComponent(
             // branch. A very fast second tap can then be replayed safely to that new subscriber.
             _tabReselected.value = null
         }
+        if (tab != Tab.Browse) LaunchWaveGate.disarm()
         _activeTab.value = tab
     }
 

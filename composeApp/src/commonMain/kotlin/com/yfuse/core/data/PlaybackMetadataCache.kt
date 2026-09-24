@@ -82,11 +82,12 @@ internal class PlaybackMetadataCache<K, V>(
         }
 
     /** Non-blocking first paint: never waits for an in-flight owner or returns an expired value. */
-    fun peek(key: K): V? = synchronized(lock) {
-        val entry = entries[key] ?: return@synchronized null
-        val completed = entry.completedAtMs ?: return@synchronized null
-        entry.value.takeIf { nowMs() - completed in 0 until ttlMs }
-    }
+    fun peek(key: K): V? =
+        synchronized(lock) {
+            val entry = entries[key] ?: return@synchronized null
+            val completed = entry.completedAtMs ?: return@synchronized null
+            entry.value.takeIf { nowMs() - completed in 0 until ttlMs }
+        }
 }
 
 private fun monotonicMillis(): () -> Long {

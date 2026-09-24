@@ -1,12 +1,33 @@
 package com.yfuse.core.logging
 
+import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 class DiagnosticLogBoundaryTest {
+    @Test
+    fun an_entry_prepared_on_the_writer_keeps_the_time_it_was_logged() {
+        val loggedAt = Instant.parse("2026-09-24T08:00:00Z")
+
+        val prepared =
+            prepareDiagnosticLog(
+                level = DiagnosticLevel.Info,
+                category = "emby",
+                event = "request_failed",
+                message = "",
+                throwable = null,
+                attributes = emptyMap(),
+                threadName = "main",
+                timestamp = loggedAt,
+            )
+
+        assertEquals("2026-09-24T08:00:00Z", prepared.timestamp)
+    }
+
     @Test
     fun server_references_correlate_failures_without_exporting_server_identifiers() {
         fun attributes(server: String) =
@@ -122,5 +143,76 @@ class DiagnosticLogBoundaryTest {
         assertFalse(history.contains("b"))
         assertTrue(history.contains("c"))
         assertTrue(history.contains("d"))
+    }
+
+    private fun preparationSkipped(
+        reason: String,
+        extra: Map<String, String> = emptyMap(),
+        threadName: String = "worker",
+    ) = prepareDiagnosticLog(
+        level = DiagnosticLevel.Info,
+        category = "player.core2",
+        event = "current_item_preparation_skipped",
+        message = "Optional source preparation stopped",
+        throwable = null,
+        attributes = mapOf("reason" to reason) + extra,
+        threadName = threadName,
+    )
+
+    @Test
+    fun duplicate_fingerprint_differs_when_the_reason_differs() {
+        assertNotEquals(
+            diagnosticDuplicateFingerprint(preparationSkipped("selection_changed_or_handoff")),
+            diagnosticDuplicateFingerprint(preparationSkipped("budget_or_resource_pressure")),
+        )
+    }
+
+    @Test
+    fun duplicate_fingerprint_ignores_volatile_measurements_and_thread() {
+        val first =
+            preparationSkipped(
+                "budget_or_resource_pressure",
+                extra = mapOf("elapsedMs" to "120", "queuedCount" to "3"),
+                threadName = "worker-1",
+            )
+        val second =
+            preparationSkipped(
+                "budget_or_resource_pressure",
+                extra = mapOf("elapsedMs" to "9001", "queuedCount" to "7"),
+                threadName = "worker-2",
+            )
+
+        assertEquals(diagnosticDuplicateFingerprint(first), diagnosticDuplicateFingerprint(second))
+    }
+
+    @Test
+    fun different_reasons_within_the_duplicate_window_are_both_kept_but_repeats_are_suppressed() {
+        val history = BoundedDiagnosticFingerprintHistory()
+
+        val firstIsDuplicate =
+            history.record(
+                fingerprint = diagnosticDuplicateFingerprint(preparationSkipped("selection_changed_or_handoff")),
+                nowElapsedMs = 0L,
+                duplicateWindowMs = 5_000L,
+                suppressDuplicates = true,
+            )
+        val secondReasonIsDuplicate =
+            history.record(
+                fingerprint = diagnosticDuplicateFingerprint(preparationSkipped("budget_or_resource_pressure")),
+                nowElapsedMs = 1_000L,
+                duplicateWindowMs = 5_000L,
+                suppressDuplicates = true,
+            )
+        val sameReasonRepeatedIsDuplicate =
+            history.record(
+                fingerprint = diagnosticDuplicateFingerprint(preparationSkipped("budget_or_resource_pressure")),
+                nowElapsedMs = 1_500L,
+                duplicateWindowMs = 5_000L,
+                suppressDuplicates = true,
+            )
+
+        assertFalse(firstIsDuplicate, "the first occurrence of a reason is never a duplicate")
+        assertFalse(secondReasonIsDuplicate, "a different reason within the window is a distinct event")
+        assertTrue(sameReasonRepeatedIsDuplicate, "the same reason again inside the window is still suppressed")
     }
 }

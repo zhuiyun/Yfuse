@@ -223,15 +223,21 @@ internal class EmbyPlaybackService(
         server: SavedServer,
         playSessionId: String,
     ): Result<Unit> =
-        embyApiCall("stop_transcoding") {
-            try {
-                client.delete("${normalizeBaseUrl(server.baseUrl)}/Videos/ActiveEncodings") {
-                    header("X-Emby-Token", server.accessToken)
-                    parameter("DeviceId", deviceId())
-                    parameter("PlaySessionId", playSessionId)
+        if (playSessionId.isBlank()) {
+            // Without a session the server matches on DeviceId alone and ends every encoding of
+            // this device - and there is no encoder to end for a session that was never named.
+            Result.success(Unit)
+        } else {
+            embyApiCall("stop_transcoding") {
+                try {
+                    client.delete("${normalizeBaseUrl(server.baseUrl)}/Videos/ActiveEncodings") {
+                        header("X-Emby-Token", server.accessToken)
+                        parameter("DeviceId", deviceId())
+                        parameter("PlaySessionId", playSessionId)
+                    }
+                } catch (error: ResponseException) {
+                    if (error.response.status.value !in setOf(404, 410)) throw error
                 }
-            } catch (error: ResponseException) {
-                if (error.response.status.value !in setOf(404, 410)) throw error
             }
         }
 

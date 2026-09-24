@@ -38,6 +38,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
@@ -60,11 +61,12 @@ import com.yfuse.core.data.PlaybackTrackRequest
 import com.yfuse.core.data.SeriesPlaybackPreference
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.SkipSegmentPreferences
+import com.yfuse.core.data.SourcePreheatMode
 import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.Motion
-import com.yfuse.core.designsystem.PlatformBackHandler
+import com.yfuse.core.designsystem.PlatformPredictiveBackHandler
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.logging.playbackDiagnosticTrace
 import com.yfuse.core.model.DecoderMode
@@ -104,6 +106,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
@@ -117,6 +120,47 @@ private const val RESUME_NOTICE_MIN_MS = 30_000L
 private const val END_OF_EPISODE_ARM_WINDOW_MS = 2_000L
 private const val MAX_NATIVE_ONLY_RECOVERY_ATTEMPTS = 2
 private const val MAX_LONG_BUFFER_RECOVERY_ATTEMPTS = 2
+
+/** Playback must get this far past the last recovery position before its recovery budget is restored. */
+private const val RECOVERY_BUDGET_RESET_PROGRESS_MS = 30_000L
+
+/** Stable `engine_attached`/`engine_detached` label while [PreparingVideoEngine] fills the slot. */
+private const val PREPARING_VIDEO_ENGINE_LABEL = "Preparing"
+
+/**
+ * The current item's repeat count after a playback-output generation change: 0 when
+ * [previousItemIndex] does not match [currentItemIndex] - a genuine new item, whether the tap's
+ * first one or the next one autoplaying into the same engine - or one more than
+ * [previousRepeatCount] when it does, meaning the same item reported another generation.
+ * outputEvidenceGeneration bumping on a rebuffer recovery, without the item changing, is the
+ * chief reason for the latter; only the former is a real startup worth a fresh
+ * `playback_startup_stage` (see the `stage` function in PlayerRoot's playback-startup effect).
+ */
+internal fun nextOutputRepeatCount(
+    previousItemIndex: Int?,
+    currentItemIndex: Int,
+    previousRepeatCount: Int,
+): Int = if (previousItemIndex == currentItemIndex) previousRepeatCount + 1 else 0
+
+/**
+ * The `engine` (and, since it must never carry an obfuscated class name, `implementation`)
+ * attribute logged for [engine]'s current binding.
+ *
+ * PlaybackEngineSlot publishes [attachedKind] - the *target* engine - as soon as a switch
+ * starts, well before construction finishes (see PlaybackEngineSlot.start), so [engine] can
+ * still be the [PreparingVideoEngine] placeholder when this runs. Checking the concrete
+ * instance first, rather than trusting [attachedKind] alone, is what keeps a log line from
+ * reading e.g. `engine=Exo` for a player that has not attached anything yet.
+ */
+internal fun engineAttachedLabel(
+    engine: VideoEngine,
+    attachedKind: PlayerEngine,
+): String =
+    when {
+        engine is PreparingVideoEngine -> PREPARING_VIDEO_ENGINE_LABEL
+        engine is YPlayerVideoEngineAdapter -> YCORE2_NATIVE_ENGINE_LABEL
+        else -> attachedKind.name
+    }
 
 /**
  * Owns the live player, its temporary presentation engine, and the shared control layer. Switching
@@ -155,7 +199,7 @@ internal fun PlayerRoot(
     onPlaybackState: (PlaybackState, PlayerMediaItem?) -> Unit,
     onPlaybackProgress: (PlaybackState, PlayerMediaItem?) -> Unit,
     onVideoBounds: (Rect) -> Unit,
-    artworkMorph: PlayerArtworkMorphState? = null,
+    transition: PlayerTransitionState? = null,
     onBack: () -> Unit,
     onEnterPictureInPicture: () -> Unit,
     onRefreshEpisodes: () -> Unit,
@@ -548,10 +592,20 @@ internal fun PlayerRoot(
             accepted
         }
     val latestStartupItems = rememberUpdatedState(preflightItems)
+    // Frozen once the tap's own generation reports its first output; later generations (chiefly
+    // a rebuffer recovery, which bumps outputEvidenceGeneration) must not overwrite it with the
+    // small time-since-the-rebuffer value their own session would otherwise report. See the
+    // startup-time override passed into rememberYCoreRuntimeAssessmentState below.
+    var tapAnchoredStartupMs by remember(engine) { mutableStateOf<Long?>(null) }
     LaunchedEffect(engine) {
         var videoReported = false
         var audioReported = false
         var generation: Triple<Int, Long, Long>? = null
+        // The current item's own repeat count: 0 for its first generation (a genuine startup,
+        // whether the tap's first item or the next one autoplaying into the same engine), N for
+        // the Nth later generation reported for that *same* currentIndex - chiefly a rebuffer
+        // recovery, which bumps outputEvidenceGeneration without the item changing.
+        var repeatCountForItem = 0
         var generationStarted = SystemClock.elapsedRealtime()
         engine.state.collect { state ->
             val nextGeneration =
@@ -562,6 +616,7 @@ internal fun PlayerRoot(
                 )
             sourceSwitchCoordinator.observePlayback(engine, state)
             if (generation != nextGeneration) {
+                repeatCountForItem = nextOutputRepeatCount(generation?.first, state.currentIndex, repeatCountForItem)
                 generation = nextGeneration
                 generationStarted = SystemClock.elapsedRealtime()
                 videoReported = false
@@ -575,6 +630,35 @@ internal fun PlayerRoot(
                 val now = SystemClock.elapsedRealtime()
                 val item = latestStartupItems.value.getOrNull(state.currentIndex)
                 launch?.stage(name, output = releasesPlaybackBackgroundWork(name, item?.mediaType))
+                // A repeat is typically a rebuffer recovery re-reporting first output for the
+                // item already on screen, because it bumped outputEvidenceGeneration (which also
+                // resets videoReported/audioReported above) without the item changing - logging
+                // it as another playback_startup_stage double-counted startups that never
+                // happened. The item's own first generation is a real startup, whether it is the
+                // tap's first item or the next one autoplaying into the same engine.
+                val isInitialLaunch = repeatCountForItem == 0
+                if (isInitialLaunch) {
+                    if (tapAnchoredStartupMs == null) tapAnchoredStartupMs = launch?.elapsedMs()
+                } else {
+                    AppLog.info(
+                        category = "player",
+                        event = "output_resumed",
+                        message =
+                            "Playback output resumed ($name, repeat $repeatCountForItem) on " +
+                                "${state.diagnostics.engine} (${playbackDiagnosticTrace(item?.playSessionId)})",
+                        attributes =
+                            mapOf(
+                                "stage" to name,
+                                "itemId" to item?.id.orEmpty(),
+                                "serverId" to item?.serverId.orEmpty(),
+                                "sessionId" to item?.playSessionId.orEmpty(),
+                                "repeat" to repeatCountForItem.toString(),
+                                "outputGeneration" to state.diagnostics.outputEvidenceGeneration.toString(),
+                                "generationElapsedMs" to (now - generationStarted).coerceAtLeast(0L).toString(),
+                            ),
+                    )
+                    return
+                }
                 AppLog.info(
                     category = "player",
                     event = "playback_startup_stage",
@@ -610,12 +694,7 @@ internal fun PlayerRoot(
         }
     }
     val attachedKind = engineBinding.kind ?: kind
-    val attachedEngineLabel =
-        if (engine is YPlayerVideoEngineAdapter) {
-            YCORE2_NATIVE_ENGINE_LABEL
-        } else {
-            attachedKind.name
-        }
+    val attachedEngineLabel = engineAttachedLabel(engine, attachedKind)
     DisposableEffect(engine, player, attachedKind) {
         AppLog.info(
             category = "player",
@@ -624,7 +703,13 @@ internal fun PlayerRoot(
             attributes =
                 mapOf(
                     "engine" to attachedEngineLabel,
-                    "implementation" to engine::class.java.name,
+                    // Never engine::class.java.name here: R8 keeps names of Throwable
+                    // subclasses only, so a real engine class obfuscates to a short opaque
+                    // name (e.g. "yx7") that nobody downstream of the device can retrace.
+                    // attachedEngineLabel is already the stable label this codebase uses for
+                    // "which engine", so reuse it instead of a second, obfuscated answer to
+                    // the same question.
+                    "implementation" to attachedEngineLabel,
                 ),
         )
         onPlayerAttached(
@@ -641,7 +726,7 @@ internal fun PlayerRoot(
                 attributes =
                     mapOf(
                         "engine" to attachedEngineLabel,
-                        "implementation" to engine::class.java.name,
+                        "implementation" to attachedEngineLabel,
                     ),
             )
         }
@@ -899,6 +984,7 @@ internal fun PlayerRoot(
                 networkRecoveryAttempts = networkRecovery.attempts,
                 networkRecoverySuccesses = networkRecovery.successes,
                 sessionRevision = runtimeSessionGeneration,
+                tapAnchoredStartupMs = tapAnchoredStartupMs,
             )
         val runtimeAssessment by remember(runtimeAssessmentState) {
             derivedStateOf {
@@ -1500,6 +1586,15 @@ internal fun PlayerRoot(
                 playbackGate = playbackGate,
                 watchGuest = watchState.connected && !watchState.canControl,
             )
+        // 起播预热 governs the next episode too; a skipped intro moves where it will start.
+        val sourcePreheat by playbackPreferences.sourcePreheat.collectAsState()
+        val skipTimesBySeries by skipSegmentPreferences.bySeries.collectAsState()
+        val skipMode by skipSegmentPreferences.skipMode.collectAsState()
+        val nextItem = items.getOrNull(state.currentIndex + 1)
+        val nextIntroEndMs =
+            remember(nextItem, skipMode, skipTimesBySeries) {
+                nextItemIntroEndMs(nextItem, skipMode, skipTimesBySeries, skipSegmentPreferences)
+            }
         LaunchedEffect(
             player,
             currentItem?.id,
@@ -1507,12 +1602,19 @@ internal fun PlayerRoot(
             autoNext,
             watchState.connected,
             watchState.canControl,
+            sourcePreheat,
+            nextIntroEndMs,
         ) {
             currentItem?.id?.let { id ->
                 player.setNextItemPreparation(
                     itemId = id,
                     transitionPositionMs = skip.nextItemBoundaryMs,
-                    enabled = autoNext && !(watchState.connected && !watchState.canControl),
+                    enabled =
+                        autoNext &&
+                            !(watchState.connected && !watchState.canControl) &&
+                            sourcePreheat != SourcePreheatMode.Off,
+                    allowMeteredNetwork = sourcePreheat == SourcePreheatMode.WifiAndMobile,
+                    nextIntroEndMs = nextIntroEndMs,
                 )
             }
         }
@@ -2089,6 +2191,10 @@ internal fun PlayerRoot(
 
         var nativeOnlyRecoveryAttempts by
             remember(activeProbe.capabilitySignature, state.currentIndex) { mutableIntStateOf(0) }
+        // Where the last runtime recovery reopened this item. A title that fails at a fixed position
+        // plays healthily for a moment after every reopen, and clearing the budgets at that moment
+        // restarted them on each cycle, so the same failure looped forever.
+        var lastRecoveryPositionMs by remember(state.currentIndex) { mutableLongStateOf(0L) }
         LaunchedEffect(
             runtimeAssessment.health.evaluationReady,
             runtimeAssessment.runtimeFault,
@@ -2100,6 +2206,11 @@ internal fun PlayerRoot(
                 state.playing &&
                 !state.buffering
             ) {
+                // The budgets are earned back only by real progress past the failure; a new fault
+                // restarts this effect and cancels the wait.
+                snapshotFlow {
+                    livePlayback.value.positionMs >= lastRecoveryPositionMs + RECOVERY_BUDGET_RESET_PROGRESS_MS
+                }.first { it }
                 nativeOnlyRecoveryAttempts = 0
                 longBufferRecoveryAttempts = 0
             }
@@ -2122,6 +2233,7 @@ internal fun PlayerRoot(
             ) {
                 val positionMs = player.currentPositionMs().coerceAtLeast(0L)
                 longBufferRecoveryAttempts++
+                lastRecoveryPositionMs = positionMs
                 networkRecovery.attempts++
                 networkRecovery.pending = true
                 networkRecovery.resumePositionMs = positionMs
@@ -2163,6 +2275,7 @@ internal fun PlayerRoot(
                 val positionMs = player.currentPositionMs().coerceAtLeast(0L)
                 if (nativeOnlyRecoveryAttempts < MAX_NATIVE_ONLY_RECOVERY_ATTEMPTS) {
                     nativeOnlyRecoveryAttempts++
+                    lastRecoveryPositionMs = positionMs
                     resume =
                         playbackHandoverSnapshot(
                             state = state,
@@ -2567,6 +2680,11 @@ internal fun PlayerRoot(
                     runtimeEnvironment.pressure != PlaybackResourcePressure.Normal ||
                         resolvedOptimization.mode == com.yfuse.core.playback.PlaybackOptimizationMode.PowerSaver,
             )
+        // The way out carries the paused frame, and only this composition can read the surface.
+        DisposableEffect(transition, ambient.sampler) {
+            transition?.snapshotSource = { ambient.sampler.snapshot() }
+            onDispose { transition?.snapshotSource = null }
+        }
         // Each host places this above its surface and below its subtitle overlays: bars an engine
         // paints inside its own surface are lit, and captions placed in the letterbox stay legible.
         // The picture rectangle is clipped out, so it never draws over the frame.
@@ -2707,7 +2825,7 @@ internal fun PlayerRoot(
                     artworkUrls = continuityArtwork,
                     title = currentItem?.title.orEmpty(),
                     visible =
-                        artworkMorph?.visible != true &&
+                        transition?.coversPicture() != true &&
                             currentItem != null &&
                             state.error == null &&
                             !state.ended &&
@@ -2720,14 +2838,14 @@ internal fun PlayerRoot(
                     message = continuityMessage,
                     modifier = Modifier.fillMaxSize(),
                 )
-                PlayerArtworkMorph(
-                    state = artworkMorph,
+                PlayerTransitionLayer(
+                    state = transition,
                     ready =
                         state.error != null ||
                             state.diagnostics.effectiveVideoReadiness == PlaybackOutputReadiness.Rendering,
                     inPictureInPicture = inPictureInPicture,
-                    aspectRatio = artworkMorphAspectRatio(scaleMode, state),
-                    layer = PlayerArtworkMorphLayer.Entrance,
+                    aspectRatio = transitionAspectRatio(scaleMode, state),
+                    layer = PlayerTransitionLayerKind.Entrance,
                 )
                 PlaybackStatusChip(
                     visible =
@@ -2759,12 +2877,16 @@ internal fun PlayerRoot(
                 }
             }
 
-            // A player that arrived on the poster morph leaves on it too, whichever way the viewer
-            // closes it. Without this the system back gesture went straight to Activity.finish(),
-            // so the on-screen close button played the reverse morph while the gesture played the
-            // plain window fade. Registered before the chrome so a drawer or a disc menu composed
-            // later still takes the gesture first.
-            PlatformBackHandler(enabled = artworkMorph != null && !inPictureInPicture, onBack = onBack)
+            // A player that arrived on a transition leaves on it too, whichever way the viewer
+            // closes it, and the back gesture drives the first part of the way out as it moves.
+            // Registered before the chrome so a drawer or a disc menu composed later still takes
+            // the gesture first.
+            PlatformPredictiveBackHandler(
+                enabled = transition != null && !transition.disabled && !inPictureInPicture,
+                onProgress = { transition?.onBackProgress(it) },
+                onBack = onBack,
+                onCancel = { transition?.onBackCancel() },
+            )
 
             AnimatedVisibility(
                 visible = !inPictureInPicture,
@@ -3574,6 +3696,8 @@ internal fun PlayerRoot(
                             onReactionFinished = watchTogether::clearReaction,
                         ),
                     remoteChrome = remoteChrome,
+                    // Held back while a transition carries the picture in, and gone first on the way out.
+                    modifier = Modifier.graphicsLayer { alpha = transition?.chromeAlpha() ?: 1f },
                 )
             }
 
@@ -3599,24 +3723,24 @@ internal fun PlayerRoot(
                 modifier = Modifier.fillMaxSize(),
             )
 
-            // The departure draws last so it covers the chrome and the paused frame; the
-            // arrival stays under the chrome above so the back button is reachable while the
-            // picture is still being prepared.
+            // The way out draws last so it covers the chrome and the paused frame; the way in
+            // stays under the chrome above so the back button is reachable while the picture is
+            // still being prepared.
             PlaybackTimelineContent(livePlayback) { state ->
-                PlayerArtworkMorph(
-                    state = artworkMorph,
+                PlayerTransitionLayer(
+                    state = transition,
                     ready = true,
                     inPictureInPicture = inPictureInPicture,
-                    aspectRatio = artworkMorphAspectRatio(scaleMode, state),
-                    layer = PlayerArtworkMorphLayer.Exit,
+                    aspectRatio = transitionAspectRatio(scaleMode, state),
+                    layer = PlayerTransitionLayerKind.Exit,
                 )
             }
         }
     }
 }
 
-/** The fitted video rectangle the poster morphs to; the whole surface when the picture fills it. */
-private fun artworkMorphAspectRatio(
+/** The fitted video rectangle a transition lands in; the whole surface when the picture fills it. */
+private fun transitionAspectRatio(
     scaleMode: VideoScaleMode,
     state: PlaybackState,
 ): Float? =

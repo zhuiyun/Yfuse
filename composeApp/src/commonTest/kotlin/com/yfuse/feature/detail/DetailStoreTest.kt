@@ -48,12 +48,18 @@ class DetailStoreTest {
     @Test
     fun fresh_metadata_does_not_reset_a_user_selection_and_partial_sources_stay_loading() {
         val server = SavedServer("one", "http://one", "Server", "u", "User", "token")
-        val detail = com.yfuse.core.data.dto.BaseItemDto(Id = "e1", Name = "Old", Type = "Episode")
-            .toMediaDetail()
-        val original = DetailState(
-            detail = detail, server = server, playTarget = detail,
-            selectedVersionId = "second", selectedEpisodeId = "e2",
-        )
+        val detail =
+            com.yfuse.core.data.dto
+                .BaseItemDto(Id = "e1", Name = "Old", Type = "Episode")
+                .toMediaDetail()
+        val original =
+            DetailState(
+                detail = detail,
+                server = server,
+                playTarget = detail,
+                selectedVersionId = "second",
+                selectedEpisodeId = "e2",
+            )
         val refreshed =
             with(DetailReducer) { original.reduce(DetailMsg.Refreshed(detail.copy(title = "Fresh"), server)) }
         assertEquals("Fresh", refreshed.detail?.title)
@@ -65,6 +71,7 @@ class DetailStoreTest {
         val finished = with(DetailReducer) { partial.reduce(DetailMsg.SourcesLoaded(emptyList())) }
         assertEquals(false, finished.sourcesLoading)
     }
+
     private lateinit var testPlaybackTrackRequest: PlaybackTrackRequest
     private lateinit var testSyncManager: ServerSyncManager
     private val realTimeWaitDispatcher = Dispatchers.Default.limitedParallelism(1)
@@ -96,54 +103,62 @@ class DetailStoreTest {
     }
 
     @Test
-    fun fresh_cached_detail_skips_the_request_until_retry_and_keeps_selected_version() = runTest {
-        val refreshStarted = CompletableDeferred<Unit>()
-        val releaseRefresh = CompletableDeferred<Unit>()
-        val registry = testRegistry().apply {
-            addOrUpdate(SavedServer("one", "http://one", "Server", "u", "user", "token"))
-        }
-        var detailRequests = 0
-        val repo = testRepo(dispatcher = Dispatchers.Unconfined) { request ->
-            if (request.url.encodedPath.endsWith("/Items/m1")) {
-                detailRequests++
-                if (detailRequests > 1) {
-                    refreshStarted.complete(Unit)
-                    releaseRefresh.await()
-                    json(MOVIE_ONE.replace("电影", "更新后的电影"))
-                } else {
-                    json(MOVIE_ONE)
+    fun fresh_cached_detail_skips_the_request_until_retry_and_keeps_selected_version() =
+        runTest {
+            val refreshStarted = CompletableDeferred<Unit>()
+            val releaseRefresh = CompletableDeferred<Unit>()
+            val registry =
+                testRegistry().apply {
+                    addOrUpdate(SavedServer("one", "http://one", "Server", "u", "user", "token"))
                 }
-            } else {
-                json("""{"Items":[]}""")
+            var detailRequests = 0
+            val repo =
+                testRepo(dispatcher = Dispatchers.Unconfined) { request ->
+                    if (request.url.encodedPath.endsWith("/Items/m1")) {
+                        detailRequests++
+                        if (detailRequests > 1) {
+                            refreshStarted.complete(Unit)
+                            releaseRefresh.await()
+                            json(MOVIE_ONE.replace("电影", "更新后的电影"))
+                        } else {
+                            json(MOVIE_ONE)
+                        }
+                    } else {
+                        json("""{"Items":[]}""")
+                    }
+                }
+            val server = requireNotNull(registry.serverById("one"))
+            val cached = repo.itemDetail(server, "m1", includeInheritedPeople = false).getOrThrow()
+            val store =
+                DetailStoreFactory(
+                    DefaultStoreFactory(),
+                    repo,
+                    registry,
+                    "m1",
+                    "one",
+                    mainContext = Dispatchers.Unconfined,
+                    playbackTrackRequest = testPlaybackTrackRequest,
+                    syncManager = testSyncManager,
+                ).create()
+            try {
+                assertEquals(cached.title, store.state.detail?.title)
+                assertEquals("m1", store.state.playTarget?.id)
+                assertEquals(false, store.state.loading)
+                assertEquals(false, store.state.selectionLoading)
+                assertEquals(1, detailRequests)
+                store.accept(DetailIntent.SelectVersion("v2"))
+                assertEquals("v2", store.state.selectedVersionId)
+                store.accept(DetailIntent.Retry)
+                refreshStarted.await()
+                releaseRefresh.complete(Unit)
+                store.states.first { it.detail?.title == "更新后的电影" }
+                assertEquals("v2", store.state.selectedVersionId)
+                assertEquals("m1", store.state.playTarget?.id)
+            } finally {
+                releaseRefresh.complete(Unit)
+                store.dispose()
             }
         }
-        val server = requireNotNull(registry.serverById("one"))
-        val cached = repo.itemDetail(server, "m1", includeInheritedPeople = false).getOrThrow()
-        val store = DetailStoreFactory(
-            DefaultStoreFactory(), repo, registry, "m1", "one",
-            mainContext = Dispatchers.Unconfined,
-            playbackTrackRequest = testPlaybackTrackRequest,
-            syncManager = testSyncManager,
-        ).create()
-        try {
-            assertEquals(cached.title, store.state.detail?.title)
-            assertEquals("m1", store.state.playTarget?.id)
-            assertEquals(false, store.state.loading)
-            assertEquals(false, store.state.selectionLoading)
-            assertEquals(1, detailRequests)
-            store.accept(DetailIntent.SelectVersion("v2"))
-            assertEquals("v2", store.state.selectedVersionId)
-            store.accept(DetailIntent.Retry)
-            refreshStarted.await()
-            releaseRefresh.complete(Unit)
-            store.states.first { it.detail?.title == "更新后的电影" }
-            assertEquals("v2", store.state.selectedVersionId)
-            assertEquals("m1", store.state.playTarget?.id)
-        } finally {
-            releaseRefresh.complete(Unit)
-            store.dispose()
-        }
-    }
 
     @Test
     fun episode_content_and_play_button_do_not_wait_for_inherited_cast() =
@@ -478,7 +493,13 @@ class DetailStoreTest {
             try {
                 val ready = store.states.first { it.playTarget?.versions?.isNotEmpty() == true }
                 assertEquals("e1", ready.playTarget?.id)
-                assertEquals("ev1", ready.playTarget?.versions?.singleOrNull()?.id)
+                assertEquals(
+                    "ev1",
+                    ready.playTarget
+                        ?.versions
+                        ?.singleOrNull()
+                        ?.id,
+                )
                 assertEquals(1, playbackFieldRequests)
             } finally {
                 store.dispose()
@@ -675,20 +696,27 @@ class DetailStoreTest {
         }
 
     @Test
-    fun resource_comparison_reuses_the_resolved_current_version() = runTest {
-        val lookupHosts = mutableListOf<String>()
-        val store = movieStore(
-            onSourceLookup = { lookupHosts += it },
-            mainContext = UnconfinedTestDispatcher(testScheduler),
-        )
-        try {
-            store.states.first { it.sources.size == 2 && !it.sourcesLoading }
-            assertEquals(listOf("two"), lookupHosts)
-            assertEquals("m1", store.state.sources.first { it.isCurrent }.itemId)
-        } finally {
-            store.dispose()
+    fun resource_comparison_reuses_the_resolved_current_version() =
+        runTest {
+            val lookupHosts = mutableListOf<String>()
+            val store =
+                movieStore(
+                    onSourceLookup = { lookupHosts += it },
+                    mainContext = UnconfinedTestDispatcher(testScheduler),
+                )
+            try {
+                store.states.first { it.sources.size == 2 && !it.sourcesLoading }
+                assertEquals(listOf("two"), lookupHosts)
+                assertEquals(
+                    "m1",
+                    store.state.sources
+                        .first { it.isCurrent }
+                        .itemId,
+                )
+            } finally {
+                store.dispose()
+            }
         }
-    }
 
     @Test
     fun episode_selection_timeout_clears_loading_and_restores_the_committed_episode() =
@@ -1306,7 +1334,9 @@ class DetailStoreTest {
                     path.endsWith("/Items") -> {
                         if (request.url.parameters["SearchTerm"] == "电影" ||
                             request.url.parameters["AnyProviderIdEquals"] != null
-                        ) onSourceLookup(host)
+                        ) {
+                            onSourceLookup(host)
+                        }
                         json(
                             if (host == "one") {
                                 """{"Items":[$movieOneBody]}"""
@@ -1450,12 +1480,13 @@ class DetailStoreTest {
             }
         if (seedLightEpisodeSnapshot) {
             runBlocking {
-                repo.itemDetail(
-                    registry.serverById("one")!!,
-                    "e1",
-                    includeInheritedPeople = false,
-                    includePlaybackFields = false,
-                ).getOrThrow()
+                repo
+                    .itemDetail(
+                        registry.serverById("one")!!,
+                        "e1",
+                        includeInheritedPeople = false,
+                        includePlaybackFields = false,
+                    ).getOrThrow()
             }
         }
         return DetailStoreFactory(

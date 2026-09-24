@@ -162,12 +162,11 @@ internal class AndroidYCoreHttpProxy(
     context: Context? = null,
     private val userAgent: String,
     private val cacheMaximumBytes: Long,
-    private val createTransport: () -> YMediaTransport = {
-        AndroidHttpMediaTransport(
-            followSafeRedirects = true,
-            allowCrossProtocolRedirects = true,
-        )
-    },
+    /**
+     * Test seam replacing every upstream transport. Left unset, media bytes open with the redirect
+     * memory their URI shares with every other open in the process (see [trackedTransport]).
+     */
+    private val createTransport: (() -> YMediaTransport)? = null,
     private val isMeteredNetwork: () -> Boolean = {
         currentPlaybackNetworkClass() == PlaybackNetworkClass.Metered
     },
@@ -795,7 +794,19 @@ internal class AndroidYCoreHttpProxy(
         }
     }
 
-    private fun trackedTransport() = YCoreProxyTransport(createTransport(), requests)
+    /**
+     * [mediaUri] is the upstream media resource the transport will read. Media bytes reuse the
+     * process-wide redirect target for that URI, so a range reopen, a prefetch or the next session
+     * does not repeat the origin's redirect chain. Manifests pass null and resolve on every load: a
+     * live playlist may redirect to a per-load snapshot that must not be pinned.
+     */
+    private fun trackedTransport(mediaUri: String?) =
+        YCoreProxyTransport(
+            createTransport?.invoke()
+                ?: mediaUri?.let(::sharedRouteHttpMediaTransport)
+                ?: AndroidHttpMediaTransport(followSafeRedirects = true, allowCrossProtocolRedirects = true),
+            requests,
+        )
 
     private fun registerRoute(route: Route): String {
         while (routes.size >= MAX_ROUTES) {
@@ -848,6 +859,9 @@ internal class AndroidYCoreHttpProxy(
             val acceptedAtNs = System.nanoTime()
             val admission = connectionAdmission.tryAcquire()
             if (admission == null) {
+                // A bare close reads to FFmpeg as a failed network read and fails the open. A 503
+                // with Retry-After is an answer its HTTP layer understands; the socket closes after it.
+                runCatching { writeBusyResponse(socket) }
                 runCatching { socket.close() }
                 continue
             }
@@ -1558,7 +1572,7 @@ internal class AndroidYCoreHttpProxy(
                     protocol = requireNotNull(route.upstreamUri.sourceProtocolOrNull()),
                     headers = upstreamHeaders,
                     credentials = credentials,
-                    createTransport = ::trackedTransport,
+                    createTransport = { trackedTransport(route.upstreamUri) },
                     initialMediaBitRateBitsPerSecond = route.mediaBitRateBitsPerSecond,
                     cacheDirectory = cacheDirectory.takeIf { route.cacheable },
                     cacheIdentity = identity,
@@ -1634,7 +1648,7 @@ internal class AndroidYCoreHttpProxy(
         route: Route,
         method: String,
     ) = runBlocking {
-        val transport = trackedTransport()
+        val transport = trackedTransport(route.upstreamUri)
         try {
             val response =
                 transport.open(
@@ -1728,7 +1742,7 @@ internal class AndroidYCoreHttpProxy(
         discoveryBudget: YManifestDiscoveryBudget? = null,
     ): ByteArray =
         runBlocking {
-            val transport = trackedTransport()
+            val transport = trackedTransport(mediaUri = null)
             val cancellation = discoveryBudget?.onCancel(transport::cancel)
             try {
                 check(!closed.get()) { "Adaptive presentation was closed" }
@@ -1827,6 +1841,26 @@ internal class AndroidYCoreHttpProxy(
         )
         output.write("Content-Length: 0\r\nConnection: close\r\n\r\n".toByteArray(StandardCharsets.ISO_8859_1))
         output.flush()
+    }
+
+    /**
+     * Runs on the accept thread for a connection admission turned away: one small write into an
+     * empty send buffer, and afterwards only the request bytes already buffered are read, so this
+     * never waits on the client. Closing over unread request bytes resets the connection, which can
+     * discard the answer before the client reads it.
+     */
+    private fun writeBusyResponse(socket: Socket) {
+        socket.getOutputStream().apply {
+            write(PROXY_BUSY_RESPONSE)
+            flush()
+        }
+        socket.shutdownOutput()
+        val input = socket.getInputStream()
+        val scratch = ByteArray(BUSY_REQUEST_DRAIN_BYTES)
+        while (true) {
+            val buffered = input.available()
+            if (buffered <= 0 || input.read(scratch, 0, minOf(buffered, scratch.size)) <= 0) break
+        }
     }
 
     private fun writeEmptyResponse(
@@ -2087,6 +2121,10 @@ private const val HLS_CONTENT_TYPE = "application/vnd.apple.mpegurl"
 private const val DASH_CONTENT_TYPE = "application/dash+xml"
 private const val WIDEVINE_SYSTEM_ID = "edef8ba9-79d6-4ace-a3c8-27dcd51d21ed"
 private val ALLOWED_METHODS = setOf("GET", "HEAD")
+private val PROXY_BUSY_RESPONSE =
+    "HTTP/1.1 503 Service Unavailable\r\nRetry-After: 1\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+        .toByteArray(StandardCharsets.ISO_8859_1)
+private const val BUSY_REQUEST_DRAIN_BYTES = 4 * 1024
 private val HTTP_BYTE_RANGE = Regex("^bytes=(\\d+)-(\\d*)$", RegexOption.IGNORE_CASE)
 private val HLS_RELOAD_QUERY_NAMES =
     mapOf(

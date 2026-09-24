@@ -72,6 +72,7 @@ import com.yfuse.core.designsystem.ConfirmDialog
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.GlassStyle
 import com.yfuse.core.designsystem.HapticSignal
+import com.yfuse.core.designsystem.LaunchWaveGate
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalOverlayVisibility
@@ -91,6 +92,7 @@ import com.yfuse.core.designsystem.backdropSource
 import com.yfuse.core.designsystem.drawLensIsland
 import com.yfuse.core.designsystem.drawMotionSweep
 import com.yfuse.core.designsystem.drawPhaseLight
+import com.yfuse.core.designsystem.launchWaveItem
 import com.yfuse.core.designsystem.liquidNavigationGlass
 import com.yfuse.core.designsystem.navigationGlass
 import com.yfuse.core.designsystem.platformAnimationsDisabled
@@ -114,9 +116,12 @@ import com.yfuse.feature.servers.ServersTabScreen
 import com.yfuse.feature.watch.InviteResolution
 import com.yfuse.feature.watch.WatchInviteSheet
 import com.yfuse.feature.watch.WatchRoomInfoDialog
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
+import com.yfuse.core.designsystem.playerHandoffStage
 
 private data class TabItem(
     val tab: Tab,
@@ -215,7 +220,13 @@ fun App(root: RootComponent) {
         val browseStack by root.browse.stack.subscribeAsState()
         val searchStack by root.search.stack.subscribeAsState()
         val profileStack by root.profile.stack.subscribeAsState()
-        val miniPlayback by ActivePlayback.state.collectAsState()
+        // `ActivePlayback.state` ticks with every playback position update while a mini
+        // player/PiP is open; every read here only ever needs `active`, so collecting the
+        // whole object recomposed this entire shell on every tick. A remembered derived
+        // flow keeps that narrow, the same way [ActivityStatusCapsule] derives its own
+        // cast/room summaries from their source flows.
+        val miniPlaybackActiveFlow = remember { ActivePlayback.state.map { it.active }.distinctUntilChanged() }
+        val miniPlaybackActive by miniPlaybackActiveFlow.collectAsState(ActivePlayback.state.value.active)
         val reportingCoordinator = root.dependencies.playbackReportingCoordinator
         PlaybackReportingWarning(reportingCoordinator)
         LaunchedEffect(reportingCoordinator) {
@@ -266,7 +277,7 @@ fun App(root: RootComponent) {
             }
             // A host already knows what it is playing, and a player that is already up
             // reconciles from the timeline on its own.
-            if (watchState.isHost || miniPlayback.active) return@LaunchedEffect
+            if (watchState.isHost || miniPlaybackActive) return@LaunchedEffect
             val mediaKey = watchState.mediaKey?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
             if (followed == roomCode to mediaKey) return@LaunchedEffect
             // Resolving and opening is the same work as entering a room by hand, and lives
@@ -327,7 +338,9 @@ fun App(root: RootComponent) {
                     imageUri = backgroundImage.takeUnless { reduceTransparency },
                     dim = backgroundDim,
                 ) {
-                    Box(Modifier.fillMaxSize()) {
+                    // The page's half of the player transitions draws over, and transforms, this whole
+                    // shell — dock and capsules included — while a launch is under way; idle it adds nothing.
+                    Box(Modifier.fillMaxSize().playerHandoffStage()) {
                         val onSelectTab: (Tab) -> Unit = { tab ->
                             if (tab == active) {
                                 root.reselectTab(tab, atRoot)
@@ -402,7 +415,9 @@ fun App(root: RootComponent) {
                             modifier =
                                 Modifier
                                     .align(Alignment.BottomCenter)
-                                    .navigationBarsPadding(),
+                                    .navigationBarsPadding()
+                                    // The dock is the last row the cold-start library wave reaches.
+                                    .launchWaveItem(LaunchWaveGate.current),
                             enter = dockEnterTransition,
                             exit = dockExitTransition,
                             label = "bottomNavigationDock",
@@ -443,7 +458,7 @@ fun App(root: RootComponent) {
                             root = root,
                             onRoomInfo = { roomInfoOpen = true },
                             modifier = bottomStackSlot,
-                            visible = dockShown && !miniPlayback.active,
+                            visible = dockShown && !miniPlaybackActive,
                             enter = dockEnterTransition,
                             exit = dockExitTransition,
                         )

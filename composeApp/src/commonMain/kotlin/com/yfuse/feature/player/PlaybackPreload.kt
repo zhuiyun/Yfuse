@@ -66,10 +66,11 @@ internal object PreparedPlaybackRegistry {
     fun claim(
         key: PlaybackPreloadKey,
         timing: PlaybackLaunchTiming? = null,
-    ): PreparedPlayerStore? = stores.remove(key)?.let { entry ->
-        entry.gate?.claim(timing)
-        entry.store
-    }
+    ): PreparedPlayerStore? =
+        stores.remove(key)?.let { entry ->
+            entry.gate?.claim(timing)
+            entry.store
+        }
 
     /** True only while the detail page still owns this exact Store. */
     fun owns(

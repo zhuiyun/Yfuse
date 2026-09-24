@@ -48,7 +48,18 @@ data class YParameterSets(
     val vps: List<ByteArray> = emptyList(),
     val sps: List<ByteArray> = emptyList(),
     val pps: List<ByteArray> = emptyList(),
-)
+) {
+    /** What a decoder cannot start without: an SPS and a PPS. HEVC adds its VPS when there is one. */
+    val complete: Boolean get() = sps.isNotEmpty() && pps.isNotEmpty()
+
+    /** Each kind from this set when it has one, otherwise from [fallback]. */
+    fun orElse(fallback: YParameterSets): YParameterSets =
+        YParameterSets(
+            vps = vps.ifEmpty { fallback.vps },
+            sps = sps.ifEmpty { fallback.sps },
+            pps = pps.ifEmpty { fallback.pps },
+        )
+}
 
 /** Stream-level evidence only; enhancement-layer presence must never be promoted to a FEL claim. */
 data class YDolbyVisionNalEvidence(

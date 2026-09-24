@@ -1,16 +1,19 @@
 package com.yfuse.core.sync.playback
 
+import com.russhwolf.settings.Settings
 import com.yfuse.core.account.AccountAccessTokenSource
 import com.yfuse.core.account.AccountApiException
 import com.yfuse.core.account.PlaybackCloudApi
 import com.yfuse.core.account.PlaybackVaultCipher
 import com.yfuse.core.data.EmbyRepository
+import com.yfuse.core.data.ServerHealthMonitor
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.network.EmbyError
 import com.yfuse.core.network.EmbyErrorException
 import com.yfuse.core.personal.PersonalAccessPolicy
 import com.yfuse.core.personal.PersonalLibraryRepository
+import com.yfuse.feature.player.PlaybackLaunchTimings
 import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -27,6 +30,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import kotlin.concurrent.Volatile
 
 data class PlaybackCloudSyncState(
@@ -54,9 +59,14 @@ class PlaybackSyncManager(
     private val nowEpochMs: () -> Long = { System.currentTimeMillis() },
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
     private val personal: PersonalLibraryRepository? = null,
+    /** Null keeps every server eligible, as this manager always did before the monitor existed. */
+    serverHealth: ServerHealthMonitor? = null,
+    /** Null keeps the per-server backoff in memory only, as it always was before this. */
+    settings: Settings? = null,
 ) {
     private val syncMutex = Mutex()
-    private val serverApplier = EmbyCompatiblePlaybackStateApplier(repo, registry, nowEpochMs, personal)
+    private val serverApplier =
+        EmbyCompatiblePlaybackStateApplier(repo, registry, nowEpochMs, personal, serverHealth, settings)
     private val sessionOwners = mutableMapOf<String, String>()
 
     /**
@@ -463,6 +473,11 @@ class PlaybackSyncManager(
         try {
             repeat(MAX_SERVER_APPLIES_PER_SYNC) {
                 if (!progressSyncEnabled.value) return
+                // A tap just claimed background priority: it releases at first output, a startup
+                // error or its own deadline (see PlaybackLaunchTiming), all well under a minute.
+                // Stepping aside costs this batch a retry, not the sync itself - see the
+                // `finally` below, which reschedules regardless of how this loop exits.
+                if (PlaybackLaunchTimings.anyHoldsBackgroundPriority()) return
                 val task = store.pendingServerApplies(nowEpochMs(), limit = 1).firstOrNull() ?: return
                 val serverId = task.readyServerIds(nowEpochMs()).firstOrNull()
                 if (serverId == null || registryServerMissing(serverId)) {
@@ -471,6 +486,13 @@ class PlaybackSyncManager(
                 }
                 serverApplier.cooldownUntil(serverId)?.let { until ->
                     store.deferServerApplyTarget(task.id, serverId, until)
+                    return@repeat
+                }
+                if (!serverApplier.allowsBackgroundApply(serverId)) {
+                    // The monitor already knows this server is refusing its session or offline;
+                    // asking again would only collect another 401 or wait out a connect timeout.
+                    // This check makes no request of its own, so a short recheck is free.
+                    store.deferServerApplyTarget(task.id, serverId, nowEpochMs() + HEALTH_GATE_RECHECK_MS)
                     return@repeat
                 }
                 val result = serverApplier.apply(task.document, serverId)
@@ -775,6 +797,13 @@ class PlaybackSyncManager(
         const val MAX_PUSH_ROUNDS = 2
         const val MAX_SERVER_APPLIES_PER_SYNC = 16
         const val COMPLETED_RATIO = 0.95
+
+        /**
+         * How soon a task skipped for [ServerHealthMonitor] is reconsidered. The check itself
+         * makes no request, so this only has to be short enough that a server coming back
+         * healthy is noticed promptly - it is not standing in for the monitor's own probe cadence.
+         */
+        const val HEALTH_GATE_RECHECK_MS = 60_000L
     }
 }
 
@@ -815,6 +844,13 @@ internal fun playbackServerApplyFailurePolicy(error: Throwable?): PlaybackServer
 
 internal const val PLAYBACK_SERVER_ACCESS_DENIED_COOLDOWN_MS = 30 * 60_000L
 
+/**
+ * Whether a server-apply task should proceed now, given what [ServerHealthMonitor] already
+ * knows about the target server. `null` covers both "no monitor was injected" and "the server
+ * is no longer in the registry" - neither is a health verdict, so neither blocks the task.
+ */
+internal fun playbackSyncAllowsBackgroundApply(allowsBackgroundWork: Boolean?): Boolean = allowsBackgroundWork ?: true
+
 private class PlaybackPushNoProgressException : IllegalStateException("云端未确认播放记录，本地记录已保留，稍后重试")
 
 private class PlaybackEntityDecryptException(
@@ -836,14 +872,62 @@ private val PlaybackSyncTrigger.isImmediateCloudTrigger: Boolean
                 PlaybackSyncTrigger.Manual,
             )
 
+/**
+ * Persists [EmbyCompatiblePlaybackStateApplier]'s per-server backoff deadline.
+ *
+ * The backoff (`coolDownServer`/`cooldownUntil`) used to live in a plain in-memory map, so a
+ * process restart forgot a server was just marked unreachable and the next sync tried it again
+ * immediately - one diagnostic showed a 30 s timeout every 30-90 s for half an hour. A read or
+ * write failure is swallowed: this is a courtesy to a struggling server, never a source of
+ * truth playback sync cannot run without.
+ */
+internal class PlaybackServerBackoffStore(
+    private val settings: Settings,
+) {
+    @Serializable
+    private data class Persisted(
+        val untilEpochMsByServerId: Map<String, Long> = emptyMap(),
+    )
+
+    private val json = Json { ignoreUnknownKeys = true }
+
+    fun load(): Map<String, Long> =
+        runCatching {
+            settings.getStringOrNull(KEY)?.let {
+                json.decodeFromString(Persisted.serializer(), it).untilEpochMsByServerId
+            }
+        }.getOrNull().orEmpty()
+
+    fun save(untilEpochMsByServerId: Map<String, Long>) {
+        runCatching {
+            settings.putString(KEY, json.encodeToString(Persisted.serializer(), Persisted(untilEpochMsByServerId)))
+        }.onFailure { error ->
+            AppLog.warning(
+                category = "playback.sync",
+                event = "server_backoff_persist_failed",
+                message = "Per-server playback-sync backoff could not be saved",
+                throwable = error,
+            )
+        }
+    }
+
+    private companion object {
+        const val KEY = "playback_sync.server_backoff"
+    }
+}
+
 /** Native server fan-out. The abstraction point is intentionally provider-neutral for Plex later. */
 private class EmbyCompatiblePlaybackStateApplier(
     private val repo: EmbyRepository,
     private val registry: ServerRegistry,
     private val nowEpochMs: () -> Long,
     private val personal: PersonalLibraryRepository? = null,
+    private val serverHealth: ServerHealthMonitor? = null,
+    settings: Settings? = null,
 ) {
-    private val unavailableUntilByServerId = mutableMapOf<String, Long>()
+    private val backoffStore = settings?.let(::PlaybackServerBackoffStore)
+    private val unavailableUntilByServerId =
+        mutableMapOf<String, Long>().apply { backoffStore?.load()?.let(::putAll) }
     private val failureStreakByServerId = mutableMapOf<String, Int>()
 
     fun serverMissing(serverId: String): Boolean = registry.allDataForSync().servers.none { it.id == serverId }
@@ -853,6 +937,7 @@ private class EmbyCompatiblePlaybackStateApplier(
         untilEpochMs: Long,
     ) {
         unavailableUntilByServerId[serverId] = untilEpochMs
+        backoffStore?.save(unavailableUntilByServerId)
     }
 
     /** One more consecutive transient failure for [serverId]; returns the new streak. */
@@ -865,6 +950,17 @@ private class EmbyCompatiblePlaybackStateApplier(
     fun markReachable(serverId: String) {
         failureStreakByServerId.remove(serverId)
     }
+
+    /**
+     * Whether [ServerHealthMonitor] - already consulted before a probe or a calendar fan-out -
+     * also allows background playback-sync work against [serverId] right now. A server it has
+     * marked as refusing the session or offline within its own backoff would only collect
+     * another 401 or wait out a connect timeout here; this check makes no request of its own.
+     */
+    fun allowsBackgroundApply(serverId: String): Boolean =
+        playbackSyncAllowsBackgroundApply(
+            serverHealth?.let { health -> registry.serverById(serverId)?.let(health::allowsBackgroundWork) },
+        )
 
     fun targetServerIds(document: PlaybackSyncDocument): List<String> {
         val state = document.state
@@ -890,6 +986,7 @@ private class EmbyCompatiblePlaybackStateApplier(
         val until = unavailableUntilByServerId[serverId] ?: return null
         if (nowEpochMs() < until) return until
         unavailableUntilByServerId.remove(serverId)
+        backoffStore?.save(unavailableUntilByServerId)
         return null
     }
 

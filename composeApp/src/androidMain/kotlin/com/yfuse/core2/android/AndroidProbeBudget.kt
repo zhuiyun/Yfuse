@@ -4,10 +4,17 @@ import java.io.IOException
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
-/** One monotonic deadline for a start and all of its candidate probes. Callbacks must only signal I/O. */
+/**
+ * One monotonic deadline for a start and all of its candidate probes. Callbacks must only signal I/O.
+ *
+ * [foreground] marks work playback is waiting on. Its probes wait briefly for a probe lane another
+ * probe still holds and make speculative work holding it give the lane up; speculative preparation
+ * (the detail page, the next item) never waits for a lane.
+ */
 internal class AndroidProbeBudget(
     timeoutMs: Long = 30_000L,
     private val clock: () -> Long = System::nanoTime,
+    val foreground: Boolean = false,
 ) : AutoCloseable {
     private val lock = Any()
     private val deadlineNs = clock() + TimeUnit.MILLISECONDS.toNanos(timeoutMs.coerceAtLeast(1L))
@@ -91,7 +98,7 @@ internal class AndroidProbeController {
 
     fun begin(): Ticket =
         synchronized(lock) {
-            active ?: Ticket(generation, AndroidProbeBudget()).also { active = it }
+            active ?: Ticket(generation, AndroidProbeBudget(foreground = true)).also { active = it }
         }
 
     fun budget(): AndroidProbeBudget? = synchronized(lock) { active?.budget }

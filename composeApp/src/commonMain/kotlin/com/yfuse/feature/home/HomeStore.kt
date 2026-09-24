@@ -6,12 +6,14 @@ import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.arkivanov.mvikotlin.extensions.coroutines.CoroutineExecutor
 import com.arkivanov.mvikotlin.extensions.coroutines.coroutineBootstrapper
 import com.yfuse.core.data.EmbyRepository
+import com.yfuse.core.data.FAVORITES_COLLECTION_ID
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.TmdbHomeCache
 import com.yfuse.core.data.TmdbHomeRefresh
 import com.yfuse.core.data.TmdbRecommendationException
 import com.yfuse.core.data.TmdbRecommendationFailure
 import com.yfuse.core.data.TmdbRepository
+import com.yfuse.core.data.WATCH_LATER_COLLECTION_ID
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.HomeContent
 import com.yfuse.core.model.MediaItem
@@ -19,6 +21,7 @@ import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.TmdbHome
 import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.model.TmdbRow
+import com.yfuse.core.model.TmdbRowTitles
 import com.yfuse.core.model.deduplicatePlaybackHistory
 import com.yfuse.core.network.knownUnavailableEndpointReason
 import com.yfuse.core.network.toUserMessage
@@ -104,7 +107,7 @@ data class HomeState(
             libraryContent
                 .flatMap { source ->
                     source.content.rows
-                        .filterNot { it.title == "我的收藏" || it.title == "稍后观看" }
+                        .filterNot { it.libraryId in PERSONAL_COLLECTION_IDS }
                         .flatMap { row -> row.items.map { HomeResumeEntry(it, source.server) } }
                 }.distinctBy { it.server.id to it.item.id }
                 .take(16)
@@ -114,7 +117,7 @@ data class HomeState(
             libraryContent
                 .flatMap { source ->
                     source.content.rows
-                        .filter { it.title == "我的收藏" }
+                        .filter { it.libraryId == FAVORITES_COLLECTION_ID }
                         .flatMap { row -> row.items.map { HomeResumeEntry(it, source.server) } }
                 }.distinctBy { it.server.id to it.item.id }
                 .take(16)
@@ -236,8 +239,12 @@ private sealed interface Msg {
 
 private const val RECOMMENDATIONS_UNAVAILABLE_MESSAGE =
     "影视推荐服务暂时不可用，请稍后重试"
-private val RECOMMENDATION_ROW_ORDER = listOf("热门", "最新上线", "正在上映", "即将上映")
+private val RECOMMENDATION_ROW_ORDER =
+    listOf(TmdbRowTitles.POPULAR, TmdbRowTitles.LATEST, TmdbRowTitles.NOW_PLAYING, TmdbRowTitles.UPCOMING)
 private const val MAX_MERGED_FEATURED = 21
+
+/** 我的收藏 and 稍后观看 rows: identified by their fixed collection ids, never by their titles. */
+private val PERSONAL_COLLECTION_IDS = setOf(FAVORITES_COLLECTION_ID, WATCH_LATER_COLLECTION_ID)
 private const val MAX_MERGED_ROW_ITEMS = 80
 
 internal data class HomeRecommendationUpdate(
@@ -279,7 +286,7 @@ internal fun mergeRecommendationRefresh(
             }
         }
     val featured =
-        if ("热门" in refresh.incompleteRows) {
+        if (TmdbRowTitles.POPULAR in refresh.incompleteRows) {
             mergeItems(refresh.content.featured, previous.featured, MAX_MERGED_FEATURED)
         } else {
             refresh.content.featured

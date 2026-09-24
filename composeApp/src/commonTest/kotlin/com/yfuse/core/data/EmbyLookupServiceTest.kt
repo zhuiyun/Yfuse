@@ -18,6 +18,8 @@ import io.ktor.client.request.HttpRequestData
 import io.ktor.client.request.HttpResponseData
 import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runTest
 import java.net.SocketTimeoutException
 import kotlin.test.Test
@@ -217,6 +219,23 @@ class EmbyLookupServiceTest {
                 // A miss would let playback sync drop the progress it was asked to write back.
                 assertTrue(result.isFailure)
                 assertEquals(EmbyError.Network, assertIs<EmbyErrorException>(result.exceptionOrNull()).error)
+            } finally {
+                client.close()
+            }
+        }
+
+    @Test
+    fun a_hanging_lookup_fails_with_network_after_its_own_local_budget() =
+        runTest {
+            // Never answers - what a dead server held open for the shared client's 30s budget.
+            val client = client { awaitCancellation() }
+            try {
+                val result = EmbyLookupService(client).findByMediaKey(server, "tmdb:603")
+
+                assertTrue(result.isFailure)
+                assertEquals(EmbyError.Network, assertIs<EmbyErrorException>(result.exceptionOrNull()).error)
+                // Cut off by the local budget, not by some other (or absent) deadline.
+                assertEquals(FIND_BY_MEDIA_KEY_TIMEOUT_MS, currentTime)
             } finally {
                 client.close()
             }

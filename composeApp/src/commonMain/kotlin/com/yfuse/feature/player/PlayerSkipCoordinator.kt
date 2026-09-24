@@ -329,6 +329,33 @@ internal fun rememberPlayerSkipController(
     )
 }
 
+/**
+ * Where [next]'s picture will be once its intro is skipped, or null when nothing will be skipped.
+ * Uses the same series keys and server/custom precedence as the on-screen controls, so the warmed
+ * position is the one the 跳过片头 button or countdown will actually seek to.
+ */
+internal fun nextItemIntroEndMs(
+    next: PlayerMediaItem?,
+    mode: SkipMode,
+    timesBySeries: Map<String, SkipTimes>,
+    preferences: SkipSegmentPreferences,
+): Long? {
+    if (next == null || mode == SkipMode.Off) return null
+    val seriesId = next.seriesId?.takeIf(::skipSegmentsAvailableFor) ?: return null
+    val candidates =
+        listOfNotNull(
+            next.seriesKey,
+            skipSeriesStorageKey(serverId = next.serverId, seriesId = seriesId, providerSeriesKey = null),
+            seriesId,
+        ).distinct()
+    val key = candidates.firstOrNull(timesBySeries::containsKey) ?: candidates.first()
+    return preferences
+        .applyTo(seriesId = key, serverSegments = next.playbackSegments, durationMs = 0L)
+        .filter { it.type == PlaybackSegmentType.Intro }
+        .mapNotNull { intro -> intro.endMs?.takeIf { it > intro.startMs && it > 0L } }
+        .minOrNull()
+}
+
 /** Manual credits buttons can be pressed at entry; do not wait for the automatic countdown. */
 internal fun nextItemCreditsBoundary(
     segments: List<PlaybackSegment>,

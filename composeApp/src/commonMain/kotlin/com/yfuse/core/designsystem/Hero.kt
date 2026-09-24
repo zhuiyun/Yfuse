@@ -101,6 +101,7 @@ fun HeroActionDock(
         Row(
             Modifier
                 .height(46.dp)
+                .playerHandoffKey(corner = 23.dp, glass = true)
                 .pressable(
                     focusShape = AppShapes.pill,
                     lightEffect = LightEffect.Converge,

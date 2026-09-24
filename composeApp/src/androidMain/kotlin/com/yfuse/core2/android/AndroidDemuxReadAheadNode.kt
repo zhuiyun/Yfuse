@@ -57,7 +57,7 @@ internal class AndroidDemuxReadAheadNode(
 
     private var maximumQueuedBytesObserved = 0L
     private var starvationCount = 0L
-    private var throughputBitsPerSecond = 0L
+    private val throughput = DemuxFillThroughput()
 
     val name: String get() = delegate.name
 
@@ -76,7 +76,6 @@ internal class AndroidDemuxReadAheadNode(
                     clearQueueLocked()
                     endOfInput = false
                     failure = null
-                    throughputBitsPerSecond = 0L
                     configureSubtitleTracks(result)
                 }
             }
@@ -96,7 +95,6 @@ internal class AndroidDemuxReadAheadNode(
                 clearQueueLocked()
                 endOfInput = false
                 failure = null
-                throughputBitsPerSecond = 0L
                 configureSubtitleTracks(result)
             }
             result
@@ -145,8 +143,9 @@ internal class AndroidDemuxReadAheadNode(
     fun selectTracks(
         trackIds: Set<YTrackId>,
         positionUs: Long? = null,
+        controlTimeoutMs: Long = this.controlTimeoutMs,
     ) {
-        runReadControl(resumeReadAhead = trackIds.isNotEmpty()) {
+        runReadControl(resumeReadAhead = trackIds.isNotEmpty(), timeoutMs = controlTimeoutMs) {
             delegate.selectTracks(trackIds)
             positionUs?.let(delegate::seekTo)
             synchronized(monitor) { selectedTrackIds = trackIds.toSet() }
@@ -179,9 +178,12 @@ internal class AndroidDemuxReadAheadNode(
         }
     }
 
-    fun seekTo(positionUs: Long) {
+    fun seekTo(
+        positionUs: Long,
+        controlTimeoutMs: Long = this.controlTimeoutMs,
+    ) {
         val resumeReadAhead = synchronized(monitor) { tracksSelected }
-        runReadControl(resumeReadAhead) { delegate.seekTo(positionUs) }
+        runReadControl(resumeReadAhead, timeoutMs = controlTimeoutMs) { delegate.seekTo(positionUs) }
     }
 
     fun supportsSubtitleFormat(format: YSubtitleFormat): Boolean =
@@ -195,7 +197,7 @@ internal class AndroidDemuxReadAheadNode(
                 bufferedDurationUs = bufferedDurationUsLocked(),
                 maximumQueuedBytesObserved = maximumQueuedBytesObserved,
                 starvationCount = starvationCount,
-                throughputBitsPerSecond = throughputBitsPerSecond,
+                throughputBitsPerSecond = throughput.snapshot(System.nanoTime(), fillScheduled),
                 endOfInput = endOfInput,
                 atCapacity = samples.isNotEmpty() && queuedBytes >= queueBudgetBytes(),
                 fillScheduled = fillScheduled,
@@ -271,15 +273,22 @@ internal class AndroidDemuxReadAheadNode(
 
     private fun runReadControl(
         resumeReadAhead: Boolean,
+        timeoutMs: Long = controlTimeoutMs,
         block: () -> Unit,
     ) {
+        require(timeoutMs > 0L)
         val request =
             synchronized(monitor) {
                 tracksSelected = false
                 clearQueueLocked()
                 generation
             }
-        val deadlineNs = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(controlTimeoutMs)
+        // [timeoutMs] bounds only the wait for the owner to reach this control. The control's own
+        // seek or track switch reads the network too (Matroska Cues, the target cluster); on a slow
+        // link that alone took several seconds, so a 1.5 s limit over the whole operation failed
+        // ordinary seeks and subtitle switches as network errors while the source was still fine.
+        val deadlineNs = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs)
+        var started = false
         val interruptible = delegate as? AndroidDemuxReadControl
         interruptible?.interruptRead(request)
         val control =
@@ -287,11 +296,12 @@ internal class AndroidDemuxReadAheadNode(
                 Callable {
                     synchronized(monitor) {
                         check(generation == request && System.nanoTime() < deadlineNs) { "Demux control superseded" }
+                        started = true
                     }
                     check(interruptible?.resumeRead(request) != false) { "Demux read cannot resume after cancellation" }
                     block()
                     synchronized(monitor) {
-                        check(generation == request && System.nanoTime() < deadlineNs) { "Demux control superseded" }
+                        check(generation == request) { "Demux control superseded" }
                         clearQueueLocked()
                         tracksSelected = resumeReadAhead
                         endOfInput = false
@@ -300,7 +310,13 @@ internal class AndroidDemuxReadAheadNode(
                 },
             )
         try {
-            control.get((deadlineNs - System.nanoTime()).coerceAtLeast(1L), TimeUnit.NANOSECONDS)
+            try {
+                control.get((deadlineNs - System.nanoTime()).coerceAtLeast(1L), TimeUnit.NANOSECONDS)
+            } catch (barrierTimeout: TimeoutException) {
+                // Decided under the monitor: a control that has not started can no longer start.
+                if (!synchronized(monitor) { started }) throw barrierTimeout
+                control.get(CONTROL_IO_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+            }
         } catch (timeout: TimeoutException) {
             val expired =
                 synchronized(monitor) {
@@ -313,7 +329,7 @@ internal class AndroidDemuxReadAheadNode(
                 }
             expired?.let { interruptible?.interruptRead(it) }
             control.cancel(false)
-            throw IllegalStateException("Demux control timed out while its owner was busy", timeout)
+            throw DemuxControlTimeoutException(timeout)
         } catch (failure: ExecutionException) {
             throw failure.cause ?: failure
         }
@@ -347,7 +363,7 @@ internal class AndroidDemuxReadAheadNode(
 
     private fun fillToHighWatermark() {
         val fillStartedNs = System.nanoTime()
-        var filledBytes = 0L
+        synchronized(monitor) { throughput.start(fillStartedNs) }
         var readGeneration = -1L
         var cancelled = false
         try {
@@ -396,7 +412,11 @@ internal class AndroidDemuxReadAheadNode(
                     lastPacketNs = System.nanoTime()
                     packetsRead++
                     queuedBytes += queued.memoryBytes
-                    filledBytes += queued.value.data.size
+                    throughput.record(
+                        queued.value.data.size
+                            .toLong(),
+                        lastPacketNs,
+                    )
                     maximumQueuedBytesObserved = maxOf(maximumQueuedBytesObserved, queuedBytes)
                 }
             }
@@ -414,10 +434,7 @@ internal class AndroidDemuxReadAheadNode(
         } finally {
             beforeFillFinished?.invoke()
             synchronized(monitor) {
-                updateThroughputLocked(
-                    bytesRead = filledBytes,
-                    elapsedNs = (System.nanoTime() - fillStartedNs).coerceAtLeast(1L),
-                )
+                if (readGeneration == generation) throughput.finish(System.nanoTime())
                 fillScheduled = false
                 readStartedNs = 0L
                 // A consumer can drain the queue after the high-water check but before this
@@ -433,15 +450,23 @@ internal class AndroidDemuxReadAheadNode(
 
     private fun bufferedDurationUsLocked(): Long {
         if (samples.size < 2) return 0L
-        var minimum = Long.MAX_VALUE
-        var maximum = Long.MIN_VALUE
-        samples.forEach { queued ->
-            val sample = queued.value
-            if (sample.trackId in subtitleTracks) return@forEach
-            minimum = minOf(minimum, sample.presentationTimeUs)
-            maximum = maxOf(maximum, sample.presentationTimeUs + (sample.durationUs ?: 0L))
+        val playbackTracks = selectedTrackIds.filterNot { it in subtitleTracks }
+        if (playbackTracks.isEmpty()) return 0L
+        var shortest = Long.MAX_VALUE
+        for (trackId in playbackTracks) {
+            var first = Long.MAX_VALUE
+            var last = Long.MIN_VALUE
+            for (queued in samples) {
+                val sample = queued.value
+                if (sample.trackId != trackId) continue
+                first = minOf(first, sample.presentationTimeUs)
+                last = maxOf(last, sample.presentationTimeUs + (sample.durationUs ?: 0L))
+            }
+            // A video span cannot stand in for an empty audio queue, or vice versa.
+            if (first == Long.MAX_VALUE) return 0L
+            shortest = minOf(shortest, (last - first).coerceAtLeast(0L))
         }
-        return if (minimum == Long.MAX_VALUE) 0L else (maximum - minimum).coerceAtLeast(0L)
+        return shortest
     }
 
     private fun clearQueueLocked() {
@@ -449,30 +474,7 @@ internal class AndroidDemuxReadAheadNode(
         samples.clear()
         queuedBytes = 0L
         lastPacketNs = 0L
-    }
-
-    private fun updateThroughputLocked(
-        bytesRead: Long,
-        elapsedNs: Long,
-    ) {
-        // Very short reads are normally served by AVIO or the disk cache, not the network.
-        if (bytesRead <= 0 || elapsedNs < MINIMUM_THROUGHPUT_SAMPLE_NS) return
-        val measured =
-            bytesRead
-                .coerceAtMost(Long.MAX_VALUE / BITS_PER_BYTE)
-                .times(BITS_PER_BYTE)
-                .coerceAtMost(Long.MAX_VALUE / NANOS_PER_SECOND)
-                .times(NANOS_PER_SECOND)
-                .div(elapsedNs)
-        throughputBitsPerSecond =
-            if (throughputBitsPerSecond <= 0L) {
-                measured
-            } else {
-                (
-                    throughputBitsPerSecond * THROUGHPUT_HISTORY_WEIGHT +
-                        measured * THROUGHPUT_SAMPLE_WEIGHT
-                ) / THROUGHPUT_TOTAL_WEIGHT
-            }
+        throughput.reset()
     }
 
     private fun owner(): ExecutorService =
@@ -500,6 +502,84 @@ internal class AndroidDemuxReadAheadNode(
         val threadIndex = AtomicInteger()
     }
 }
+
+/** Reports packet progress while a fill is active, even if its next remote read is blocked. */
+internal class DemuxFillThroughput {
+    private var committedBitsPerSecond = 0L
+    private var windowStartedNs = 0L
+    private var windowBytes = 0L
+
+    fun reset() {
+        committedBitsPerSecond = 0L
+        windowStartedNs = 0L
+        windowBytes = 0L
+    }
+
+    fun start(nowNs: Long) {
+        windowStartedNs = nowNs
+        windowBytes = 0L
+    }
+
+    fun record(
+        bytes: Long,
+        nowNs: Long,
+    ) {
+        windowBytes += bytes.coerceAtLeast(0L)
+        if (nowNs - windowStartedNs >= MINIMUM_THROUGHPUT_SAMPLE_NS) commit(nowNs)
+    }
+
+    fun snapshot(
+        nowNs: Long,
+        fillScheduled: Boolean,
+    ): Long {
+        if (!fillScheduled || windowStartedNs == 0L) return committedBitsPerSecond
+        val elapsedNs = nowNs - windowStartedNs
+        if (elapsedNs < MINIMUM_THROUGHPUT_SAMPLE_NS) return committedBitsPerSecond
+        // An in-flight packet read must not leave a previously healthy rate looking current.
+        if (windowBytes == 0L) {
+            return if (elapsedNs >= STALLED_THROUGHPUT_WINDOW_NS) 0L else committedBitsPerSecond
+        }
+        return rate(windowBytes, elapsedNs)
+    }
+
+    fun finish(nowNs: Long) {
+        if (windowStartedNs != 0L && nowNs - windowStartedNs >= MINIMUM_THROUGHPUT_SAMPLE_NS) {
+            commit(nowNs)
+        }
+        windowStartedNs = 0L
+        windowBytes = 0L
+    }
+
+    private fun commit(nowNs: Long) {
+        if (windowBytes > 0L) {
+            val measured = rate(windowBytes, nowNs - windowStartedNs)
+            committedBitsPerSecond =
+                when {
+                    committedBitsPerSecond == 0L || measured < committedBitsPerSecond -> measured
+                    else ->
+                        (
+                            committedBitsPerSecond * THROUGHPUT_HISTORY_WEIGHT +
+                                measured * THROUGHPUT_SAMPLE_WEIGHT
+                        ) / THROUGHPUT_TOTAL_WEIGHT
+                }
+        }
+        windowStartedNs = nowNs
+        windowBytes = 0L
+    }
+
+    private fun rate(
+        bytes: Long,
+        elapsedNs: Long,
+    ): Long =
+        ((bytes.toDouble() * BITS_PER_BYTE * NANOS_PER_SECOND) / elapsedNs.coerceAtLeast(1L))
+            .coerceAtMost(Long.MAX_VALUE.toDouble())
+            .toLong()
+}
+
+/** The owner did not reach its safe control barrier before the bounded wait expired. */
+internal class DemuxControlTimeoutException(
+    cause: TimeoutException,
+) : IllegalStateException("Demux control timed out while its owner was busy", cause)
 
 internal sealed interface YQueuedDemuxResult {
     data class Sample(
@@ -551,6 +631,10 @@ private const val BITS_PER_BYTE = 8L
 private const val MICROS_PER_SECOND = 1_000_000L
 private const val NANOS_PER_SECOND = 1_000_000_000L
 private const val MINIMUM_THROUGHPUT_SAMPLE_NS = 50_000_000L
+private const val STALLED_THROUGHPUT_WINDOW_NS = 2_000_000_000L
+
+/** A started seek/track switch may read the network; FFmpeg bounds each read with rw_timeout=15 s. */
+private const val CONTROL_IO_TIMEOUT_MS = 20_000L
 private const val THROUGHPUT_HISTORY_WEIGHT = 3L
 private const val THROUGHPUT_SAMPLE_WEIGHT = 1L
 private const val THROUGHPUT_TOTAL_WEIGHT = 4L

@@ -133,6 +133,7 @@ import com.yfuse.core.model.CalendarEntry
 import com.yfuse.core.model.LibraryStatus
 import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.model.TmdbRow
+import com.yfuse.core.model.showsReleaseDate
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.network.TmdbImages
 import com.yfuse.core.util.currentHourOfDay
@@ -509,7 +510,7 @@ internal fun HomeContentBody(
                                     title = row.title,
                                     items = row.items,
                                     arrival = refreshArrival,
-                                    showReleaseDate = row.title == "即将上映" || row.title == "最新上线",
+                                    showReleaseDate = row.showsReleaseDate,
                                     // Opens this shelf, not the 库 tab. These come from TMDB and
                                     // most are not in the library at all, so the old destination
                                     // showed none of what the chip had just offered.
@@ -558,7 +559,7 @@ internal fun HomeContentBody(
             TmdbRowPage(
                 title = row.title,
                 items = row.items,
-                showReleaseDate = row.title == "即将上映" || row.title == "最新上线",
+                showReleaseDate = row.showsReleaseDate,
                 onOpen = {
                     onIntent(HomeIntent.Open(it))
                     expandedRow = null
@@ -594,20 +595,27 @@ private fun HomeHeroCarousel(
     val carouselTouched = remember { mutableStateOf(false) }
     val carouselDragging by pagerState.interactionSource.collectIsDraggedAsState()
     val carouselScope = rememberCoroutineScope()
-    val carouselLight = rememberLightFeedback(enabled = visible, enhancedOnly = true)
-    LaunchedEffect(carouselDragging, carouselLight) {
-        if (carouselDragging) carouselLight.emit(LightEffect.Dust)
+    // `enabled` gates whether [rememberLightFeedback] even builds its state (see its own
+    // `available` check), not just whether it may emit — so passing the carousel's `visible`
+    // there rebuilt the state from scratch on every scroll start/stop. It now stays alive
+    // permanently and `visible` only gates the `.emit(...)` calls below, the same way
+    // [rememberLightFeedback] itself already treats route visibility as a post-build gate.
+    val carouselLight = rememberLightFeedback(enhancedOnly = true)
+    LaunchedEffect(carouselDragging, carouselLight, visible) {
+        if (carouselDragging && visible) carouselLight.emit(LightEffect.Dust)
     }
     // Every level gets the settle: a page that has just left sweeps a gathering light along
     // the side it left from. Dust on the edges stays an 增强 detail.
-    val carouselSweep = rememberLightFeedback(enabled = visible)
-    LaunchedEffect(pagerState, carouselSweep) {
+    val carouselSweep = rememberLightFeedback()
+    LaunchedEffect(pagerState, carouselSweep, visible) {
         var previous = pagerState.settledPage
         snapshotFlow { pagerState.settledPage }.collect { page ->
-            if (page != previous) {
+            // Tracking keeps running while hidden so a page change during that time is not
+            // mistaken for one later, once visible again; only the sweep itself is gated.
+            if (page != previous && visible) {
                 carouselSweep.emit(LightEffect.Converge, fractionX = if (page > previous) 0.04f else 0.96f)
-                previous = page
             }
+            previous = page
         }
     }
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion

@@ -528,6 +528,40 @@ class LibraryStoreTest {
             advanceUntilIdle()
         }
 
+    /**
+     * [libraryLoadLeftForegroundSince] backs `load_completed`'s `appBackgrounded` attribute. A
+     * frozen background process can make a load "take" 92 s (see the 1.0.83 diagnostics) that
+     * was mostly a frozen gap starting and ending in the foreground - only a transition
+     * timestamp, not the foreground state sampled at either end, catches that.
+     */
+    @Test
+    fun library_load_left_foreground_only_when_a_transition_overlaps_the_load() {
+        assertTrue(
+            libraryLoadLeftForegroundSince(
+                sinceEpochMs = 10_000L,
+                currentlyForeground = false,
+                lastTransitionEpochMs = 0L,
+            ),
+            "still backgrounded now must always be flagged",
+        )
+        assertTrue(
+            libraryLoadLeftForegroundSince(
+                sinceEpochMs = 10_000L,
+                currentlyForeground = true,
+                lastTransitionEpochMs = 15_000L,
+            ),
+            "foreground at both ends but a round trip through background during the load",
+        )
+        assertEquals(
+            false,
+            libraryLoadLeftForegroundSince(
+                sinceEpochMs = 10_000L,
+                currentlyForeground = true,
+                lastTransitionEpochMs = 1_000L,
+            ),
+        )
+    }
+
     private fun content(
         id: String,
         movieCount: Int,

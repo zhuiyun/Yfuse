@@ -1,0 +1,9 @@
+gradle.projectsEvaluated {
+    def module = gradle.rootProject.project(':phoneShared')
+    module.tasks.register('printKtlintClasspath') {
+        doLast {
+            def output = gradle.rootProject.file('audit/releases/20260924-code-cleanup-1.0.84/ktlint-classpath.txt')
+            output.text = module.configurations.getByName('ktlint').files.join(File.pathSeparator)
+        }
+    }
+}

@@ -108,6 +108,7 @@ fun SearchScreen(component: SearchComponent) {
         onBack = component::navigateBack,
         contentKey = { routeKey(it.configuration) },
         modifier = Modifier.fillMaxSize(),
+        isLauncher = { it.instance is SearchComponent.Child.Player },
     ) { entry ->
         val instance = entry.instance
         when (instance) {

@@ -18,6 +18,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
@@ -40,6 +41,7 @@ import com.yfuse.core.model.MediaServerKind
 import com.yfuse.core.network.rememberLocalNetworkPermissionRequest
 import com.yfuse.core.network.validateEmbyServerEndpoint
 import com.yfuse.feature.servers.PlexAccountUiState
+import com.yfuse.feature.servers.QuickConnectUiState
 import com.yfuse.feature.servers.ServerFormInput
 import com.yfuse.feature.servers.ServerFormRow
 import com.yfuse.feature.servers.ServerProtocolSegment
@@ -398,8 +400,21 @@ fun AddServerDialog(
                         placeholder = if (editing) "仅修改名称时无需填写" else "留空表示无密码",
                         enabled = !form.submitting,
                         password = true,
-                        divider = false,
+                        divider = true,
                     ) { sendIntent(ServersIntent.PasswordChanged(it)) }
+                    // The only reachable add-server UI, now that the full-page 添加服务器
+                    // (`ServersScreen`) is gone — Quick Connect used to live there and nowhere
+                    // else. `state`/`onIntent` already carry the whole ServersStore contract,
+                    // so this is the same StartQuickConnect/CancelQuickConnect machine, just
+                    // rendered as one more row instead of a separate floating card.
+                    ServerFormRow(label = "Quick Connect", divider = false) {
+                        QuickConnectSection(
+                            state = state.quickConnect,
+                            enabled = form.canStartQuickConnect,
+                            onStart = { sendIntent(ServersIntent.StartQuickConnect) },
+                            onCancel = { sendIntent(ServersIntent.CancelQuickConnect) },
+                        )
+                    }
                 }
             }
 
@@ -479,6 +494,84 @@ fun AddServerDialog(
                     (!editing || form.serverName.isNotBlank()),
             loading = form.submitting,
         )
+    }
+}
+
+/**
+ * Emby/Jellyfin Quick Connect: sign in with a code shown here and approved from an
+ * already-logged-in client, instead of typing a password. Mirrors the Plex 云账号 row
+ * above it — a short status line, the code once one is issued, and one action whose
+ * label and target (start/cancel/retry) follow [state].
+ */
+@Composable
+private fun QuickConnectSection(
+    state: QuickConnectUiState,
+    enabled: Boolean,
+    onStart: () -> Unit,
+    onCancel: () -> Unit,
+) {
+    val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
+    val busy = state is QuickConnectUiState.CheckingSupport || state is QuickConnectUiState.AwaitingApproval
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        when (state) {
+            QuickConnectUiState.Idle ->
+                Text(
+                    "如果服务器支持 Quick Connect，可用验证码登录，无需输入密码。",
+                    style = AppTypography.caption.regular,
+                    color = palette.sub2,
+                )
+            QuickConnectUiState.CheckingSupport ->
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    OrbProgress(size = 14.dp, color = accent.accent)
+                    Text("正在请求服务器…", style = AppTypography.caption.medium, color = palette.body)
+                }
+            is QuickConnectUiState.AwaitingApproval -> {
+                Text(
+                    "验证码  ${state.code}",
+                    style = AppTypography.body.strong,
+                    color = palette.text,
+                    modifier = Modifier.semantics { contentDescription = "Quick Connect 验证码 ${state.code}" },
+                )
+                Text(
+                    "在已登录的客户端中输入此验证码，批准后会自动继续。",
+                    style = AppTypography.caption.regular,
+                    color = palette.sub2,
+                )
+            }
+            is QuickConnectUiState.Unsupported ->
+                Text(state.reason, style = AppTypography.caption.regular, color = palette.sub2)
+            QuickConnectUiState.Expired ->
+                Text("验证码已过期，请重新获取。", style = AppTypography.caption.medium, color = palette.error)
+            QuickConnectUiState.Cancelled ->
+                Text("已取消 Quick Connect。", style = AppTypography.caption.regular, color = palette.sub2)
+            is QuickConnectUiState.Error ->
+                Text(state.message, style = AppTypography.caption.medium, color = palette.error)
+        }
+        val actionLabel =
+            when (state) {
+                QuickConnectUiState.Idle -> "使用 Quick Connect"
+                QuickConnectUiState.CheckingSupport,
+                is QuickConnectUiState.AwaitingApproval,
+                -> "取消"
+                is QuickConnectUiState.Unsupported -> null
+                QuickConnectUiState.Expired,
+                QuickConnectUiState.Cancelled,
+                is QuickConnectUiState.Error,
+                -> "重新获取"
+            }
+        if (actionLabel != null) {
+            OverlayButton(
+                label = actionLabel,
+                onClick = if (busy) onCancel else onStart,
+                modifier = Modifier.fillMaxWidth(),
+                tone = OverlayButtonTone.Plain,
+                enabled = busy || enabled,
+            )
+        }
     }
 }
 

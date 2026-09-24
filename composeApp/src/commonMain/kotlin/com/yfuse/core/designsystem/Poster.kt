@@ -295,6 +295,7 @@ fun Poster(
             contentDescription = contentDescription,
             modifier =
                 Modifier
+                    .launchWaveImage()
                     .sharedMediaArtwork(sharedTransitionKey)
                     .playerArtworkSource(sharedTransitionKey, candidates)
                     .fillMaxSize(),

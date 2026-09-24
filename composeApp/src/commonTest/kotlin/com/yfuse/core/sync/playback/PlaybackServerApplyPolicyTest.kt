@@ -1,9 +1,12 @@
 package com.yfuse.core.sync.playback
 
+import com.russhwolf.settings.MapSettings
 import com.yfuse.core.network.EmbyError
 import com.yfuse.core.network.EmbyErrorException
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class PlaybackServerApplyPolicyTest {
     /**
@@ -96,5 +99,39 @@ class PlaybackServerApplyPolicyTest {
         assertEquals(30_000L, playbackServerApplyBackoffMs(2))
         assertEquals(960_000L, playbackServerApplyBackoffMs(7))
         assertEquals(960_000L, playbackServerApplyBackoffMs(40))
+    }
+
+    /** No monitor, or a server the registry no longer has, must never block the task itself. */
+    @Test
+    fun a_missing_health_verdict_never_blocks_a_server_apply() {
+        assertTrue(playbackSyncAllowsBackgroundApply(null))
+    }
+
+    @Test
+    fun a_health_verdict_is_honored_either_way() {
+        assertTrue(playbackSyncAllowsBackgroundApply(true))
+        assertFalse(playbackSyncAllowsBackgroundApply(false))
+    }
+
+    @Test
+    fun server_backoff_deadlines_survive_a_new_store_instance_over_the_same_settings() {
+        val settings = MapSettings()
+
+        PlaybackServerBackoffStore(settings).save(mapOf("server-a" to 1_000L, "server-b" to 2_000L))
+
+        assertEquals(
+            mapOf("server-a" to 1_000L, "server-b" to 2_000L),
+            PlaybackServerBackoffStore(settings).load(),
+        )
+    }
+
+    @Test
+    fun server_backoff_store_starts_empty_and_survives_corrupt_data() {
+        val emptySettings = MapSettings()
+        assertEquals(emptyMap(), PlaybackServerBackoffStore(emptySettings).load())
+
+        val corruptSettings = MapSettings()
+        corruptSettings.putString("playback_sync.server_backoff", "{not json")
+        assertEquals(emptyMap(), PlaybackServerBackoffStore(corruptSettings).load())
     }
 }

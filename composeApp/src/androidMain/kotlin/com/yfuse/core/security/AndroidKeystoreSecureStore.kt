@@ -65,6 +65,7 @@ class AndroidKeystoreSecureStore(
             } catch (error: BadPaddingException) {
                 throw SecureStoreCorruptedException(cause = error)
             } catch (error: GeneralSecurityException) {
+                forgetMasterKey()
                 throw SecureStoreException("Secure-store decryption failed", error)
             }
         }
@@ -86,6 +87,7 @@ class AndroidKeystoreSecureStore(
                     SecureStoreEnvelope(nonce = iv, ciphertext = encrypted)
                 }
             } catch (error: GeneralSecurityException) {
+                forgetMasterKey()
                 throw SecureStoreException("Secure-store encryption failed", error)
             }
         val encoded = Base64.getEncoder().encodeToString(SecureStoreEnvelopeCodec.encode(envelope))
@@ -107,6 +109,7 @@ class AndroidKeystoreSecureStore(
                 .forEach(settings::remove)
             try {
                 synchronized(KEYSTORE_LOCK) {
+                    MASTER_KEYS.remove(keyAlias)
                     androidKeyStore().run {
                         if (containsAlias(keyAlias)) deleteEntry(keyAlias)
                     }
@@ -121,34 +124,56 @@ class AndroidKeystoreSecureStore(
     private fun entryAad(key: String): ByteArray =
         "$AAD_PREFIX\u0000$namespace\u0000$key".toByteArray(StandardCharsets.UTF_8)
 
+    /**
+     * The namespace's master key, looked up in the Keystore once per process.
+     *
+     * Loading the Keystore and fetching the key are binder calls into keystore2, and every get and
+     * put used to repeat both: a cold start paid them once per saved token while restoring the
+     * server registry. The handle stays valid until [clear] deletes the entry, which drops it from
+     * the cache under the same lock; a failed crypto operation drops it too, so a key invalidated
+     * behind our back is looked up again rather than failing every later call.
+     */
     private fun getOrCreateMasterKey(): SecretKey =
         synchronized(KEYSTORE_LOCK) {
+            MASTER_KEYS[keyAlias]?.let { return@synchronized it }
             val keyStore = androidKeyStore()
-            (keyStore.getKey(keyAlias, null) as? SecretKey) ?: run {
-                val generator =
-                    KeyGenerator.getInstance(
-                        KeyProperties.KEY_ALGORITHM_AES,
-                        ANDROID_KEYSTORE,
+            val key =
+                (keyStore.getKey(keyAlias, null) as? SecretKey) ?: run {
+                    val generator =
+                        KeyGenerator.getInstance(
+                            KeyProperties.KEY_ALGORITHM_AES,
+                            ANDROID_KEYSTORE,
+                        )
+                    generator.init(
+                        KeyGenParameterSpec
+                            .Builder(
+                                keyAlias,
+                                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
+                            ).setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                            .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                            .setKeySize(VaultCrypto.AES_KEY_SIZE_BYTES * Byte.SIZE_BITS)
+                            .setRandomizedEncryptionRequired(true)
+                            .build(),
                     )
-                generator.init(
-                    KeyGenParameterSpec
-                        .Builder(
-                            keyAlias,
-                            KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
-                        ).setBlockModes(KeyProperties.BLOCK_MODE_GCM)
-                        .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-                        .setKeySize(VaultCrypto.AES_KEY_SIZE_BYTES * Byte.SIZE_BITS)
-                        .setRandomizedEncryptionRequired(true)
-                        .build(),
-                )
-                generator.generateKey()
-            }
+                    generator.generateKey()
+                }
+            MASTER_KEYS[keyAlias] = key
+            key
         }
 
-    private fun androidKeyStore(): KeyStore =
-        KeyStore.getInstance(ANDROID_KEYSTORE).apply {
-            load(null)
-        }
+    private fun forgetMasterKey() {
+        synchronized(KEYSTORE_LOCK) { MASTER_KEYS.remove(keyAlias) }
+    }
+
+    // Called under KEYSTORE_LOCK. Loading is a service round trip too, and a loaded instance reads
+    // the live entries of every alias, so one serves the whole process.
+    private fun androidKeyStore(): KeyStore {
+        loadedKeyStore?.let { return it }
+        val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE)
+        keyStore.load(null)
+        loadedKeyStore = keyStore
+        return keyStore
+    }
 
     companion object {
         private const val ANDROID_KEYSTORE = "AndroidKeyStore"
@@ -162,6 +187,12 @@ class AndroidKeystoreSecureStore(
         private val VALID_NAMESPACE = Regex("[A-Za-z0-9._-]{1,64}")
         private val STORE_LOCK = Any()
         private val KEYSTORE_LOCK = Any()
+
+        // Per alias rather than per instance: two stores of one namespace share a key, and clear()
+        // on either must not leave the other holding a handle to a deleted entry.
+        // Both guarded by KEYSTORE_LOCK.
+        private val MASTER_KEYS = HashMap<String, SecretKey>()
+        private var loadedKeyStore: KeyStore? = null
 
         private fun validateNamespace(value: String): String =
             value.also {

@@ -9,6 +9,7 @@ import com.yfuse.core.data.MediaVersionPreference
 import com.yfuse.core.data.PlaybackAudioPassthrough
 import com.yfuse.core.data.PlaybackFrameRateMatch
 import com.yfuse.core.data.PlaybackPreferences
+import com.yfuse.core.data.SourcePreheatMode
 import com.yfuse.core.data.VideoCacheSize
 import com.yfuse.core.data.YCoreBufferDuration
 import com.yfuse.core.designsystem.AppIcons
@@ -182,6 +183,7 @@ internal fun PlaybackSettingsScreen(
     progressSyncEnabled: Boolean,
     anonymousQoeSharing: Boolean,
     videoCacheSize: VideoCacheSize,
+    sourcePreheat: SourcePreheatMode,
     skipSegments: String,
     onPlaybackMode: () -> Unit,
     onMediaVersionPreference: () -> Unit,
@@ -191,6 +193,7 @@ internal fun PlaybackSettingsScreen(
     onProgressSync: (Boolean) -> Unit,
     onAnonymousQoeSharing: (Boolean) -> Unit,
     onVideoCache: () -> Unit,
+    onSourcePreheat: () -> Unit,
     onSkipSegments: () -> Unit,
 ) {
     SettingsPage(
@@ -231,6 +234,8 @@ internal fun PlaybackSettingsScreen(
                     )
                     SettingsDivider()
                     SettingRow("视频缓存大小", videoCacheSize.label, true, onVideoCache)
+                    SettingsDivider()
+                    SettingRow("起播预热", sourcePreheat.label, true, onSourcePreheat)
                     SettingsDivider()
                     SettingRow("片头片尾", skipSegments, true, onSkipSegments)
                 }
@@ -482,6 +487,7 @@ internal fun AppearanceSettingsScreen(
     startupSummary: String,
     dialogAnimationSummary: String,
     loadingAnimationSummary: String,
+    playerTransitionSummary: String,
     particleLightSummary: String,
     onParticleLight: () -> Unit,
     reduceTransparency: Boolean,
@@ -493,6 +499,7 @@ internal fun AppearanceSettingsScreen(
     onStartupTab: () -> Unit,
     onDialogAnimation: () -> Unit,
     onLoadingAnimation: () -> Unit,
+    onPlayerTransition: () -> Unit,
     onGlassMaterial: () -> Unit,
     onReduceTransparency: (Boolean) -> Unit,
     onLargeText: (Boolean) -> Unit,
@@ -549,6 +556,15 @@ internal fun AppearanceSettingsScreen(
                         true,
                         onLoadingAnimation,
                         icon = AppIcons.Refresh,
+                        iconTint = SettingTint.components,
+                    )
+                    SettingsDivider()
+                    SettingRow(
+                        "播放器进出场",
+                        playerTransitionSummary,
+                        true,
+                        onPlayerTransition,
+                        icon = AppIcons.Play,
                         iconTint = SettingTint.components,
                     )
                     SettingsDivider()

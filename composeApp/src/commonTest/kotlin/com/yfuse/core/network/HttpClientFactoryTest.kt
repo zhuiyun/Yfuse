@@ -5,6 +5,8 @@ import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.pluginOrNull
+import io.ktor.client.request.HttpRequestBuilder
+import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -13,10 +15,12 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import kotlinx.coroutines.test.runTest
+import kotlinx.io.IOException
 import kotlinx.serialization.Serializable
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -109,6 +113,197 @@ class HttpClientFactoryTest {
                 now += 5 * 60_000L
                 runCatching { client.get("https://media.example.com/System/Info") { header("X-Emby-Token", "old") } }
                 assertEquals(3, calls)
+            } finally {
+                client.close()
+            }
+        }
+
+    @Test
+    fun onlyACredentialCheckThatAnswers401CoolsTheSessionDown() =
+        runTest {
+            val paths = mutableListOf<String>()
+            val client =
+                createEmbyClient(
+                    appVersion = "1.0.0",
+                    timeouts = null,
+                    engine =
+                        MockEngine { request ->
+                            paths += "${request.method.value} ${request.url.encodedPath}"
+                            respond("", HttpStatusCode.Unauthorized)
+                        },
+                )
+            try {
+                // Transcode cleanup and playback reports can be refused for reasons of their own.
+                runCatching {
+                    client.delete("https://media.example.com/Videos/ActiveEncodings") { header("X-Emby-Token", "t") }
+                }
+                runCatching {
+                    client.post("https://media.example.com/Sessions/Playing") { header("X-Emby-Token", "t") }
+                }
+                runCatching { client.get("https://media.example.com/Users/u/Items") { header("X-Emby-Token", "t") } }
+                assertEquals(3, paths.size)
+
+                // Users/* did refuse the credential, so the session now waits instead of repeating it.
+                val cooled =
+                    runCatching {
+                        client.get("https://media.example.com/Users/u/Views") { header("X-Emby-Token", "t") }
+                    }.exceptionOrNull()
+                assertEquals(3, paths.size)
+                val error = assertIs<EmbyErrorException>(cooled)
+                assertEquals(EmbyError.Unauthorized, error.error)
+                assertTrue(error.fromCooldown)
+            } finally {
+                client.close()
+            }
+        }
+
+    @Test
+    fun aRefusedPlexTokenCoolsItsSessionButNeverItsProbeOrSignIn() =
+        runTest {
+            var calls = 0
+            val client =
+                createEmbyClient(
+                    appVersion = "1.0.0",
+                    timeouts = null,
+                    engine =
+                        MockEngine { request ->
+                            calls++
+                            if (request.url.encodedPath == "/identity") {
+                                respond("{}", HttpStatusCode.OK)
+                            } else {
+                                respond("", HttpStatusCode.Unauthorized)
+                            }
+                        },
+                )
+            try {
+                runCatching {
+                    client.get("http://plex.example:32400/library/sections") {
+                        suppressEmbyIdentity()
+                        header("X-Plex-Token", "plex-token")
+                    }
+                }
+                assertEquals(1, calls)
+                val cooled =
+                    runCatching {
+                        client.get("http://plex.example:32400/library/sections/1/all") {
+                            suppressEmbyIdentity()
+                            header("X-Plex-Token", "plex-token")
+                        }
+                    }.exceptionOrNull()
+                assertEquals(1, calls)
+                assertTrue(assertIs<EmbyErrorException>(cooled).fromCooldown)
+
+                // The health probe still reaches the server, and its success lifts the cooldown.
+                client.get("http://plex.example:32400/identity") {
+                    suppressEmbyIdentity()
+                    exemptFromServerCooldown()
+                    header("X-Plex-Token", "plex-token")
+                }
+                assertEquals(2, calls)
+                runCatching {
+                    client.get("http://plex.example:32400/library/onDeck") {
+                        suppressEmbyIdentity()
+                        header("X-Plex-Token", "plex-token")
+                    }
+                }
+                assertEquals(3, calls)
+            } finally {
+                client.close()
+            }
+        }
+
+    @Test
+    fun anOriginThatStopsAnsweringFailsFastForAShortWhile() =
+        runTest {
+            var now = 1_000L
+            var reachable = false
+            var calls = 0
+            val client =
+                createEmbyClient(
+                    appVersion = "1.0.0",
+                    timeouts = null,
+                    nowEpochMs = { now },
+                    engine =
+                        MockEngine {
+                            calls++
+                            if (!reachable) throw IOException("connect timed out")
+                            respond("{}", HttpStatusCode.OK)
+                        },
+                )
+
+            suspend fun request(configure: HttpRequestBuilder.() -> Unit = {}) =
+                runCatching {
+                    client.get("https://dead.example/Users/u/Items") {
+                        header("X-Emby-Token", "t")
+                        configure()
+                    }
+                }.exceptionOrNull()
+
+            try {
+                repeat(3) { request() }
+                assertEquals(3, calls)
+
+                val cooled = assertIs<EmbyErrorException>(request())
+                assertEquals(EmbyError.Network, cooled.error)
+                assertTrue(cooled.fromCooldown)
+                assertEquals(3, calls)
+
+                // Probes and sign-in are how the host is found to be back; neither is held.
+                request { exemptFromServerCooldown() }
+                runCatching { client.post("https://dead.example/Users/AuthenticateByName") }
+                assertEquals(5, calls)
+
+                now += 30_000L
+                reachable = true
+                assertEquals(null, request())
+                assertEquals(6, calls)
+
+                // One answer ends the streak: a single later failure is not a cooldown.
+                reachable = false
+                request()
+                reachable = true
+                assertEquals(null, request())
+                assertEquals(8, calls)
+            } finally {
+                client.close()
+            }
+        }
+
+    @Test
+    fun learnedClientIdentitiesAreForgottenOldestFirst() =
+        runTest {
+            var calls = 0
+            val client =
+                createEmbyClient(
+                    appVersion = "1.0.0",
+                    timeouts = null,
+                    engine =
+                        MockEngine { request ->
+                            calls++
+                            if (request.headers["X-Emby-Client"] == "Yfuse") {
+                                respond("{}", HttpStatusCode.OK)
+                            } else {
+                                respond("legacy session identity required", HttpStatusCode.Forbidden)
+                            }
+                        },
+                )
+
+            suspend fun read(token: String) =
+                client.get("https://media.example.com/Users/u/Items/1") { header("X-Emby-Token", token) }
+
+            try {
+                // More sessions than are remembered, each learning the legacy identity.
+                repeat(70) { index -> read("token-$index") }
+                assertEquals(140, calls)
+
+                calls = 0
+                read("token-69")
+                assertEquals(1, calls)
+
+                // The oldest was forgotten, and relearns its identity with one extra request.
+                calls = 0
+                read("token-0")
+                assertEquals(2, calls)
             } finally {
                 client.close()
             }

@@ -10,10 +10,13 @@ import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
 import com.yfuse.core.logging.AppLog
+import com.yfuse.core.logging.diagnosticRootCause
+import com.yfuse.core.logging.diagnosticTypeName
 import com.yfuse.core.logging.playbackDiagnosticTrace
 import com.yfuse.core2.api.YInitialTrackSelection
 import com.yfuse.core2.api.YMediaItem
 import com.yfuse.core2.api.YOutputEvidenceResetReason
+import com.yfuse.core2.api.YPlaybackException
 import com.yfuse.core2.api.YPlaybackFailureCategory
 import com.yfuse.core2.api.YPlaybackPhase
 import com.yfuse.core2.api.YPlaybackRoute
@@ -38,6 +41,7 @@ import com.yfuse.core2.learning.YPlaybackObservation
 import com.yfuse.core2.legacy.AndroidMpvCore2FallbackFactory
 import com.yfuse.core2.quirk.YCore2FailureKey
 import com.yfuse.core2.quirk.YCore2FailureLedger
+import com.yfuse.core2.recovery.YPlaybackFailureReporter
 import com.yfuse.core2.recovery.YPlaybackRecoveryAction
 import com.yfuse.core2.recovery.YPlaybackRecoveryContext
 import com.yfuse.core2.recovery.YPlaybackRecoveryPolicy
@@ -48,6 +52,7 @@ import com.yfuse.core2.strategy.YDemuxPath
 import com.yfuse.core2.strategy.YPlaybackPlan
 import com.yfuse.core2.strategy.YRenderPath
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -140,7 +145,20 @@ internal class AndroidAdaptiveCore2YPlayer(
     val sourceFacts = routeEvaluator.sourceFacts.asStateFlow()
     override val playbackRequested: Boolean get() = mutableState.value.playbackRequested
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    /**
+     * Every router coroutine - the command loop, the child-state collector and the monitors - runs
+     * one at a time on this view of Default. The loop and the collector both mutate the recovery
+     * counters and the next-item preparation; on plain Default a collector write could land inside
+     * the loop's iteration of the same map, and the ConcurrentModificationException had no handler.
+     *
+     * Confinement rather than posting child states through [commands]: the posting design would
+     * queue position and failure handling behind whatever the loop is executing and would mean
+     * rewriting the collector's per-child recovery edges as loop state. Here both keep their code
+     * and simply interleave at suspension points. Nothing on this view may block for long, so the
+     * one step that does - route evaluation, probing and child construction - runs on IO (see
+     * createChildOffRouter), and the next-item preload launches on IO itself.
+     */
+    private val scope = CoroutineScope(SupervisorJob() + androidCore2RouterDispatcher())
     private val commands = Channel<Command>(Channel.UNLIMITED)
     private val worker = scope.launch { runLoop() }
     private val audioManager = context.applicationContext.getSystemService(AudioManager::class.java)
@@ -187,6 +205,18 @@ internal class AndroidAdaptiveCore2YPlayer(
     @Volatile
     private var activeChild: YPlayer? = null
 
+    /**
+     * The newest output the caller has set, written on the caller's thread.
+     *
+     * prepare() normally arrives before the Surface does, and the SetVideoOutput command then waits
+     * behind the whole first probe and child construction. A child attached from the command's
+     * copy started without a Surface, so NativeDirect configured video only when the command
+     * finally ran and had to reposition its extractor for it (1.0.83: a startup seek to 0 followed
+     * by an IllegalStateException). The attach hands this to a NativeDirect child instead.
+     */
+    @Volatile
+    private var requestedVideoOutput: YVideoOutput? = null
+
     private val probes = AndroidProbeController()
     private val activeProbeBudget: AndroidProbeBudget? get() = probes.budget()
 
@@ -219,6 +249,7 @@ internal class AndroidAdaptiveCore2YPlayer(
 
     override fun setVideoOutput(output: YVideoOutput?): Boolean {
         if (released) return false
+        requestedVideoOutput = output
         commands.trySend(Command.SetVideoOutput(output))
         return true
     }
@@ -278,14 +309,25 @@ internal class AndroidAdaptiveCore2YPlayer(
 
     private val nextPreparationBoundary = AtomicReference<NextItemPreparationBoundary?>(null)
     private val nextPreparationRevision = AtomicLong()
+    private val nextItemNetworkGate =
+        NextItemNetworkGate { allowMeteredNetwork -> nextItemNetworkAllowed(context, allowMeteredNetwork) }
 
     override fun setNextItemPreparation(
         itemId: String,
         transitionPositionMs: Long?,
         enabled: Boolean,
+        allowMeteredNetwork: Boolean,
+        nextIntroEndMs: Long?,
     ) {
         if (released) return
-        val next = NextItemPreparationBoundary(itemId, transitionPositionMs?.takeIf { it > 0L }, enabled)
+        val next =
+            NextItemPreparationBoundary(
+                itemId = itemId,
+                positionMs = transitionPositionMs?.takeIf { it > 0L },
+                enabled = enabled,
+                allowMeteredNetwork = allowMeteredNetwork,
+                nextIntroEndMs = nextIntroEndMs?.takeIf { it > 0L },
+            )
         if (nextPreparationBoundary.getAndSet(next) != next) {
             nextPreparationRevision.incrementAndGet()
             commands.trySend(Command.PreparationBoundaryChanged)
@@ -499,6 +541,9 @@ internal class AndroidAdaptiveCore2YPlayer(
         var secondarySubtitleOffsetMs = 0L
         var childCollector: Job? = null
         var output: YVideoOutput? = null
+
+        /** The output the active child was last given, so a queued duplicate is not re-applied. */
+        var childVideoOutput: YVideoOutput? = null
         var requestedPlay = request.autoPlay
         var speed = 1f
         var audioDelayMs = 0L
@@ -521,6 +566,9 @@ internal class AndroidAdaptiveCore2YPlayer(
         var forceSoftwareFallback = false
         var bypassLearnedRouteMemoryOnce = false
         var pendingFailureKey: YCore2FailureKey? = null
+
+        /** Dynamic range entering the child being started; decides whether software can take over. */
+        var pendingInputHdrType: YHdrType? = null
 
         /** The media and probe behind the child being started, recorded once the child renders. */
         var pendingVerifiedRoute: Pair<YMediaItem, YCore2ProbeResult.Success>? = null
@@ -563,37 +611,43 @@ internal class AndroidAdaptiveCore2YPlayer(
             if (waitForRelease) releaseBarrier.await()
         }
 
+        /**
+         * The last concrete failure a route of the current start published.
+         *
+         * Every rebuild clears the visible error, so without this a recovery that could not
+         * finish published whatever the router itself hit last. In 1.0.83 NativeDirect failed with
+         * a concrete Demux failure, the enhanced recovery died on the spent start deadline, and
+         * the user read "片源起播探测超时，请检查网络" (Network) about media that never had a
+         * network problem.
+         */
+        var keptRouteFailure: YCoreRouteFailure? = null
+
         suspend fun publishUnavailable(
             reason: String,
-            sourceFailure: com.yfuse.core2.api.YPlaybackException? = null,
+            sourceFailure: YPlaybackException? = null,
+            probeTimedOut: Boolean = false,
         ) {
             stopChild(waitForRelease = false)
             val item = queueItems[currentIndex]
             mutableState.updateState {
+                val published =
+                    yCoreUnavailableError(
+                        routerReason = reason,
+                        sourceFailure = sourceFailure,
+                        keptFailure = keptRouteFailure,
+                        protectedContent = item.drmConfiguration != null,
+                        nativeOnly = nativeOnly,
+                        probeTimedOut = probeTimedOut,
+                        currentError = it.error,
+                        currentCategory = it.errorCategory,
+                    )
                 it.copy(
                     phase = YPlaybackPhase.Failed,
                     playing = false,
                     playbackRequested = requestedPlay,
                     buffering = false,
-                    error =
-                        if (sourceFailure != null) {
-                            yCoreEnhancedFailureMessage(sourceFailure)
-                        } else if (item.drmConfiguration != null) {
-                            "YCore 2.0 无法打开当前受保护片源，" +
-                                "设备未提供可执行的安全解码路径"
-                        } else if (nativeOnly) {
-                            it.error ?: "YCore 2.0 纯内核路径无法打开当前片源"
-                        } else {
-                            "YCore 2.0 与兼容内核均无法打开当前片源"
-                        },
-                    errorCategory =
-                        if (sourceFailure != null) {
-                            sourceFailure.category
-                        } else if (nativeOnly) {
-                            it.errorCategory ?: YPlaybackFailureCategory.Unknown
-                        } else {
-                            YPlaybackFailureCategory.Unknown
-                        },
+                    error = published.message,
+                    errorCategory = published.category,
                     diagnostics =
                         it.diagnostics.copy(
                             route =
@@ -602,7 +656,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                                 } else {
                                     YPlaybackRoute.Legacy
                                 },
-                            reason = reason,
+                            reason = published.reason,
                             videoOutputVerified = false,
                             audioOutputVerified = false,
                             dolbyVisionOutput = false,
@@ -613,6 +667,54 @@ internal class AndroidAdaptiveCore2YPlayer(
                         ),
                 )
             }
+        }
+
+        /** A deadline this router renewed for recovery, and when it really ends (see below). */
+        var renewedProbeBudget: AndroidProbeBudget? = null
+        var renewedProbeDeadlineNs = 0L
+
+        fun remainingStartDeadlineMs(budget: AndroidProbeBudget): Long {
+            val remainingMs = budget.remainingMsOrZero()
+            if (budget !== renewedProbeBudget) return remainingMs
+            val renewedRemainingNs = (renewedProbeDeadlineNs - System.nanoTime()).coerceAtLeast(0L)
+            return minOf(remainingMs, renewedRemainingNs / NANOS_PER_MILLISECOND)
+        }
+
+        /**
+         * Makes sure a recovery attempt of a start that has not rendered yet has time to run.
+         *
+         * One deadline used to cover a start and every recovery tier after it. In 1.0.83
+         * NativeDirect failed at 32 s with a concrete Demux failure, the policy chose the enhanced
+         * route, and the rebuild died at its first ensureActive() on the spent start budget, so
+         * NativeEnhanced was never tried. The failed route has just read this source, so an
+         * attempt with less than [RECOVERY_PROBE_ALLOWANCE_MS] left gets that much of its own;
+         * one with more keeps what it has. A start that already rendered has no active budget,
+         * and its rebuild begins a full one as before.
+         */
+        fun ensureRecoveryProbeBudget() {
+            val current = activeProbeBudget ?: return
+            val remainingMs = remainingStartDeadlineMs(current)
+            if (!yCoreRecoveryNeedsFreshProbeBudget(remainingMs)) return
+            probes.invalidate("recovery")
+            val renewed = probes.begin().budget
+            // The controller's budgets carry the full start deadline; this bounds the attempt.
+            renewedProbeBudget = renewed
+            renewedProbeDeadlineNs = System.nanoTime() + RECOVERY_PROBE_ALLOWANCE_MS * NANOS_PER_MILLISECOND
+            scope.launch {
+                delay(RECOVERY_PROBE_ALLOWANCE_MS)
+                renewed.cancel("deadline")
+            }
+            AppLog.info(
+                category = "player.core2",
+                event = "recovery_probe_budget_renewed",
+                message = "YCore gave a recovery attempt its own startup deadline",
+                attributes =
+                    mapOf(
+                        "allowanceMs" to RECOVERY_PROBE_ALLOWANCE_MS.toString(),
+                        "previousRemainingMs" to remainingMs.toString(),
+                        "generation" to probes.generation().toString(),
+                    ),
+            )
         }
 
         fun scheduleNextItemPreload(fromIndex: Int) {
@@ -650,16 +752,18 @@ internal class AndroidAdaptiveCore2YPlayer(
 
                     fun snapshot(): YPlayerState? = activeChild?.takeIf { it === preloadChild }?.state?.value
 
-                    fun boundary(): Long? =
-                        nextPreparationBoundary.get()?.takeIf { it.itemId == currentItem.id }?.positionMs
+                    fun hint(): NextItemPreparationBoundary? =
+                        nextPreparationBoundary.get()?.takeIf { it.itemId == currentItem.id }
+
+                    fun boundary(): Long? = hint()?.positionMs
 
                     fun allowed(): Boolean =
                         !released &&
                             activeChild === preloadChild &&
                             nextPreparationRevision.get() == preparationRevision &&
-                            nextPreparationBoundary.get()?.takeIf { it.itemId == currentItem.id }?.enabled != false &&
+                            hint()?.enabled != false &&
                             currentThermalStatus() < SEVERE_THERMAL_STATUS &&
-                            nextItemNetworkAllowed(context)
+                            nextItemNetworkAllowed(context, hint()?.allowMeteredNetwork == true)
 
                     fun healthy(): Boolean = allowed() && snapshot()?.let(::nextItemPlaybackHealthy) == true
                     try {
@@ -673,9 +777,20 @@ internal class AndroidAdaptiveCore2YPlayer(
                         ) {
                             return@launch
                         }
-                        speculativeNextItemWork(
-                            ::healthy,
-                        ) { budget -> warmNextItemBytes(context.cacheDir, item, budget) }
+                        // The opening prefix (up to 12 MB) is a Wi-Fi convenience; on mobile data the
+                        // extractor preparation below reads only what the start itself needs.
+                        if (nextItemNetworkAllowed(context)) {
+                            speculativeNextItemWork(
+                                ::healthy,
+                            ) { budget ->
+                                warmNextItemBytes(
+                                    context.cacheDir,
+                                    item,
+                                    budget,
+                                    shouldContinue = { nextItemNetworkAllowed(context) },
+                                )
+                            }
+                        }
                         // Sources have a 30s lease. Open them only close to credits/natural end.
                         if (!awaitNextItemBoundary(20_000L, ::boundary, ::snapshot, ::allowed)) return@launch
                         val decision =
@@ -695,7 +810,16 @@ internal class AndroidAdaptiveCore2YPlayer(
                             } ?: return@launch
                         currentCoroutineContext().ensureActive()
                         if (!healthy()) return@launch
-                        preloadEvaluator.takePreparedExtractor(item)?.let { sources.extractor.offer(item, it) }
+                        var preparedExtractor = preloadEvaluator.takePreparedExtractor(item)
+                        val introEndMs = hint()?.nextIntroEndMs
+                        if (preparedExtractor != null &&
+                            introEndMs != null &&
+                            !warmNextItemIntroEnd(preparedExtractor, introEndMs, ::healthy)
+                        ) {
+                            preparedExtractor.release()
+                            preparedExtractor = null
+                        }
+                        preparedExtractor?.let { sources.extractor.offer(item, it) }
                         preloadEvaluator.takePreparedEnhancedDemux(item)?.let { sources.enhanced.offer(item, it) }
                         val route =
                             PreloadedNextRoute(
@@ -895,6 +1019,7 @@ internal class AndroidAdaptiveCore2YPlayer(
             budget.ensureActive()
             pendingFailureKey = null
             pendingVerifiedRoute = null
+            pendingInputHdrType = null
             val bypassLearnedRouteMemory =
                 shouldBypassLearnedYCoreRouteMemory(
                     manualRetry = bypassLearnedRouteMemoryOnce,
@@ -913,6 +1038,7 @@ internal class AndroidAdaptiveCore2YPlayer(
             pendingAdaptiveTarget = null
             adaptiveTarget = target
             val item = target?.let { rootItem.copy(uri = it.uri) } ?: rootItem
+            pendingInputHdrType = item.hintedHdrType()
             val forcePowerSaver = currentThermalStatus() >= SEVERE_THERMAL_STATUS
             val tunnelAllowed =
                 allowTunnel &&
@@ -1000,6 +1126,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                     )
             currentCoroutineContext().ensureActive()
             budget.ensureActive()
+            decision?.let { pendingInputHdrType = it.probe.playbackRequest.video.hdrType }
             if (forceSoftwareFallback) {
                 videoHandoff.close()
                 routeEvaluator.closePreparedExtractor()
@@ -1160,6 +1287,9 @@ internal class AndroidAdaptiveCore2YPlayer(
                         allowAudioPassthrough = false,
                         frameRateSwitchMode = frameRateSwitchMode,
                         forcedPlan = plan,
+                        // Only hardware video decode reaches here with Dolby Vision (see the
+                        // guard); the demux must then still prove the Dolby configuration.
+                        requireDolbyVisionIdentity = plan.inputHdrType == YHdrType.DolbyVision,
                         preferredRemoteBufferTargetUs = preferredRemoteBufferTargetUs,
                     )
                 plan.route == YPlaybackRoute.GpuEnhanced -> {
@@ -1242,11 +1372,17 @@ internal class AndroidAdaptiveCore2YPlayer(
             fun childIndex(): Int = queueItems.indexOfFirst { it.id == childItemId }.coerceAtLeast(0)
             val childFailureKey = pendingFailureKey
             val childVerifiedRoute = pendingVerifiedRoute
+            val childInputHdrType = pendingInputHdrType ?: queueItems[currentIndex].hintedHdrType()
             var failureRecorded = false
             var successRecorded = false
             var learningRecorded = false
             var autoNextQueued = false
             var recoveryQueued = false
+            val verifiedRouteSuspicion = YCoreVerifiedRouteSuspicion()
+
+            /** What the latest failure of this child tells the recovery decision. */
+            var attemptDeterministic = false
+            var attemptRanOutOfTime = false
             val networkRecoveryWindow = AndroidNetworkRecoveryWindow()
             val learningStartPositionMs = next.currentPositionMs() + (attachedTarget?.presentationOffsetMs ?: 0L)
             val learningStartBatteryPermille = currentBatteryPermille()
@@ -1307,7 +1443,14 @@ internal class AndroidAdaptiveCore2YPlayer(
 
             next.setSpeed(speed)
             next.setAudioDelayMs(audioDelayMs)
-            next.setVideoOutput(output)
+            // NativeDirect gets the caller's newest output rather than the command copy, which may
+            // still be queued behind this very start (see requestedVideoOutput): before prepare()
+            // it only records the Surface and then configures its decoder with it. The enhanced
+            // child starts a full prepare for any valid Surface, and the prepare() below would then
+            // open the source a second time, so it keeps receiving the output by command.
+            val attachedOutput = if (next is AndroidNativeDirectYPlayer) requestedVideoOutput else output
+            next.setVideoOutput(attachedOutput)
+            childVideoOutput = attachedOutput
             childCollector =
                 scope.launch {
                     next.state.collect { localChildState ->
@@ -1316,7 +1459,11 @@ internal class AndroidAdaptiveCore2YPlayer(
                             localChildState.diagnostics.audioOutputVerified
                         ) {
                             attachedProbeBudget?.let(probes::complete)
+                            // An in-place recovery of this child may run on a renewed deadline.
+                            activeProbeBudget?.let(probes::complete)
+                            keptRouteFailure = null
                         }
+                        if (localChildState.diagnostics.videoOutputVerified) verifiedRouteSuspicion.onVideoOutput()
                         if (activeChild !== next) return@collect
                         val reportedChildState = mapAdaptivePresentationState(localChildState, attachedTarget)
                         val nextPeriodPosition =
@@ -1386,7 +1533,12 @@ internal class AndroidAdaptiveCore2YPlayer(
                             sameRouteRecoveryAttempts.remove(prematureEndRecoveryKey)
                         }
                         if ((nextItemPreloadJob != null || preloadedNextRoute != null) &&
-                            (reportedChildState.buffering || !nextItemNetworkAllowed(context))
+                            (
+                                reportedChildState.buffering ||
+                                    !nextItemNetworkGate.allowed(
+                                        nextPreparationBoundary.get()?.allowMeteredNetwork == true,
+                                    )
+                            )
                         ) {
                             discardNextPreparation()
                         }
@@ -1467,14 +1619,32 @@ internal class AndroidAdaptiveCore2YPlayer(
                         if (childState.phase == YPlaybackPhase.Failed && !failureRecorded) {
                             failureRecorded = true
                             val category = childState.errorCategory
-                            if (childFailureKey != null && category != null) {
-                                failureLedger.recordFailure(childFailureKey, category)
+                            val executedRoute = childState.diagnostics.route
+                            // Filed under the route that ran, not the plan's label: 1.0.83 filed
+                            // a NativeEnhanced decoder failure under the SoftwareFallback plan
+                            // the Dolby guard had turned away.
+                            val executedFailureKey = childFailureKey?.forExecutedRoute(executedRoute)
+                            if (executedFailureKey != null && category != null) {
+                                failureLedger.recordFailure(executedFailureKey, category)
                             }
-                            // A local failure on the remembered route means the remembered facts
-                            // no longer describe this media on this device; a transport, account
-                            // or DRM failure says nothing about them.
-                            if (category != null && category !in VERIFIED_ROUTE_NEUTRAL_FAILURES) {
-                                childVerifiedRoute?.first?.let(verifiedRouteMemory::forget)
+                            verifiedRouteSuspicion.onFailure(category)
+                            val reportedFailure =
+                                if (prematureEnd) null else (next as? YPlaybackFailureReporter)?.lastPlaybackFailure
+                            attemptDeterministic = (reportedFailure as? YPlaybackException)?.deterministic == true
+                            attemptRanOutOfTime =
+                                yCoreAttemptRanOutOfTime(
+                                    reported = reportedFailure,
+                                    category = category,
+                                    attemptDeadlineStopped = activeProbeBudget?.hasStopped() == true,
+                                )
+                            if (!attemptRanOutOfTime) {
+                                yCoreRouteFailure(
+                                    route = executedRoute,
+                                    category = category,
+                                    message = childState.error,
+                                    reason = childState.diagnostics.reason,
+                                    reported = reportedFailure,
+                                )?.takeIf { it.concrete }?.let { keptRouteFailure = it }
                             }
                             if (!prematureEnd) recordLearning(childState, terminal = true)
                         }
@@ -1485,7 +1655,11 @@ internal class AndroidAdaptiveCore2YPlayer(
                             (childState.audioTracks.isEmpty() || childState.diagnostics.audioOutputVerified)
                         ) {
                             successRecorded = true
-                            failureLedger.recordSuccess(childFailureKey)
+                            val executedFailureKey = childFailureKey.forExecutedRoute(childState.diagnostics.route)
+                            failureLedger.recordSuccess(executedFailureKey)
+                            // Failures an earlier build filed under the plan's label describe
+                            // this same route.
+                            if (executedFailureKey != childFailureKey) failureLedger.recordSuccess(childFailureKey)
                             childVerifiedRoute?.let { (verifiedItem, probe) ->
                                 verifiedRouteMemory.recordVerified(verifiedItem, probe)
                             }
@@ -1509,17 +1683,33 @@ internal class AndroidAdaptiveCore2YPlayer(
                                     route = childState.diagnostics.route,
                                     category = childState.errorCategory,
                                 )
-                            when (
+                            val failedItem = queueItems[childIndex()]
+                            val action =
                                 YPlaybackRecoveryPolicy.decide(
                                     YPlaybackRecoveryContext(
                                         route = childState.diagnostics.route,
                                         category = childState.errorCategory,
                                         sameRouteAttempts = sameRouteRecoveryAttempts[recoveryKey] ?: 0,
-                                        protectedContent = queueItems[childIndex()].drmConfiguration != null,
+                                        protectedContent = failedItem.drmConfiguration != null,
                                         softwareFallbackAttempted = childSoftwareFallbackAttempted,
+                                        deterministic = attemptDeterministic,
+                                        softwareFallbackAvailable =
+                                            yCoreSoftwareRecoveryAvailable(
+                                                compatibilityRouteAvailable = fallbackRouteFactory != null,
+                                                discRouteAvailable =
+                                                    failedItem.disc != null && discRouteFactory != null,
+                                                protectedContent = failedItem.drmConfiguration != null,
+                                                inputHdrType = childInputHdrType,
+                                            ),
                                     ),
                                 )
-                            ) {
+                            if (verifiedRouteSuspicion.onRecovery(action)) {
+                                childVerifiedRoute?.first?.let(verifiedRouteMemory::forget)
+                            }
+                            // Every recovery attempt gets time to run, except after an attempt
+                            // that failed only because the start ran out of time.
+                            val renewProbeBudget = !attemptRanOutOfTime
+                            when (action) {
                                 YPlaybackRecoveryAction.RetrySameRoute -> {
                                     sameRouteRecoveryAttempts[recoveryKey] =
                                         (sameRouteRecoveryAttempts[recoveryKey] ?: 0) + 1
@@ -1529,23 +1719,38 @@ internal class AndroidAdaptiveCore2YPlayer(
                                             index = childIndex(),
                                             positionMs = childState.positionMs,
                                             route = childState.diagnostics.route,
+                                            renewProbeBudget = renewProbeBudget,
                                         ),
                                     )
                                     return@collect
                                 }
                                 YPlaybackRecoveryAction.DisableTunnel -> {
-                                    commands.trySend(Command.FallbackFromTunnel(childIndex(), childState.positionMs))
+                                    commands.trySend(
+                                        Command.FallbackFromTunnel(
+                                            index = childIndex(),
+                                            positionMs = childState.positionMs,
+                                            renewProbeBudget = renewProbeBudget,
+                                        ),
+                                    )
                                     return@collect
                                 }
                                 YPlaybackRecoveryAction.FallbackToEnhanced -> {
                                     commands.trySend(
-                                        Command.FallbackToEnhanced(childIndex(), childState.positionMs),
+                                        Command.FallbackToEnhanced(
+                                            index = childIndex(),
+                                            positionMs = childState.positionMs,
+                                            renewProbeBudget = renewProbeBudget,
+                                        ),
                                     )
                                     return@collect
                                 }
                                 YPlaybackRecoveryAction.FallbackToSoftware -> {
                                     commands.trySend(
-                                        Command.FallbackToSoftware(childIndex(), childState.positionMs),
+                                        Command.FallbackToSoftware(
+                                            index = childIndex(),
+                                            positionMs = childState.positionMs,
+                                            renewProbeBudget = renewProbeBudget,
+                                        ),
                                     )
                                     return@collect
                                 }
@@ -1563,13 +1768,19 @@ internal class AndroidAdaptiveCore2YPlayer(
                             requestedPlay = false
                         }
                         if (childState.phase == YPlaybackPhase.Ready) autoNextQueued = false
+                        val publishedChildState =
+                            if (nativeOnly) {
+                                childState.withStartFailure(attemptRanOutOfTime, keptRouteFailure)
+                            } else {
+                                childState
+                            }
                         mutableState.value =
-                            childState.copy(
+                            publishedChildState.copy(
                                 currentIndex = childIndex(),
                                 itemCount = queueItems.size,
                                 playbackRequested = requestedPlay && childState.phase != YPlaybackPhase.Ended,
                                 diagnostics =
-                                    childState.diagnostics.copy(
+                                    publishedChildState.diagnostics.copy(
                                         codecResetCount =
                                             childState.diagnostics.codecResetCount +
                                                 (codecResetCounts[childIndex()] ?: 0),
@@ -1630,6 +1841,27 @@ internal class AndroidAdaptiveCore2YPlayer(
             if (requestedPlay) next.play()
         }
 
+        /**
+         * Probing the source over the network and constructing decoders can block for seconds, so it
+         * leaves the one-at-a-time router dispatcher for IO. Callers stop the previous child first:
+         * no collector is attached while this runs, and the monitors only post commands. A child
+         * finished just as the router is cancelled is released here instead of being lost with the
+         * result withContext discards.
+         */
+        suspend fun createChildOffRouter(
+            positionMs: Long,
+            budget: AndroidProbeBudget,
+        ): YPlayer? {
+            var created: YPlayer? = null
+            try {
+                withContext(Dispatchers.IO) { created = createChild(positionMs, budget) }
+            } catch (cancelled: CancellationException) {
+                created?.release()
+                throw cancelled
+            }
+            return created
+        }
+
         suspend fun rebuild(positionMs: Long) {
             val ticket = probes.begin()
             val budget = ticket.budget
@@ -1658,7 +1890,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                             ).invalidateOutputEvidence(YOutputEvidenceResetReason.DecoderReconfigured),
                 )
             }
-            val next = createChild(positionMs, budget)
+            val next = createChildOffRouter(positionMs, budget)
             var transferred = false
             try {
                 if (released || !probes.isCurrent(ticket)) return
@@ -1679,7 +1911,10 @@ internal class AndroidAdaptiveCore2YPlayer(
             for (command in commands) {
                 try {
                     when (command) {
-                        Command.Prepare -> rebuild(pendingPositionMs)
+                        Command.Prepare -> {
+                            keptRouteFailure = null
+                            rebuild(pendingPositionMs)
+                        }
                         Command.Play -> {
                             requestedPlay = true
                             val active = child
@@ -1826,7 +2061,11 @@ internal class AndroidAdaptiveCore2YPlayer(
                             output = command.output
                             val active = child
                             if (active != null) {
-                                active.setVideoOutput(output)
+                                // The attach may already have handed this very output over.
+                                if (output != childVideoOutput) {
+                                    active.setVideoOutput(output)
+                                    childVideoOutput = output
+                                }
                             } else if (
                                 output != null &&
                                 mutableState.value.phase != YPlaybackPhase.Idle &&
@@ -1865,6 +2104,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                             allowTunnel = true
                             forceEnhancedFallback = false
                             forceSoftwareFallback = false
+                            keptRouteFailure = null
                             rebuild(0L)
                         }
                         Command.QueueUpdated -> {
@@ -1968,6 +2208,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                             ) {
                                 allowTunnel = false
                                 pendingPositionMs = command.positionMs
+                                if (command.renewProbeBudget) ensureRecoveryProbeBudget()
                                 rebuild(pendingPositionMs)
                             }
                         }
@@ -1982,6 +2223,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                                 activeState.diagnostics.route == command.route
                             ) {
                                 pendingPositionMs = command.positionMs
+                                if (command.renewProbeBudget) ensureRecoveryProbeBudget()
                                 if (canRetryCore2RouteInPlace(command.route, active is AndroidNativeEnhancedYPlayer)) {
                                     // The child owns a serialized codec command queue. Reusing it
                                     // guarantees releaseMedia() finishes before the same decoder is
@@ -2021,6 +2263,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                                 forceEnhancedFallback = true
                                 forceSoftwareFallback = false
                                 pendingPositionMs = command.positionMs
+                                if (command.renewProbeBudget) ensureRecoveryProbeBudget()
                                 rebuild(pendingPositionMs)
                             }
                         }
@@ -2038,6 +2281,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                                 forceEnhancedFallback = false
                                 forceSoftwareFallback = true
                                 pendingPositionMs = command.positionMs
+                                if (command.renewProbeBudget) ensureRecoveryProbeBudget()
                                 rebuild(pendingPositionMs)
                             }
                         }
@@ -2049,6 +2293,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                             forceSoftwareFallback = false
                             bypassLearnedRouteMemoryOnce = true
                             pendingFailureKey = null
+                            keptRouteFailure = null
                             pendingPositionMs =
                                 mutableState.value
                                     .takeIf { it.currentIndex == currentIndex }
@@ -2084,6 +2329,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                     if (failure is CancellationException) throw failure
                     if (released) break
                     if (failure is AndroidProbeAbortedException && failure.reason == "superseded") continue
+                    val probeTimedOut = failure is AndroidProbeAbortedException
                     if (failure is AndroidProbeAbortedException) {
                         AppLog.warning(
                             category = "player.core2",
@@ -2093,16 +2339,17 @@ internal class AndroidAdaptiveCore2YPlayer(
                                 mapOf(
                                     "reason" to failure.reason,
                                     "generation" to probes.generation().toString(),
+                                    "keptFailureCategory" to keptRouteFailure?.category?.name.orEmpty(),
                                 ),
                         )
-                        mutableState.updateState {
-                            it.copy(
-                                error = "YCore 2.0 片源起播探测超时，请检查网络或刷新片源后重试",
-                                errorCategory = YPlaybackFailureCategory.Network,
-                            )
-                        }
                     }
-                    publishUnavailable(core2RouterFailureReason(failure), failure.mediaSourceFailure())
+                    // The timeout text is only the fallback: a route that failed concretely
+                    // before this start ran out of time is what the user is told about.
+                    publishUnavailable(
+                        reason = core2RouterFailureReason(failure),
+                        sourceFailure = failure.mediaSourceFailure(),
+                        probeTimedOut = probeTimedOut,
+                    )
                 }
             }
         } finally {
@@ -2191,22 +2438,31 @@ internal class AndroidAdaptiveCore2YPlayer(
         data class FallbackFromTunnel(
             val index: Int,
             val positionMs: Long,
+            val renewProbeBudget: Boolean = false,
         ) : Command
 
+        /**
+         * [renewProbeBudget] is set when the recovery follows a failure of the route itself rather
+         * than the start running out of time (see ensureRecoveryProbeBudget); the transport
+         * recovery that reopens a stalled read keeps the start's deadline.
+         */
         data class RecoverSameRoute(
             val index: Int,
             val positionMs: Long,
             val route: YPlaybackRoute,
+            val renewProbeBudget: Boolean = false,
         ) : Command
 
         data class FallbackToSoftware(
             val index: Int,
             val positionMs: Long,
+            val renewProbeBudget: Boolean = false,
         ) : Command
 
         data class FallbackToEnhanced(
             val index: Int,
             val positionMs: Long,
+            val renewProbeBudget: Boolean = false,
         ) : Command
     }
 
@@ -2274,9 +2530,220 @@ private const val NO_PENDING_SEEK_MS = -1L
 private const val THERMAL_POLL_INTERVAL_MS = 30_000L
 private const val SEVERE_THERMAL_STATUS = 3
 private const val RELEASE_JOIN_TIMEOUT_MS = 5_000L
+private const val NANOS_PER_MILLISECOND = 1_000_000L
 
+/**
+ * What a recovery attempt of a start that has not rendered is guaranteed, however little of the
+ * start's own deadline is left. The failed route has just read the source, and probe results are
+ * cached for the session, so this covers the new route's open rather than a second full probe.
+ */
+private const val RECOVERY_PROBE_ALLOWANCE_MS = 20_000L
+
+/** Throwable names survive release obfuscation (see diagnosticTypeName); the message never enters. */
 internal fun core2RouterFailureReason(failure: Throwable): String =
-    "Core2 router failed at ${failure::class.simpleName ?: "unknown failure"}"
+    "Core2 router failed at ${failure.diagnosticTypeName()}"
+
+/** True when a recovery attempt with [remainingStartMs] of the start's deadline left needs its own. */
+internal fun yCoreRecoveryNeedsFreshProbeBudget(
+    remainingStartMs: Long,
+    allowanceMs: Long = RECOVERY_PROBE_ALLOWANCE_MS,
+): Boolean = remainingStartMs < allowanceMs
+
+/**
+ * Whether a failed attempt ended because its start ran out of time rather than on the media.
+ *
+ * A reported failure is decided by its root cause. Without one, only an unclassified failure after
+ * the attempt's deadline stopped counts: a typed failure says what went wrong, deadline or not.
+ */
+internal fun yCoreAttemptRanOutOfTime(
+    reported: Throwable?,
+    category: YPlaybackFailureCategory?,
+    attemptDeadlineStopped: Boolean,
+): Boolean =
+    if (reported != null) {
+        reported.diagnosticRootCause() is AndroidProbeAbortedException
+    } else {
+        attemptDeadlineStopped && (category == null || category == YPlaybackFailureCategory.Unknown)
+    }
+
+/** Failure categories that say something about this media or device, unlike transport or deadline failures. */
+private val CONCRETE_ROUTE_FAILURES =
+    setOf(
+        YPlaybackFailureCategory.Authorization,
+        YPlaybackFailureCategory.Drm,
+        YPlaybackFailureCategory.Container,
+        YPlaybackFailureCategory.Decoder,
+        YPlaybackFailureCategory.Renderer,
+        YPlaybackFailureCategory.AudioSink,
+    )
+
+/**
+ * One route's failure as the router keeps it once the rebuild after it cleared the visible error.
+ *
+ * [message] is the localized text the route published, never a throwable message; [reason] names
+ * the route, the stage and the typed safe detail, which by contract carries no URL or credential.
+ */
+internal data class YCoreRouteFailure(
+    val route: YPlaybackRoute,
+    val category: YPlaybackFailureCategory,
+    val message: String,
+    val reason: String,
+) {
+    val concrete: Boolean get() = category in CONCRETE_ROUTE_FAILURES
+}
+
+/** Builds the kept failure from a child's Failed state and, when the child reports it, the typed failure. */
+internal fun yCoreRouteFailure(
+    route: YPlaybackRoute,
+    category: YPlaybackFailureCategory?,
+    message: String?,
+    reason: String?,
+    reported: Throwable?,
+): YCoreRouteFailure? {
+    val typed = reported as? YPlaybackException
+    val resolvedCategory = typed?.category ?: category ?: return null
+    val resolvedMessage =
+        when {
+            typed.isHiddenServerAudioTrackFailure() -> YCORE_HIDDEN_AUDIO_TRACK_MESSAGE
+            !message.isNullOrBlank() -> message
+            else -> yCoreEnhancedFailureMessage(typed)
+        }
+    val resolvedReason =
+        typed?.let { failure ->
+            buildString {
+                append(route.name)
+                append(" failed at ")
+                append(failure.stage.name)
+                failure.safeDetail?.takeIf(String::isNotBlank)?.let { detail ->
+                    append(": ")
+                    append(detail)
+                }
+            }
+        } ?: reason?.takeIf(String::isNotBlank) ?: "${route.name} failed"
+    return YCoreRouteFailure(
+        route = route,
+        category = resolvedCategory,
+        message = resolvedMessage,
+        reason = resolvedReason,
+    )
+}
+
+/**
+ * The state a start that stops on a failed attempt publishes.
+ *
+ * When the attempt only ran out of its startup deadline after an earlier route of the same start
+ * failed concretely, that earlier failure is the reason the media did not play: the deadline is
+ * its consequence, and a "probe timed out" message sent users to check a network that was fine.
+ */
+internal fun YPlayerState.withStartFailure(
+    attemptRanOutOfTime: Boolean,
+    kept: YCoreRouteFailure?,
+): YPlayerState {
+    if (phase != YPlaybackPhase.Failed || !attemptRanOutOfTime || kept == null || !kept.concrete) return this
+    return copy(
+        error = kept.message,
+        errorCategory = kept.category,
+        diagnostics =
+            diagnostics.copy(
+                reason = "${kept.reason}; ${diagnostics.route.name} then ran out of its startup deadline",
+            ),
+    )
+}
+
+internal data class YCoreUnavailableError(
+    val message: String,
+    val category: YPlaybackFailureCategory,
+    val reason: String,
+)
+
+/**
+ * What a start publishes when the router itself cannot produce another route.
+ *
+ * A typed source failure the router hit is current evidence and wins. On a native-only start the
+ * last concrete route failure comes next, then the probe timeout, which is only the fallback when
+ * nothing more concrete is known. With a compatibility engine the failure stays Unknown on
+ * purpose: that is what hands the item to the product-level Legacy fallback.
+ */
+internal fun yCoreUnavailableError(
+    routerReason: String,
+    sourceFailure: YPlaybackException?,
+    keptFailure: YCoreRouteFailure?,
+    protectedContent: Boolean,
+    nativeOnly: Boolean,
+    probeTimedOut: Boolean,
+    currentError: String?,
+    currentCategory: YPlaybackFailureCategory?,
+): YCoreUnavailableError {
+    val kept = keptFailure?.takeIf { nativeOnly && it.concrete }
+    return when {
+        sourceFailure != null ->
+            YCoreUnavailableError(yCoreEnhancedFailureMessage(sourceFailure), sourceFailure.category, routerReason)
+        kept != null ->
+            YCoreUnavailableError(kept.message, kept.category, "${kept.reason}; recovery ended: $routerReason")
+        protectedContent ->
+            YCoreUnavailableError(
+                message = "YCore 2.0 无法打开当前受保护片源，设备未提供可执行的安全解码路径",
+                category =
+                    when {
+                        !nativeOnly -> YPlaybackFailureCategory.Unknown
+                        probeTimedOut -> YPlaybackFailureCategory.Network
+                        else -> currentCategory ?: YPlaybackFailureCategory.Unknown
+                    },
+                reason = routerReason,
+            )
+        nativeOnly && probeTimedOut ->
+            YCoreUnavailableError(
+                message = "YCore 2.0 片源起播探测超时，请检查网络或刷新片源后重试",
+                category = YPlaybackFailureCategory.Network,
+                reason = routerReason,
+            )
+        nativeOnly ->
+            YCoreUnavailableError(
+                message = currentError ?: "YCore 2.0 纯内核路径无法打开当前片源",
+                category = currentCategory ?: YPlaybackFailureCategory.Unknown,
+                reason = routerReason,
+            )
+        else ->
+            YCoreUnavailableError(
+                message = "YCore 2.0 与兼容内核均无法打开当前片源",
+                category = YPlaybackFailureCategory.Unknown,
+                reason = routerReason,
+            )
+    }
+}
+
+/**
+ * Whether FallbackToSoftware has a route to build for this input (see createInternalSoftwareRoute).
+ * Without a compatibility engine, Dolby Vision has none: YCore never decodes it in software.
+ */
+internal fun yCoreSoftwareRecoveryAvailable(
+    compatibilityRouteAvailable: Boolean,
+    discRouteAvailable: Boolean,
+    protectedContent: Boolean,
+    inputHdrType: YHdrType,
+): Boolean =
+    compatibilityRouteAvailable ||
+        discRouteAvailable ||
+        (!protectedContent && yCoreInternalSoftwareRecoveryPlan(inputHdrType) != null)
+
+private fun AndroidProbeBudget.remainingMsOrZero(): Long =
+    try {
+        remainingMs()
+    } catch (_: AndroidProbeAbortedException) {
+        0L
+    }
+
+/** Stopped for any reason, deadline included; a budget completed by rendered output never is. */
+private fun AndroidProbeBudget.hasStopped(): Boolean =
+    try {
+        ensureActive()
+        false
+    } catch (_: AndroidProbeAbortedException) {
+        true
+    }
+
+/** A router's own view of Default: its coroutines run one at a time, so its plain state has one owner. */
+internal fun androidCore2RouterDispatcher(): CoroutineDispatcher = Dispatchers.Default.limitedParallelism(1)
 
 internal fun shouldRetryActiveNativeChildInPlace(
     nativeOnly: Boolean,
@@ -2308,6 +2775,35 @@ private val VERIFIED_ROUTE_NEUTRAL_FAILURES =
         YPlaybackFailureCategory.Authorization,
         YPlaybackFailureCategory.Drm,
     )
+
+/**
+ * Decides when a local failure makes the router forget a route verified for this media.
+ *
+ * A local failure on the remembered route means the remembered facts may no longer describe this
+ * media on this device; a transport, account or DRM failure says nothing about them. The route is
+ * forgotten once recovery leaves it. A startup failure that the same route then recovers from and
+ * renders (1.0.83: a NativeDirect IllegalStateException that played 2 s later) proves the facts,
+ * and forgetting them made the next start of the title pay every probe again.
+ */
+internal class YCoreVerifiedRouteSuspicion {
+    var suspect: Boolean = false
+        private set
+
+    fun onFailure(category: YPlaybackFailureCategory?) {
+        if (category != null && category !in VERIFIED_ROUTE_NEUTRAL_FAILURES) suspect = true
+    }
+
+    fun onVideoOutput() {
+        suspect = false
+    }
+
+    /** True when the route must be forgotten now, because recovery is leaving it or stopping. */
+    fun onRecovery(action: YPlaybackRecoveryAction): Boolean {
+        if (!suspect || action == YPlaybackRecoveryAction.RetrySameRoute) return false
+        suspect = false
+        return true
+    }
+}
 
 private const val MIN_LEARNING_PLAYBACK_MS = 30_000L
 private const val MAX_CONSECUTIVE_NETWORK_RECOVERY_ATTEMPTS = 2
@@ -2421,19 +2917,27 @@ private fun YMediaItem.hintedHdrType(): YHdrType {
 }
 
 private fun yCoreSoftwarePlanExecutable(plan: YPlaybackPlan): Boolean {
-    if (
-        plan.usesHdrFallback ||
-        plan.inputHdrType == YHdrType.DolbyVision ||
-        plan.outputHdrType == YHdrType.DolbyVision
-    ) {
-        return false
-    }
+    if (!yCoreSoftwarePlanPassesDolbyGuard(plan)) return false
     return runCatching {
         AndroidFfmpegDemuxer().let { demuxer ->
             demuxer.available && demuxer.softwareDecodeAvailable
         }
     }.getOrDefault(false)
 }
+
+/**
+ * The Dolby Vision and HDR-fallback guard protects FFmpeg video decode only, which would decode the
+ * Dolby base layer into a wrong picture. A plan whose video stays on a platform decoder is labelled
+ * SoftwareFallback only because its audio is decoded in software, and the guard refused exactly
+ * that in 1.0.83 (internal_route_unavailable dolbyguard=true for a hardware-decoded DV P5 plan).
+ */
+internal fun yCoreSoftwarePlanPassesDolbyGuard(plan: YPlaybackPlan): Boolean =
+    plan.decodePath != YDecodePath.Software ||
+        !(
+            plan.usesHdrFallback ||
+                plan.inputHdrType == YHdrType.DolbyVision ||
+                plan.outputHdrType == YHdrType.DolbyVision
+        )
 
 internal fun YPlaybackPlan.withNativeGpuFallbackTruth(probe: YNativeGpuRuntimeProbe): YPlaybackPlan {
     if (route != YPlaybackRoute.GpuEnhanced) return this

@@ -3,19 +3,32 @@ package com.yfuse.core2.android
 import android.annotation.SuppressLint
 import android.media.MediaCodecInfo
 import android.media.MediaFormat
+import com.yfuse.core2.api.YPlaybackException
+import com.yfuse.core2.api.YPlaybackFailureCategory
+import com.yfuse.core2.api.YPlaybackFailureStage
 import com.yfuse.core2.bitstream.YBitstream
 import com.yfuse.core2.bitstream.YCodecConfiguration
 import com.yfuse.core2.bitstream.YNalCodec
+import com.yfuse.core2.bitstream.YParameterSets
 import com.yfuse.core2.bitstream.YSamplePacking
 import com.yfuse.core2.capability.YHdrType
 import com.yfuse.core2.capability.YVideoCodec
 import com.yfuse.core2.demux.YAudioTrackFormat
 import com.yfuse.core2.demux.YVideoTrackFormat
+import kotlinx.coroutines.CancellationException
 import java.nio.ByteBuffer
 
 /** Converts container-neutral Core2 track metadata into Android MediaCodec configuration. */
 internal object AndroidMediaFormatFactory {
-    fun video(track: YVideoTrackFormat): MediaFormat {
+    /**
+     * [inBandParameterSets] are the first keyframe's, used only when the container's own codec
+     * configuration carries no complete set (see [h26xCodecSpecificData]). Callers build the format
+     * inside [yVideoFormatStage] so that a malformed record is reported as the Bitstream failure it is.
+     */
+    fun video(
+        track: YVideoTrackFormat,
+        inBandParameterSets: YParameterSets? = null,
+    ): MediaFormat {
         val mime =
             if (track.dolbyVisionConfig != null) {
                 MIME_DOLBY_VISION
@@ -31,7 +44,7 @@ internal object AndroidMediaFormatFactory {
                 ByteBuffer.wrap(metadata.toCta8613Bytes()),
             )
         }
-        applyVideoCodecPrivate(format, track)
+        applyVideoCodecPrivate(format, track, inBandParameterSets)
         track.dolbyVisionConfig?.let { config ->
             config.profile.toAndroidDolbyVisionProfile()?.let { profile ->
                 format.setInteger(MediaFormat.KEY_PROFILE, profile)
@@ -76,14 +89,18 @@ internal object AndroidMediaFormatFactory {
     private fun applyVideoCodecPrivate(
         format: MediaFormat,
         track: YVideoTrackFormat,
+        inBandParameterSets: YParameterSets?,
     ) {
+        h26xCodecSpecificData(track, inBandParameterSets)?.let { data ->
+            data.csd0?.let { format.setByteBuffer(CSD_0, ByteBuffer.wrap(it)) }
+            data.csd1?.let { format.setByteBuffer(CSD_1, ByteBuffer.wrap(it)) }
+            return
+        }
         val extra =
             track.codecPrivateData.entries
                 .firstOrNull()
                 ?.takeIf(ByteArray::isNotEmpty) ?: return
         when (track.codec) {
-            YVideoCodec.H264 -> applyAvcPrivate(format, extra, track.samplePacking)
-            YVideoCodec.H265 -> applyHevcPrivate(format, extra, track.samplePacking)
             YVideoCodec.Av1 -> applyAv1Private(format, extra)
             else -> format.setByteBuffer(CSD_0, ByteBuffer.wrap(extra))
         }
@@ -103,52 +120,137 @@ internal object AndroidMediaFormatFactory {
             format.setByteBuffer(CSD_0, ByteBuffer.wrap(extra))
         }
     }
+}
 
-    private fun applyAvcPrivate(
-        format: MediaFormat,
-        extra: ByteArray,
-        samplePacking: YSamplePacking?,
-    ) {
-        if (looksLikeConfigurationRecord(extra)) {
-            val config = YCodecConfiguration.parseAvcC(extra)
-            format.setByteBuffer(CSD_0, ByteBuffer.wrap(config.csd0AnnexB()))
-            format.setByteBuffer(CSD_1, ByteBuffer.wrap(config.csd1AnnexB()))
-            return
+/** MediaCodec codec-specific data in Annex-B form; a null buffer is left out of the format. */
+internal class YVideoCodecSpecificData(
+    val csd0: ByteArray? = null,
+    val csd1: ByteArray? = null,
+    /**
+     * True when the container carried no complete parameter set: the decoder depends on the sets
+     * the keyframes carry in-band, and the first keyframe's can supply csd.
+     */
+    val parameterSetsMissing: Boolean = false,
+)
+
+/**
+ * csd-0 (and csd-1 for AVC) for an H.264/H.265 track, or null for any other codec.
+ *
+ * A container record with a complete parameter set wins. Some muxers write an `avcC`/`hvcC` with
+ * no parameter sets and repeat them in every keyframe instead; that record used to fail playback in
+ * our own parser ("HEVC configuration contains no SPS", one Dolby Vision Profile 5 MKV). Its csd now
+ * comes from [inBandParameterSets], the first keyframe's, and while those are unknown the decoder
+ * starts csd-less and reads the sets in-band. A malformed record still throws; callers report that
+ * through [yVideoFormatStage] as a deterministic Bitstream failure.
+ */
+internal fun h26xCodecSpecificData(
+    track: YVideoTrackFormat,
+    inBandParameterSets: YParameterSets? = null,
+): YVideoCodecSpecificData? {
+    val codec =
+        when (track.codec) {
+            YVideoCodec.H264 -> YNalCodec.H264
+            YVideoCodec.H265 -> YNalCodec.H265
+            else -> return null
         }
-        if (samplePacking == YSamplePacking.AnnexB || looksLikeAnnexB(extra)) {
-            val sets = YBitstream.parameterSets(extra, YNalCodec.H264, YSamplePacking.AnnexB)
-            sets.sps.takeIf(List<ByteArray>::isNotEmpty)?.joinAnnexB()?.let {
-                format.setByteBuffer(CSD_0, ByteBuffer.wrap(it))
-            }
-            sets.pps.takeIf(List<ByteArray>::isNotEmpty)?.joinAnnexB()?.let {
-                format.setByteBuffer(CSD_1, ByteBuffer.wrap(it))
-            }
-            return
+    val extra =
+        track.codecPrivateData.entries
+            .firstOrNull()
+            ?.takeIf(ByteArray::isNotEmpty)
+    val record = extra != null && looksLikeConfigurationRecord(extra)
+    val containerSets =
+        when {
+            extra == null -> YParameterSets()
+            record && codec == YNalCodec.H264 -> YCodecConfiguration.avcRecordParameterSets(extra)
+            record -> YCodecConfiguration.hevcRecordParameterSets(extra)
+            track.samplePacking == YSamplePacking.AnnexB || looksLikeAnnexB(extra) ->
+                YBitstream.parameterSets(extra, codec, YSamplePacking.AnnexB)
+            // Private data in no known layout is handed to the decoder untouched, as before.
+            else -> return YVideoCodecSpecificData(csd0 = extra)
         }
-        format.setByteBuffer(CSD_0, ByteBuffer.wrap(extra))
+    if (containerSets.complete) return containerSets.toCodecSpecificData(codec, parameterSetsMissing = false)
+    val completed = inBandParameterSets?.orElse(containerSets)
+    if (completed != null && completed.complete) {
+        return completed.toCodecSpecificData(codec, parameterSetsMissing = true)
     }
-
-    private fun applyHevcPrivate(
-        format: MediaFormat,
-        extra: ByteArray,
-        samplePacking: YSamplePacking?,
-    ) {
-        if (looksLikeConfigurationRecord(extra)) {
-            // A record without parameter sets means they arrive in-band with each keyframe.
-            YCodecConfiguration.hevcParameterSetsAnnexB(extra)?.let { format.setByteBuffer(CSD_0, ByteBuffer.wrap(it)) }
-            return
-        }
-        if (samplePacking == YSamplePacking.AnnexB || looksLikeAnnexB(extra)) {
-            val sets = YBitstream.parameterSets(extra, YNalCodec.H265, YSamplePacking.AnnexB)
-            (sets.vps + sets.sps + sets.pps)
-                .takeIf(List<ByteArray>::isNotEmpty)
-                ?.joinAnnexB()
-                ?.let { format.setByteBuffer(CSD_0, ByteBuffer.wrap(it)) }
-            return
-        }
-        format.setByteBuffer(CSD_0, ByteBuffer.wrap(extra))
+    // Nothing complete yet. A record's partial set stays out of csd; Annex-B private data keeps
+    // supplying whatever sets it has, as it always did.
+    return if (extra == null || record) {
+        YVideoCodecSpecificData(parameterSetsMissing = true)
+    } else {
+        containerSets.toCodecSpecificData(codec, parameterSetsMissing = true)
     }
 }
+
+/** True when [track]'s decoder configuration has to come from its keyframes. Throws like [h26xCodecSpecificData]. */
+internal fun videoParameterSetsMissing(track: YVideoTrackFormat): Boolean =
+    h26xCodecSpecificData(track)?.parameterSetsMissing == true
+
+/**
+ * The parameter sets one access unit carries in-band, or null when it carries none or cannot be
+ * scanned. [track] is the demuxed format whose packing describes [data].
+ */
+internal fun inBandParameterSets(
+    data: ByteArray,
+    track: YVideoTrackFormat,
+): YParameterSets? {
+    val codec =
+        when (track.codec) {
+            YVideoCodec.H264 -> YNalCodec.H264
+            YVideoCodec.H265 -> YNalCodec.H265
+            else -> return null
+        }
+    val packing = track.samplePacking ?: return null
+    // A sample the scan rejects fails later, in its own queue stage; here it only means "unknown".
+    val sets = runCatching { YBitstream.parameterSets(data, codec, packing) }.getOrNull() ?: return null
+    return sets.takeIf { it.vps.isNotEmpty() || it.sps.isNotEmpty() || it.pps.isNotEmpty() }
+}
+
+/**
+ * Runs MediaFormat building from demuxed track metadata as its own failure stage.
+ *
+ * Everything inside is a pure function of the track, so a rejection (a malformed codec configuration
+ * record) repeats on every reopen of the same route: a deterministic Bitstream failure. Built inside
+ * the decoder-configure stage, 1.0.83 reported our own hvcC parser's rejection as
+ * Decoder/VideoDecoderConfigure and the capability registry blamed the decoder for it.
+ */
+internal inline fun <T> yVideoFormatStage(
+    safeDetail: String,
+    block: () -> T,
+): T =
+    try {
+        block()
+    } catch (failure: YPlaybackException) {
+        throw failure
+    } catch (failure: Throwable) {
+        if (failure is CancellationException) throw failure
+        throw YPlaybackException(
+            category = YPlaybackFailureCategory.Container,
+            stage = YPlaybackFailureStage.Bitstream,
+            safeDetail = safeDetail,
+            cause = failure,
+            deterministic = true,
+        )
+    }
+
+private fun YParameterSets.toCodecSpecificData(
+    codec: YNalCodec,
+    parameterSetsMissing: Boolean,
+): YVideoCodecSpecificData =
+    when (codec) {
+        YNalCodec.H264 ->
+            YVideoCodecSpecificData(
+                csd0 = sps.takeIf(List<ByteArray>::isNotEmpty)?.joinAnnexB(),
+                csd1 = pps.takeIf(List<ByteArray>::isNotEmpty)?.joinAnnexB(),
+                parameterSetsMissing = parameterSetsMissing,
+            )
+        // Android HEVC decoders conventionally receive VPS/SPS/PPS together in csd-0.
+        YNalCodec.H265 ->
+            YVideoCodecSpecificData(
+                csd0 = (vps + sps + pps).takeIf(List<ByteArray>::isNotEmpty)?.joinAnnexB(),
+                parameterSetsMissing = parameterSetsMissing,
+            )
+    }
 
 /**
  * Applies a lower bound for `max-input-size` when nothing upstream supplied one.

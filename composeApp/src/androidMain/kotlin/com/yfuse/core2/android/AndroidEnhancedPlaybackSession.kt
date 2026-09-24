@@ -20,6 +20,7 @@ import com.yfuse.core2.api.YPlaybackFailureStage
 import com.yfuse.core2.api.YPlaybackRoute
 import com.yfuse.core2.api.yPlaybackStage
 import com.yfuse.core2.bitstream.YBitstream
+import com.yfuse.core2.bitstream.YParameterSets
 import com.yfuse.core2.bitstream.YSamplePacking
 import com.yfuse.core2.capability.YAudioOutputPath
 import com.yfuse.core2.capability.YAudioRequirement
@@ -197,6 +198,12 @@ internal class AndroidEnhancedPlaybackSession(
     private var runtimeRenderRecorded = false
     private var gpuEvidenceRecorded = false
     private var runtimeCapabilityKey: YRuntimeVideoCapabilityKey? = null
+
+    /** A keyframe's in-band parameter sets, when the container record carried none; every configure uses them. */
+    private var videoInBandParameterSets: YParameterSets? = null
+
+    /** The record carried no parameter sets and no keyframe has supplied them yet. */
+    private var videoParameterSetsPending = false
     private var p7RpuQueued = false
     private var p7EnhancementLayerQueued = false
     private var dualDolbyEvidence = YDualDolbyEvidenceState()
@@ -393,12 +400,9 @@ internal class AndroidEnhancedPlaybackSession(
             required = requireDolbyVisionIdentity,
             config = sourceVideo.dolbyVisionConfig,
         )
+        // A pure check of the track against the plan: reopening the same route repeats its verdict.
         val effectiveVideo =
-            yPlaybackStage(
-                category = YPlaybackFailureCategory.Container,
-                stage = YPlaybackFailureStage.Bitstream,
-                safeDetail = "Enhanced video format validation",
-            ) {
+            yVideoFormatStage("Enhanced video format validation") {
                 effectiveVideoTrack(sourceVideo, plan)
             }
         softwareVideoActive = plan.decodePath == YDecodePath.Software
@@ -416,7 +420,14 @@ internal class AndroidEnhancedPlaybackSession(
                 null
             }
 
-        var videoConfiguredForProbe = false
+        val initialTrackIds =
+            buildSet {
+                add(videoTrack.id)
+                audioTrack?.let { add(it.id) }
+                initialSubtitleTrack?.let { add(it.id) }
+            }
+        var initialTracksSelected = false
+        var videoDecoderConfigureFailure: Throwable? = null
         try {
             if (softwareVideoActive) {
                 yPlaybackStage(
@@ -431,6 +442,27 @@ internal class AndroidEnhancedPlaybackSession(
                     softwareVideoRenderer.attach(surface)
                 }
             } else {
+                // The format is checked before any output or decoder exists: a codec configuration
+                // record our parser rejects is the container's deterministic failure, never the
+                // decoder's, and it is reported as such instead of as a decoder configure failure.
+                val parameterSetsMissing =
+                    yVideoFormatStage(ENHANCED_VIDEO_FORMAT_DETAIL) { videoParameterSetsMissing(effectiveVideo) }
+                val keyframeParameterSets =
+                    if (parameterSetsMissing) {
+                        // A record without parameter sets leaves them to the keyframes. Starting the
+                        // tracks first lets the decoder be configured from the first one's in-band sets.
+                        selectInitialTracks(initialTrackIds)
+                        initialTracksSelected = true
+                        firstVideoSampleParameterSets(videoTrack.id, sourceVideo, initialTrackIds, remote)
+                    } else {
+                        null
+                    }
+                videoInBandParameterSets = keyframeParameterSets
+                videoParameterSetsPending = parameterSetsMissing && keyframeParameterSets == null
+                val videoFormat =
+                    yVideoFormatStage(ENHANCED_VIDEO_FORMAT_DETAIL) {
+                        AndroidMediaFormatFactory.video(effectiveVideo, keyframeParameterSets)
+                    }
                 val decoderSurface =
                     if (plan.route == YPlaybackRoute.GpuEnhanced) {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
@@ -474,19 +506,24 @@ internal class AndroidEnhancedPlaybackSession(
                     stage = YPlaybackFailureStage.VideoDecoderConfigure,
                     safeDetail = "Enhanced video decoder configure",
                 ) {
-                    videoDecoder.configure(
-                        AndroidMediaFormatFactory.video(effectiveVideo),
-                        decoderSurface,
-                        plan.decoderName,
-                        isolateFrameTimestamps = isolateVideoTimestamps && plan.renderPath == YRenderPath.SurfaceDirect,
-                        anime4KContext =
-                            anime4KContext.takeIf {
-                                plan.renderPath == YRenderPath.SurfaceDirect &&
-                                    effectiveVideo.hdrType == com.yfuse.core2.capability.YHdrType.Sdr
-                            },
-                    )
+                    try {
+                        videoDecoder.configure(
+                            videoFormat,
+                            decoderSurface,
+                            plan.decoderName,
+                            isolateFrameTimestamps =
+                                isolateVideoTimestamps && plan.renderPath == YRenderPath.SurfaceDirect,
+                            anime4KContext =
+                                anime4KContext.takeIf {
+                                    plan.renderPath == YRenderPath.SurfaceDirect &&
+                                        effectiveVideo.hdrType == com.yfuse.core2.capability.YHdrType.Sdr
+                                },
+                        )
+                    } catch (failure: Throwable) {
+                        videoDecoderConfigureFailure = failure
+                        throw failure
+                    }
                 }
-                videoConfiguredForProbe = true
                 runtimeCapabilityKey?.let { runtimeCapabilities?.recordConfigured(it) }
                 if (plan.route != YPlaybackRoute.GpuEnhanced) attachVideoRenderEvidence()
             }
@@ -533,20 +570,17 @@ internal class AndroidEnhancedPlaybackSession(
                     YAudioOutputPath.None -> error("Enhanced route selected an audio track without an output path")
                 }
             }
-            yCoreStartupStage("enhanced_select_tracks_first_packet", diagnosticItem) {
-                demuxReadAhead.selectTracks(
-                    buildSet {
-                        add(videoTrack.id)
-                        audioTrack?.let { add(it.id) }
-                        initialSubtitleTrack?.let { add(it.id) }
-                    },
-                )
-            }
+            if (!initialTracksSelected) selectInitialTracks(initialTrackIds)
         } catch (throwable: Throwable) {
             if (throwable is CancellationException) throw throwable
-            if (!softwareVideoActive && !videoConfiguredForProbe) {
-                runtimeCapabilityKey?.let { runtimeCapabilities?.recordRejected(it) }
+            // Only MediaCodec's own refusal to configure is evidence against the planned decoder.
+            // 1.0.83 also counted the GPU output, the format builder and our hvcC parser here.
+            videoDecoderConfigureFailure?.let { failure ->
+                runtimeCapabilityKey?.let { key -> runtimeCapabilities?.recordConfigureFailure(key, failure) }
             }
+            pendingSamples.clear()
+            videoInBandParameterSets = null
+            videoParameterSetsPending = false
             frameRateManager.clear()
             runCatching(videoDecoder::release)
             runCatching(audioDecoder::release)
@@ -605,6 +639,68 @@ internal class AndroidEnhancedPlaybackSession(
             wallClock.seek(0L, System.nanoTime())
         }
         return result
+    }
+
+    private fun selectInitialTracks(trackIds: Set<YTrackId>) {
+        yCoreStartupStage("enhanced_select_tracks_first_packet", diagnosticItem) {
+            demuxReadAhead.selectTracks(trackIds)
+        }
+    }
+
+    /**
+     * The in-band parameter sets of the first video sample, for a container record that carried none.
+     *
+     * FFmpeg has normally read that packet already while analysing the stream, so this seldom waits.
+     * On a slow or stalled source it gives up after [FIRST_VIDEO_SAMPLE_WAIT_NS] and the decoder
+     * starts csd-less and reads the sets in-band, as before. The sample stays pending, so the pump
+     * still queues it first.
+     */
+    private fun firstVideoSampleParameterSets(
+        videoTrackId: YTrackId,
+        source: YVideoTrackFormat,
+        selectedTrackIds: Set<YTrackId>,
+        remote: Boolean,
+    ): YParameterSets? =
+        yCoreStartupStage("enhanced_first_keyframe_parameter_sets", diagnosticItem) {
+            val otherTracks = selectedTrackIds - videoTrackId
+            val deadlineNs = System.nanoTime() + FIRST_VIDEO_SAMPLE_WAIT_NS
+            var parameterSets: YParameterSets? = null
+            while (true) {
+                when (val next = demuxReadAhead.pollSample(otherTracks)) {
+                    is YQueuedDemuxResult.Sample -> {
+                        pendingSamples[videoTrackId] = next
+                        parameterSets = inBandParameterSets(next.value.data, source)
+                        break
+                    }
+                    is YQueuedDemuxResult.Failed ->
+                        yPlaybackStage(
+                            category =
+                                if (remote) YPlaybackFailureCategory.Network else YPlaybackFailureCategory.Container,
+                            stage = YPlaybackFailureStage.Demux,
+                            safeDetail = "Enhanced first video sample read",
+                        ) {
+                            throw next.cause
+                        }
+                    YQueuedDemuxResult.EndOfInput -> break
+                    YQueuedDemuxResult.Empty -> {
+                        if (System.nanoTime() >= deadlineNs) break
+                        Thread.sleep(FIRST_VIDEO_SAMPLE_POLL_MS)
+                    }
+                }
+            }
+            parameterSets
+        }
+
+    /**
+     * Keeps the first queued keyframe's parameter sets when none were known at configure time, so a
+     * decoder rebuilt later (an empty tail seek, the timestamp-identity fallback) is configured with
+     * them as well. Only that keyframe is scanned.
+     */
+    private fun rememberInBandParameterSets(sample: YCompressedSample) {
+        if (!videoParameterSetsPending || YSampleFlag.Sync !in sample.flags) return
+        videoParameterSetsPending = false
+        val source = sourceVideoTrack?.video ?: return
+        videoInBandParameterSets = inBandParameterSets(sample.data, source)
     }
 
     fun selectedAudioTrackId(): YTrackId? = audioTrack?.id
@@ -837,7 +933,15 @@ internal class AndroidEnhancedPlaybackSession(
         pendingSamples.clear()
         videoAccessUnits.clear()
         if (nextTrack != null || previousTrack != null) {
-            seekToInternal(position, tailRetry = false, resetVideoDecoder = false, selectedTracks = selectedTrackIds())
+            seekToInternal(
+                position,
+                tailRetry = false,
+                resetVideoDecoder = false,
+                selectedTracks = selectedTrackIds(),
+                // A remote packet read can outlive the normal control deadline. Keep the
+                // subtitle switch on the demux owner instead of failing an otherwise playable video.
+                trackSelectionTimeoutMs = SUBTITLE_TRACK_SELECTION_TIMEOUT_MS.takeIf { sourceRemote },
+            )
         }
     }
 
@@ -854,6 +958,7 @@ internal class AndroidEnhancedPlaybackSession(
         tailRetry: Boolean,
         resetVideoDecoder: Boolean,
         selectedTracks: Set<YTrackId>? = null,
+        trackSelectionTimeoutMs: Long? = null,
     ) {
         check(prepared) { "Enhanced session is not prepared" }
         renderedFrameRateSampler.reset()
@@ -867,10 +972,29 @@ internal class AndroidEnhancedPlaybackSession(
             stage = YPlaybackFailureStage.Seek,
             safeDetail = "Enhanced source seek",
         ) {
-            if (selectedTracks == null) {
-                demuxReadAhead.seekTo(target)
-            } else {
-                demuxReadAhead.selectTracks(selectedTracks, target)
+            // Ordinary remote seeks, including a recovery's initial seek, wait on the same busy
+            // owner as a subtitle switch; the short local deadline failed them on a slow link.
+            val controlTimeoutMs = trackSelectionTimeoutMs ?: REMOTE_SEEK_CONTROL_TIMEOUT_MS.takeIf { sourceRemote }
+            try {
+                if (selectedTracks == null) {
+                    if (controlTimeoutMs != null) {
+                        demuxReadAhead.seekTo(target, controlTimeoutMs)
+                    } else {
+                        demuxReadAhead.seekTo(target)
+                    }
+                } else if (controlTimeoutMs != null) {
+                    demuxReadAhead.selectTracks(selectedTracks, target, controlTimeoutMs)
+                } else {
+                    demuxReadAhead.selectTracks(selectedTracks, target)
+                }
+            } catch (timeout: DemuxControlTimeoutException) {
+                // The owner is busy, but this is not evidence that the remote source failed.
+                throw YPlaybackException(
+                    category = YPlaybackFailureCategory.Unknown,
+                    stage = YPlaybackFailureStage.Seek,
+                    safeDetail = "Demux control timed out",
+                    cause = timeout,
+                )
             }
         }
         releasePendingAudioOutput()
@@ -881,13 +1005,19 @@ internal class AndroidEnhancedPlaybackSession(
         if (!softwareVideoActive) {
             if (resetVideoDecoder || !isolateVideoTimestamps && surface?.isValid == true) {
                 videoDecoder.release()
+                // The rebuilt decoder gets the same csd as the first one, including parameter sets
+                // taken from a keyframe when the container record carried none.
+                val videoFormat =
+                    yVideoFormatStage(ENHANCED_VIDEO_FORMAT_DETAIL) {
+                        AndroidMediaFormatFactory.video(requireNotNull(effectiveVideoTrack), videoInBandParameterSets)
+                    }
                 yPlaybackStage(
                     category = YPlaybackFailureCategory.Decoder,
                     stage = YPlaybackFailureStage.VideoDecoderConfigure,
                     safeDetail = "Enhanced video decoder reset after empty seek",
                 ) {
                     videoDecoder.configure(
-                        AndroidMediaFormatFactory.video(requireNotNull(effectiveVideoTrack)),
+                        videoFormat,
                         gpuVideoOutput?.decoderSurface
                             ?: requireNotNull(surface).also { check(it.isValid) },
                         requireNotNull(plan).decoderName,
@@ -908,7 +1038,16 @@ internal class AndroidEnhancedPlaybackSession(
                 videoDecoder.flush()
             }
         }
-        if (audioTrack != null && !isAudioPassthrough() && !softwareAudioActive) audioDecoder.flush()
+        if (audioTrack != null && !isAudioPassthrough() && !softwareAudioActive) {
+            // The node rebuilds a decoder that has not reported its PCM format instead of flushing it.
+            yPlaybackStage(
+                category = YPlaybackFailureCategory.Decoder,
+                stage = YPlaybackFailureStage.AudioDecoderConfigure,
+                safeDetail = "Enhanced audio decoder seek flush",
+            ) {
+                audioDecoder.flush()
+            }
+        }
         if (audioRendererConfigured) flushAudio()
         pendingSamples.clear()
         videoAccessUnits.clear()
@@ -1194,6 +1333,8 @@ internal class AndroidEnhancedPlaybackSession(
         runCatching(demuxReadAhead::close)
         plan = null
         runtimeCapabilityKey = null
+        videoInBandParameterSets = null
+        videoParameterSetsPending = false
         runtimeRenderRecorded = false
         gpuEvidenceRecorded = false
         p7RpuQueued = false
@@ -1345,6 +1486,7 @@ internal class AndroidEnhancedPlaybackSession(
         if (sample.trackId == videoTrack.id && !softwareVideoActive) {
             videoEosGate.inputQueued()
             recordDolbyVisionLayerDelivery(sample.data)
+            rememberInBandParameterSets(sample)
         }
         videoAccessUnits.queued(sample)
         lastQueuedUs = maxOf(lastQueuedUs, sample.presentationTimeUs)
@@ -1450,7 +1592,15 @@ internal class AndroidEnhancedPlaybackSession(
         if (isAudioPassthrough()) return false
         if (softwareAudioActive) return drainSoftwareAudio()
         pendingAudioOutput?.let { return writePendingAudioOutput(it) }
-        return when (val output = audioDecoder.dequeueOutput()) {
+        val dequeued =
+            yPlaybackStage(
+                category = YPlaybackFailureCategory.Decoder,
+                stage = YPlaybackFailureStage.AudioDecoderQueue,
+                safeDetail = "Enhanced audio decoder output",
+            ) {
+                audioDecoder.dequeueOutput()
+            }
+        return when (val output = dequeued) {
             YAudioCodecOutputResult.TryAgain -> false
             is YAudioCodecOutputResult.FormatChanged -> {
                 yPlaybackStage(
@@ -1475,12 +1625,18 @@ internal class AndroidEnhancedPlaybackSession(
                     if (output.endOfStream) audioOutputEnded = true
                     true
                 } else {
-                    check(audioRendererConfigured) { "PCM output arrived before AudioTrack format" }
                     val pending =
-                        YEnhancedPendingAudioOutput(
-                            output = output,
-                            data = audioDecoder.outputData(output),
-                        )
+                        yPlaybackStage(
+                            category = YPlaybackFailureCategory.Decoder,
+                            stage = YPlaybackFailureStage.AudioDecoderQueue,
+                            safeDetail = "Enhanced audio decoder output",
+                        ) {
+                            check(audioRendererConfigured) { "PCM output arrived before AudioTrack format" }
+                            YEnhancedPendingAudioOutput(
+                                output = output,
+                                data = audioDecoder.outputData(output),
+                            )
+                        }
                     pendingAudioOutput = pending
                     writePendingAudioOutput(pending)
                 }
@@ -1943,7 +2099,12 @@ internal class AndroidEnhancedPlaybackSession(
         readAhead: YDemuxReadAheadSnapshot,
         force: Boolean = false,
     ) {
-        if (!sourceRemote || !force && readAhead.throughputBitsPerSecond <= 0L) return
+        val stalledRead =
+            readAhead.fillScheduled &&
+                readAhead.readElapsedMs >= STALLED_BUFFER_READ_MS &&
+                readAhead.lastPacketAgeMs >= STALLED_BUFFER_READ_MS &&
+                readAhead.bufferedDurationUs < bufferPlan.resumePlaybackUs
+        if (!sourceRemote || !force && readAhead.throughputBitsPerSecond <= 0L && !stalledRead) return
         val nowNs = System.nanoTime()
         if (!force && nowNs - lastBufferReplanNs < BUFFER_REPLAN_INTERVAL_NS) return
         lastBufferReplanNs = nowNs
@@ -1952,7 +2113,9 @@ internal class AndroidEnhancedPlaybackSession(
                 YBufferConditions(
                     remote = true,
                     mediaBitRateBitsPerSecond = openResult?.bitRateBitsPerSecond ?: 0L,
-                    measuredNetworkBitsPerSecond = readAhead.throughputBitsPerSecond.takeIf { it > 0L },
+                    // A blocked remote read is a measured lack of progress, not an unknown rate.
+                    measuredNetworkBitsPerSecond =
+                        if (stalledRead) 0L else readAhead.throughputBitsPerSecond.takeIf { it > 0L },
                     preferredTargetAheadUs = preferredRemoteBufferTargetUs,
                     speed = speed,
                     memoryBudgetBytes = 24L * 1024L * 1024L,
@@ -2360,6 +2523,14 @@ private const val LATE_FRAME_DROP_NS = 100_000_000L
 private const val LATE_FRAME_IMMEDIATE_NS = 50_000_000L
 private const val SOFTWARE_RENDER_EARLY_TOLERANCE_NS = 2_000_000L
 private const val SUBTITLE_HISTORY_US = 60_000_000L
+private const val SUBTITLE_TRACK_SELECTION_TIMEOUT_MS = 12_000L
+private const val REMOTE_SEEK_CONTROL_TIMEOUT_MS = 12_000L
+private const val STALLED_BUFFER_READ_MS = 2_000L
 private const val BUFFER_REPLAN_INTERVAL_NS = 2_000_000_000L
 private const val FFMPEG_SOFTWARE_VIDEO_NAME = "FFmpeg software video"
 private const val FFMPEG_SOFTWARE_AUDIO_NAME = "FFmpeg software audio"
+private const val ENHANCED_VIDEO_FORMAT_DETAIL = "Enhanced video codec configuration"
+
+/** Bounds the startup wait for a keyframe's parameter sets; the decoder starts csd-less after it. */
+private const val FIRST_VIDEO_SAMPLE_WAIT_NS = 2_000_000_000L
+private const val FIRST_VIDEO_SAMPLE_POLL_MS = 10L

@@ -13,26 +13,28 @@ import kotlin.test.assertNull
 
 class PlaybackMetadataCacheTest {
     @Test
-    fun preview_never_blocks_or_returns_expired_or_failed_metadata() = runTest {
-        var now = 0L
-        val cache = PlaybackMetadataCache<String, Int>(ttlMs = 10L, nowMs = { now })
-        val ready = CompletableDeferred<Unit>()
-        val loading = async {
-            cache.get("a") {
-                ready.await()
-                7
-            }
+    fun preview_never_blocks_or_returns_expired_or_failed_metadata() =
+        runTest {
+            var now = 0L
+            val cache = PlaybackMetadataCache<String, Int>(ttlMs = 10L, nowMs = { now })
+            val ready = CompletableDeferred<Unit>()
+            val loading =
+                async {
+                    cache.get("a") {
+                        ready.await()
+                        7
+                    }
+                }
+            runCurrent()
+            assertNull(cache.peek("a"))
+            ready.complete(Unit)
+            assertEquals(7, loading.await())
+            assertEquals(7, cache.peek("a"))
+            now = 10L
+            assertNull(cache.peek("a"))
+            assertFailsWith<IllegalStateException> { cache.get("bad") { error("failed") } }
+            assertNull(cache.peek("bad"))
         }
-        runCurrent()
-        assertNull(cache.peek("a"))
-        ready.complete(Unit)
-        assertEquals(7, loading.await())
-        assertEquals(7, cache.peek("a"))
-        now = 10L
-        assertNull(cache.peek("a"))
-        assertFailsWith<IllegalStateException> { cache.get("bad") { error("failed") } }
-        assertNull(cache.peek("bad"))
-    }
 
     @Test
     fun concurrent_launch_reuses_detail_request_and_refresh_replaces_it() =

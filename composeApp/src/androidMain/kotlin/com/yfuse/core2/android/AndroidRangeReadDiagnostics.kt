@@ -20,9 +20,13 @@ internal class AndroidRangeReadDiagnostics(
     @Volatile var status = 0
 
     @Volatile var phase = "opening"
+
     @Volatile var reason = ""
+
     @Volatile var queueWaitMs = 0L
+
     @Volatile var headersMs = -1L
+
     @Volatile var firstByteMs = -1L
 
     @Synchronized

@@ -50,6 +50,7 @@ tmp/
 
 # Downloaded GitHub Actions packages kept only for local verification
 artifacts/
+artifacts-local/
 
 # Historical audit media belongs in CI/release artifacts, not every Git checkout.
 audit/**/*.png
@@ -62,6 +63,7 @@ audit/**/*.mp4
 # Extracted native AAR contents are fetched and verified during the build.
 mpvaar/
 .native-build/
+.android-native-build/
 
 # Calendar renderer session material and deployment secrets
 watchTogetherServer/calendarRenderer/node_modules/
@@ -71,6 +73,7 @@ watchTogetherServer/calendarRenderer/renderer-state/storage-state.json
 
 # Local build caches and linked checkouts (reports under audit remain reviewable)
 /.gradle-tmp/
+/.gradle-codex/
 /.worktrees/
 /.codex-calendar-optimization/
 /audit/**/before/

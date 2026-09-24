@@ -3,11 +3,14 @@ package com.yfuse.core.data
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.network.EmbyError
 import com.yfuse.core.network.EmbyErrorException
+import com.yfuse.core.util.isUiThread
 import io.ktor.client.plugins.ResponseException
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpHeaders
 import io.ktor.http.encodeURLPathPart
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.io.IOException
 
 /**
@@ -45,43 +48,68 @@ internal suspend fun <T> embyApiCall(
     operation: String,
     block: suspend () -> T,
 ): Result<T> =
-    try {
-        Result.success(block())
-    } catch (error: CancellationException) {
-        throw error
-    } catch (error: Throwable) {
-        val mapped = error.toEmbyError()
-        val attributes =
-            mapOf(
-                "operation" to operation,
-                "error" to mapped.toString(),
-            )
-        // Ktor's ResponseException message may contain the complete HTML response body. Keep the
-        // mapped status/domain error in diagnostics, never an intermediary page with host/IP data.
-        val diagnosticThrowable =
-            if (error is ResponseException) EmbyErrorException(mapped) else error
-        // A missing item is an answer, not a malfunction: lookups that probe for an item the
-        // server may not hold are expected to miss, and logging those at error level buries the
-        // failures that do need attention.
-        if (mapped == EmbyError.NotFound) {
-            AppLog.warning(
-                category = "emby",
-                event = "request_not_found",
-                message = "Emby operation addressed an item the server does not have",
-                throwable = diagnosticThrowable,
-                attributes = attributes,
-            )
-        } else {
-            AppLog.error(
-                category = "emby",
-                event = "request_failed",
-                message = "Emby operation failed",
-                throwable = diagnosticThrowable,
-                attributes = attributes,
-            )
+    offUiThread {
+        try {
+            Result.success(block())
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            val mapped = error.toEmbyError()
+            val fromCooldown = (error as? EmbyErrorException)?.fromCooldown == true
+            val attributes =
+                mapOf(
+                    "operation" to operation,
+                    "error" to mapped.toString(),
+                )
+            // Ktor's ResponseException message may contain the complete HTML response body. Keep the
+            // mapped status/domain error in diagnostics, never an intermediary page with host/IP data.
+            val diagnosticThrowable =
+                if (error is ResponseException) EmbyErrorException(mapped) else error
+            when {
+                // The client answered from a cooldown the server's own failure started, which was
+                // logged then. One error per short-circuited request buried everything else.
+                fromCooldown ->
+                    AppLog.debug(
+                        category = "emby",
+                        event = "request_cooled_down",
+                        message = "Emby operation skipped while its server is cooling down",
+                        attributes = attributes,
+                    )
+                // A missing item is an answer, not a malfunction: lookups that probe for an item the
+                // server may not hold are expected to miss, and logging those at error level buries
+                // the failures that do need attention.
+                mapped == EmbyError.NotFound ->
+                    AppLog.warning(
+                        category = "emby",
+                        event = "request_not_found",
+                        message = "Emby operation addressed an item the server does not have",
+                        throwable = diagnosticThrowable,
+                        attributes = attributes,
+                    )
+                else ->
+                    AppLog.error(
+                        category = "emby",
+                        event = "request_failed",
+                        message = "Emby operation failed",
+                        throwable = diagnosticThrowable,
+                        attributes = attributes,
+                    )
+            }
+            Result.failure(EmbyErrorException(mapped, fromCooldown))
         }
-        Result.failure(EmbyErrorException(mapped))
     }
+
+/**
+ * Runs [block] on a worker when it was called on the UI thread, and in place otherwise.
+ *
+ * Stores call the repository from the main dispatcher, and Ktor reads and decodes a response body in
+ * the calling coroutine: a library page or a two-thousand-item sync snapshot was parsed on the UI
+ * thread. Callers already off it - including every nested call - pay only the thread check.
+ */
+internal suspend fun <T> offUiThread(
+    onUiThread: Boolean = isUiThread(),
+    block: suspend () -> T,
+): T = if (onUiThread) withContext(Dispatchers.Default) { block() } else block()
 
 private suspend fun Throwable.toEmbyError(): EmbyError =
     when (this) {

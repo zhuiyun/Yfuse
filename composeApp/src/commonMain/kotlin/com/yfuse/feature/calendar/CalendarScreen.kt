@@ -102,6 +102,7 @@ import com.yfuse.core.util.isoShortDate
 import com.yfuse.core.util.isoWeekdayLabel
 import com.yfuse.core.util.rememberShareHandler
 import com.yfuse.core.util.shiftIsoDate
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
@@ -1224,6 +1225,16 @@ private fun CalendarTrackingPane(
     var refreshingTmdbId by remember { mutableStateOf<Int?>(null) }
     var actionMessage by remember { mutableStateOf<String?>(null) }
     var confirmUnfollowAll by remember { mutableStateOf(false) }
+    // 取消追剧 used to be one tap with no way back, unlike 取消全部's confirm step. This is
+    // its undo instead of a second confirmation: the row below re-follows with the exact
+    // settings [FollowedSeries] had, and clears itself after a few seconds like a toast would.
+    var pendingUnfollow by remember { mutableStateOf<FollowedSeries?>(null) }
+    LaunchedEffect(pendingUnfollow) {
+        if (pendingUnfollow != null) {
+            delay(5_000)
+            pendingUnfollow = null
+        }
+    }
     val schedulePosterUrls =
         remember(calendarDays) {
             calendarDays
@@ -1321,6 +1332,38 @@ private fun CalendarTrackingPane(
                     color = palette.error,
                     modifier = Modifier.padding(vertical = 4.dp),
                 )
+            }
+        }
+        pendingUnfollow?.let { unfollowed ->
+            motionItem(key = "unfollow-undo-${unfollowed.tmdbId}") {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .glass(AppShapes.card, palette.card2, palette.border)
+                        .padding(horizontal = 13.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "已取消追剧《${unfollowed.title}》",
+                        style = AppTypography.caption.regular,
+                        color = palette.sub,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        "撤销",
+                        style = AppTypography.caption.strong,
+                        color = accent.accent,
+                        modifier =
+                            Modifier
+                                .pressable(onClickLabel = "撤销取消追剧${unfollowed.title}") {
+                                    component.follow(unfollowed)
+                                    pendingUnfollow = null
+                                }.touchTarget(),
+                    )
+                }
             }
         }
         motionItems(followedSeries, key = FollowedSeries::tmdbId) { series ->
@@ -1438,6 +1481,7 @@ private fun CalendarTrackingPane(
                             modifier =
                                 Modifier
                                     .pressable {
+                                        pendingUnfollow = series
                                         component.unfollow(series.tmdbId)
                                     }.touchTarget(),
                         )

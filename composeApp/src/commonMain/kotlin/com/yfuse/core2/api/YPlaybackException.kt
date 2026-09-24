@@ -22,12 +22,17 @@ enum class YPlaybackFailureStage {
  *
  * User-visible code should render its own localized message rather than exposing [cause]. Network
  * URLs, headers and provider tokens must never be embedded into [safeDetail].
+ *
+ * [deterministic] marks a failure that reopening the same route with the same input will repeat,
+ * such as a codec configuration record our own parser rejects. Recovery must not spend a
+ * same-route retry on it, and capability memory must not blame a decoder that was never reached.
  */
 class YPlaybackException(
     val category: YPlaybackFailureCategory,
     val stage: YPlaybackFailureStage,
     val safeDetail: String? = null,
     cause: Throwable? = null,
+    val deterministic: Boolean = false,
 ) : RuntimeException(
         buildString {
             append("YCore2 ")

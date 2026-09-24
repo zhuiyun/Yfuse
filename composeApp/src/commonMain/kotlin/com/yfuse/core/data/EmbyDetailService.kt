@@ -138,8 +138,10 @@ internal class EmbyDetailService(
                             val headersMs = started.elapsedNow().inWholeMilliseconds
                             val decoded: ItemsResponseDto = response.body()
                             logDetailDecodeTiming(
-                                "target_directory", server.kind,
-                                headersMs, started.elapsedNow().inWholeMilliseconds - headersMs,
+                                "target_directory",
+                                server.kind,
+                                headersMs,
+                                started.elapsedNow().inWholeMilliseconds - headersMs,
                                 response.headers[HttpHeaders.ContentLength],
                             )
                             decoded.Items
@@ -220,24 +222,25 @@ internal class EmbyDetailService(
         server: SavedServer,
         seriesId: String,
         includePlaybackSources: Boolean = false,
-    ): List<BaseItemDto> = episodeDirectories.get(Triple(server, seriesId, includePlaybackSources)) {
-        val dto: ItemsResponseDto =
-            client
-                .get("${server.baseUrl}/Shows/${embyPath(seriesId)}/Episodes") {
-                    header("X-Emby-Token", server.accessToken)
-                    parameter("UserId", server.userId)
-                    parameter(
-                        "Fields",
-                        "Overview,ProviderIds,RunTimeTicks,UserData,PremiereDate" +
-                            if (includePlaybackSources) {
-                                ",Chapters,MediaSources,MediaStreams,Path,SeriesPrimaryImageTag"
-                            } else {
-                                ""
-                            },
-                    )
-                }.body()
-        dto.Items
-    }
+    ): List<BaseItemDto> =
+        episodeDirectories.get(Triple(server, seriesId, includePlaybackSources)) {
+            val dto: ItemsResponseDto =
+                client
+                    .get("${server.baseUrl}/Shows/${embyPath(seriesId)}/Episodes") {
+                        header("X-Emby-Token", server.accessToken)
+                        parameter("UserId", server.userId)
+                        parameter(
+                            "Fields",
+                            "Overview,ProviderIds,RunTimeTicks,UserData,PremiereDate" +
+                                if (includePlaybackSources) {
+                                    ",Chapters,MediaSources,MediaStreams,Path,SeriesPrimaryImageTag"
+                                } else {
+                                    ""
+                                },
+                        )
+                    }.body()
+            dto.Items
+        }
 
     private fun selectLocalNextUp(
         server: SavedServer,
@@ -399,8 +402,10 @@ internal class EmbyDetailService(
             val headersMs = started.elapsedNow().inWholeMilliseconds
             val dto: BaseItemDto = response.body()
             logDetailDecodeTiming(
-                if (playbackOnly) "playback_item" else "item_detail", server.kind,
-                headersMs, started.elapsedNow().inWholeMilliseconds - headersMs,
+                if (playbackOnly) "playback_item" else "item_detail",
+                server.kind,
+                headersMs,
+                started.elapsedNow().inWholeMilliseconds - headersMs,
                 response.headers[HttpHeaders.ContentLength],
             )
             val detail = progress.project(server, dto).toMediaDetail()
@@ -428,13 +433,14 @@ internal class EmbyDetailService(
             category = "network.emby",
             event = "detail_decode_timing",
             message = "Detail response received and decoded",
-            attributes = mapOf(
-                "group" to group,
-                "serverKind" to kind.name,
-                "headersMs" to headersMs.toString(),
-                "bodyAndDecodeMs" to bodyAndDecodeMs.toString(),
-                "declaredBytes" to declaredBytes.orEmpty(),
-            ),
+            attributes =
+                mapOf(
+                    "group" to group,
+                    "serverKind" to kind.name,
+                    "headersMs" to headersMs.toString(),
+                    "bodyAndDecodeMs" to bodyAndDecodeMs.toString(),
+                    "declaredBytes" to declaredBytes.orEmpty(),
+                ),
         )
     }
 

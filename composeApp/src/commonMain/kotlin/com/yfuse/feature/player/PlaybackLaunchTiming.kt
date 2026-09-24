@@ -33,6 +33,17 @@ internal class PlaybackLaunchTiming {
             }
         }
 
+    /**
+     * Whether this launch still holds background priority: claimed, no first output or startup
+     * error yet, and inside [BACKGROUND_PRIORITY_DEADLINE_MS]. Non-suspending, for pollers
+     * (calendar fan-out, playback-sync applies) that must step aside for a tap in flight without
+     * blocking on it the way [awaitOutputOrDeadline] does for detail work queued behind it.
+     */
+    fun holdsBackgroundPriority(): Boolean =
+        synchronized(reported) { claimed } &&
+            !outputOrFailure.isCompleted &&
+            elapsedMs() < BACKGROUND_PRIORITY_DEADLINE_MS
+
     fun bindSession(value: String?) =
         synchronized(reported) {
             if (!value.isNullOrBlank()) sessionId = value
@@ -65,16 +76,30 @@ internal class PlaybackLaunchTiming {
     suspend fun awaitOutputOrDeadline() {
         // Background catalogs still recover when no player UI is mounted or output never arrives.
         val released =
-            withTimeoutOrNull(30_000L) {
+            withTimeoutOrNull(BACKGROUND_PRIORITY_DEADLINE_MS) {
                 outputOrFailure.await()
                 true
             } == true
         stage(if (released) "background_requests_released" else "background_priority_deadline")
     }
+
+    private companion object {
+        /** Matches the 30s deadline already used by [awaitOutputOrDeadline]. */
+        const val BACKGROUND_PRIORITY_DEADLINE_MS = 30_000L
+    }
 }
 
 internal object PlaybackLaunchTimings {
     private val entries = LinkedHashMap<Pair<String, String>, PlaybackLaunchTiming>()
+
+    /**
+     * True while any recently registered launch still holds background priority - see
+     * [PlaybackLaunchTiming.holdsBackgroundPriority]. Calendar fan-out and playback-sync applies
+     * poll this instead of each holding a reference to one specific launch, since either can run
+     * while zero, one, or (rarely, e.g. handoff) more than one launch is in flight.
+     */
+    fun anyHoldsBackgroundPriority(): Boolean =
+        synchronized(entries) { entries.values.toList() }.any { it.holdsBackgroundPriority() }
 
     fun register(
         serverId: String,

@@ -46,6 +46,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.yfuse.core.designsystem.DarkPalette
+import com.yfuse.core.designsystem.LaunchWaveGate
 import com.yfuse.core.designsystem.LightPalette
 import com.yfuse.core.designsystem.LightParticleBudget
 import com.yfuse.core.designsystem.LocalParticleBudget
@@ -120,10 +121,15 @@ fun AnimatedSplashApp(
     // own arrival — the same short lift every route gets — driven from an Animatable read only in
     // the draw phase, so it costs the busiest moment in the process's life no recomposition.
     val arrival = remember { Animatable(if (splashVisible) 0f else 1f) }
+    // A cold start into 库 hands the page's arrival to 「水火潮涌」: the shell only fades in, and
+    // the wave supplies the movement. Scaling the whole page as well would move every row twice.
+    val waveHandoff = remember { LaunchWaveGate.pending }
     LaunchedEffect(splashVisible, stillFrame) {
         if (splashVisible || arrival.value >= 1f) return@LaunchedEffect
         if (stillFrame) {
             arrival.snapTo(1f)
+        } else if (waveHandoff) {
+            arrival.animateTo(1f, tween(WAVE_HANDOFF_FADE_MS, easing = LinearEasing))
         } else {
             arrival.animateTo(1f, tween(Motion.EMPHASIZED, easing = Motion.Curve))
         }
@@ -141,8 +147,10 @@ fun AnimatedSplashApp(
                         // the app composes and lays out, and nothing it draws is composited.
                         val entered = arrival.value
                         alpha = entered
-                        scaleX = SPLASH_HANDOFF_SCALE_FROM + (1f - SPLASH_HANDOFF_SCALE_FROM) * entered
-                        scaleY = scaleX
+                        if (!waveHandoff) {
+                            scaleX = SPLASH_HANDOFF_SCALE_FROM + (1f - SPLASH_HANDOFF_SCALE_FROM) * entered
+                            scaleY = scaleX
+                        }
                     }.drawWithContent {
                         // The splash background stays opaque through its final frame. Keep data and layout
                         // preparation active, but do not record wallpaper, posters and glass underneath it.
@@ -425,6 +433,9 @@ private const val ENTRY_TINT_MS = 300f
  * sees reads as the launch not being finished yet.
  */
 private const val SPLASH_HANDOFF_SCALE_FROM = 0.98f
+
+/** The page frame's fade when the library wave takes over the arrival. */
+private const val WAVE_HANDOFF_FADE_MS = 180
 
 /**
  * 水 → 火, the palette from 「Yfuse 水火 Logo」, run across the wordmark in the same

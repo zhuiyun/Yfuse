@@ -84,6 +84,17 @@ internal fun YCore2RouteDecision.toFailureKey(): YCore2FailureKey =
         decoderName = plan.decoderName,
     )
 
+/**
+ * The key of the route a child actually ran, which the plan's label need not be.
+ *
+ * When a planned route cannot execute, the router hands the media to another one (the Dolby guard
+ * sends a SoftwareFallback plan to NativeEnhanced). Filing that route's failure under the plan's
+ * label blocked a route that never ran and left the one that failed unrecorded. Legacy is what an
+ * executor reports when it has no route of its own; the plan's label then stays.
+ */
+internal fun YCore2FailureKey.forExecutedRoute(executedRoute: YPlaybackRoute): YCore2FailureKey =
+    if (executedRoute == YPlaybackRoute.Legacy || executedRoute == route) this else copy(route = executedRoute)
+
 private fun String?.encodeOpaque(): String =
     this
         ?.toByteArray(Charsets.UTF_8)

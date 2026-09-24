@@ -99,7 +99,8 @@ internal class AndroidEnhancedMediaProbe(
                         limitMs = 18_000L,
                         stageName = "enhanced",
                         reserveMs = 2_000L,
-                        unavailable = { YCore2ProbeResult.Failure(YCore2ProbeFailure.DeadlineOrBusy) },
+                        unavailable = { YCore2ProbeResult.Failure(YCore2ProbeFailure.Deadline) },
+                        busy = { YCore2ProbeResult.Failure(YCore2ProbeFailure.Busy) },
                     ) { stage -> probeUncached(item, knownDolbyEvidence, retainForPlayback, stage) }
                 }
             }
@@ -118,10 +119,14 @@ internal class AndroidEnhancedMediaProbe(
                 // failure here is often an unreachable source, and the route must become
                 // playable again as soon as the network recovers.
                 is YCore2ProbeResult.Failure -> {
-                    failureCache[failureKey] =
-                        TimedProbeFailure(result, retryAfterNs = clock() + FAILED_ENHANCED_PROBE_RETRY_NS)
-                    while (failureCache.size > MAX_CACHED_ENHANCED_PROBES) {
-                        failureCache.remove(failureCache.keys.first())
+                    // Busy means another probe held the lane and this one never looked at the
+                    // source. Caching it skipped the deep probe for the next 30 seconds of starts.
+                    if (result.reason != YCore2ProbeFailure.Busy) {
+                        failureCache[failureKey] =
+                            TimedProbeFailure(result, retryAfterNs = clock() + FAILED_ENHANCED_PROBE_RETRY_NS)
+                        while (failureCache.size > MAX_CACHED_ENHANCED_PROBES) {
+                            failureCache.remove(failureCache.keys.first())
+                        }
                     }
                 }
                 null -> Unit

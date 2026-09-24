@@ -84,6 +84,41 @@ class AndroidMetadataProbeStageTest {
     }
 
     @Test
+    fun a_lane_held_elsewhere_is_reported_busy_and_never_as_a_deadline() {
+        val lane = AndroidBoundedProbe()
+        val holder = Executors.newSingleThreadExecutor()
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        try {
+            val held =
+                holder.submit<Int> {
+                    lane.run(5_000L, { -1 }) {
+                        entered.countDown()
+                        release.await()
+                        1
+                    }
+                }
+            assertTrue(entered.await(1, TimeUnit.SECONDS))
+            AndroidProbeBudget(5_000L).use { preparation ->
+                assertEquals(-2, runMetadataProbeStage(preparation, lane, 1_000L, 100L, { -1 }, busy = { -2 }) { 1 })
+                preparation.ensureActive()
+            }
+            AndroidProbeBudget(5_000L, foreground = true).use { playback ->
+                // Playback outwaits a lane that frees within its wait instead of reporting it busy.
+                Thread {
+                    Thread.sleep(100L)
+                    release.countDown()
+                }.start()
+                assertEquals(42, runMetadataProbeStage(playback, lane, 3_000L, 100L, { -1 }, busy = { -2 }) { 42 })
+            }
+            assertEquals(1, held.get(2, TimeUnit.SECONDS))
+        } finally {
+            release.countDown()
+            holder.shutdownNow()
+        }
+    }
+
+    @Test
     fun reserved_decoder_time_is_never_spent_on_metadata() {
         AndroidProbeBudget(1_000L).use { parent ->
             assertEquals(

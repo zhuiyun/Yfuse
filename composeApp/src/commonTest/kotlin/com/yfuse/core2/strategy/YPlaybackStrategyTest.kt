@@ -280,11 +280,111 @@ class YPlaybackStrategyTest {
                     ),
             )
 
-        assertEquals(YPlaybackRoute.SoftwareFallback, plan.route)
+        // Only the audio decoder is missing: video stays on hardware and FFmpeg decodes the audio.
+        assertEquals(YPlaybackRoute.NativeEnhanced, plan.route)
+        assertEquals(YDemuxPath.Enhanced, plan.demuxPath)
+        assertEquals(YDecodePath.Hardware, plan.decodePath)
+        assertEquals(YRenderPath.SurfaceDirect, plan.renderPath)
         assertTrue(plan.nativeAudio)
         assertTrue(plan.softwareAudioDecode)
         assertEquals(YAudioOutputPath.DecodePcm, plan.audioPath)
         assertTrue("audio" in plan.reason.lowercase())
+    }
+
+    @Test
+    fun `a missing platform audio decoder keeps Dolby Vision video on the hardware decoder`() {
+        // 1.0.83: DV profile 5 with E-AC-3 JOC, no platform E-AC-3 decoder, passthrough off.
+        val plan =
+            strategy.plan(
+                request =
+                    YPlaybackRequest(
+                        container = YContainer.Matroska,
+                        video =
+                            YVideoRequirement(
+                                codec = YVideoCodec.H265,
+                                width = 3840,
+                                height = 2160,
+                                bitDepth = 10,
+                                hdrType = YHdrType.DolbyVision,
+                                dolbyVisionProfile = 5,
+                            ),
+                        audio = YAudioRequirement(codec = YAudioCodec.Eac3Joc, channelCount = 6),
+                        platformDemuxSupported = true,
+                        platformAudioDemuxSupported = false,
+                        sourceDeclaresAudio = true,
+                        allowAudioPassthrough = false,
+                    ),
+                capabilities =
+                    YDeviceCapabilities(
+                        videoDecoders =
+                            listOf(
+                                decoder(
+                                    hdr = setOf(YHdrType.Sdr, YHdrType.DolbyVision),
+                                    dolbyProfiles = setOf(5, 8),
+                                ),
+                            ),
+                        audioDecoders = setOf(YAudioCodec.Aac, YAudioCodec.Ac3),
+                        audioPassthrough = setOf(YAudioCodec.Eac3, YAudioCodec.Eac3Joc),
+                        displayHdrTypes = setOf(YHdrType.Sdr, YHdrType.DolbyVision),
+                    ),
+            )
+
+        assertEquals(YPlaybackRoute.NativeEnhanced, plan.route)
+        assertEquals(YDemuxPath.Enhanced, plan.demuxPath)
+        assertEquals(YDecodePath.Hardware, plan.decodePath)
+        assertEquals(YRenderPath.SurfaceDirect, plan.renderPath)
+        assertEquals(YHdrType.DolbyVision, plan.inputHdrType)
+        assertEquals(YHdrType.DolbyVision, plan.outputHdrType)
+        assertEquals("test.hevc.decoder", plan.decoderName)
+        assertTrue(plan.nativeAudio)
+        assertTrue(plan.softwareAudioDecode)
+        assertEquals(YAudioOutputPath.DecodePcm, plan.audioPath)
+        assertFalse(plan.usesHdrFallback)
+    }
+
+    @Test
+    fun `a missing audio decoder keeps its fallback plan when video cannot stay native`() {
+        val request =
+            YPlaybackRequest(
+                container = YContainer.Matroska,
+                video = YVideoRequirement(codec = YVideoCodec.H265, hdrType = YHdrType.Hdr10, bitDepth = 10),
+                audio = YAudioRequirement(codec = YAudioCodec.DtsHd, channelCount = 8),
+                platformDemuxSupported = true,
+            )
+        val hdrDecoder = decoder(hdr = setOf(YHdrType.Sdr, YHdrType.Hdr10))
+        // The display cannot present HDR10: the existing software tone-map plan stays in charge.
+        val sdrDisplay =
+            strategy.plan(
+                request = request,
+                capabilities = YDeviceCapabilities(videoDecoders = listOf(hdrDecoder)),
+            )
+        // A platform software codec is not the hardware decode this plan promises.
+        val platformSoftware =
+            strategy.plan(
+                request = request,
+                capabilities =
+                    YDeviceCapabilities(
+                        videoDecoders = listOf(hdrDecoder.copy(hardwareAccelerated = false)),
+                        displayHdrTypes = setOf(YHdrType.Sdr, YHdrType.Hdr10),
+                    ),
+            )
+        // Without the enhanced demuxer there is no FFmpeg audio decode to rely on.
+        val noEnhancedDemux =
+            strategy.plan(
+                request = request.copy(enhancedDemuxSupported = false),
+                capabilities =
+                    YDeviceCapabilities(
+                        videoDecoders = listOf(hdrDecoder),
+                        displayHdrTypes = setOf(YHdrType.Sdr, YHdrType.Hdr10),
+                    ),
+            )
+
+        for (plan in listOf(sdrDisplay, platformSoftware, noEnhancedDemux)) {
+            assertEquals(YPlaybackRoute.SoftwareFallback, plan.route)
+        }
+        assertEquals(YDecodePath.Software, sdrDisplay.decodePath)
+        assertEquals(YDecodePath.PlatformSoftware, platformSoftware.decodePath)
+        assertFalse(noEnhancedDemux.softwareAudioDecode)
     }
 
     @Test
@@ -329,7 +429,8 @@ class YPlaybackStrategyTest {
                     ),
             )
 
-        assertEquals(YPlaybackRoute.SoftwareFallback, plan.route)
+        assertEquals(YPlaybackRoute.NativeEnhanced, plan.route)
+        assertEquals(YDecodePath.Hardware, plan.decodePath)
         assertEquals(YAudioOutputPath.DecodePcm, plan.audioPath)
         assertTrue(plan.nativeAudio)
         assertTrue(plan.softwareAudioDecode)

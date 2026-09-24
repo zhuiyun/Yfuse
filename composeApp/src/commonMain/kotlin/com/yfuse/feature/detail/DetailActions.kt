@@ -34,6 +34,7 @@ import com.yfuse.core.designsystem.InlineLoadingContent
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.PressFeedback
 import com.yfuse.core.designsystem.liquidGlass
+import com.yfuse.core.designsystem.playerHandoffKey
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.softActionSurface
@@ -85,6 +86,8 @@ internal fun DetailActionDock(
             Modifier
                 .fillMaxWidth()
                 .height(DetailPlayButtonHeight)
+                // 玻璃舱 and 开幕 start from the key that was pressed.
+                .playerHandoffKey(corner = 16.dp, tint = accent, ink = actionInk)
                 .softActionSurface(playInteractions, enabled = !resolving)
                 .shadow(GlassLift.key, AppShapes.card)
                 .clip(AppShapes.card)

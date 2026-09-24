@@ -25,7 +25,9 @@ internal fun embyPlaybackHeaders(
     val parsed = runCatching { Url(url) }.getOrNull() ?: return emptyMap()
     if (
         parsed.protocol.name !in setOf("http", "https") ||
-        parsed.user != null || parsed.password != null || url.hasSignedPlaybackQuery()
+        parsed.user != null ||
+        parsed.password != null ||
+        url.hasSignedPlaybackQuery()
     ) {
         return emptyMap()
     }
@@ -49,7 +51,11 @@ internal fun embyPlaybackHeaders(
 }
 
 private fun Url.playbackParameterValues(names: Set<String>): List<String> =
-    parameters.entries().filter { it.key.lowercase() in names }.flatMap { it.value }.distinct()
+    parameters
+        .entries()
+        .filter { it.key.lowercase() in names }
+        .flatMap { it.value }
+        .distinct()
 
 private fun safePlaybackHeaderValue(value: String): Boolean =
     value.isNotBlank() && value.none { it < ' ' || it == '\u007f' }

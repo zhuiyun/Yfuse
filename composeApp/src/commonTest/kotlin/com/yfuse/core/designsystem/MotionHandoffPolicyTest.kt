@@ -15,44 +15,6 @@ class MotionHandoffPolicyTest {
         }
     }
 
-    @Test fun artwork_geometry_maps_exactly_when_both_windows_share_an_orientation() {
-        val origin =
-            PlayerArtworkOrigin(
-                MediaSharedElementKey("test", "geometry"),
-                Rect(100f, 200f, 300f, 600f),
-                Rect(0f, 0f, 400f, 800f),
-                listOf("test://poster"),
-            )
-        assertEquals(Rect(200f, 400f, 600f, 1200f), playerArtworkRect(origin, 800f, 1600f))
-    }
-
-    @Test fun artwork_geometry_keeps_its_aspect_ratio_across_a_portrait_to_landscape_boundary() {
-        val origin =
-            PlayerArtworkOrigin(
-                MediaSharedElementKey("test", "geometry"),
-                Rect(100f, 200f, 300f, 600f),
-                Rect(0f, 0f, 400f, 800f),
-                listOf("test://poster"),
-            )
-        // The normalized area is 400x200 centred on (400, 200); a 1:2 poster fits it as 100x200.
-        assertEquals(Rect(350f, 100f, 450f, 300f), playerArtworkRect(origin, 800f, 400f))
-    }
-
-    @Test fun artwork_geometry_shrinks_a_full_width_hero_whole_to_the_top_centre() {
-        val origin =
-            PlayerArtworkOrigin(
-                MediaSharedElementKey("test", "hero"),
-                Rect(0f, 0f, 1080f, 608f),
-                Rect(0f, 0f, 1080f, 2400f),
-                listOf("test://hero"),
-            )
-        val rect = playerArtworkRect(origin, 2400f, 1080f)
-        assertEquals(1080f / 608f, rect.width / rect.height, absoluteTolerance = 0.01f)
-        assertEquals(1200f, rect.center.x, absoluteTolerance = 0.01f)
-        assertEquals(0f, rect.top, absoluteTolerance = 0.01f)
-        assertTrue(rect.width < 2400f)
-    }
-
     @Test fun launch_is_single_use_and_disposed_cards_are_not_return_targets() {
         val owner = Any()
         val key = MediaSharedElementKey("test", "one-shot")
@@ -60,13 +22,39 @@ class MotionHandoffPolicyTest {
         try {
             PlayerArtworkOrigins.register(owner, origin)
             PlayerArtworkOrigins.begin(key)
-            val token = requireNotNull(PlayerArtworkOrigins.issueLaunch())
-            assertEquals(origin, PlayerArtworkOrigins.consume(token))
+            val token = requireNotNull(PlayerArtworkOrigins.issueLaunch(PlayerTransitionStyle.Turn))
+            val launch = requireNotNull(PlayerArtworkOrigins.consume(token))
+            assertEquals(origin.bounds, launch.hero)
+            assertEquals(origin.urls, launch.urls)
+            assertEquals(PlayerTransitionStyle.Turn, launch.style)
+            assertEquals(HandoffPhase.Leaving, PlayerHandoff.phase)
             assertNull(PlayerArtworkOrigins.consume(token))
-            assertNull(PlayerArtworkOrigins.issueLaunch())
+            assertNull(PlayerArtworkOrigins.issueLaunch(PlayerTransitionStyle.Turn))
         } finally {
             PlayerArtworkOrigins.remove(owner)
+            PlayerHandoff.settle()
         }
         assertNull(PlayerArtworkOrigins.resolve(key))
+    }
+
+    @Test fun artwork_mostly_off_screen_starts_no_transition() {
+        val owner = Any()
+        val key = MediaSharedElementKey("test", "scrolled")
+        val origin =
+            PlayerArtworkOrigin(
+                key,
+                Rect(0f, -90f, 100f, 10f),
+                Rect(0f, 0f, 100f, 200f),
+                listOf("test://hero"),
+            )
+        try {
+            PlayerArtworkOrigins.register(owner, origin)
+            PlayerArtworkOrigins.begin(key)
+            assertNull(PlayerArtworkOrigins.issueLaunch(PlayerTransitionStyle.Turn))
+            assertEquals(HandoffPhase.Idle, PlayerHandoff.phase)
+        } finally {
+            PlayerArtworkOrigins.remove(owner)
+            PlayerHandoff.settle()
+        }
     }
 }

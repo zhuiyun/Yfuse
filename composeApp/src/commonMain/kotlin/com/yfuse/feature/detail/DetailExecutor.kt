@@ -81,18 +81,26 @@ internal class DetailExecutor(
     private var initialPlaybackResolutionGeneration = 0L
     private var detailLoadStarted = TimeSource.Monotonic.markNow()
 
-    private fun detailStage(stage: String, outcome: String = "ready") {
+    private fun detailStage(
+        stage: String,
+        outcome: String = "ready",
+    ) {
         AppLog.info(
-            "feature.detail", "detail_load_stage", "Detail $stage ($itemId/$detailLoadGeneration)",
-            attributes = mapOf(
-                "stage" to stage,
-                "itemId" to itemId,
-                "serverId" to (serverId ?: registry.defaultServer?.id).orEmpty(),
-                "generation" to detailLoadGeneration.toString(), "outcome" to outcome,
-                "elapsedMs" to detailLoadStarted.elapsedNow().inWholeMilliseconds.toString(),
-            ),
+            "feature.detail",
+            "detail_load_stage",
+            "Detail $stage ($itemId/$detailLoadGeneration)",
+            attributes =
+                mapOf(
+                    "stage" to stage,
+                    "itemId" to itemId,
+                    "serverId" to (serverId ?: registry.defaultServer?.id).orEmpty(),
+                    "generation" to detailLoadGeneration.toString(),
+                    "outcome" to outcome,
+                    "elapsedMs" to detailLoadStarted.elapsedNow().inWholeMilliseconds.toString(),
+                ),
         )
     }
+
     private var peopleLoadJob: Job? = null
     private var watchLaterLoadGeneration = 0L
     private var watchLaterLoadJob: Job? = null
@@ -316,8 +324,7 @@ internal class DetailExecutor(
                         itemId,
                         includeInheritedPeople = false,
                         includePlaybackFields = false,
-                    )
-                    .onSuccess { detail ->
+                    ).onSuccess { detail ->
                         if (generation != detailLoadGeneration) return@onSuccess
                         detailStage(if (cached == null) "content_ready" else "refresh_ready", "network")
                         if (cached == null) {
@@ -348,11 +355,15 @@ internal class DetailExecutor(
             }
     }
 
-    private fun loadOptionalContent(server: SavedServer, detail: MediaDetail) {
+    private fun loadOptionalContent(
+        server: SavedServer,
+        detail: MediaDetail,
+    ) {
         val generation = detailLoadGeneration
         scope.launch {
-            // Give the playback target a head start on the same host before optional requests.
-            withTimeoutOrNull(750L) { initialPlaybackResolution?.await() }
+            // The target and optional sections use the same host. Keep related/people/watch-later
+            // requests out of its queue until the target is resolved or its visible deadline ends.
+            withTimeoutOrNull(playbackResolutionTimeoutMs) { playbackSelectionLoadJob?.join() }
             if (generation != detailLoadGeneration) return@launch
             loadWatchLater(server, detail.id)
             loadRelated(server, detail)
@@ -405,51 +416,52 @@ internal class DetailExecutor(
             }
         initialPlaybackResolution = resolution
         initialPlaybackResolutionGeneration = generation
-        playbackSelectionLoadJob = scope.launch {
-            val result =
-                withTimeoutOrNull(playbackResolutionTimeoutMs) {
-                    resolution.await()
-                } ?: Result.failure(PlaybackResolutionTimeoutException())
-            if (generation != detailLoadGeneration) return@launch
-            detailStage("play_target_ready", if (result.isSuccess) "ready" else "failed")
-            result
-                .onSuccess { selection ->
-                    // Initial enrichment may finish after the user starts or completes a
-                    // cross-server switch. It must never overwrite that newer choice.
-                    if (
-                        pendingSourceServerId == null &&
-                        state().playServer?.id == server.id &&
-                        state().playSourceDetail?.id == detail.id
-                    ) {
-                        val queuedLaunchTiming = pendingLaunchTiming.takeIf { playWhenSelectionReady }
-                        val existing = state()
-                        val retainedVersionId =
-                            existing.selectedVersionId.takeIf {
-                                existing.playTarget?.id == selection.target.id
-                            }
-                        dispatchPlaybackSelection(selection, preferredVersionId = retainedVersionId)
-                        loadInitialSeriesCatalogAfterPriority(selection, queuedLaunchTiming)
+        playbackSelectionLoadJob =
+            scope.launch {
+                val result =
+                    withTimeoutOrNull(playbackResolutionTimeoutMs) {
+                        resolution.await()
+                    } ?: Result.failure(PlaybackResolutionTimeoutException())
+                if (generation != detailLoadGeneration) return@launch
+                detailStage("play_target_ready", if (result.isSuccess) "ready" else "failed")
+                result
+                    .onSuccess { selection ->
+                        // Initial enrichment may finish after the user starts or completes a
+                        // cross-server switch. It must never overwrite that newer choice.
+                        if (
+                            pendingSourceServerId == null &&
+                            state().playServer?.id == server.id &&
+                            state().playSourceDetail?.id == detail.id
+                        ) {
+                            val queuedLaunchTiming = pendingLaunchTiming.takeIf { playWhenSelectionReady }
+                            val existing = state()
+                            val retainedVersionId =
+                                existing.selectedVersionId.takeIf {
+                                    existing.playTarget?.id == selection.target.id
+                                }
+                            dispatchPlaybackSelection(selection, preferredVersionId = retainedVersionId)
+                            loadInitialSeriesCatalogAfterPriority(selection, queuedLaunchTiming)
+                        }
+                    }.onFailure {
+                        // A timed-out play target must not start an even wider cross-server scan.
+                        // The source list can be loaded after a usable target is selected.
+                        if (
+                            pendingSourceServerId == null &&
+                            state().playServer?.id == server.id &&
+                            state().playSourceDetail?.id == detail.id
+                        ) {
+                            dispatch(DetailMsg.SelectionLoading(false))
+                            retryQueuedPlayAfterSelectionFailure()
+                        }
+                        AppLog.warning(
+                            category = "feature.detail",
+                            event = "play_selection_load_failed",
+                            message = "Detail playback selection could not be enriched",
+                            throwable = it,
+                            attributes = mapOf("serverId" to server.id, "itemId" to detail.id),
+                        )
                     }
-                }.onFailure {
-                    // A timed-out play target must not start an even wider cross-server scan.
-                    // The source list can be loaded after a usable target is selected.
-                    if (
-                        pendingSourceServerId == null &&
-                        state().playServer?.id == server.id &&
-                        state().playSourceDetail?.id == detail.id
-                    ) {
-                        dispatch(DetailMsg.SelectionLoading(false))
-                        retryQueuedPlayAfterSelectionFailure()
-                    }
-                    AppLog.warning(
-                        category = "feature.detail",
-                        event = "play_selection_load_failed",
-                        message = "Detail playback selection could not be enriched",
-                        throwable = it,
-                        attributes = mapOf("serverId" to server.id, "itemId" to detail.id),
-                    )
-                }
-        }
+            }
     }
 
     /**
@@ -490,14 +502,17 @@ internal class DetailExecutor(
                         repo.playbackItemDetail(server, target.id).getOrThrow()
                     }
                 return@cancellableResult ResolvedPlaybackSelection(
-                    server, sourceDetail, playableTarget,
+                    server,
+                    sourceDetail,
+                    playableTarget,
                     target.resumePositionTicks ?: playableTarget.resumePositionTicks ?: 0L,
                 )
             }
             val resolution = repo.resolveDetailPlayTarget(server, sourceDetail).getOrThrow()
             val targetDetail =
                 repo
-                    .playbackItemDetail(server, resolution.target.itemId).getOrThrow()
+                    .playbackItemDetail(server, resolution.target.itemId)
+                    .getOrThrow()
             ResolvedPlaybackSelection(
                 server = server,
                 sourceDetail = sourceDetail,
@@ -606,61 +621,65 @@ internal class DetailExecutor(
         val generation = ++sourceLoadGeneration
         sourceLoadJob?.cancel()
         dispatch(DetailMsg.SourcesLoading)
-        sourceLoadJob = scope.launch {
-            try {
-                val completed = linkedMapOf<String, ServerSource>()
-                val current = state()
-                val target = current.playTarget?.takeIf { current.playServer?.id == server.id }
-                val version =
-                    target?.versions?.firstOrNull { it.id == current.selectedVersionId }
-                        ?: target?.versions?.firstOrNull()
-                val knownCurrent =
-                    emptyList<ServerSource>()
-                        .withResolvedCurrentSource(version, server.id, server.serverName, target?.id)
-                        .firstOrNull()
-                if (knownCurrent != null) {
-                    completed[server.id] = knownCurrent
-                    dispatch(DetailMsg.SourcesLoaded(servers.mapNotNull { completed[it.id] }, complete = false))
-                }
-                val tmdbId =
-                    detail.providerIds.entries
-                        .firstOrNull { it.key.equals("Tmdb", ignoreCase = true) }
-                        ?.value
-                        ?.toIntOrNull()
-                val sources =
-                    repo.compareSources(
-                        servers = servers.filterNot { knownCurrent != null && it.id == server.id },
-                        currentServerId = server.id,
-                        title = detail.title,
-                        tmdbId = tmdbId,
-                        mediaType =
-                            when (detail.type) {
-                                "Series" -> "tv"
-                                "Movie" -> "movie"
-                                else -> null
+        sourceLoadJob =
+            scope.launch {
+                try {
+                    val completed = linkedMapOf<String, ServerSource>()
+                    val current = state()
+                    val target = current.playTarget?.takeIf { current.playServer?.id == server.id }
+                    val version =
+                        target?.versions?.firstOrNull { it.id == current.selectedVersionId }
+                            ?: target?.versions?.firstOrNull()
+                    val knownCurrent =
+                        emptyList<ServerSource>()
+                            .withResolvedCurrentSource(version, server.id, server.serverName, target?.id)
+                            .firstOrNull()
+                    if (knownCurrent != null) {
+                        completed[server.id] = knownCurrent
+                        dispatch(DetailMsg.SourcesLoaded(servers.mapNotNull { completed[it.id] }, complete = false))
+                    }
+                    val tmdbId =
+                        detail.providerIds.entries
+                            .firstOrNull { it.key.equals("Tmdb", ignoreCase = true) }
+                            ?.value
+                            ?.toIntOrNull()
+                    val sources =
+                        repo.compareSources(
+                            servers = servers.filterNot { knownCurrent != null && it.id == server.id },
+                            currentServerId = server.id,
+                            title = detail.title,
+                            tmdbId = tmdbId,
+                            mediaType =
+                                when (detail.type) {
+                                    "Series" -> "tv"
+                                    "Movie" -> "movie"
+                                    else -> null
+                                },
+                            year = detail.year,
+                            seasonNumber = seasonNumber,
+                            episodeNumber = episodeNumber,
+                            forceRefresh = forceRefresh,
+                            onSource = { source ->
+                                if (generation == sourceLoadGeneration) {
+                                    completed[source.serverId] = source
+                                    dispatch(
+                                        DetailMsg.SourcesLoaded(
+                                            servers.mapNotNull { completed[it.id] },
+                                            complete = false,
+                                        ),
+                                    )
+                                }
                             },
-                        year = detail.year,
-                        seasonNumber = seasonNumber,
-                        episodeNumber = episodeNumber,
-                        forceRefresh = forceRefresh,
-                        onSource = { source ->
-                            if (generation == sourceLoadGeneration) {
-                                completed[source.serverId] = source
-                                dispatch(
-                                    DetailMsg.SourcesLoaded(servers.mapNotNull { completed[it.id] }, complete = false),
-                                )
-                            }
-                        },
-                    )
-                if (generation == sourceLoadGeneration) {
-                    sources.forEach { completed[it.serverId] = it }
-                    dispatch(DetailMsg.SourcesLoaded(servers.mapNotNull { completed[it.id] }))
+                        )
+                    if (generation == sourceLoadGeneration) {
+                        sources.forEach { completed[it.serverId] = it }
+                        dispatch(DetailMsg.SourcesLoaded(servers.mapNotNull { completed[it.id] }))
+                    }
+                } catch (failure: Throwable) {
+                    if (failure is CancellationException) throw failure
+                    if (generation == sourceLoadGeneration) dispatch(DetailMsg.SourcesFailed("资源比较暂时不可用，请重试"))
                 }
-            } catch (failure: Throwable) {
-                if (failure is CancellationException) throw failure
-                if (generation == sourceLoadGeneration) dispatch(DetailMsg.SourcesFailed("资源比较暂时不可用，请重试"))
             }
-        }
     }
 
     private fun loadRelated(
@@ -668,35 +687,36 @@ internal class DetailExecutor(
         detail: MediaDetail,
     ) {
         val generation = ++relatedLoadGeneration
-        relatedLoadJob = scope.launch {
-            repo
-                .similarItems(server, detail.id)
-                .onSuccess {
-                    if (
-                        generation == relatedLoadGeneration &&
-                        state().server?.id == server.id &&
-                        state().detail?.id == detail.id
-                    ) {
-                        dispatch(DetailMsg.RelatedLoaded(it))
+        relatedLoadJob =
+            scope.launch {
+                repo
+                    .similarItems(server, detail.id)
+                    .onSuccess {
+                        if (
+                            generation == relatedLoadGeneration &&
+                            state().server?.id == server.id &&
+                            state().detail?.id == detail.id
+                        ) {
+                            dispatch(DetailMsg.RelatedLoaded(it))
+                        }
+                    }.onFailure {
+                        if (
+                            generation != relatedLoadGeneration ||
+                            state().server?.id != server.id ||
+                            state().detail?.id != detail.id
+                        ) {
+                            return@onFailure
+                        }
+                        AppLog.warning(
+                            category = "feature.detail",
+                            event = "related_load_failed",
+                            message = "Related media failed to load",
+                            throwable = it,
+                            attributes = mapOf("serverId" to server.id),
+                        )
+                        dispatch(DetailMsg.RelatedLoaded(emptyList()))
                     }
-                }.onFailure {
-                    if (
-                        generation != relatedLoadGeneration ||
-                        state().server?.id != server.id ||
-                        state().detail?.id != detail.id
-                    ) {
-                        return@onFailure
-                    }
-                    AppLog.warning(
-                        category = "feature.detail",
-                        event = "related_load_failed",
-                        message = "Related media failed to load",
-                        throwable = it,
-                        attributes = mapOf("serverId" to server.id),
-                    )
-                    dispatch(DetailMsg.RelatedLoaded(emptyList()))
-                }
-        }
+            }
     }
 
     private suspend fun resolvePlaybackSelection(
@@ -1270,8 +1290,7 @@ internal class DetailExecutor(
                         initialPlaybackResolution
                             ?.takeIf {
                                 initialPlaybackResolutionGeneration == detailLoadGeneration
-                            }
-                            ?.await()
+                            }?.await()
                             ?.takeIf { it.isSuccess }
                             ?: resolveInitialPlaybackSelection(server, sourceDetail)
                     } ?: Result.failure(PlaybackResolutionTimeoutException())
@@ -1281,7 +1300,9 @@ internal class DetailExecutor(
                             generation != detailLoadGeneration ||
                             state().playServer?.id != server.id ||
                             state().playSourceDetail?.id != sourceDetail.id
-                        ) return@onSuccess
+                        ) {
+                            return@onSuccess
+                        }
                         val launchTiming = pendingLaunchTiming
                         dispatchPlaybackSelection(selection, compareSources = false)
                         loadInitialSeriesCatalogAfterPriority(selection, launchTiming)
@@ -1292,7 +1313,9 @@ internal class DetailExecutor(
                             generation != detailLoadGeneration ||
                             state().playServer?.id != server.id ||
                             state().playSourceDetail?.id != sourceDetail.id
-                        ) return@onFailure
+                        ) {
+                            return@onFailure
+                        }
                         dispatch(DetailMsg.Resolving(false))
                         dispatch(
                             DetailMsg.ActionMessage(
@@ -1604,28 +1627,29 @@ internal class DetailExecutor(
         val generation = ++watchLaterLoadGeneration
         watchLaterLoadJob?.cancel()
         dispatch(DetailMsg.WatchLaterLoading(server.id, itemId, true))
-        watchLaterLoadJob = scope.launch {
-            repo
-                .isInWatchLater(server, itemId)
-                .onSuccess { value ->
-                    if (generation == watchLaterLoadGeneration && isVisibleSource(server.id, itemId)) {
-                        dispatch(DetailMsg.WatchLaterChanged(server.id, itemId, value))
+        watchLaterLoadJob =
+            scope.launch {
+                repo
+                    .isInWatchLater(server, itemId)
+                    .onSuccess { value ->
+                        if (generation == watchLaterLoadGeneration && isVisibleSource(server.id, itemId)) {
+                            dispatch(DetailMsg.WatchLaterChanged(server.id, itemId, value))
+                            dispatch(DetailMsg.WatchLaterLoading(server.id, itemId, false))
+                        }
+                    }.onFailure {
+                        if (generation != watchLaterLoadGeneration || !isVisibleSource(server.id, itemId)) {
+                            return@onFailure
+                        }
                         dispatch(DetailMsg.WatchLaterLoading(server.id, itemId, false))
+                        AppLog.warning(
+                            category = "feature.detail",
+                            event = "watch_later_status_failed",
+                            message = "Failed to load watch-later membership",
+                            throwable = it,
+                            attributes = mapOf("serverId" to server.id),
+                        )
                     }
-                }.onFailure {
-                    if (generation != watchLaterLoadGeneration || !isVisibleSource(server.id, itemId)) {
-                        return@onFailure
-                    }
-                    dispatch(DetailMsg.WatchLaterLoading(server.id, itemId, false))
-                    AppLog.warning(
-                        category = "feature.detail",
-                        event = "watch_later_status_failed",
-                        message = "Failed to load watch-later membership",
-                        throwable = it,
-                        attributes = mapOf("serverId" to server.id),
-                    )
-                }
-        }
+            }
     }
 
     private fun toggleWatchLater() {

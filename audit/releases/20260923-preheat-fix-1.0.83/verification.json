@@ -1,0 +1,47 @@
+{
+  "verifiedAtUtc": "2026-09-23T10:38:52.549677+00:00",
+  "previousDeliveredApk": "artifacts/releases/playback-fix-1.0.82-244/Yfuse-1.0.82-244-full-arm64-signed.apk",
+  "previousVersionName": "1.0.82",
+  "previousVersionCode": 244,
+  "previousCertificateSha256": "373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84",
+  "projectMetadataMatches": true,
+  "releaseNotesMatch": true,
+  "profiles": {
+    "full": {
+      "apk": "Yfuse-1.0.83-245-full-arm64-signed.apk",
+      "bytes": 29281593,
+      "sha256": "cd080c36cb1087bd3a7b3b0516160c8bab6480f0a789cf5d01d98fb04cf326a6",
+      "applicationId": "com.yfuse",
+      "versionName": "1.0.83",
+      "versionCode": 245,
+      "certificateSha256": "373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84",
+      "signatureV2Verified": true,
+      "zipalign16KiBVerified": true,
+      "zipCrcVerified": true,
+      "arm64Only": true,
+      "ycoreBytesMatch": true,
+      "mdkIncluded": true,
+      "startupTimingMarkersPresent": true,
+      "debuggable": false
+    },
+    "compact": {
+      "apk": "Yfuse-1.0.83-245-compact-arm64-signed.apk",
+      "bytes": 23035873,
+      "sha256": "6db354351228ac2596c92d8df298c02e3961f33a5b558bfa3e51fb28140e42af",
+      "applicationId": "com.yfuse",
+      "versionName": "1.0.83",
+      "versionCode": 245,
+      "certificateSha256": "373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84",
+      "signatureV2Verified": true,
+      "zipalign16KiBVerified": true,
+      "zipCrcVerified": true,
+      "arm64Only": true,
+      "ycoreBytesMatch": true,
+      "mdkIncluded": false,
+      "startupTimingMarkersPresent": true,
+      "debuggable": false
+    }
+  },
+  "installed": false,
+  "published": false
+}

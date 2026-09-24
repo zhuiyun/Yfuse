@@ -892,16 +892,19 @@ internal class AndroidTransportMediaDataSource(
                 )
             } catch (failure: Exception) {
                 val cancelled =
-                    closed || progress?.isCancelled == true || foreground?.cancelled == true ||
+                    closed ||
+                        progress?.isCancelled == true ||
+                        foreground?.cancelled == true ||
                         failure.isTransportCancellation()
                 diagnostics.phase = if (cancelled) "cancelled" else "failed"
-                diagnostics.reason = when {
-                    closed -> "source_closed"
-                    progress?.isCancelled == true -> progress.cancellationReason
-                    foreground?.cancelled == true -> "foreground_superseded"
-                    failure.isTransportCancellation() -> "operation_cancelled"
-                    else -> failure.javaClass.simpleName
-                }
+                diagnostics.reason =
+                    when {
+                        closed -> "source_closed"
+                        progress?.isCancelled == true -> progress.cancellationReason
+                        foreground?.cancelled == true -> "foreground_superseded"
+                        failure.isTransportCancellation() -> "operation_cancelled"
+                        else -> failure.javaClass.simpleName
+                    }
                 failure.mediaHttpStatus()?.let { diagnostics.status = it }
                 // A watchdog close is a retryable timeout, not a user cancellation or clean EOF.
                 watchdog.checkFailure()
@@ -1166,7 +1169,8 @@ internal class AndroidTransportMediaDataSource(
                     pending.future.isDone ||
                         index in blockIndex..blockIndex.saturatedAdd(2L) ||
                         otherRuns.any { head -> index in head..head.saturatedAdd(2L) }
-                }.keys.toMutableSet()
+                }.keys
+                .toMutableSet()
         retainMovingPrefetches(retained)
         cancelPrefetchOutside(retained)
     }
@@ -1175,14 +1179,18 @@ internal class AndroidTransportMediaDataSource(
         val nowNs = System.nanoTime()
         prefetchedBlocks.entries
             .filter { (index, pending) ->
-                index !in retained && !pending.future.isDone && pending.started &&
+                index !in retained &&
+                    !pending.future.isDone &&
+                    pending.started &&
                     keepActiveTransportPrefetch((nowNs - pending.lastProgressNs.get()) / NANOS_PER_MILLISECOND)
-            }
-            .take(2)
+            }.take(2)
             .forEach { retained.add(it.key) }
     }
 
-    private fun cancelPrefetchOutside(retained: Set<Long>, reason: String = "window_changed") {
+    private fun cancelPrefetchOutside(
+        retained: Set<Long>,
+        reason: String = "window_changed",
+    ) {
         val iterator = prefetchedBlocks.entries.iterator()
         while (iterator.hasNext()) {
             val entry = iterator.next()
@@ -1452,6 +1460,7 @@ private class YTransportBlockPrefetch(
     val blockIndex: Long,
 ) {
     private val queuedAtNs = System.nanoTime()
+
     @Volatile var queueWaitMs: Long = 0L
         private set
     private val cancelled = AtomicBoolean(false)
@@ -1477,6 +1486,7 @@ private class YTransportBlockPrefetch(
 
     val started: Boolean get() = executionStarted.get()
     val isCancelled: Boolean get() = cancelled.get()
+
     @Volatile var cancellationReason: String = "cancelled"
         private set
 

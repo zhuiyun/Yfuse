@@ -6,6 +6,8 @@ import com.yfuse.core.model.ServerRoute
 import com.yfuse.core.model.ServersData
 import com.yfuse.core.network.EmbyError
 import com.yfuse.core.network.EmbyErrorException
+import com.yfuse.core.security.platformCryptoPrimitives
+import com.yfuse.core.security.toBase64Url
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.async
@@ -17,6 +19,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
@@ -108,9 +111,28 @@ class ServerHealthMonitor(
         const val MIN_AUTO_SWITCH_INTERVAL_MS = 30_000L
     }
 
+    /**
+     * What the last probe of one server concluded, and for which configuration of it.
+     *
+     * Only probes write these. They drive the automatic schedule and the background-work gate;
+     * the [health] shown on screen is also fed by ordinary requests failing or succeeding.
+     */
+    private data class ProbeVerdict(
+        /** The server's probe fingerprint at the time: a new token or address is a new question. */
+        val fingerprint: String,
+        val atEpochMs: Long,
+        val status: ServerHealthStatus,
+        /** Consecutive Offline verdicts for this fingerprint; the backoff doubles with each. */
+        val offlineStreak: Int,
+    )
+
     private val _health = MutableStateFlow<Map<String, ServerHealth>>(emptyMap())
     val health: StateFlow<Map<String, ServerHealth>> = _health.asStateFlow()
     private val appForeground = MutableStateFlow(false)
+    private val playerVisible = MutableStateFlow(false)
+
+    /** Counts real returns of the app to the foreground; each one re-checks every server that is due. */
+    private val foregroundEntries = MutableStateFlow(0)
     private var started = false
 
     // Written by concurrent probes; a plain map raced its own iteration in `retainAll`.
@@ -118,45 +140,132 @@ class ServerHealthMonitor(
 
     /** When each server's backup addresses were last probed; they are not worth a minute cadence. */
     private val lastBackupProbeAtMs = MutableStateFlow<Map<String, Long>>(emptyMap())
+    private val verdicts = MutableStateFlow<Map<String, ProbeVerdict>>(emptyMap())
     private val probePermits = Semaphore(4)
 
     fun start(scope: CoroutineScope) {
         if (started) return
         started = true
+        val probing =
+            combine(appForeground, playerVisible) { foreground, player -> foreground && !player }
+                .distinctUntilChanged()
         scope.launch {
-            // Keyed on what a probe actually depends on - which servers exist and which address
-            // each is using - not on the whole registry. Every registry write republishes it, so
-            // collecting the raw flow re-probed every server after a default-server change, a
-            // rename, or this monitor's own route failover, each of which then wrote the registry
-            // again. distinctUntilChanged over the probe-relevant shape breaks that loop.
+            // Keyed on what a probe actually depends on - which servers exist, which address each
+            // is using and with which credential - not on the whole registry. Every registry write
+            // republishes it, so collecting the raw flow re-probed every server after a
+            // default-server change, a rename, or this monitor's own route failover, each of which
+            // then wrote the registry again. distinctUntilChanged over the probe-relevant shape
+            // breaks that loop.
+            var roundedFor: Pair<List<String>, Int>? = null
             combine(
                 registry.data.map { data -> data to data.probeIdentity() }.distinctUntilChangedBy { it.second },
-                appForeground,
-            ) { (data, _), foreground -> data to foreground }
-                .collectLatest { (data, foreground) ->
+                foregroundEntries,
+                probing,
+            ) { (data, identity), entries, active -> Triple(data, identity to entries, active) }
+                .collectLatest { (data, trigger, active) ->
                     val ids = data.servers.mapTo(hashSetOf()) { it.id }
                     _health.update { current -> current.filterKeys { it in ids } }
                     lastAutoSwitchAtMs.update { current -> current.filterKeys { it in ids } }
                     lastBackupProbeAtMs.update { current -> current.filterKeys { it in ids } }
-                    if (foreground) refreshAll(data.servers)
+                    verdicts.update { current -> current.filterKeys { it in ids } }
+                    // Pausing cancels a round in flight. Resuming alone - the player closing over
+                    // the library - is not a reason for one: it used to re-probe every server,
+                    // dead ones included, after each playback. Only a changed registry or a real
+                    // return from the background is, and then only for servers that are due.
+                    if (!active || trigger == roundedFor) return@collectLatest
+                    roundedFor = trigger
+                    refreshDue(data.servers)
                 }
         }
         scope.launch {
-            appForeground.collectLatest { foreground ->
-                if (!foreground) return@collectLatest
+            probing.collectLatest { active ->
+                if (!active) return@collectLatest
                 while (isActive) {
                     delay(HEALTH_REFRESH_INTERVAL_MS)
-                    refreshAll(registry.data.value.servers)
+                    refreshDue(registry.data.value.servers)
                 }
             }
         }
     }
 
-    /** Cancels in-flight probes and periodic network wakes while the library UI is not visible. */
+    /**
+     * Whether the app's own UI is started. Probing stops without it, and a return from the
+     * background re-checks every server that is due.
+     */
     fun setAppForeground(value: Boolean) {
+        // Coming back while a player covers the library is not a return to the library. Counted
+        // before the flag flips, so the round starts once rather than being restarted by it.
+        if (value && !appForeground.value && !playerVisible.value) foregroundEntries.update { it + 1 }
         appForeground.value = value
     }
 
+    /**
+     * Whether a player is on screen, picture-in-picture included. Probing pauses under it; when
+     * it closes, probing resumes at its normal cadence without an immediate round.
+     */
+    fun setPlayerVisible(value: Boolean) {
+        playerVisible.value = value
+    }
+
+    /**
+     * Whether background work - calendar scans, lookups nobody is waiting on - should contact
+     * [server] now.
+     *
+     * False while the server's own probe says its credential is refused, and while it is Offline
+     * within its probe backoff: each such request would collect another 401 or wait out a
+     * connect timeout, holding a request slot that a reachable server's work needed.
+     */
+    fun allowsBackgroundWork(server: SavedServer): Boolean {
+        val verdict = currentVerdict(server) ?: return true
+        return when (verdict.status) {
+            ServerHealthStatus.AuthRequired -> false
+            ServerHealthStatus.Offline -> verdict.expired(offlineProbeBackoffMs(verdict.offlineStreak))
+            else -> true
+        }
+    }
+
+    /**
+     * Whether an automatic round should probe [server]: never for a credential its probe saw refused
+     * until that credential or the address changes, after the backoff for an Offline one, and
+     * otherwise once a minute. Explicit refreshes do not ask.
+     */
+    private fun automaticProbeDue(server: SavedServer): Boolean {
+        val verdict = currentVerdict(server) ?: return true
+        return when (verdict.status) {
+            ServerHealthStatus.AuthRequired -> false
+            ServerHealthStatus.Offline -> verdict.expired(offlineProbeBackoffMs(verdict.offlineStreak))
+            else -> verdict.expired(HEALTH_REFRESH_INTERVAL_MS)
+        }
+    }
+
+    private fun currentVerdict(server: SavedServer): ProbeVerdict? =
+        verdicts.value[server.id]?.takeIf { it.fingerprint == server.probeFingerprint() }
+
+    // Rounds tick on a fixed cadence, so a verdict a few milliseconds short of its age must not
+    // wait out one more whole interval.
+    private fun ProbeVerdict.expired(holdOffMs: Long): Boolean =
+        nowEpochMs() - atEpochMs !in 0 until holdOffMs - PROBE_SCHEDULE_SLACK_MS
+
+    private suspend fun refreshDue(servers: List<SavedServer>) {
+        val due = servers.filter(::automaticProbeDue)
+        if (due.isNotEmpty()) refreshAllResults(due)
+    }
+
+    private fun rememberVerdict(
+        server: SavedServer,
+        result: Result<*>,
+    ) {
+        val status = result.fold(onSuccess = { ServerHealthStatus.Healthy }, onFailure = ::statusFor)
+        val fingerprint = server.probeFingerprint()
+        val now = nowEpochMs()
+        verdicts.update { current ->
+            val previous = current[server.id]?.takeIf { it.fingerprint == fingerprint }
+            val streak = if (status == ServerHealthStatus.Offline) (previous?.offlineStreak ?: 0) + 1 else 0
+            current + (server.id to ProbeVerdict(fingerprint, now, status, streak))
+        }
+    }
+
+    /** Explicit: probes every server it is given, whatever their last verdict. */
     suspend fun refreshAll(servers: List<SavedServer> = registry.data.value.servers) {
         refreshAllResults(servers)
     }
@@ -179,7 +288,10 @@ class ServerHealthMonitor(
         refreshResult(server)
     }
 
-    suspend fun refreshResult(server: SavedServer): Result<Unit> {
+    suspend fun refreshResult(server: SavedServer): Result<Unit> =
+        probeRoutes(server).also { rememberVerdict(server, it) }
+
+    private suspend fun probeRoutes(server: SavedServer): Result<Unit> {
         val routes = server.effectiveRoutes
         if (routes.size <= 1) {
             val result =
@@ -311,6 +423,13 @@ class ServerHealthMonitor(
                 routes = routes ?: it?.routes.orEmpty(),
             )
         }
+        // A server that just answered has disproved a refused or offline verdict: automatic
+        // probing returns to its normal cadence instead of sitting out a backoff.
+        verdicts.update { current ->
+            val verdict =
+                current[serverId]?.takeIf { it.status != ServerHealthStatus.Healthy } ?: return@update current
+            current + (serverId to verdict.copy(status = ServerHealthStatus.Healthy, offlineStreak = 0))
+        }
     }
 
     fun recordFailure(
@@ -319,11 +438,15 @@ class ServerHealthMonitor(
         routes: Map<String, RouteHealth>? = null,
     ) {
         val status = statusFor(error)
+        // Answered by the client's cooldown: the server's own failure was counted and logged when it
+        // happened. Counting each short-circuited request again logged a warning per request.
+        val repeated = (error as? EmbyErrorException)?.fromCooldown == true
+        val newFailures = if (repeated) 0 else 1
         update(serverId) { previous ->
             ServerHealth(
                 status = status,
                 latencyMs = previous?.latencyMs,
-                consecutiveFailures = (previous?.consecutiveFailures ?: 0) + 1,
+                consecutiveFailures = (previous?.consecutiveFailures ?: 0) + newFailures,
                 message =
                     when (status) {
                         ServerHealthStatus.AuthRequired -> "需要重新登录"
@@ -332,6 +455,15 @@ class ServerHealthMonitor(
                     },
                 routes = routes ?: previous?.routes.orEmpty(),
             )
+        }
+        if (repeated) {
+            AppLog.debug(
+                category = "server.health",
+                event = "failure_cooled_down",
+                message = "A request failed from its server's cooldown",
+                attributes = mapOf("serverId" to serverId, "status" to status.name),
+            )
+            return
         }
         AppLog.warning(
             category = "server.health",
@@ -369,23 +501,51 @@ class ServerHealthMonitor(
 }
 
 /**
- * The part of the registry a health probe depends on: which servers exist, and where each is
- * currently reached. Everything else - the default server, display names, user settings - changes
- * nothing about what a probe would do, so it must not cause one.
+ * The part of the registry a health probe depends on: which servers exist, where each is currently
+ * reached, and with which credential. Everything else - the default server, display names, user
+ * settings - changes nothing about what a probe would do, so it must not cause one. Signing in again
+ * must: it is the only way out of a refused credential, whose automatic probes stop until then.
  */
 private fun ServersData.probeIdentity(): List<String> =
-    servers.map { server ->
-        listOf(
-            server.id,
-            server.kind.name,
-            server.activeRoute.id,
-            server.activeRoute.url,
-            server.effectiveRoutes.joinToString(",") { route -> "${route.id}=${route.url}" },
-        ).joinToString("|")
-    }
+    servers.map { server -> "${server.id}|${server.probeFingerprint()}" }
+
+private fun SavedServer.probeFingerprint(): String =
+    listOf(
+        kind.name,
+        activeRoute.id,
+        activeRoute.url,
+        effectiveRoutes.joinToString(",") { route -> "${route.id}=${route.url}" },
+        credentialFingerprint(accessToken),
+    ).joinToString("|")
+
+/**
+ * Tells two credentials apart without keeping either: a digest under a per-process salt, so the
+ * token itself never lands in the probe bookkeeping or anything that might one day print it.
+ */
+private fun credentialFingerprint(credential: String): String =
+    fingerprintCrypto
+        .sha256(fingerprintSalt + credential.encodeToByteArray())
+        .copyOf(CREDENTIAL_FINGERPRINT_BYTES)
+        .toBase64Url()
+
+private val fingerprintCrypto by lazy { platformCryptoPrimitives() }
+private val fingerprintSalt by lazy { fingerprintCrypto.randomBytes(16) }
+
+/**
+ * How long an Offline server waits for its next automatic probe: one refresh interval after the
+ * first failure, doubling with each further one up to [MAX_OFFLINE_PROBE_BACKOFF_MS]. A dead host
+ * probed every minute held one of the four probe slots for a full connect timeout each time.
+ */
+internal fun offlineProbeBackoffMs(offlineStreak: Int): Long {
+    val exponent = (offlineStreak - 1).coerceIn(0, 5)
+    return (HEALTH_REFRESH_INTERVAL_MS shl exponent).coerceAtMost(MAX_OFFLINE_PROBE_BACKOFF_MS)
+}
 
 private const val HEALTH_REFRESH_INTERVAL_MS = 60_000L
 private const val BACKUP_PROBE_INTERVAL_MS = 5 * 60_000L
+private const val MAX_OFFLINE_PROBE_BACKOFF_MS = 30 * 60_000L
+private const val PROBE_SCHEDULE_SLACK_MS = 5_000L
+private const val CREDENTIAL_FINGERPRINT_BYTES = 12
 
 /** Shared thresholds for cards, route diagnostics, filtering and source ranking. */
 fun latencySeverity(

@@ -19,17 +19,20 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.dp
 import androidx.navigation3.runtime.NavEntry
 import androidx.navigation3.ui.LocalNavAnimatedContentScope
 import androidx.navigation3.ui.NavDisplay
@@ -52,19 +55,27 @@ fun <T : Any> OfficialNavDisplay(
     contentKey: (T) -> String,
     modifier: Modifier = Modifier,
     motion: OfficialNavMotion = OfficialNavMotion.Stack,
+    /**
+     * Routes that only hand off to somewhere else — the player route, which starts the player
+     * Activity and pops itself. They are composed so their effects run, but never shown: pushing
+     * one used to fade the page out and straight back in under the player's own transition.
+     */
+    isLauncher: (T) -> Boolean = { false },
     content: @Composable (T) -> Unit,
 ) {
     val parentRouteVisible = LocalRouteVisible.current
     val currentContent by rememberUpdatedState(content)
-    val currentTop by rememberUpdatedState(backStack.last())
+    val launchers = backStack.filter(isLauncher)
+    val shownStack = backStack.filterNot(isLauncher).ifEmpty { backStack }
+    val currentTop by rememberUpdatedState(shownStack.last())
     val sharedMediaController = remember { SharedMediaTransitionController() }
-    val previousDepth = remember { intArrayOf(backStack.size) }
-    if (backStack.size < previousDepth[0]) {
+    val previousDepth = remember { intArrayOf(shownStack.size) }
+    if (shownStack.size < previousDepth[0]) {
         // The route follows predictive back, but the forward-only artwork morph must not run
         // in reverse over it. Suppress that overlay before the smaller stack is composed.
         sharedMediaController.suppressForPop()
     }
-    SideEffect { previousDepth[0] = backStack.size }
+    SideEffect { previousDepth[0] = shownStack.size }
     val activeSharedKey = sharedMediaController.activeKey
     LaunchedEffect(activeSharedKey) {
         val key = activeSharedKey ?: return@LaunchedEffect
@@ -118,7 +129,7 @@ fun <T : Any> OfficialNavDisplay(
                 }
             }
             NavDisplay(
-                backStack = backStack,
+                backStack = shownStack,
                 modifier = Modifier.fillMaxSize(),
                 onBack = onBack,
                 transitionSpec = {
@@ -154,6 +165,11 @@ fun <T : Any> OfficialNavDisplay(
                 },
                 entryProvider = entryProvider,
             )
+            launchers.forEach { launcher ->
+                key(contentKey(launcher)) {
+                    Box(Modifier.size(0.dp)) { currentContent(launcher) }
+                }
+            }
         }
     }
 }

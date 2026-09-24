@@ -36,4 +36,10 @@ sealed interface EmbyError {
 /** Carries an [EmbyError] through [Result.failure]. */
 class EmbyErrorException(
     val error: EmbyError,
+    /**
+     * The client answered from an active cooldown without contacting the server. The failure
+     * repeats one the server already gave, so it is neither a new malfunction to log at error
+     * level nor another strike against the server's health.
+     */
+    val fromCooldown: Boolean = false,
 ) : Exception(error.toString())

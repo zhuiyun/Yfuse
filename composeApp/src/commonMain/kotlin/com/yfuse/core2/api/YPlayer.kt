@@ -60,11 +60,19 @@ interface YPlayer {
 
     fun selectItem(index: Int)
 
-    /** UI-resolved credits boundary; null uses natural duration. This never initiates a skip. */
+    /**
+     * UI-resolved credits boundary; null uses natural duration. This never initiates a skip.
+     *
+     * [allowMeteredNetwork] lets the next item prepare on mobile data (never under Data Saver).
+     * [nextIntroEndMs] is where the next item's picture will be once its intro is skipped; that
+     * position is warmed as well, so the skip does not wait on the network.
+     */
     fun setNextItemPreparation(
         itemId: String,
         transitionPositionMs: Long?,
         enabled: Boolean,
+        allowMeteredNetwork: Boolean = false,
+        nextIntroEndMs: Long? = null,
     ) = Unit
 
     fun selectDiscTitle(index: Int): Boolean = false

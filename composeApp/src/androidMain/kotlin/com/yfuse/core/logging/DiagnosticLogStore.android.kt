@@ -65,11 +65,11 @@ internal data class PreparedDiagnosticException(
 )
 
 /**
- * The complete payload retained by the asynchronous writer.
+ * The complete payload the writer persists.
  *
  * Every string is redacted and capped, [attributes] is a defensive unmodifiable copy, and no
- * Throwable survives preparation. A full queue therefore has a deterministic memory ceiling and
- * cannot retain an exception's cause/suppressed-object graph.
+ * Throwable survives preparation. Preparation runs on the writer thread; until then a queued entry
+ * holds its caller's throwable, and the queue is bounded by count.
  */
 internal data class PreparedDiagnosticLog(
     val timestamp: String,
@@ -89,6 +89,7 @@ internal fun prepareDiagnosticLog(
     throwable: Throwable?,
     attributes: Map<String, String>,
     threadName: String,
+    timestamp: Instant = Instant.now(),
 ): PreparedDiagnosticLog {
     val safeAttributes = LinkedHashMap<String, String>(DIAGNOSTIC_MAX_ATTRIBUTES)
     // Reserve slots for the actual producer thread and the anonymous server reference. Limiting before transformation also avoids
@@ -128,7 +129,7 @@ internal fun prepareDiagnosticLog(
             )
         }
     return PreparedDiagnosticLog(
-        timestamp = Instant.now().toString(),
+        timestamp = timestamp.toString(),
         level = level,
         category = normalizeDiagnosticName(category, "general"),
         event = normalizeDiagnosticName(event, "unknown"),
@@ -184,6 +185,46 @@ internal class BoundedDiagnosticFingerprintHistory(
 
     internal fun contains(fingerprint: String): Boolean = fingerprint in entries
 }
+
+/**
+ * Attribute-key endings the duplicate fingerprint leaves out.
+ *
+ * A measured duration, a byte count or a running total is expected to differ on every real
+ * repeat of the same event; keeping it in the fingerprint would turn off duplicate suppression
+ * for nearly every event, since most carry at least one. `thread` and anything naming a
+ * timestamp are excluded for the same reason - they vary with *when* the line was written, not
+ * with what happened.
+ */
+private val VOLATILE_ATTRIBUTE_KEY_SUFFIXES = listOf("ms", "us", "bytes", "count")
+
+private fun isVolatileDiagnosticAttributeKey(key: String): Boolean =
+    key == "thread" ||
+        key.contains("timestamp") ||
+        VOLATILE_ATTRIBUTE_KEY_SUFFIXES.any(key::endsWith)
+
+/**
+ * What makes two log lines "the same event" for the 5-second duplicate window.
+ *
+ * Attribute values are part of that identity: two `current_item_preparation_skipped` entries
+ * with different `reason`s within the window used to fold onto the same fingerprint, so the
+ * second one - a genuinely different event - was silently dropped. Only the volatile,
+ * necessarily-different measurements ([isVolatileDiagnosticAttributeKey]) stay out, so a true
+ * repeat - same reason, different duration - still collapses as before.
+ */
+internal fun diagnosticDuplicateFingerprint(prepared: PreparedDiagnosticLog): String =
+    (
+        listOf(
+            prepared.level.name,
+            prepared.category,
+            prepared.event,
+            prepared.message,
+            prepared.exception?.type.orEmpty(),
+        ) +
+            prepared.attributes.keys
+                .filterNot(::isVolatileDiagnosticAttributeKey)
+                .sorted()
+                .map { key -> "$key=${prepared.attributes.getValue(key)}" }
+    ).joinToString("|")
 
 internal fun normalizeDiagnosticName(
     value: String,
@@ -282,25 +323,32 @@ internal object DiagnosticLogStore {
         attributes: Map<String, String> = emptyMap(),
     ) {
         if (!initialized) return
-        val prepared =
-            runCatching {
-                prepareDiagnosticLog(
-                    level = level,
-                    category = category,
-                    event = event,
-                    message = message,
-                    throwable = throwable,
-                    attributes = attributes,
-                    threadName = Thread.currentThread().name,
-                )
-            }.getOrElse { error ->
-                recordWriteFailure(error)
-                return
-            }
+        // Only what belongs to the calling moment is read here: its thread, its time, and the
+        // attributes the entry can keep, copied before the caller can change them. Redaction -
+        // regex passes over the message, every attribute and up to 16 KB of stack trace - runs
+        // on the writer thread; on the UI thread it was the costliest part of logging a failure.
+        val threadName = Thread.currentThread().name
+        val timestamp = Instant.now()
+        val retainedAttributes =
+            attributes.entries
+                .take(DIAGNOSTIC_MAX_ATTRIBUTES - 2)
+                .associate { (key, value) -> key to value }
         try {
             executor.execute {
-                runCatching { writeBlocking(prepared) }
-                    .onFailure(::recordWriteFailure)
+                runCatching {
+                    writeBlocking(
+                        prepareDiagnosticLog(
+                            level = level,
+                            category = category,
+                            event = event,
+                            message = message,
+                            throwable = throwable,
+                            attributes = retainedAttributes,
+                            threadName = threadName,
+                            timestamp = timestamp,
+                        ),
+                    )
+                }.onFailure(::recordWriteFailure)
             }
         } catch (_: RejectedExecutionException) {
             recordDroppedEntry()
@@ -430,14 +478,7 @@ internal object DiagnosticLogStore {
     private fun writeBlocking(prepared: PreparedDiagnosticLog) {
         if (!initialized) return
         synchronized(lock) {
-            val fingerprint =
-                listOf(
-                    prepared.level.name,
-                    prepared.category,
-                    prepared.event,
-                    prepared.message,
-                    prepared.exception?.type.orEmpty(),
-                ).joinToString("|")
+            val fingerprint = diagnosticDuplicateFingerprint(prepared)
             val suppressDuplicates =
                 prepared.level != DiagnosticLevel.Error &&
                     prepared.level != DiagnosticLevel.Critical

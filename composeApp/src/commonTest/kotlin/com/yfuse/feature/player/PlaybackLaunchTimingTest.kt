@@ -3,6 +3,7 @@ package com.yfuse.feature.player
 import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
@@ -51,4 +52,49 @@ class PlaybackLaunchTimingTest {
             assertTrue(timing.matchesSession("new-session"))
             assertFalse(timing.matchesSession("previous-session"))
         }
+
+    /**
+     * Calendar fan-out and playback-sync applies poll this instead of awaiting one launch, since
+     * an unclaimed timing (preparation with no tap yet) must not make them defer.
+     */
+    @Test
+    fun holds_background_priority_only_once_claimed() {
+        val timing = PlaybackLaunchTiming()
+        assertFalse(timing.holdsBackgroundPriority())
+
+        timing.claim()
+        assertTrue(timing.holdsBackgroundPriority())
+    }
+
+    @Test
+    fun holds_background_priority_releases_at_first_output() {
+        val timing = PlaybackLaunchTiming().also { it.claim() }
+        assertTrue(timing.holdsBackgroundPriority())
+
+        timing.stage("first_video_output", output = true)
+
+        assertFalse(timing.holdsBackgroundPriority())
+    }
+
+    @Test
+    fun holds_background_priority_releases_on_startup_error_too() {
+        val timing = PlaybackLaunchTiming().also { it.claim() }
+
+        timing.stage("startup_error", output = true)
+
+        assertFalse(timing.holdsBackgroundPriority())
+    }
+
+    @Test
+    fun any_holds_background_priority_is_true_while_a_registered_launch_holds_it() {
+        val serverId = "launch-timing-test-server"
+        val itemId = "launch-timing-test-item-${Random.nextLong()}"
+        val timing = PlaybackLaunchTiming().also { it.claim() }
+        PlaybackLaunchTimings.register(serverId, itemId, timing)
+        try {
+            assertTrue(PlaybackLaunchTimings.anyHoldsBackgroundPriority())
+        } finally {
+            PlaybackLaunchTimings.remove(serverId, itemId)
+        }
+    }
 }

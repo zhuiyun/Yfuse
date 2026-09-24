@@ -11,6 +11,12 @@
 -keep class com.yfuse.feature.player.PlaybackKeepAliveService { *; }
 -keep class com.yfuse.core.cast.YfuseCastOptionsProvider { *; }
 
+# ---- Diagnostics ----
+# Failure logs record exception class names (native_direct_failed exceptiontype and similar).
+# Renamed classes read "g7b" / "a10" / "hn4" in exported diagnostics, which nobody can act on
+# without the matching mapping file. Keeping names does not stop shrinking or optimisation.
+-keepnames class * extends java.lang.Throwable
+
 # ---- kotlinx.serialization ----
 # Keep the generated serializers for our @Serializable model/DTO classes,
 # otherwise R8 strips them and JSON parsing throws at runtime.

@@ -43,7 +43,7 @@ data class CloudSyncSnapshotV1(
 
 @Serializable
 data class CloudAppearanceSettings(
-    val themeMode: String = ThemeMode.Light.name,
+    val themeMode: String = ThemeMode.Dark.name,
     val autoNext: Boolean = true,
     val reduceTransparency: Boolean = false,
     val largeText: Boolean = false,
@@ -152,7 +152,7 @@ fun applyCloudSyncSnapshot(
             "自定义 User-Agent 同步数据无效"
         }
 
-        val mode = ThemeMode.entries.named(snapshot.appearance.themeMode, ThemeMode.Light)
+        val mode = ThemeMode.entries.named(snapshot.appearance.themeMode, ThemeMode.Dark)
         val splash =
             SplashAnimation.entries.named(
                 snapshot.appearance.splashVariant,

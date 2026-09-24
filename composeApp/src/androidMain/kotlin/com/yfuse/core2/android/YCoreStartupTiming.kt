@@ -15,12 +15,17 @@ internal inline fun <T> yCoreStartupStage(
     var outcome = "success"
     return try {
         operation().also { result ->
-            outcome = when (result) {
-                is YCore2ProbeResult.Failure ->
-                    if (result.reason == YCore2ProbeFailure.DeadlineOrBusy) "deadline_or_busy" else "unavailable"
-                null -> "unavailable"
-                else -> "success"
-            }
+            outcome =
+                when (result) {
+                    is YCore2ProbeResult.Failure ->
+                        when (result.reason) {
+                            YCore2ProbeFailure.Deadline -> "deadline"
+                            YCore2ProbeFailure.Busy -> "busy"
+                            else -> "unavailable"
+                        }
+                    null -> "unavailable"
+                    else -> "success"
+                }
         }
     } catch (failure: Throwable) {
         outcome = "failed"

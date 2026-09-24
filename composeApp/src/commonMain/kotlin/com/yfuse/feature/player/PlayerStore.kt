@@ -259,10 +259,12 @@ internal fun List<MediaVersion>.toPlayerMediaVersions(
                     directStream
                         ?.takeIf {
                             !requiresDiscStream &&
-                                (version.supportsDirectPlay == true || version.directStreamUrl.isStaticMediaStreamUrl()) &&
+                                (
+                                    version.supportsDirectPlay == true ||
+                                        version.directStreamUrl.isStaticMediaStreamUrl()
+                                ) &&
                                 (!preserveDolbyLocally || version.directStreamUrl.isStaticMediaStreamUrl())
-                        }
-                        ?.let(::originalNegotiatedPlaybackUrl)
+                        }?.let(::originalNegotiatedPlaybackUrl)
                         ?: generated.direct.withPlaySessionId(sessionId)
                 PlaybackMethod.DirectStream -> requireNotNull(directStream)
                 PlaybackMethod.Transcode -> hlsTranscode

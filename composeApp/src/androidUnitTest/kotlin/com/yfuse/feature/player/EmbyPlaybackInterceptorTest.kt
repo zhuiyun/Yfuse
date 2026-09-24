@@ -23,7 +23,12 @@ class EmbyPlaybackInterceptorTest {
             listOf("a", "b").forEach { account ->
                 server.enqueue(MockResponse().setBody("data"))
                 val path = "/Videos/movie/stream?api_key=token-$account&UserId=user-$account"
-                val request = Request.Builder().url(server.url(path)).header("Range", "bytes=4-7").build()
+                val request =
+                    Request
+                        .Builder()
+                        .url(server.url(path))
+                        .header("Range", "bytes=4-7")
+                        .build()
                 client.newCall(request).execute().use { assertEquals(200, it.code) }
                 val received = assertNotNull(server.takeRequest(2, TimeUnit.SECONDS))
                 assertEquals(path, received.path)
@@ -104,7 +109,8 @@ class EmbyPlaybackInterceptorTest {
         try {
             server.enqueue(MockResponse().setBody("data"))
             val request =
-                Request.Builder()
+                Request
+                    .Builder()
                     .url(server.url("/Videos/1/stream?api_key=token-a&UserId=user-a"))
                     .header("Authorization", "Basic gateway-credential")
                     .build()

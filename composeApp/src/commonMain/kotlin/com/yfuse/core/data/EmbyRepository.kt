@@ -411,9 +411,10 @@ class EmbyRepository(
         server: SavedServer,
         itemId: String,
         favorite: Boolean,
-    ): Result<Unit> = adapterFor(server).setFavorite(server, itemId, favorite).onSuccess {
-        detailSnapshots.invalidate { it == (server to itemId) }
-    }
+    ): Result<Unit> =
+        adapterFor(server).setFavorite(server, itemId, favorite).onSuccess {
+            detailSnapshots.invalidate { it == (server to itemId) }
+        }
 
     suspend fun setPlayed(
         server: SavedServer,
@@ -451,25 +452,28 @@ class EmbyRepository(
     suspend fun addToWatchLater(
         server: SavedServer,
         itemId: String,
-    ): Result<Unit> = adapterFor(server).addToWatchLater(server, itemId).onSuccess {
-        watchLaterMembership.invalidate { it == (server to itemId) }
-    }
+    ): Result<Unit> =
+        adapterFor(server).addToWatchLater(server, itemId).onSuccess {
+            watchLaterMembership.invalidate { it == (server to itemId) }
+        }
 
     suspend fun isInWatchLater(
         server: SavedServer,
         itemId: String,
-    ): Result<Boolean> = runCatchingCancellable {
-        watchLaterMembership.get(server to itemId) {
-            adapterFor(server).isInWatchLater(server, itemId).getOrThrow()
+    ): Result<Boolean> =
+        runCatchingCancellable {
+            watchLaterMembership.get(server to itemId) {
+                adapterFor(server).isInWatchLater(server, itemId).getOrThrow()
+            }
         }
-    }
 
     suspend fun removeFromWatchLater(
         server: SavedServer,
         itemId: String,
-    ): Result<Unit> = adapterFor(server).removeFromWatchLater(server, itemId).onSuccess {
-        watchLaterMembership.invalidate { it == (server to itemId) }
-    }
+    ): Result<Unit> =
+        adapterFor(server).removeFromWatchLater(server, itemId).onSuccess {
+            watchLaterMembership.invalidate { it == (server to itemId) }
+        }
 
     suspend fun reportPlaybackStarted(
         server: SavedServer,
@@ -788,16 +792,22 @@ class EmbyRepository(
         )
     }
 
-    internal fun cachedItemDetail(server: SavedServer, itemId: String): MediaDetail? =
-        detailSnapshots.peek(server to itemId)?.let { progressProjection.projectDetail(server, it) }
+    internal fun cachedItemDetail(
+        server: SavedServer,
+        itemId: String,
+    ): MediaDetail? = detailSnapshots.peek(server to itemId)?.let { progressProjection.projectDetail(server, it) }
 
     /** Only a known exact episode may bypass the directory; never guess a series from a title. */
-    internal fun cachedResumeEpisode(server: SavedServer, seriesId: String): MediaDetail? {
-        return progressProjection.localStates(server).asSequence()
+    internal fun cachedResumeEpisode(
+        server: SavedServer,
+        seriesId: String,
+    ): MediaDetail? =
+        progressProjection
+            .localStates(server)
+            .asSequence()
             .filter { !it.played && it.positionMs > 0L }
             .mapNotNull { it.serverItemId?.let { id -> cachedItemDetail(server, id) } }
             .firstOrNull { it.type == "Episode" && it.seriesId == seriesId }
-    }
 
     /** Reuses a fresh detail-page snapshot, otherwise requests only playback fields. */
     suspend fun playbackItemDetail(
@@ -836,46 +846,62 @@ class EmbyRepository(
         episodeNumber: Int? = null,
         forceRefresh: Boolean = false,
         onSource: (ServerSource) -> Unit = {},
-    ): List<ServerSource> {
-        return coroutineScope {
+    ): List<ServerSource> =
+        coroutineScope {
             val permits = Semaphore(4)
             val callbackLock = Mutex()
-            servers.map { server ->
-                async {
-                    permits.withPermit {
-                        val unavailable = ServerSource(
-                            serverId = server.id,
-                            serverName = server.serverName,
-                            isCurrent = server.id == currentServerId,
-                            itemId = null,
-                            source = null,
-                            reachable = false,
-                        )
-                        val coolingDown = !forceRefresh && sourceLookupCooldown.blocked(server)
-                        val source = if (coolingDown) {
-                            unavailable
-                        } else if (server.kind == MediaServerKind.Plex) {
-                            withTimeoutOrNull(8_000L) {
-                                plex.compareSources(
-                                    listOf(server), currentServerId, title, tmdbId,
-                                    mediaType, year, seasonNumber, episodeNumber,
-                                ).single()
-                            } ?: unavailable
-                        } else {
-                            sourceService.compareSources(
-                                listOf(server), currentServerId, title, tmdbId,
-                                mediaType, year, seasonNumber, episodeNumber,
-                            ).single()
+            servers
+                .map { server ->
+                    async {
+                        permits.withPermit {
+                            val unavailable =
+                                ServerSource(
+                                    serverId = server.id,
+                                    serverName = server.serverName,
+                                    isCurrent = server.id == currentServerId,
+                                    itemId = null,
+                                    source = null,
+                                    reachable = false,
+                                )
+                            val coolingDown = !forceRefresh && sourceLookupCooldown.blocked(server)
+                            val source =
+                                if (coolingDown) {
+                                    unavailable
+                                } else if (server.kind == MediaServerKind.Plex) {
+                                    withTimeoutOrNull(8_000L) {
+                                        plex
+                                            .compareSources(
+                                                listOf(server),
+                                                currentServerId,
+                                                title,
+                                                tmdbId,
+                                                mediaType,
+                                                year,
+                                                seasonNumber,
+                                                episodeNumber,
+                                            ).single()
+                                    } ?: unavailable
+                                } else {
+                                    sourceService
+                                        .compareSources(
+                                            listOf(server),
+                                            currentServerId,
+                                            title,
+                                            tmdbId,
+                                            mediaType,
+                                            year,
+                                            seasonNumber,
+                                            episodeNumber,
+                                        ).single()
+                                }
+                            // A skipped lookup must not perpetually extend its own cooldown.
+                            if (!coolingDown) sourceLookupCooldown.record(server, source.reachable)
+                            callbackLock.withLock { onSource(source) }
+                            source
                         }
-                        // A skipped lookup must not perpetually extend its own cooldown.
-                        if (!coolingDown) sourceLookupCooldown.record(server, source.reachable)
-                        callbackLock.withLock { onSource(source) }
-                        source
                     }
-                }
-            }.awaitAll()
+                }.awaitAll()
         }
-    }
 
     suspend fun seasons(
         server: SavedServer,

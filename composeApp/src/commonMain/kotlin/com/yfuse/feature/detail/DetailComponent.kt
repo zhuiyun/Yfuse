@@ -1,6 +1,7 @@
 package com.yfuse.feature.detail
 
 import com.arkivanov.decompose.ComponentContext
+import com.arkivanov.essenty.lifecycle.Lifecycle
 import com.arkivanov.essenty.lifecycle.doOnDestroy
 import com.arkivanov.mvikotlin.core.store.Store
 import com.arkivanov.mvikotlin.core.store.StoreFactory
@@ -13,6 +14,7 @@ import com.yfuse.core.data.FollowedSeries
 import com.yfuse.core.data.PlaybackFailoverPlan
 import com.yfuse.core.data.SeriesCalendarLibraryHint
 import com.yfuse.core.data.ServerRegistry
+import com.yfuse.core.data.SourcePreheatMode
 import com.yfuse.core.data.TmdbSeriesIdentityCandidate
 import com.yfuse.core.data.calendarPreviewDays
 import com.yfuse.core.data.libraryAiringSchedule
@@ -30,11 +32,13 @@ import com.yfuse.core.util.componentScope
 import com.yfuse.feature.calendar.loadCalendarWithDeadline
 import com.yfuse.feature.player.PlaybackPreloadKey
 import com.yfuse.feature.player.PlaybackSourcePreload
-import com.yfuse.feature.player.PreparedPlaybackGate
 import com.yfuse.feature.player.PlayerStoreFactory
+import com.yfuse.feature.player.PreparedPlaybackGate
 import com.yfuse.feature.player.PreparedPlaybackRegistry
 import com.yfuse.feature.player.PreparedPlayerStore
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import org.koin.core.context.GlobalContext
@@ -64,21 +68,27 @@ class DetailComponent(
         mediaSourceId: String?,
     ) -> Unit,
 ) : ComponentContext by componentContext {
-    private val openedAt = kotlin.time.TimeSource.Monotonic.markNow()
+    private val openedAt =
+        kotlin.time.TimeSource.Monotonic
+            .markNow()
     private var firstContentRecorded = false
 
     internal fun recordFirstContentFrame() {
         if (firstContentRecorded) return
         firstContentRecorded = true
         com.yfuse.core.logging.AppLog.info(
-            "feature.detail", "detail_first_content_frame", "Detail content reached a frame ($itemId)",
-            attributes = mapOf(
-                "itemId" to itemId,
-                "serverId" to (serverId ?: registry.defaultServer?.id).orEmpty(),
-                "elapsedMs" to openedAt.elapsedNow().inWholeMilliseconds.toString(),
-            ),
+            "feature.detail",
+            "detail_first_content_frame",
+            "Detail content reached a frame ($itemId)",
+            attributes =
+                mapOf(
+                    "itemId" to itemId,
+                    "serverId" to (serverId ?: registry.defaultServer?.id).orEmpty(),
+                    "elapsedMs" to openedAt.elapsedNow().inWholeMilliseconds.toString(),
+                ),
         )
     }
+
     private val playbackSync =
         runCatching { GlobalContext.get().get<PlaybackSyncManager>() }.getOrNull()
     private var explicitFromStartPending = false
@@ -266,8 +276,12 @@ class DetailComponent(
         var preloadObserver: Job? = null
         var sourceWarmup: PlaybackSourcePreload? = null
         var warmedTrackRequest: com.yfuse.core.data.PlaybackTrackRequest.Tracks? = null
+        var warmedPreheatMode: SourcePreheatMode? = null
 
-        fun warmSelectedSource(playback: com.yfuse.feature.player.PlayerState) {
+        fun warmSelectedSource(
+            playback: com.yfuse.feature.player.PlayerState,
+            mode: SourcePreheatMode,
+        ) {
             val selected = playback.items.getOrNull(playback.startIndex) ?: return
             if (playback.loading || playback.error != null || !selected.canPreloadSource) return
             val tracks =
@@ -275,9 +289,10 @@ class DetailComponent(
                     store.state.preferredAudioLanguage,
                     store.state.preferredSubtitleLanguage,
                 )
-            if (sourceWarmup != null && warmedTrackRequest == tracks) return
+            if (sourceWarmup != null && warmedTrackRequest == tracks && warmedPreheatMode == mode) return
             sourceWarmup?.cancel()
             warmedTrackRequest = tracks
+            warmedPreheatMode = mode
             sourceWarmup = sourcePreloader?.preload(selected, playback.startPositionMs, tracks)
         }
 
@@ -320,10 +335,40 @@ class DetailComponent(
                 }
             }.launchIn(scope)
 
+        // Only a page the user can see prepares playback. This page stays alive behind the player,
+        // and playback progress moves its resume position every few seconds; each move changed the
+        // preload key, so it rebuilt a PlayerStore - item detail plus a fresh PlaybackInfo, and on
+        // Wi-Fi a second source preparation - that competed with the stream that was just starting.
+        // RESUMED rather than STARTED: a player window that only pauses this activity counts too.
+        val pageVisible = MutableStateFlow(lifecycle.state >= Lifecycle.State.RESUMED)
+        lifecycle.subscribe(
+            object : Lifecycle.Callbacks {
+                override fun onResume() {
+                    pageVisible.value = true
+                }
+
+                override fun onPause() {
+                    pageVisible.value = false
+                }
+            },
+        )
+
         // Prepare the selected item while the user reads the detail page. The full episode queue
         // and backup sources wait until the player claims this Store and shows its first frame.
-        store.states
-            .onEach detailState@{ state ->
+        val visibleDetail =
+            combine(store.states, pageVisible, dependencies.playbackPreferences.sourcePreheat) { state, visible, mode ->
+                if (visible) state to mode else null
+            }
+        visibleDetail
+            .onEach detailState@{ active ->
+                if (active == null) {
+                    sourceWarmup?.cancel()
+                    sourceWarmup = null
+                    warmedTrackRequest = null
+                    warmedPreheatMode = null
+                    return@detailState
+                }
+                val (state, preheatMode) = active
                 val target = state.playTarget ?: return@detailState
                 val server = state.playServer ?: return@detailState
                 if (state.selectionLoading) return@detailState
@@ -339,7 +384,7 @@ class DetailComponent(
                 val currentPrepared = preloadStore
                 if (key == preloadKey && currentPrepared != null) {
                     if (PreparedPlaybackRegistry.owns(key, currentPrepared)) {
-                        warmSelectedSource(currentPrepared.state)
+                        warmSelectedSource(currentPrepared.state, preheatMode)
                         return@detailState
                     }
                     // Prepared, then claimed by a launching player. That queue is in use; do not
@@ -404,11 +449,12 @@ class DetailComponent(
                             if (playback.loading) return@playbackState
                             val selected = playback.items.getOrNull(playback.startIndex)
                             if (
+                                pageVisible.value &&
                                 playback.error == null &&
                                 selected != null &&
                                 selected.canPreloadSource
                             ) {
-                                warmSelectedSource(playback)
+                                warmSelectedSource(playback, dependencies.playbackPreferences.sourcePreheat.value)
                             }
                             // Ready/failed is terminal for PlayerStore. Keeping the Store itself is
                             // intentional: PlayerComponent claims this exact result for one launch.

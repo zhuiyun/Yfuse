@@ -1,0 +1,4 @@
+gradle.beforeProject { project ->
+    def name = project == project.rootProject ? 'root' : project.name
+    project.layout.buildDirectory.set(project.rootProject.layout.projectDirectory.dir(".gradle-codex/build/${name}"))
+}

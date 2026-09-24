@@ -34,7 +34,12 @@ class AndroidTransportStartupAndResumeTest {
         try {
             for (position in listOf(0L, 128 * 1024L, 256 * 1024L)) {
                 val output = ByteArray(16)
-                assertEquals(16, worker.submit<Int> { source.readAt(position, output, 0, 16) }.get(2, TimeUnit.SECONDS))
+                // The full block stays held by the release latch until `finally`, so any read that waited
+                // for it never returns; the generous bound only absorbs scheduling under full-suite load.
+                assertEquals(
+                    16,
+                    worker.submit<Int> { source.readAt(position, output, 0, 16) }.get(10, TimeUnit.SECONDS),
+                )
                 assertContentEquals(media.copyOfRange(position.toInt(), position.toInt() + 16), output)
             }
         } finally {

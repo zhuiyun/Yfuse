@@ -10,11 +10,14 @@ import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.CacheWriter
 import com.yfuse.core.data.PlaybackNetworkClass
 import com.yfuse.core.data.PlaybackPreferences
+import com.yfuse.core.data.SourcePreheatMode
 import com.yfuse.core.data.UserAgentPreferences
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.network.currentPlaybackNetworkClass
 import com.yfuse.core2.android.AndroidPlaybackMemoryBudget
 import com.yfuse.core2.android.PlaybackBufferKind
+import com.yfuse.core2.android.currentItemNetworkClassAllowed
+import com.yfuse.core2.android.dataSaverEnabled
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -57,12 +60,18 @@ internal class AndroidPlaybackSourcePreloader(
         startPositionMs: Long,
         tracks: com.yfuse.core.data.PlaybackTrackRequest.Tracks?,
     ): PlaybackSourcePreload {
-        val source = item.persistentPlaybackCacheUrl() ?: run {
-            logSourcePreloadSkipped("no_persistent_source")
-            return noOpPlaybackSourcePreload()
-        }
+        val source =
+            item.persistentPlaybackCacheUrl() ?: run {
+                logSourcePreloadSkipped("no_persistent_source")
+                return noOpPlaybackSourcePreload()
+            }
         if (playbackPreferences.videoCacheSize.value.bytes <= 0L) {
             logSourcePreloadSkipped("cache_disabled")
+            return noOpPlaybackSourcePreload()
+        }
+        val preheatMode = playbackPreferences.sourcePreheat.value
+        if (preheatMode == SourcePreheatMode.Off) {
+            logSourcePreloadSkipped("setting_off")
             return noOpPlaybackSourcePreload()
         }
         val networkClass = currentPlaybackNetworkClass()
@@ -70,7 +79,7 @@ internal class AndroidPlaybackSourcePreloader(
             (
                 applicationContext.getSystemService(Context.POWER_SERVICE) as? PowerManager
             )?.isPowerSaveMode == true
-        if (networkClass == PlaybackNetworkClass.Unmetered &&
+        if (currentItemNetworkClassAllowed(networkClass, dataSaverEnabled(applicationContext), preheatMode) &&
             !powerSaveMode &&
             (
                 BuildConfig.YFUSE_NATIVE_ONLY_RUNTIME ||
@@ -87,6 +96,7 @@ internal class AndroidPlaybackSourcePreloader(
                 startPositionMs,
                 userAgentPreferences.userAgent.value,
                 playbackPreferences.videoCacheSize.value.bytes,
+                mode = preheatMode,
                 initialTrackSelection = item.initialPlaybackTracks(playbackPreferences, tracks),
             )
         }

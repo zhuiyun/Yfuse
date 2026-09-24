@@ -652,9 +652,30 @@ tasks.matching { it.name.startsWith("test", ignoreCase = true) }.configureEach {
 }
 
 /**
- * Optional Ed25519 public key (base64 SubjectPublicKeyInfo) for update-manifest signatures.
- * An empty key keeps the standard update path available. APK signing and downloaded-package
- * certificate verification remain independent requirements.
+ * Optional Ed25519 public key (base64 SubjectPublicKeyInfo DER) for update-manifest signatures.
+ * An empty key keeps the standard update path available (APK hash/size/package/certificate
+ * checks still apply); it just skips an independent signature check on update-v2.json itself.
+ * APK signing and downloaded-package certificate verification remain independent requirements.
+ *
+ * To generate a FIRST-TIME key pair, when no update-manifest key has ever been published
+ * (requires OpenSSL; see docs/android-release.md instead if one already exists — exporting the
+ * existing key's public half, not generating a new pair, is almost always the right move). The
+ * verifier is composeApp/src/androidMain/kotlin/com/yfuse/core/security/PlatformSignature.android.kt,
+ * which expects X.509/SubjectPublicKeyInfo DER, base64-encoded — the same format this property holds:
+ *
+ *     openssl genpkey -algorithm ed25519 -out update-manifest-signing-key.pem
+ *     openssl pkey -in update-manifest-signing-key.pem -pubout -outform DER | base64 -w0
+ *
+ * - Keep update-manifest-signing-key.pem OUTSIDE this repository. Store its contents as the
+ *   GitHub Actions secret UPDATE_MANIFEST_SIGNING_KEY; publish-android.yml, tv-release.yml, and
+ *   sign-android-branch.yml all derive the matching public key from it automatically at build
+ *   time and refuse the build if it does not match a pinned/configured public key.
+ * - The base64 line printed by the second command is the PUBLIC half. Put it in exactly one of:
+ *     - this property (yfuse.updateManifestPublicKey in gradle.properties) to bake the pin into
+ *       every local build (avoid committing a real production key on a shared machine), or
+ *     - the GitHub repository/environment variable YFUSE_UPDATE_MANIFEST_PUBLIC_KEY (CI only).
+ * - Losing the private key means clients that already pinned its public key cannot verify future
+ *   manifests; see docs/android-release.md before rotating an already-published key.
  */
 val updateManifestPublicKey: String =
     providers
@@ -957,6 +978,16 @@ android {
     }
 }
 
+// GitHub Actions (and effectively every other CI provider) sets CI=true. Only an actual CI run
+// that is also configured with a real production keystore is refused for a missing
+// update-manifest key below; an engineer testing production signing locally still only warns.
+val isCi =
+    providers
+        .environmentVariable("CI")
+        .orNull
+        ?.trim()
+        ?.equals("true", ignoreCase = true) == true
+
 val verifyReleaseSigning by tasks.registering {
     group = "verification"
     description = "Rejects release packaging without production signing or explicit local opt-in."
@@ -975,15 +1006,34 @@ val verifyReleaseSigning by tasks.registering {
             check(validUpdateKey) { "Configured update-manifest public key must be valid Ed25519." }
         }
         // A production-signed package without an update-manifest pin ships the standard update
-        // path (APK hash, size, package and certificate checks). That is a supported release
-        // configuration (docs/android-release.md), and the local keystore has never carried a
-        // pin, so this is a warning rather than a gate; CI derives the pin from its secret.
+        // path (APK hash, size, package and certificate checks); it just has no independent
+        // signature check on update-v2.json itself. That is a supported local configuration
+        // (docs/android-release.md), so a local build only warns. A real CI production build can
+        // and should have UPDATE_MANIFEST_SIGNING_KEY / YFUSE_UPDATE_MANIFEST_PUBLIC_KEY
+        // configured, so CI fails loudly instead of silently shipping an unsigned-manifest release.
         if (releaseSigningReady && !allowDebugSigning && updateManifestPublicKey.isBlank()) {
-            logger.warn(
-                "WARNING: production signing without an update-manifest public key " +
-                    "(yfuse.updateManifestPublicKey / YFUSE_UPDATE_MANIFEST_PUBLIC_KEY is empty); " +
-                    "the package will accept unsigned update manifests.",
-            )
+            val warningLines =
+                listOf(
+                    "!".repeat(78),
+                    "WARNING: production signing WITHOUT an update-manifest public key.",
+                    "yfuse.updateManifestPublicKey / YFUSE_UPDATE_MANIFEST_PUBLIC_KEY is empty: " +
+                        "this package will accept UNSIGNED update manifests from the update host.",
+                    "Generate an Ed25519 key pair and configure both halves; see the comment " +
+                        "above the `updateManifestPublicKey` property in this file for exact steps.",
+                    "!".repeat(78),
+                )
+            if (isCi) {
+                throw GradleException(
+                    (
+                        listOf(
+                            "CI refuses to build a production-signed release without an " +
+                                "update-manifest public key configured.",
+                        ) + warningLines
+                    ).joinToString("\n"),
+                )
+            } else {
+                warningLines.forEach(logger::warn)
+            }
         }
         if (!releaseSigningReady && !allowDebugSigning) {
             throw GradleException(

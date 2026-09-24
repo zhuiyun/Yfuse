@@ -12,7 +12,11 @@ internal class AndroidBufferWaitClock {
         generation = null
     }
 
-    fun observe(nowNs: Long, waiting: Boolean, generation: Long): Long {
+    fun observe(
+        nowNs: Long,
+        waiting: Boolean,
+        generation: Long,
+    ): Long {
         if (!waiting || this.generation != generation) startedNs = null
         this.generation = generation
         if (!waiting) return 0L

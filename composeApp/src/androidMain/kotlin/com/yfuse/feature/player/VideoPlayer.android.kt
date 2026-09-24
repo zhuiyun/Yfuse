@@ -7,6 +7,7 @@ import androidx.compose.ui.platform.LocalContext
 import com.arkivanov.mvikotlin.core.store.Store
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.ThemePreferences
+import com.yfuse.core.designsystem.PlayerTransitionStyle
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.PlayerEngine
 import org.koin.core.context.GlobalContext
@@ -29,7 +30,7 @@ actual fun PendingPlayerLauncher(
                     startPlaybackRequested = startPlaybackRequested,
                 ).also { createdIntent ->
                     launchIntent = createdIntent
-                    com.yfuse.core.designsystem.PlayerArtworkOrigins.issueLaunch()?.let {
+                    com.yfuse.core.designsystem.PlayerArtworkOrigins.issueLaunch(playerTransitionStyle())?.let {
                         createdIntent.putExtra(PLAYER_ARTWORK_TOKEN, it)
                     }
                     context.startActivity(createdIntent)
@@ -89,7 +90,7 @@ actual fun PlayerLauncher(
                     startPlaybackRequested = startPlaybackRequested,
                 ).also { createdIntent ->
                     launchIntent = createdIntent
-                    com.yfuse.core.designsystem.PlayerArtworkOrigins.issueLaunch()?.let {
+                    com.yfuse.core.designsystem.PlayerArtworkOrigins.issueLaunch(playerTransitionStyle())?.let {
                         createdIntent.putExtra(PLAYER_ARTWORK_TOKEN, it)
                     }
                     context.startActivity(createdIntent)
@@ -112,6 +113,12 @@ actual fun PlayerLauncher(
             )
         }
     }
+}
+
+/** The set chosen in 设置 → 外观 → 播放器进出场; the first one if the preferences cannot be read. */
+private fun playerTransitionStyle(): PlayerTransitionStyle {
+    val preferences = runCatching { GlobalContext.get().get<ThemePreferences>() }.getOrNull()
+    return preferences?.playerTransition?.value ?: PlayerTransitionStyle.Turn
 }
 
 internal fun offlineSubtitlePlaybackEngine(

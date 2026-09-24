@@ -95,6 +95,37 @@ class YCodecConfigurationTest {
     }
 
     @Test
+    fun `record parameter sets report what an empty or partial record carries`() {
+        val emptyAvcC = byteArrayOf(1, 100, 0, 31, 0xff.toByte(), 0xe0.toByte(), 0)
+        val emptyAvc = YCodecConfiguration.avcRecordParameterSets(emptyAvcC)
+        assertEquals(0, emptyAvc.sps.size)
+        assertEquals(0, emptyAvc.pps.size)
+        assertEquals(false, emptyAvc.complete)
+        // parseAvcC still refuses it as a configuration; only the parameter-set view accepts it.
+        assertFailsWith<IllegalArgumentException> { YCodecConfiguration.parseAvcC(emptyAvcC) }
+
+        val sps = byteArrayOf(0x42, 0x01, 0x01)
+        val partialHvcC =
+            ByteArray(23).apply {
+                this[0] = 1
+                this[21] = 0xff.toByte()
+                this[22] = 1
+            } + hevcArray(33, sps)
+        val partial = YCodecConfiguration.hevcRecordParameterSets(partialHvcC)
+        assertContentEquals(sps, partial.sps.single())
+        assertEquals(false, partial.complete)
+        val pps = byteArrayOf(0x44, 0x01, 0xc0.toByte())
+        val completed = YParameterSets(pps = listOf(pps)).orElse(partial)
+        assertEquals(true, completed.complete)
+        assertContentEquals(sps, completed.sps.single())
+
+        // Malformed, rather than merely empty: the PPS count byte is missing.
+        assertFailsWith<IllegalArgumentException> {
+            YCodecConfiguration.avcRecordParameterSets(byteArrayOf(1, 100, 0, 31, 0xff.toByte(), 0xe0.toByte()))
+        }
+    }
+
+    @Test
     fun `truncated configuration records fail closed`() {
         assertFailsWith<IllegalArgumentException> {
             YCodecConfiguration.parseAvcC(byteArrayOf(1, 100, 0, 31, 0xff.toByte(), 0xe1.toByte(), 0, 5, 0x67))

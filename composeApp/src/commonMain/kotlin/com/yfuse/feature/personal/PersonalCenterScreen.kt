@@ -357,7 +357,11 @@ fun PersonalCenterScreen(
                             val kind = if (conflict.mutation.kind == SyncMutationKind.Favorite) "收藏" else "已看"
                             SettingRow(
                                 kind + "冲突",
-                                "本机：" + conflict.mutation.desired + " · 服务器：" + conflict.serverValue,
+                                syncConflictValueCopy(
+                                    conflict.mutation.kind,
+                                    conflict.mutation.desired,
+                                    conflict.serverValue,
+                                ),
                                 embedded = true,
                             )
                             SettingsDivider()
@@ -498,6 +502,27 @@ fun PersonalCenterScreen(
             }
         }
     }
+}
+
+/**
+ * Human copy for a sync conflict's two sides, phrased for what [kind] actually is — the
+ * card used to print `PendingSyncMutation.desired`/`SyncConflict.serverValue` as raw
+ * Booleans ("本机：true · 服务器：false"), which says nothing to someone who did not just
+ * read the source.
+ */
+internal fun syncConflictValueCopy(
+    kind: SyncMutationKind,
+    desired: Boolean,
+    serverValue: Boolean,
+): String {
+    val (onLabel, offLabel) =
+        when (kind) {
+            SyncMutationKind.Favorite -> "已收藏" to "未收藏"
+            SyncMutationKind.Played -> "已看" to "未看"
+        }
+
+    fun label(value: Boolean) = if (value) onLabel else offLabel
+    return "本机：${label(desired)} · 服务器：${label(serverValue)}"
 }
 
 @Composable

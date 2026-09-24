@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The player window's half of a transition only fades: the page has already carried the
+     picture to where this window takes over. Delayed so that, on time, the fade ends as the page
+     reaches that frame (HandoffTiming.windowDelay / windowFade). -->
+<alpha xmlns:android="http://schemas.android.com/apk/res/android"
+    android:interpolator="@android:interpolator/linear"
+    android:fromAlpha="0"
+    android:toAlpha="1"
+    android:startOffset="20"
+    android:duration="100" />

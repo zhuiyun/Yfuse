@@ -160,7 +160,6 @@ internal fun RefinedTopBar(
                 28.dp,
                 12.dp,
                 onClick = onBack,
-                ringModifier = Modifier.playerCloseAnchor(),
             )
             Column(Modifier.weight(1f)) {
                 Row(

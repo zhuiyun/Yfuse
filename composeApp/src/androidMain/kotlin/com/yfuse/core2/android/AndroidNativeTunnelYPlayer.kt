@@ -294,6 +294,11 @@ internal class AndroidNativeTunnelYPlayer(
                         it.diagnostics
                             .invalidateOutputEvidence(YOutputEvidenceResetReason.DecoderReconfigured)
                             .copy(
+                                // Same contract as NativeDirect: a transient read lets the router
+                                // reopen this route in place before it leaves Tunnel.
+                                recoverableNetworkFailure =
+                                    typed?.category == YPlaybackFailureCategory.Network &&
+                                        isRecoverableMediaReadFailure(typed.cause),
                                 videoOutput = "停止",
                                 audioOutput = "停止",
                                 reason =
@@ -369,6 +374,7 @@ internal class AndroidNativeTunnelYPlayer(
                     diagnostics =
                         it.diagnostics.copy(
                             route = YPlaybackRoute.NativeTunnel,
+                            recoverableNetworkFailure = false,
                             container = decision.probe.playbackRequest.container.name,
                             decoder =
                                 listOfNotNull(snapshot.videoDecoderName, snapshot.audioDecoderName)

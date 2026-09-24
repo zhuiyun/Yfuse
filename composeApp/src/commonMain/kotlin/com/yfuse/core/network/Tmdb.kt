@@ -13,6 +13,15 @@ import kotlinx.serialization.json.Json
 /** TMDB read-access token, supplied per platform (Android: BuildConfig). */
 expect fun tmdbToken(): String
 
+/**
+ * Platform engine for TMDB: the media-server engine's pooling plus an HTTP response cache.
+ *
+ * TMDB marks its responses cacheable, and the same show, season and image-config reads repeat on
+ * every detail page, calendar pass and launch. Media-server calls stay uncached on purpose: their
+ * answers are per-user state that must not be served stale.
+ */
+expect fun tmdbHttpEngine(): HttpClientEngine
+
 const val TMDB_BASE = "https://api.themoviedb.org/3"
 
 /**
@@ -24,7 +33,7 @@ private const val TMDB_REQUEST_TIMEOUT_MS = 20_000L
 private const val TMDB_CONNECT_TIMEOUT_MS = 12_000L
 
 /** Client for TMDB; authenticates with the v4 read token. */
-fun createTmdbClient(engine: HttpClientEngine = embyHttpEngine()): HttpClient =
+fun createTmdbClient(engine: HttpClientEngine = tmdbHttpEngine()): HttpClient =
     HttpClient(engine) {
         expectSuccess = true
         install(ContentEncoding) { gzip() }

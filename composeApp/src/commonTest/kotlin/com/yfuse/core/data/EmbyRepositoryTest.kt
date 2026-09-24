@@ -1402,25 +1402,39 @@ class EmbyRepositoryTest {
         }
 
     @Test
-    fun detail_play_target_requests_only_progress_fields_and_reprojects_local_progress() = runTest {
-        var requests = 0
-        val progress = PlaybackSyncStore(MapSettings()) { 1_000L }
-        val repo = testRepo(progressProjection = PlaybackProgressProjection(progress)) { request ->
-            requests++
-            assertEquals("/Shows/s1/Episodes", request.url.encodedPath)
-            assertEquals("UserData", request.url.parameters["Fields"])
-            json(
-                """{"Items":[{"Id":"e1","Name":"First","Type":"Episode"},""" +
-                    """{"Id":"e2","Name":"Second","Type":"Episode"}]}""",
-            )
-        }
-        val series = detail("s1", "Series")
+    fun detail_play_target_requests_only_progress_fields_and_reprojects_local_progress() =
+        runTest {
+            var requests = 0
+            val progress = PlaybackSyncStore(MapSettings()) { 1_000L }
+            val repo =
+                testRepo(progressProjection = PlaybackProgressProjection(progress)) { request ->
+                    requests++
+                    assertEquals("/Shows/s1/Episodes", request.url.encodedPath)
+                    assertEquals("UserData", request.url.parameters["Fields"])
+                    json(
+                        """{"Items":[{"Id":"e1","Name":"First","Type":"Episode"},""" +
+                            """{"Id":"e2","Name":"Second","Type":"Episode"}]}""",
+                    )
+                }
+            val series = detail("s1", "Series")
 
-        assertEquals("e1", repo.resolveDetailPlayTarget(server, series).getOrThrow().target.itemId)
-        progress.seedServerProgressIfAbsent(server.id, "e1", positionMs = 0L, played = true)
-        assertEquals("e2", repo.resolveDetailPlayTarget(server, series).getOrThrow().target.itemId)
-        assertEquals(1, requests)
-    }
+            assertEquals(
+                "e1",
+                repo
+                    .resolveDetailPlayTarget(server, series)
+                    .getOrThrow()
+                    .target.itemId,
+            )
+            progress.seedServerProgressIfAbsent(server.id, "e1", positionMs = 0L, played = true)
+            assertEquals(
+                "e2",
+                repo
+                    .resolveDetailPlayTarget(server, series)
+                    .getOrThrow()
+                    .target.itemId,
+            )
+            assertEquals(1, requests)
+        }
 
     @Test
     fun resolvePlayTarget_series_falls_back_to_first_episode() =

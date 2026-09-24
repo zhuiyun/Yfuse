@@ -3,6 +3,7 @@ package com.yfuse.core.data
 import com.yfuse.core.data.dto.PlexResponseDto
 import com.yfuse.core.model.ServerRoute
 import com.yfuse.core.model.normalizedRoutes
+import com.yfuse.core.network.exemptFromServerCooldown
 import com.yfuse.core.network.suppressEmbyIdentity
 import com.yfuse.deviceId
 import io.ktor.client.HttpClient
@@ -319,6 +320,9 @@ internal class PlexCloudAccountService(
 
     private fun HttpRequestBuilder.cloudHeaders(token: String? = null) {
         suppressEmbyIdentity()
+        // plex.tv carries sign-in, Home switching and account lists, all driven by the user; the
+        // media-server cooldowns now keyed on X-Plex-Token must not answer them.
+        exemptFromServerCooldown()
         headers.remove("X-Emby-Authorization")
         headers.remove("X-Emby-Client")
         headers.remove("X-Emby-Client-Version")

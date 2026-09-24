@@ -19,6 +19,17 @@ data class YPlaybackRecoveryContext(
     val protectedContent: Boolean,
     /** Intent is authoritative even when a failed executor still reports its old hardware route. */
     val softwareFallbackAttempted: Boolean = false,
+    /**
+     * The failure repeats whenever this route reopens the same input
+     * ([com.yfuse.core2.api.YPlaybackException.deterministic]), so a same-route retry only adds
+     * time: 1.0.83 spent 2.9 s re-running a codec configuration its own parser had rejected.
+     */
+    val deterministic: Boolean = false,
+    /**
+     * A software route can still carry this input. Dolby Vision cannot be decoded in software, so
+     * without a compatibility executor an enhanced failure there has nowhere left to go.
+     */
+    val softwareFallbackAvailable: Boolean = true,
 ) {
     init {
         require(sameRouteAttempts >= 0)
@@ -33,16 +44,16 @@ data class YPlaybackRecoveryContext(
 object YPlaybackRecoveryPolicy {
     fun decide(context: YPlaybackRecoveryContext): YPlaybackRecoveryAction {
         val category = context.category
-        if (
-            category == YPlaybackFailureCategory.Authorization ||
-            category == YPlaybackFailureCategory.Drm ||
-            category == YPlaybackFailureCategory.Network
-        ) {
+        if (category == YPlaybackFailureCategory.Authorization || category == YPlaybackFailureCategory.Drm) {
             return YPlaybackRecoveryAction.Stop
         }
         if (context.route == YPlaybackRoute.SoftwareFallback || context.softwareFallbackAttempted) {
             return YPlaybackRecoveryAction.Stop
         }
+        // Checked before the Network stop: leaving Tunnel is a route change, not a replay of the
+        // failed request, and the platform path opens its own validated reader. Tunnel reports its
+        // transport stalls as Network, and stopping there stranded titles NativeDirect plays. It
+        // happens once per item, because the rebuilt route never selects Tunnel again.
         if (context.route == YPlaybackRoute.NativeTunnel) {
             return if (context.protectedContent) {
                 YPlaybackRecoveryAction.Stop
@@ -50,18 +61,30 @@ object YPlaybackRecoveryPolicy {
                 YPlaybackRecoveryAction.DisableTunnel
             }
         }
+        if (category == YPlaybackFailureCategory.Network) return YPlaybackRecoveryAction.Stop
         if (
+            !context.deterministic &&
             category in SAME_ROUTE_RECOVERABLE_FAILURES &&
             context.sameRouteAttempts < MAX_SAME_ROUTE_ATTEMPTS
         ) {
             return YPlaybackRecoveryAction.RetrySameRoute
         }
         if (context.protectedContent) return YPlaybackRecoveryAction.Stop
+        // Stopping publishes the enhanced route's own typed failure. A software request with no
+        // executable route ended as the generic "纯内核路径无法打开当前片源" (Unknown) instead.
+        val afterEnhanced =
+            if (context.softwareFallbackAvailable) {
+                YPlaybackRecoveryAction.FallbackToSoftware
+            } else {
+                YPlaybackRecoveryAction.Stop
+            }
         return when (context.route) {
+            // The enhanced demuxer and bitstream normalizer read the input differently, so even a
+            // deterministic platform failure is worth one enhanced attempt.
             YPlaybackRoute.NativeDirect -> YPlaybackRecoveryAction.FallbackToEnhanced
             YPlaybackRoute.NativeEnhanced,
             YPlaybackRoute.GpuEnhanced,
-            -> YPlaybackRecoveryAction.FallbackToSoftware
+            -> afterEnhanced
             YPlaybackRoute.Legacy,
             YPlaybackRoute.NativeTunnel,
             YPlaybackRoute.SoftwareFallback,

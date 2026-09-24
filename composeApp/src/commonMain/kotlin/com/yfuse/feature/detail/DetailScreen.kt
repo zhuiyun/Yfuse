@@ -22,6 +22,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -455,7 +456,10 @@ fun DetailScreen(component: DetailComponent) {
 
                 // A different detail route must always start at its hero. Keying the state by the
                 // route item also prevents a newly opened title inheriting the previous title's offset.
-                val listState = remember(component.itemId) { LazyListState() }
+                // Saveable, not just remembered: detail -> related detail -> back used to land back
+                // at the hero because plain `remember` does not survive the child route's push.
+                val listState =
+                    rememberSaveable(component.itemId, saver = LazyListState.Saver) { LazyListState() }
                 val detailBackdrop = rememberBackdropState()
                 // The season list follows its title, but not off the page: scrolling closes it.
                 LaunchedEffect(listState) {

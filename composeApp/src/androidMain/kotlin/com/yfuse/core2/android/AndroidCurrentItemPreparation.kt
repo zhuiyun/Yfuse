@@ -1,7 +1,10 @@
 package com.yfuse.core2.android
 
 import android.content.Context
+import com.yfuse.core.data.PlaybackNetworkClass
+import com.yfuse.core.data.SourcePreheatMode
 import com.yfuse.core.logging.AppLog
+import com.yfuse.core.network.currentPlaybackNetworkClass
 import com.yfuse.core2.api.YMediaItem
 import com.yfuse.feature.player.PlaybackSourcePreload
 import com.yfuse.feature.player.PlayerMediaItem
@@ -43,6 +46,7 @@ internal object AndroidCurrentItemPreparation {
         positionMs: Long,
         userAgent: String,
         cacheBytes: Long,
+        mode: SourcePreheatMode,
         initialTrackSelection: com.yfuse.core2.api.YInitialTrackSelection? = null,
     ): PlaybackSourcePreload {
         val item =
@@ -54,7 +58,7 @@ internal object AndroidCurrentItemPreparation {
             logCurrentItemPreparationSkipped("source_ineligible")
             return noOpPlaybackSourcePreload()
         }
-        if (!nextItemNetworkAllowed(context)) {
+        if (!currentItemNetworkAllowed(context, mode)) {
             logCurrentItemPreparationSkipped("network_power_or_memory")
             return noOpPlaybackSourcePreload()
         }
@@ -72,16 +76,22 @@ internal object AndroidCurrentItemPreparation {
             scope.launch {
                 var prepared: PreparedCurrentItem? = null
                 try {
-                    delay(500L)
+                    // On mobile data, wait for a longer look at the page before spending bytes.
+                    val metered = currentPlaybackNetworkClass() != PlaybackNetworkClass.Unmetered
+                    delay(if (metered) METERED_PREPARATION_DWELL_MS else UNMETERED_PREPARATION_DWELL_MS)
                     val probe = AndroidCore2MediaProbe(context)
                     var extracted: YPlatformExtractorSource? = null
                     try {
                         val result =
                             speculativeNextItemWork(
-                                allowed = { synchronized(lock) { entry.accepting } && nextItemNetworkAllowed(context) },
+                                allowed = {
+                                    synchronized(lock) { entry.accepting } && currentItemNetworkAllowed(context, mode)
+                                },
                             ) { budget ->
-                                if (positionMs ==
-                                    0L
+                                // The extra startup prefix is a Wi-Fi-only convenience; the probe below is not.
+                                if (
+                                    positionMs == 0L &&
+                                    currentItemNetworkAllowed(context, SourcePreheatMode.WifiOnly)
                                 ) {
                                     warmNextItemBytes(
                                         context.cacheDir,
@@ -89,6 +99,9 @@ internal object AndroidCurrentItemPreparation {
                                         budget,
                                         maximumStartupBytes = 2L * 1024 * 1024,
                                         currentItem = true,
+                                        shouldContinue = {
+                                            currentItemNetworkAllowed(context, SourcePreheatMode.WifiOnly)
+                                        },
                                     )
                                 }
                                 val facts =
@@ -222,3 +235,6 @@ private fun logCurrentItemPreparationSkipped(reason: String) {
         attributes = mapOf("reason" to reason),
     )
 }
+
+private const val UNMETERED_PREPARATION_DWELL_MS = 500L
+private const val METERED_PREPARATION_DWELL_MS = 1_500L

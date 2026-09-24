@@ -18,6 +18,7 @@ import com.yfuse.core.util.currentEpochMillis
 import com.yfuse.core.util.currentIsoDate
 import com.yfuse.core.util.scheduledEpochMillis
 import com.yfuse.core.util.shiftIsoDate
+import com.yfuse.feature.player.PlaybackLaunchTimings
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -53,6 +54,8 @@ class AiringCalendarRepository(
     private val identityResolver: CalendarIdentityResolver,
     private val followStore: CalendarFollowStore,
     private val localStore: CalendarLocalStore = NoOpCalendarLocalStore,
+    /** Null contacts every server, as hosts without a running monitor always did. */
+    private val serverHealth: ServerHealthMonitor? = null,
 ) {
     private data class IdentityCatalogSnapshot(
         val fetchedAtEpochMs: Long,
@@ -107,6 +110,45 @@ class AiringCalendarRepository(
     }
 
     /**
+     * The ids of the saved servers a calendar fan-out must leave out now.
+     *
+     * The calendar asks every server at once, at cold start among other times. A server whose probe
+     * saw its credential refused answers each request with another 401, and one that is offline
+     * inside its probe backoff holds a request slot for a whole connect timeout - both ahead of the
+     * pages the user is waiting on. Skipped servers are answered as failed lookups, so absence on
+     * them is never taken as proven and nothing they contributed before is pruned.
+     *
+     * A tap that still holds background priority (see [PlaybackLaunchTimings]) leaves out every
+     * server the same way: the calendar's own fan-out was ignoring it and competing with a
+     * playback launch for the same request slots and server capacity.
+     */
+    private fun unavailableServerIds(
+        servers: List<SavedServer>,
+        fanOut: String,
+    ): Set<String> {
+        if (PlaybackLaunchTimings.anyHoldsBackgroundPriority()) {
+            AppLog.debug(
+                category = "feature.calendar",
+                event = "fan_out_deferred",
+                message = "Calendar fan-out deferred while a playback launch holds background priority",
+                attributes = mapOf("fanOut" to fanOut, "serverCount" to servers.size.toString()),
+            )
+            return servers.mapTo(hashSetOf(), SavedServer::id)
+        }
+        val health = serverHealth ?: return emptySet()
+        val skipped = servers.filterNot(health::allowsBackgroundWork).mapTo(hashSetOf(), SavedServer::id)
+        if (skipped.isNotEmpty()) {
+            AppLog.debug(
+                category = "feature.calendar",
+                event = "servers_skipped",
+                message = "Calendar left out servers that are refusing their session or offline",
+                attributes = mapOf("fanOut" to fanOut, "skippedCount" to skipped.size.toString()),
+            )
+        }
+        return skipped
+    }
+
+    /**
      * User-relevant and newly added library series are exact calendar candidates.
      *
      * Global TMDB discovery is deliberately capped, so popularity alone can never guarantee
@@ -115,10 +157,16 @@ class AiringCalendarRepository(
      */
     private suspend fun activeLibrarySeries(forceRefresh: Boolean): List<FollowedSeries> {
         val scopeToken = followStore.scopeToken
+        val servers = registry.data.value.servers
+        val unavailable = unavailableServerIds(servers, fanOut = "active_library_series")
         return coroutineScope {
-            registry.data.value.servers
+            servers
                 .map { server ->
                     async {
+                        // Reported like a failed scan: never authoritative, so nothing is pruned.
+                        if (server.id in unavailable) {
+                            return@async ActiveLibraryServerScan(server.id, emptyList(), authoritative = false)
+                        }
                         libraryServerRequests.withPermit {
                             val nextUpResult =
                                 emby
@@ -526,7 +574,12 @@ class AiringCalendarRepository(
                 coroutineScope {
                     targetSeasons.keys
                         .mapNotNull { (serverId, seriesItemId) ->
-                            val server = registry.serverById(serverId) ?: return@mapNotNull null
+                            // Same gate as the status fan-out; a skipped server keeps no quality facts.
+                            val server =
+                                registry
+                                    .serverById(serverId)
+                                    ?.takeIf { serverHealth?.allowsBackgroundWork(it) != false }
+                                    ?: return@mapNotNull null
                             async {
                                 val targetSeason = targetSeasons[serverId to seriesItemId]?.singleOrNull()
                                 val cacheKey = Triple(serverId, seriesItemId, targetSeason)
@@ -824,12 +877,17 @@ class AiringCalendarRepository(
             }
         }
 
+        val unavailable = unavailableServerIds(servers, fanOut = "library_status")
         return coroutineScope {
             val completed = Channel<List<CalendarEntry>>(Channel.UNLIMITED)
             val pending = episodes.map { CalendarEntry(it, LibraryStatus.Unknown, availabilityStale = true) }
             servers.forEach { server ->
                 launch {
                     try {
+                        if (server.id in unavailable) {
+                            completed.send(failedLibraryLookup(episodes, today))
+                            return@launch
+                        }
                         val hint = libraryHint?.takeIf { it.server.id == server.id }
 
                         suspend fun lookup() = resolveServerStatus(episodes, today, server, hint, forceRefresh)
@@ -887,6 +945,19 @@ class AiringCalendarRepository(
             merged
         }
     }
+
+    /** One server's answer when its library could not be read: nothing on it is proven absent. */
+    private fun failedLibraryLookup(
+        episodes: List<AiringEpisode>,
+        today: String,
+    ): List<CalendarEntry> =
+        episodes.map {
+            CalendarEntry(
+                episode = it,
+                status = if (!airingHasStarted(it, today)) LibraryStatus.Unaired else LibraryStatus.Unknown,
+                dataIssue = CalendarDataIssue.LibraryLookupFailed,
+            )
+        }
 
     private suspend fun resolveServerStatus(
         episodes: List<AiringEpisode>,
@@ -951,15 +1022,7 @@ class AiringCalendarRepository(
             } else {
                 Result.success(emptyMap())
             }
-        if (catalogResult.isFailure && providerFallback.isFailure) {
-            return episodes.map {
-                CalendarEntry(
-                    episode = it,
-                    status = if (!airingHasStarted(it, today)) LibraryStatus.Unaired else LibraryStatus.Unknown,
-                    dataIssue = CalendarDataIssue.LibraryLookupFailed,
-                )
-            }
-        }
+        if (catalogResult.isFailure && providerFallback.isFailure) return failedLibraryLookup(episodes, today)
         val catalog = catalogResult.getOrDefault(emptyList())
         // Remembered identities are only checked against a catalog that actually arrived.
         // When the rich catalog fails and the provider-only index carries the round, the

@@ -20,6 +20,15 @@ on:
         description: Release notes shown by the in-app updater
         required: true
         type: string
+      confirm_mdk_distribution_rights:
+        description: >-
+          Confirm the release owner has completed the MDK SDK distribution-rights checklist
+          (docs/third-party-licenses/README.md) for this release. Required to publish the full
+          (MDK-included) package; a push-triggered release instead reads the repository variable
+          MDK_DISTRIBUTION_CONFIRMED.
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -42,6 +51,11 @@ jobs:
       VERSION_CODE: ${{ inputs.version_code }}
       VERSION_NAME: ${{ inputs.version_name }}
       RELEASE_NOTES: ${{ inputs.release_notes }}
+      # Overwritten below for a push-triggered run (Resolve automatic release request), which has
+      # no workflow_dispatch inputs and instead reads the MDK_DISTRIBUTION_CONFIRMED repository
+      # variable. Gradle's own verifyProductionMdkRights task fails the build if this is not
+      # exactly "true" for a production-signed, MDK-included package (the default here).
+      CONFIRM_MDK_DISTRIBUTION_RIGHTS: ${{ inputs.confirm_mdk_distribution_rights }}
       ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
       ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
       ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
@@ -97,10 +111,19 @@ jobs:
       - name: Resolve automatic release request
         if: github.event_name == 'push'
         shell: bash
+        env:
+          MDK_DISTRIBUTION_CONFIRMED: ${{ vars.MDK_DISTRIBUTION_CONFIRMED }}
         run: |
           set -euo pipefail
 
           python3 scripts/release_metadata.py --format github-env >> "$GITHUB_ENV"
+          # No workflow_dispatch input exists on a push trigger; the repository variable is the
+          # release owner's equivalent one-time confirmation for this deployment path.
+          if [[ "$MDK_DISTRIBUTION_CONFIRMED" == "true" ]]; then
+            echo 'CONFIRM_MDK_DISTRIBUTION_RIGHTS=true' >> "$GITHUB_ENV"
+          else
+            echo 'CONFIRM_MDK_DISTRIBUTION_RIGHTS=false' >> "$GITHUB_ENV"
+          fi
 
       - name: Validate release request
         shell: bash
@@ -419,7 +442,7 @@ jobs:
           ./gradlew :composeApp:assembleRelease \
             -PyfuseVersionCode="$VERSION_CODE" \
             -PyfuseVersionName="$VERSION_NAME" \
-            -PconfirmMdkDistributionRights=true \
+            -PconfirmMdkDistributionRights="$CONFIRM_MDK_DISTRIBUTION_RIGHTS" \
             -Pkotlin.incremental=false \
             --no-daemon
 

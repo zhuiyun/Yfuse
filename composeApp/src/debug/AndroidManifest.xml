@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!--
+      Shell-profileable so `adb shell` tooling (simpleperf, Perfetto, Android Studio profilers)
+      can attach to a locally installed debug build. This must not reach the release manifest
+      (src/androidMain/AndroidManifest.xml): a shell-profileable release build lets anyone with
+      device shell access inspect the running process. The benchmark/profile build types need
+      the same capability for macrobenchmarking against a release-like binary; they declare it
+      separately in src/performance/AndroidManifest.xml, the manifest they already merge in.
+    -->
+    <application>
+        <profileable
+            android:shell="true"
+            tools:targetApi="29" />
+    </application>
+</manifest>

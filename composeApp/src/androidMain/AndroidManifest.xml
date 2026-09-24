@@ -52,9 +52,6 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.Yfuse"
         tools:ignore="PictureInPictureIssue,UnusedAttribute">
-        <profileable
-            android:shell="true"
-            tools:targetApi="29" />
         <meta-data
             android:name="com.google.android.gms.cast.framework.OPTIONS_PROVIDER_CLASS_NAME"
             android:value="com.yfuse.core.cast.YfuseCastOptionsProvider" />

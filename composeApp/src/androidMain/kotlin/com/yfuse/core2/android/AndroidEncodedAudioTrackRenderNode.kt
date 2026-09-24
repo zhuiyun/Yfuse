@@ -34,7 +34,15 @@ internal class AndroidEncodedAudioTrackRenderNode(
     private var exactDolbyAtmosTransport = false
 
     private val routingGeneration = AtomicLong()
-    private val routingListener = AudioRouting.OnRoutingChangedListener { routingGeneration.incrementAndGet() }
+    private val routeChangeFilter = AudioRouteChangeFilter()
+
+    // Pause/resume also report "routing changed" with the same device; only a new device counts.
+    private val routingListener =
+        AudioRouting.OnRoutingChangedListener { router ->
+            synchronized(this@AndroidEncodedAudioTrackRenderNode) {
+                if (routeChangeFilter.routed(router.routedDeviceIdentity())) routingGeneration.incrementAndGet()
+            }
+        }
 
     @get:Synchronized
     val routingChangeGeneration: Long get() = routingGeneration.get()

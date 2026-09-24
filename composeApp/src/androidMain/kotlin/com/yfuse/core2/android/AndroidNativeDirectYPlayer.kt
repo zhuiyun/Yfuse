@@ -8,6 +8,9 @@ import android.os.Process
 import android.os.SystemClock
 import android.view.Surface
 import com.yfuse.core.logging.AppLog
+import com.yfuse.core.logging.diagnosticOrigin
+import com.yfuse.core.logging.diagnosticRootCause
+import com.yfuse.core.logging.diagnosticTypeName
 import com.yfuse.core2.api.YDolbyAtmosOutputMode
 import com.yfuse.core2.api.YMediaItem
 import com.yfuse.core2.api.YMediaSourceHints
@@ -36,6 +39,7 @@ import com.yfuse.core2.demux.YAudioTrackFormat
 import com.yfuse.core2.dolby.YDolbyVisionConfig
 import com.yfuse.core2.network.YBufferConditions
 import com.yfuse.core2.network.YBufferController
+import com.yfuse.core2.recovery.YPlaybackFailureReporter
 import com.yfuse.core2.recovery.requiresPcmAudioPath
 import com.yfuse.core2.render.YFrameRateSwitchMode
 import com.yfuse.core2.render.YRenderedFrameRateSampler
@@ -86,9 +90,14 @@ internal class AndroidNativeDirectYPlayer(
     private val preparedExtractor: ((YMediaItem) -> YPlatformExtractorSource?)? = null,
     private val videoHandoff: AndroidVideoDecoderHandoff? = null,
 ) : YPlayer,
-    AndroidSerializedPlayerRelease {
+    AndroidSerializedPlayerRelease,
+    YPlaybackFailureReporter {
     @Volatile
     private var videoHandoffRequested = false
+
+    @Volatile
+    override var lastPlaybackFailure: Throwable? = null
+        private set
 
     /** The router calls this only for an adjacent, prepared SDR/PCM direct-play route. */
     fun prepareVideoHandoff() {
@@ -407,14 +416,17 @@ internal class AndroidNativeDirectYPlayer(
         throwable: Throwable,
     ) {
         if (released || throwable is CancellationException) return
-        session.releaseMedia()
+        // Before the Failed state below: the router reads it on that edge.
+        lastPlaybackFailure = throwable
+        val sourceKept = session.releaseMediaAfterFailure(throwable)
         val typed = throwable as? YPlaybackException
         val codecConfigurationFailure = typed?.cause as? YVideoDecoderConfigurationException
         // An untyped failure used to leave nothing but its class name: one startup
-        // IllegalStateException in a diagnostic could not be traced to any line. The throwable
-        // carries the stack (retraceable with the build's mapping); the exporter redacts hosts.
-        val root = typed?.cause ?: throwable
-        val origin = root.stackTrace.firstOrNull()?.let { "${it.className}.${it.methodName}:${it.lineNumber}" }
+        // IllegalStateException in a diagnostic could not be traced to any line. The deepest cause
+        // names what failed (one level down can still be a wrapper) and its first non-library frame
+        // is retraceable with the build's mapping. The throwable itself carries the full stack; the
+        // exporter redacts hosts.
+        val root = throwable.diagnosticRootCause()
         AppLog.error(
             category = "player.core2",
             event = "native_direct_failed",
@@ -425,8 +437,10 @@ internal class AndroidNativeDirectYPlayer(
                     "category" to (typed?.category?.name ?: YPlaybackFailureCategory.Unknown.name),
                     "stage" to (typed?.stage?.name ?: YPlaybackFailureStage.Unknown.name),
                     "detail" to typed?.safeDetail.orEmpty(),
-                    "exceptionType" to root.javaClass.simpleName,
-                    "origin" to origin.orEmpty(),
+                    "deterministic" to (typed?.deterministic == true).toString(),
+                    "sourceKept" to sourceKept.toString(),
+                    "exceptionType" to root.diagnosticTypeName(),
+                    "origin" to root.diagnosticOrigin(),
                     "codecMime" to codecConfigurationFailure?.mime.orEmpty(),
                     "codecProfile" to (codecConfigurationFailure?.profile?.toString() ?: ""),
                     "decoderAttempts" to
@@ -553,6 +567,13 @@ internal class AndroidNativeDirectYPlayer(
         /** Set when a rebuilt video decoder still needs a sync sample before it can decode. */
         private var awaitVideoSyncSample = false
         private var awaitVideoSyncSampleDrops = 0
+
+        /** Where prepare or the last seek left the source, and whether a sample was consumed since. */
+        private var sourcePositionedAtUs = 0L
+        private var inputConsumedSinceReposition = false
+
+        /** Item whose extractor and transport stayed open after a decode-side failure (see [fail]). */
+        private var retainedSourceIndex: Int? = null
 
         @Volatile
         private var requestedPlay = request.autoPlay
@@ -808,7 +829,11 @@ internal class AndroidNativeDirectYPlayer(
         }
 
         private fun prepareCurrent(positionUs: Long) {
-            releaseMedia()
+            // Only the item whose decode-side failure kept the source may reuse it; anything else
+            // (another item, a source failure, a later prepare) opens the source afresh.
+            val reuseSource = retainedSourceIndex == currentIndex
+            retainedSourceIndex = null
+            releaseMedia(keepSource = reuseSource)
             monotonicPositionFloorUs = positionUs.coerceAtLeast(0L)
             val item = request.items[currentIndex]
             mutableState.update { current ->
@@ -827,12 +852,21 @@ internal class AndroidNativeDirectYPlayer(
             }
 
             sourceRemote = item.uri.isCore2RemoteMediaUri()
-            yPlaybackStage(
-                category = sourceFailureCategory(),
-                stage = YPlaybackFailureStage.SourceOpen,
-                safeDetail = "NativeDirect source open",
-            ) {
-                demux.open(item.toAndroidSource(), preparedExtractor?.invoke(item))
+            if (reuseSource) {
+                AppLog.info(
+                    category = "player.core2",
+                    event = "native_direct_source_reused",
+                    message = "NativeDirect retried the item on its open extractor and transport",
+                    attributes = mapOf("positionUs" to positionUs.coerceAtLeast(0L).toString()),
+                )
+            } else {
+                yPlaybackStage(
+                    category = sourceFailureCategory(),
+                    stage = YPlaybackFailureStage.SourceOpen,
+                    safeDetail = "NativeDirect source open",
+                ) {
+                    demux.open(item.toAndroidSource(), preparedExtractor?.invoke(item))
+                }
             }
             abortIfReleased()
             externalSubtitleSession.reset(item.allExternalSubtitles, item.headers)
@@ -1081,7 +1115,20 @@ internal class AndroidNativeDirectYPlayer(
             }
 
             val targetUs = positionUs.coerceAtLeast(0L)
-            if (targetUs > 0L) seekTo(targetUs) else wallClock.seek(0L, System.nanoTime())
+            // A freshly opened source stands at its start; a reused one wherever the failed attempt
+            // left it, so it is always positioned explicitly.
+            sourcePositionedAtUs = 0L
+            inputConsumedSinceReposition = false
+            if (targetUs > 0L || reuseSource) {
+                seekTo(targetUs)
+            } else {
+                // Nothing from the previous item may gate or position this one.
+                seekTargetVideoUs = 0L
+                seekTargetAudioUs = 0L
+                lastVideoPresentationUs = 0L
+                lastQueuedPresentationUs = 0L
+                wallClock.seek(0L, System.nanoTime())
+            }
             demux.startReadAhead()
             if (requestedPlay) startPlayback()
         }
@@ -1163,7 +1210,12 @@ internal class AndroidNativeDirectYPlayer(
             }
             val resumeUs = currentPositionUs()
             configureVideoDecoder(newSurface)
-            seekTo(resumeUs)
+            if (nativeDirectSurfaceAttachNeedsSeek(inputConsumedSinceReposition, sourcePositionedAtUs, resumeUs)) {
+                seekTo(resumeUs)
+            } else if (!requestedPlay) {
+                // The source already stands at resumeUs; only the paused frame still has to be shown.
+                pausedPreview.begin(resumeUs)
+            }
             if (requestedPlay) startPlayback()
         }
 
@@ -1266,9 +1318,17 @@ internal class AndroidNativeDirectYPlayer(
             ) {
                 demux.seekTo(targetUs)
             }
+            sourcePositionedAtUs = targetUs
+            inputConsumedSinceReposition = false
             if (videoConfigured && flushVideoDecoder) {
                 if (isolateVideoTimestamps) {
-                    videoDecoder.flush()
+                    nativeDirectStage(
+                        YPlaybackFailureCategory.Decoder,
+                        YPlaybackFailureStage.VideoDecoderQueue,
+                        "NativeDirect video decoder flush",
+                    ) {
+                        videoDecoder.flush()
+                    }
                 } else {
                     // Original PTS can repeat across seeks; retire the old callback source as well.
                     videoDecoder.release()
@@ -1278,9 +1338,24 @@ internal class AndroidNativeDirectYPlayer(
             }
             if (audioInputFormat != null && !isAudioPassthrough()) {
                 releasePendingAudioOutput()
-                audioDecoder.flush()
+                // Rebuilds instead of flushing a decoder that has not reported its PCM format yet.
+                nativeDirectStage(
+                    YPlaybackFailureCategory.Decoder,
+                    YPlaybackFailureStage.AudioDecoderConfigure,
+                    "NativeDirect audio decoder seek flush",
+                ) {
+                    audioDecoder.flush()
+                }
             }
-            if (audioRendererConfigured) flushAudio()
+            if (audioRendererConfigured) {
+                nativeDirectStage(
+                    YPlaybackFailureCategory.AudioSink,
+                    YPlaybackFailureStage.AudioRenderer,
+                    "NativeDirect audio sink flush",
+                ) {
+                    flushAudio()
+                }
+            }
             subtitleCues.clear()
             secondarySubtitleCues.clear()
             resetEndState()
@@ -1503,7 +1578,13 @@ internal class AndroidNativeDirectYPlayer(
                         queued = true
                     } else if (
                         videoEosGate.mayQueueEndOfStream(firstVideoFrameRendered) &&
-                        videoDecoder.queueEndOfStream(lastQueuedPresentationUs) == YCodecQueueResult.Queued
+                        nativeDirectStage(
+                            YPlaybackFailureCategory.Decoder,
+                            YPlaybackFailureStage.VideoDecoderQueue,
+                            "NativeDirect video end of stream",
+                        ) {
+                            videoDecoder.queueEndOfStream(lastQueuedPresentationUs)
+                        } == YCodecQueueResult.Queued
                     ) {
                         videoInputEnded = true
                         queued = true
@@ -1514,7 +1595,15 @@ internal class AndroidNativeDirectYPlayer(
                         audioInputEnded = true
                         audioOutputEnded = true
                         queued = true
-                    } else if (audioDecoder.queueEndOfStream(lastQueuedPresentationUs) == YCodecQueueResult.Queued) {
+                    } else if (
+                        nativeDirectStage(
+                            YPlaybackFailureCategory.Decoder,
+                            YPlaybackFailureStage.AudioDecoderQueue,
+                            "NativeDirect audio end of stream",
+                        ) {
+                            audioDecoder.queueEndOfStream(lastQueuedPresentationUs)
+                        } == YCodecQueueResult.Queued
+                    ) {
                         audioInputEnded = true
                         queued = true
                     }
@@ -1585,15 +1674,20 @@ internal class AndroidNativeDirectYPlayer(
                                 awaitVideoSyncSample = false
                                 awaitVideoSyncSampleDrops = 0
                                 applyHdr10PlusMetadata(sample)
-                                videoDecoder
-                                    .queueAccessUnit(
+                                nativeDirectStage(
+                                    YPlaybackFailureCategory.Decoder,
+                                    YPlaybackFailureStage.VideoDecoderQueue,
+                                    "NativeDirect video access unit",
+                                ) {
+                                    videoDecoder.queueAccessUnit(
                                         sample.data,
                                         sample.presentationTimeUs,
                                         sample.flags,
                                         sample.cryptoInfo,
-                                    ).also { result ->
-                                        if (result == YCodecQueueResult.Queued) videoEosGate.inputQueued()
-                                    }
+                                    )
+                                }.also { result ->
+                                    if (result == YCodecQueueResult.Queued) videoEosGate.inputQueued()
+                                }
                             }
                         }
                     audioTrackIndex ->
@@ -1615,6 +1709,8 @@ internal class AndroidNativeDirectYPlayer(
                     else -> YCodecQueueResult.Queued
                 }
             if (queued != YCodecQueueResult.Queued) return false
+            // Accepted or deliberately dropped, the sample has left the source's read position.
+            inputConsumedSinceReposition = true
             hdrAccessUnits.queued(sample)
             lastQueuedPresentationUs = maxOf(lastQueuedPresentationUs, sample.presentationTimeUs)
             return true
@@ -1632,15 +1728,31 @@ internal class AndroidNativeDirectYPlayer(
             if (audioInputFormat == null || audioOutputEnded) return false
             if (isAudioPassthrough()) return false
             pendingAudioOutput?.let { return writePendingAudioOutput(it) }
-            return when (val output = audioDecoder.dequeueOutput()) {
+            // Each codec and sink call carries its own stage: an untyped exception here used to
+            // surface as native_direct_failed Unknown/Unknown with nothing to say which call threw.
+            val dequeued =
+                nativeDirectStage(
+                    YPlaybackFailureCategory.Decoder,
+                    YPlaybackFailureStage.AudioDecoderQueue,
+                    "NativeDirect audio decoder output",
+                ) {
+                    audioDecoder.dequeueOutput()
+                }
+            return when (val output = dequeued) {
                 YAudioCodecOutputResult.TryAgain -> false
                 is YAudioCodecOutputResult.FormatChanged -> {
-                    audioRenderer.configure(output.format)
-                    audioRendererConfigured = true
-                    captureAudioRoutingGeneration()
-                    audioRenderer.setSpeed(speed)
-                    audioRenderer.setAudioDelayMs(audioDelayMs)
-                    if (requestedPlay) audioRenderer.play()
+                    nativeDirectStage(
+                        YPlaybackFailureCategory.AudioSink,
+                        YPlaybackFailureStage.AudioRenderer,
+                        "NativeDirect PCM sink configure",
+                    ) {
+                        audioRenderer.configure(output.format)
+                        audioRendererConfigured = true
+                        captureAudioRoutingGeneration()
+                        audioRenderer.setSpeed(speed)
+                        audioRenderer.setAudioDelayMs(audioDelayMs)
+                        if (requestedPlay) audioRenderer.play()
+                    }
                     mutableState.update { current ->
                         current.copy(
                             diagnostics =
@@ -1659,20 +1771,26 @@ internal class AndroidNativeDirectYPlayer(
                             output.size > 0 &&
                             output.presentationTimeUs >= seekTargetAudioUs
                     if (!renderable) {
-                        audioDecoder.releaseOutput(output)
+                        releaseAudioOutput(output)
                         if (output.endOfStream) audioOutputEnded = true
                         true
                     } else {
-                        if (!audioRendererConfigured) {
-                            // Android normally emits INFO_OUTPUT_FORMAT_CHANGED first; keep the
-                            // failure explicit rather than silently dropping audio if an OEM does not.
-                            error("Audio output arrived before PCM format")
-                        }
                         val pending =
-                            YPendingDecodedAudioOutput(
-                                output = output,
-                                data = audioDecoder.outputData(output),
-                            )
+                            nativeDirectStage(
+                                YPlaybackFailureCategory.Decoder,
+                                YPlaybackFailureStage.AudioDecoderQueue,
+                                "NativeDirect audio decoder output",
+                            ) {
+                                if (!audioRendererConfigured) {
+                                    // Android normally emits INFO_OUTPUT_FORMAT_CHANGED first; keep the
+                                    // failure explicit rather than silently dropping audio if an OEM does not.
+                                    error("Audio output arrived before PCM format")
+                                }
+                                YPendingDecodedAudioOutput(
+                                    output = output,
+                                    data = audioDecoder.outputData(output),
+                                )
+                            }
                         pendingAudioOutput = pending
                         writePendingAudioOutput(pending)
                     }
@@ -1680,12 +1798,28 @@ internal class AndroidNativeDirectYPlayer(
             }
         }
 
+        private fun releaseAudioOutput(output: YAudioCodecOutputResult.Buffer) {
+            nativeDirectStage(
+                YPlaybackFailureCategory.Decoder,
+                YPlaybackFailureStage.AudioDecoderQueue,
+                "NativeDirect audio decoder output release",
+            ) {
+                audioDecoder.releaseOutput(output)
+            }
+        }
+
         private fun writePendingAudioOutput(pending: YPendingDecodedAudioOutput): Boolean {
             val writtenBytes =
-                audioRenderer.writeNonBlocking(
-                    pending.data,
-                    pending.output.presentationTimeUs,
-                )
+                nativeDirectStage(
+                    YPlaybackFailureCategory.AudioSink,
+                    YPlaybackFailureStage.AudioRenderer,
+                    "NativeDirect PCM sink write",
+                ) {
+                    audioRenderer.writeNonBlocking(
+                        pending.data,
+                        pending.output.presentationTimeUs,
+                    )
+                }
             return when (decodedAudioDrainProgress(writtenBytes, pending.data.remaining())) {
                 YDecodedAudioDrainProgress.Backpressured -> {
                     audioBackpressureCount++
@@ -1698,7 +1832,7 @@ internal class AndroidNativeDirectYPlayer(
                 YDecodedAudioDrainProgress.Complete -> {
                     verifyPcmAudioOutput(writtenBytes)
                     pendingAudioOutput = null
-                    audioDecoder.releaseOutput(pending.output)
+                    releaseAudioOutput(pending.output)
                     seekTargetAudioUs = 0L
                     if (pending.output.endOfStream) audioOutputEnded = true
                     true
@@ -1747,10 +1881,33 @@ internal class AndroidNativeDirectYPlayer(
             }
         }
 
+        private fun releaseVideoOutput(
+            output: YCodecOutputResult.Buffer,
+            render: Boolean,
+            renderTimeNs: Long? = null,
+        ) {
+            nativeDirectStage(
+                YPlaybackFailureCategory.Renderer,
+                YPlaybackFailureStage.VideoRenderer,
+                "NativeDirect video frame release",
+            ) {
+                videoDecoder.releaseOutput(output, render, renderTimeNs)
+            }
+        }
+
+        private fun dequeueVideoOutput(): YCodecOutputResult =
+            nativeDirectStage(
+                YPlaybackFailureCategory.Decoder,
+                YPlaybackFailureStage.VideoDecoderQueue,
+                "NativeDirect video decoder output",
+            ) {
+                videoDecoder.dequeueOutput()
+            }
+
         private fun drainVideo(): Boolean {
             if (!videoConfigured || videoOutputEnded) return false
             val output =
-                pendingVideoOutput ?: when (val dequeued = videoDecoder.dequeueOutput()) {
+                pendingVideoOutput ?: when (val dequeued = dequeueVideoOutput()) {
                     YCodecOutputResult.TryAgain -> return false
                     is YCodecOutputResult.FormatChanged -> {
                         mutableState.update { current ->
@@ -1775,7 +1932,7 @@ internal class AndroidNativeDirectYPlayer(
                     output.presentationTimeUs < seekTargetVideoUs
             if (seekPreroll) {
                 pendingVideoOutput = null
-                seekPrerollVideoOutput?.let { videoDecoder.releaseOutput(it, render = false) }
+                seekPrerollVideoOutput?.let { releaseVideoOutput(it, render = false) }
                 seekPrerollVideoOutput = output
                 if (!output.endOfStream) return true
                 renderSeekPrerollAtEnd()
@@ -1783,7 +1940,7 @@ internal class AndroidNativeDirectYPlayer(
             }
             if (output.endOfStream && seekTargetVideoUs > 0L && seekPrerollVideoOutput != null) {
                 pendingVideoOutput = null
-                videoDecoder.releaseOutput(output, render = false)
+                releaseVideoOutput(output, render = false)
                 renderSeekPrerollAtEnd()
                 return true
             }
@@ -1796,7 +1953,7 @@ internal class AndroidNativeDirectYPlayer(
                 return true
             }
             if (renderable) {
-                seekPrerollVideoOutput?.let { videoDecoder.releaseOutput(it, render = false) }
+                seekPrerollVideoOutput?.let { releaseVideoOutput(it, render = false) }
                 seekPrerollVideoOutput = null
                 val currentUs = audioRenderer.videoClockPositionUs(currentPositionUs())
                 val nowNs = System.nanoTime()
@@ -1833,13 +1990,13 @@ internal class AndroidNativeDirectYPlayer(
                     }
                     YVideoFrameReleaseDecision.Drop -> {
                         pendingVideoOutput = null
-                        videoDecoder.releaseOutput(output, render = false)
+                        releaseVideoOutput(output, render = false)
                         droppedFrames++
                     }
                     is YVideoFrameReleaseDecision.Render -> {
                         pendingVideoOutput = null
                         videoOutputEpoch.submitted(output.presentationTimeUs)
-                        videoDecoder.releaseOutput(output, render = true, renderTimeNs = decision.releaseTimeNs)
+                        releaseVideoOutput(output, render = true, renderTimeNs = decision.releaseTimeNs)
                         surfaceCompletion.frameReleased(decision.releaseTimeNs)
                         recordSeekVideoSubmission(output)
                         pausedPreview.frameSubmitted()
@@ -1857,7 +2014,7 @@ internal class AndroidNativeDirectYPlayer(
                 seekTargetVideoUs = 0L
             } else {
                 pendingVideoOutput = null
-                videoDecoder.releaseOutput(output, render = false)
+                releaseVideoOutput(output, render = false)
             }
             if (output.endOfStream) videoOutputEnded = true
             return true
@@ -1867,7 +2024,7 @@ internal class AndroidNativeDirectYPlayer(
             val candidate = seekPrerollVideoOutput ?: return
             seekPrerollVideoOutput = null
             videoOutputEpoch.submitted(candidate.presentationTimeUs)
-            videoDecoder.releaseOutput(candidate, render = true)
+            releaseVideoOutput(candidate, render = true)
             surfaceCompletion.frameReleased(System.nanoTime())
             recordSeekVideoSubmission(candidate)
             pausedPreview.frameSubmitted()
@@ -1968,16 +2125,19 @@ internal class AndroidNativeDirectYPlayer(
             ) {
                 bufferGate.markStarved()
             }
-            val decision = bufferGate.evaluate(
-                ahead.bufferedDurationUs,
-                ahead.endOfInput,
-                ahead.atCapacity,
-                rebufferWaitUs = bufferWaitClock.observe(
-                    System.nanoTime(),
-                    requestedPlay && bufferGate.phase == com.yfuse.core2.network.YPlaybackBufferPhase.Rebuffering,
-                    ahead.generation,
-                ),
-            )
+            val decision =
+                bufferGate.evaluate(
+                    ahead.bufferedDurationUs,
+                    ahead.endOfInput,
+                    ahead.atCapacity,
+                    rebufferWaitUs =
+                        bufferWaitClock.observe(
+                            System.nanoTime(),
+                            requestedPlay &&
+                                bufferGate.phase == com.yfuse.core2.network.YPlaybackBufferPhase.Rebuffering,
+                            ahead.generation,
+                        ),
+                )
             if (!decision.outputAllowed && !transportBufferingVisible) {
                 val position = currentPositionUs()
                 monotonicPositionFloorUs = maxOf(monotonicPositionFloorUs, position)
@@ -2345,7 +2505,13 @@ internal class AndroidNativeDirectYPlayer(
             cryptoInfo: YExtractorCryptoInfo?,
         ): YCodecQueueResult {
             if (!isAudioPassthrough()) {
-                return audioDecoder.queueAccessUnit(data, presentationTimeUs, flags, cryptoInfo)
+                return nativeDirectStage(
+                    YPlaybackFailureCategory.Decoder,
+                    YPlaybackFailureStage.AudioDecoderQueue,
+                    "NativeDirect audio access unit",
+                ) {
+                    audioDecoder.queueAccessUnit(data, presentationTimeUs, flags, cryptoInfo)
+                }
             }
             require(cryptoInfo == null) { "Encrypted audio cannot use passthrough" }
             if (presentationTimeUs >= seekTargetAudioUs) {
@@ -2357,6 +2523,8 @@ internal class AndroidNativeDirectYPlayer(
                             .also(ByteBuffer::flip)
                     val written = encodedAudioRenderer.writeNonBlocking(copy, presentationTimeUs)
                     if (copy.hasRemaining()) {
+                        // Part of the sample is already in the sink: it has been consumed.
+                        inputConsumedSinceReposition = true
                         pendingEncodedAudioInput =
                             YPendingEncodedAudioInput(
                                 data = copy,
@@ -2603,7 +2771,8 @@ internal class AndroidNativeDirectYPlayer(
                 runtimeCapabilityKey?.let(runtimeCapabilities::recordConfigured)
             } catch (failure: Throwable) {
                 if (failure is CancellationException) throw failure
-                runtimeCapabilityKey?.let(runtimeCapabilities::recordRejected)
+                // Only MediaCodec's own refusal is a strike; a handoff or node-side check is not.
+                runtimeCapabilityKey?.let { key -> runtimeCapabilities.recordConfigureFailure(key, failure) }
                 throw failure
             }
             frameRateManager.attach(surface, format.directFrameRateHint())
@@ -2899,7 +3068,23 @@ internal class AndroidNativeDirectYPlayer(
             cues.removeAll { cue -> cue.endUs < oldestRetainedUs }
         }
 
-        fun releaseMedia() {
+        /**
+         * Releases a decode-side failure's pipeline and reports whether the source stayed open.
+         *
+         * A retry of the same item used to reopen the extractor and a new transport, downloading the
+         * head of the file again (2 MB, 1.35 s on the tablet in incident E) for a failure that was the
+         * decoder's or the AudioTrack's. Such a failure now keeps the extractor and its transport, and
+         * block cache, for [prepareCurrent]; anything that implicates the source still closes it.
+         */
+        fun releaseMediaAfterFailure(failure: Throwable): Boolean {
+            val keepSource = prepared && nativeDirectFailureKeepsSource(failure)
+            releaseMedia(keepSource = keepSource)
+            retainedSourceIndex = currentIndex.takeIf { keepSource }
+            return keepSource
+        }
+
+        fun releaseMedia(keepSource: Boolean = false) {
+            if (!keepSource) retainedSourceIndex = null
             val stats = rebufferTracker.stop(releasedAtMs ?: System.nanoTime() / 1_000_000L)
             mutableState.update {
                 it.copy(
@@ -2951,7 +3136,7 @@ internal class AndroidNativeDirectYPlayer(
             drmBinding = null
             drmSession = null
             if (!retainedVideo) frameRateManager.clear()
-            runCatching(demux::release)
+            if (keepSource) runCatching(demux::pauseReadAhead) else runCatching(demux::release)
             prepared = false
             videoConfigured = false
             audioRendererConfigured = false
@@ -3155,6 +3340,77 @@ internal fun yCoreNativeDirectFailureMessage(failure: YPlaybackException?): Stri
         null,
         -> "YCore 2.0 原生播放失败，请导出诊断日志"
     }
+
+/**
+ * [yPlaybackStage] for NativeDirect's codec and sink calls, except that the timestamp-identity
+ * signal passes through untouched: the pump catches it by type to retry the decoder with original
+ * timestamps, and a wrapped one would fail playback instead.
+ */
+private inline fun <T> nativeDirectStage(
+    category: YPlaybackFailureCategory,
+    stage: YPlaybackFailureStage,
+    safeDetail: String,
+    block: () -> T,
+): T =
+    try {
+        block()
+    } catch (failure: YPlaybackException) {
+        throw failure
+    } catch (failure: CodecTimestampIdentityException) {
+        throw failure
+    } catch (failure: Throwable) {
+        if (failure is CancellationException) throw failure
+        throw YPlaybackException(
+            category = category,
+            stage = stage,
+            safeDetail = safeDetail,
+            cause = failure,
+        )
+    }
+
+/**
+ * Whether attaching a Surface to a prepared NativeDirect session has to seek the source.
+ *
+ * The Surface usually arrives just after prepare(), before anything was read. 1.0.83 still flushed
+ * both never-fed decoders, re-seeked the extractor to where it already stood and cancelled its
+ * reads; 14 ms later the tablet in incident E failed startup with an IllegalStateException, the
+ * same sequence 1.0.81 logged three times. A seek is needed only once a sample was consumed after
+ * the source was last positioned, or when the position to resume from has moved.
+ */
+internal fun nativeDirectSurfaceAttachNeedsSeek(
+    inputConsumedSinceReposition: Boolean,
+    sourcePositionedAtUs: Long,
+    resumeUs: Long,
+): Boolean = inputConsumedSinceReposition || sourcePositionedAtUs != resumeUs
+
+/**
+ * Whether a failed NativeDirect session may keep its extractor and transport for a same-item retry.
+ *
+ * Only a failure typed to the decode or output side qualifies: the source demonstrably worked. An
+ * untyped failure, a source, demux, bitstream or seek stage, and a network, container or DRM
+ * category all rebuild the source as before.
+ */
+internal fun nativeDirectFailureKeepsSource(failure: Throwable): Boolean {
+    val typed = failure as? YPlaybackException ?: return false
+    if (typed.stage in NATIVE_DIRECT_SOURCE_STAGES) return false
+    return typed.category in NATIVE_DIRECT_DECODE_SIDE_CATEGORIES
+}
+
+private val NATIVE_DIRECT_SOURCE_STAGES =
+    setOf(
+        YPlaybackFailureStage.SourceOpen,
+        YPlaybackFailureStage.Demux,
+        YPlaybackFailureStage.Bitstream,
+        YPlaybackFailureStage.Seek,
+        YPlaybackFailureStage.Unknown,
+    )
+
+private val NATIVE_DIRECT_DECODE_SIDE_CATEGORIES =
+    setOf(
+        YPlaybackFailureCategory.Decoder,
+        YPlaybackFailureCategory.Renderer,
+        YPlaybackFailureCategory.AudioSink,
+    )
 
 internal fun secureSurfaceRequirementSatisfied(
     protectedContent: Boolean,

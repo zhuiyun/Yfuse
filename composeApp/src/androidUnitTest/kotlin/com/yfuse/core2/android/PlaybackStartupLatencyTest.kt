@@ -1,35 +1,46 @@
 package com.yfuse.core2.android
 
+import com.yfuse.core.playback.PlaybackDrmConfiguration
+import com.yfuse.core.playback.PlaybackDrmScheme
 import com.yfuse.core2.api.YMediaItem
 import com.yfuse.core2.api.YMediaSourceHints
 import com.yfuse.core2.api.YPlaybackException
 import com.yfuse.core2.api.YPlaybackFailureCategory
-import com.yfuse.core2.network.YPlaybackBufferGate
 import com.yfuse.core2.network.YBufferPlan
-import com.yfuse.core.playback.PlaybackDrmConfiguration
-import com.yfuse.core.playback.PlaybackDrmScheme
+import com.yfuse.core2.network.YPlaybackBufferGate
 import java.net.SocketTimeoutException
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class PlaybackStartupLatencyTest {
     @Test
     fun deadline_is_not_a_format_failure_and_does_not_trigger_a_second_full_probe() {
         val item = YMediaItem("movie", "https://host/movie.mp4")
-        val deadline = YCore2ProbeResult.Failure(YCore2ProbeFailure.DeadlineOrBusy)
+        val deadline = YCore2ProbeResult.Failure(YCore2ProbeFailure.Deadline)
         assertTrue(skipEnhancedProbeAfterDeadline(deadline, item))
+        // A lane still busy after playback's wait carries no evidence either.
+        assertTrue(skipEnhancedProbeAfterDeadline(YCore2ProbeResult.Failure(YCore2ProbeFailure.Busy), item))
         assertFalse(
             skipEnhancedProbeAfterDeadline(YCore2ProbeResult.Failure(YCore2ProbeFailure.UnknownVideoCodec), item),
         )
         assertFalse(
             skipEnhancedProbeAfterDeadline(deadline, item.copy(sourceHints = YMediaSourceHints(dolbyVision = true))),
         )
-        assertFalse(skipEnhancedProbeAfterDeadline(deadline, item.copy(drmConfiguration = PlaybackDrmConfiguration(
-            scheme = PlaybackDrmScheme.Widevine, licenseUri = "https://host/license",
-        ))))
+        assertFalse(
+            skipEnhancedProbeAfterDeadline(
+                deadline,
+                item.copy(
+                    drmConfiguration =
+                        PlaybackDrmConfiguration(
+                            scheme = PlaybackDrmScheme.Widevine,
+                            licenseUri = "https://host/license",
+                        ),
+                ),
+            ),
+        )
     }
 
     @Test

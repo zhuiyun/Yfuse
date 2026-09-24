@@ -507,24 +507,25 @@ class AndroidTransportMediaDataSourcePrefetchTest {
         val release = CountDownLatch(1)
         val joined = CountDownLatch(1)
         val opens = AtomicInteger()
-        val source = AndroidTransportMediaDataSource(
-            uri = "https://example.invalid/video.mp4",
-            protocol = YSourceProtocol.Https,
-            headers = emptyMap(),
-            blockSizeOverride = blockBytes,
-            onBlockingReadStateChanged = { blocked ->
-                if (blocked && started.count == 0L) joined.countDown()
-            },
-            createTransport = {
-                MemoryRangeTransport(media) { start, complete ->
-                    if (!complete && start == blockBytes.toLong()) {
-                        opens.incrementAndGet()
-                        started.countDown()
-                        check(release.await(5, TimeUnit.SECONDS))
+        val source =
+            AndroidTransportMediaDataSource(
+                uri = "https://example.invalid/video.mp4",
+                protocol = YSourceProtocol.Https,
+                headers = emptyMap(),
+                blockSizeOverride = blockBytes,
+                onBlockingReadStateChanged = { blocked ->
+                    if (blocked && started.count == 0L) joined.countDown()
+                },
+                createTransport = {
+                    MemoryRangeTransport(media) { start, complete ->
+                        if (!complete && start == blockBytes.toLong()) {
+                            opens.incrementAndGet()
+                            started.countDown()
+                            check(release.await(5, TimeUnit.SECONDS))
+                        }
                     }
-                }
-            },
-        )
+                },
+            )
         val worker = Executors.newSingleThreadExecutor()
         try {
             worker.submit<Int> { source.readAt(0L, ByteArray(1), 0, 1) }.get(2, TimeUnit.SECONDS)

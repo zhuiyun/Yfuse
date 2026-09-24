@@ -40,6 +40,12 @@ class CalendarComponent(
         followStore.unfollow(tmdbId)
     }
 
+    /** Restores an unfollowed series exactly as it was, reminder settings included — the
+     *  undo side of [unfollow]. */
+    fun follow(series: FollowedSeries) {
+        followStore.follow(series)
+    }
+
     fun toggleFollow(entry: CalendarEntry) {
         val current = followStore.followed.value.firstOrNull { it.tmdbId == entry.episode.showTmdbId }
         if (current == null) {

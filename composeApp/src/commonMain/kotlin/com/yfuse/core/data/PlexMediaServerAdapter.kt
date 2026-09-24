@@ -38,7 +38,9 @@ import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.Season
 import com.yfuse.core.model.ServerSource
 import com.yfuse.core.model.TrickplayInfo
+import com.yfuse.core.network.exemptFromServerCooldown
 import com.yfuse.core.network.normalizeBaseUrl
+import com.yfuse.core.network.suppressEmbyIdentity
 import com.yfuse.core.security.VaultCrypto
 import com.yfuse.core.security.toBase64Url
 import com.yfuse.core.sync.SyncedUserItem
@@ -104,9 +106,10 @@ internal class PlexMediaServerAdapter(
 
     // Provider-id lookups (calendar, watch-together, source comparison, cloud sync) each used
     // to page through every section of every library. One read per server and library type
-    // now serves them all for [catalogTtlMs]; the mutex also collapses concurrent misses into
-    // a single fetch instead of a fan-out stampede.
-    private val topLevelCatalogMutex = Mutex()
+    // now serves them all for [catalogTtlMs]; a lock per server and type collapses concurrent
+    // misses into a single fetch instead of a fan-out stampede. One lock for every server let
+    // a single slow or dead server's paging hold every other server's lookups behind it.
+    private val topLevelCatalogLocks = mutableMapOf<String, Mutex>()
     private val topLevelCatalogCache = mutableMapOf<String, TopLevelCatalogSnapshot>()
 
     private fun durationKey(
@@ -148,9 +151,10 @@ internal class PlexMediaServerAdapter(
         embyApiCall("plex_authenticate") {
             require(token.isNotBlank()) { "Plex Token 不能为空" }
             val url = normalizeBaseUrl(baseUrl)
-            val identity = container(url, "/identity", token)
+            // Signing in again is how a refused token is replaced; a cooldown must not answer it.
+            val identity = container(url, "/identity", token) { exemptFromServerCooldown() }
             require(!identity.machineIdentifier.isNullOrBlank()) { "这不是可用的 Plex Media Server" }
-            val root = runCatchingCancellable { container(url, "/", token) }.getOrNull()
+            val root = runCatchingCancellable { container(url, "/", token) { exemptFromServerCooldown() } }.getOrNull()
             val user = account ?: manualTokenIdentity(token)
             AuthedServer(
                 baseUrl = url,
@@ -1120,7 +1124,8 @@ internal class PlexMediaServerAdapter(
     ): Result<Long> =
         embyApiCall("plex_probe") {
             val mark = TimeSource.Monotonic.markNow()
-            container(normalizeBaseUrl(baseUrl), "/identity", token)
+            // The probe is how a cooled-down server is found to be back; it must reach it.
+            container(normalizeBaseUrl(baseUrl), "/identity", token) { exemptFromServerCooldown() }
             mark.elapsedNow().inWholeMilliseconds
         }
 
@@ -1175,7 +1180,8 @@ internal class PlexMediaServerAdapter(
     ): List<PlexMetadataDto> {
         val key = catalogKeyPrefix(server) + libraryType
         cachedCatalog(key)?.let { return it }
-        return topLevelCatalogMutex.withLock {
+        val lock = synchronized(cacheLock) { topLevelCatalogLocks.getOrPut(key) { Mutex() } }
+        return lock.withLock {
             cachedCatalog(key)?.let { return@withLock it }
             val items = readTopLevelMetadata(server, libraryType)
             synchronized(cacheLock) {
@@ -1303,6 +1309,9 @@ internal class PlexMediaServerAdapter(
         token: String,
         sessionId: String? = null,
     ) {
+        // The shared client adds Emby's identity by default: a MediaBrowser Authorization header
+        // and X-Emby-* device headers carrying this device's id, none of which a Plex server needs.
+        suppressEmbyIdentity()
         accept(ContentType.Application.Json)
         header("X-Plex-Token", token)
         header("X-Plex-Client-Identifier", deviceId())

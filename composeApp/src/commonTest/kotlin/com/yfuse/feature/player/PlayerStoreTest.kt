@@ -36,13 +36,14 @@ class PlayerStoreTest {
     fun directPlayUsesTheServerOriginalUrlIncludingProviderIdentity() {
         val source = playbackIdentitySource("/gateway/original.mkv?ticket=a%2Bb&static=true")
         val selected =
-            listOf(source).toPlayerMediaVersions(
-                baseUrl = "https://host",
-                itemId = "movie",
-                token = "token-a",
-                userId = "user-a",
-                negotiatedPlaySessionId = "session-a",
-            ).single()
+            listOf(source)
+                .toPlayerMediaVersions(
+                    baseUrl = "https://host",
+                    itemId = "movie",
+                    token = "token-a",
+                    userId = "user-a",
+                    negotiatedPlaySessionId = "session-a",
+                ).single()
         assertEquals(PlaybackMethod.DirectPlay, selected.playMethod)
         assertTrue(selected.url.startsWith("https://host/gateway/original.mkv?ticket=a%2Bb"))
         assertTrue("UserId=user-a" in selected.url)
@@ -53,12 +54,13 @@ class PlayerStoreTest {
     fun directPlayKeepsSignedCdnUrlUnmodified() {
         val raw = "https://cdn.example/original.mkv?ticket=a%2Bb"
         val selected =
-            listOf(playbackIdentitySource(raw)).toPlayerMediaVersions(
-                baseUrl = "https://host",
-                itemId = "movie",
-                token = "private-token",
-                userId = "private-user",
-            ).single()
+            listOf(playbackIdentitySource(raw))
+                .toPlayerMediaVersions(
+                    baseUrl = "https://host",
+                    itemId = "movie",
+                    token = "private-token",
+                    userId = "private-user",
+                ).single()
         assertEquals(raw, selected.url)
         assertEquals(PlaybackMethod.DirectPlay, selected.playMethod)
     }
@@ -68,12 +70,13 @@ class PlayerStoreTest {
         listOf(null, "/Videos/movie/master.m3u8", "/Videos/movie/stream?AudioCodec=aac")
             .forEach { raw ->
                 val selected =
-                    listOf(playbackIdentitySource(raw)).toPlayerMediaVersions(
-                        baseUrl = "https://host",
-                        itemId = "movie",
-                        token = "token-b",
-                        userId = "user-b",
-                    ).single()
+                    listOf(playbackIdentitySource(raw))
+                        .toPlayerMediaVersions(
+                            baseUrl = "https://host",
+                            itemId = "movie",
+                            token = "token-b",
+                            userId = "user-b",
+                        ).single()
                 assertTrue(selected.url.startsWith("https://host/Videos/movie/stream?static=true"))
                 assertTrue("UserId=user-b" in selected.url)
                 assertTrue("api_key=token-b" in selected.url)

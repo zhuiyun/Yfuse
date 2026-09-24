@@ -9,6 +9,7 @@ import com.yfuse.core.model.TmdbHome
 import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.model.TmdbPerson
 import com.yfuse.core.model.TmdbRow
+import com.yfuse.core.model.TmdbRowTitles
 import com.yfuse.core.network.EmbyError
 import com.yfuse.core.network.EmbyErrorException
 import com.yfuse.core.network.TMDB_BASE
@@ -266,10 +267,10 @@ class TmdbRepository(
                     } ?: featured
                 val rows =
                     listOf(
-                        TmdbRow("热门", popular),
-                        TmdbRow("最新上线", latest),
-                        TmdbRow("正在上映", nowPlaying),
-                        TmdbRow("即将上映", upcoming),
+                        TmdbRow(TmdbRowTitles.POPULAR, popular),
+                        TmdbRow(TmdbRowTitles.LATEST, latest),
+                        TmdbRow(TmdbRowTitles.NOW_PLAYING, nowPlaying),
+                        TmdbRow(TmdbRowTitles.UPCOMING, upcoming),
                     ).filter { it.items.isNotEmpty() }
 
                 // Even empty successful feeds carry freshness information: the store must

@@ -375,6 +375,9 @@ private fun SessionsHeader(
                     .pressable(
                         enabled = refreshEnabled,
                         onClickLabel = "刷新登录设备",
+                        // The icon below has a null contentDescription (nothing else in the
+                        // control names it); this is what TalkBack reads for the button itself.
+                        label = "刷新登录设备",
                         onClick = onRefresh,
                     ).touchTarget()
                     .liquidGlass(

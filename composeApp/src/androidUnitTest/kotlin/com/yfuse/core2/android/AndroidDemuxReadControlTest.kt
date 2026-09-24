@@ -11,6 +11,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -51,6 +52,44 @@ class AndroidDemuxReadControlTest {
             assertEquals(1, demux.owners.toSet().size)
             assertFalse(demux.cancelled)
         } finally {
+            node.release()
+        }
+    }
+
+    @Test
+    fun `subtitle track selection waits past the ordinary deadline for a slow remote read`() {
+        val demux = BlockingDemux(ignoreInterrupt = true)
+        val node = opened(demux, timeoutMs = 250L)
+        val caller = Executors.newSingleThreadExecutor()
+        try {
+            val selection =
+                caller.submit {
+                    node.selectTracks(setOf(TRACK, YTrackId(2)), positionUs = 5_000_000L, controlTimeoutMs = 2_500L)
+                }
+            assertTrue(demux.controlRequested.await(2, TimeUnit.SECONDS))
+            assertFailsWith<TimeoutException> { selection.get(500, TimeUnit.MILLISECONDS) }
+            demux.unblock.countDown()
+            selection.get(2, TimeUnit.SECONDS)
+            assertEquals(5_000_000L, awaitSample(node).presentationTimeUs)
+            assertEquals(listOf(5_000_000L), demux.seeks)
+        } finally {
+            demux.unblock.countDown()
+            node.release()
+            caller.shutdownNow()
+        }
+    }
+
+    @Test
+    fun `a started seek may read the network for longer than the owner deadline`() {
+        val demux = BlockingDemux(seekDelayMs = 600L)
+        val node = opened(demux, timeoutMs = 250L)
+        try {
+            // Matroska seeks fetch Cues and the target cluster inside the control itself.
+            node.seekTo(6_000_000L)
+            assertEquals(6_000_000L, awaitSample(node).presentationTimeUs)
+            assertEquals(listOf(6_000_000L), demux.seeks)
+        } finally {
+            demux.unblock.countDown()
             node.release()
         }
     }
@@ -142,6 +181,7 @@ class AndroidDemuxReadControlTest {
         private val ignoreInterrupt: Boolean = false,
         private val ignoreCancel: Boolean = false,
         private val holdControl: Boolean = false,
+        private val seekDelayMs: Long = 0L,
     ) : YDemuxer,
         AndroidDemuxReadControl {
         override val name = "blocked test demux"
@@ -182,6 +222,7 @@ class AndroidDemuxReadControlTest {
         override fun seekTo(positionUs: Long) {
             owners += Thread.currentThread().name
             check(!cancelled)
+            if (seekDelayMs > 0L) Thread.sleep(seekDelayMs)
             seeks += positionUs
             samples.add(YCompressedSample(TRACK, byteArrayOf(1), positionUs))
         }

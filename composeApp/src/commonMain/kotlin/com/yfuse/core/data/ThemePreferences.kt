@@ -11,6 +11,7 @@ import com.yfuse.core.designsystem.GlassStyle
 import com.yfuse.core.designsystem.LoadingAnimation
 import com.yfuse.core.designsystem.ParticleLight
 import com.yfuse.core.designsystem.ParticleStyle
+import com.yfuse.core.designsystem.PlayerTransitionStyle
 import com.yfuse.core.designsystem.SplashAnimation
 import com.yfuse.core.designsystem.ThemeMode
 import com.yfuse.core.model.DecoderMode
@@ -50,6 +51,7 @@ class ThemePreferences(
         const val KEY_GLASS_LIGHT = "appearance.glassMaterial.light"
         const val KEY_GLASS_DARK = "appearance.glassMaterial.dark"
         const val KEY_LOADING_ANIMATION = "appearance.loadingAnimation"
+        const val KEY_PLAYER_TRANSITION = "appearance.playerTransition"
         const val KEY_SERVER_LAYOUT = "appearance.serverLayout"
         const val KEY_BACKGROUND_IMAGE = "appearance.backgroundImage"
         const val KEY_BACKGROUND_DIM = "appearance.backgroundDim"
@@ -176,6 +178,17 @@ class ThemePreferences(
     fun setLoadingAnimation(animation: LoadingAnimation) {
         settings.putString(KEY_LOADING_ANIMATION, animation.name)
         _loadingAnimation.value = animation
+    }
+
+    private val _playerTransition =
+        MutableStateFlow(load(KEY_PLAYER_TRANSITION, PlayerTransitionStyle.entries, PlayerTransitionStyle.Turn))
+
+    /** How the player opens from a page and closes back into it; 设置 → 外观 → 播放器进出场. */
+    val playerTransition: StateFlow<PlayerTransitionStyle> = _playerTransition.asStateFlow()
+
+    fun setPlayerTransition(style: PlayerTransitionStyle) {
+        settings.putString(KEY_PLAYER_TRANSITION, style.name)
+        _playerTransition.value = style
     }
 
     private val _serverLayout = MutableStateFlow(load(KEY_SERVER_LAYOUT, ServerLayout.entries, ServerLayout.Grid))

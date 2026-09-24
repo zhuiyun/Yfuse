@@ -58,7 +58,8 @@ import com.yfuse.core.designsystem.GlassMaterials
 import com.yfuse.core.designsystem.LoadingAnimation
 import com.yfuse.core.designsystem.ParticleLight
 import com.yfuse.core.designsystem.ParticleStyle
-import com.yfuse.core.designsystem.PlatformBackHandler
+import com.yfuse.core.designsystem.PlatformPredictiveBackHandler
+import com.yfuse.core.designsystem.PlayerHandoff
 import com.yfuse.core.designsystem.YfuseTheme
 import com.yfuse.core.designsystem.platformAnimationsDisabled
 import com.yfuse.core.logging.AppLog
@@ -192,8 +193,8 @@ class PlayerActivity : ComponentActivity() {
     private var playerLaunchGeneration = 0L
     private var playbackGate: WatchGatedPlayback? = null
     private var activeState = PlaybackState()
-    private var artworkMorph: PlayerArtworkMorphState? = null
-    private var artworkClosing = false
+    private var transition: PlayerTransitionState? = null
+    private var transitionClosing = false
     private lateinit var audioManager: AudioManager
     private lateinit var audioFocusController: PlayerAudioFocusController
     private var remoteCastManager: CastManager? = null
@@ -367,12 +368,17 @@ class PlayerActivity : ComponentActivity() {
         // this Activity and never writes ACCELEROMETER_ROTATION or USER_ROTATION, so leaving the
         // player restores the user's unchanged system rotation preference.
         super.onCreate(savedInstanceState)
-        artworkMorph =
+        val launch =
             com.yfuse.core.designsystem.PlayerArtworkOrigins
-                .consume(
-                    intent.getLongExtra(PLAYER_ARTWORK_TOKEN, -1L),
-                )?.let(::PlayerArtworkMorphState)
-        configurePlayerWindowMotion(sharedArtwork = artworkMorph != null)
+                .consume(intent.getLongExtra(PLAYER_ARTWORK_TOKEN, -1L))
+        // A recreated player (a replacement launch, a configuration change) and a television take
+        // the plain fade: the first is already on screen, the second has no page to come from.
+        transition =
+            launch
+                ?.takeIf { savedInstanceState == null && playerWindowMotionEnabled() && !isTelevisionDevice(this) }
+                ?.let { PlayerTransitionState(it, lifecycleScope) }
+        if (launch != null && transition == null) PlayerHandoff.release(launch)
+        configurePlayerWindowMotion(transition?.style)
         waitingForSessions = ServerSessionRecovery.showIfNeeded(this)
         if (waitingForSessions) return
         // A tablet is held whichever way its owner likes; forcing landscape on it only forces a
@@ -503,16 +509,26 @@ class PlayerActivity : ComponentActivity() {
                 particleActive = false,
             ) {
                 val leavePreparation = {
-                    if (artworkMorph?.requestExit { finish() } != true) finish()
+                    val drawn =
+                        transition?.requestExit {
+                            transitionClosing = true
+                            finish()
+                        }
+                    if (drawn != true) finish()
                 }
-                // The system back gesture leaves on the poster morph too, not only the button.
-                PlatformBackHandler(enabled = artworkMorph != null, onBack = leavePreparation)
+                // The system back gesture leaves on the transition too, not only the button.
+                PlatformPredictiveBackHandler(
+                    enabled = transition != null,
+                    onProgress = { transition?.onBackProgress(it) },
+                    onBack = leavePreparation,
+                    onCancel = { transition?.onBackCancel() },
+                )
                 PlayerPreparationContent(
                     state = state,
                     onRetry = { pending.store.accept(PlayerIntent.Retry) },
                     onBack = leavePreparation,
                 )
-                PlayerArtworkMorph(artworkMorph, ready = state.error != null, inPictureInPicture = false)
+                PlayerTransitionLayer(transition, ready = state.error != null, inPictureInPicture = false)
             }
         }
         lifecycleScope.launch {
@@ -783,7 +799,7 @@ class PlayerActivity : ComponentActivity() {
                 particleActive = !inPictureInPicture,
             ) {
                 PlayerRoot(
-                    artworkMorph = artworkMorph,
+                    transition = transition,
                     items = liveItems,
                     startIndex = initialStartIndex,
                     startPositionMs = initialStartPositionMs,
@@ -881,8 +897,13 @@ class PlayerActivity : ComponentActivity() {
                         }
                     },
                     onVideoBounds = { bounds ->
-                        videoBounds = bounds
-                        updatePictureInPictureParams()
+                        // Layout reports this on every pass - every frame of a transition - and each
+                        // params update builds three PendingIntents and makes a system call. Only a
+                        // moved rect changes the hint.
+                        if (bounds != videoBounds) {
+                            videoBounds = bounds
+                            updatePictureInPictureParams()
+                        }
                     },
                     onBack = ::closePlayerAndReturn,
                     onEnterPictureInPicture = ::enterPlayerPictureInPicture,
@@ -1013,7 +1034,11 @@ class PlayerActivity : ComponentActivity() {
     ) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
         pictureInPicture.value = isInPictureInPictureMode
-        if (isInPictureInPictureMode) pipWasVisible = true
+        if (isInPictureInPictureMode) {
+            pipWasVisible = true
+            // 画中画 has its own system animation, and the page underneath is back in front.
+            transition?.disable()
+        }
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -1056,6 +1081,9 @@ class PlayerActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        // Gone without drawing the way back (an error, a permission change, a replacement): the
+        // page must not stay dimmed under whatever comes next.
+        transition?.let { if (!it.finished) PlayerHandoff.release(it.launch) }
         if (waitingForSessions) {
             super.onDestroy()
             return
@@ -1102,13 +1130,13 @@ class PlayerActivity : ComponentActivity() {
         if (android.os.Build.VERSION.SDK_INT >=
             34
         ) {
-            finishPlayerWindowMotion(pipWasVisible, sharedArtwork = artworkClosing)
+            finishPlayerWindowMotion(pipWasVisible, transition?.style?.takeIf { transitionClosing })
         }
         super.finish()
         if (android.os.Build.VERSION.SDK_INT <
             34
         ) {
-            finishPlayerWindowMotion(pipWasVisible, sharedArtwork = artworkClosing)
+            finishPlayerWindowMotion(pipWasVisible, transition?.style?.takeIf { transitionClosing })
         }
     }
 
@@ -1129,8 +1157,8 @@ class PlayerActivity : ComponentActivity() {
             finish()
         }
         if (isInPictureInPictureMode ||
-            artworkMorph?.requestExit {
-                artworkClosing = true
+            transition?.requestExit {
+                transitionClosing = true
                 finishPlayback()
             } != true
         ) {

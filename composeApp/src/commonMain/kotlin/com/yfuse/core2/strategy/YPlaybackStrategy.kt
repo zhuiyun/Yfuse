@@ -6,6 +6,7 @@ import com.yfuse.core2.capability.YAudioRequirement
 import com.yfuse.core2.capability.YContainer
 import com.yfuse.core2.capability.YDeviceCapabilities
 import com.yfuse.core2.capability.YHdrType
+import com.yfuse.core2.capability.YVideoDecoderCapability
 import com.yfuse.core2.capability.YVideoRequirement
 import com.yfuse.core2.hdr.YHdrRouteDecision
 import com.yfuse.core2.hdr.YHdrRouter
@@ -258,6 +259,15 @@ class DefaultYPlaybackStrategy : YPlaybackStrategy {
             )
         }
 
+        planHardwareVideoWithSoftwareAudio(
+            request = request,
+            capabilities = capabilities,
+            selectedDecoder = selectedDecoder,
+            selectedRequirement = selectedRequirement,
+            usesHdrFallback = usesHdrFallback,
+            nativeAudio = nativeAudio,
+        )?.let { return it }
+
         val fallbackHdrType = selectedRequirement?.hdrType ?: request.video.hdrType
         val displayCanPresentFallback = capabilities.supportsDisplayHdr(fallbackHdrType)
         val softwareVideo = selectedDecoder == null || !displayCanPresentFallback
@@ -296,6 +306,56 @@ class DefaultYPlaybackStrategy : YPlaybackStrategy {
                     else ->
                         "No compatible platform video decoder exists; use FFmpeg software video decode"
                 },
+        )
+    }
+
+    /**
+     * The one missing piece is a platform decoder for the selected audio codec.
+     *
+     * The enhanced session decodes that audio to PCM with FFmpeg while video stays on the hardware
+     * decoder, so the graph is NativeEnhanced with software audio. Letting audio alone demote it to
+     * SoftwareFallback kept a hardware video plan under a software label, and the router's Dolby
+     * guard, which exists for FFmpeg video decode, then refused it (1.0.83: Dolby Vision profile 5
+     * with E-AC-3 JOC, on a device without a platform E-AC-3 decoder and with passthrough off).
+     *
+     * Only display-native hardware decode qualifies. GPU presentation, a platform software codec
+     * and secure video keep their existing fallback plans.
+     */
+    private fun planHardwareVideoWithSoftwareAudio(
+        request: YPlaybackRequest,
+        capabilities: YDeviceCapabilities,
+        selectedDecoder: YVideoDecoderCapability?,
+        selectedRequirement: YVideoRequirement?,
+        usesHdrFallback: Boolean,
+        nativeAudio: Boolean,
+    ): YPlaybackPlan? {
+        if (
+            nativeAudio ||
+            request.audio == null ||
+            !request.enhancedDemuxSupported ||
+            request.video.secureDecodeRequired ||
+            selectedDecoder == null ||
+            !selectedDecoder.hardwareAccelerated ||
+            selectedRequirement == null ||
+            YHdrRouter.decide(selectedRequirement.hdrType, capabilities) !is YHdrRouteDecision.Native
+        ) {
+            return null
+        }
+        return YPlaybackPlan(
+            route = YPlaybackRoute.NativeEnhanced,
+            demuxPath = YDemuxPath.Enhanced,
+            decodePath = YDecodePath.Hardware,
+            renderPath = YRenderPath.SurfaceDirect,
+            inputHdrType = selectedRequirement.hdrType,
+            outputHdrType = selectedRequirement.hdrType,
+            decoderName = selectedDecoder.name,
+            nativeAudio = true,
+            audioPath = YAudioOutputPath.DecodePcm,
+            softwareAudioDecode = true,
+            usesHdrFallback = usesHdrFallback,
+            reason =
+                "Selected audio codec has no platform decoder; decode it to PCM with FFmpeg " +
+                    "and keep hardware video decode",
         )
     }
 

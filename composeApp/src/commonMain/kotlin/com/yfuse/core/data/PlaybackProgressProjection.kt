@@ -65,12 +65,19 @@ class PlaybackProgressProjection(
     fun localStates(server: SavedServer): List<PlaybackStateRecord> = localStore?.statesForServer(server.id).orEmpty()
 
     /** Cached metadata is reusable; progress must always be projected from the current local state. */
-    fun projectDetail(server: SavedServer, detail: com.yfuse.core.model.MediaDetail): com.yfuse.core.model.MediaDetail {
+    fun projectDetail(
+        server: SavedServer,
+        detail: com.yfuse.core.model.MediaDetail,
+    ): com.yfuse.core.model.MediaDetail {
         val state = localStore?.stateForServerItem(server.id, detail.id)
         return detail.copy(
             played = state?.played == true,
             resumePositionTicks =
-                state?.takeUnless { it.played }?.positionMs?.takeIf { it > 0L }?.let(::millisecondsToTicks),
+                state
+                    ?.takeUnless { it.played }
+                    ?.positionMs
+                    ?.takeIf { it > 0L }
+                    ?.let(::millisecondsToTicks),
         )
     }
 

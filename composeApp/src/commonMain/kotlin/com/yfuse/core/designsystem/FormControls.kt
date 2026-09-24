@@ -124,6 +124,11 @@ fun YfFormField(
                                             .pressable(
                                                 enabled = enabled,
                                                 onClickLabel = trailingIconContentDescription,
+                                                // The icon's own contentDescription is nulled below so
+                                                // this is the node's only name — without it the control
+                                                // had an activation verb but no name, and TalkBack read
+                                                // it as an unlabelled button.
+                                                label = trailingIconContentDescription,
                                                 onClick = onTrailingIconClick,
                                             ).touchTarget()
                                     } else {

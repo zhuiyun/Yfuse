@@ -22,6 +22,8 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyItemScope
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.selection.selectableGroup
@@ -30,6 +32,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
@@ -71,13 +74,16 @@ import com.yfuse.core.designsystem.HeroActionDock
 import com.yfuse.core.designsystem.HeroPageFade
 import com.yfuse.core.designsystem.HeroPageIndicator
 import com.yfuse.core.designsystem.HeroTextShadow
+import com.yfuse.core.designsystem.LaunchWaveState
 import com.yfuse.core.designsystem.LightEffect
 import com.yfuse.core.designsystem.LivingPosterAmbient
 import com.yfuse.core.designsystem.LivingPosterDefaults
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
+import com.yfuse.core.designsystem.LocalLaunchWave
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.LocalRouteVisible
+import com.yfuse.core.designsystem.LocalSkeletonArrival
 import com.yfuse.core.designsystem.MediaSharedElementKey
 import com.yfuse.core.designsystem.MediaSizing
 import com.yfuse.core.designsystem.Motion
@@ -103,6 +109,9 @@ import com.yfuse.core.designsystem.heroDurationLabel
 import com.yfuse.core.designsystem.heroMediaTypeLabel
 import com.yfuse.core.designsystem.heroScrollCollapse
 import com.yfuse.core.designsystem.heroTopScrim
+import com.yfuse.core.designsystem.launchWaveImage
+import com.yfuse.core.designsystem.launchWaveInterrupt
+import com.yfuse.core.designsystem.launchWaveItem
 import com.yfuse.core.designsystem.lightFeedback
 import com.yfuse.core.designsystem.livingPosterFrame
 import com.yfuse.core.designsystem.livingPosterHeroHeight
@@ -122,6 +131,7 @@ import com.yfuse.core.designsystem.rememberArtworkPageColor
 import com.yfuse.core.designsystem.rememberArtworkPagePalette
 import com.yfuse.core.designsystem.rememberCarouselCaptionProgress
 import com.yfuse.core.designsystem.rememberCarouselPageColor
+import com.yfuse.core.designsystem.rememberLaunchWave
 import com.yfuse.core.designsystem.rememberLightFeedback
 import com.yfuse.core.designsystem.rememberLoopingCarouselState
 import com.yfuse.core.designsystem.rememberRefreshReveal
@@ -289,6 +299,8 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
     val density = LocalDensity.current
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val routeVisible = LocalRouteVisible.current
+    // 「水火潮涌」: armed by a cold start that opens on 库, played once when content is first on screen.
+    val launchWave = rememberLaunchWave(contentVisible = routeVisible && !state.content.isEmpty)
     var freshnessNowEpochMs by remember { mutableStateOf(System.currentTimeMillis()) }
     LaunchedEffect(state.contentSource, state.updatedAtEpochMs, routeVisible) {
         freshnessNowEpochMs = System.currentTimeMillis()
@@ -398,17 +410,21 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                         },
                         modifier = Modifier.fillMaxSize(),
                     ) {
-                        SkeletonArrivalScope(state.loading && state.content.isEmpty) {
+                        LibraryArrivalScope(state.loading && state.content.isEmpty, launchWave) {
                             LazyColumn(
                                 // One page-wide sweep over the loading shelves, while any is loading.
                                 modifier =
-                                    Modifier.fillMaxSize().skeletonSweep().arrivalSweep(refreshArrival),
+                                    Modifier
+                                        .fillMaxSize()
+                                        .skeletonSweep()
+                                        .arrivalSweep(refreshArrival)
+                                        .launchWaveInterrupt(launchWave),
                                 state = listState,
                                 verticalArrangement = Arrangement.spacedBy(Dimens.sectionGap),
                                 contentPadding = PaddingValues(bottom = bottomContentInset),
                             ) {
                                 if (!libraryCarousel || slide == null) {
-                                    motionItem(key = "library-header") {
+                                    waveItem(key = "library-header") {
                                         Column(
                                             Modifier.fillMaxWidth().statusBarsPadding().padding(
                                                 horizontal = Dimens.pageHorizontal,
@@ -591,7 +607,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                 }
 
                                 if (state.contentSource == LibraryContentSource.Cached && !state.content.isEmpty) {
-                                    motionItem(key = "library-freshness") {
+                                    waveItem(key = "library-freshness") {
                                         LibraryFreshnessBanner(
                                             updatedAtEpochMs = state.updatedAtEpochMs,
                                             nowEpochMs = freshnessNowEpochMs,
@@ -606,12 +622,12 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                 }
                                 if (state.content.rows.isNotEmpty() || state.currentServer != null) {
                                     if (showSmartPlaylists) {
-                                        motionItem(key = "smart-playlists") {
+                                        waveItem(key = "smart-playlists") {
                                             com.yfuse.feature.search
                                                 .SmartPlaylistShelf()
                                         }
                                     }
-                                    motionItem(key = "library-categories") {
+                                    waveItem(key = "library-categories") {
                                         CategoryCards(
                                             baseUrl = baseUrl,
                                             accessToken = accessToken,
@@ -634,7 +650,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                     }
                                 }
                                 if (state.content.resume.isNotEmpty()) {
-                                    motionItem(key = "library-resume") {
+                                    waveItem(key = "library-resume") {
                                         PlaybackHistory(
                                             baseUrl = baseUrl,
                                             accessToken = accessToken,
@@ -645,7 +661,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                     }
                                 }
                                 state.content.rows.libraryShelfRows().forEach { row ->
-                                    motionItem(key = "library-shelf:${row.libraryId}:${row.title}") {
+                                    waveItem(key = "library-shelf:${row.libraryId}:${row.title}") {
                                         CategorySection(
                                             baseUrl = baseUrl,
                                             accessToken = accessToken,
@@ -657,7 +673,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                     }
                                 }
                                 state.content.counts?.let { counts ->
-                                    motionItem(key = "library-counts") {
+                                    waveItem(key = "library-counts") {
                                         LibraryCountFooter(counts.movieCount, counts.seriesCount)
                                     }
                                 }
@@ -826,7 +842,8 @@ private fun HeroCarousel(
                         .sharedMediaArtwork(sharedKey)
                         .playerArtworkSource(sharedKey, urls)
                         .fillMaxSize()
-                        .carouselArtworkMotion(pageOffset, LocalAccessibilityOptions.current.reduceMotion),
+                        .carouselArtworkMotion(pageOffset, LocalAccessibilityOptions.current.reduceMotion)
+                        .launchWaveImage(hero = true),
             )
         }
         // Contrast only. The image itself owns the lower transition through fadeIntoPage().
@@ -892,7 +909,7 @@ private fun HeroCarousel(
                     start = 20.dp,
                     end = 20.dp,
                     bottom = LibraryHeroContentBottom,
-                ),
+                ).launchWaveItem(),
         ) {
             Text(
                 item.title,
@@ -1161,7 +1178,9 @@ private fun LibraryCategoryCard(
             .clip(AppShapes.card)
             .background(
                 if (coverUrl == null && fallbackIcon != null) {
-                    Color(0xFF4C5F83)
+                    // A guaranteed-dark plate in both themes, for the white glyph below —
+                    // `palette.card2` alone would wash out under 浅色 mode.
+                    palette.reducedFill.control
                 } else {
                     palette.card2
                 },
@@ -1170,8 +1189,10 @@ private fun LibraryCategoryCard(
         if (coverUrl != null) {
             FallbackImage(
                 urls = listOf(coverUrl),
-                contentDescription = title,
-                modifier = Modifier.fillMaxSize(),
+                // The title below already names the card as visible text; repeating it here
+                // made a screen reader announce it twice.
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize().launchWaveImage(),
             )
         } else if (fallbackIcon != null) {
             Icon(
@@ -1183,8 +1204,10 @@ private fun LibraryCategoryCard(
         }
         Box(
             Modifier.fillMaxSize().background(
+                // Deepened from 0.35 — the title below was reading as barely-there on light
+                // covers at this card's small caption size.
                 scrim(
-                    0f to Color.Black.copy(alpha = 0.35f),
+                    0f to Color.Black.copy(alpha = 0.55f),
                     0.6f to Color.Transparent,
                 ),
             ),
@@ -1395,4 +1418,39 @@ internal fun PosterCard(
         sharedTransitionKey = MediaSharedElementKey(serverId, item.id),
         modifier = modifier.fillMaxWidth(),
     )
+}
+
+/**
+ * The skeleton arrival, with the cold-start wave layered in. While the wave runs it replaces the
+ * row-by-row skeleton lift for this one appearance; both at once would move every row twice.
+ */
+@Composable
+private fun LibraryArrivalScope(
+    loading: Boolean,
+    wave: LaunchWaveState,
+    content: @Composable () -> Unit,
+) {
+    SkeletonArrivalScope(loading) {
+        val skeletonArrival = LocalSkeletonArrival.current.takeUnless { wave.animating }
+        CompositionLocalProvider(
+            LocalLaunchWave provides wave,
+            LocalSkeletonArrival provides skeletonArrival,
+            content = content,
+        )
+    }
+}
+
+/**
+ * A page section that rises, sinks and settles as one row when the cold-start wave reaches it.
+ * The hero is not one of these: a full-bleed picture that moved would open a gap under the status
+ * bar, so it sways inside its own frame instead (see [HeroCarousel]).
+ */
+private fun LazyListScope.waveItem(
+    key: Any?,
+    content: @Composable LazyItemScope.() -> Unit,
+) {
+    motionItem(key = key) {
+        val itemScope = this
+        Box(Modifier.launchWaveItem()) { itemScope.content() }
+    }
 }

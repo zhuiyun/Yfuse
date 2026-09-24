@@ -25,6 +25,19 @@ class PlaybackPreferencesTest {
     }
 
     @Test
+    fun source_preheat_defaults_to_wifi_and_mobile_and_survives_restart() {
+        val settings = MapSettings()
+        val preferences = PlaybackPreferences(settings)
+        assertEquals(SourcePreheatMode.WifiAndMobile, preferences.sourcePreheat.value)
+
+        preferences.setSourcePreheat(SourcePreheatMode.WifiOnly)
+
+        assertEquals(SourcePreheatMode.WifiOnly, PlaybackPreferences(settings).sourcePreheat.value)
+        settings.putString("player.sourcePreheat", "unknown_future_value")
+        assertEquals(SourcePreheatMode.WifiAndMobile, PlaybackPreferences(settings).sourcePreheat.value)
+    }
+
+    @Test
     fun ambient_light_defaults_on_and_persists_off() {
         val settings = MapSettings()
         val first = PlaybackPreferences(settings)

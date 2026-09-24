@@ -4,6 +4,7 @@ import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.PlaybackEventOutbox
 import com.yfuse.core.data.PlaybackOutboxEventKind
 import com.yfuse.core.logging.AppLog
+import com.yfuse.core.model.PlaybackMethod
 import com.yfuse.core.model.SavedServer
 
 internal interface PlaybackEventSink {
@@ -78,15 +79,13 @@ internal class EmbyPlaybackEventSink(
         repo.reportPlaybackProgress(server, itemId, sessionId, positionTicks, isPaused).getOrThrow()
     }
 
+    // Without a method the stop is reported as the default direct play, which left no encoder behind.
     override suspend fun stopped(
         itemId: String,
         sessionId: String,
         positionTicks: Long,
         isPaused: Boolean,
-    ) {
-        repo.reportPlaybackStopped(server, itemId, sessionId, positionTicks, isPaused).getOrThrow()
-        stopEncoding(sessionId)
-    }
+    ) = stoppedWithMethod(itemId, sessionId, positionTicks, isPaused, DEFAULT_PLAY_METHOD)
 
     override suspend fun startedWithMethod(
         itemId: String,
@@ -140,11 +139,19 @@ internal class EmbyPlaybackEventSink(
                 isPaused,
                 playMethod,
             ).getOrThrow()
-        stopEncoding(sessionId)
+        // Only a transcode or a direct stream starts an encoder on the server. Every stopped direct
+        // play used to send the cleanup too - to a server that may have been refusing the session.
+        if (sessionId.isNotBlank() && playMethod.startsServerEncoder()) stopEncoding(sessionId)
     }
 
-    override suspend fun stopEncoding(sessionId: String): Boolean = repo.stopTranscoding(server, sessionId).isSuccess
+    override suspend fun stopEncoding(sessionId: String): Boolean =
+        sessionId.isBlank() || repo.stopTranscoding(server, sessionId).isSuccess
 }
+
+/** Whether a reported play method had the server run an encoder that must be ended afterwards. */
+internal fun String.startsServerEncoder(): Boolean =
+    equals(PlaybackMethod.Transcode.embyValue, ignoreCase = true) ||
+        equals(PlaybackMethod.DirectStream.embyValue, ignoreCase = true)
 
 /**
  * Persists before returning to the reporter actor. Network delivery happens on the coordinator's

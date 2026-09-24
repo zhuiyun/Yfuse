@@ -58,10 +58,15 @@ internal class AndroidAudioTrackRenderNode(
     private var configuredFormat: MediaFormat? = null
 
     private val routingGeneration = AtomicLong()
+    private val routeChangeFilter = AudioRouteChangeFilter()
     private val routingListener =
-        AudioRouting.OnRoutingChangedListener {
+        AudioRouting.OnRoutingChangedListener { router ->
             synchronized(this@AndroidAudioTrackRenderNode) {
-                routingGeneration.incrementAndGet()
+                // Pausing the track (every rebuffer does) and resuming it also report "routing
+                // changed", with the same device or none. Counting those as route changes invalidated
+                // the output evidence and showed "音频路由已变化 · 等待新帧" after each rebuffer
+                // (incident F); only a different output device is a route change.
+                if (routeChangeFilter.routed(router.routedDeviceIdentity())) routingGeneration.incrementAndGet()
                 // Android may change the start threshold when an output device changes.
                 track?.let(::configureStartThreshold)
                 configuredFormat?.let { format ->
@@ -408,11 +413,15 @@ private fun buildAudioTrack(format: MediaFormat): AudioTrack {
             AudioFormat.ENCODING_PCM_16BIT
         }
     val channelMask =
-        if (format.containsKey(MediaFormat.KEY_CHANNEL_MASK)) {
-            format.getInteger(MediaFormat.KEY_CHANNEL_MASK)
-        } else {
-            channelMaskForCount(channelCount)
-        }
+        audioTrackChannelMask(
+            declaredMask =
+                if (format.containsKey(MediaFormat.KEY_CHANNEL_MASK)) {
+                    format.getInteger(MediaFormat.KEY_CHANNEL_MASK)
+                } else {
+                    null
+                },
+            channelCount = channelCount,
+        )
     // A layout this device has no mask for must fail here. Falling back to a stereo mask would let
     // AudioTrack initialise and then reinterpret interleaved multichannel PCM as two channels,
     // which plays as garbled audio at the wrong rate instead of surfacing a route that can be
@@ -457,6 +466,29 @@ private fun buildAudioTrack(format: MediaFormat): AudioTrack {
         }
 }
 
+/**
+ * Turns AudioTrack routing callbacks into real output-device changes.
+ *
+ * A callback without a routed device (a paused track) proves nothing, and the first device seen is
+ * the initial route rather than a change. Only a device that differs from the last one reported
+ * counts, so pause/resume around a rebuffer no longer reads as an audio route change.
+ */
+internal class AudioRouteChangeFilter {
+    private var lastDevice: String? = null
+
+    /** True when [device] is a different output device from the last one a callback reported. */
+    fun routed(device: String?): Boolean {
+        if (device == null) return false
+        val previous = lastDevice
+        lastDevice = device
+        return previous != null && previous != device
+    }
+}
+
+/** Stable per connected device: a reconnected headset gets a new id and counts as a new route. */
+internal fun AudioRouting.routedDeviceIdentity(): String? =
+    runCatching { routedDevice?.let { device -> "${device.type}:${device.id}" } }.getOrNull()
+
 /** Forty milliseconds primes common PCM codecs without filling the resilience buffer. */
 internal fun nativeDirectAudioStartThresholdFrames(
     sampleRate: Int,
@@ -492,6 +524,28 @@ internal fun nativeDirectAudioBufferSizeBytes(
         resilientBuffer.toLong(),
     ).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
 }
+
+/**
+ * The output mask for decoded PCM: the decoder's own mask when it describes [channelCount] channels,
+ * otherwise the standard layout for that count ([channelMaskForCount], which still refuses counts
+ * this platform has no layout for).
+ *
+ * A codec can declare `channel-mask` 0 before it has decoded anything (Codec2's AAC decoder keeps
+ * its default until the first frame), and a format synthesized from that state passed 0 straight to
+ * the invalid-mask check: an IllegalStateException that failed startup with no stage attached. A mask
+ * whose bit count disagrees with the channel count describes some other layout and is ignored the
+ * same way, as are the legacy low bits (CHANNEL_OUT_DEFAULT) that AudioFormat.Builder rejects.
+ */
+internal fun audioTrackChannelMask(
+    declaredMask: Int?,
+    channelCount: Int,
+): Int =
+    declaredMask
+        ?.takeIf { mask ->
+            mask != AudioFormat.CHANNEL_INVALID &&
+                mask and LEGACY_CHANNEL_OUT_BITS == 0 &&
+                Integer.bitCount(mask) == channelCount
+        } ?: channelMaskForCount(channelCount)
 
 /**
  * Maps a decoded PCM channel count to an output mask, or [AudioFormat.CHANNEL_INVALID] when this
@@ -534,6 +588,9 @@ private object Api32HeightChannelMasks {
 }
 
 private const val MICROS_PER_SECOND = 1_000_000L
+
+/** CHANNEL_OUT_DEFAULT and the unused bit above it; no real output position lives there. */
+private const val LEGACY_CHANNEL_OUT_BITS = 0x3
 private const val DEFAULT_AUDIO_BUFFER_BYTES = 64 * 1024
 private const val MAX_AUDIO_BUFFER_BYTES = 2 * 1024 * 1024
 private const val MINIMUM_AUDIO_BUFFER_MULTIPLIER = 4L

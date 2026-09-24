@@ -18,6 +18,7 @@ import com.yfuse.core.data.SkipTimes
 import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.UserAgentPreferences
 import com.yfuse.core.data.WatchTogetherPreferences
+import com.yfuse.core.designsystem.ThemeMode
 import com.yfuse.core.security.TestSecureStore
 import com.yfuse.feature.json
 import com.yfuse.feature.testRepo
@@ -111,6 +112,26 @@ class CloudSyncSnapshotTest {
                 .single()
                 .remindBeforeMinutes,
         )
+    }
+
+    @Test
+    fun cloud_appearance_defaults_to_dark_and_falls_back_to_dark_on_unknown_theme_mode() {
+        // ThemePreferences itself defaults to Dark; the cloud snapshot's own default and its
+        // fallback for a value it does not recognise both used to say Light instead, so a
+        // fresh account synced down to the wrong theme the moment either path was hit.
+        assertEquals(ThemeMode.Dark.name, CloudAppearanceSettings().themeMode)
+
+        val target = Fixture()
+        target.theme.setMode(ThemeMode.Light)
+
+        target
+            .apply(
+                CloudSyncSnapshotV1(
+                    appearance = CloudAppearanceSettings(themeMode = "not-a-real-mode"),
+                ),
+            ).getOrThrow()
+
+        assertEquals(ThemeMode.Dark, target.theme.mode.value)
     }
 
     @Test

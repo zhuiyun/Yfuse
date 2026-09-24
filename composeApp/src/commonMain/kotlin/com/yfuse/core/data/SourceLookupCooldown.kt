@@ -20,7 +20,10 @@ internal class SourceLookupCooldown(
     }
 
     @Synchronized
-    fun record(server: SavedServer, reachable: Boolean) {
+    fun record(
+        server: SavedServer,
+        reachable: Boolean,
+    ) {
         until.remove(server)
         if (!reachable) until[server] = nowMs() + cooldownMs
         while (until.size > 32) until.remove(until.keys.first())

@@ -1,6 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <application>
+        <!--
+          The benchmark/profile build types initWith(release) and are not debuggable, so
+          Macrobenchmark/simpleperf/Perfetto need shell-profileable to attach to them at all.
+          Do not remove this without also removing it from composeApp/build.gradle.kts's
+          benchmark/profile build types, or on-device benchmarking silently stops working.
+        -->
+        <profileable
+            android:shell="true"
+            tools:targetApi="29" />
         <activity
             android:name="com.yfuse.performance.HomeFixtureActivity"
             android:exported="true"

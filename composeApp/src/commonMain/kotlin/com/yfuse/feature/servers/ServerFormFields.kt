@@ -42,12 +42,13 @@ import com.yfuse.core.model.MediaServerKind
 import com.yfuse.core.designsystem.ThemeText as Text
 
 /*
- * Shared with `feature/profile/AddServerDialog.kt` — 添加/编辑服务器's modal — and
- * [ServersScreen]'s own full-page manual-entry form, which had each grown their own copy
- * of the same row, text field and protocol pill. The two had drifted: only [ServersScreen]'s
- * text field gained a password show/hide toggle and IME next/done plus focus-advance
- * (`imeAction` + `KeyboardActions`) while the modal's stayed on the default IME action with
- * no way to reveal a password. Both now get all three.
+ * Shared with `feature/profile/AddServerDialog.kt` — 添加/编辑服务器's modal — and the old
+ * full-page manual-entry route (`ServersScreen`, removed once the 服务器 tab moved to a grid
+ * with this modal as its only add/edit surface), which had each grown their own copy of the
+ * same row, text field and protocol pill. The two had drifted: only the full-page form's text
+ * field gained a password show/hide toggle and IME next/done plus focus-advance (`imeAction` +
+ * `KeyboardActions`) while the modal's stayed on the default IME action with no way to reveal
+ * a password. Both now get all three.
  */
 
 /** Form row — label above content, optional hairline divider below. */

@@ -48,7 +48,13 @@ import java.nio.ByteBuffer
 
 internal enum class YCore2ProbeFailure {
     SourceUnavailable,
-    DeadlineOrBusy,
+
+    /** The stage ran out of time; the source may simply be slow. */
+    Deadline,
+
+    /** Another probe held the lane, so this one never ran. Carries no evidence about the source. */
+    Busy,
+
     NoPlayableTrack,
     NoVideoTrack,
     UnknownVideoCodec,
@@ -202,7 +208,8 @@ internal class AndroidCore2MediaProbe(
                         limitMs = 8_000L,
                         stageName = "platform",
                         reserveMs = 2_000L,
-                        unavailable = { YCore2ProbeResult.Failure(YCore2ProbeFailure.DeadlineOrBusy) },
+                        unavailable = { YCore2ProbeResult.Failure(YCore2ProbeFailure.Deadline) },
+                        busy = { YCore2ProbeResult.Failure(YCore2ProbeFailure.Busy) },
                     ) { stage -> probeUncached(item, stage) }
                 }
             }
@@ -530,6 +537,7 @@ internal class AndroidCore2RouteEvaluator(
 ) {
     private val appContext = context.applicationContext
     private val platformProbe = AndroidCore2MediaProbe(context)
+
     // One evaluation owns this evidence. A refreshed item/budget can probe again; the
     // inconclusive fallback for the same start must not pay a second platform open.
     private var lastPlatformAttempt: Triple<YMediaItem, AndroidProbeBudget?, YCore2ProbeResult>? = null
@@ -593,7 +601,8 @@ internal class AndroidCore2RouteEvaluator(
         budget?.ensureActive()
         val previous = lastPlatformAttempt?.takeIf { it.first == item && it.second === budget }
         return (previous?.third ?: platformProbe.probe(item, budget))
-            .sourceSuccessOrThrow()?.withConfirmedDolbyVisionSourceHint(item)
+            .sourceSuccessOrThrow()
+            ?.withConfirmedDolbyVisionSourceHint(item)
     }
 
     /**
@@ -650,8 +659,9 @@ internal class AndroidCore2RouteEvaluator(
         lastPlatformAttempt = Triple(item, budget, platformResult)
         val platform = platformResult.sourceSuccessOrThrow()?.withConfirmedDolbyVisionSourceHint(item)
         if (skipEnhancedProbeAfterDeadline(platformResult, item)) {
-            // A deadline is not proof that the container needs FFmpeg. Let the normal
-            // native open attempt read it, without first adding another 18-second probe.
+            // A deadline is not proof that the container needs FFmpeg, and a lane still busy
+            // after playback's wait is no evidence at all. Let the normal native open attempt
+            // read it, without first adding another 18-second probe.
             return null
         }
         val sourceClaimsDolbyVision = item.sourceHints?.dolbyVision == true

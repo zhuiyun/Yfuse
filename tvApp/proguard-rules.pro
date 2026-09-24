@@ -7,6 +7,9 @@
 -keep class com.yfuse.tv.integration.YfuseCastReceiverOptionsProvider { *; }
 -keep class com.yfuse.tv.integration.TvContinueWatchingSyncWorker { *; }
 
+# Failure logs record exception class names; keep them readable in exported diagnostics.
+-keepnames class * extends java.lang.Throwable
+
 # kotlinx.serialization generated entry points used by persisted navigation, server models and
 # credential-free Continue Watching snapshots.
 -keepattributes *Annotation*, InnerClasses

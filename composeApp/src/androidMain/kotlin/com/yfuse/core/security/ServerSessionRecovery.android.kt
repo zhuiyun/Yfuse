@@ -52,6 +52,10 @@ object ServerSessionRecovery {
         startup?.phase?.first { it == SessionStartupPhase.Ready }
     }
 
+    /** Whether [awaitReady] would return at once: sessions restored, or no restore installed. */
+    val isReady: Boolean
+        get() = startup?.phase?.value?.let { it == SessionStartupPhase.Ready } ?: true
+
     fun showIfNeeded(activity: ComponentActivity): Boolean {
         // Restoring is an asynchronous warm-up, not a reason to block the app. In particular,
         // users who never signed in must be able to enter the local library while secure state is

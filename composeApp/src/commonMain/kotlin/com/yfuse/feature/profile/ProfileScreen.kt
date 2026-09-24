@@ -49,6 +49,7 @@ import com.yfuse.core.account.AccountState
 import com.yfuse.core.account.canUseWatchTogether
 import com.yfuse.core.data.DanmakuSource
 import com.yfuse.core.data.MediaVersionPreference
+import com.yfuse.core.data.SourcePreheatMode
 import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.VideoCacheSize
 import com.yfuse.core.data.YCoreBufferDuration
@@ -111,6 +112,7 @@ private enum class Sheet {
     StartupTab,
     DialogAnimation,
     LoadingAnimation,
+    PlayerTransition,
     ParticleLight,
     Background,
     PlaybackMode,
@@ -126,6 +128,7 @@ private enum class Sheet {
     WatchTogether,
     WatchProfile,
     VideoCache,
+    SourcePreheat,
 }
 
 /** Light to dark, which is how the segmented control is read left to right. */
@@ -287,11 +290,13 @@ fun ProfileScreen(component: ProfileComponent) {
     val glassStyle by prefs.glassStyle.collectAsState()
     val dialogAnimation by prefs.dialogAnimation.collectAsState()
     val loadingAnimation by prefs.loadingAnimation.collectAsState()
+    val playerTransition by prefs.playerTransition.collectAsState()
     val glassMaterials by prefs.glassMaterials.collectAsState()
     val backgroundImage by prefs.backgroundImage.collectAsState()
     val backgroundDim by prefs.backgroundDim.collectAsState()
     var appIcon by remember { mutableStateOf(currentAppIconVariant()) }
     val videoCacheSize by component.playbackPreferences.videoCacheSize.collectAsState()
+    val sourcePreheat by component.playbackPreferences.sourcePreheat.collectAsState()
     val yCoreBufferDuration by component.playbackPreferences.yCoreBufferDuration.collectAsState()
     val optimizationMode by component.playbackPreferences.optimizationMode.collectAsState()
     val mediaVersionPreference by component.playbackPreferences.mediaVersionPreference.collectAsState()
@@ -410,6 +415,7 @@ fun ProfileScreen(component: ProfileComponent) {
                         progressSyncEnabled = progressSyncEnabled,
                         anonymousQoeSharing = anonymousQoeSharing,
                         videoCacheSize = videoCacheSize,
+                        sourcePreheat = sourcePreheat,
                         skipSegments =
                             if (skipTimesBySeries.isEmpty()) {
                                 "${skipMode.label} · 跟随服务器"
@@ -424,6 +430,7 @@ fun ProfileScreen(component: ProfileComponent) {
                         onProgressSync = component.dependencies.serverSyncManager::setProgress,
                         onAnonymousQoeSharing = component.playbackPreferences::setAnonymousQoeSharing,
                         onVideoCache = { sheet = Sheet.VideoCache },
+                        onSourcePreheat = { sheet = Sheet.SourcePreheat },
                         onSkipSegments = { sheet = Sheet.SkipSegments },
                     )
 
@@ -506,10 +513,12 @@ fun ProfileScreen(component: ProfileComponent) {
                         startupSummary = startupTab.label,
                         dialogAnimationSummary = dialogAnimation.label,
                         loadingAnimationSummary = loadingAnimation.label,
+                        playerTransitionSummary = playerTransition.label,
                         particleLightSummary = particleLight.label,
                         onParticleLight = { sheet = Sheet.ParticleLight },
                         onDialogAnimation = { sheet = Sheet.DialogAnimation },
                         onLoadingAnimation = { sheet = Sheet.LoadingAnimation },
+                        onPlayerTransition = { sheet = Sheet.PlayerTransition },
                         onGlassMaterial = { openPage(ProfilePage.GlassMaterial) },
                         reduceTransparency = reduceTransparency,
                         largeText = largeText,
@@ -827,6 +836,13 @@ fun ProfileScreen(component: ProfileComponent) {
                     onDismiss = { sheet = null },
                 )
 
+            Sheet.PlayerTransition ->
+                PlayerTransitionSheet(
+                    selected = playerTransition,
+                    onSelect = prefs::setPlayerTransition,
+                    onDismiss = { sheet = null },
+                )
+
             Sheet.ParticleLight ->
                 ParticleLightSheet(
                     selected = particleLight,
@@ -975,6 +991,19 @@ fun ProfileScreen(component: ProfileComponent) {
                     options = VideoCacheSize.entries.map { it.label to (it == videoCacheSize) },
                     onSelect = { index ->
                         component.playbackPreferences.setVideoCacheSize(VideoCacheSize.entries[index])
+                        sheet = null
+                    },
+                    onDismiss = { sheet = null },
+                )
+
+            Sheet.SourcePreheat ->
+                OptionSheet(
+                    title = "起播预热",
+                    subtitle = "在详情页提前读取片头与索引，点击播放后直接起播；系统省流量或省电模式下不预热",
+                    options = SourcePreheatMode.entries.map { it.label to (it == sourcePreheat) },
+                    descriptions = SourcePreheatMode.entries.map { it.description },
+                    onSelect = { index ->
+                        component.playbackPreferences.setSourcePreheat(SourcePreheatMode.entries[index])
                         sheet = null
                     },
                     onDismiss = { sheet = null },

@@ -38,6 +38,21 @@ enum class VideoCacheSize(
     ExtraLarge("2 GB", 2L * 1024L * 1024L * 1024L),
 }
 
+/**
+ * Whether the detail page prepares the selected title before 播放 is pressed: the container probe,
+ * the seek to the start position and its first sample. Playback adopts that work instead of
+ * repeating it, which removes 2-7 s from a remote start. System Data Saver and power saving always
+ * skip it; the next-episode warmup is a separate, Wi-Fi-only behavior.
+ */
+enum class SourcePreheatMode(
+    val label: String,
+    val description: String,
+) {
+    Off("关闭", "点击播放后才开始读取片源"),
+    WifiOnly("仅 Wi-Fi", "移动网络下不预读，起播时多出片源探测时间"),
+    WifiAndMobile("Wi-Fi 和移动网络", "移动网络下停留约 1.5 秒后预读片头与索引，每部通常 2–6 MB"),
+}
+
 /** Forward cache target, independent of startup/rebuffer gates and bounded by disk capacity. */
 enum class YCoreBufferDuration(
     val label: String,
@@ -171,6 +186,15 @@ class PlaybackPreferences(
     fun setVideoCacheSize(size: VideoCacheSize) {
         _videoCacheSize.value = size
         settings.putString(KEY_VIDEO_CACHE_SIZE, size.name)
+    }
+
+    private val _sourcePreheat =
+        MutableStateFlow(enumSetting(KEY_SOURCE_PREHEAT, SourcePreheatMode.WifiAndMobile))
+    val sourcePreheat: StateFlow<SourcePreheatMode> = _sourcePreheat.asStateFlow()
+
+    fun setSourcePreheat(mode: SourcePreheatMode) {
+        _sourcePreheat.value = mode
+        settings.putString(KEY_SOURCE_PREHEAT, mode.name)
     }
 
     private val _yCoreBufferDuration =
@@ -611,6 +635,7 @@ class PlaybackPreferences(
 
     private companion object {
         const val KEY_VIDEO_CACHE_SIZE = "player.videoCacheSize"
+        const val KEY_SOURCE_PREHEAT = "player.sourcePreheat"
         const val KEY_YCORE_BUFFER_DURATION = "player.ycore.bufferDuration"
         const val KEY_FRAME_RATE_MATCH = "player.output.frameRateMatch"
         const val KEY_SHOW_FRAME_RATE = "player.showFrameRate"

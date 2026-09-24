@@ -5,13 +5,19 @@ import com.yfuse.core.model.MediaServerKind
 import com.yfuse.core.model.SavedServer
 import com.yfuse.feature.json
 import com.yfuse.feature.testRepo
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class PlexMediaServerAdapterTest {
@@ -434,6 +440,49 @@ class PlexMediaServerAdapterTest {
             assertEquals(10_000L, info.urlIndexMultiplier)
             assertTrue(info.urlPattern.orEmpty().contains("/library/parts/12/indexes/sd/{index}"))
             assertTrue(info.urlPattern.orEmpty().contains("X-Plex-Token=secret-token"))
+        }
+
+    @Test
+    fun one_slow_servers_catalogue_does_not_hold_another_servers_lookups() =
+        runTest {
+            val slowServerAnswers = CompletableDeferred<Unit>()
+            val repo =
+                testRepo { request ->
+                    if (request.url.host == "slow") slowServerAnswers.await()
+                    when (request.url.encodedPath) {
+                        "/library/sections" ->
+                            json("""{"MediaContainer":{"Directory":[{"key":"1","title":"电影","type":"movie"}]}}""")
+                        "/library/sections/1/all" -> json(movieMetadata())
+                        else -> error("unexpected ${request.url}")
+                    }
+                }
+            val slow = server.copy(id = "slow", baseUrl = "http://slow:32400")
+
+            val slowLookup = async { repo.findByTmdbId(slow, 155, "movie") }
+            runCurrent()
+            assertFalse(slowLookup.isCompleted)
+
+            val fastHit = withTimeout(1_000L) { repo.findByTmdbId(server, 155, "movie") }.getOrThrow()
+            assertEquals("100", fastHit?.id)
+
+            slowServerAnswers.complete(Unit)
+            assertEquals("100", slowLookup.await().getOrThrow()?.id)
+        }
+
+    @Test
+    fun server_requests_carry_the_plex_token_and_no_emby_identity() =
+        runTest {
+            val repo =
+                testRepo { request ->
+                    assertEquals("secret-token", request.headers["X-Plex-Token"])
+                    assertNull(request.headers["X-Emby-Authorization"])
+                    assertNull(request.headers["X-Emby-Device-Id"])
+                    assertNull(request.headers["X-Emby-Client"])
+                    assertNull(request.headers[HttpHeaders.Authorization])
+                    json("""{"MediaContainer":{"Directory":[{"key":"1","title":"电影","type":"movie"}]}}""")
+                }
+
+            assertEquals(1, repo.libraries(server).getOrThrow().size)
         }
 
     private fun movieMetadata(): String =

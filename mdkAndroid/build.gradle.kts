@@ -29,6 +29,7 @@ android {
         cmake {
             path = file("src/main/cpp/CMakeLists.txt")
             version = "3.22.1"
+            buildStagingDirectory = rootProject.file(".android-native-build/mdkAndroid")
         }
     }
 
