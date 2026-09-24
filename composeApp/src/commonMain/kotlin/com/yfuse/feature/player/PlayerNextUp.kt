@@ -19,6 +19,8 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppIcons
@@ -28,15 +30,26 @@ import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.PlayerTokens
 import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.glass
+import com.yfuse.core.designsystem.liveStatus
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberAccentColorsForSurface
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.touchTarget
+import kotlin.math.ceil
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
 
 /** How long before the end 下一集 announces itself. */
 internal const val NEXT_UP_WINDOW_MS = 10_000L
+
+/** Whole seconds of real time until 下一集 starts: the remaining media sped up by [speed], rounded up. */
+internal fun nextUpSecondsLeft(
+    remainingMs: Long,
+    speed: Float,
+): Int {
+    val rate = speed.takeIf { it.isFinite() && it > 0f } ?: 1f
+    return ceil(remainingMs.coerceAtLeast(0L) / rate / 1_000f).toInt()
+}
 
 /**
  * 片尾自动连播 — the countdown the spec drew and nobody built.
@@ -71,7 +84,12 @@ internal fun NextUpCard(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(horizontalAlignment = Alignment.Start) {
+        // Said once as the card arrives; the seconds live on the key below, where a spoken
+        // cursor can ask for them without every tick being read out.
+        Column(
+            Modifier.semantics(mergeDescendants = true) {}.liveStatus(),
+            horizontalAlignment = Alignment.Start,
+        ) {
             Text("即将播放", style = AppTypography.caption.strong, color = PlayerTokens.footerText)
             if (title.isNotBlank()) {
                 Spacer(Modifier.height(3.dp))
@@ -95,8 +113,10 @@ internal fun NextUpCard(
                     .touchTarget()
                     .padding(horizontal = 8.dp, vertical = 4.dp),
         )
+        val secondsLeft = nextUpSecondsLeft(remainingMs, speed)
         Box(
             Modifier
+                .semantics { stateDescription = "$secondsLeft 秒后播放" }
                 .pressable(
                     haptic = HapticSignal.Confirm,
                     onClickLabel = "立即播放下一集",

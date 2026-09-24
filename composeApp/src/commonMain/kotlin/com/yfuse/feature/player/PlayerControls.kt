@@ -43,7 +43,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalAccessibilityManager
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AmbientLight
@@ -60,6 +62,7 @@ import com.yfuse.core.designsystem.LocalHaptics
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.lightOnChange
+import com.yfuse.core.designsystem.rememberScreenReaderActive
 import com.yfuse.tv.player.TvPlayerChromeBridge
 import com.yfuse.tv.player.TvPlayerChromeCommandType
 import com.yfuse.tv.player.TvPlayerChromeLayer
@@ -292,6 +295,9 @@ internal fun PlayerControls(
     // Read once for the whole surface: several transitions below have to collapse together.
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val accessibilityManager = LocalAccessibilityManager.current
+    // From Android 10 the recommended timeout only follows 操作时长, so TalkBack users still lost
+    // the controls after five seconds — and a hidden chrome is not something a spoken cursor finds.
+    val screenReaderActive = rememberScreenReaderActive()
     // Bumped by every interaction so the auto-hide timer restarts.
     var interactions by remember { mutableIntStateOf(0) }
     val latestPosition by remember(playback) { derivedStateOf { playback.value.positionMs } }
@@ -515,6 +521,7 @@ internal fun PlayerControls(
         interactions,
         accessibilityManager,
         controlsHaveFocus,
+        screenReaderActive,
     ) {
         val overlayOpen =
             gestureHelpOpen ||
@@ -532,7 +539,8 @@ internal fun PlayerControls(
             !visible ||
             !playbackActive ||
             overlayOpen ||
-            controlsHaveFocus
+            controlsHaveFocus ||
+            screenReaderActive
         ) {
             return@LaunchedEffect
         }
@@ -686,6 +694,15 @@ internal fun PlayerControls(
         Box(
             Modifier
                 .fillMaxSize()
+                // Hidden chrome leaves no node behind, and touch exploration never sends the tap
+                // that brings it back: the picture itself is the control that does.
+                .semantics {
+                    contentDescription = "播放画面"
+                    onClick(label = "显示播放控件") {
+                        poke()
+                        true
+                    }
+                }
                 // Keyed on nothing: `settingsPanelKind`, `drawerOpen` and `visible` are read
                 // through their state delegates below, so the detector already sees the
                 // current values without being torn down. Keying on them meant any of
