@@ -100,7 +100,6 @@ import com.yfuse.core.designsystem.ServerIconTints
 import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.SkeletonHandoff
 import com.yfuse.core.designsystem.StatusBarIconStyle
-import com.yfuse.core.designsystem.TabBarInset
 import com.yfuse.core.designsystem.YfFormField
 import com.yfuse.core.designsystem.flatGlass
 import com.yfuse.core.designsystem.glass
@@ -380,7 +379,6 @@ fun ServersTabScreen(component: ServersTabComponent) {
                 onDismiss = {
                     if (requestedRefreshGeneration == feedbackGeneration) requestedRefreshGeneration = null
                 },
-                modifier = Modifier.padding(bottom = TabBarInset),
                 accent = refreshFeedback?.let { refreshResultColor(it.result) },
             )
         }

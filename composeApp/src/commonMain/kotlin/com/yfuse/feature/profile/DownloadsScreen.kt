@@ -56,6 +56,7 @@ import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.Dimens
+import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.LightEffect
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
@@ -585,7 +586,16 @@ internal fun DownloadsScreen(
                 }
             }
 
-            if (shown.isEmpty()) {
+            if (indexStatus == OfflineIndexStatus.Failed) {
+                // A failed read is not an empty list: say so, and offer the read again.
+                motionItem {
+                    ErrorState(
+                        message = "下载记录未能读取，请检查存储后重试",
+                        onRetry = manager::retryIndex,
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 28.dp),
+                    )
+                }
+            } else if (shown.isEmpty()) {
                 motionItem {
                     Column(
                         Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 52.dp),
@@ -596,7 +606,6 @@ internal fun DownloadsScreen(
                         Text(
                             when {
                                 indexStatus == OfflineIndexStatus.Loading -> "正在读取下载记录…"
-                                indexStatus == OfflineIndexStatus.Failed -> "请检查存储后重新打开应用"
                                 items.isEmpty() -> "还没有下载任务\n在详情页选择下载后会出现在这里"
                                 else -> "当前筛选没有任务"
                             },
@@ -633,7 +642,6 @@ internal fun DownloadsScreen(
         ActionToast(
             message = notice,
             onDismiss = { notice = null },
-            modifier = Modifier.padding(bottom = TabBarInset),
         )
     }
 }

@@ -1141,7 +1141,6 @@ fun DetailScreen(component: DetailComponent) {
                         message = state.actionMessage ?: state.sourceFailure?.toDetailMessage(),
                         onDismiss = { component.store.accept(DetailIntent.DismissMessage) },
                         accent = detailAccent,
-                        modifier = Modifier.padding(bottom = 28.dp),
                     )
                 }
             }

@@ -724,6 +724,13 @@ internal class AndroidOfflineMediaManager(
         _operationError.value = null
     }
 
+    override fun retryIndex() {
+        if (_indexStatus.value != OfflineIndexStatus.Failed) return
+        _indexStatus.value = OfflineIndexStatus.Loading
+        _operationError.value = null
+        commands.submit(::initialize)
+    }
+
     private fun command(action: () -> Unit) {
         commands.submit {
             check(_indexStatus.value == OfflineIndexStatus.Ready) { "下载索引未能读取，请检查存储后重新打开应用" }

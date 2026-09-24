@@ -642,7 +642,7 @@ object Motion {
         }
 
     // Semantic duration defaults. PUSH, TAB, MODAL, ACCENT, and CAROUSEL reuse this vocabulary.
-    // Other transitions retain individually tuned durations; REFRESH_SPIN is a rotation period.
+    // Other transitions retain individually tuned durations.
     const val QUICK = 120
     const val STANDARD = 180
     const val EMPHASIZED = 280
@@ -858,7 +858,6 @@ object Motion {
      * Slow enough to read as "working" rather than "frantic" — the thing it reports on is a
      * round of network probes, which takes about this long per server.
      */
-    const val REFRESH_SPIN = 900
 }
 
 // ---------------------------------------------------------------- typography
