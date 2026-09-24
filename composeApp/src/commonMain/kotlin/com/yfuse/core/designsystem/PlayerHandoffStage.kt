@@ -116,8 +116,19 @@ internal fun Modifier.playerHandoffStage(): Modifier {
             drawContent()
             scene.drawOverlay(this, clock, heroLayer, fieldLayer)
         }.onGloballyPositioned {
-            scene.origin = it.positionInWindow() + screen.current().windowOffset
+            val geometry = screen.current()
+            scene.origin = it.positionInWindow() + geometry.windowOffset
             scene.size = it.size
+            // Laid out again, on the way back, for a display turned or resized since the launch:
+            // the phone was turned during the film, the artwork is no longer where the player
+            // just put it down, and a way back from there would land on nothing. Let it go.
+            val phase = PlayerHandoff.phase
+            if ((phase == HandoffPhase.Returning || phase == HandoffPhase.Releasing) &&
+                PlayerHandoff.launch === launch &&
+                (geometry.rotation != launch.screen.rotation || geometry.size != launch.screen.size)
+            ) {
+                PlayerHandoff.settle()
+            }
         }.graphicsLayer { scene.transformContent(this, clock) }
 }
 
