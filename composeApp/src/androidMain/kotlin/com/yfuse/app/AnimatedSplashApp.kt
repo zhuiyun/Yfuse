@@ -27,6 +27,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -59,6 +60,7 @@ import com.yfuse.core.designsystem.LightPalette
 import com.yfuse.core.designsystem.LightParticleBudget
 import com.yfuse.core.designsystem.LocalParticleBudget
 import com.yfuse.core.designsystem.LocalParticleLight
+import com.yfuse.core.designsystem.LocalRouteVisibilityState
 import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.SplashAnimation
@@ -162,7 +164,11 @@ fun AnimatedSplashApp(
             .drawBehind { if (arrival.value < 1f) drawRect(appBackground) },
     ) {
         val parentRouteVisible = LocalRouteVisible.current
-        CompositionLocalProvider(LocalRouteVisible provides (parentRouteVisible && !splashVisible)) {
+        val launched = remember { derivedStateOf { !splashVisible } }
+        CompositionLocalProvider(
+            LocalRouteVisible provides (parentRouteVisible && !splashVisible),
+            LocalRouteVisibilityState provides launched,
+        ) {
             Box(
                 Modifier
                     .fillMaxSize()

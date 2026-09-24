@@ -26,6 +26,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
@@ -67,6 +68,7 @@ fun <T : Any> OfficialNavDisplay(
     content: @Composable (T) -> Unit,
 ) {
     val parentRouteVisible = LocalRouteVisible.current
+    val parentVisibility = LocalRouteVisibilityState.current
     val currentContent by rememberUpdatedState(content)
     val launchers = backStack.filter(isLauncher)
     val shownStack = backStack.filterNot(isLauncher).ifEmpty { backStack }
@@ -109,9 +111,14 @@ fun <T : Any> OfficialNavDisplay(
                     key = key,
                     contentKey = contentKey(key),
                 ) { entryKey ->
+                    val visibility =
+                        remember(entryKey, parentVisibility) {
+                            derivedStateOf { (parentVisibility?.value ?: true) && entryKey == currentTop }
+                        }
                     CompositionLocalProvider(
                         LocalRouteVisible provides
                             (parentRouteVisible && entryKey == currentTop),
+                        LocalRouteVisibilityState provides visibility,
                     ) {
                         // The animation and its layer are conditional; the Box is not. Switching
                         // 减弱动态效果 from a pushed settings page flips [roundsCorners] under that
