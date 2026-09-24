@@ -22,6 +22,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.GlassDialog
+import com.yfuse.core.designsystem.overlayAction
+import com.yfuse.core.designsystem.overlayDismiss
 import com.yfuse.core.model.CalendarDay
 import com.yfuse.core.model.MediaDetail
 import com.yfuse.core.model.MediaServerKind
@@ -64,6 +66,11 @@ internal fun TvDetailMoreDialog(
     LaunchedEffect(Unit) { firstRequester.requestFocusWhenAttached() }
 
     GlassDialog(onDismiss = onDismiss, maxWidth = 720.dp, contentPadding = 26.dp) {
+        // Rows that open another sheet let this one finish leaving first, rather than cutting its
+        // panel and scrim out from under the next one's entrance.
+        val openCalendar = overlayAction { onOpenSheet(TvDetailSheet.AiringCalendar) }
+        val openProgress = overlayAction { onOpenSheet(TvDetailSheet.EpisodeProgress) }
+        val openOrganization = overlayAction { onOpenSheet(TvDetailSheet.Organization) }
         Column(
             Modifier.fillMaxWidth().tvFocusScope(trapFocus = true),
             verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -77,7 +84,7 @@ internal fun TvDetailMoreDialog(
                     value = "",
                     stableId = "more:calendar",
                     focusMemory = focusMemory,
-                    onClick = { onOpenSheet(TvDetailSheet.AiringCalendar) },
+                    onClick = openCalendar,
                     icon = AppIcons.WatchCalendar,
                     focusScope = focusScope,
                     subtitle = "这部剧接下来的更新时间",
@@ -114,7 +121,7 @@ internal fun TvDetailMoreDialog(
                     focusMemory = focusMemory,
                     onClick = {
                         component.store.accept(DetailIntent.OpenProgressManager)
-                        onOpenSheet(TvDetailSheet.EpisodeProgress)
+                        openProgress()
                     },
                     icon = AppIcons.EpisodeList,
                     focusScope = focusScope,
@@ -129,7 +136,7 @@ internal fun TvDetailMoreDialog(
                 focusMemory = focusMemory,
                 onClick = {
                     component.store.accept(DetailIntent.LoadOrganizationContainers)
-                    onOpenSheet(TvDetailSheet.Organization)
+                    openOrganization()
                 },
                 icon = AppIcons.Bookmark,
                 focusScope = focusScope,
@@ -184,12 +191,13 @@ internal fun TvDetailMoreDialog(
 
             Spacer(Modifier.height(4.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                // 关闭 leaves the way back and the scrim do, rather than cutting the panel out.
                 TvActionButton(
                     label = "关闭",
                     stableId = "more:close",
                     focusScope = focusScope,
                     focusMemory = focusMemory,
-                    onClick = onDismiss,
+                    onClick = overlayDismiss(onDismiss),
                 )
             }
         }
@@ -263,7 +271,7 @@ internal fun TvOrganizationDialog(
                     stableId = "organization:close",
                     focusScope = focusScope,
                     focusMemory = focusMemory,
-                    onClick = onDismiss,
+                    onClick = overlayDismiss(onDismiss),
                 )
             }
         }
@@ -348,7 +356,7 @@ internal fun TvAiringCalendarDialog(
                     stableId = "airing:close",
                     focusScope = focusScope,
                     focusMemory = focusMemory,
-                    onClick = onDismiss,
+                    onClick = overlayDismiss(onDismiss),
                     focusRequester = closeRequester,
                 )
             }
@@ -430,10 +438,11 @@ internal fun TvEpisodeProgressDialog(
                     stableId = "progress:close",
                     focusScope = focusScope,
                     focusMemory = focusMemory,
-                    onClick = {
-                        store.accept(DetailIntent.CloseProgressManager)
-                        onDismiss()
-                    },
+                    onClick =
+                        overlayAction {
+                            store.accept(DetailIntent.CloseProgressManager)
+                            onDismiss()
+                        },
                 )
             }
             if (state.progressSaving) {
