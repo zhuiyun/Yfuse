@@ -22,18 +22,24 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.data.CrossServerMediaGroup
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.OrbProgress
+import com.yfuse.core.designsystem.OrbProgressDefaults
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.OverlayOptionRow
+import com.yfuse.core.designsystem.PageHint
 import com.yfuse.core.designsystem.TabBarInset
+import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.LibrarySort
@@ -109,16 +115,29 @@ fun UnifiedLibraryScreen(
         ) {
             if (servers.servers.isEmpty()) {
                 item(span = { GridItemSpan(maxLineSpan) }) {
-                    Text("当前资料没有可访问的服务器，请在服务器页添加或由家长关联媒体用户。", color = palette.sub2)
+                    PageHint(
+                        "当前资料没有可访问的服务器，请在服务器页添加或由家长关联媒体用户。",
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                 }
             }
             if (state.failures.isNotEmpty()) {
                 item(span = { GridItemSpan(maxLineSpan) }) {
-                    Column {
-                        state.failures.forEach { (source, error) ->
-                            Text("$source：$error", style = AppTypography.caption.regular, color = palette.error)
-                        }
-                        LibraryAction("重试失败的库", onClick = { scope.launch { pager.loadMore(retryFailures = true) } })
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        ErrorState(
+                            message = state.failures.entries.joinToString("\n") { (source, error) -> "$source：$error" },
+                            // A server that failed before its libraries were even listed has nothing
+                            // to retry one library at a time; only rediscovering it helps.
+                            onRetry = {
+                                if (state.libraryCount == 0) {
+                                    refresh++
+                                } else {
+                                    scope.launch { pager.loadMore(retryFailures = true) }
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            retryLabel = "重试失败的库",
+                        )
                         Text("连接失败的服务器可使用顶部刷新重新发现。", style = AppTypography.caption.regular, color = palette.sub2)
                     }
                 }
@@ -143,9 +162,25 @@ fun UnifiedLibraryScreen(
             }
             item(span = { GridItemSpan(maxLineSpan) }) {
                 when {
-                    state.loading -> Text("正在读取媒体库…", color = palette.sub2)
+                    state.loading ->
+                        Row(
+                            Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(9.dp, Alignment.CenterHorizontally),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            OrbProgress(size = OrbProgressDefaults.Inline, contentDescription = null)
+                            Text("正在读取媒体库…", color = palette.sub2)
+                        }
                     state.hasMore -> LibraryAction("加载更多", onClick = { scope.launch { pager.loadMore() } })
-                    state.groups.isEmpty() && state.failures.isEmpty() -> Text("当前筛选没有内容", color = palette.sub2)
+                    // The hint above already says why a page with no servers is empty.
+                    servers.servers.isEmpty() -> {}
+                    state.groups.isEmpty() && state.failures.isEmpty() ->
+                        PageHint(
+                            "当前筛选没有内容",
+                            modifier = Modifier.fillMaxWidth(),
+                            actionLabel = if (query != UnifiedLibraryQuery()) "清除筛选" else null,
+                            onAction = { query = UnifiedLibraryQuery() },
+                        )
                     else -> Text("已读完可用媒体库", style = AppTypography.caption.regular, color = palette.sub2)
                 }
             }
@@ -158,10 +193,11 @@ fun UnifiedLibraryScreen(
                 OverlayOptionRow(
                     label = "${hit.serverName} · ${hit.item.year ?: "年份未知"}",
                     selected = hit == group.recommended,
-                    onClick = {
-                        sources = null
-                        if (registry.serverById(hit.serverId) != null) onOpenItem(hit.serverId, hit.item.id)
-                    },
+                    onClick =
+                        overlayAction {
+                            sources = null
+                            if (registry.serverById(hit.serverId) != null) onOpenItem(hit.serverId, hit.item.id)
+                        },
                 )
             }
         }

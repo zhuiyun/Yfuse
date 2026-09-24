@@ -23,7 +23,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppTypography
-import com.yfuse.core.designsystem.BackOverlay
 import com.yfuse.core.designsystem.CaptionedPoster
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.LocalPalette
@@ -57,7 +56,8 @@ private val PosterMinWidth = 94.dp
  * detail page is one: the shelf's items are already loaded and already in the home store,
  * and a route would mean threading the same list through the navigation stack to show
  * something the page above it is already holding. The home page remains composed below this
- * layer, so dismissing it returns to the already composed home page.
+ * layer, so dismissing it returns to the already composed home page. The home page shows it in
+ * an [com.yfuse.core.designsystem.OverlayPage], which gives it a route's push and pop.
  */
 @Composable
 internal fun TmdbRowPage(
@@ -69,80 +69,78 @@ internal fun TmdbRowPage(
 ) {
     val palette = LocalPalette.current
 
-    BackOverlay(onBack = onDismiss) {
-        Box(Modifier.fillMaxSize().background(palette.background)) {
-            Column(Modifier.fillMaxSize().statusBarsPadding()) {
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = Dimens.pageHorizontal)
-                        .padding(top = Dimens.contentTop, bottom = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    Icon(
-                        AppIcons.ChevronLeft,
-                        contentDescription = "返回",
-                        tint = palette.text,
-                        modifier =
-                            Modifier
-                                .pressable(onClickLabel = "关闭全部内容", onClick = onDismiss)
-                                .touchTarget()
-                                .size(36.dp)
-                                .solidGlass(CircleShape, palette.card2, palette.border)
-                                .padding(10.dp),
+    Box(Modifier.fillMaxSize().background(palette.background)) {
+        Column(Modifier.fillMaxSize().statusBarsPadding()) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = Dimens.pageHorizontal)
+                    .padding(top = Dimens.contentTop, bottom = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Icon(
+                    AppIcons.ChevronLeft,
+                    contentDescription = "返回",
+                    tint = palette.text,
+                    modifier =
+                        Modifier
+                            .pressable(onClickLabel = "关闭全部内容", onClick = onDismiss)
+                            .touchTarget()
+                            .size(36.dp)
+                            .solidGlass(CircleShape, palette.card2, palette.border)
+                            .padding(10.dp),
+                )
+                Column(Modifier.weight(1f)) {
+                    Text(title, style = AppTypography.section.strong, color = palette.text)
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        "TMDB · ${items.size} 部",
+                        style = AppTypography.caption.regular,
+                        color = palette.sub2,
                     )
-                    Column(Modifier.weight(1f)) {
-                        Text(title, style = AppTypography.section.strong, color = palette.text)
-                        Spacer(Modifier.height(2.dp))
-                        Text(
-                            "TMDB · ${items.size} 部",
-                            style = AppTypography.caption.regular,
-                            color = palette.sub2,
-                        )
-                    }
                 }
+            }
 
-                LazyVerticalGrid(
-                    // Three across on a phone, more on anything wider — see [PosterMinWidth].
-                    columns = GridCells.Adaptive(PosterMinWidth),
-                    contentPadding =
-                        PaddingValues(
-                            start = Dimens.pageHorizontal,
-                            end = Dimens.pageHorizontal,
-                            bottom = TabBarInset,
-                        ),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                ) {
-                    motionItems(items, key = { "${it.mediaType}:${it.id}" }) { item ->
-                        CaptionedPoster(
-                            url = TmdbImages.poster(item.posterPath),
-                            fallbackUrls =
-                                listOfNotNull(
-                                    TmdbImages.media(item.posterPath),
-                                    TmdbImages.poster(item.posterPath, "original"),
-                                    TmdbImages.media(item.posterPath, "original"),
-                                    TmdbImages.backdrop(item.backdropPath, "w780"),
-                                    TmdbImages.media(item.backdropPath, "w780"),
-                                ),
-                            title = item.title,
-                            rating = item.rating,
-                            year =
-                                "TMDB · " +
-                                    if (showReleaseDate) {
-                                        item.releaseDate?.let { "上映 $it" } ?: "上映日期待定"
-                                    } else {
-                                        item.year ?: "年份未知"
-                                    },
-                            // The same title can sit in two shelves at once, and this page is
-                            // opened from one of them; a shared element would compete with the
-                            // shelf poster still mounted underneath.
-                            onClick = { onOpen(item) },
-                            modifier = Modifier.fillMaxWidth(),
-                            posterModifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f),
-                        )
-                    }
+            LazyVerticalGrid(
+                // Three across on a phone, more on anything wider — see [PosterMinWidth].
+                columns = GridCells.Adaptive(PosterMinWidth),
+                contentPadding =
+                    PaddingValues(
+                        start = Dimens.pageHorizontal,
+                        end = Dimens.pageHorizontal,
+                        bottom = TabBarInset,
+                    ),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                motionItems(items, key = { "${it.mediaType}:${it.id}" }) { item ->
+                    CaptionedPoster(
+                        url = TmdbImages.poster(item.posterPath),
+                        fallbackUrls =
+                            listOfNotNull(
+                                TmdbImages.media(item.posterPath),
+                                TmdbImages.poster(item.posterPath, "original"),
+                                TmdbImages.media(item.posterPath, "original"),
+                                TmdbImages.backdrop(item.backdropPath, "w780"),
+                                TmdbImages.media(item.backdropPath, "w780"),
+                            ),
+                        title = item.title,
+                        rating = item.rating,
+                        year =
+                            "TMDB · " +
+                                if (showReleaseDate) {
+                                    item.releaseDate?.let { "上映 $it" } ?: "上映日期待定"
+                                } else {
+                                    item.year ?: "年份未知"
+                                },
+                        // The same title can sit in two shelves at once, and this page is
+                        // opened from one of them; a shared element would compete with the
+                        // shelf poster still mounted underneath.
+                        onClick = { onOpen(item) },
+                        modifier = Modifier.fillMaxWidth(),
+                        posterModifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f),
+                    )
                 }
             }
         }

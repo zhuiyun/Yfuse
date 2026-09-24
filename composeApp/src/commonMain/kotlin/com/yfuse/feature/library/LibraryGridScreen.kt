@@ -1,5 +1,7 @@
 package com.yfuse.feature.library
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,6 +28,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
@@ -35,12 +39,18 @@ import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.CaptionedPoster
+import com.yfuse.core.designsystem.DialogPresence
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.LocalAccentColors
+import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.MotionSwap
+import com.yfuse.core.designsystem.OrbProgress
+import com.yfuse.core.designsystem.OrbProgressDefaults
+import com.yfuse.core.designsystem.OverlayActionRow
 import com.yfuse.core.designsystem.OverlayButtonRow
 import com.yfuse.core.designsystem.OverlayButtonTone
 import com.yfuse.core.designsystem.OverlayHeader
@@ -53,11 +63,15 @@ import com.yfuse.core.designsystem.SkeletonPosterTile
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.YfChip
 import com.yfuse.core.designsystem.glass
+import com.yfuse.core.designsystem.motionAwareScrollToItem
 import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.motionItems
+import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.rememberDelayedBusy
 import com.yfuse.core.designsystem.skeletonSweep
 import com.yfuse.core.designsystem.touchTarget
+import com.yfuse.core.designsystem.waitingPulse
 import com.yfuse.core.model.LibraryResolution
 import com.yfuse.core.model.LibrarySort
 import com.yfuse.core.model.MediaContainerKind
@@ -85,6 +99,12 @@ private const val PREFETCH_ITEMS = 18
 /** The phone grid; the skeleton's breathing wave only needs a plausible column count. */
 private const val SKELETON_GRID_COLUMNS = 3
 
+/** How far the old page steps back while the page for a new sort or filter is on its way. */
+private const val REFILTER_GRID_ALPHA = 0.6f
+
+/** Which control asked for the page that is on its way, so the wait shows on that control. */
+private enum class GridRefilterOrigin { Sort, Genre, Specs }
+
 private val sortLabels =
     mapOf(
         LibrarySort.RecentlyAdded to "最近添加",
@@ -104,6 +124,33 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
     var quickActionsItem by remember { mutableStateOf<MediaItem?>(null) }
     val gridState = component.gridState
     val bottomContentInset = systemNavigationContentInset()
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+
+    // A new sort or filter keeps the old page on screen until the new one lands, so the grid
+    // never blanks. On a slow server that read as a tap that had missed: the control that asked
+    // now carries the wait, and the old page steps back and stops taking taps meanwhile.
+    val refiltering = state.loading && state.loadedCount > 0
+    var refilterOrigin by remember { mutableStateOf<GridRefilterOrigin?>(null) }
+    val refilterShown = rememberDelayedBusy(refiltering)
+    val gridAlpha =
+        animateFloatAsState(
+            targetValue = if (refilterShown) REFILTER_GRID_ALPHA else 1f,
+            animationSpec = if (reduceMotion) snap() else Motion.tween(Motion.STANDARD),
+            label = "grid-refilter",
+        )
+    // The new first page lands at the top. Left wherever the old order had been scrolled to,
+    // the start of what was just asked for was out of sight.
+    var awaitingRefilter by remember { mutableStateOf(false) }
+    LaunchedEffect(refiltering) {
+        if (refiltering) {
+            awaitingRefilter = true
+        } else if (awaitingRefilter) {
+            awaitingRefilter = false
+            if (state.error == null && state.loadedCount > 0) {
+                gridState.motionAwareScrollToItem(0, reduceMotion = reduceMotion)
+            }
+        }
+    }
 
     // Paging is driven by what is on screen rather than by the last composed tile: a tile
     // composes once, so binding the request to it would never fire again after a failure.
@@ -180,6 +227,9 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                                 AppShapes.pill,
                                 palette.glassStrong,
                                 palette.tabbarBorder,
+                            ).waitingPulse(
+                                active = refiltering && refilterOrigin == GridRefilterOrigin.Sort,
+                                shape = AppShapes.pill,
                             ).padding(horizontal = 13.dp),
                         horizontalArrangement = Arrangement.spacedBy(5.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -216,7 +266,11 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                 GenreFilterRow(
                     genres = state.genres,
                     selected = state.genre,
-                    onSelect = { component.store.accept(GridIntent.SetGenre(it)) },
+                    pending = refiltering && refilterOrigin == GridRefilterOrigin.Genre,
+                    onSelect = {
+                        refilterOrigin = GridRefilterOrigin.Genre
+                        component.store.accept(GridIntent.SetGenre(it))
+                    },
                 )
             } else if (state.genreLoadError != null) {
                 GenreLoadErrorRow(
@@ -229,8 +283,15 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                 ResolutionFilterRow(
                     selected = state.resolution,
                     unplayedOnly = state.unplayedOnly,
-                    onSelect = { component.store.accept(GridIntent.SetResolution(it)) },
-                    onUnplayedOnly = { component.store.accept(GridIntent.SetUnplayedOnly(it)) },
+                    pending = refiltering && refilterOrigin == GridRefilterOrigin.Specs,
+                    onSelect = {
+                        refilterOrigin = GridRefilterOrigin.Specs
+                        component.store.accept(GridIntent.SetResolution(it))
+                    },
+                    onUnplayedOnly = {
+                        refilterOrigin = GridRefilterOrigin.Specs
+                        component.store.accept(GridIntent.SetUnplayedOnly(it))
+                    },
                 )
             }
 
@@ -253,12 +314,14 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                             filtered =
                                 state.genre != null ||
                                     state.resolution != LibraryResolution.All,
+                            unplayedOnly = state.unplayedOnly,
                             onClearFilters = { component.store.accept(GridIntent.ClearFilters) },
+                            onShowPlayed = { component.store.accept(GridIntent.SetUnplayedOnly(false)) },
                             onBack = component.onBack,
                             modifier = Modifier.align(Alignment.Center),
                         )
 
-                    else ->
+                    else -> {
                         LazyVerticalGrid(
                             columns = GridCells.Adaptive(PosterMinWidth),
                             state = gridState,
@@ -270,7 +333,7 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                                 ),
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                             verticalArrangement = Arrangement.spacedBy(12.dp),
-                            modifier = Modifier.fillMaxSize(),
+                            modifier = Modifier.fillMaxSize().graphicsLayer { alpha = gridAlpha.value },
                         ) {
                             if (state.directoryKind != null) {
                                 motionItems(
@@ -369,6 +432,20 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                                 }
                             }
                         }
+                        if (refiltering) {
+                            // The old page only bridges the wait: a title tapped on it may not be
+                            // in what the new criteria bring back.
+                            Box(
+                                Modifier.matchParentSize().pointerInput(Unit) {
+                                    awaitPointerEventScope {
+                                        while (true) {
+                                            awaitPointerEvent().changes.forEach { it.consume() }
+                                        }
+                                    }
+                                },
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -377,44 +454,47 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
         // app, and the one shape the overlay system exists to replace. Centred like every
         // other overlay outside the player now; see [com.yfuse.core.designsystem.GlassDialog].
         // A long press on a poster: the handful of things people do to a title without opening
-        // it. Every action is optimistic; the sync manager owns the write from here.
+        // it. Every action is optimistic; the sync manager owns the write from here. Each choice
+        // lets the sheet leave the way it came before it takes effect.
         quickActionsItem?.let { item ->
             GlassDialog(onDismiss = { quickActionsItem = null }) {
                 OverlayHeader(title = item.title, onClose = { quickActionsItem = null })
                 Column(verticalArrangement = Arrangement.spacedBy(OverlayOptionSpacing)) {
-                    OverlayOptionRow(
+                    OverlayActionRow(
                         label = "查看详情",
-                        selected = false,
-                        onClick = {
-                            quickActionsItem = null
-                            component.onOpenItem(item.id)
-                        },
+                        onClick =
+                            overlayAction {
+                                quickActionsItem = null
+                                component.onOpenItem(item.id)
+                            },
                     )
                     OverlayOptionRow(
                         label = if (item.isFavorite) "取消收藏" else "收藏",
                         selected = item.isFavorite,
-                        onClick = {
-                            quickActionsItem = null
-                            component.store.accept(GridIntent.SetFavorite(item.id, !item.isFavorite))
-                        },
+                        onClick =
+                            overlayAction {
+                                quickActionsItem = null
+                                component.store.accept(GridIntent.SetFavorite(item.id, !item.isFavorite))
+                            },
                     )
                     OverlayOptionRow(
                         label = if (item.played) "标记为未看" else "标记为已看",
                         selected = item.played,
-                        onClick = {
-                            quickActionsItem = null
-                            component.store.accept(GridIntent.SetPlayed(item.id, !item.played))
-                        },
+                        onClick =
+                            overlayAction {
+                                quickActionsItem = null
+                                component.store.accept(GridIntent.SetPlayed(item.id, !item.played))
+                            },
                     )
                     if (state.containerKind != null) {
-                        OverlayOptionRow(
+                        OverlayActionRow(
                             label =
                                 if (state.containerKind == MediaContainerKind.Playlist) "从播放列表移除" else "从合集移除",
-                            selected = false,
-                            onClick = {
-                                quickActionsItem = null
-                                component.store.accept(GridIntent.RequestRemove(item.id))
-                            },
+                            onClick =
+                                overlayAction {
+                                    quickActionsItem = null
+                                    component.store.accept(GridIntent.RequestRemove(item.id))
+                                },
                         )
                     }
                 }
@@ -429,17 +509,20 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                         OverlayOptionRow(
                             label = sortLabels[option].orEmpty(),
                             selected = state.sort == option,
-                            onClick = {
-                                component.store.accept(GridIntent.SetSort(option))
-                                sortOpen = false
-                            },
+                            onClick =
+                                overlayAction {
+                                    refilterOrigin = GridRefilterOrigin.Sort
+                                    component.store.accept(GridIntent.SetSort(option))
+                                    sortOpen = false
+                                },
                         )
                     }
                 }
             }
         }
 
-        state.pendingRemoval?.let { item ->
+        // The store closes this one, the moment the removal starts; it still leaves the way it came.
+        DialogPresence(state.pendingRemoval) { item ->
             val containerLabel =
                 if (state.containerKind == MediaContainerKind.Playlist) {
                     "播放列表"
@@ -522,10 +605,16 @@ private fun GenreLoadErrorRow(
 private fun GenreFilterRow(
     genres: List<String>,
     selected: String?,
+    /** The page for a genre chosen here is on its way. */
+    pending: Boolean,
     onSelect: (String?) -> Unit,
 ) {
     LazyRow(
-        modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(bottom = 12.dp)
+                .waitingPulse(active = pending, shape = AppShapes.chip),
         contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -549,11 +638,17 @@ private fun GenreFilterRow(
 private fun ResolutionFilterRow(
     selected: LibraryResolution,
     unplayedOnly: Boolean,
+    /** The page for a specification chosen here is on its way. */
+    pending: Boolean,
     onSelect: (LibraryResolution) -> Unit,
     onUnplayedOnly: (Boolean) -> Unit,
 ) {
     LazyRow(
-        modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(bottom = 12.dp)
+                .waitingPulse(active = pending, shape = AppShapes.chip),
         contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -622,7 +717,14 @@ private fun GridFooter(
         contentAlignment = Alignment.Center,
     ) {
         if (error == null) {
-            Text("正在加载更多…", style = AppTypography.caption.medium, color = palette.sub2)
+            // The words alone read as a note; the orb says the page is still coming.
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                OrbProgress(size = OrbProgressDefaults.Inline, contentDescription = null)
+                Text("正在加载更多…", style = AppTypography.caption.medium, color = palette.sub2)
+            }
         } else {
             Row(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -650,13 +752,16 @@ private fun GridFooter(
 
 /**
  * An empty grid always offers the way out of itself: clearing a genre that matched
- * nothing, or leaving a collection the user has not filled yet.
+ * nothing, showing the watched titles 只看未看 hid, or leaving a collection the user has not
+ * filled yet.
  */
 @Composable
 private fun EmptyGridHint(
     title: String,
     filtered: Boolean,
+    unplayedOnly: Boolean,
     onClearFilters: () -> Unit,
+    onShowPlayed: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -666,6 +771,15 @@ private fun EmptyGridHint(
             modifier = modifier,
             actionLabel = "查看全部",
             onAction = onClearFilters,
+        )
+        return
+    }
+    if (unplayedOnly) {
+        PageHint(
+            "没有未看的内容",
+            modifier = modifier,
+            actionLabel = "显示全部",
+            onAction = onShowPlayed,
         )
         return
     }
@@ -684,6 +798,6 @@ private fun EmptyGridHint(
                 actionLabel = "去媒体库看看",
                 onAction = onBack,
             )
-        else -> PageHint("暂无内容", modifier = modifier)
+        else -> PageHint("暂无内容", modifier = modifier, actionLabel = "返回", onAction = onBack)
     }
 }

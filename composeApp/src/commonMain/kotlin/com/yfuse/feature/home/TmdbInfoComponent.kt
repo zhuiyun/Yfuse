@@ -26,6 +26,8 @@ data class TmdbInfoState(
     val resolvingPlay: Boolean = false,
     val sources: List<ServerSource> = emptyList(),
     val error: String? = null,
+    /** The TMDB details failed to load; the page keeps what the list gave it and offers 重试. */
+    val detailError: String? = null,
 )
 
 /**
@@ -67,21 +69,7 @@ class TmdbInfoComponent(
                 }
             }
         }
-        scope.launch {
-            tmdb
-                .detail(item)
-                .onSuccess { detail -> _state.update { it.copy(detail = detail, loading = false) } }
-                .onFailure {
-                    AppLog.warning(
-                        category = "feature.tmdb_detail",
-                        event = "metadata_load_failed",
-                        message = "TMDB detail metadata failed to load",
-                        throwable = it,
-                        attributes = mapOf("mediaType" to item.mediaType),
-                    )
-                    _state.update { it.copy(loading = false) }
-                }
-        }
+        loadDetail()
         scope.launch {
             val sources =
                 emby.compareSources(
@@ -101,6 +89,33 @@ class TmdbInfoComponent(
                         },
                 )
             }
+        }
+    }
+
+    /** 重试 after the TMDB details failed to load. */
+    fun retryDetail() {
+        if (_state.value.loading) return
+        loadDetail()
+    }
+
+    private fun loadDetail() {
+        _state.update { it.copy(loading = true, detailError = null) }
+        scope.launch {
+            tmdb
+                .detail(item)
+                .onSuccess { detail -> _state.update { it.copy(detail = detail, loading = false) } }
+                .onFailure {
+                    AppLog.warning(
+                        category = "feature.tmdb_detail",
+                        event = "metadata_load_failed",
+                        message = "TMDB detail metadata failed to load",
+                        throwable = it,
+                        attributes = mapOf("mediaType" to item.mediaType),
+                    )
+                    // Genres, cast and the tagline simply never arrived before, with nothing to
+                    // say so and no way to ask again.
+                    _state.update { it.copy(loading = false, detailError = DETAIL_LOAD_FAILED) }
+                }
         }
     }
 
@@ -179,3 +194,5 @@ class TmdbInfoComponent(
         _state.update { it.copy(error = null) }
     }
 }
+
+private const val DETAIL_LOAD_FAILED = "影视资料没有加载出来，请检查网络后重试"

@@ -48,6 +48,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
@@ -66,6 +67,7 @@ import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.ArtworkPageTheme
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.CaptionedPoster
+import com.yfuse.core.designsystem.CarouselAutoAdvance
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.FallbackImage
@@ -96,6 +98,7 @@ import com.yfuse.core.designsystem.ScrollToTopOnReselect
 import com.yfuse.core.designsystem.SectionHeader
 import com.yfuse.core.designsystem.SettingRow
 import com.yfuse.core.designsystem.SkeletonArrivalScope
+import com.yfuse.core.designsystem.SkeletonBlock
 import com.yfuse.core.designsystem.SkeletonRail
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.arrivalSweep
@@ -126,6 +129,7 @@ import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.playerArtworkOnClick
 import com.yfuse.core.designsystem.playerArtworkSource
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.refreshAction
 import com.yfuse.core.designsystem.rememberArtworkAccentTarget
 import com.yfuse.core.designsystem.rememberArtworkPageColor
 import com.yfuse.core.designsystem.rememberArtworkPagePalette
@@ -144,6 +148,7 @@ import com.yfuse.core.designsystem.sharedMediaArtwork
 import com.yfuse.core.designsystem.sharedMediaOnClick
 import com.yfuse.core.designsystem.skeletonSweep
 import com.yfuse.core.designsystem.touchTarget
+import com.yfuse.core.model.HomeContent
 import com.yfuse.core.model.HomeRow
 import com.yfuse.core.model.MediaContainer
 import com.yfuse.core.model.MediaContainerKind
@@ -292,7 +297,10 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
 
     val pullState = rememberPullToRefreshState()
     RefreshThresholdHaptics(pullState, refreshing = state.refreshing)
-    val refreshArrival = rememberRefreshReveal(state.refreshing)
+    // The sweep says new content arrived; a refresh that failed (the banner says so) or brought
+    // back the same library has nothing new to sweep over.
+    val contentRevision = remember(state.content) { libraryRefreshRevision(state.content) }
+    val refreshArrival = rememberRefreshReveal(state.refreshing, revision = contentRevision)
 
     var serverMenuOpen by remember { mutableStateOf(false) }
     val listState = component.listState
@@ -315,40 +323,12 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
     val carouselVisible by remember(listState) {
         derivedStateOf { listState.firstVisibleItemIndex == 0 && !listState.isScrollInProgress }
     }
-    LaunchedEffect(
-        slides.size,
-        libraryCarousel,
-        carouselDragging,
-        reduceMotion,
-        routeVisible,
-        interaction,
-        carouselTouched.value,
-        carouselVisible,
-        serverMenuOpen,
-    ) {
-        // Same reasoning as 首页's reel: the largest moving thing on the page, and the one
-        // 减弱动态效果 was not reaching.
-        if (
-            !libraryCarousel ||
-            !routeVisible ||
-            !carouselVisible ||
-            serverMenuOpen ||
-            slides.size <= 1 ||
-            carouselDragging ||
-            carouselTouched.value ||
-            reduceMotion
-        ) {
-            return@LaunchedEffect
-        }
-        while (true) {
-            delay(6_000)
-            if (pagerState.isScrollInProgress) continue
-            pagerState.animateScrollToPage(
-                page = pagerState.currentPage + 1,
-                animationSpec = tween(Motion.CAROUSEL, easing = Motion.Curve),
-            )
-        }
-    }
+    CarouselAutoAdvance(
+        pagerState = pagerState,
+        pageCount = slides.size,
+        held = !libraryCarousel || !carouselVisible || serverMenuOpen || carouselDragging || carouselTouched.value,
+        restartKey = interaction,
+    )
     ScrollToTopOnReselect(listState)
 
     val bottomContentInset = floatingNavigationContentInset()
@@ -358,6 +338,8 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
     ) {
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val heroHeight = libraryHeroHeight(maxHeight, wideLayout = maxWidth >= 600.dp)
+            // The reel is switched on, but the first load has not brought anything to show in it.
+            val heroPending = libraryCarousel && state.loading && state.content.isEmpty
             Box(Modifier.fillMaxSize().drawBehind { drawRect(sampledPageColor.value) })
             val lightPageReached by rememberScrolledPastHero(listState, heroHeight)
             val showSidePreview = maxWidth >= 600.dp || maxWidth > maxHeight
@@ -425,18 +407,34 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                             ) {
                                 if (!libraryCarousel || slide == null) {
                                     waveItem(key = "library-header") {
-                                        Column(
-                                            Modifier.fillMaxWidth().statusBarsPadding().padding(
-                                                horizontal = Dimens.pageHorizontal,
-                                                vertical = 12.dp,
-                                            ),
+                                        // While the first load runs with the reel switched on, the
+                                        // header holds the reel's height: the rows under it start
+                                        // where they will stay, instead of being pushed down a whole
+                                        // hero when the reel lands on top of them.
+                                        Box(
+                                            Modifier
+                                                .fillMaxWidth()
+                                                .then(if (heroPending) Modifier.height(heroHeight) else Modifier),
                                         ) {
-                                            SettingRow(
-                                                title = "媒体库",
-                                                value = state.currentServer?.serverName.orEmpty(),
-                                                icon = AppIcons.Server,
-                                                onClick = { serverMenuOpen = true },
-                                            )
+                                            if (heroPending) {
+                                                SkeletonBlock(
+                                                    Modifier.matchParentSize().fadeIntoPage(),
+                                                    shape = RectangleShape,
+                                                )
+                                            }
+                                            Column(
+                                                Modifier.fillMaxWidth().statusBarsPadding().padding(
+                                                    horizontal = Dimens.pageHorizontal,
+                                                    vertical = 12.dp,
+                                                ),
+                                            ) {
+                                                SettingRow(
+                                                    title = "媒体库",
+                                                    value = state.currentServer?.serverName.orEmpty(),
+                                                    icon = AppIcons.Server,
+                                                    onClick = { serverMenuOpen = true },
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -514,6 +512,8 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                                     artworkFadeFraction = artworkFadeFraction,
                                                     onPageColor = retainedPageColor::update,
                                                     framed = showSidePreview,
+                                                    // The first stop TalkBack makes on this page, so 下拉刷新 lives
+                                                    // here for someone who cannot pull.
                                                     modifier =
                                                         Modifier
                                                             .fillMaxSize()
@@ -530,6 +530,8 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                                                 scaleY = visual.scale
                                                                 alpha = visual.alpha
                                                                 translationX = size.width * visual.parallaxFraction
+                                                            }.refreshAction(enabled = !state.refreshing) {
+                                                                store.accept(LibraryIntent.Retry)
                                                             },
                                                     onClick = { component.onOpenItem(animatedItem.id) },
                                                     onPlay = { component.onPlayItem(animatedItem.id) },
@@ -617,9 +619,6 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                         )
                                     }
                                 }
-                                if (state.loading && state.content.isEmpty) {
-                                    motionItem(key = "library-loading") { SkeletonRow() }
-                                }
                                 if (state.content.rows.isNotEmpty() || state.currentServer != null) {
                                     if (showSmartPlaylists) {
                                         waveItem(key = "smart-playlists") {
@@ -648,6 +647,11 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                             },
                                         )
                                     }
+                                }
+                                // Where 播放记录 and the shelves will land: under the category
+                                // cards, not above them, so the page does not reshuffle on arrival.
+                                if (state.loading && state.content.isEmpty) {
+                                    motionItem(key = "library-loading") { SkeletonRow() }
                                 }
                                 if (state.content.resume.isNotEmpty()) {
                                     waveItem(key = "library-resume") {
@@ -1244,6 +1248,17 @@ internal fun List<HomeRow>.libraryShelfRows(): List<HomeRow> =
         .toList()
 
 /**
+ * Which titles the hero, 播放记录 and each shelf hold, in order: what a pull-to-refresh can
+ * visibly change on this page. Equal before and after a refresh that failed or found nothing new.
+ */
+internal fun libraryRefreshRevision(content: HomeContent): List<List<String>> =
+    buildList {
+        add(content.featured.map { it.id })
+        add(content.resume.map { it.id })
+        content.rows.forEach { row -> add(listOf(row.libraryId) + row.items.map { it.id }) }
+    }
+
+/**
  * 播放记录 replaces the former category shortcut rail. The 190×114 landscape
  * artwork gives viewing history more visual weight and keeps progress readable.
  */
@@ -1381,20 +1396,6 @@ private fun SkeletonRow() {
     )
 }
 
-@Composable
-private fun CenterHint(
-    text: String,
-    modifier: Modifier = Modifier,
-) {
-    Text(
-        text,
-        style = AppTypography.body.regular,
-        color = LocalPalette.current.sub,
-        textAlign = TextAlign.Center,
-        modifier = modifier.padding(24.dp),
-    )
-}
-
 /** Shared poster tile with title/year below, reused by the library grid. */
 @Composable
 internal fun PosterCard(
@@ -1433,7 +1434,9 @@ private fun LibraryArrivalScope(
     SkeletonArrivalScope(loading) {
         val skeletonArrival = LocalSkeletonArrival.current.takeUnless { wave.animating }
         CompositionLocalProvider(
-            LocalLaunchWave provides wave,
+            // Only while it runs. Once it has settled, every row and picture on the page kept a
+            // position callback and a layer of its own that no longer did anything.
+            LocalLaunchWave provides wave.takeIf { it.animating },
             LocalSkeletonArrival provides skeletonArrival,
             content = content,
         )
