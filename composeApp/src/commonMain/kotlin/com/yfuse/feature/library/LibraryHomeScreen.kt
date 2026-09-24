@@ -1396,20 +1396,6 @@ private fun SkeletonRow() {
     )
 }
 
-@Composable
-private fun CenterHint(
-    text: String,
-    modifier: Modifier = Modifier,
-) {
-    Text(
-        text,
-        style = AppTypography.body.regular,
-        color = LocalPalette.current.sub,
-        textAlign = TextAlign.Center,
-        modifier = modifier.padding(24.dp),
-    )
-}
-
 /** Shared poster tile with title/year below, reused by the library grid. */
 @Composable
 internal fun PosterCard(
@@ -1448,7 +1434,9 @@ private fun LibraryArrivalScope(
     SkeletonArrivalScope(loading) {
         val skeletonArrival = LocalSkeletonArrival.current.takeUnless { wave.animating }
         CompositionLocalProvider(
-            LocalLaunchWave provides wave,
+            // Only while it runs. Once it has settled, every row and picture on the page kept a
+            // position callback and a layer of its own that no longer did anything.
+            LocalLaunchWave provides wave.takeIf { it.animating },
             LocalSkeletonArrival provides skeletonArrival,
             content = content,
         )

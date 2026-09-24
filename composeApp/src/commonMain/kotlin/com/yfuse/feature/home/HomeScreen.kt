@@ -362,9 +362,9 @@ internal fun HomeContentBody(
                     modifier =
                         Modifier
                             .fillMaxSize()
-                            // Page-level light: the skeleton sweep while shelves load, the arrival
-                            // sweep when a refresh lands. Both draw only while their clock runs.
-                            .skeletonSweep()
+                            // Page-level light for a refresh landing; it draws only while its clock
+                            // runs. The skeleton's band crosses the loading shelves alone: across the
+                            // whole list it also swept whatever had already arrived.
                             .arrivalSweep(refreshArrival)
                             .testTag("home-feed"),
                     state = listState,
@@ -409,11 +409,19 @@ internal fun HomeContentBody(
                         // Two shelves' worth of placeholders rather than one spinner: the page
                         // this becomes is a stack of rails, and a skeleton that is the wrong
                         // shape moves the content once it arrives.
-                        motionItems(2, key = { "recommendations-loading-$it" }) { shelf ->
-                            SkeletonRail(
-                                modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),
-                                phaseMs = shelf * SKELETON_SHELF_PHASE_MS,
-                            )
+                        motionItem(key = "recommendations-loading") {
+                            // One band across both, rather than one per shelf flashing together.
+                            Column(
+                                Modifier.skeletonSweep(),
+                                verticalArrangement = Arrangement.spacedBy(Dimens.sectionGap),
+                            ) {
+                                repeat(2) { shelf ->
+                                    SkeletonRail(
+                                        modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),
+                                        phaseMs = shelf * SKELETON_SHELF_PHASE_MS,
+                                    )
+                                }
+                            }
                         }
                     } else if (recommendationsFailed) {
                         motionItem(key = "recommendations-error") {
@@ -510,7 +518,7 @@ internal fun HomeContentBody(
                         calendarState.loading -> {
                             motionItem(key = "airing-calendar-loading") {
                                 SkeletonRail(
-                                    modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),
+                                    modifier = Modifier.skeletonSweep().padding(horizontal = Dimens.pageHorizontal),
                                     count = 3,
                                 )
                             }

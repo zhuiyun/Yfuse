@@ -72,6 +72,7 @@ import com.yfuse.core.designsystem.MediaSharedElementKey
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.OfficialNavDisplay
 import com.yfuse.core.designsystem.OrbProgress
+import com.yfuse.core.designsystem.OrbProgressDefaults
 import com.yfuse.core.designsystem.PageHint
 import com.yfuse.core.designsystem.Poster
 import com.yfuse.core.designsystem.SKELETON_PHASE_STEP_MS
@@ -701,6 +702,10 @@ private fun ServerGroup(
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                if (group.loadingMore) {
+                    OrbProgress(size = OrbProgressDefaults.Inline, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                }
                 Text(
                     when {
                         group.loadingMore -> "正在加载更多…"

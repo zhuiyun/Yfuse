@@ -48,6 +48,8 @@ import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.MotionSwap
+import com.yfuse.core.designsystem.OrbProgress
+import com.yfuse.core.designsystem.OrbProgressDefaults
 import com.yfuse.core.designsystem.OverlayActionRow
 import com.yfuse.core.designsystem.OverlayButtonRow
 import com.yfuse.core.designsystem.OverlayButtonTone
@@ -715,7 +717,14 @@ private fun GridFooter(
         contentAlignment = Alignment.Center,
     ) {
         if (error == null) {
-            Text("正在加载更多…", style = AppTypography.caption.medium, color = palette.sub2)
+            // The words alone read as a note; the orb says the page is still coming.
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                OrbProgress(size = OrbProgressDefaults.Inline, contentDescription = null)
+                Text("正在加载更多…", style = AppTypography.caption.medium, color = palette.sub2)
+            }
         } else {
             Row(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
