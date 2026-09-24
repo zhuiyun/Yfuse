@@ -804,9 +804,16 @@ private fun RefinedSpeedControl(
     onClick: () -> Unit,
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
-    val label = if (speed % 1f == 0f) "${speed.toInt()}×" else "$speed×"
+    val figure = if (speed % 1f == 0f) "${speed.toInt()}" else "$speed"
+    val label = "$figure×"
     Box(
-        Modifier.noRippleClickable(onClick).size(40.dp),
+        Modifier
+            // Named for what it sets, with the rate as its state: read out, 「1.25×」 alone was a
+            // number with nothing to say what it was the rate of.
+            .pressable(label = "播放速度", onClick = onClick)
+            .touchTarget()
+            .semantics { stateDescription = "$figure 倍" }
+            .size(40.dp),
         contentAlignment = Alignment.Center,
     ) {
         Box(
@@ -826,6 +833,7 @@ private fun RefinedSpeedControl(
                     style = AppTypography.caption.strong,
                     color = Color.White,
                     maxLines = 1,
+                    modifier = Modifier.clearAndSetSemantics {},
                 )
             }
         }

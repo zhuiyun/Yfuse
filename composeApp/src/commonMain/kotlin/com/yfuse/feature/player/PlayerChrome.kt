@@ -717,6 +717,8 @@ internal fun CircleControl(
                             lightFeedback = false,
                             interactionSource = interactions,
                             focusShape = CircleShape,
+                            // The ring paints its own pressed colour ([softSelectionSurface] below).
+                            stateLayer = false,
                             onClick = onClick,
                         ).touchTarget()
                 } else {
