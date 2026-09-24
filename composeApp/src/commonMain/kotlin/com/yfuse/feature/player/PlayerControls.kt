@@ -1546,21 +1546,23 @@ internal fun PlayerControls(
                     targetState = gestureHud?.takeIf { !showPausedKey && !showEndedKeys },
                     contentKey = ::gestureHudMotionKey,
                     transitionSpec = {
-                        if (reduceMotion) {
-                            fadeIn(snap()) togetherWith fadeOut(snap())
-                        } else {
-                            (
-                                fadeIn(tween(Motion.QUICK, easing = Motion.Curve)) +
-                                    scaleIn(Motion.settle(), initialScale = 0.88f)
-                            ) togetherWith
+                        val swap =
+                            if (reduceMotion) {
+                                fadeIn(snap()) togetherWith fadeOut(snap())
+                            } else {
                                 (
-                                    fadeOut(tween(Motion.QUICK, easing = Motion.Curve)) +
-                                        scaleOut(
-                                            tween(Motion.QUICK, easing = Motion.Curve),
-                                            targetScale = 0.92f,
-                                        )
-                                )
-                        }
+                                    fadeIn(Motion.tween(Motion.QUICK)) +
+                                        scaleIn(Motion.settle(), initialScale = HUD_SCALE_IN)
+                                ) togetherWith
+                                    (
+                                        fadeOut(Motion.tween(Motion.QUICK)) +
+                                            scaleOut(
+                                                Motion.tween(Motion.QUICK),
+                                                targetScale = HUD_SCALE_OUT,
+                                            )
+                                    )
+                            }
+                        swap using Motion.sizeTransform(reduceMotion)
                     },
                     contentAlignment = Alignment.Center,
                     modifier = Modifier.align(Alignment.Center),

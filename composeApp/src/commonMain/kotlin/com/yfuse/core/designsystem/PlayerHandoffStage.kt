@@ -1,6 +1,5 @@
 package com.yfuse.core.designsystem
 
-import androidx.compose.animation.core.Spring
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -326,7 +325,7 @@ private class StageScene(
         drawRect(Color.Black, alpha = dim)
         val lift =
             if (returning) {
-                1f - handoffSpring(u - 60f, SETTLE_DAMPING, Spring.StiffnessMediumLow)
+                1f - handoffSpring(u - 60f, SettleSpring.dampingRatio, SettleSpring.stiffness)
             } else {
                 handoffSegment(t, 40f, 220f)
             }
@@ -596,7 +595,8 @@ private class StageScene(
 /** The 虚焦 field is richer than the artwork it comes from. */
 private const val FIELD_SATURATION = 1.35f
 
-private const val SETTLE_DAMPING = 0.85f
+/** [Motion.settle] itself, drawn frame by frame: the artwork lands home with the app's settle, not a copy of it. */
+private val SettleSpring = Motion.settle<Float>()
 
 /** The leaving clock's value once the page is holding: past every set's last page-side step. */
 private const val HELD = 10_000f

@@ -8,7 +8,6 @@ import android.widget.Toast
 import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExitTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
@@ -2859,8 +2858,8 @@ internal fun PlayerRoot(
                     // reads as the picture glitching rather than as the window changing shape.
                     AnimatedVisibility(
                         visible = !inPictureInPicture,
-                        enter = fadeIn(tween(pictureInPictureFadeMs)),
-                        exit = fadeOut(tween(pictureInPictureFadeMs)),
+                        enter = fadeIn(Motion.tween(pictureInPictureFadeMs)),
+                        exit = fadeOut(Motion.tween(pictureInPictureFadeMs)),
                     ) {
                         DanmakuOverlay(
                             comments = danmaku.visibleComments,
@@ -2889,7 +2888,7 @@ internal fun PlayerRoot(
 
             AnimatedVisibility(
                 visible = !inPictureInPicture,
-                enter = fadeIn(tween(pictureInPictureFadeMs)),
+                enter = fadeIn(Motion.tween(pictureInPictureFadeMs)),
                 exit = ExitTransition.None,
             ) {
                 PlayerControls(
