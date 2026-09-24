@@ -9,6 +9,7 @@ import com.arkivanov.mvikotlin.core.store.Store
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.designsystem.MotionTheme
+import com.yfuse.core.designsystem.PlayerHandoff
 import com.yfuse.core.designsystem.PlayerTransitionStyle
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.PlayerEngine
@@ -47,6 +48,9 @@ actual fun PendingPlayerLauncher(
             onLaunched()
         }.onFailure {
             launchIntent?.let(PlayerActivity::discardPendingLaunch)
+            // The page has begun leaving for a player that is not coming: bring it back now, not
+            // after the stuck-launch deadline.
+            PlayerHandoff.release()
             AppLog.error(
                 category = "feature.player",
                 event = "activity_launch_failed",
@@ -107,6 +111,9 @@ actual fun PlayerLauncher(
             onLaunched()
         }.onFailure {
             launchIntent?.let(PlayerActivity::discardLaunch)
+            // The page has begun leaving for a player that is not coming: bring it back now, not
+            // after the stuck-launch deadline.
+            PlayerHandoff.release()
             AppLog.error(
                 category = "feature.player",
                 event = "activity_launch_failed",

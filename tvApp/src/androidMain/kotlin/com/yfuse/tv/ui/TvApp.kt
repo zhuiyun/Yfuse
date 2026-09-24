@@ -409,6 +409,7 @@ private fun TvRootTabContent(
     contentRequesters: Map<RootComponent.Tab, FocusRequester>,
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val currentTab by rememberUpdatedState(activeTab)
     // Tabs are one level: a crossfade, no travel. Each tab draws from the tab it was handed, so
     // the one leaving keeps its own requesters while it fades.
     AnimatedContent(
@@ -425,6 +426,9 @@ private fun TvRootTabContent(
         Box(
             Modifier
                 .fillMaxSize()
+                // As for pages: the tab fading out keeps focus until the new one takes it, and a
+                // quick 确定 in that moment must not open a card on the tab that is leaving.
+                .onPreviewKeyEvent { currentTab != tab }
                 .focusProperties {
                     exit = { direction ->
                         if (direction == FocusDirection.Left) navigationRequester else FocusRequester.Default

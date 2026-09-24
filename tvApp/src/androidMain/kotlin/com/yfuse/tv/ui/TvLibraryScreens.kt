@@ -258,9 +258,12 @@ private fun TvLibraryHero(
     ) {
         AsyncImage(
             model =
-                EmbyImages.backdrop(server.baseUrl, item, accessToken = server.accessToken)
-                    ?: EmbyImages.poster(server.baseUrl, item, accessToken = server.accessToken),
-            contentDescription = item.title,
+                rememberTvImage(
+                    EmbyImages.backdrop(server.baseUrl, item, accessToken = server.accessToken)
+                        ?: EmbyImages.poster(server.baseUrl, item, accessToken = server.accessToken),
+                ),
+            // Silent: the title is written over it, and the backdrop read it a second time.
+            contentDescription = null,
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize(),
         )

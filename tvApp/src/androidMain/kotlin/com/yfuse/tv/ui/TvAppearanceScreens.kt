@@ -130,6 +130,8 @@ internal fun TvAppearanceSettingsPage(
                     stableId = "appearance:background-clear",
                     focusMemory = focusMemory,
                     onClick = {
+                        // The row goes with the image; focus moves on to the next setting first.
+                        focusMemory.requestFocus(focusScope, "appearance:startup-tab")
                         backgroundImage?.let(::releaseBackgroundImage)
                         prefs.setBackgroundImage(null)
                         status = "背景图已移除"

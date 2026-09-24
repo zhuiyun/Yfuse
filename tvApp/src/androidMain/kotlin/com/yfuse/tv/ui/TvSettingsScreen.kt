@@ -369,9 +369,10 @@ private fun TvSettingsRootPage(
                 title = TvSettingsPage.Appearance.title,
                 value =
                     listOfNotNull(
-                        dialogAnimation.label,
+                        // What the television plays, which for a phone-only style is 柔和浮起.
+                        dialogAnimation.onTv().label,
                         "大号文字".takeIf { largeText },
-                        "减少动效".takeIf { reduceMotion },
+                        "减少动画".takeIf { reduceMotion },
                     ).joinToString(" · "),
                 stableId = "settings:appearance",
                 focusMemory = focusMemory,

@@ -150,7 +150,11 @@ internal fun PlayerSidePanel(
         motionJob = scope.launch { settleDrawer(dismiss, velocity) }
     }
 
-    val requestDismiss = { animateDrawer(true) }
+    // As for the popups: inside a presence, the person's close goes through the owner, so a new
+    // choice made while the drawer slides away reopens it instead of being shut by a late close.
+    val requestDismiss = {
+        if (currentPresence?.visible == true) currentDismiss() else animateDrawer(true)
+    }
     LaunchedEffect(reduceMotion) {
         if (!directlyManipulating && !closing) animateDrawer(false)
     }
@@ -364,7 +368,16 @@ internal fun PlayerPopupPanel(
     // a reason to refuse the drag left a device with animations off unable to push the popup away
     // at all; only the user's own 减弱动态效果 switch retires the gesture.
     val reduceMotionByUser = LocalAccessibilityOptions.current.reduceMotionByUser
-    val requestDismiss = remember { { leaving = true } }
+    val latestOnDismiss by rememberUpdatedState(onDismiss)
+    // Inside a presence the person's close goes through the owner, like a pick does. Closed
+    // locally, the owner only heard at the end of the fade — so 音轨 tapped on the bar while
+    // 字幕 faded reopened this popup with the new page, and the late close then shut that too.
+    val requestDismiss =
+        remember {
+            {
+                if (currentPresence?.visible == true) latestOnDismiss() else leaving = true
+            }
+        }
     val drag =
         rememberDialogDragState(
             // Pushing the popup away is a gesture every style gets; 磁吸归位 only keeps its handle.

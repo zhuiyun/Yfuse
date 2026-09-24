@@ -917,6 +917,16 @@ internal fun StandardSeekBar(
     val latestOnCommit by rememberUpdatedState(onCommit)
     val latestOnCancel by rememberUpdatedState(onCancel)
     val latestPositionMs by rememberUpdatedState(positionMs)
+    // Disabled mid-drag — the seek locked, the duration lost — the gesture goes with the modifier
+    // that ran it and reports neither end. Say it here, or the bar stays "scrubbing" and the
+    // chrome never hides again until the next tap.
+    LaunchedEffect(enabled) {
+        if (!enabled && dragging) {
+            dragging = false
+            snappedMarkerIndex = null
+            latestOnCancel()
+        }
+    }
     // Where the thumb is, read from the offset and draw lambdas below rather than from
     // composition. Under a finger this value follows the pointer — sixty samples a second — and
     // reading it here recomposed the whole bar, its markers, its halo and its bubble on every

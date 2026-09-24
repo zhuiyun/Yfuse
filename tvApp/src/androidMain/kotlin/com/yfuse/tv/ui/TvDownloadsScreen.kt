@@ -201,6 +201,8 @@ internal fun TvDownloadsPage(
                     stableId = "downloads:pause-all",
                     focusMemory = focusMemory,
                     onClick = {
+                        // With nothing left running this row goes; focus moves to the last download.
+                        shown.lastOrNull()?.let { focusMemory.requestFocus(focusScope, "downloads:item:${it.id}") }
                         manager.pauseMany(items.map { it.id })
                         status = "已暂停全部下载"
                     },
@@ -218,6 +220,8 @@ internal fun TvDownloadsPage(
                     stableId = "downloads:resume-all",
                     focusMemory = focusMemory,
                     onClick = {
+                        // With nothing left stopped this row goes; focus moves to the last download.
+                        shown.lastOrNull()?.let { focusMemory.requestFocus(focusScope, "downloads:item:${it.id}") }
                         manager.resumeMany(items.map { it.id })
                         status = "已继续全部下载"
                     },

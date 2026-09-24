@@ -72,6 +72,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -86,6 +87,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.unit.offset
 import coil3.compose.AsyncImage
+import coil3.request.ImageRequest
+import coil3.request.crossfade
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.tv.focus.FocusAnchor
@@ -130,6 +133,25 @@ internal fun Modifier.tvFocusBleed(): Modifier =
 internal val TvFocusBleedPadding = PaddingValues(TvFocusInset)
 
 /**
+ * [data] as a request that fades in on the poster clock, or cuts in under 减少动画 — which the
+ * loader's own default fade (see TvApplication) cannot know about.
+ */
+@Composable
+internal fun rememberTvImage(data: Any?): Any? {
+    val context = LocalContext.current
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    return remember(context, data, reduceMotion) {
+        data?.let {
+            ImageRequest
+                .Builder(context)
+                .data(it)
+                .crossfade(if (reduceMotion) 0 else Motion.POSTER_FADE)
+                .build()
+        }
+    }
+}
+
+/**
  * The page a focus scope belongs to: the scope's first segment, except that every 详情 is a route
  * of its own (`detail:<itemId>`). They all share one screen, and detail A → related B → back used
  * to find B's last focus waiting where A's should have been. A detail dialog's scope (`detail:more`)
@@ -160,8 +182,13 @@ internal class TvUiFocusMemory {
     private val rowStates = mutableMapOf<String, LazyListState>()
     private val gridStates = mutableMapOf<String, LazyGridState>()
 
-    /** Routes just entered whose saved focus has not been put back yet — see [TvRestoreRouteFocusEffect]. */
-    private val pendingRestores = mutableSetOf<String>()
+    /**
+     * Routes just entered whose saved focus has not been put back yet — see
+     * [TvRestoreRouteFocusEffect] — each with the page that entered it. A page leaving under the
+     * same route (a grid opening a grid, a cut back out of one) must not end the restore of the
+     * page arriving in its place.
+     */
+    private val pendingRestores = mutableMapOf<String, Any>()
 
     fun remember(
         scope: String,
@@ -222,9 +249,20 @@ internal class TvUiFocusMemory {
         stableId: String,
     ): Boolean = requesterRegistry.requestFocus(targetId(scope, stableId))
 
-    /** A new entry into [route]: its saved focus is put back once, not on every recomposition. */
-    fun beginRestore(route: String) {
-        pendingRestores.add(route)
+    /** A new entry into [route] by [owner]: its saved focus is put back once, not on every recomposition. */
+    fun beginRestore(
+        route: String,
+        owner: Any = route,
+    ) {
+        pendingRestores[route] = owner
+    }
+
+    /** [owner] has left [route]; its restore ends with it, unless a newer entry has the route now. */
+    fun endRestore(
+        route: String,
+        owner: Any,
+    ) {
+        if (pendingRestores[route] === owner) pendingRestores.remove(route)
     }
 
     fun restorePending(route: String): Boolean = route in pendingRestores
@@ -587,7 +625,7 @@ internal fun TvMediaCard(
                     .background(TvPlaceholder),
             ) {
                 AsyncImage(
-                    model = model.imageUrl,
+                    model = rememberTvImage(model.imageUrl),
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
@@ -686,9 +724,11 @@ internal fun TvRestoreRouteFocusEffect(
     scrollToAnchor: suspend (FocusAnchor) -> Unit = {},
     section: String? = null,
 ) {
+    // This page's own entry: the page it replaces may still be leaving under the same route.
+    val entry = remember { Any() }
     DisposableEffect(focusMemory, route) {
-        focusMemory.beginRestore(route)
-        onDispose { focusMemory.settleRestore(route) }
+        focusMemory.beginRestore(route, entry)
+        onDispose { focusMemory.endRestore(route, entry) }
     }
     val restoreContext = context?.let(focusMemory::activateContext) ?: focusMemory.contextForRoute(route)
     val saved =

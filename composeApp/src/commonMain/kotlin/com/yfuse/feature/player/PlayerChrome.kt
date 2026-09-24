@@ -343,8 +343,10 @@ internal fun TransportRow(
                     modifier = Modifier.semantics { if (bufferingIndicatorVisible) stateDescription = "缓冲中" },
                 )
             }
-            // Drawn over the key but never hit: a tap on the ring is a tap on the key.
-            AnimatedVisibility(
+            // Drawn over the key but never hit: a tap on the ring is a tap on the key. Qualified,
+            // because inside this Box the Row's `RowScope.AnimatedVisibility` would be chosen and
+            // the layout-scope DSL rule forbids reaching it from here.
+            androidx.compose.animation.AnimatedVisibility(
                 visible = bufferingIndicatorVisible,
                 enter = fadeIn(Motion.tween(if (reduceMotion) 0 else Motion.QUICK)),
                 exit = fadeOut(Motion.tween(if (reduceMotion) 0 else Motion.QUICK)),
@@ -455,6 +457,9 @@ internal fun VolumeSlider(
         }
     }
     val percent by remember { derivedStateOf { (shown.value * 100).toInt() } }
+    // What is spoken is where the volume is, not where the drawing has got to: a settle read out
+    // its in-between figures to a cursor resting on the bar.
+    val spokenPercent by remember { derivedStateOf { (latestVolume().coerceIn(0f, 1f) * 100).toInt() } }
     val adjust: (Float) -> Boolean = { target ->
         onVolume(target.coerceIn(0f, 1f))
         currentLight.emit(LightEffect.Trail, fractionY = 1f - target)
@@ -506,8 +511,8 @@ internal fun VolumeSlider(
                         Modifier
                     },
                 ).semantics {
-                    stateDescription = "音量 $percent%"
-                    progressBarRangeInfo = ProgressBarRangeInfo(percent / 100f, 0f..1f, 100)
+                    stateDescription = "音量 $spokenPercent%"
+                    progressBarRangeInfo = ProgressBarRangeInfo(spokenPercent / 100f, 0f..1f, 100)
                     setProgress { adjust(it) }
                 }.onKeyEvent { event ->
                     if (event.type != KeyEventType.KeyDown) return@onKeyEvent false

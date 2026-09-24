@@ -74,8 +74,9 @@ internal fun TvTmdbInfoScreen(
                     .background(TvSurface),
             ) {
                 AsyncImage(
-                    model = TmdbImages.backdrop(item.backdropPath, "w1280"),
-                    contentDescription = item.title,
+                    model = rememberTvImage(TmdbImages.backdrop(item.backdropPath, "w1280")),
+                    // Silent: the title is written over it, and the backdrop read it a second time.
+                    contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
                 )
@@ -192,7 +193,11 @@ internal fun TvTmdbInfoScreen(
                                 stableId = "tmdb-info:${item.id}:retry-detail",
                                 focusScope = "tmdb-info:${item.id}:hero",
                                 focusMemory = focusMemory,
-                                onClick = component::retryDetail,
+                                onClick = {
+                                    // The row goes as the request starts; focus waits on 播放, not on nothing.
+                                    runCatching { playRequester.requestFocus() }
+                                    component.retryDetail()
+                                },
                                 icon = AppIcons.Refresh,
                             )
                         }

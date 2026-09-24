@@ -75,6 +75,15 @@ internal fun TvSearchHomeScreen(
     val state by component.store.states.collectAsState(component.store.state)
     val store = component.store
     var managingRecent by remember { mutableStateOf(false) }
+
+    // Before a term, or the history, leaves under the remote: focus goes to [term] if given, else
+    // to the first suggestion shown, else to the chosen type — never to nothing.
+    fun moveFocusOffTerms(term: String? = null) {
+        if (term != null && focusMemory.requestFocus("search:terms", "search:recent:$term")) return
+        val suggestion = tvSearchSuggestions.firstOrNull { it !in state.recent }
+        if (suggestion != null && focusMemory.requestFocus("search:terms", "search:suggestion:$suggestion")) return
+        focusMemory.requestFocus("search:filters", "search:type:${state.type.name}")
+    }
     // Nothing left to manage once the list is empty; leaving the mode on would strand the remote
     // on a row that no longer exists.
     if (state.recent.isEmpty() && managingRecent) managingRecent = false
@@ -168,7 +177,11 @@ internal fun TvSearchHomeScreen(
                     stableId = "search:clear",
                     focusScope = "search:filters",
                     focusMemory = focusMemory,
-                    onClick = { store.accept(SearchIntent.Clear) },
+                    onClick = {
+                        // The key goes with the text it clears; focus waits on the chosen type.
+                        focusMemory.requestFocus("search:filters", "search:type:${state.type.name}")
+                        store.accept(SearchIntent.Clear)
+                    },
                     modifier = Modifier.width(116.dp),
                     icon = AppIcons.Close,
                 )
@@ -220,6 +233,8 @@ internal fun TvSearchHomeScreen(
                                     focusScope = "search:terms",
                                     focusMemory = focusMemory,
                                     onClick = {
+                                        // The whole row goes with the history.
+                                        moveFocusOffTerms()
                                         store.accept(SearchIntent.ClearRecent)
                                         managingRecent = false
                                     },
@@ -243,6 +258,10 @@ internal fun TvSearchHomeScreen(
                                     focusMemory = focusMemory,
                                     onClick = {
                                         if (managingRecent) {
+                                            // Focus goes to the term beside it before this one goes.
+                                            moveFocusOffTerms(
+                                                state.recent.getOrNull(index + 1) ?: state.recent.getOrNull(index - 1),
+                                            )
                                             store.accept(SearchIntent.ForgetRecent(term))
                                         } else {
                                             store.accept(SearchIntent.QueryChanged(term))

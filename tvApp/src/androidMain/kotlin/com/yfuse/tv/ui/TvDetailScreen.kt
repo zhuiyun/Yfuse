@@ -451,8 +451,9 @@ private fun TvDetailHero(
 ) {
     Box(Modifier.fillMaxWidth().height(475.dp).background(TvPlaceholder)) {
         AsyncImage(
-            model = heroUrl,
-            contentDescription = detail.title,
+            model = rememberTvImage(heroUrl),
+            // Silent: the title is written over it, and the backdrop read it a second time.
+            contentDescription = null,
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize(),
         )

@@ -169,9 +169,11 @@ private suspend fun runStageClock(
                     // Nothing on the page changes again until the player comes back, so the page
                     // stops redrawing — a full-screen blur, for two of the sets — while the player
                     // starts up. Only a launch that may yet turn out stuck keeps a deadline.
-                    val untilStuck = (STUCK_AFTER_MS - sinceLaunch).toLong()
-                    if (untilStuck > 0L) {
-                        withTimeoutOrNull(untilStuck) { awaitLeavingEnds() }
+                    val untilStuck = STUCK_AFTER_MS - sinceLaunch
+                    if (untilStuck >= 0f) {
+                        // Rounded up: a deadline that lands before STUCK_AFTER_MS leaves the next
+                        // pass neither releasing nor keeping one, and a page in front stuck held.
+                        withTimeoutOrNull(untilStuck.toLong() + 1L) { awaitLeavingEnds() }
                     } else {
                         awaitLeavingEnds()
                     }

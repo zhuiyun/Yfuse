@@ -309,8 +309,9 @@ private fun TvHomeHero(
             label = "tv-living-poster",
         ) { current ->
             AsyncImage(
-                model = TmdbImages.backdrop(current?.backdropPath, "w1280"),
-                contentDescription = current?.title,
+                model = rememberTvImage(TmdbImages.backdrop(current?.backdropPath, "w1280")),
+                // Silent: the title is written over it, and the backdrop read it a second time.
+                contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
             )

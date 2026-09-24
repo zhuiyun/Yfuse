@@ -42,6 +42,9 @@ import com.yfuse.core.designsystem.ThemeText as Text
 /** How long before the end 下一集 announces itself. */
 internal const val NEXT_UP_WINDOW_MS = 10_000L
 
+/** From here on the key says the next episode is about to start rather than that it will. */
+private const val NEXT_UP_SOON_SECONDS = 3
+
 /** Whole seconds of real time until 下一集 starts: the remaining media sped up by [speed], rounded up. */
 internal fun nextUpSecondsLeft(
     remainingMs: Long,
@@ -114,9 +117,12 @@ internal fun NextUpCard(
                     .padding(horizontal = 8.dp, vertical = 4.dp),
         )
         val secondsLeft = nextUpSecondsLeft(remainingMs, speed)
+        // Coarse on purpose: TalkBack reads a state change on the key it rests on, and a figure
+        // that changed every second was read every second. The ring still counts them down.
+        val countdown = if (secondsLeft > NEXT_UP_SOON_SECONDS) "即将自动播放" else "马上自动播放"
         Box(
             Modifier
-                .semantics { stateDescription = "$secondsLeft 秒后播放" }
+                .semantics { stateDescription = countdown }
                 .pressable(
                     haptic = HapticSignal.Confirm,
                     onClickLabel = "立即播放下一集",
