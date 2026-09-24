@@ -37,6 +37,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
@@ -1458,7 +1459,12 @@ private fun BackgroundImageSheet(
                 )
             }
             Spacer(Modifier.height(6.dp))
-            GlassSlider(value = dim, onValueChange = onDim, valueRange = 0.3f..1f)
+            GlassSlider(
+                value = dim,
+                onValueChange = onDim,
+                valueRange = 0.3f..1f,
+                modifier = Modifier.semantics { contentDescription = "背景图遮罩" },
+            )
             Text("越低，背景图越清晰；越高，文字越容易读", style = AppTypography.caption.regular, color = palette.sub2)
         }
     }

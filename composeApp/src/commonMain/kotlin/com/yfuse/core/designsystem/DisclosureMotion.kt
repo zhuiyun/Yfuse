@@ -1,7 +1,6 @@
 package com.yfuse.core.designsystem
 
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -27,7 +26,7 @@ internal fun rememberDisclosureProgress(expanded: Boolean): State<Float> {
     val progress = remember(moving) { Animatable(target) }
     LaunchedEffect(expanded, moving) {
         if (moving) {
-            progress.animateTo(target, tween(Motion.DISCLOSURE, easing = Motion.Curve))
+            progress.animateTo(target, Motion.tween(Motion.DISCLOSURE))
         } else {
             progress.snapTo(target)
         }
