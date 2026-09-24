@@ -15,8 +15,15 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -25,6 +32,7 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.IntOffset
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.Motion
+import kotlinx.coroutines.delay
 
 /**
  * Which edge a piece of player chrome belongs to, and therefore where it comes from.
@@ -131,6 +139,52 @@ internal fun ChromeVisibility(
 private class RetainedChrome<T>(
     var value: T?,
 )
+
+/** What a [PanelPresence] tells the panel inside it. */
+@Immutable
+internal class PanelPresenceSignal(
+    val visible: Boolean,
+    val onExited: () -> Unit,
+)
+
+/** Read by [PlayerPopupPanel] and [PlayerSidePanel] only; a dialog opened from a panel never sees it. */
+internal val LocalPanelPresence = compositionLocalOf<PanelPresenceSignal?> { null }
+
+/**
+ * Keep-alive for a panel that animates itself — the popovers and the right-edge drawers.
+ *
+ * Wrapped in [ChromeContent] they moved twice: a 180 ms fade and slide around a panel already
+ * playing its own entrance, and on the way out an invisible second exit after the panel's, which
+ * held every touch for its length. Here nothing moves but the panel. When the owner closes it
+ * from state — a pick applied, another panel opened, a tap on the picture — the last [value] stays
+ * composed, the panel is told to leave the way it would for the person, and it is let go once it
+ * has. A value that returns during the exit brings the panel back instead.
+ */
+@Composable
+internal fun <T : Any> PanelPresence(
+    value: T?,
+    modifier: Modifier = Modifier,
+    content: @Composable BoxScope.(T) -> Unit,
+) {
+    var retained by remember { mutableStateOf(value) }
+    SideEffect { if (value != null) retained = value }
+    val shown = value ?: retained ?: return
+    val visible = value != null
+    // Content that never reports its exit is not kept for ever.
+    if (!visible) {
+        LaunchedEffect(Unit) {
+            delay(PANEL_RELEASE_AFTER_MS)
+            retained = null
+        }
+    }
+    val signal = remember(visible) { PanelPresenceSignal(visible) { retained = null } }
+    CompositionLocalProvider(LocalPanelPresence provides signal) {
+        Box(modifier) { content(shown) }
+    }
+}
+
+/** Longer than any panel's own exit. */
+private const val PANEL_RELEASE_AFTER_MS = 1_000L
 
 /** Retains only the small panel identity while ChromeVisibility completes its exit. */
 @Composable

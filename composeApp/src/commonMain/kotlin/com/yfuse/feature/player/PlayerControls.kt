@@ -1078,7 +1078,9 @@ internal fun PlayerControls(
                         .align(Alignment.BottomEnd)
                         .padding(end = 18.dp, bottom = 70.dp)
 
-                ChromeContent(settingsPanelKind, modifier = Modifier.fillMaxSize(), edge = ChromeEdge.End) { kind ->
+                // The popovers and drawers below play their own way in and out; the presence only
+                // keeps them composed while they do.
+                PanelPresence(settingsPanelKind, modifier = Modifier.fillMaxSize()) { kind ->
                     BackOverlay(
                         onBack = { settingsPanelKind = null },
                         enabled = settingsPanelKind != null,
@@ -1197,8 +1199,8 @@ internal fun PlayerControls(
                     }
                 }
 
-                ChromeContent(quickPopup, modifier = Modifier.fillMaxSize(), edge = ChromeEdge.End) { popup ->
-                    BackOverlay(onBack = { quickPopup = null }) {
+                PanelPresence(quickPopup, modifier = Modifier.fillMaxSize()) { popup ->
+                    BackOverlay(onBack = { quickPopup = null }, enabled = quickPopup != null) {
                         // 线路 and 倍速 share this anchor and this shell, so going from one to the
                         // other is a change of contents rather than of surface: the panel stays
                         // where it is and settles into the new list's height instead of being
@@ -1279,13 +1281,10 @@ internal fun PlayerControls(
                     )
                 }
 
-                ChromeVisibility(
-                    visible = watchChatOpen && watch.connected,
-                    modifier = Modifier.fillMaxSize(),
-                    edge = ChromeEdge.End,
-                ) {
+                PanelPresence(Unit.takeIf { watchChatOpen && watch.connected }, modifier = Modifier.fillMaxSize()) {
                     BackOverlay(
                         onBack = closeWatchChat,
+                        enabled = watchChatOpen,
                     ) {
                         WatchChatPanel(
                             participants = watch.participants,
@@ -1359,11 +1358,7 @@ internal fun PlayerControls(
                     }
                 }
 
-                ChromeVisibility(
-                    visible = danmakuSearchOpen,
-                    edge = ChromeEdge.End,
-                    modifier = Modifier.fillMaxSize(),
-                ) {
+                PanelPresence(Unit.takeIf { danmakuSearchOpen }, modifier = Modifier.fillMaxSize()) {
                     BackOverlay(
                         enabled = danmakuSearchOpen,
                         onBack = { danmakuSearchOpen = false },
