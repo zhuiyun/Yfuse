@@ -67,12 +67,15 @@ import com.yfuse.core.designsystem.Poster
 import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.backdropBlur
 import com.yfuse.core.designsystem.contentHandoff
+import com.yfuse.core.designsystem.disclosureRotation
 import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.motionItemsIndexed
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.rememberDisclosureProgress
 import com.yfuse.core.designsystem.selectionColor
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.solidGlass
+import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.designsystem.waitingPulse
 import com.yfuse.core.model.Episode
 import com.yfuse.core.network.EmbyImages
@@ -119,13 +122,7 @@ private fun EpisodeHeader(
     modifier: Modifier = Modifier,
 ) {
     val palette = LocalPalette.current
-    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
-    val rotation by
-        animateFloatAsState(
-            targetValue = if (pickerOpen) 180f else 0f,
-            animationSpec = Motion.settle(reduceMotion),
-            label = "seasonChevron",
-        )
+    val chevron = rememberDisclosureProgress(pickerOpen)
     Row(
         modifier.fillMaxWidth().padding(bottom = 10.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -142,7 +139,7 @@ private fun EpisodeHeader(
                     ).semantics {
                         this.selected = pickerOpen
                         if (seasonLoading) stateDescription = "正在读取剧集"
-                    }.heightIn(min = 44.dp)
+                    }.touchTarget()
                     // The season just picked is named at once; this says its episodes are on the way.
                     .waitingPulse(active = seasonLoading, shape = AppShapes.chip, color = accent)
                     .padding(end = 6.dp),
@@ -160,7 +157,7 @@ private fun EpisodeHeader(
                     AppIcons.ChevronDown,
                     contentDescription = null,
                     tint = accent,
-                    modifier = Modifier.size(14.dp).graphicsLayer { rotationZ = rotation },
+                    modifier = Modifier.size(14.dp).disclosureRotation(chevron, degrees = 180f),
                 )
             }
         } else {
@@ -176,7 +173,7 @@ private fun EpisodeHeader(
             Row(
                 Modifier
                     .pressable(enabled = !seasonLoading, onClick = onSeeAll)
-                    .heightIn(min = 44.dp),
+                    .touchTarget(),
                 horizontalArrangement = Arrangement.spacedBy(3.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -195,7 +192,7 @@ private fun EpisodeHeader(
             Row(
                 Modifier
                     .pressable(enabled = !seasonLoading, onClickLabel = "管理观看进度", onClick = onManageProgress)
-                    .heightIn(min = 44.dp)
+                    .touchTarget()
                     .padding(horizontal = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -356,6 +353,15 @@ private const val SEASON_PICKER_WIDTH_FRACTION = 0.58f
  */
 private class SeasonPickerPlacement {
     var above = false
+}
+
+/**
+ * Where the season title sits, in root coordinates. A plain field rather than snapshot state:
+ * the title reports itself on every layout pass while the page scrolls, and as state each report
+ * recomposed the page's overlay layer. Only the composition that opens the list reads it.
+ */
+internal class SeasonPickerAnchor {
+    var bounds: Rect? = null
 }
 
 @Composable

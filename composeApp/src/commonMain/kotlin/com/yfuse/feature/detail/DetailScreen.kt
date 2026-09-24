@@ -28,7 +28,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.onSizeChanged
@@ -205,8 +204,8 @@ fun DetailScreen(component: DetailComponent) {
         )
     val detailAccent = detailAccentState.target
     var seasonPickerOpen by remember { mutableStateOf(false) }
-    // Where the season title sits, in root coordinates; the floating season list opens from it.
-    var seasonPickerAnchor by remember { mutableStateOf<Rect?>(null) }
+    // Where the season title sits; the floating season list opens from it.
+    val seasonPickerAnchor = remember { SeasonPickerAnchor() }
     // The season whose episodes the rail is showing. It trails the selection while a newly picked
     // season loads: the header already names that season, the cards are still the last one's.
     val listedSeason = remember { arrayOf(state.selectedSeasonId) }
@@ -648,7 +647,7 @@ fun DetailScreen(component: DetailComponent) {
                                                 listedSeasonId = listedSeasonId,
                                                 pickerOpen = seasonPickerOpen,
                                                 onTogglePicker = { seasonPickerOpen = !seasonPickerOpen },
-                                                onPickerAnchor = { seasonPickerAnchor = it },
+                                                onPickerAnchor = { seasonPickerAnchor.bounds = it },
                                                 onManageProgress = {
                                                     component.store.accept(DetailIntent.OpenProgressManager)
                                                 },
@@ -814,7 +813,7 @@ fun DetailScreen(component: DetailComponent) {
                 AnimatedColorContent(detailAccentState) { detailAccent ->
                     SeasonPickerOverlay(
                         open = seasonPickerOpen && state.seasons.size > 1,
-                        anchor = seasonPickerAnchor,
+                        anchor = seasonPickerAnchor.bounds,
                         backdrop = detailBackdrop,
                         accent = detailAccent,
                         seasons = state.seasons.map { it.id to it.name },

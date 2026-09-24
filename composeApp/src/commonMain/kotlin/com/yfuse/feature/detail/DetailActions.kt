@@ -75,7 +75,11 @@ internal fun DetailActionDock(
     onPlayFromStart: () -> Unit,
 ) {
     val actionInk = primaryActionContentColor(accent)
+    // One source per half. Shared, a focused 从头 lit the ring on 播放 as well; the key still moves
+    // and washes as one piece whichever half is pressed, by answering to both.
     val playInteractions = remember { MutableInteractionSource() }
+    val fromStartInteractions = remember { MutableInteractionSource() }
+    val pressedWash = actionInk.copy(alpha = 0.08f)
     Column(
         Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -89,6 +93,7 @@ internal fun DetailActionDock(
                 // 玻璃舱 and 开幕 start from the key that was pressed.
                 .playerHandoffKey(corner = 16.dp, tint = accent, ink = actionInk)
                 .softActionSurface(playInteractions, enabled = !resolving)
+                .softActionSurface(fromStartInteractions, enabled = !resolving)
                 .shadow(GlassLift.key, AppShapes.card)
                 .clip(AppShapes.card)
                 .background(actionKeyBrush(accent))
@@ -96,7 +101,12 @@ internal fun DetailActionDock(
                 .softSelectionSurface(
                     interactionSource = playInteractions,
                     shape = AppShapes.card,
-                    pressedColor = actionInk.copy(alpha = 0.08f),
+                    pressedColor = pressedWash,
+                    enabled = !resolving,
+                ).softSelectionSurface(
+                    interactionSource = fromStartInteractions,
+                    shape = AppShapes.card,
+                    pressedColor = pressedWash,
                     enabled = !resolving,
                 ),
             verticalAlignment = Alignment.CenterVertically,
@@ -110,6 +120,8 @@ internal fun DetailActionDock(
                         pressedScale = 1f,
                         lightFeedback = false,
                         interactionSource = playInteractions,
+                        // The key's own surface paints the pressed wash; a second one would double it.
+                        stateLayer = false,
                         onClick = onPlay,
                     ).padding(horizontal = 13.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -184,7 +196,8 @@ internal fun DetailActionDock(
                             enabled = !resolving,
                             pressedScale = 1f,
                             lightFeedback = false,
-                            interactionSource = playInteractions,
+                            interactionSource = fromStartInteractions,
+                            stateLayer = false,
                             onClickLabel = "从头播放",
                             onClick = onPlayFromStart,
                         ),

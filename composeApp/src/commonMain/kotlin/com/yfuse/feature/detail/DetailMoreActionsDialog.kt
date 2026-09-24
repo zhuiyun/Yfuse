@@ -1,7 +1,6 @@
 package com.yfuse.feature.detail
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -34,16 +33,21 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.toggleableState
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.DecorativeTints
+import com.yfuse.core.designsystem.DialogAnimation
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassDialog
+import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.PillSwitch
 import com.yfuse.core.designsystem.flatGlass
 import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.overlayDismiss
@@ -143,6 +147,8 @@ internal fun DetailMoreActionsDialog(
         shape = AppShapes.sheet,
         // The artwork header carries the handle; the panel itself takes the drag.
         dragHandle = false,
+        // Pinned to the bottom edge, so it rises from it whatever the chosen 弹窗动画.
+        animation = DialogAnimation.Slide,
     ) {
         val palette = LocalPalette.current
         val lavender = resolveAccentColors(DecorativeTints.lavender, palette.isDark)
@@ -603,14 +609,14 @@ private fun DetailManagementRow(
             .fillMaxWidth()
             .pressable(
                 role = if (checked == null) Role.Button else Role.Switch,
+                // A switch answers the way every 设置 switch does.
+                haptic = if (checked == null) null else HapticSignal.Select,
                 onClick = onClick,
             ).then(
                 if (checked == null) {
                     Modifier
                 } else {
-                    Modifier.semantics {
-                        stateDescription = if (checked) "已开启" else "已关闭"
-                    }
+                    Modifier.semantics { toggleableState = ToggleableState(checked) }
                 },
             ).padding(horizontal = 12.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -655,7 +661,7 @@ private fun DetailManagementRow(
                 modifier = Modifier.size(15.dp),
             )
         } else {
-            DetailMoreToggle(checked = checked, activeColor = colors.accent)
+            PillSwitch(checked = checked, activeColor = colors.accent)
         }
     }
 }
@@ -670,29 +676,4 @@ private fun DetailManagementDivider() {
             .height(1.dp)
             .background(palette.border),
     )
-}
-
-@Composable
-private fun DetailMoreToggle(
-    checked: Boolean,
-    activeColor: Color,
-) {
-    val palette = LocalPalette.current
-    Box(
-        Modifier
-            .width(42.dp)
-            .height(24.dp)
-            .clip(CircleShape)
-            .background(if (checked) activeColor else palette.card3)
-            .border(1.dp, if (checked) activeColor else palette.border, CircleShape)
-            .padding(3.dp),
-    ) {
-        Box(
-            Modifier
-                .align(if (checked) Alignment.CenterEnd else Alignment.CenterStart)
-                .size(18.dp)
-                .clip(CircleShape)
-                .background(if (checked) Color.White else palette.sub2),
-        )
-    }
 }
