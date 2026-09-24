@@ -773,4 +773,20 @@ TV 共用同一套 `RootComponent` 栈，同样受影响。媒体库 tab 已经�
 - **P2-44**：`verifyDesignSystemUsage` 新增三条规则，覆盖手机共享代码、Android 代码和 TV 代码：`tween` 没有 easing、`Motion.tween` 用了字面量时长、`AnimatedContent` 没有尺寸决策。一个名称以 `…Transform(` 结尾的辅助函数若自己决定了尺寸，也算通过。现有代码全部通过这三条规则。
 - **P3 TV**：焦点放大的留白由新的 `tvFocusBleed()` 提供。它把 `contentPadding` 还给外部布局，所以周围元素的位置不变。“我的与设置”在宽度不够时先缩小字号，最多缩到 80%，仍放不下才显示省略号。
 
-本轮仍然没有在本环境中构建：没有 Android SDK，`dl.google.com` 无法访问。验证手段是 ktlint（按模块基线）、上述规则的等价脚本、导入与命名参数的静态检查，以及人工审阅。打包、签名和 APK 核验需在本地按 `AGENTS.md` 完成。
+验证范围：本环境没有 Android SDK，`dl.google.com` 也无法访问，所以没有构建 APK。已做的验证如下：
+
+- **共享代码编译**：用 Kotlin 2.4.20 加 Compose、序列化编译器插件，对共享代码（`composeApp/src/commonMain` 567 个文件，外加 `watchTogetherProtocol`）完整编译到字节码。桌面端依赖取自 Maven Central；Google Maven 独有的库从 compose-multiplatform-core 1.12.0 源码构建。
+  - 编译发现 2 个错误，已修复：`PlayerChrome.kt` 的 `AnimatedVisibility` 作用域错误，以及 `SelectionControls.kt` 中无法解析的 `using` 导入。同样的导入也出现在 `AppUpdateOverlay.kt`，一并删除。
+  - 修复后 0 错误。
+- **附加检查**，均为 0 发现：
+  - Android API 符合性检查。
+  - expect/actual 配对：77 对。
+  - Android 与 TV 调用点对照变更后签名：22 处。
+- **测试**：`commonTest` 全部可以编译，并在 JVM 上运行了 2105 个用例。与改动前的基线逐条对比，新增失败只有 3 个，都是本环境造成的：缺少 Skia 原生库，以及平台函数被替换成了桩实现（字体、内置播放器）。
+- **Android、TV 专属代码**：没有真编译，靠以下手段覆盖：
+  - ktlint（按模块基线）；
+  - 上述动效规则的等价脚本；
+  - 导入、命名参数和令牌引用的静态检查；
+  - 播放器与 TV 两轮人工审阅，发现的问题已修复。
+
+打包、签名和 APK 核验需要在本地按 `AGENTS.md` 完成。
