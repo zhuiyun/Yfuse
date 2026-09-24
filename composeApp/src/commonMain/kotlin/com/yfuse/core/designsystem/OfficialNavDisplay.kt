@@ -83,14 +83,16 @@ fun <T : Any> OfficialNavDisplay(
     SideEffect { previousDepth[0] = shownStack.size }
     val activeSharedKey = sharedMediaController.activeKey
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val calm = calmMotion()
     val density = LocalDensity.current
     val searchTravelPx = with(density) { Motion.searchTravel.roundToPx() }
     val pushTravelPx = with(density) { Motion.pushOffset.roundToPx() }
     val popTravelPx = with(density) { Motion.popOffset.roundToPx() }
+    val calmTravelPx = with(density) { CalmTravel.roundToPx() }
     // Only a stacked route rounds its corners on the way out. The root tabs and 搜索 never
     // did — the amount was pinned at 0 — yet every entry still paid for the transition
     // animation and a clipping layer.
-    val roundsCorners = motion == OfficialNavMotion.Stack && !reduceMotion
+    val roundsCorners = motion == OfficialNavMotion.Stack && !reduceMotion && !calm
     SharedTransitionLayout(modifier.windowSizeHandoff()) {
         // The key is cleared once the morph has actually run, not after a fixed 420ms: a slow
         // first frame on a low-end phone used to pull the key out from under a morph in flight.
@@ -148,35 +150,47 @@ fun <T : Any> OfficialNavDisplay(
                 modifier = Modifier.fillMaxSize(),
                 onBack = onBack,
                 transitionSpec = {
-                    rootContentTransform(
-                        motion,
-                        reduceMotion,
-                        searchTravelPx,
-                        pushTravelPx,
-                        popTravelPx,
-                        popping = false,
-                    )
+                    if (calm && !reduceMotion) {
+                        calmContentTransform(motion, calmTravelPx, popping = false)
+                    } else {
+                        rootContentTransform(
+                            motion,
+                            reduceMotion,
+                            searchTravelPx,
+                            pushTravelPx,
+                            popTravelPx,
+                            popping = false,
+                        )
+                    }
                 },
                 popTransitionSpec = {
-                    rootContentTransform(
-                        motion,
-                        reduceMotion,
-                        searchTravelPx,
-                        pushTravelPx,
-                        popTravelPx,
-                        popping = true,
-                    )
+                    if (calm && !reduceMotion) {
+                        calmContentTransform(motion, calmTravelPx, popping = true)
+                    } else {
+                        rootContentTransform(
+                            motion,
+                            reduceMotion,
+                            searchTravelPx,
+                            pushTravelPx,
+                            popTravelPx,
+                            popping = true,
+                        )
+                    }
                 },
                 predictivePopTransitionSpec = {
-                    rootContentTransform(
-                        motion,
-                        reduceMotion,
-                        searchTravelPx,
-                        pushTravelPx,
-                        popTravelPx,
-                        popping = true,
-                        predictive = true,
-                    )
+                    if (calm && !reduceMotion) {
+                        calmContentTransform(motion, calmTravelPx, popping = true, predictive = true)
+                    } else {
+                        rootContentTransform(
+                            motion,
+                            reduceMotion,
+                            searchTravelPx,
+                            pushTravelPx,
+                            popTravelPx,
+                            popping = true,
+                            predictive = true,
+                        )
+                    }
                 },
                 entryProvider = entryProvider,
             )
@@ -187,6 +201,38 @@ fun <T : Any> OfficialNavDisplay(
             }
         }
     }
+}
+
+/**
+ * 静息 — see [MotionTheme.Calm]: opacity and a few dp of travel, nothing scales. A push fades the
+ * new page in over [CALM_PUSH_MS] as it slides [CalmTravel]; going back, and every switch between
+ * tabs or into 搜索, is a [CALM_SWAP_MS] crossfade.
+ */
+private fun calmContentTransform(
+    motion: OfficialNavMotion,
+    travelPx: Int,
+    popping: Boolean,
+    predictive: Boolean = false,
+): ContentTransform {
+    val easing = if (predictive) LinearEasing else Motion.Curve
+    val swap = tween<Float>(CALM_SWAP_MS, easing = easing)
+    val transform =
+        when {
+            motion != OfficialNavMotion.Stack -> fadeIn(swap) togetherWith fadeOut(swap)
+            popping ->
+                fadeIn(swap) togetherWith
+                    (fadeOut(swap) + slideOutHorizontally(tween(CALM_SWAP_MS, easing = easing)) { travelPx })
+            else ->
+                (
+                    fadeIn(tween(CALM_PUSH_MS, easing = easing)) +
+                        slideInHorizontally(tween(CALM_PUSH_MS, easing = easing)) { travelPx }
+                ) togetherWith fadeOut(swap)
+        }
+    return ContentTransform(
+        targetContentEnter = transform.targetContentEnter,
+        initialContentExit = transform.initialContentExit,
+        sizeTransform = null,
+    )
 }
 
 private fun noBackTransition(): ContentTransform =
@@ -330,6 +376,13 @@ private fun stackContentTransform(
 
 private const val ROOT_TAB_EXIT_SCALE = 0.994f
 private const val SEARCH_SCALE_FROM = 0.97f
+
+/** 静息's travel: a few dp, enough to say which way the page went. */
+private val CalmTravel = 8.dp
+
+/** 静息's push; everything else it does is a [CALM_SWAP_MS] crossfade. */
+private const val CALM_PUSH_MS = 200
+private const val CALM_SWAP_MS = 150
 
 /** How far a page shrinks under a predictive back gesture — the platform's own 90%. */
 private const val PREDICTIVE_EXIT_SCALE = 0.9f

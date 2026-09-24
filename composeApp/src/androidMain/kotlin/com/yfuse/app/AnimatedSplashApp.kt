@@ -63,6 +63,7 @@ import com.yfuse.core.designsystem.LocalParticleLight
 import com.yfuse.core.designsystem.LocalRouteVisibilityState
 import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.Motion
+import com.yfuse.core.designsystem.MotionTheme
 import com.yfuse.core.designsystem.SplashAnimation
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.drawPhaseLight
@@ -81,7 +82,10 @@ fun AnimatedSplashApp(
     overlay: @Composable () -> Unit = {},
 ) {
     val themeMode by root.themePreferences.mode.collectAsState()
-    val reduceMotion by root.themePreferences.reduceMotion.collectAsState()
+    val reduceMotionSetting by root.themePreferences.reduceMotion.collectAsState()
+    val motionTheme by root.themePreferences.motionTheme.collectAsState()
+    // 静息 greets with the still frame too: the brand, held briefly, then a short fade.
+    val reduceMotion = reduceMotionSetting || motionTheme == MotionTheme.Calm
     val systemDark = isSystemInDarkTheme()
     val dark = themeMode.resolveDark(systemDark)
 

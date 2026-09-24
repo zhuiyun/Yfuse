@@ -33,7 +33,7 @@ internal fun Modifier.searchDockSource(): Modifier =
 @Composable
 internal fun Modifier.searchFieldArrival(): Modifier {
     val origin = remember { SearchDockOrigin.consume() }
-    val moving = LocalRouteVisible.current && !LocalAccessibilityOptions.current.reduceMotion
+    val moving = LocalRouteVisible.current && !LocalAccessibilityOptions.current.reduceMotion && !calmMotion()
     var target by remember { mutableStateOf<Rect?>(null) }
     val progress = remember { Animatable(if (origin == null || !moving) 1f else 0f) }
     LaunchedEffect(target, moving) {

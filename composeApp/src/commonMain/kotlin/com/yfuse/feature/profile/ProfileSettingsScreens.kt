@@ -13,6 +13,9 @@ import com.yfuse.core.data.SourcePreheatMode
 import com.yfuse.core.data.VideoCacheSize
 import com.yfuse.core.data.YCoreBufferDuration
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.CalmLoadingAnimation
+import com.yfuse.core.designsystem.DialogAnimation
+import com.yfuse.core.designsystem.MotionTheme
 import com.yfuse.core.designsystem.Section
 import com.yfuse.core.designsystem.SettingRow
 import com.yfuse.core.designsystem.SettingTint
@@ -485,6 +488,7 @@ internal fun AppearanceSettingsScreen(
     brandSummary: String,
     backgroundSummary: String,
     startupSummary: String,
+    motionTheme: MotionTheme,
     dialogAnimationSummary: String,
     loadingAnimationSummary: String,
     playerTransitionSummary: String,
@@ -493,10 +497,12 @@ internal fun AppearanceSettingsScreen(
     reduceTransparency: Boolean,
     largeText: Boolean,
     reduceMotion: Boolean,
+    systemMotionOff: Boolean,
     pulseSweep: Boolean,
     onBackground: () -> Unit,
     onBrand: () -> Unit,
     onStartupTab: () -> Unit,
+    onMotionTheme: () -> Unit,
     onDialogAnimation: () -> Unit,
     onLoadingAnimation: () -> Unit,
     onPlayerTransition: () -> Unit,
@@ -506,9 +512,11 @@ internal fun AppearanceSettingsScreen(
     onReduceMotion: (Boolean) -> Unit,
     onPulseSweep: (Boolean) -> Unit,
 ) {
+    // Under 静息 the theme decides these; the stored choices wait for 经典.
+    val calm = motionTheme == MotionTheme.Calm
     SettingsPage(
         title = "外观与辅助",
-        subtitle = "背景、启动与辅助显示",
+        subtitle = "背景、启动、动效与辅助显示",
         onBack = onBack,
     ) {
         motionItem(key = "appearance-look") {
@@ -523,57 +531,12 @@ internal fun AppearanceSettingsScreen(
                         onChange = onLibraryCarousel,
                     )
                     SettingsDivider()
-                    SwitchRow(
-                        "搜索与导航动效",
-                        pulseSweep,
-                        true,
-                        icon = AppIcons.Refresh,
-                        iconTint = SettingTint.components,
-                        onChange = onPulseSweep,
-                    )
-                    SettingsDivider()
-                    SettingRow(
-                        "粒子光效",
-                        particleLightSummary,
-                        true,
-                        onParticleLight,
-                        icon = AppIcons.Refresh,
-                        iconTint = SettingTint.components,
-                    )
-                    SettingsDivider()
-                    SettingRow(
-                        "弹窗动画",
-                        dialogAnimationSummary,
-                        true,
-                        onDialogAnimation,
-                        icon = AppIcons.Refresh,
-                        iconTint = SettingTint.components,
-                    )
-                    SettingsDivider()
-                    SettingRow(
-                        "加载动画",
-                        loadingAnimationSummary,
-                        true,
-                        onLoadingAnimation,
-                        icon = AppIcons.Refresh,
-                        iconTint = SettingTint.components,
-                    )
-                    SettingsDivider()
-                    SettingRow(
-                        "播放器进出场",
-                        playerTransitionSummary,
-                        true,
-                        onPlayerTransition,
-                        icon = AppIcons.Play,
-                        iconTint = SettingTint.components,
-                    )
-                    SettingsDivider()
                     SettingRow(
                         "玻璃材质",
                         "底色、透明度与背景遮罩",
                         true,
                         onGlassMaterial,
-                        icon = AppIcons.Grid,
+                        icon = AppIcons.AspectFill,
                         iconTint = SettingTint.components,
                     )
                     SettingsDivider()
@@ -606,6 +569,74 @@ internal fun AppearanceSettingsScreen(
                 }
             }
         }
+        // One place for the motion language; the six separate pickers it replaces as the way in
+        // live on below as overrides.
+        motionItem(key = "appearance-motion") {
+            Section(title = "动效") {
+                SettingsCard {
+                    SettingRow(
+                        "动效主题",
+                        motionTheme.label,
+                        true,
+                        onMotionTheme,
+                        icon = AppIcons.Movie,
+                        iconTint = SettingTint.components,
+                        supporting = motionTheme.description,
+                    )
+                }
+            }
+        }
+        motionItem(key = "appearance-motion-overrides") {
+            Section(title = "高级 · 单独覆盖") {
+                SettingsCard {
+                    SwitchRow(
+                        "搜索与导航动效",
+                        pulseSweep,
+                        true,
+                        icon = AppIcons.SearchTab,
+                        iconTint = SettingTint.components,
+                        description = if (calm) "静息主题下导航只做淡入淡出" else null,
+                        onChange = onPulseSweep,
+                    )
+                    SettingsDivider()
+                    SettingRow(
+                        "粒子光效",
+                        if (calm) "静息主题下关闭" else particleLightSummary,
+                        true,
+                        onParticleLight,
+                        icon = AppIcons.StarFilled,
+                        iconTint = SettingTint.components,
+                    )
+                    SettingsDivider()
+                    SettingRow(
+                        "弹窗动画",
+                        if (calm) "静息主题下为${DialogAnimation.Lift.label}" else dialogAnimationSummary,
+                        true,
+                        onDialogAnimation,
+                        icon = AppIcons.Expand,
+                        iconTint = SettingTint.components,
+                    )
+                    SettingsDivider()
+                    SettingRow(
+                        "加载动画",
+                        if (calm) "静息主题下为${CalmLoadingAnimation.label}" else loadingAnimationSummary,
+                        true,
+                        onLoadingAnimation,
+                        icon = AppIcons.Refresh,
+                        iconTint = SettingTint.components,
+                    )
+                    SettingsDivider()
+                    SettingRow(
+                        "播放器进出场",
+                        playerTransitionSummary,
+                        true,
+                        onPlayerTransition,
+                        icon = AppIcons.Play,
+                        iconTint = SettingTint.components,
+                    )
+                }
+            }
+        }
         motionItem(key = "appearance-accessibility") {
             Section(title = "辅助功能") {
                 SettingsCard {
@@ -627,12 +658,16 @@ internal fun AppearanceSettingsScreen(
                         onChange = onLargeText,
                     )
                     SettingsDivider()
+                    // The switch shows the person's own choice; when the device has animations
+                    // off the app has already reduced them, and an unexplained 「关」 read as if
+                    // nothing were being honoured.
                     SwitchRow(
                         "减少动画",
                         reduceMotion,
                         true,
-                        icon = AppIcons.Refresh,
+                        icon = AppIcons.Pause,
                         iconTint = SettingTint.advanced,
+                        description = if (systemMotionOff && !reduceMotion) "系统已关闭动画，应用已自动减少" else null,
                         onChange = onReduceMotion,
                     )
                 }

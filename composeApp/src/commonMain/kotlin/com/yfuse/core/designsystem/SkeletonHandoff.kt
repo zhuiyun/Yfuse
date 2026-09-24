@@ -58,7 +58,8 @@ internal fun SkeletonArrivalScope(
     loading: Boolean,
     content: @Composable () -> Unit,
 ) {
-    val moving = LocalRouteVisible.current && !LocalAccessibilityOptions.current.reduceMotion
+    // 静息 drops the row-by-row arrival: the skeleton's own fade out is enough.
+    val moving = LocalRouteVisible.current && !LocalAccessibilityOptions.current.reduceMotion && !calmMotion()
     val previous = remember { booleanArrayOf(loading) }
     val arrival =
         remember(loading, moving) {

@@ -73,7 +73,8 @@ internal val LocalSharedMediaTransitionController =
 internal fun isSharedMediaArtworkActive(key: MediaSharedElementKey?): Boolean {
     val controller = LocalSharedMediaTransitionController.current
     if (key == null || controller == null || LocalSharedTransitionScope.current == null) return false
-    if (LocalAccessibilityOptions.current.reduceMotion) return false
+    // 静息 keeps pages to fades; an artwork flying between them is exactly what it leaves out.
+    if (LocalAccessibilityOptions.current.reduceMotion || calmMotion()) return false
     // Derived per poster: a tap changes the answer for one tile, so only that tile recomposes.
     // Comparing in composition made every visible poster recompose on every tap.
     val active by remember(controller, key) {

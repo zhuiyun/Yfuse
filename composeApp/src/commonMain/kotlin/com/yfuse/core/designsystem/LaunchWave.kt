@@ -204,7 +204,8 @@ val LocalLaunchWave = staticCompositionLocalOf<LaunchWaveState?> { null }
 @Composable
 fun rememberLaunchWave(contentVisible: Boolean): LaunchWaveState {
     val scope = rememberCoroutineScope()
-    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    // 静息 has no waves: the page simply fades in with the shell.
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion || calmMotion()
     val wave = remember { LaunchWaveState(scope, armed = LaunchWaveGate.pending && !reduceMotion) }
     LaunchedEffect(contentVisible) {
         if (!contentVisible) return@LaunchedEffect

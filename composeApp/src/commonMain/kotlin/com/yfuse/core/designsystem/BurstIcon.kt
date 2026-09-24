@@ -46,7 +46,8 @@ fun BurstIcon(
     modifier: Modifier = Modifier,
     iconSize: Dp = 14.dp,
 ) {
-    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    // 静息 marks the change without the burst: the icon swaps, nothing pops or rings.
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion || calmMotion()
     val light = rememberLightFeedback()
     val visible = LocalRouteVisible.current
     val pop = remember { Animatable(1f) }

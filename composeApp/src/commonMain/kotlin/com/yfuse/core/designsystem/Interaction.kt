@@ -234,6 +234,9 @@ fun Modifier.pressable(
     onClick: () -> Unit,
 ): Modifier {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    // 静息 answers a press the way 减少动画 does — the state layer, no squeeze, no lean — though
+    // its fades still animate.
+    val stillPress = reduceMotion || calmMotion()
     val haptics = LocalHaptics.current
     val light = rememberLightFeedback(enabled && lightFeedback && role == Role.Button)
     val source = interactionSource ?: remember { MutableInteractionSource() }
@@ -243,7 +246,7 @@ fun Modifier.pressable(
     val down = pressed && enabled
     val targetScale =
         pressScaleTarget(
-            reduceMotion = reduceMotion,
+            reduceMotion = stillPress,
             pressed = down,
             highlighted = enabled && focused,
             pressedScale = pressedScale,
@@ -272,7 +275,7 @@ fun Modifier.pressable(
                     enabled = enabled && stateLayer,
                     pressed = down,
                     hovered = hovered,
-                    reduceMotion = reduceMotion,
+                    reduceMotion = stillPress,
                     tintOnPress = tintOnPress,
                 ),
             animationSpec = if (reduceMotion) snap() else Motion.tween(if (down) Motion.PRESS_IN else Motion.QUICK),
@@ -287,7 +290,7 @@ fun Modifier.pressable(
 
     // 减弱动态效果 turns the lean off rather than shortening it: a rotation that snaps to
     // its end state and back is exactly the kind of movement the setting exists to remove.
-    val tilting = tilt && !reduceMotion
+    val tilting = tilt && !stillPress
     var pressPoint by remember { mutableStateOf(Offset.Unspecified) }
     LaunchedEffect(source, tilting, light) {
         if (!tilting && !light.enabled) return@LaunchedEffect

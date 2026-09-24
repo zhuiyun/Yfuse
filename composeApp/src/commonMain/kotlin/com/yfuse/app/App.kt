@@ -78,8 +78,8 @@ import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.LocalPulseSweepEnabled
 import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.LocalTabIdentity
-import com.yfuse.core.designsystem.LocalToastBottomInset
 import com.yfuse.core.designsystem.LocalTabReselected
+import com.yfuse.core.designsystem.LocalToastBottomInset
 import com.yfuse.core.designsystem.MinTouchTarget
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.OfficialNavDisplay
@@ -89,6 +89,7 @@ import com.yfuse.core.designsystem.SkeletonPulseProvider
 import com.yfuse.core.designsystem.YfuseTheme
 import com.yfuse.core.designsystem.attentionSweep
 import com.yfuse.core.designsystem.backdropSource
+import com.yfuse.core.designsystem.calmMotion
 import com.yfuse.core.designsystem.drawLensIsland
 import com.yfuse.core.designsystem.drawMotionSweep
 import com.yfuse.core.designsystem.drawPhaseLight
@@ -181,6 +182,7 @@ fun App(root: RootComponent) {
     val glassMaterials by root.themePreferences.glassMaterials.collectAsState()
     val backgroundImage by root.themePreferences.backgroundImage.collectAsState()
     val backgroundDim by root.themePreferences.backgroundDim.collectAsState()
+    val motionTheme by root.themePreferences.motionTheme.collectAsState()
     val dark = mode.resolveDark(isSystemInDarkTheme())
 
     YfuseTheme(
@@ -191,6 +193,7 @@ fun App(root: RootComponent) {
         loadingAnimation = loadingAnimation,
         glassMaterials = glassMaterials,
         particleLight = particleLight,
+        motionTheme = motionTheme,
     ) {
         BindProductServices(root)
         val savedServers by root.dependencies.serverRegistry.data
@@ -721,7 +724,8 @@ internal fun GlassTabBar(
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
-    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    // 静息: the pill takes its new place without travelling or stretching.
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion || calmMotion()
     val liquid = liquidNavigationGlass()
     val navigationGlass = navigationGlassVisuals(palette, accent)
     // -1 while 搜索 is open: it is not one of the cells any more, so the pill has nowhere to
@@ -886,7 +890,8 @@ private fun LiquidGlassTabIcon(
     tint: Color,
     selected: Boolean = false,
 ) {
-    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    // No lift-and-settle on the selected glyph under 静息 either.
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion || calmMotion()
     val emphasis by animateFloatAsState(
         targetValue = if (selected) 1f else 0f,
         animationSpec = Motion.tabIcon(reduceMotion),

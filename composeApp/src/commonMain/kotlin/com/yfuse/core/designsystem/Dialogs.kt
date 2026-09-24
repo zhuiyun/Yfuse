@@ -547,6 +547,8 @@ internal fun rememberOverlayTransition(
     onLeft: () -> Unit,
 ): () -> Float {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    // 静息 keeps the dialog's fade and short rise, at 60% of the length.
+    val scale = if (calmMotion()) CALM_DURATION_SCALE else 1f
     val progress = remember { Animatable(if (reduceMotion) 1f else 0f) }
     val finish by rememberUpdatedState(onLeft)
     // LaunchedEffect cancels an interrupted entrance. Exit also completes when dismissed
@@ -560,12 +562,12 @@ internal fun rememberOverlayTransition(
                 target,
                 if (leaving) {
                     tween(
-                        overlayRemainingDurationMillis(animation.exitMillis, progress.value, target),
+                        overlayRemainingDurationMillis(scaled(animation.exitMillis, scale), progress.value, target),
                         easing = Motion.Dialog.ExitCurve,
                     )
                 } else {
                     tween(
-                        overlayRemainingDurationMillis(animation.enterMillis, progress.value, target),
+                        overlayRemainingDurationMillis(scaled(animation.enterMillis, scale), progress.value, target),
                         easing = Motion.Dialog.EnterCurve,
                     )
                 },
@@ -575,6 +577,11 @@ internal fun rememberOverlayTransition(
     }
     return remember(progress) { { progress.value } }
 }
+
+private fun scaled(
+    millis: Int,
+    scale: Float,
+): Int = (millis * scale).roundToInt()
 
 internal fun overlayRemainingDurationMillis(
     duration: Int,
