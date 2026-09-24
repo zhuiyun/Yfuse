@@ -3,7 +3,6 @@
 package com.yfuse.feature.search
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
@@ -154,9 +153,18 @@ private fun SearchHomeScreen(
     val focusManager = LocalFocusManager.current
     val routeVisible = LocalRouteVisible.current
     val awaitingFirstResults = state.loading && state.groups.isEmpty()
+    // Every letter typed is a new state. The filtered and ranked lists are worked out once per
+    // change to what they come from, not on each of the several reads a recomposition makes, and
+    // the rows handed the same lists stay skippable.
+    val visibleAggregated =
+        remember(state.aggregated, state.type, state.sort, state.searchedQuery) { state.visibleAggregated }
+    val visibleGroups = remember(state.groups, state.type) { state.visibleGroups }
+    val availableTypes = remember(state.groups, state.type) { state.availableTypes }
+    val visibleResultCount =
+        if (state.aggregated.isNotEmpty()) visibleAggregated.size else visibleGroups.sumOf { it.items.size }
     val resultHandoff =
         rememberSearchResultsHandoff(
-            state.resultsPhase(),
+            state.resultsPhase(visibleResultCount),
             loading = state.loading,
             presentationKey = state.presentationKey(),
             skeleton = awaitingFirstResults,
@@ -233,8 +241,8 @@ private fun SearchHomeScreen(
                             if (compactResults) "显示简介" else "紧凑结果",
                         ) { compactResults = !compactResults }
                         ResultsHeading(
-                            count = state.visibleResultCount,
-                            types = state.availableTypes,
+                            count = visibleResultCount,
+                            types = availableTypes,
                             selected = state.type,
                             onSelectType = { store.accept(SearchIntent.SetType(it)) },
                         )
@@ -266,7 +274,7 @@ private fun SearchHomeScreen(
                         }
 
                     // 没有找到相关内容 — `400 12px Manrope`, `--pg-hint`, `padding:20px 0`.
-                    state.visibleGroups.all { it.items.isEmpty() } && !state.loading ->
+                    visibleGroups.all { it.items.isEmpty() } && !state.loading ->
                         motionItem(key = "search-results-empty") {
                             Box(
                                 Modifier
@@ -282,7 +290,7 @@ private fun SearchHomeScreen(
 
                     state.aggregated.isNotEmpty() ->
                         motionItemsIndexed(
-                            items = state.visibleAggregated,
+                            items = visibleAggregated,
                             key = { _, group -> group.identity },
                             contentType = { _, _ -> "aggregated-search-result" },
                         ) { index, group ->
@@ -312,7 +320,7 @@ private fun SearchHomeScreen(
 
                     else ->
                         motionItemsIndexed(
-                            items = state.visibleGroups,
+                            items = visibleGroups,
                             key = { _, group -> "server-results-${group.serverId}" },
                             contentType = { _, _ -> "server-search-group" },
                         ) { index, group ->
@@ -432,8 +440,8 @@ internal fun SearchField(
             val reduce = LocalAccessibilityOptions.current.reduceMotion || !LocalRouteVisible.current
             this@Row.AnimatedVisibility(
                 visible = loading,
-                enter = fadeIn(tween(if (reduce) 0 else Motion.QUICK)),
-                exit = fadeOut(tween(if (reduce) 0 else Motion.QUICK)),
+                enter = fadeIn(Motion.tween(if (reduce) 0 else Motion.QUICK)),
+                exit = fadeOut(Motion.tween(if (reduce) 0 else Motion.QUICK)),
             ) {
                 OrbProgress(size = SearchFieldOrbSize, contentDescription = "正在搜索")
             }

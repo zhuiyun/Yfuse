@@ -49,12 +49,13 @@ internal enum class SearchResultsPhase {
     Results,
 }
 
-internal fun SearchState.resultsPhase(): SearchResultsPhase =
+/** [resultCount] lets a caller that already worked out [SearchState.visibleResultCount] pass it in. */
+internal fun SearchState.resultsPhase(resultCount: Int = visibleResultCount): SearchResultsPhase =
     when {
         loading && groups.isEmpty() -> SearchResultsPhase.Loading
         error != null -> SearchResultsPhase.Error
         !hasSearched -> SearchResultsPhase.Idle
-        visibleResultCount > 0 -> SearchResultsPhase.Results
+        resultCount > 0 -> SearchResultsPhase.Results
         loading -> SearchResultsPhase.Loading
         else -> SearchResultsPhase.Empty
     }
@@ -195,16 +196,23 @@ internal class SearchRevealMotion(
     /** For the whole results page: the request bloom and, on a landing, the one band of light. */
     val page: Modifier,
 ) {
+    // One modifier per row for as long as this motion lives. A fresh one on every call made each
+    // visible result row a changed argument, so every letter typed recomposed rows that had not
+    // changed. The layer reads the clock and the schedule when it draws, so reuse changes nothing.
+    private val items = HashMap<String, Modifier>()
+
     /** [key] is the row's identity across result changes; [index] only names rows that have none. */
     fun item(
         index: Int = 0,
         key: String? = null,
     ): Modifier {
         val identity = key ?: "index:$index"
-        return Modifier.graphicsLayer {
-            val amount = schedule.progress(identity, clock.value)
-            alpha = amount
-            translationY = if (schedule.lifts(identity)) 18.dp.toPx() * (1f - amount) else 0f
+        return items.getOrPut(identity) {
+            Modifier.graphicsLayer {
+                val amount = schedule.progress(identity, clock.value)
+                alpha = amount
+                translationY = if (schedule.lifts(identity)) 18.dp.toPx() * (1f - amount) else 0f
+            }
         }
     }
 }
