@@ -1,6 +1,7 @@
 package com.yfuse.tv.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
@@ -14,16 +15,22 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.SaveableStateHolder
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
@@ -34,14 +41,20 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.arkivanov.decompose.extensions.compose.subscribeAsState
+import com.arkivanov.decompose.router.stack.ChildStack
 import com.yfuse.app.BindBackgroundServices
 import com.yfuse.app.RootComponent
-import com.yfuse.core.designsystem.AccessibilityOptions
+import com.yfuse.app.effectiveGlassStyle
+import com.yfuse.app.rememberAppAccessibilityOptions
 import com.yfuse.core.designsystem.AppIcons
-import com.yfuse.core.designsystem.GlassStyle
+import com.yfuse.core.designsystem.LocalAccessibilityOptions
+import com.yfuse.core.designsystem.LocalDialogBackdrop
+import com.yfuse.core.designsystem.Motion
+import com.yfuse.core.designsystem.ParticleLight
 import com.yfuse.core.designsystem.YfuseTheme
 import com.yfuse.core.network.LocalNetworkAccessNotice
 import com.yfuse.feature.home.HomeTabComponent
@@ -73,9 +86,10 @@ private val tvDestinations =
 /** Public Android-TV entry point used by TvMainActivity. */
 @Composable
 fun TvApp(component: RootComponent) {
-    val reduceTransparency by component.themePreferences.reduceTransparency.collectAsState()
-    val largeText by component.themePreferences.largeText.collectAsState()
-    val reduceMotion by component.themePreferences.reduceMotion.collectAsState()
+    // The phone's builder: the person's switches plus the system's 「移除动画」, which the
+    // television never heard — its reel kept turning and its focus kept scaling with animations
+    // off for the whole device.
+    val accessibility = rememberAppAccessibilityOptions(component.themePreferences)
     val dialogAnimation by component.themePreferences.dialogAnimation.collectAsState()
     val glassStyle by component.themePreferences.glassStyle.collectAsState()
     val loadingAnimation by component.themePreferences.loadingAnimation.collectAsState()
@@ -86,26 +100,29 @@ fun TvApp(component: RootComponent) {
     // tokens — a grey or white panel over a dark room. A television has one theme.
     YfuseTheme(
         dark = true,
-        accessibility =
-            AccessibilityOptions(
-                reduceTransparency = reduceTransparency,
-                largeText = largeText,
-                reduceMotion = reduceMotion,
-            ),
-        glassStyle = if (reduceTransparency) GlassStyle.Frosted else glassStyle,
-        dialogAnimation = dialogAnimation,
+        accessibility = accessibility,
+        glassStyle = effectiveGlassStyle(glassStyle, accessibility.reduceTransparency),
+        dialogAnimation = dialogAnimation.onTv(),
+        // A set-top GPU pays for no decoration it does not have to: the phone's default 轻柔
+        // particles lit on every focus of a shared control, and there is no setting for them here.
+        particleLight = ParticleLight.Off,
         loadingAnimation = loadingAnimation,
         glassMaterials = glassMaterials,
     ) {
-        com.yfuse.app.BindProductServices(component)
-        val savedServers by component.dependencies.serverRegistry.data
-            .collectAsState()
-        val permissionScope = rememberCoroutineScope()
-        LocalNetworkAccessNotice(hasServers = savedServers.servers.isNotEmpty()) {
-            permissionScope.launch { component.dependencies.serverHealthMonitor.refreshAll() }
+        // Dialog panels stay opaque, like every other plate on the television (see TvTokens):
+        // with no page backdrop to sample, the shared dialog paints its solid body instead of
+        // blurring the whole page behind it for as long as it is open.
+        CompositionLocalProvider(LocalDialogBackdrop provides null) {
+            com.yfuse.app.BindProductServices(component)
+            val savedServers by component.dependencies.serverRegistry.data
+                .collectAsState()
+            val permissionScope = rememberCoroutineScope()
+            LocalNetworkAccessNotice(hasServers = savedServers.servers.isNotEmpty()) {
+                permissionScope.launch { component.dependencies.serverHealthMonitor.refreshAll() }
+            }
+            TvRoot(component)
+            PlaybackReportingWarning(component.dependencies.playbackReportingCoordinator)
         }
-        TvRoot(component)
-        PlaybackReportingWarning(component.dependencies.playbackReportingCoordinator)
     }
 }
 
@@ -121,6 +138,24 @@ fun TvRoot(component: RootComponent) {
     val focusMemory = remember { TvUiFocusMemory() }
     val navRequesters = remember { RootComponent.Tab.entries.associateWith { FocusRequester() } }
     val contentRequesters = remember { RootComponent.Tab.entries.associateWith { FocusRequester() } }
+
+    // A pushed page keeps its saveable state — its list's scroll position above all — for as long
+    // as it is in its tab's stack, so detail A → related B → back finds A where the viewer left it.
+    // The bare `when` this replaces rebuilt A from the top, carrying B's scroll position into it.
+    val pageStates = rememberSaveableStateHolder()
+    val stackedPageKeys =
+        buildSet {
+            homeStack.items.forEach { add(tvPageKey(RootComponent.Tab.Home, it.key)) }
+            libraryStack.items.forEach { add(tvPageKey(RootComponent.Tab.Browse, it.key)) }
+            searchStack.items.forEach { add(tvPageKey(RootComponent.Tab.Search, it.key)) }
+        }
+    val knownPageKeys = remember { mutableSetOf<String>() }
+    LaunchedEffect(stackedPageKeys) {
+        // Popped pages forget, so opening the same title again starts at its top.
+        (knownPageKeys - stackedPageKeys).forEach(pageStates::removeState)
+        knownPageKeys.clear()
+        knownPageKeys.addAll(stackedPageKeys)
+    }
 
     val atRoot =
         when (activeTab) {
@@ -153,8 +188,63 @@ fun TvRoot(component: RootComponent) {
         component.dependencies.playbackReportingCoordinator.flushPending()
     }
 
-    Box(Modifier.fillMaxSize().background(TvBackground)) {
+    val page =
         if (atRoot) {
+            TvPage.Root
+        } else {
+            when (activeTab) {
+                RootComponent.Tab.Home -> TvPage.pushed(activeTab, homeStack)
+                RootComponent.Tab.Browse -> TvPage.pushed(activeTab, libraryStack)
+                RootComponent.Tab.Search -> TvPage.pushed(activeTab, searchStack)
+                RootComponent.Tab.Profile -> TvPage.pushed(activeTab, profileStack)
+                RootComponent.Tab.Servers -> TvPage.Root
+            }
+        }
+    val currentPage by rememberUpdatedState(page)
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val travel = with(LocalDensity.current) { TvPageMotion.travel.roundToPx() }
+
+    Box(Modifier.fillMaxSize().background(TvBackground)) {
+        // Each page renders from the target it was handed, never from the live stacks: the page
+        // that is leaving has to keep drawing itself, not the one that replaced it.
+        AnimatedContent(
+            targetState = page,
+            transitionSpec = {
+                // Deeper arrives from the right, and back arrives from the left.
+                val direction = if (targetState.depth >= initialState.depth) 1 else -1
+                TvPageMotion.transform(reduceMotion, travel * direction) using Motion.sizeTransform(reduceMotion)
+            },
+            label = "tv-route",
+        ) { shown ->
+            // The page on its way out keeps focus until the new one takes it; a second press of
+            // 确定 in that moment must not open the same title again from the page that is leaving.
+            Box(Modifier.fillMaxSize().onPreviewKeyEvent { currentPage != shown }) {
+                TvRoutePage(
+                    shown = shown,
+                    component = component,
+                    activeTab = activeTab,
+                    focusMemory = focusMemory,
+                    navRequesters = navRequesters,
+                    contentRequesters = contentRequesters,
+                    pageStates = pageStates,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TvRoutePage(
+    shown: TvPage,
+    component: RootComponent,
+    activeTab: RootComponent.Tab,
+    focusMemory: TvUiFocusMemory,
+    navRequesters: Map<RootComponent.Tab, FocusRequester>,
+    contentRequesters: Map<RootComponent.Tab, FocusRequester>,
+    pageStates: SaveableStateHolder,
+) {
+    when (shown) {
+        TvPage.Root ->
             Row(Modifier.fillMaxSize()) {
                 TvNavigationRail(
                     selected = activeTab,
@@ -172,23 +262,47 @@ fun TvRoot(component: RootComponent) {
                         component = component,
                         activeTab = activeTab,
                         focusMemory = focusMemory,
-                        navigationRequester = navRequesters.getValue(activeTab),
-                        contentRequester = contentRequesters.getValue(activeTab),
+                        navRequesters = navRequesters,
+                        contentRequesters = contentRequesters,
                     )
                 }
             }
-        } else {
-            TvSecondaryContent(
-                component = component,
-                activeTab = activeTab,
-                focusMemory = focusMemory,
-                homeChild = homeStack.active.instance,
-                libraryChild = libraryStack.active.instance,
-                searchChild = searchStack.active.instance,
-            )
-        }
+        is TvPage.Pushed ->
+            pageStates.SaveableStateProvider(shown.stateKey) {
+                TvPushedPage(component = component, child = shown.child, focusMemory = focusMemory)
+            }
     }
 }
+
+/** What fills the window: the tabs with their rail, or one page pushed onto a tab's stack. */
+private sealed interface TvPage {
+    /** How deep the page sits in its tab's stack; the tabs themselves are 0. */
+    val depth: Int
+
+    data object Root : TvPage {
+        override val depth: Int = 0
+    }
+
+    /** [stateKey] names the page in the saved-state holder: unique within the stacks, and a String. */
+    data class Pushed(
+        val stateKey: String,
+        val child: Any,
+        override val depth: Int,
+    ) : TvPage
+
+    companion object {
+        fun pushed(
+            tab: RootComponent.Tab,
+            stack: ChildStack<*, Any>,
+        ): TvPage = Pushed(tvPageKey(tab, stack.active.key), stack.active.instance, stack.backStack.size)
+    }
+}
+
+/** A pushed page's key in the saved-state holder. */
+private fun tvPageKey(
+    tab: RootComponent.Tab,
+    childKey: String,
+): String = "${tab.name}:$childKey"
 
 @Composable
 private fun TvNavigationRail(
@@ -220,6 +334,7 @@ private fun TvNavigationRail(
                 focusMemory = focusMemory,
                 onClick = { onSelected(destination.tab) },
                 selected = isSelected,
+                selectable = true,
                 focusRequester = navRequesters.getValue(destination.tab),
                 scaleWhenFocused = 1.025f,
                 modifier =
@@ -230,47 +345,40 @@ private fun TvNavigationRail(
                                 event.type == KeyEventType.KeyDown &&
                                 event.key == Key.DirectionRight
                             ) {
-                                val route = destination.tab.tvFocusRoute()
-                                if (!focusMemory.requestLastForRoute(route)) {
-                                    contentRequesters.getValue(destination.tab).requestFocus()
+                                if (!isSelected) {
+                                    // Right into a tab that is not open opens it; the page's
+                                    // entry restore brings focus in once it is there. The key
+                                    // used to be consumed with nothing to move to.
+                                    onSelected(destination.tab)
+                                } else if (!focusMemory.requestLastForRoute(destination.tab.tvFocusRoute())) {
+                                    runCatching { contentRequesters.getValue(destination.tab).requestFocus() }
                                 }
                                 true
                             } else {
                                 false
                             }
                         },
-            ) { focused ->
+            ) {
+                // The white plate and black ink come in on the surface's focus clock; the open tab
+                // is marked by the surface's own selected plate and edge, as everywhere else.
+                val focus = LocalTvFocusAmount.current
                 Row(
                     Modifier
-                        .background(
-                            if (focused || isSelected) {
-                                Color.White.copy(alpha = if (focused) 0.96f else 0.12f)
-                            } else {
-                                Color.Transparent
-                            },
-                        ).padding(horizontal = 14.dp, vertical = 13.dp),
+                        .drawBehind { drawRect(Color.White.copy(alpha = 0.96f * focus.value.coerceIn(0f, 1f))) }
+                        .padding(horizontal = 14.dp, vertical = 13.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(
-                        imageVector = destination.icon,
-                        contentDescription = null,
-                        tint =
-                            when {
-                                focused -> Color.Black
-                                isSelected -> TvAccent
-                                else -> TvOnSurfaceMuted
-                            },
+                    TvFocusIcon(
+                        icon = destination.icon,
+                        rest = if (isSelected) TvAccent else TvOnSurfaceMuted,
+                        focused = Color.Black,
                         modifier = Modifier.size(24.dp),
                     )
                     Spacer(Modifier.width(13.dp))
-                    Text(
+                    TvFocusText(
                         text = destination.label,
-                        color =
-                            when {
-                                focused -> Color.Black
-                                isSelected -> TvOnSurface
-                                else -> TvOnSurfaceMuted
-                            },
+                        rest = if (isSelected) TvOnSurface else TvOnSurfaceMuted,
+                        focused = Color.Black,
                         fontSize = TvType.caption,
                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                     )
@@ -290,8 +398,55 @@ private fun RootComponent.Tab.tvFocusRoute(): String =
         RootComponent.Tab.Profile -> "settings"
     }
 
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 private fun TvRootTabContent(
+    component: RootComponent,
+    activeTab: RootComponent.Tab,
+    focusMemory: TvUiFocusMemory,
+    navRequesters: Map<RootComponent.Tab, FocusRequester>,
+    contentRequesters: Map<RootComponent.Tab, FocusRequester>,
+) {
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    // Tabs are one level: a crossfade, no travel. Each tab draws from the tab it was handed, so
+    // the one leaving keeps its own requesters while it fades.
+    AnimatedContent(
+        targetState = activeTab,
+        transitionSpec = {
+            TvPageMotion.transform(reduceMotion, travelPx = 0) using Motion.sizeTransform(reduceMotion)
+        },
+        label = "tv-tab",
+    ) { tab ->
+        val navigationRequester = navRequesters.getValue(tab)
+        // Left out of the page lands on its own tab in the rail, from wherever it leaves. Pages used
+        // to guess which cards sat in their first column — search assumed six columns on a grid
+        // that fits four — and every card they missed fell to whichever rail item was nearest.
+        Box(
+            Modifier
+                .fillMaxSize()
+                .focusProperties {
+                    exit = { direction ->
+                        if (direction == FocusDirection.Left) navigationRequester else FocusRequester.Default
+                    }
+                }.focusGroup(),
+        ) {
+            TvRootTabPage(
+                component = component,
+                activeTab = tab,
+                focusMemory = focusMemory,
+                navigationRequester = navigationRequester,
+                contentRequester = contentRequesters.getValue(tab),
+            )
+        }
+    }
+}
+
+/**
+ * One tab's root page. It is looked up anywhere in the stack rather than as the active child: the
+ * tabs keep drawing while they fade out under a page just pushed on top of them.
+ */
+@Composable
+private fun TvRootTabPage(
     component: RootComponent,
     activeTab: RootComponent.Tab,
     focusMemory: TvUiFocusMemory,
@@ -301,7 +456,7 @@ private fun TvRootTabContent(
     when (activeTab) {
         RootComponent.Tab.Home -> {
             val stack by component.home.stack.subscribeAsState()
-            val child = stack.active.instance as? HomeTabComponent.Child.Home
+            val child = stack.items.firstNotNullOfOrNull { it.instance as? HomeTabComponent.Child.Home }
             child?.let {
                 Box(
                     Modifier
@@ -324,7 +479,7 @@ private fun TvRootTabContent(
         }
         RootComponent.Tab.Browse -> {
             val stack by component.browse.stack.subscribeAsState()
-            val child = stack.active.instance as? LibraryComponent.Child.Home
+            val child = stack.items.firstNotNullOfOrNull { it.instance as? LibraryComponent.Child.Home }
             child?.let {
                 TvLibraryHomeScreen(
                     component = it.component,
@@ -343,7 +498,7 @@ private fun TvRootTabContent(
             )
         RootComponent.Tab.Search -> {
             val stack by component.search.stack.subscribeAsState()
-            val child = stack.active.instance as? SearchComponent.Child.Home
+            val child = stack.items.firstNotNullOfOrNull { it.instance as? SearchComponent.Child.Home }
             child?.let {
                 TvSearchHomeScreen(
                     component = it.component,
@@ -355,7 +510,7 @@ private fun TvRootTabContent(
         }
         RootComponent.Tab.Profile -> {
             val stack by component.profile.stack.subscribeAsState()
-            val child = stack.active.instance as? ProfileTabComponent.Child.Home
+            val child = stack.items.firstNotNullOfOrNull { it.instance as? ProfileTabComponent.Child.Home }
             child?.let {
                 TvSettingsScreen(
                     component = it.component,
@@ -368,44 +523,24 @@ private fun TvRootTabContent(
     }
 }
 
+/** A page pushed onto a tab's stack, drawn from the child it was handed — see [TvPage]. */
 @Composable
-private fun TvSecondaryContent(
+private fun TvPushedPage(
     component: RootComponent,
-    activeTab: RootComponent.Tab,
+    child: Any,
     focusMemory: TvUiFocusMemory,
-    homeChild: HomeTabComponent.Child,
-    libraryChild: LibraryComponent.Child,
-    searchChild: SearchComponent.Child,
 ) {
-    when (activeTab) {
-        RootComponent.Tab.Home ->
-            when (homeChild) {
-                is HomeTabComponent.Child.Detail -> TvDetailScreen(homeChild.component, focusMemory)
-                is HomeTabComponent.Child.Player -> PlayerScreen(homeChild.component)
-                is HomeTabComponent.Child.Info ->
-                    TvTmdbInfoScreen(homeChild.component, focusMemory)
-                is HomeTabComponent.Child.Calendar ->
-                    TvCalendarScreen(homeChild.component, focusMemory)
-                is HomeTabComponent.Child.Home -> Unit
-            }
-        RootComponent.Tab.Browse ->
-            when (libraryChild) {
-                is LibraryComponent.Child.Grid ->
-                    TvLibraryGridScreen(libraryChild.component, focusMemory)
-                LibraryComponent.Child.Unified -> TvUnifiedLibraryScreen(component.browse, focusMemory)
-                is LibraryComponent.Child.Detail -> TvDetailScreen(libraryChild.component, focusMemory)
-                is LibraryComponent.Child.Player -> PlayerScreen(libraryChild.component)
-                is LibraryComponent.Child.Home -> Unit
-            }
-        RootComponent.Tab.Search ->
-            when (searchChild) {
-                is SearchComponent.Child.Detail -> TvDetailScreen(searchChild.component, focusMemory)
-                is SearchComponent.Child.Player -> PlayerScreen(searchChild.component)
-                is SearchComponent.Child.Home -> Unit
-            }
-        RootComponent.Tab.Profile,
-        RootComponent.Tab.Servers,
-        -> Unit
+    when (child) {
+        is HomeTabComponent.Child.Detail -> TvDetailScreen(child.component, focusMemory)
+        is HomeTabComponent.Child.Player -> PlayerScreen(child.component)
+        is HomeTabComponent.Child.Info -> TvTmdbInfoScreen(child.component, focusMemory)
+        is HomeTabComponent.Child.Calendar -> TvCalendarScreen(child.component, focusMemory)
+        is LibraryComponent.Child.Grid -> TvLibraryGridScreen(child.component, focusMemory)
+        LibraryComponent.Child.Unified -> TvUnifiedLibraryScreen(component.browse, focusMemory)
+        is LibraryComponent.Child.Detail -> TvDetailScreen(child.component, focusMemory)
+        is LibraryComponent.Child.Player -> PlayerScreen(child.component)
+        is SearchComponent.Child.Detail -> TvDetailScreen(child.component, focusMemory)
+        is SearchComponent.Child.Player -> PlayerScreen(child.component)
     }
 }
 

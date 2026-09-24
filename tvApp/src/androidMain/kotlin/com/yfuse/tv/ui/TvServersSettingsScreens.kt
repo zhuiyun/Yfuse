@@ -36,6 +36,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.DialogPresence
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.overlayDismiss
 import com.yfuse.core.model.MediaServerKind
@@ -93,7 +94,7 @@ internal fun TvServersScreen(
         candidates = serverCandidates,
         scrollToAnchor = { anchor ->
             if (anchor.sectionId == "servers:grid" && serverCandidates.isNotEmpty()) {
-                serverGridState.scrollToItem(anchor.fallbackIndex.coerceIn(0, serverCandidates.lastIndex))
+                serverGridState.revealForRestore(anchor.fallbackIndex.coerceIn(0, serverCandidates.lastIndex))
             }
         },
     )
@@ -186,9 +187,11 @@ internal fun TvServersScreen(
         }
     }
 
-    if (state.dialogVisible) {
+    // The store closes the dialog itself once a server connects. Held here, it plays its exit
+    // from the state it last showed instead of vanishing in a frame.
+    DialogPresence(state.takeIf { it.dialogVisible }) { shown ->
         TvServerDialog(
-            state = state,
+            state = shown,
             focusMemory = focusMemory,
             onIntent = store::accept,
         )
@@ -212,6 +215,7 @@ private fun TvServerCard(
         focusMemory = focusMemory,
         onClick = onOpen,
         selected = selected,
+        selectable = true,
         navigationRequester = navigationRequester,
         returnToNavigationOnLeft = returnToNavigationOnLeft,
         fallbackIndex = fallbackIndex,
@@ -324,6 +328,7 @@ private fun TvServerDialog(
                         onClick = { sendIntent(ServersIntent.ProviderChanged(kind)) },
                         modifier = Modifier.width(136.dp),
                         selected = kind == state.form.kind,
+                        selectable = true,
                     )
                 }
                 TvActionButton(

@@ -18,6 +18,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.GlassDialog
+import com.yfuse.core.designsystem.overlayAction
+import com.yfuse.core.designsystem.overlayDismiss
 import com.yfuse.core.model.Episode
 import com.yfuse.core.model.MediaDetail
 import com.yfuse.core.offline.OfflineBatchItem
@@ -66,6 +68,9 @@ internal fun TvOfflineDownloadDialog(
     val focusScope = "detail:offline:${detail.id}"
     LaunchedEffect(Unit) { firstRequester.requestFocusWhenAttached() }
     GlassDialog(onDismiss = onDismiss, maxWidth = 760.dp, contentPadding = 26.dp) {
+        // Both ways out finish the exit before the sheet goes, as back and the scrim already did.
+        val confirm = overlayAction { onConfirm(selection) }
+        val cancel = overlayDismiss(onDismiss)
         Column(
             Modifier.fillMaxWidth().tvFocusScope(trapFocus = true),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -182,13 +187,13 @@ internal fun TvOfflineDownloadDialog(
                 value = "",
                 stableId = "offline:confirm",
                 focusMemory = focusMemory,
-                onClick = { onConfirm(selection) },
+                onClick = confirm,
                 icon = AppIcons.Download,
                 focusScope = focusScope,
                 enabled =
                     count > 0,
             )
-            TvSettingRow("取消", "", "offline:cancel", focusMemory, onDismiss, AppIcons.Close, focusScope = focusScope)
+            TvSettingRow("取消", "", "offline:cancel", focusMemory, cancel, AppIcons.Close, focusScope = focusScope)
         }
     }
 }

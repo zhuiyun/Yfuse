@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -37,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.contentHandoff
 import com.yfuse.core.model.LibraryResolution
 import com.yfuse.core.model.LibrarySort
 import com.yfuse.core.model.MediaContainer
@@ -74,6 +76,10 @@ internal fun TvLibraryHomeScreen(
             ),
         context = server?.let { FocusContext("library", it.id, it.userId) },
     )
+    // Taken before the early returns, so it spans the swap: the library fades in over
+    // Motion.STATE_HANDOFF when it arrives instead of cutting in.
+    val waiting = state.loading && state.content.isEmpty
+    val arrival = Modifier.contentHandoff(waiting)
 
     if (server == null) {
         TvEmptyState(
@@ -88,7 +94,7 @@ internal fun TvLibraryHomeScreen(
         )
         return
     }
-    if (state.loading && state.content.isEmpty) {
+    if (waiting) {
         TvLoadingState("正在读取 ${server.serverName}")
         return
     }
@@ -96,7 +102,7 @@ internal fun TvLibraryHomeScreen(
     val featured = state.content.featured.firstOrNull()
     LazyColumn(
         state = component.listState,
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize().then(arrival),
         contentPadding = PaddingValues(top = TvSafeVertical, bottom = TvSafeVertical + 32.dp),
         verticalArrangement = Arrangement.spacedBy(25.dp),
     ) {
@@ -201,20 +207,33 @@ private fun TvLibraryServerSelector(
     ) {
         Text("媒体库", color = TvOnSurface, fontSize = TvType.display, fontWeight = FontWeight.ExtraBold)
         Spacer(Modifier.width(12.dp))
-        servers.take(5).forEachIndexed { index, server ->
-            TvActionButton(
-                label = server.serverName,
-                stableId = "library:server:${server.kind.name.lowercase()}:${server.id}",
-                focusScope = "library:servers",
-                focusMemory = focusMemory,
-                onClick = { onSelect(server.id) },
-                modifier = Modifier.width(150.dp),
-                selected = server.id == selectedId,
-                navigationRequester = navigationRequester,
-                returnToNavigationOnLeft = index == 0,
-                serverId = server.id,
-                profileId = server.userId,
-            )
+        // A row that scrolls: in a plain Row the fifth server was measured to 0dp — focusable,
+        // invisible and never reached — and a sixth was not offered at all.
+        LazyRow(
+            state = focusMemory.rowState("library:servers"),
+            modifier = Modifier.weight(1f),
+            contentPadding = PaddingValues(horizontal = TvFocusInset),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            itemsIndexed(
+                servers,
+                key = { _, server -> "library:server:${server.kind.name.lowercase()}:${server.id}" },
+            ) { index, server ->
+                TvActionButton(
+                    label = server.serverName,
+                    stableId = "library:server:${server.kind.name.lowercase()}:${server.id}",
+                    focusScope = "library:servers",
+                    focusMemory = focusMemory,
+                    onClick = { onSelect(server.id) },
+                    modifier = Modifier.width(150.dp),
+                    selected = server.id == selectedId,
+                    selectable = true,
+                    navigationRequester = navigationRequester,
+                    returnToNavigationOnLeft = index == 0,
+                    serverId = server.id,
+                    profileId = server.userId,
+                )
+            }
         }
     }
 }
@@ -394,7 +413,7 @@ internal fun TvLibraryGridScreen(
         candidates = gridCandidates,
         scrollToAnchor = { anchor ->
             if (anchor.sectionId == gridScope && contentCandidates.isNotEmpty()) {
-                component.gridState.scrollToItem(
+                component.gridState.revealForRestore(
                     anchor.fallbackIndex.coerceIn(0, contentCandidates.lastIndex),
                 )
             }
@@ -450,6 +469,7 @@ internal fun TvLibraryGridScreen(
                             onClick = { store.accept(GridIntent.SetSort(sort)) },
                             modifier = Modifier.width(122.dp),
                             selected = sort == state.sort,
+                            selectable = true,
                             serverId = component.serverId,
                         )
                     }
@@ -470,6 +490,7 @@ internal fun TvLibraryGridScreen(
                             onClick = { store.accept(GridIntent.SetResolution(resolution)) },
                             modifier = Modifier.width(112.dp),
                             selected = resolution == state.resolution,
+                            selectable = true,
                             serverId = component.serverId,
                         )
                     }
@@ -507,6 +528,7 @@ internal fun TvLibraryGridScreen(
                             onClick = { store.accept(GridIntent.SetGenre(null)) },
                             modifier = Modifier.width(122.dp),
                             selected = state.genre == null,
+                            selectable = true,
                             serverId = component.serverId,
                         )
                     }
@@ -519,6 +541,7 @@ internal fun TvLibraryGridScreen(
                             onClick = { store.accept(GridIntent.SetGenre(genre)) },
                             modifier = Modifier.width(122.dp),
                             selected = state.genre == genre,
+                            selectable = true,
                             serverId = component.serverId,
                         )
                     }
@@ -527,6 +550,8 @@ internal fun TvLibraryGridScreen(
             }
         }
 
+        // The grid fades in over the loading state rather than cutting in.
+        val arrival = Modifier.contentHandoff(state.loading && state.loadedCount == 0)
         when {
             state.loading && state.loadedCount == 0 -> TvLoadingState()
             state.error != null && state.loadedCount == 0 ->
@@ -543,7 +568,7 @@ internal fun TvLibraryGridScreen(
                 LazyVerticalGrid(
                     columns = GridCells.Adaptive(minSize = 142.dp),
                     state = component.gridState,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier.fillMaxSize().then(arrival),
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp),
                     horizontalArrangement = Arrangement.spacedBy(17.dp),
                     verticalArrangement = Arrangement.spacedBy(18.dp),

@@ -162,14 +162,21 @@ internal fun TvDanmakuSettingsPage(
                 TvSettingsNote("还没有屏蔽词。含有屏蔽词的弹幕不会显示。")
             }
         }
-        blockedWords.forEach { word ->
+        blockedWords.forEachIndexed { index, word ->
             item(key = "danmaku-word:$word") {
                 TvSettingRow(
                     title = word,
                     value = "移除",
                     stableId = "danmaku:word:$word",
                     focusMemory = focusMemory,
-                    onClick = { prefs.removeBlockedWord(word) },
+                    onClick = {
+                        // The row leaves with the word; hand focus to the next word first — or the
+                        // one before, or 添加 — so the remote still points at something.
+                        val neighbour = blockedWords.getOrNull(index + 1) ?: blockedWords.getOrNull(index - 1)
+                        val moved = neighbour != null && focusMemory.requestFocus(focusScope, "danmaku:word:$neighbour")
+                        if (!moved) focusMemory.requestFocus(focusScope, "danmaku:add-word")
+                        prefs.removeBlockedWord(word)
+                    },
                     icon = AppIcons.Close,
                     focusScope = focusScope,
                     navigationRequester = navigationRequester,

@@ -94,6 +94,7 @@ internal fun TvDownloadsPage(
                         focusMemory = focusMemory,
                         onClick = { filter = entry },
                         selected = entry == filter,
+                        selectable = true,
                         focusRequester = if (index == 0) firstRowRequester else null,
                         navigationRequester = navigationRequester,
                         returnToNavigationOnLeft = index == 0,
@@ -139,29 +140,29 @@ internal fun TvDownloadsPage(
                                     navigationRequester = navigationRequester,
                                 )
                             }
-                            when (media.status) {
-                                DownloadStatus.Downloading,
-                                DownloadStatus.Queued,
-                                DownloadStatus.WaitingForWifi,
-                                ->
-                                    TvActionButton(
-                                        label = "暂停",
-                                        stableId = "downloads:pause:${media.id}",
-                                        focusScope = focusScope,
-                                        focusMemory = focusMemory,
-                                        onClick = { manager.pause(media.id) },
-                                        navigationRequester = navigationRequester,
-                                    )
-                                DownloadStatus.Paused, DownloadStatus.Failed ->
-                                    TvActionButton(
-                                        label = if (media.status == DownloadStatus.Failed) "重试" else "继续",
-                                        stableId = "downloads:resume:${media.id}",
-                                        focusScope = focusScope,
-                                        focusMemory = focusMemory,
-                                        onClick = { manager.resume(media.id) },
-                                        navigationRequester = navigationRequester,
-                                    )
-                                DownloadStatus.Completed -> Unit
+                            // One button in one place whose words follow the state. 暂停 and 继续 were
+                            // two buttons, so pressing one removed the node that had focus and left
+                            // the remote pointing at nothing.
+                            val stopped = media.status == DownloadStatus.Paused || media.status == DownloadStatus.Failed
+                            val transfer =
+                                when (media.status) {
+                                    DownloadStatus.Downloading,
+                                    DownloadStatus.Queued,
+                                    DownloadStatus.WaitingForWifi,
+                                    -> "暂停"
+                                    DownloadStatus.Paused -> "继续"
+                                    DownloadStatus.Failed -> "重试"
+                                    DownloadStatus.Completed -> null
+                                }
+                            if (transfer != null) {
+                                TvActionButton(
+                                    label = transfer,
+                                    stableId = "downloads:transfer:${media.id}",
+                                    focusScope = focusScope,
+                                    focusMemory = focusMemory,
+                                    onClick = { if (stopped) manager.resume(media.id) else manager.pause(media.id) },
+                                    navigationRequester = navigationRequester,
+                                )
                             }
                             TvActionButton(
                                 label = "删除",
@@ -169,6 +170,13 @@ internal fun TvDownloadsPage(
                                 focusScope = focusScope,
                                 focusMemory = focusMemory,
                                 onClick = {
+                                    // The row goes with its buttons; hand focus to the row beside it
+                                    // first — below, else above — or back to the filters.
+                                    val index = shown.indexOfFirst { it.id == media.id }
+                                    val moved =
+                                        listOfNotNull(shown.getOrNull(index + 1), shown.getOrNull(index - 1))
+                                            .any { focusMemory.requestFocus(focusScope, "downloads:item:${it.id}") }
+                                    if (!moved) runCatching { firstRowRequester.requestFocus() }
                                     manager.remove(media.id)
                                     expandedId = null
                                     status = "已删除《${media.title}》的离线文件"

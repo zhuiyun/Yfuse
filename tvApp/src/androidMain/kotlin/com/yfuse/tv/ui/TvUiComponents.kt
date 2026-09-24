@@ -1,11 +1,17 @@
 package com.yfuse.tv.ui
 
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -22,20 +28,28 @@ import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Icon
+import androidx.compose.foundation.text.BasicText
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusRequester
@@ -43,11 +57,13 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -57,24 +73,27 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
 import coil3.compose.AsyncImage
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
+import com.yfuse.core.designsystem.Motion
 import com.yfuse.tv.focus.FocusAnchor
 import com.yfuse.tv.focus.FocusCandidate
 import com.yfuse.tv.focus.FocusContext
 import com.yfuse.tv.focus.FocusRepository
+import com.yfuse.tv.focus.FocusRestorePolicy
 import com.yfuse.tv.focus.FocusRestoreRequest
 import com.yfuse.tv.focus.FocusTargetId
 import com.yfuse.tv.focus.InMemoryFocusRepository
 import com.yfuse.tv.focus.RemoteIntent
-import com.yfuse.tv.focus.RestoreTvFocusEffect
 import com.yfuse.tv.focus.TvFocusRequesterRegistry
 import com.yfuse.tv.focus.tvFocusTarget
 import com.yfuse.tv.focus.tvRemoteKeyHandler
@@ -82,6 +101,30 @@ import com.yfuse.tv.focus.tvRemoteKeyHandler
 internal val TvSafeHorizontal = 48.dp
 internal val TvSafeVertical = 27.dp
 internal val TvRailWidth = 184.dp
+
+/**
+ * The room a scrolling row leaves at its ends. A lazy row clips at its edges, and without this a
+ * focused first or last item lost its lift and part of its white edge there.
+ */
+internal val TvFocusInset = 8.dp
+
+/**
+ * The page a focus scope belongs to: the scope's first segment, except that every 详情 is a route
+ * of its own (`detail:<itemId>`). They all share one screen, and detail A → related B → back used
+ * to find B's last focus waiting where A's should have been. A detail dialog's scope (`detail:more`)
+ * has no section after the id, and stays with the plain `detail` route.
+ */
+internal fun tvFocusRoute(scope: String): String {
+    val route = scope.substringBefore(':')
+    if (route != DETAIL_ROUTE) return route
+    val rest = scope.substringAfter(':', missingDelimiterValue = "")
+    return if (':' in rest) tvDetailRoute(rest.substringBefore(':')) else route
+}
+
+/** The focus route of one detail page — see [tvFocusRoute]. */
+internal fun tvDetailRoute(itemId: String): String = "$DETAIL_ROUTE:$itemId"
+
+private const val DETAIL_ROUTE = "detail"
 
 /**
  * TV focus is restored by semantic identity, never by a Lazy list index. An item can move after
@@ -96,6 +139,9 @@ internal class TvUiFocusMemory {
     private val rowStates = mutableMapOf<String, LazyListState>()
     private val gridStates = mutableMapOf<String, LazyGridState>()
 
+    /** Routes just entered whose saved focus has not been put back yet — see [TvRestoreRouteFocusEffect]. */
+    private val pendingRestores = mutableSetOf<String>()
+
     fun remember(
         scope: String,
         stableId: String,
@@ -103,8 +149,11 @@ internal class TvUiFocusMemory {
         profileId: String? = null,
     ) {
         anchors[scope] = stableId
-        val route = scope.substringBefore(':')
+        val route = tvFocusRoute(scope)
         routeContexts[route] = FocusContext(route, serverId, profileId)
+        // Focus is in the page now — put there by the restore, its fallback or the viewer — so
+        // this entry has nothing left to put back.
+        settleRestore(route)
     }
 
     fun anchor(scope: String): String? = anchors[scope]
@@ -114,9 +163,10 @@ internal class TvUiFocusMemory {
         stableId: String,
     ): FocusTargetId = FocusTargetId(scope, stableId)
 
-    fun context(scope: String): FocusContext =
-        routeContexts[scope.substringBefore(':')]
-            ?: FocusContext(route = scope.substringBefore(':'))
+    fun context(scope: String): FocusContext {
+        val route = tvFocusRoute(scope)
+        return routeContexts[route] ?: FocusContext(route = route)
+    }
 
     fun activateContext(context: FocusContext): FocusContext {
         routeContexts[context.route] = context
@@ -130,6 +180,13 @@ internal class TvUiFocusMemory {
         context: FocusContext? = null,
     ): FocusAnchor? = repository.last(context ?: contextForRoute(route))
 
+    /** The last focus inside one [section] of a route, whatever the route has focused since. */
+    fun lastInSection(
+        route: String,
+        section: String,
+        context: FocusContext? = null,
+    ): FocusAnchor? = repository.lastInSection(context ?: contextForRoute(route), section)
+
     fun requestLastForRoute(
         route: String,
         context: FocusContext? = null,
@@ -138,9 +195,47 @@ internal class TvUiFocusMemory {
         return requesterRegistry.requestFocus(FocusTargetId(anchor.sectionId, anchor.itemStableId))
     }
 
+    /** Focuses [stableId] in [scope] when it is on screen; false when it is not. */
+    fun requestFocus(
+        scope: String,
+        stableId: String,
+    ): Boolean = requesterRegistry.requestFocus(targetId(scope, stableId))
+
+    /** A new entry into [route]: its saved focus is put back once, not on every recomposition. */
+    fun beginRestore(route: String) {
+        pendingRestores.add(route)
+    }
+
+    fun restorePending(route: String): Boolean = route in pendingRestores
+
+    /**
+     * Ends [route]'s entry restore. Focus landing on anything [remember] does not see — a text
+     * field, a phone control embedded in the page — has to say so here, or a restore still
+     * waiting for content would later take focus away from it.
+     */
+    fun settleRestore(route: String) {
+        pendingRestores.remove(route)
+    }
+
     fun rowState(section: String): LazyListState = rowStates.getOrPut(section) { LazyListState() }
 
     fun gridState(route: String): LazyGridState = gridStates.getOrPut(route) { LazyGridState() }
+}
+
+/** Scrolls [index] into view for a restore, and leaves a row that already shows it where it is. */
+internal suspend fun LazyListState.revealForRestore(
+    index: Int,
+    scrollOffset: Int = 0,
+) {
+    if (layoutInfo.visibleItemsInfo.none { it.index == index }) scrollToItem(index, scrollOffset)
+}
+
+/** [LazyListState.revealForRestore] for a grid. */
+internal suspend fun LazyGridState.revealForRestore(
+    index: Int,
+    scrollOffset: Int = 0,
+) {
+    if (layoutInfo.visibleItemsInfo.none { it.index == index }) scrollToItem(index, scrollOffset)
 }
 
 internal enum class TvArtworkShape(
@@ -161,8 +256,17 @@ internal data class TvMediaCardModel(
     val badge: String? = null,
     val artworkShape: TvArtworkShape = TvArtworkShape.Poster,
     val selected: Boolean = false,
+    /** Whether the card is one choice among its row's — see [TvFocusableSurface]'s `selectable`. */
+    val selectable: Boolean = false,
     val onClick: () -> Unit,
 )
+
+/**
+ * How far the enclosing [TvFocusableSurface] has come into focus, 0 to 1, on the clock its scale
+ * and edge run on. Read it only while drawing: a fill or an ink that follows it moves with the
+ * lift, where one chosen at composition cut over the moment focus arrived.
+ */
+internal val LocalTvFocusAmount = staticCompositionLocalOf<State<Float>> { mutableFloatStateOf(0f) }
 
 @Composable
 internal fun TvFocusableSurface(
@@ -174,7 +278,16 @@ internal fun TvFocusableSurface(
     focusRequester: FocusRequester? = null,
     navigationRequester: FocusRequester? = null,
     returnToNavigationOnLeft: Boolean = false,
+    /** Drawn as a fifth of the accent over the plate with a 2dp accent edge — see [TvSelectedPlate]. */
     selected: Boolean = false,
+    /**
+     * Whether [selected] is a choice a screen reader should announce — a filter, a season, a tab.
+     * A toggle or a state that only borrows the look (已收藏, 已授权) says itself in its label;
+     * announcing every surface as selectable had every card and button read as 「未选择」.
+     */
+    selectable: Boolean = false,
+    /** A disabled surface keeps its focus stop, so the remote is never stranded, but does not act. */
+    enabled: Boolean = true,
     scaleWhenFocused: Float = 1.055f,
     shape: RoundedCornerShape = RoundedCornerShape(14.dp),
     onFocused: (() -> Unit)? = null,
@@ -198,7 +311,11 @@ internal fun TvFocusableSurface(
             label = "tv-focus",
         )
     val focusScale = TvFocusMotion.scale(scaleWhenFocused, reduceMotion)
+    // A 1dp accent edge alone was the selected state, and could not be told from the rest across
+    // a room: selection now tints the plate too and draws the edge twice as wide.
+    val restPlate = if (selected) TvSelectedPlate else TvSurface
     val restEdge = if (selected) TvAccent.copy(alpha = 0.88f) else TvHairline
+    val restEdgeWidth = if (selected) TvFocusMotion.selectedBorder else TvFocusMotion.restBorder
     val requesterModifier =
         if (focusRequester == null) Modifier else Modifier.focusRequester(focusRequester)
     val targetId = remember(focusScope, stableId) { focusMemory.targetId(focusScope, stableId) }
@@ -214,7 +331,7 @@ internal fun TvFocusableSurface(
                 targetId = targetId,
                 anchor =
                     FocusAnchor(
-                        route = focusScope.substringBefore(':'),
+                        route = tvFocusRoute(focusScope),
                         serverId = serverId,
                         profileId = profileId,
                         sectionId = focusScope,
@@ -254,25 +371,71 @@ internal fun TvFocusableSurface(
                 val outline = shape.createOutline(size, layoutDirection, this)
                 onDrawWithContent {
                     val amount = focusAmount.value.coerceIn(0f, 1f)
-                    drawOutline(outline, lerp(TvSurface, TvSurfaceFocused, amount))
+                    drawOutline(outline, lerp(restPlate, TvSurfaceFocused, amount))
                     drawContent()
                     // The clip removes the outer half of a centred stroke, so twice the width
                     // leaves exactly the token inside the shape — what `border` used to draw.
-                    val edge = lerp(TvFocusMotion.restBorder, TvFocusMotion.focusBorder, amount).toPx()
+                    val edge = lerp(restEdgeWidth, TvFocusMotion.focusBorder, amount).toPx()
                     drawOutline(outline, lerp(restEdge, Color.White, amount), style = Stroke(edge * 2f))
                 }
-            }.clickable(onClick = onClick)
+            }.clickable(onClick = { if (enabled) onClick() })
             .testTag(stableId)
             .semantics {
                 role = Role.Button
-                this.selected = selected
+                if (selectable) this.selected = selected
+                if (!enabled) disabled()
                 contentDescription?.let { this.contentDescription = it }
             },
     ) {
-        content(focused)
+        CompositionLocalProvider(LocalTvFocusAmount provides focusAmount) {
+            content(focused)
+        }
     }
 }
 
+/** An icon whose tint follows [LocalTvFocusAmount] from [rest] to [focused] while drawing. */
+@Composable
+internal fun TvFocusIcon(
+    icon: ImageVector,
+    rest: Color,
+    focused: Color,
+    modifier: Modifier = Modifier,
+) {
+    val focus = LocalTvFocusAmount.current
+    val painter = rememberVectorPainter(icon)
+    Canvas(modifier) {
+        with(painter) {
+            draw(size, colorFilter = ColorFilter.tint(lerp(rest, focused, focus.value.coerceIn(0f, 1f))))
+        }
+    }
+}
+
+/** One line of label whose ink follows [LocalTvFocusAmount] from [rest] to [focused] while drawing. */
+@Composable
+internal fun TvFocusText(
+    text: String,
+    rest: Color,
+    focused: Color,
+    fontSize: TextUnit,
+    fontWeight: FontWeight,
+    modifier: Modifier = Modifier,
+) {
+    val focus = LocalTvFocusAmount.current
+    BasicText(
+        text = text,
+        modifier = modifier,
+        style = LocalTextStyle.current.copy(fontSize = fontSize, fontWeight = fontWeight),
+        overflow = TextOverflow.Ellipsis,
+        maxLines = 1,
+        color = { lerp(rest, focused, focus.value.coerceIn(0f, 1f)) },
+    )
+}
+
+/**
+ * A remote-sized button. It takes the width its label needs unless the caller fixes one, and a
+ * label that still does not fit ends in an ellipsis: a Row of fixed widths is how 更多 was
+ * measured to 0dp and left unreachable, and a clipped 服务器已收藏 read as 服务器.
+ */
 @Composable
 internal fun TvActionButton(
     label: String,
@@ -284,6 +447,8 @@ internal fun TvActionButton(
     icon: ImageVector? = null,
     primary: Boolean = false,
     selected: Boolean = false,
+    selectable: Boolean = false,
+    enabled: Boolean = true,
     focusRequester: FocusRequester? = null,
     navigationRequester: FocusRequester? = null,
     returnToNavigationOnLeft: Boolean = false,
@@ -296,59 +461,48 @@ internal fun TvActionButton(
         focusMemory = focusMemory,
         onClick = onClick,
         contentDescription = label,
-        modifier = modifier.height(52.dp),
+        modifier = modifier.height(52.dp).width(IntrinsicSize.Max),
         focusRequester = focusRequester,
         navigationRequester = navigationRequester,
         returnToNavigationOnLeft = returnToNavigationOnLeft,
         selected = selected,
+        selectable = selectable,
+        enabled = enabled,
         serverId = serverId,
         profileId = profileId,
         shape = RoundedCornerShape(12.dp),
         scaleWhenFocused = 1.035f,
-    ) { focused ->
+    ) {
+        // Fill and ink follow the focus clock while drawing, so the white plate and the black
+        // label arrive with the lift instead of cutting over at composition.
+        val focus = LocalTvFocusAmount.current
+        val restFill = if (primary) TvAccent.copy(alpha = 0.9f) else Color.Transparent
+        val restInk =
+            when {
+                !enabled -> TvOnSurface.copy(alpha = 0.45f)
+                primary -> Color.Black
+                else -> TvOnSurface
+            }
+        val focusInk = if (enabled) Color.Black else Color.Black.copy(alpha = 0.45f)
         Row(
             modifier =
                 Modifier
                     .fillMaxSize()
-                    .background(
-                        when {
-                            focused -> Color.White
-                            primary -> TvAccent.copy(alpha = 0.9f)
-                            else -> Color.Transparent
-                        },
-                    ).padding(horizontal = 20.dp),
+                    .drawBehind { drawRect(lerp(restFill, Color.White, focus.value.coerceIn(0f, 1f))) }
+                    .padding(horizontal = 20.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center,
         ) {
             if (icon != null) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    tint =
-                        if (focused) {
-                            Color.Black
-                        } else if (primary) {
-                            Color.Black
-                        } else {
-                            TvOnSurface
-                        },
-                    modifier = Modifier.size(22.dp),
-                )
+                TvFocusIcon(icon = icon, rest = restInk, focused = focusInk, modifier = Modifier.size(22.dp))
                 Spacer(Modifier.width(10.dp))
             }
-            Text(
+            TvFocusText(
                 text = label,
-                color =
-                    if (focused) {
-                        Color.Black
-                    } else if (primary) {
-                        Color.Black
-                    } else {
-                        TvOnSurface
-                    },
+                rest = restInk,
+                focused = focusInk,
                 fontSize = TvType.body,
                 fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
             )
         }
     }
@@ -370,7 +524,11 @@ internal fun TvMediaCard(
     val width = if (model.artworkShape == TvArtworkShape.Poster) 142.dp else 232.dp
     TvFocusableSurface(
         stableId = model.stableId,
-        contentDescription = listOfNotNull(model.title, model.subtitle).joinToString("，"),
+        // One sentence for the whole card. The artwork below stays silent: it carried the title
+        // as well, and the card was read with its title twice.
+        contentDescription =
+            listOfNotNull(model.title, model.subtitle?.takeIf(String::isNotBlank), model.badge)
+                .joinToString("，"),
         focusScope = focusScope,
         focusMemory = focusMemory,
         onClick = model.onClick,
@@ -379,6 +537,7 @@ internal fun TvMediaCard(
         navigationRequester = navigationRequester,
         returnToNavigationOnLeft = returnToNavigationOnLeft,
         selected = model.selected,
+        selectable = model.selectable,
         onFocused = onFocused,
         onContextMenu = onContextMenu,
         fallbackIndex = fallbackIndex,
@@ -394,7 +553,7 @@ internal fun TvMediaCard(
             ) {
                 AsyncImage(
                     model = model.imageUrl,
-                    contentDescription = model.title,
+                    contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
                 )
@@ -467,8 +626,19 @@ internal fun TvMediaCard(
 }
 
 /**
- * Restores the last stable target for a route. The saved context includes server/profile, so a
- * card from another household profile cannot receive focus after an account switch.
+ * Puts focus back where the viewer left this page — once, when the page is entered.
+ *
+ * It used to rebuild its request from the last focus on every recomposition, and every new
+ * request scrolled and refocused again: a row that recomposed for an unrelated reason — the next
+ * grid page arriving, the home reel turning, a download ticking — jumped to put the focused card
+ * first, and a page whose saved card had gone pulled focus off the navigation rail on each turn
+ * of the reel. An entry now lasts only until something in the route has focus: this restore, its
+ * [fallback] or the viewer. [contentGeneration] lets an entry that is still waiting try again
+ * when the content it needs arrives, and does nothing after that.
+ *
+ * The saved context includes server/profile, so a card from another household profile cannot
+ * receive focus after an account switch. [section] restores that section's own last focus rather
+ * than the route's: 设置's root shares its route with every sub-page it opens.
  */
 @Composable
 internal fun TvRestoreRouteFocusEffect(
@@ -479,46 +649,106 @@ internal fun TvRestoreRouteFocusEffect(
     context: FocusContext? = null,
     candidates: List<FocusCandidate> = emptyList(),
     scrollToAnchor: suspend (FocusAnchor) -> Unit = {},
+    section: String? = null,
 ) {
+    DisposableEffect(focusMemory, route) {
+        focusMemory.beginRestore(route)
+        onDispose { focusMemory.settleRestore(route) }
+    }
     val restoreContext = context?.let(focusMemory::activateContext) ?: focusMemory.contextForRoute(route)
-    val saved = focusMemory.lastForRoute(route, restoreContext)
-    if (saved != null) {
-        val target = FocusTargetId(saved.sectionId, saved.itemStableId)
-        val restoreCandidates =
-            candidates.ifEmpty {
-                listOf(
-                    FocusCandidate(
-                        targetId = target,
-                        sectionId = saved.sectionId,
-                        itemStableId = saved.itemStableId,
-                        index = saved.fallbackIndex,
+    val saved =
+        if (section == null) {
+            focusMemory.lastForRoute(route, restoreContext)
+        } else {
+            focusMemory.lastInSection(route, section, restoreContext)
+        }
+    TvPendingFocusRestore(
+        route = route,
+        focusMemory = focusMemory,
+        saved = saved,
+        candidates = candidates,
+        fallback = fallback,
+        contentGeneration = contentGeneration,
+        scrollToAnchor = scrollToAnchor,
+    )
+}
+
+/**
+ * A scrolling row's part in its page's restore: while the page's entry is still waiting and the
+ * saved card is in this row, bring the card into view — only when it is out of view — and focus
+ * it, or its nearest neighbour when it has gone. It begins no entry of its own.
+ */
+@Composable
+internal fun TvRestoreSectionFocusEffect(
+    route: String,
+    focusMemory: TvUiFocusMemory,
+    saved: FocusAnchor,
+    candidates: List<FocusCandidate>,
+    contentGeneration: Any?,
+    scrollToAnchor: suspend (FocusAnchor) -> Unit,
+) {
+    TvPendingFocusRestore(
+        route = route,
+        focusMemory = focusMemory,
+        saved = saved,
+        candidates = candidates,
+        fallback = null,
+        contentGeneration = contentGeneration,
+        scrollToAnchor = scrollToAnchor,
+    )
+}
+
+@Composable
+private fun TvPendingFocusRestore(
+    route: String,
+    focusMemory: TvUiFocusMemory,
+    saved: FocusAnchor?,
+    candidates: List<FocusCandidate>,
+    fallback: FocusRequester?,
+    contentGeneration: Any?,
+    scrollToAnchor: suspend (FocusAnchor) -> Unit,
+) {
+    val latestSaved by rememberUpdatedState(saved)
+    val latestCandidates by rememberUpdatedState(candidates)
+    val latestFallback by rememberUpdatedState(fallback)
+    val latestScrollToAnchor by rememberUpdatedState(scrollToAnchor)
+    val policy = remember { FocusRestorePolicy() }
+    LaunchedEffect(focusMemory, route, contentGeneration) {
+        if (!focusMemory.restorePending(route)) return@LaunchedEffect
+        val anchor = latestSaved
+        val decision =
+            anchor?.let {
+                val target = FocusTargetId(it.sectionId, it.itemStableId)
+                policy.resolve(
+                    FocusRestoreRequest(
+                        context = it.context,
+                        candidates =
+                            latestCandidates.ifEmpty {
+                                listOf(FocusCandidate(target, it.sectionId, it.itemStableId, it.fallbackIndex))
+                            },
+                        preferredTargetId = target,
                     ),
+                    it,
                 )
             }
-        RestoreTvFocusEffect(
-            request =
-                FocusRestoreRequest(
-                    context = saved.context,
-                    candidates = restoreCandidates,
-                    preferredTargetId = target,
-                ),
-            repository = focusMemory.repository,
-            requesterRegistry = focusMemory.requesterRegistry,
-            scrollToAnchor = scrollToAnchor,
-        )
-        LaunchedEffect(route, saved, restoreCandidates, fallback, contentGeneration) {
-            repeat(4) { withFrameNanos { } }
-            if (restoreCandidates.none { focusMemory.requesterRegistry.contains(it.targetId) }) {
-                fallback?.let { runCatching { it.requestFocus() } }
+        val candidate = decision?.candidate
+        val resolved = decision?.anchor
+        if (candidate != null && resolved != null) latestScrollToAnchor(resolved)
+        // The saved card gets these frames to attach; the fallback only comes after them, which
+        // also lets the shell's own first focus on the rail land before a page takes it.
+        repeat(RESTORE_ATTEMPT_FRAMES) {
+            withFrameNanos { }
+            if (!focusMemory.restorePending(route)) return@LaunchedEffect
+            if (candidate != null && focusMemory.requesterRegistry.requestFocus(candidate.targetId)) {
+                return@LaunchedEffect
             }
         }
-    } else if (fallback != null) {
-        LaunchedEffect(route, fallback, contentGeneration) {
-            withFrameNanos { }
-            runCatching { fallback.requestFocus() }
-        }
+        val fallbackRequester = latestFallback ?: return@LaunchedEffect
+        runCatching { fallbackRequester.requestFocus() }
     }
 }
+
+private const val RESTORE_ATTEMPT_FRAMES = 4
 
 @Composable
 internal fun TvMediaRow(
@@ -533,9 +763,9 @@ internal fun TvMediaRow(
 ) {
     if (items.isEmpty()) return
     val rowState = focusMemory.rowState(sectionKey)
-    val route = sectionKey.substringBefore(':')
+    val route = tvFocusRoute(sectionKey)
     val saved = focusMemory.lastForRoute(route)
-    if (saved?.sectionId == sectionKey) {
+    if (saved != null && saved.sectionId == sectionKey) {
         val candidates =
             items.mapIndexed { index, item ->
                 FocusCandidate(
@@ -556,15 +786,15 @@ internal fun TvMediaRow(
                         )
                     },
                 )
-        TvRestoreRouteFocusEffect(
+        TvRestoreSectionFocusEffect(
             route = route,
             focusMemory = focusMemory,
-            contentGeneration = items.map(TvMediaCardModel::stableId),
-            context = saved.context,
+            saved = saved,
             candidates = candidates,
+            contentGeneration = items.map(TvMediaCardModel::stableId),
             scrollToAnchor = { anchor ->
                 if (anchor.sectionId == sectionKey) {
-                    rowState.scrollToItem(
+                    rowState.revealForRestore(
                         anchor.fallbackIndex.coerceIn(0, candidates.lastIndex),
                         anchor.scrollOffset,
                     )
@@ -672,11 +902,29 @@ internal fun TvEmptyState(
 
 @Composable
 internal fun TvLoadingState(label: String = "正在加载") {
+    // The dot breathes — see [TvLoadingMotion] — read only while drawing, so the wait costs a
+    // redraw of one small circle a frame and no recomposition.
+    val breath =
+        if (LocalAccessibilityOptions.current.reduceMotion) {
+            null
+        } else {
+            rememberInfiniteTransition(label = "tv-loading").animateFloat(
+                initialValue = 1f,
+                targetValue = TvLoadingMotion.DIM,
+                animationSpec =
+                    infiniteRepeatable(
+                        animation = Motion.tween(TvLoadingMotion.BREATH_MILLIS / 2),
+                        repeatMode = RepeatMode.Reverse,
+                    ),
+                label = "tv-loading-breath",
+            )
+        }
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Box(
                 Modifier
                     .size(12.dp)
+                    .graphicsLayer { alpha = breath?.value ?: 1f }
                     .clip(CircleShape)
                     .background(TvAccent),
             )

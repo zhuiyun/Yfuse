@@ -1,14 +1,22 @@
 package com.yfuse.tv.ui
 
+import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.DarkPalette
+import com.yfuse.core.designsystem.DialogAnimation
+import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.Semantic
 import com.yfuse.core.designsystem.resolveAccentColors
 
@@ -36,6 +44,12 @@ internal val TvHairline: Color = DarkPalette.border.copy(alpha = 0.08f)
 
 /** The brand emphasis as the dark theme resolves it: 4.5:1 on a dark surface, dark ink on top. */
 internal val TvAccent: Color = resolveAccentColors(Brand.Primary, dark = true).accent
+
+/**
+ * A selected card, row or chip at rest: a fifth of the accent over the plate, under a 2dp accent
+ * edge. The edge alone, 1dp wide, could not be picked out from three metres.
+ */
+internal val TvSelectedPlate: Color = TvAccent.copy(alpha = 0.2f).compositeOver(TvSurface)
 
 /** Failed outcomes and destructive actions. */
 internal val TvDanger: Color = DarkPalette.error
@@ -82,6 +96,7 @@ internal object TvType {
  */
 internal object TvFocusMotion {
     val restBorder = 1.dp
+    val selectedBorder = 2.dp
     val focusBorder = 3.dp
 
     /** Critically damped: a D-pad held down interrupts this constantly, and it must not ring. */
@@ -97,4 +112,59 @@ internal object TvFocusMotion {
         requested: Float,
         reduceMotion: Boolean,
     ): Float = if (reduceMotion) 1f else requested
+}
+
+// ---------------------------------------------------------------- dialogs
+
+/**
+ * The dialog entrances a television offers: 柔和浮起 and 底部升起 move the panel as one piece.
+ * The other styles fold, scan, slice or sample the page behind it, every frame of every dialog, on
+ * a GPU that was chosen to decode video.
+ */
+internal val TvDialogAnimations: List<DialogAnimation> = listOf(DialogAnimation.Lift, DialogAnimation.Slide)
+
+/** What this style plays as on the television: a style picked before the list above, as 柔和浮起. */
+internal fun DialogAnimation.onTv(): DialogAnimation = if (this in TvDialogAnimations) this else DialogAnimation.Lift
+
+// ---------------------------------------------------------------- waiting
+
+/**
+ * The loading dot's breath: its alpha falls to [DIM] and back once every [BREATH_MILLIS]. A still
+ * dot could not say whether anything was still happening; this is the calm register's wait —
+ * no travel, no spin — and it holds still under 减少动态效果.
+ */
+internal object TvLoadingMotion {
+    const val BREATH_MILLIS = 1_200
+    const val DIM = 0.35f
+}
+
+// ---------------------------------------------------------------- pages
+
+/**
+ * How one page gives way to the next — a pushed route, a tab, a settings sub-page. They all cut
+ * before. The television takes the calm register: the arriving page fades in over
+ * [Motion.STANDARD] from at most [travel] away, the leaving one fades out over [Motion.QUICK]
+ * where it stands, and nothing scales or samples the page behind. Under 减少动态效果 it is a cut.
+ */
+internal object TvPageMotion {
+    val travel = 8.dp
+
+    /**
+     * [travelPx] is signed: positive arrives from the end side (going deeper), negative from the
+     * start side (coming back), and 0 moves nothing — pages of one level, like the tabs.
+     */
+    fun transform(
+        reduceMotion: Boolean,
+        travelPx: Int,
+    ): ContentTransform {
+        if (reduceMotion) return fadeIn(snap()) togetherWith fadeOut(snap())
+        val fade = fadeIn(Motion.tween(Motion.STANDARD))
+        val arrive =
+            if (travelPx == 0) {
+                fade
+            } else {
+                fade + slideInHorizontally(Motion.tween(Motion.STANDARD)) { travelPx }
+            }
+        return arrive togetherWith fadeOut(Motion.tween(Motion.QUICK))
+    }
 }
