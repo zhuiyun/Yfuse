@@ -20,6 +20,24 @@ class DanmakuLayoutTest {
     }
 
     @Test
+    fun reduce_motion_holds_scrolling_comments_still_and_leaves_fixed_ones_alone() {
+        val flying = DanmakuComment(0L, "飞过", kind = DanmakuKind.Scroll)
+        assertEquals(DanmakuKind.Top, flying.heldStill(reduceMotion = true).kind)
+        assertEquals(flying, flying.heldStill(reduceMotion = false))
+        val bottom = DanmakuComment(0L, "底部", kind = DanmakuKind.Bottom)
+        assertEquals(bottom, bottom.heldStill(reduceMotion = true))
+    }
+
+    @Test
+    fun a_held_comment_fades_in_and_out_instead_of_cutting() {
+        assertEquals(0f, danmakuHeldAlpha(elapsedMs = -1L, durationMs = 4_000L, fadeMs = 150L))
+        assertEquals(0.5f, danmakuHeldAlpha(elapsedMs = 75L, durationMs = 4_000L, fadeMs = 150L))
+        assertEquals(1f, danmakuHeldAlpha(elapsedMs = 2_000L, durationMs = 4_000L, fadeMs = 150L))
+        assertEquals(0.5f, danmakuHeldAlpha(elapsedMs = 3_925L, durationMs = 4_000L, fadeMs = 150L))
+        assertEquals(0f, danmakuHeldAlpha(elapsedMs = 4_001L, durationMs = 4_000L, fadeMs = 150L))
+    }
+
+    @Test
     fun dense_comments_are_dropped_when_the_only_lane_is_not_clear() {
         val placements =
             allocateDanmakuLanes(
