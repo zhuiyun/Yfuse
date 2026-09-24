@@ -44,6 +44,7 @@ import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.Motion
+import com.yfuse.core.designsystem.contentHandoff
 import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.network.TmdbImages
@@ -92,14 +93,18 @@ internal fun TvHomeScreen(
         }
     }
 
-    if (state.loading && heroItems.isEmpty() && state.resume.isEmpty()) {
+    val waiting = state.loading && heroItems.isEmpty() && state.resume.isEmpty()
+    // Taken before the loading state returns, so it spans the swap: the page fades in over
+    // Motion.STATE_HANDOFF when it arrives instead of cutting in.
+    val arrival = Modifier.contentHandoff(waiting)
+    if (waiting) {
         TvLoadingState("正在准备首页")
         return
     }
 
     LazyColumn(
         state = component.listState,
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize().then(arrival),
         contentPadding = PaddingValues(top = TvSafeVertical, bottom = TvSafeVertical + 32.dp),
         verticalArrangement = Arrangement.spacedBy(25.dp),
     ) {

@@ -105,6 +105,18 @@ internal object TvFocusMotion {
     ): Float = if (reduceMotion) 1f else requested
 }
 
+// ---------------------------------------------------------------- waiting
+
+/**
+ * The loading dot's breath: its alpha falls to [DIM] and back once every [BREATH_MILLIS]. A still
+ * dot could not say whether anything was still happening; this is the calm register's wait —
+ * no travel, no spin — and it holds still under 减少动态效果.
+ */
+internal object TvLoadingMotion {
+    const val BREATH_MILLIS = 1_200
+    const val DIM = 0.35f
+}
+
 // ---------------------------------------------------------------- pages
 
 /**

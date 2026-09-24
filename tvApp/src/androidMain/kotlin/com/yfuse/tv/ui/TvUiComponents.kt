@@ -1,6 +1,10 @@
 package com.yfuse.tv.ui
 
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -69,6 +73,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
 import coil3.compose.AsyncImage
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
+import com.yfuse.core.designsystem.Motion
 import com.yfuse.tv.focus.FocusAnchor
 import com.yfuse.tv.focus.FocusCandidate
 import com.yfuse.tv.focus.FocusContext
@@ -828,11 +833,29 @@ internal fun TvEmptyState(
 
 @Composable
 internal fun TvLoadingState(label: String = "正在加载") {
+    // The dot breathes — see [TvLoadingMotion] — read only while drawing, so the wait costs a
+    // redraw of one small circle a frame and no recomposition.
+    val breath =
+        if (LocalAccessibilityOptions.current.reduceMotion) {
+            null
+        } else {
+            rememberInfiniteTransition(label = "tv-loading").animateFloat(
+                initialValue = 1f,
+                targetValue = TvLoadingMotion.DIM,
+                animationSpec =
+                    infiniteRepeatable(
+                        animation = Motion.tween(TvLoadingMotion.BREATH_MILLIS / 2),
+                        repeatMode = RepeatMode.Reverse,
+                    ),
+                label = "tv-loading-breath",
+            )
+        }
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Box(
                 Modifier
                     .size(12.dp)
+                    .graphicsLayer { alpha = breath?.value ?: 1f }
                     .clip(CircleShape)
                     .background(TvAccent),
             )

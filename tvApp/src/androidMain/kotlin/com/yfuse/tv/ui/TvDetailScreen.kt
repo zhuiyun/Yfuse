@@ -37,6 +37,7 @@ import coil3.compose.AsyncImage
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.data.rankServerSources
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.contentHandoff
 import com.yfuse.core.model.Episode
 import com.yfuse.core.model.MediaDetail
 import com.yfuse.core.model.MediaItem
@@ -77,6 +78,8 @@ internal fun TvDetailScreen(
         )
     }
 
+    // The page fades in over its loading state rather than cutting in.
+    val arrival = Modifier.contentHandoff(state.loading && detail == null)
     when {
         state.loading && detail == null -> TvLoadingState("正在读取详情")
         state.error != null && detail == null ->
@@ -137,7 +140,7 @@ internal fun TvDetailScreen(
                     else -> "下载中"
                 }
             LazyColumn(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize().then(arrival),
                 contentPadding = PaddingValues(bottom = TvSafeVertical + 38.dp),
                 verticalArrangement = Arrangement.spacedBy(26.dp),
             ) {

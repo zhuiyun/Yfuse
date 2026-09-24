@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.contentHandoff
 import com.yfuse.core.model.LibraryResolution
 import com.yfuse.core.model.LibrarySort
 import com.yfuse.core.model.MediaContainer
@@ -75,6 +76,10 @@ internal fun TvLibraryHomeScreen(
             ),
         context = server?.let { FocusContext("library", it.id, it.userId) },
     )
+    // Taken before the early returns, so it spans the swap: the library fades in over
+    // Motion.STATE_HANDOFF when it arrives instead of cutting in.
+    val waiting = state.loading && state.content.isEmpty
+    val arrival = Modifier.contentHandoff(waiting)
 
     if (server == null) {
         TvEmptyState(
@@ -89,7 +94,7 @@ internal fun TvLibraryHomeScreen(
         )
         return
     }
-    if (state.loading && state.content.isEmpty) {
+    if (waiting) {
         TvLoadingState("正在读取 ${server.serverName}")
         return
     }
@@ -97,7 +102,7 @@ internal fun TvLibraryHomeScreen(
     val featured = state.content.featured.firstOrNull()
     LazyColumn(
         state = component.listState,
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize().then(arrival),
         contentPadding = PaddingValues(top = TvSafeVertical, bottom = TvSafeVertical + 32.dp),
         verticalArrangement = Arrangement.spacedBy(25.dp),
     ) {
@@ -540,6 +545,8 @@ internal fun TvLibraryGridScreen(
             }
         }
 
+        // The grid fades in over the loading state rather than cutting in.
+        val arrival = Modifier.contentHandoff(state.loading && state.loadedCount == 0)
         when {
             state.loading && state.loadedCount == 0 -> TvLoadingState()
             state.error != null && state.loadedCount == 0 ->
@@ -556,7 +563,7 @@ internal fun TvLibraryGridScreen(
                 LazyVerticalGrid(
                     columns = GridCells.Adaptive(minSize = 142.dp),
                     state = component.gridState,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier.fillMaxSize().then(arrival),
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp),
                     horizontalArrangement = Arrangement.spacedBy(17.dp),
                     verticalArrangement = Arrangement.spacedBy(18.dp),

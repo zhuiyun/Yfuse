@@ -15,7 +15,6 @@ import com.yfuse.core.model.ServerLayout
 import com.yfuse.core.model.StartupTab
 import com.yfuse.feature.profile.ProfileComponent
 import com.yfuse.feature.profile.releaseBackgroundImage
-import com.yfuse.feature.profile.rememberBackgroundImagePicker
 
 @Composable
 internal fun TvAppearanceSettingsPage(
@@ -37,15 +36,6 @@ internal fun TvAppearanceSettingsPage(
     val startupTab by prefs.startupTab.collectAsState()
     val backgroundImage by prefs.backgroundImage.collectAsState()
     var status by remember { mutableStateOf<String?>(null) }
-
-    val pickBackground =
-        rememberBackgroundImagePicker { uri ->
-            if (uri != null) {
-                backgroundImage?.takeIf { it != uri }?.let(::releaseBackgroundImage)
-                prefs.setBackgroundImage(uri)
-                status = "背景图已更新"
-            }
-        }
 
     TvSettingsPageScaffold(page = TvSettingsPage.Appearance, status = status) {
         // The television is always dark — see [TvApp] — so there is no 界面模式 to choose.
@@ -95,8 +85,10 @@ internal fun TvAppearanceSettingsPage(
             )
         }
         item(key = "appearance-loading-animation") {
+            // The television's own pages wait with a breathing dot; this choice reaches only the
+            // player's preparation screen, so the row says so rather than seeming to do nothing.
             TvChoiceRow(
-                title = "加载动画",
+                title = "播放器加载动画",
                 options = LoadingAnimation.entries,
                 selected = loadingAnimation,
                 label = { it.label },
@@ -105,7 +97,7 @@ internal fun TvAppearanceSettingsPage(
                 onSelect = prefs::setLoadingAnimation,
                 icon = AppIcons.Refresh,
                 focusScope = focusScope,
-                subtitle = loadingAnimation.description,
+                subtitle = "播放器准备画面里的等待动画",
                 navigationRequester = navigationRequester,
             )
         }
@@ -124,26 +116,10 @@ internal fun TvAppearanceSettingsPage(
             )
         }
 
-        item(key = "appearance-section-background") { TvSettingsSectionTitle("背景") }
-        item(key = "appearance-background") {
-            TvSettingRow(
-                title = "背景图",
-                value = if (backgroundImage != null) "已设置" else "未设置",
-                stableId = "appearance:background",
-                focusMemory = focusMemory,
-                onClick = {
-                    // Televisions frequently ship without a photo picker at all, which surfaces
-                    // as a missing activity rather than a cancelled pick.
-                    runCatching { pickBackground() }
-                        .onFailure { status = "这台设备没有可用的图片选择器。" }
-                },
-                icon = AppIcons.Movie,
-                focusScope = focusScope,
-                subtitle = "整个应用的背景；正文仍然画在主题自己的底色上",
-                navigationRequester = navigationRequester,
-            )
-        }
+        // No 背景图 to pick: the television paints its own background behind every page, so a
+        // chosen image never showed. One set before can still be removed, with its read grant.
         if (backgroundImage != null) {
+            item(key = "appearance-section-background") { TvSettingsSectionTitle("背景") }
             item(key = "appearance-background-clear") {
                 TvSettingRow(
                     title = "移除背景图",

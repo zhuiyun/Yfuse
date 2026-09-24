@@ -49,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
+import com.yfuse.core.designsystem.contentHandoff
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.feature.search.SearchHomeComponent
@@ -174,6 +175,8 @@ internal fun TvSearchHomeScreen(
         }
         Spacer(Modifier.height(18.dp))
 
+        // Results fade in over the searching state rather than cutting in.
+        val arrival = Modifier.contentHandoff(state.loading && results.isEmpty())
         when {
             state.loading && results.isEmpty() -> TvLoadingState("正在搜索所有服务器")
             state.error != null && results.isEmpty() ->
@@ -298,12 +301,13 @@ internal fun TvSearchHomeScreen(
                     "找到 ${state.visibleResultCount} 个结果",
                     color = TvOnSurfaceMuted,
                     fontSize = TvType.caption,
+                    modifier = arrival,
                 )
                 Spacer(Modifier.height(10.dp))
                 LazyVerticalGrid(
                     columns = GridCells.Adaptive(minSize = 142.dp),
                     state = resultGridState,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier.fillMaxSize().then(arrival),
                     horizontalArrangement = Arrangement.spacedBy(17.dp),
                     verticalArrangement = Arrangement.spacedBy(18.dp),
                 ) {
