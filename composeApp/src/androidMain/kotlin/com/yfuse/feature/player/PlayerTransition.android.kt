@@ -116,6 +116,9 @@ internal class PlayerTransitionState(
 
     private var lag: Float? = null
     private var readyAt: Float? = null
+
+    /** When the stand-in gave up waiting for a late picture; see [tick]. Read by the host's composition. */
+    private var lateAt by mutableStateOf<Float?>(null)
     private var turnedAt: Float? = null
     private var gateAt: Float? = null
     private var closingAt: Float? = null
@@ -155,7 +158,12 @@ internal class PlayerTransitionState(
     /** ms since the way out began; negative until then (including while the gesture is live). */
     val exitTime: Float get() = exitAt?.let { now - it } ?: -1f
 
-    fun tick() {
+    /**
+     * Advances the clock. [handsOverLate] is set by a host with a continuity overlay under the
+     * stand-in: a picture still not ready once the stand-in has landed is then no longer waited
+     * for, and the overlay — the one surface that can say the network is why — takes over.
+     */
+    fun tick(handsOverLate: Boolean) {
         now = launch.elapsedMs()
         if (lag == null) lag = handoffPlayerLag(timing, now)
         if (style == PlayerTransitionStyle.Curtain && gateAt == null) {
@@ -166,6 +174,9 @@ internal class PlayerTransitionState(
                     playerTime >= CURTAIN_GATE_LATEST -> CURTAIN_GATE_LATEST.toFloat()
                     else -> null
                 }
+        }
+        if (handsOverLate && readyAt == null && lateAt == null && playerTime >= landAt() + HANDOFF_DELAY_MS) {
+            lateAt = playerTime
         }
         if (!backActive && !closing && backProgress > 0f) {
             backProgress = (backProgress - FRAME_MS / BACK_CANCEL_MS).coerceAtLeast(0f)
@@ -203,8 +214,12 @@ internal class PlayerTransitionState(
             timing.land.toFloat()
         }
 
-    /** When the stand-in starts handing over to the live picture; null until the picture is ready. */
+    /**
+     * When the stand-in starts handing over to the live picture — or, once it has stopped waiting,
+     * to the continuity overlay; null until one of the two.
+     */
     fun handoffAt(): Float? {
+        lateAt?.let { return it }
         val ready = readyAt ?: return null
         if (style == PlayerTransitionStyle.Curtain) {
             val gate = gateAt ?: return null
@@ -231,8 +246,11 @@ internal class PlayerTransitionState(
         return handoffSegment(playerTime, chromeIn, Motion.STANDARD.toFloat())
     }
 
-    /** True while the stand-in still covers the video surface. */
-    fun coversPicture(): Boolean = !disabled && !finished && (closing || !entered())
+    /**
+     * True while the stand-in still covers the video surface. A late picture's continuity overlay
+     * is let in as the stand-in starts to leave, so the two cross rather than dipping to black.
+     */
+    fun coversPicture(): Boolean = !disabled && !finished && (closing || (lateAt == null && !entered()))
 
     fun onBackProgress(progress: Float) {
         if (disabled || closing || finished) return
@@ -330,10 +348,13 @@ internal fun PlayerTransitionLayer(
     if (disabled || state.disabled || state.finished) return
     val drives = layer != PlayerTransitionLayerKind.Exit
     if (drives) {
+        // The preparation screen has nothing under the stand-in to hand a late picture to; the
+        // player's own entrance has the continuity overlay.
+        val handsOverLate = layer == PlayerTransitionLayerKind.Entrance
         LaunchedEffect(state, state.closing, state.backActive) {
             while (true) {
                 withFrameMillis { }
-                state.tick()
+                state.tick(handsOverLate)
                 if (!state.needsFrames()) break
             }
         }
@@ -497,6 +518,7 @@ private class PlayerScene(
                 PlayerTransitionStyle.PushIn -> pushIn(tp)
                 PlayerTransitionStyle.Tide -> tideIn(tp)
                 PlayerTransitionStyle.Defocus -> defocusIn(tp)
+                PlayerTransitionStyle.None -> Unit
             }
         }
     }
@@ -517,6 +539,7 @@ private class PlayerScene(
                 PlayerTransitionStyle.PushIn -> pushOut(te)
                 PlayerTransitionStyle.Tide -> tideOut(te)
                 PlayerTransitionStyle.Defocus -> defocusOut(te)
+                PlayerTransitionStyle.None -> Unit
             }
         }
     }

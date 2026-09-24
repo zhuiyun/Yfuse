@@ -37,6 +37,22 @@ class MotionHandoffPolicyTest {
         assertNull(PlayerArtworkOrigins.resolve(key))
     }
 
+    @Test fun the_plain_fade_never_holds_the_page_and_spends_the_tap() {
+        val owner = Any()
+        val key = MediaSharedElementKey("test", "plain")
+        val origin = PlayerArtworkOrigin(key, Rect(0f, 0f, 100f, 100f), Rect(0f, 0f, 100f, 200f), listOf("test://hero"))
+        try {
+            PlayerArtworkOrigins.register(owner, origin)
+            PlayerArtworkOrigins.begin(key)
+            assertNull(PlayerArtworkOrigins.issueLaunch(PlayerTransitionStyle.None))
+            assertEquals(HandoffPhase.Idle, PlayerHandoff.phase)
+            assertNull(PlayerArtworkOrigins.issueLaunch(PlayerTransitionStyle.Turn))
+        } finally {
+            PlayerArtworkOrigins.remove(owner)
+            PlayerHandoff.settle()
+        }
+    }
+
     @Test fun artwork_mostly_off_screen_starts_no_transition() {
         val owner = Any()
         val key = MediaSharedElementKey("test", "scrolled")

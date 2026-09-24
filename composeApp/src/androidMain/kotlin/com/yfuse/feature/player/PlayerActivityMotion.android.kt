@@ -34,6 +34,7 @@ private val PlayerTransitionStyle.enterAnimation: Int
             PlayerTransitionStyle.PushIn -> R.anim.player_enter_push
             PlayerTransitionStyle.Tide -> R.anim.player_enter_tide
             PlayerTransitionStyle.Defocus -> R.anim.player_enter_defocus
+            PlayerTransitionStyle.None -> R.anim.player_enter
         }
 
 private val PlayerTransitionStyle.exitAnimation: Int

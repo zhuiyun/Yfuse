@@ -2821,6 +2821,13 @@ internal fun PlayerRoot(
             val statusChipModifier =
                 Modifier.align(androidx.compose.ui.Alignment.TopCenter).padding(top = 68.dp)
             PlaybackTimelineContent(livePlayback) { state ->
+                val pictureReady = state.diagnostics.effectiveVideoReadiness == PlaybackOutputReadiness.Rendering
+                // Sound with no picture to wait for: ready the moment it is heard, for the
+                // continuity overlay and the entrance's stand-in alike.
+                val audioOnly =
+                    state.diagnostics.effectiveAudioReadiness == PlaybackOutputReadiness.Rendering &&
+                        state.videoHeight <= 0 &&
+                        currentItem?.activeVersion?.sourceVideoCodec.isNullOrBlank()
                 PlaybackContinuityOverlay(
                     artworkUrls = continuityArtwork,
                     title = currentItem?.title.orEmpty(),
@@ -2829,20 +2836,14 @@ internal fun PlayerRoot(
                             currentItem != null &&
                             state.error == null &&
                             !state.ended &&
-                            !(
-                                state.diagnostics.effectiveAudioReadiness == PlaybackOutputReadiness.Rendering &&
-                                    state.videoHeight <= 0 &&
-                                    currentItem.activeVersion?.sourceVideoCodec.isNullOrBlank()
-                            ) &&
-                            state.diagnostics.effectiveVideoReadiness != PlaybackOutputReadiness.Rendering,
+                            !audioOnly &&
+                            !pictureReady,
                     message = continuityMessage,
                     modifier = Modifier.fillMaxSize(),
                 )
                 PlayerTransitionLayer(
                     state = transition,
-                    ready =
-                        state.error != null ||
-                            state.diagnostics.effectiveVideoReadiness == PlaybackOutputReadiness.Rendering,
+                    ready = state.error != null || pictureReady || audioOnly,
                     inPictureInPicture = inPictureInPicture,
                     aspectRatio = transitionAspectRatio(scaleMode, state),
                     layer = PlayerTransitionLayerKind.Entrance,

@@ -54,11 +54,13 @@ internal object PlayerArtworkOrigins {
      * starts the page's half of [style] at this moment — the one at which the player is really on
      * its way, rather than at the tap, which may still end in a version picker or an error.
      *
-     * No token when nothing is pending, the tap is stale, or the artwork has scrolled mostly off
-     * the screen: the player then opens with the plain window fade.
+     * No token when nothing is pending, the tap is stale, the artwork has scrolled mostly off
+     * the screen, or [style] is [PlayerTransitionStyle.None]: the player then opens with the plain
+     * window fade.
      */
     fun issueLaunch(style: PlayerTransitionStyle): Long? {
         val candidate = pending.also { pending = null } ?: return null
+        if (!style.choreographed) return null
         if (candidate.second.elapsedNow().inWholeMilliseconds > 5000L) return null
         val origin = candidate.first
         val hero = origin.boundsOnScreen

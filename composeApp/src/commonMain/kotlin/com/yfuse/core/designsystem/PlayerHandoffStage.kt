@@ -265,6 +265,7 @@ private class StageScene(
                 PlayerTransitionStyle.PushIn -> drawPushIn(t, u)
                 PlayerTransitionStyle.Tide -> drawTide(t, u)
                 PlayerTransitionStyle.Defocus -> drawDefocus(t, u, heroLayer, fieldLayer)
+                PlayerTransitionStyle.None -> Unit
             }
         }
     }
