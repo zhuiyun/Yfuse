@@ -70,7 +70,6 @@ import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.BackdropState
 import com.yfuse.core.designsystem.ConfirmDialog
 import com.yfuse.core.designsystem.Dimens
-import com.yfuse.core.designsystem.GlassStyle
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LaunchWaveGate
 import com.yfuse.core.designsystem.LocalAccentColors
@@ -95,7 +94,6 @@ import com.yfuse.core.designsystem.drawPhaseLight
 import com.yfuse.core.designsystem.launchWaveItem
 import com.yfuse.core.designsystem.liquidNavigationGlass
 import com.yfuse.core.designsystem.navigationGlass
-import com.yfuse.core.designsystem.platformAnimationsDisabled
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberBackdropState
 import com.yfuse.core.designsystem.rememberPhaseLightCount
@@ -169,17 +167,12 @@ private val tabs =
 fun App(root: RootComponent) {
     BindBackgroundServices(root)
     val mode by root.themePreferences.mode.collectAsState()
-    val reduceTransparency by root.themePreferences.reduceTransparency.collectAsState()
-    val largeText by root.themePreferences.largeText.collectAsState()
-    val reduceMotion by root.themePreferences.reduceMotion.collectAsState()
     // 「移除动画」 on the device is the same request as our own 减弱动态效果, so the two are one
-    // effective value from here down. Without this the app kept animating for a user who had
-    // switched animation off system-wide — the only surface that honoured it was the player,
-    // which reads the setting itself for its window transitions. The user's own switch still
-    // travels separately, for the few places where motion is a gesture rather than a duration:
-    // see [AccessibilityOptions.reduceMotionByUser].
-    val systemMotionOff = platformAnimationsDisabled()
-    val motionOff = reduceMotion || systemMotionOff
+    // effective value from here down; the user's own switch still travels separately, for the
+    // few places where motion is a gesture rather than a duration — see
+    // [AccessibilityOptions.reduceMotionByUser]. Built in one place for every window.
+    val accessibility = rememberAppAccessibilityOptions(root.themePreferences)
+    val motionOff = accessibility.reduceMotion
     val pulseSweep by root.themePreferences.pulseSweep.collectAsState()
     val particleLight by root.themePreferences.particleLight.collectAsState()
     val dialogAnimation by root.themePreferences.dialogAnimation.collectAsState()
@@ -192,17 +185,8 @@ fun App(root: RootComponent) {
 
     YfuseTheme(
         dark = dark,
-        accessibility =
-            AccessibilityOptions(
-                reduceTransparency = reduceTransparency,
-                largeText = largeText,
-                reduceMotion = motionOff,
-                reduceMotionByUser = reduceMotion,
-            ),
-        // 减弱透明度 is an accessibility contract: it exists to make every surface opaque and
-        // legible, so a decorative material choice must not be able to reinstate the effect
-        // it turns off.
-        glassStyle = if (reduceTransparency) GlassStyle.Frosted else glassStyle,
+        accessibility = accessibility,
+        glassStyle = effectiveGlassStyle(glassStyle, accessibility.reduceTransparency),
         dialogAnimation = dialogAnimation,
         loadingAnimation = loadingAnimation,
         glassMaterials = glassMaterials,
@@ -335,7 +319,7 @@ fun App(root: RootComponent) {
                 AppBackdrop(
                     // A wallpaper is decoration, and 减弱透明度 is the switch for people who
                     // need the page to be a flat readable surface. It wins.
-                    imageUri = backgroundImage.takeUnless { reduceTransparency },
+                    imageUri = backgroundImage.takeUnless { accessibility.reduceTransparency },
                     dim = backgroundDim,
                 ) {
                     // The page's half of the player transitions draws over, and transforms, this whole

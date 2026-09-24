@@ -55,6 +55,11 @@ internal class DialogDragState(
      * threshold does not rattle.
      */
     private val onThresholdCrossed: () -> Unit = {},
+    /**
+     * Asked instead of [dismiss] when the owner may decline — a form with unsaved input asking
+     * 「放弃更改？」 first. A declined release settles the panel home like a short pull.
+     */
+    private val tryDismiss: (() -> Boolean)? = null,
 ) : NestedScrollConnection {
     var offset by mutableFloatStateOf(0f)
         private set
@@ -92,9 +97,8 @@ internal class DialogDragState(
         stopSettling()
         crossedThreshold = false
         if (offset <= 0f) return
-        if (enabled() && shouldDismissDialogDrag(offset, velocity, threshold)) {
+        if (enabled() && shouldDismissDialogDrag(offset, velocity, threshold) && accepted()) {
             dismissedByDrag = true
-            dismiss()
         } else {
             settle =
                 scope.launch {
@@ -112,6 +116,11 @@ internal class DialogDragState(
                     offset = 0f
                 }
         }
+    }
+
+    private fun accepted(): Boolean {
+        val ask = tryDismiss ?: return true.also { dismiss() }
+        return ask()
     }
 
     override fun onPreScroll(
@@ -142,10 +151,12 @@ internal class DialogDragState(
 internal fun rememberDialogDragState(
     enabled: () -> Boolean,
     dismiss: () -> Unit,
+    tryDismiss: (() -> Boolean)? = null,
 ): DialogDragState {
     val scope = rememberCoroutineScope()
     val currentEnabled by rememberUpdatedState(enabled)
     val currentDismiss by rememberUpdatedState(dismiss)
+    val currentTryDismiss by rememberUpdatedState(tryDismiss)
     val reduceMotion by rememberUpdatedState(LocalAccessibilityOptions.current.reduceMotion)
     val haptics by rememberUpdatedState(LocalHaptics.current)
     val threshold = with(LocalDensity.current) { 96.dp.toPx() }
@@ -157,6 +168,7 @@ internal fun rememberDialogDragState(
             threshold = threshold,
             reduceMotion = { reduceMotion },
             onThresholdCrossed = { haptics.play(HapticSignal.Threshold) },
+            tryDismiss = { currentTryDismiss?.invoke() ?: true.also { currentDismiss() } },
         )
     }
 }

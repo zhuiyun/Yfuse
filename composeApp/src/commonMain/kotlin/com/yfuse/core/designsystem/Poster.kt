@@ -72,7 +72,8 @@ fun FallbackImage(
     contentScale: ContentScale = ContentScale.Crop,
     /**
      * 图片渐进加载 §3.1. Off for artwork small enough that the blur is only cost — a 20dp
-     * cast avatar has nothing to resolve into.
+     * cast avatar has nothing to resolve into. It only ever turned the blur off: the opacity
+     * hand-off still runs, so a small picture no longer cuts in while its neighbours fade.
      */
     progressive: Boolean = true,
     /**
@@ -83,8 +84,12 @@ fun FallbackImage(
      * detail poster — pass `false` and take the cinematic resolve.
      */
     alphaOnly: Boolean = true,
-    /** Large artwork uses the default 400ms reveal; dense posters pass 180ms. */
-    revealDurationMillis: Int = Motion.ARTWORK_REVEAL,
+    /**
+     * Dense artwork — every opacity-only picture — hands off in [Motion.POSTER_FADE]; the few
+     * large pictures that take the blurred resolve keep [Motion.ARTWORK_REVEAL]. Thumbnails,
+     * avatars and category tiles used to fall through to the 400ms hero timing by omission.
+     */
+    revealDurationMillis: Int = if (alphaOnly) Motion.POSTER_FADE else Motion.ARTWORK_REVEAL,
     revealBlur: Dp = ArtworkRevealBlur,
     revealScaleFrom: Float = ARTWORK_REVEAL_SCALE_FROM,
     /** Reports the fallback candidate whose drawable actually reached the screen. */
@@ -112,7 +117,7 @@ fun FallbackImage(
         requestKey = candidates to candidateIndex,
         loaded = loaded,
         instant = instant,
-        enabled = progressive,
+        enabled = true,
         durationMillis = revealDurationMillis,
     )
     Box(modifier) {
@@ -135,8 +140,9 @@ fun FallbackImage(
                                 // The placeholder underneath is the caller's — [Poster] tints its
                                 // own well — because artwork colour is unknown before arrival.
                                 val remaining = 1f - settle
+                                val resolves = progressive && !alphaOnly
                                 val scale =
-                                    if (alphaOnly) {
+                                    if (!resolves) {
                                         1f
                                     } else {
                                         1f + (revealScaleFrom - 1f) * remaining
@@ -147,7 +153,7 @@ fun FallbackImage(
                                 // Below API 31 renderEffect is ignored, so the load resolves as a
                                 // scale-and-fade on those devices rather than not at all.
                                 renderEffect =
-                                    if (!alphaOnly && remaining > 0.01f) {
+                                    if (resolves && remaining > 0.01f) {
                                         val radius = revealBlur.toPx() * remaining
                                         artworkBlurCache.effect(radius)
                                     } else {

@@ -1,9 +1,12 @@
 package com.yfuse.core.designsystem
 
+import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.core.AnimationSpec
+import androidx.compose.animation.core.Easing
 import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.SpringSpec
+import androidx.compose.animation.core.TweenSpec
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -601,6 +604,33 @@ object Motion {
         androidx.compose.animation.core
             .CubicBezierEasing(0.32f, 0.72f, 0f, 1f)
 
+    /**
+     * A duration on the house curve — how a timed animation is written outside this file.
+     *
+     * A bare `tween(ms)` falls back to Compose's FastOutSlowIn, which is how 32 transitions came
+     * to disagree with the rest of the app about how things arrive: the toast faded on one curve
+     * and slid on another, list items entered on a third.
+     */
+    fun <T> tween(
+        durationMillis: Int,
+        delayMillis: Int = 0,
+        easing: Easing = Curve,
+    ): TweenSpec<T> = androidx.compose.animation.core.tween(durationMillis, delayMillis, easing)
+
+    /**
+     * The size half of an `AnimatedContent` swap.
+     *
+     * `togetherWith` quietly adds a default spring [SizeTransform] that answers only to the
+     * system's animator scale, so under our own 减弱动态效果 the fade was already instant while the
+     * container still sprang to its new size. Pass this through `using`.
+     */
+    fun sizeTransform(reduceMotion: Boolean): SizeTransform? =
+        if (reduceMotion) {
+            null
+        } else {
+            SizeTransform(clip = true) { _, _ -> settle() }
+        }
+
     // Semantic duration defaults. PUSH, TAB, MODAL, ACCENT, and CAROUSEL reuse this vocabulary.
     // Other transitions retain individually tuned durations; REFRESH_SPIN is a rotation period.
     const val QUICK = 120
@@ -610,6 +640,24 @@ object Motion {
 
     const val STATE_HANDOFF = 150
     const val DISCLOSURE = 160
+
+    /**
+     * A wait shorter than this never shows its indicator. A request answered from cache would
+     * otherwise flash a skeleton or an orb for a frame or two, which reads as a glitch.
+     */
+    const val BUSY_SHOW_AFTER = STANDARD
+
+    /** Once a wait indicator has appeared it stays at least this long, so it reads as an answer. */
+    const val BUSY_MIN_VISIBLE = 400
+
+    /**
+     * Under 减弱动态效果 a change of scene still fades — no movement, no scale — for this long.
+     * A cut from a light page to a black player is the one "instant" change harsher than motion.
+     */
+    const val REDUCED_FADE = 150
+
+    /** How long the hero reel rests on a page before it moves on by itself. */
+    const val CAROUSEL_DWELL = 6_000
 
     // Decorative periods and individually tuned arrivals retain their existing timing.
     const val DETAIL_LOADING_BLOOM = 6_000

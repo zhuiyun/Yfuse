@@ -51,9 +51,11 @@ fun ErrorState(
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
     retryLabel: String = "重试",
+    /** Off when the caller already hands the page over (a search or calendar state swap). */
+    animateEntrance: Boolean = true,
 ) {
     val palette = LocalPalette.current
-    val entrance = rememberEntranceReveal()
+    val entrance = rememberEntranceReveal(animateEntrance)
     Column(
         modifier.padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -64,7 +66,8 @@ fun ErrorState(
             style = AppTypography.body.regular.copy(lineHeight = 21.sp),
             color = palette.error,
             textAlign = TextAlign.Center,
-            modifier = entrance.item(0),
+            // A failure stops what the person was doing, so a screen reader says it at once.
+            modifier = entrance.item(0).liveStatus(assertive = true),
         )
         Box(entrance.item(1)) {
             AccentChipButton(label = retryLabel, onClick = onRetry)
@@ -79,11 +82,13 @@ fun PageHint(
     actionLabel: String? = null,
     onAction: (() -> Unit)? = null,
     icon: ImageVector? = AppIcons.Info,
+    /** Off when the caller already hands the page over (a search or calendar state swap). */
+    animateEntrance: Boolean = true,
 ) {
     val palette = LocalPalette.current
     // Icon, then words, then the way out: the same staggered arrival as loaded content, so
     // an empty page still feels like it arrived rather than like nothing happened.
-    val entrance = rememberEntranceReveal()
+    val entrance = rememberEntranceReveal(animateEntrance)
     Column(
         modifier.padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -102,7 +107,7 @@ fun PageHint(
             style = AppTypography.body.regular.copy(lineHeight = 21.sp),
             color = palette.sub,
             textAlign = TextAlign.Center,
-            modifier = entrance.item(1),
+            modifier = entrance.item(1).liveStatus(),
         )
         if (actionLabel != null && onAction != null) {
             Box(entrance.item(2)) {

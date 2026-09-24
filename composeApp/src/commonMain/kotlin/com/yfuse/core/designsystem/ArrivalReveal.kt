@@ -9,6 +9,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
@@ -66,8 +67,8 @@ class ArrivalMotion internal constructor(
  * state, an error with its retry — plays the arrival once, from its first composition.
  */
 @Composable
-fun rememberEntranceReveal(): ArrivalMotion {
-    val moving = LocalRouteVisible.current && !LocalAccessibilityOptions.current.reduceMotion
+fun rememberEntranceReveal(enabled: Boolean = true): ArrivalMotion {
+    val moving = enabled && LocalRouteVisible.current && !LocalAccessibilityOptions.current.reduceMotion
     val progress = remember { Animatable(if (moving) 0f else 1f) }
     LaunchedEffect(Unit) {
         if (progress.value < 1f) progress.animateTo(1f, tween(Motion.ARRIVAL_REVEAL, easing = LinearEasing))
@@ -82,14 +83,30 @@ fun rememberEntranceReveal(): ArrivalMotion {
  * before it began.
  */
 @Composable
-fun rememberRefreshReveal(refreshing: Boolean): ArrivalMotion {
+fun rememberRefreshReveal(
+    refreshing: Boolean,
+    /**
+     * What the refresh is expected to change — the shelves' identity, an update stamp. When it
+     * is the same after the refresh as before (the request failed, or brought back what was
+     * already there) nothing replays. Null keeps the old behaviour: every landing replays.
+     */
+    revision: Any? = null,
+): ArrivalMotion {
     val moving = LocalRouteVisible.current && !LocalAccessibilityOptions.current.reduceMotion
     val progress = remember { Animatable(1f) }
     var wasRefreshing by remember { mutableStateOf(refreshing) }
+    var revisionBefore by remember { mutableStateOf(revision) }
+    val currentRevision by rememberUpdatedState(revision)
     LaunchedEffect(refreshing, moving) {
+        // Whatever cut the last run short — the route pushed away mid-reveal, the setting
+        // flipped — lands at rest. It used to park there: posters half-transparent and, from the
+        // sixth on, fully transparent yet still tappable until the next refresh.
+        if (progress.value < 1f) progress.snapTo(1f)
+        if (refreshing && !wasRefreshing) revisionBefore = currentRevision
         val landed = wasRefreshing && !refreshing
         wasRefreshing = refreshing
-        if (landed && moving) {
+        val changed = currentRevision == null || currentRevision != revisionBefore
+        if (landed && moving && changed) {
             progress.snapTo(0f)
             progress.animateTo(1f, tween(Motion.ARRIVAL_REVEAL, easing = LinearEasing))
         }
@@ -131,6 +148,8 @@ fun Modifier.attentionSweep(key: Any?): Modifier {
     val accent = LocalAccentColors.current.accent
     val progress = remember { Animatable(1f) }
     LaunchedEffect(key, moving) {
+        // A sweep cut short parks its band on the control; settle it before deciding anything.
+        if (progress.value < 1f) progress.snapTo(1f)
         if (key == null || !moving) return@LaunchedEffect
         progress.snapTo(0f)
         progress.animateTo(1f, tween(Motion.ATTENTION_SWEEP, easing = LinearEasing))
