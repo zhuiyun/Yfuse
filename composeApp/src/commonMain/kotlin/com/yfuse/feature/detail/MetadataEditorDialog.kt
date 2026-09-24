@@ -88,7 +88,7 @@ internal fun MetadataEditorDialog(
             draft = loaded.draft
         }
     }
-    GlassDialog(onDismiss = { if (!busy) onDismiss() }) {
+    GlassDialog(onDismiss = onDismiss, dismissEnabled = !busy) {
         OverlayHeader("编辑元数据", "修改将保存到 ${server.serverName}，需要服务器编辑权限")
         if (original != null) {
             MetadataField("标题", draft.title, 500, true, busy) { draft = draft.copy(title = it) }
