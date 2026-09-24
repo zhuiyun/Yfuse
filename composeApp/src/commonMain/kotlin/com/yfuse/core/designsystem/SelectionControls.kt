@@ -231,9 +231,18 @@ internal fun SegmentedRow(
     }
 }
 
-/** The switch itself: knob and track only. Its row owns the gesture and the semantics. */
+/**
+ * The switch itself: knob and track only. Its row owns the gesture and the semantics.
+ *
+ * [activeColor] lets a page that already speaks in its artwork's colour — 更多操作 on a detail
+ * page, the airing sheet — keep that colour on the track instead of carrying a private switch
+ * whose knob jumped without a spring.
+ */
 @Composable
-internal fun PillSwitch(checked: Boolean) {
+internal fun PillSwitch(
+    checked: Boolean,
+    activeColor: Color? = null,
+) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
@@ -242,8 +251,9 @@ internal fun PillSwitch(checked: Boolean) {
         animationSpec = Motion.settle<Float>(reduceMotion),
         label = "switchKnob",
     )
+    val offTrack = palette.sub2.copy(alpha = if (palette.isDark) 0.30f else 0.28f)
     val track by animateColorAsState(
-        targetValue = if (checked) accent.accent else palette.sub2.copy(alpha = if (palette.isDark) 0.30f else 0.28f),
+        targetValue = if (checked) activeColor ?: accent.accent else offTrack,
         animationSpec = Motion.settle<Color>(reduceMotion),
         label = "switchTrack",
     )

@@ -142,6 +142,11 @@ fun GlassDialog(
      * where it is — to ask 「放弃更改？」 first, say — instead of animating out and back in.
      */
     confirmDismiss: (() -> Boolean)? = null,
+    /**
+     * A fixed entrance for a panel whose shape already says how it arrives — a sheet pinned to
+     * the bottom edge rises from it. Null follows the person's 弹窗动画 choice.
+     */
+    animation: DialogAnimation? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val parentMotionHost = LocalDialogMotionHost.current
@@ -191,7 +196,7 @@ fun GlassDialog(
                 surfacePalette.copy(body = surfacePalette.dialogBody, sub2 = surfacePalette.dialogSub2)
             }
         val selectedAnimation = LocalDialogAnimation.current
-        val animation = remember { selectedAnimation }
+        val chosenAnimation = remember { animation ?: selectedAnimation }
         val modalMotionHost =
             remember {
                 DialogMotionHost().apply {
@@ -200,7 +205,7 @@ fun GlassDialog(
                 }
             }
         val progress =
-            rememberOverlayTransition(leaving = leaving, animation = animation) {
+            rememberOverlayTransition(leaving = leaving, animation = chosenAnimation) {
                 (afterExit ?: onDismiss)()
                 exitsCompleted++
             }
@@ -248,14 +253,14 @@ fun GlassDialog(
                 drag.stopSettling()
             }
         }
-        val contentMotion = remember(animation, progress) { DialogContentMotion(animation, progress) }
+        val contentMotion = remember(chosenAnimation, progress) { DialogContentMotion(chosenAnimation, progress) }
         val lightMoving by remember(progress) { derivedStateOf { progress() > 0f && progress() < 1f } }
         // The edge light rides a plate that moves as one piece; 磁吸归位 and 内容接力 move
         // their parts separately and would tear it.
         val simpleLightStyle =
-            animation == DialogAnimation.Lift ||
-                animation == DialogAnimation.Slide ||
-                animation == DialogAnimation.Touch
+            chosenAnimation == DialogAnimation.Lift ||
+                chosenAnimation == DialogAnimation.Slide ||
+                chosenAnimation == DialogAnimation.Touch
         val phaseLights = rememberPhaseLightCount(lightMoving && simpleLightStyle)
         val shownTitle = paneTitle.value
         CompositionLocalProvider(
@@ -301,12 +306,12 @@ fun GlassDialog(
                         // style keeps its authored enter and exit geometry untouched, and only a
                         // finger on the panel translates it.
                         .dialogMotion(
-                            animation,
+                            chosenAnimation,
                             drag = drag.takeIf { !dragOff },
                             progress = progress,
                         ).shadow(Shadows.sheet, shape)
                         .mutedGlassPanel(shape)
-                        .dialogInteriorMotion(animation, progress)
+                        .dialogInteriorMotion(chosenAnimation, progress)
                         .phaseLightEdge(progress, phaseLights)
                         .pointerInput(Unit) { detectTapGestures { } }
                         .then(modifier)
@@ -338,7 +343,7 @@ fun GlassDialog(
                             },
                         ),
                 ) {
-                    if (dragHandle && animation == DialogAnimation.MagneticDrag) {
+                    if (dragHandle && chosenAnimation == DialogAnimation.MagneticDrag) {
                         DialogDragHandle(drag, !dragOff && canDismiss && canDrag && !leaving)
                     }
                     content()

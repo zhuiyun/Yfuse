@@ -12,6 +12,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.constrainHeight
@@ -61,3 +62,16 @@ internal fun DisclosureContent(
         )
     }
 }
+
+/**
+ * Turns a disclosure arrow with its body, on the same clock.
+ *
+ * Four expanders each spun their chevron their own way — a tween, two different springs, and
+ * one that did not move at all. Put this on the arrow and drive both from
+ * [rememberDisclosureProgress]; [degrees] is 90 for a chevron pointing right, 180 for one that
+ * flips from down to up.
+ */
+fun Modifier.disclosureRotation(
+    progress: State<Float>,
+    degrees: Float = 90f,
+): Modifier = graphicsLayer { rotationZ = degrees * progress.value }
