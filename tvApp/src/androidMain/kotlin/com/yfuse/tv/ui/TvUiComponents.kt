@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -82,6 +83,12 @@ import com.yfuse.tv.focus.tvRemoteKeyHandler
 internal val TvSafeHorizontal = 48.dp
 internal val TvSafeVertical = 27.dp
 internal val TvRailWidth = 184.dp
+
+/**
+ * The room a scrolling row leaves at its ends. A lazy row clips at its edges, and without this a
+ * focused first or last item lost its lift and part of its white edge there.
+ */
+internal val TvFocusInset = 8.dp
 
 /**
  * TV focus is restored by semantic identity, never by a Lazy list index. An item can move after
@@ -273,6 +280,11 @@ internal fun TvFocusableSurface(
     }
 }
 
+/**
+ * A remote-sized button. It takes the width its label needs unless the caller fixes one, and a
+ * label that still does not fit ends in an ellipsis: a Row of fixed widths is how 更多 was
+ * measured to 0dp and left unreachable, and a clipped 服务器已收藏 read as 服务器.
+ */
 @Composable
 internal fun TvActionButton(
     label: String,
@@ -296,7 +308,7 @@ internal fun TvActionButton(
         focusMemory = focusMemory,
         onClick = onClick,
         contentDescription = label,
-        modifier = modifier.height(52.dp),
+        modifier = modifier.height(52.dp).width(IntrinsicSize.Max),
         focusRequester = focusRequester,
         navigationRequester = navigationRequester,
         returnToNavigationOnLeft = returnToNavigationOnLeft,
@@ -349,6 +361,7 @@ internal fun TvActionButton(
                 fontSize = TvType.body,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }

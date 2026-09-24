@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -201,20 +202,32 @@ private fun TvLibraryServerSelector(
     ) {
         Text("媒体库", color = TvOnSurface, fontSize = TvType.display, fontWeight = FontWeight.ExtraBold)
         Spacer(Modifier.width(12.dp))
-        servers.take(5).forEachIndexed { index, server ->
-            TvActionButton(
-                label = server.serverName,
-                stableId = "library:server:${server.kind.name.lowercase()}:${server.id}",
-                focusScope = "library:servers",
-                focusMemory = focusMemory,
-                onClick = { onSelect(server.id) },
-                modifier = Modifier.width(150.dp),
-                selected = server.id == selectedId,
-                navigationRequester = navigationRequester,
-                returnToNavigationOnLeft = index == 0,
-                serverId = server.id,
-                profileId = server.userId,
-            )
+        // A row that scrolls: in a plain Row the fifth server was measured to 0dp — focusable,
+        // invisible and never reached — and a sixth was not offered at all.
+        LazyRow(
+            state = focusMemory.rowState("library:servers"),
+            modifier = Modifier.weight(1f),
+            contentPadding = PaddingValues(horizontal = TvFocusInset),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            itemsIndexed(
+                servers,
+                key = { _, server -> "library:server:${server.kind.name.lowercase()}:${server.id}" },
+            ) { index, server ->
+                TvActionButton(
+                    label = server.serverName,
+                    stableId = "library:server:${server.kind.name.lowercase()}:${server.id}",
+                    focusScope = "library:servers",
+                    focusMemory = focusMemory,
+                    onClick = { onSelect(server.id) },
+                    modifier = Modifier.width(150.dp),
+                    selected = server.id == selectedId,
+                    navigationRequester = navigationRequester,
+                    returnToNavigationOnLeft = index == 0,
+                    serverId = server.id,
+                    profileId = server.userId,
+                )
+            }
         }
     }
 }

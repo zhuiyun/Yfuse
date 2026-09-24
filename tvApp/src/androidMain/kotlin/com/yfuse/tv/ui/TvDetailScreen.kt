@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -526,70 +527,82 @@ private fun TvDetailHero(
                 }
             }
             Spacer(Modifier.height(11.dp))
-            // Secondary actions sit on their own line: six buttons do not fit the 650dp hero
-            // column, and a clipped control on a television is an unreachable one.
-            Row(horizontalArrangement = Arrangement.spacedBy(11.dp)) {
-                TvActionButton(
-                    label = if (detail.isFavorite) "服务器已收藏" else "服务器收藏",
-                    stableId = "detail:${detail.id}:favorite",
-                    focusScope = "detail:${detail.id}:hero",
-                    focusMemory = focusMemory,
-                    onClick = onToggleFavorite,
-                    modifier = Modifier.width(142.dp),
-                    icon = if (detail.isFavorite) AppIcons.HeartFilled else AppIcons.Heart,
-                    selected = detail.isFavorite,
-                    serverId = serverId,
-                    profileId = profileId,
-                )
-                TvActionButton(
-                    label = if (detail.played) "已看过" else "标记已看",
-                    stableId = "detail:${detail.id}:played",
-                    focusScope = "detail:${detail.id}:hero",
-                    focusMemory = focusMemory,
-                    onClick = onTogglePlayed,
-                    modifier = Modifier.width(150.dp),
-                    icon = AppIcons.Check,
-                    selected = detail.played,
-                    serverId = serverId,
-                    profileId = profileId,
-                )
-                TvActionButton(
-                    label = if (watchLater) "服务器已稍后看" else "服务器稍后看",
-                    stableId = "detail:${detail.id}:watch-later",
-                    focusScope = "detail:${detail.id}:hero",
-                    focusMemory = focusMemory,
-                    onClick = { if (!watchLaterBusy) onToggleWatchLater() },
-                    modifier = Modifier.width(168.dp),
-                    icon = AppIcons.Bookmark,
-                    selected = watchLater,
-                    serverId = serverId,
-                    profileId = profileId,
-                )
-                if (downloadLabel != null) {
+            // Secondary actions sit on their own line, and it scrolls: spelled out in full they are
+            // wider than the 650dp hero column, and a plain Row measured the last of them — 更多,
+            // with 播出日历 and 进度管理 behind it — to 0dp, unreachable. Shifted left by the inset it
+            // pads, so the first button still lines up with 播放.
+            LazyRow(
+                state = focusMemory.rowState("detail:${detail.id}:hero-actions"),
+                modifier = Modifier.offset(x = -TvFocusInset),
+                contentPadding = PaddingValues(horizontal = TvFocusInset),
+                horizontalArrangement = Arrangement.spacedBy(11.dp),
+            ) {
+                item(key = "favorite") {
                     TvActionButton(
-                        label = downloadLabel,
-                        stableId = "detail:${detail.id}:download",
+                        label = if (detail.isFavorite) "服务器已收藏" else "服务器收藏",
+                        stableId = "detail:${detail.id}:favorite",
                         focusScope = "detail:${detail.id}:hero",
                         focusMemory = focusMemory,
-                        onClick = { if (downloadEnabled) onDownload() },
-                        modifier = Modifier.width(160.dp),
-                        icon = AppIcons.Download,
-                        selected = !downloadEnabled,
+                        onClick = onToggleFavorite,
+                        icon = if (detail.isFavorite) AppIcons.HeartFilled else AppIcons.Heart,
+                        selected = detail.isFavorite,
                         serverId = serverId,
                         profileId = profileId,
                     )
                 }
-                TvActionButton(
-                    label = "更多",
-                    stableId = "detail:${detail.id}:more",
-                    focusScope = "detail:${detail.id}:hero",
-                    focusMemory = focusMemory,
-                    onClick = onOpenMore,
-                    modifier = Modifier.width(118.dp),
-                    icon = AppIcons.More,
-                    serverId = serverId,
-                    profileId = profileId,
-                )
+                item(key = "played") {
+                    TvActionButton(
+                        label = if (detail.played) "已看过" else "标记已看",
+                        stableId = "detail:${detail.id}:played",
+                        focusScope = "detail:${detail.id}:hero",
+                        focusMemory = focusMemory,
+                        onClick = onTogglePlayed,
+                        icon = AppIcons.Check,
+                        selected = detail.played,
+                        serverId = serverId,
+                        profileId = profileId,
+                    )
+                }
+                item(key = "watch-later") {
+                    TvActionButton(
+                        label = if (watchLater) "服务器已稍后看" else "服务器稍后看",
+                        stableId = "detail:${detail.id}:watch-later",
+                        focusScope = "detail:${detail.id}:hero",
+                        focusMemory = focusMemory,
+                        onClick = { if (!watchLaterBusy) onToggleWatchLater() },
+                        icon = AppIcons.Bookmark,
+                        selected = watchLater,
+                        serverId = serverId,
+                        profileId = profileId,
+                    )
+                }
+                if (downloadLabel != null) {
+                    item(key = "download") {
+                        TvActionButton(
+                            label = downloadLabel,
+                            stableId = "detail:${detail.id}:download",
+                            focusScope = "detail:${detail.id}:hero",
+                            focusMemory = focusMemory,
+                            onClick = { if (downloadEnabled) onDownload() },
+                            icon = AppIcons.Download,
+                            selected = !downloadEnabled,
+                            serverId = serverId,
+                            profileId = profileId,
+                        )
+                    }
+                }
+                item(key = "more") {
+                    TvActionButton(
+                        label = "更多",
+                        stableId = "detail:${detail.id}:more",
+                        focusScope = "detail:${detail.id}:hero",
+                        focusMemory = focusMemory,
+                        onClick = onOpenMore,
+                        icon = AppIcons.More,
+                        serverId = serverId,
+                        profileId = profileId,
+                    )
+                }
             }
         }
     }
