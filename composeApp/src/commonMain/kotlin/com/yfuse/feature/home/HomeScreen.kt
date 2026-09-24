@@ -62,6 +62,7 @@ import com.yfuse.core.designsystem.ArrivalMotion
 import com.yfuse.core.designsystem.ArtworkPageTheme
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.CaptionedPoster
+import com.yfuse.core.designsystem.CarouselAutoAdvance
 import com.yfuse.core.designsystem.CloudPlayerLogo
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
@@ -118,6 +119,7 @@ import com.yfuse.core.designsystem.motionItemsIndexed
 import com.yfuse.core.designsystem.playerArtworkOnClick
 import com.yfuse.core.designsystem.playerArtworkSource
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.refreshAction
 import com.yfuse.core.designsystem.rememberArtworkAccentTarget
 import com.yfuse.core.designsystem.rememberArtworkPageColor
 import com.yfuse.core.designsystem.rememberCarouselCaptionProgress
@@ -137,7 +139,6 @@ import com.yfuse.core.model.showsReleaseDate
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.network.TmdbImages
 import com.yfuse.core.util.currentHourOfDay
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
@@ -161,6 +162,9 @@ private val HomeStatusBarScrimHeight = 128.dp
 
 /** Successive placeholder shelves breathe a little after one another, top to bottom. */
 private const val SKELETON_SHELF_PHASE_MS = 300
+
+/** Posters a TMDB shelf shows before its 全部 takes over. */
+private const val HOME_SHELF_POSTERS = 12
 
 /**
  * The caption clears the whole dissolve band.
@@ -331,14 +335,18 @@ internal fun HomeContentBody(
         // different one — changing under the user as their resume list filled up — on the
         // home tab. Both read the shared token now.
         // One page-wide clock for the shelves replaced by a refresh, so every shelf's posters
-        // rise under a single sweep of light rather than each shelf flashing on its own.
-        val refreshArrival = rememberRefreshReveal(state.refreshing)
+        // rise under a single sweep of light rather than each shelf flashing on its own. Only a
+        // refresh that changed what the shelves hold plays it: one that failed or brought back
+        // the same picks is not dressed up as new arrivals, and its notice below says why.
+        val shelfRevision = remember(state.content.rows) { homeShelfRevision(state.content.rows) }
+        val refreshArrival = rememberRefreshReveal(state.refreshing, revision = shelfRevision)
+        val refreshPage = {
+            onIntent(HomeIntent.Refresh)
+            onRefreshCalendar()
+        }
         PullToRefreshBox(
             isRefreshing = state.refreshing,
-            onRefresh = {
-                onIntent(HomeIntent.Refresh)
-                onRefreshCalendar()
-            },
+            onRefresh = refreshPage,
             state = pullState,
             indicator = { RefreshIndicator(pullState, state.refreshing, Modifier.align(Alignment.TopCenter)) },
             modifier = Modifier.fillMaxSize(),
@@ -367,6 +375,9 @@ internal fun HomeContentBody(
                                 height = heroHeight,
                                 showSidePreview = showSidePreview,
                                 visible = heroCarouselVisible,
+                                held = quickActions != null || expandedRow != null,
+                                refreshing = state.refreshing,
+                                onRefresh = refreshPage,
                                 onOpenProfile = onOpenProfile,
                                 onOpenCalendar = onOpenCalendar,
                                 onPlay = { onIntent(HomeIntent.Play(it)) },
@@ -583,6 +594,10 @@ private fun HomeHeroCarousel(
     height: androidx.compose.ui.unit.Dp,
     showSidePreview: Boolean,
     visible: Boolean,
+    /** Something is open over the reel — a menu, 查看全部 — so it must not turn under it. */
+    held: Boolean,
+    refreshing: Boolean,
+    onRefresh: () -> Unit,
     onOpenProfile: () -> Unit,
     onOpenCalendar: () -> Unit,
     onPlay: (TmdbItem) -> Unit,
@@ -619,7 +634,6 @@ private fun HomeHeroCarousel(
         }
     }
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
-    val routeVisible = LocalRouteVisible.current
     // Touching the reel restarts its clock rather than stopping it for good. The pause
     // control this replaces could only be undone by finding it again, so a single swipe
     // left the hero permanently still with a play glyph as the only clue why.
@@ -627,30 +641,12 @@ private fun HomeHeroCarousel(
     val ambientItem = items.getOrNull(loopingCarouselItemIndex(pagerState.settledPage, items.size))
     val ambientUrls = remember(ambientItem) { tmdbHeroArtworkUrls(ambientItem) }
 
-    LaunchedEffect(
-        items.size,
-        carouselDragging,
-        reduceMotion,
-        routeVisible,
-        visible,
-        interaction,
-        carouselTouched.value,
-    ) {
-        // 390dp of artwork moving on its own is the largest single piece of motion in the
-        // app, and it was the one thing 减弱动态效果 did not switch off — the setting was
-        // honoured in fifteen places and not in the most conspicuous one.
-        if (!routeVisible || !visible || items.size <= 1 || carouselDragging || carouselTouched.value || reduceMotion) {
-            return@LaunchedEffect
-        }
-        while (true) {
-            delay(6_000)
-            if (pagerState.isScrollInProgress) continue
-            pagerState.animateScrollToPage(
-                page = pagerState.currentPage + 1,
-                animationSpec = tween(Motion.CAROUSEL, easing = Motion.Curve),
-            )
-        }
-    }
+    CarouselAutoAdvance(
+        pagerState = pagerState,
+        pageCount = items.size,
+        held = held || !visible || carouselDragging || carouselTouched.value,
+        restartKey = interaction,
+    )
 
     BoxWithConstraints(
         Modifier
@@ -761,6 +757,8 @@ private fun HomeHeroCarousel(
 
         HeroHeader(
             userName = userName,
+            refreshing = refreshing,
+            onRefresh = onRefresh,
             onOpenProfile = onOpenProfile,
             onOpenCalendar = onOpenCalendar,
             modifier = Modifier.align(Alignment.TopStart),
@@ -923,6 +921,8 @@ private fun HeroSlide(
 @Composable
 private fun HeroHeader(
     userName: String?,
+    refreshing: Boolean,
+    onRefresh: () -> Unit,
     onOpenProfile: () -> Unit,
     onOpenCalendar: () -> Unit,
     modifier: Modifier = Modifier,
@@ -953,6 +953,9 @@ private fun HeroHeader(
                     color = Color.White,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    // The page's title: where TalkBack lands first, and so where 下拉刷新 lives
+                    // for someone who cannot pull.
+                    modifier = Modifier.refreshAction(enabled = !refreshing, onRefresh = onRefresh),
                 )
             }
         }
@@ -1545,6 +1548,15 @@ private fun HomeCalendarShelf(
     }
 }
 
+/**
+ * Which posters each TMDB shelf shows, in order: all a pull-to-refresh can visibly change there.
+ * Equal before and after a refresh that failed or brought back the same picks.
+ */
+internal fun homeShelfRevision(rows: List<TmdbRow>): List<List<String>> =
+    rows.map { row ->
+        listOf(row.title) + row.items.take(HOME_SHELF_POSTERS).map { "${it.mediaType}:${it.id}" }
+    }
+
 /** 为你推荐 — horizontal 2:3 rail; the next card remains visible as a scroll cue. */
 @Composable
 private fun Recommended(
@@ -1563,7 +1575,10 @@ private fun Recommended(
             contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            motionItemsIndexed(items.take(12), key = { _, it -> "${it.mediaType}:${it.id}" }) { index, item ->
+            motionItemsIndexed(
+                items.take(HOME_SHELF_POSTERS),
+                key = { _, it -> "${it.mediaType}:${it.id}" },
+            ) { index, item ->
                 CaptionedPoster(
                     url = TmdbImages.poster(item.posterPath),
                     fallbackUrls =

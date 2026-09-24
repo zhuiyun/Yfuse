@@ -66,6 +66,7 @@ import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.ArtworkPageTheme
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.CaptionedPoster
+import com.yfuse.core.designsystem.CarouselAutoAdvance
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.FallbackImage
@@ -126,6 +127,7 @@ import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.playerArtworkOnClick
 import com.yfuse.core.designsystem.playerArtworkSource
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.refreshAction
 import com.yfuse.core.designsystem.rememberArtworkAccentTarget
 import com.yfuse.core.designsystem.rememberArtworkPageColor
 import com.yfuse.core.designsystem.rememberArtworkPagePalette
@@ -144,6 +146,7 @@ import com.yfuse.core.designsystem.sharedMediaArtwork
 import com.yfuse.core.designsystem.sharedMediaOnClick
 import com.yfuse.core.designsystem.skeletonSweep
 import com.yfuse.core.designsystem.touchTarget
+import com.yfuse.core.model.HomeContent
 import com.yfuse.core.model.HomeRow
 import com.yfuse.core.model.MediaContainer
 import com.yfuse.core.model.MediaContainerKind
@@ -292,7 +295,10 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
 
     val pullState = rememberPullToRefreshState()
     RefreshThresholdHaptics(pullState, refreshing = state.refreshing)
-    val refreshArrival = rememberRefreshReveal(state.refreshing)
+    // The sweep says new content arrived; a refresh that failed (the banner says so) or brought
+    // back the same library has nothing new to sweep over.
+    val contentRevision = remember(state.content) { libraryRefreshRevision(state.content) }
+    val refreshArrival = rememberRefreshReveal(state.refreshing, revision = contentRevision)
 
     var serverMenuOpen by remember { mutableStateOf(false) }
     val listState = component.listState
@@ -315,40 +321,12 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
     val carouselVisible by remember(listState) {
         derivedStateOf { listState.firstVisibleItemIndex == 0 && !listState.isScrollInProgress }
     }
-    LaunchedEffect(
-        slides.size,
-        libraryCarousel,
-        carouselDragging,
-        reduceMotion,
-        routeVisible,
-        interaction,
-        carouselTouched.value,
-        carouselVisible,
-        serverMenuOpen,
-    ) {
-        // Same reasoning as 首页's reel: the largest moving thing on the page, and the one
-        // 减弱动态效果 was not reaching.
-        if (
-            !libraryCarousel ||
-            !routeVisible ||
-            !carouselVisible ||
-            serverMenuOpen ||
-            slides.size <= 1 ||
-            carouselDragging ||
-            carouselTouched.value ||
-            reduceMotion
-        ) {
-            return@LaunchedEffect
-        }
-        while (true) {
-            delay(6_000)
-            if (pagerState.isScrollInProgress) continue
-            pagerState.animateScrollToPage(
-                page = pagerState.currentPage + 1,
-                animationSpec = tween(Motion.CAROUSEL, easing = Motion.Curve),
-            )
-        }
-    }
+    CarouselAutoAdvance(
+        pagerState = pagerState,
+        pageCount = slides.size,
+        held = !libraryCarousel || !carouselVisible || serverMenuOpen || carouselDragging || carouselTouched.value,
+        restartKey = interaction,
+    )
     ScrollToTopOnReselect(listState)
 
     val bottomContentInset = floatingNavigationContentInset()
@@ -514,6 +492,8 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                                     artworkFadeFraction = artworkFadeFraction,
                                                     onPageColor = retainedPageColor::update,
                                                     framed = showSidePreview,
+                                                    // The first stop TalkBack makes on this page, so 下拉刷新 lives
+                                                    // here for someone who cannot pull.
                                                     modifier =
                                                         Modifier
                                                             .fillMaxSize()
@@ -530,6 +510,8 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                                                 scaleY = visual.scale
                                                                 alpha = visual.alpha
                                                                 translationX = size.width * visual.parallaxFraction
+                                                            }.refreshAction(enabled = !state.refreshing) {
+                                                                store.accept(LibraryIntent.Retry)
                                                             },
                                                     onClick = { component.onOpenItem(animatedItem.id) },
                                                     onPlay = { component.onPlayItem(animatedItem.id) },
@@ -1242,6 +1224,17 @@ internal fun List<HomeRow>.libraryShelfRows(): List<HomeRow> =
         .filter { it.items.isNotEmpty() || it.loadFailed }
         .distinctBy { it.libraryId }
         .toList()
+
+/**
+ * Which titles the hero, 播放记录 and each shelf hold, in order: what a pull-to-refresh can
+ * visibly change on this page. Equal before and after a refresh that failed or found nothing new.
+ */
+internal fun libraryRefreshRevision(content: HomeContent): List<List<String>> =
+    buildList {
+        add(content.featured.map { it.id })
+        add(content.resume.map { it.id })
+        content.rows.forEach { row -> add(listOf(row.libraryId) + row.items.map { it.id }) }
+    }
 
 /**
  * 播放记录 replaces the former category shortcut rail. The 190×114 landscape

@@ -1,5 +1,7 @@
 package com.yfuse.feature.library
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,6 +28,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
@@ -39,7 +43,9 @@ import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.LocalAccentColors
+import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.MotionSwap
 import com.yfuse.core.designsystem.OverlayButtonRow
 import com.yfuse.core.designsystem.OverlayButtonTone
@@ -53,11 +59,14 @@ import com.yfuse.core.designsystem.SkeletonPosterTile
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.YfChip
 import com.yfuse.core.designsystem.glass
+import com.yfuse.core.designsystem.motionAwareScrollToItem
 import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.rememberDelayedBusy
 import com.yfuse.core.designsystem.skeletonSweep
 import com.yfuse.core.designsystem.touchTarget
+import com.yfuse.core.designsystem.waitingPulse
 import com.yfuse.core.model.LibraryResolution
 import com.yfuse.core.model.LibrarySort
 import com.yfuse.core.model.MediaContainerKind
@@ -85,6 +94,12 @@ private const val PREFETCH_ITEMS = 18
 /** The phone grid; the skeleton's breathing wave only needs a plausible column count. */
 private const val SKELETON_GRID_COLUMNS = 3
 
+/** How far the old page steps back while the page for a new sort or filter is on its way. */
+private const val REFILTER_GRID_ALPHA = 0.6f
+
+/** Which control asked for the page that is on its way, so the wait shows on that control. */
+private enum class GridRefilterOrigin { Sort, Genre, Specs }
+
 private val sortLabels =
     mapOf(
         LibrarySort.RecentlyAdded to "最近添加",
@@ -104,6 +119,33 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
     var quickActionsItem by remember { mutableStateOf<MediaItem?>(null) }
     val gridState = component.gridState
     val bottomContentInset = systemNavigationContentInset()
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+
+    // A new sort or filter keeps the old page on screen until the new one lands, so the grid
+    // never blanks. On a slow server that read as a tap that had missed: the control that asked
+    // now carries the wait, and the old page steps back and stops taking taps meanwhile.
+    val refiltering = state.loading && state.loadedCount > 0
+    var refilterOrigin by remember { mutableStateOf<GridRefilterOrigin?>(null) }
+    val refilterShown = rememberDelayedBusy(refiltering)
+    val gridAlpha =
+        animateFloatAsState(
+            targetValue = if (refilterShown) REFILTER_GRID_ALPHA else 1f,
+            animationSpec = if (reduceMotion) snap() else Motion.tween(Motion.STANDARD),
+            label = "grid-refilter",
+        )
+    // The new first page lands at the top. Left wherever the old order had been scrolled to,
+    // the start of what was just asked for was out of sight.
+    var awaitingRefilter by remember { mutableStateOf(false) }
+    LaunchedEffect(refiltering) {
+        if (refiltering) {
+            awaitingRefilter = true
+        } else if (awaitingRefilter) {
+            awaitingRefilter = false
+            if (state.error == null && state.loadedCount > 0) {
+                gridState.motionAwareScrollToItem(0, reduceMotion = reduceMotion)
+            }
+        }
+    }
 
     // Paging is driven by what is on screen rather than by the last composed tile: a tile
     // composes once, so binding the request to it would never fire again after a failure.
@@ -180,6 +222,9 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                                 AppShapes.pill,
                                 palette.glassStrong,
                                 palette.tabbarBorder,
+                            ).waitingPulse(
+                                active = refiltering && refilterOrigin == GridRefilterOrigin.Sort,
+                                shape = AppShapes.pill,
                             ).padding(horizontal = 13.dp),
                         horizontalArrangement = Arrangement.spacedBy(5.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -216,7 +261,11 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                 GenreFilterRow(
                     genres = state.genres,
                     selected = state.genre,
-                    onSelect = { component.store.accept(GridIntent.SetGenre(it)) },
+                    pending = refiltering && refilterOrigin == GridRefilterOrigin.Genre,
+                    onSelect = {
+                        refilterOrigin = GridRefilterOrigin.Genre
+                        component.store.accept(GridIntent.SetGenre(it))
+                    },
                 )
             } else if (state.genreLoadError != null) {
                 GenreLoadErrorRow(
@@ -229,8 +278,15 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                 ResolutionFilterRow(
                     selected = state.resolution,
                     unplayedOnly = state.unplayedOnly,
-                    onSelect = { component.store.accept(GridIntent.SetResolution(it)) },
-                    onUnplayedOnly = { component.store.accept(GridIntent.SetUnplayedOnly(it)) },
+                    pending = refiltering && refilterOrigin == GridRefilterOrigin.Specs,
+                    onSelect = {
+                        refilterOrigin = GridRefilterOrigin.Specs
+                        component.store.accept(GridIntent.SetResolution(it))
+                    },
+                    onUnplayedOnly = {
+                        refilterOrigin = GridRefilterOrigin.Specs
+                        component.store.accept(GridIntent.SetUnplayedOnly(it))
+                    },
                 )
             }
 
@@ -258,7 +314,7 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                             modifier = Modifier.align(Alignment.Center),
                         )
 
-                    else ->
+                    else -> {
                         LazyVerticalGrid(
                             columns = GridCells.Adaptive(PosterMinWidth),
                             state = gridState,
@@ -270,7 +326,7 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                                 ),
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                             verticalArrangement = Arrangement.spacedBy(12.dp),
-                            modifier = Modifier.fillMaxSize(),
+                            modifier = Modifier.fillMaxSize().graphicsLayer { alpha = gridAlpha.value },
                         ) {
                             if (state.directoryKind != null) {
                                 motionItems(
@@ -369,6 +425,20 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                                 }
                             }
                         }
+                        if (refiltering) {
+                            // The old page only bridges the wait: a title tapped on it may not be
+                            // in what the new criteria bring back.
+                            Box(
+                                Modifier.matchParentSize().pointerInput(Unit) {
+                                    awaitPointerEventScope {
+                                        while (true) {
+                                            awaitPointerEvent().changes.forEach { it.consume() }
+                                        }
+                                    }
+                                },
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -430,6 +500,7 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                             label = sortLabels[option].orEmpty(),
                             selected = state.sort == option,
                             onClick = {
+                                refilterOrigin = GridRefilterOrigin.Sort
                                 component.store.accept(GridIntent.SetSort(option))
                                 sortOpen = false
                             },
@@ -522,10 +593,16 @@ private fun GenreLoadErrorRow(
 private fun GenreFilterRow(
     genres: List<String>,
     selected: String?,
+    /** The page for a genre chosen here is on its way. */
+    pending: Boolean,
     onSelect: (String?) -> Unit,
 ) {
     LazyRow(
-        modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(bottom = 12.dp)
+                .waitingPulse(active = pending, shape = AppShapes.chip),
         contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -549,11 +626,17 @@ private fun GenreFilterRow(
 private fun ResolutionFilterRow(
     selected: LibraryResolution,
     unplayedOnly: Boolean,
+    /** The page for a specification chosen here is on its way. */
+    pending: Boolean,
     onSelect: (LibraryResolution) -> Unit,
     onUnplayedOnly: (Boolean) -> Unit,
 ) {
     LazyRow(
-        modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(bottom = 12.dp)
+                .waitingPulse(active = pending, shape = AppShapes.chip),
         contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
