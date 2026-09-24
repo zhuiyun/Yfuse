@@ -33,7 +33,6 @@ import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
-import com.yfuse.core.designsystem.BackOverlay
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
@@ -64,6 +63,9 @@ import com.yfuse.core.designsystem.ThemeText as Text
  * configuration threaded through three navigation stacks (库 / 首页 / 搜索 each own a
  * detail child) to show a list the detail store has already loaded. The detail page remains
  * composed underneath, so dismissing this layer returns to that exact page.
+ *
+ * Shown through [com.yfuse.core.designsystem.OverlayPage], which gives it a route's push and
+ * pop and the predictive back.
  */
 @Composable
 internal fun SeasonEpisodesPage(
@@ -101,92 +103,90 @@ internal fun SeasonEpisodesPage(
         }
     }
 
-    BackOverlay(onBack = onDismiss) {
-        Box(Modifier.fillMaxSize().background(palette.background)) {
-            LazyColumn(
-                Modifier.fillMaxSize(),
-                state = listState,
-                contentPadding = PaddingValues(bottom = Dimens.contentBottom),
-            ) {
-                motionItem(key = "season-hero") {
-                    Box(Modifier.fillMaxWidth().height(268.dp)) {
-                        FallbackImage(
-                            urls = heroUrls,
-                            contentDescription = seriesName,
-                            modifier = Modifier.fillMaxSize(),
+    Box(Modifier.fillMaxSize().background(palette.background)) {
+        LazyColumn(
+            Modifier.fillMaxSize(),
+            state = listState,
+            contentPadding = PaddingValues(bottom = Dimens.contentBottom),
+        ) {
+            motionItem(key = "season-hero") {
+                Box(Modifier.fillMaxWidth().height(268.dp)) {
+                    FallbackImage(
+                        urls = heroUrls,
+                        contentDescription = seriesName,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                    Box(Modifier.fillMaxSize().background(heroScrim(palette.background)))
+                    Column(
+                        Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(horizontal = Dimens.pageHorizontal)
+                            .padding(bottom = 18.dp),
+                    ) {
+                        Text(
+                            seasonLabel,
+                            style = AppTypography.display.strong,
+                            color = palette.text,
+                            maxLines = 1,
                         )
-                        Box(Modifier.fillMaxSize().background(heroScrim(palette.background)))
-                        Column(
-                            Modifier
-                                .align(Alignment.BottomStart)
-                                .padding(horizontal = Dimens.pageHorizontal)
-                                .padding(bottom = 18.dp),
-                        ) {
-                            Text(
-                                seasonLabel,
-                                style = AppTypography.display.strong,
-                                color = palette.text,
-                                maxLines = 1,
-                            )
-                            Spacer(Modifier.height(4.dp))
-                            Text(
-                                seriesName,
-                                style = AppTypography.body.medium,
-                                color = palette.sub,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            Spacer(Modifier.height(12.dp))
-                            Text(
-                                "${episodes.size} 剧集",
-                                style = AppTypography.caption.strong,
-                                color = palette.sub2,
-                                maxLines = 1,
-                            )
-                        }
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            seriesName,
+                            style = AppTypography.body.medium,
+                            color = palette.sub,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        Text(
+                            "${episodes.size} 剧集",
+                            style = AppTypography.caption.strong,
+                            color = palette.sub2,
+                            maxLines = 1,
+                        )
                     }
                 }
-
-                motionItemsIndexed(
-                    episodes,
-                    key = { index, episode -> "all-ep-${episode.id}-$index" },
-                ) { _, episode ->
-                    EpisodeRow(
-                        episode = episode,
-                        baseUrl = baseUrl,
-                        accessToken = accessToken,
-                        seriesPosterUrl = seriesPosterUrl,
-                        accent = accent,
-                        current = episode.id == currentEpisodeId,
-                        onPlay = { onPlayEpisode(episode) },
-                        modifier =
-                            Modifier.padding(
-                                horizontal = Dimens.pageHorizontal,
-                                vertical = 7.dp,
-                            ),
-                    )
-                }
             }
 
-            // Same chip as the detail page's, in the same corner, so backing out of this reads
-            // as one gesture rather than two different ones a screen apart.
-            Box(
-                Modifier
-                    .statusBarsPadding()
-                    .padding(start = Dimens.pageHorizontal, top = 10.dp)
-                    .pressable(onClickLabel = "关闭剧集列表", onClick = onDismiss)
-                    .touchTarget()
-                    .size(34.dp)
-                    .glass(CircleShape),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    AppIcons.ChevronLeft,
-                    contentDescription = "返回",
-                    tint = palette.text,
-                    modifier = Modifier.size(15.dp),
+            motionItemsIndexed(
+                episodes,
+                key = { index, episode -> "all-ep-${episode.id}-$index" },
+            ) { _, episode ->
+                EpisodeRow(
+                    episode = episode,
+                    baseUrl = baseUrl,
+                    accessToken = accessToken,
+                    seriesPosterUrl = seriesPosterUrl,
+                    accent = accent,
+                    current = episode.id == currentEpisodeId,
+                    onPlay = { onPlayEpisode(episode) },
+                    modifier =
+                        Modifier.padding(
+                            horizontal = Dimens.pageHorizontal,
+                            vertical = 7.dp,
+                        ),
                 )
             }
+        }
+
+        // Same chip as the detail page's, in the same corner, so backing out of this reads
+        // as one gesture rather than two different ones a screen apart.
+        Box(
+            Modifier
+                .statusBarsPadding()
+                .padding(start = Dimens.pageHorizontal, top = 10.dp)
+                .pressable(onClickLabel = "关闭剧集列表", onClick = onDismiss)
+                .touchTarget()
+                .size(34.dp)
+                .glass(CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                AppIcons.ChevronLeft,
+                contentDescription = "返回",
+                tint = palette.text,
+                modifier = Modifier.size(15.dp),
+            )
         }
     }
 }

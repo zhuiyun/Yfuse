@@ -45,6 +45,7 @@ import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.flatGlass
+import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.overlayDismiss
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.resolveAccentColors
@@ -172,7 +173,7 @@ internal fun DetailMoreActionsDialog(
                 if (watchAvailable) {
                     DetailWatchTogetherAction(
                         active = watchActive,
-                        onClick = onWatchTogether,
+                        onClick = overlayAction(onWatchTogether),
                     )
                 }
                 DetailQuickActionStrip(actions = quickActions)
@@ -191,15 +192,17 @@ internal fun DetailMoreActionsDialog(
 
                 Spacer(Modifier.height(2.dp))
                 DetailMoreSectionLabel(label = "管理", color = DecorativeTints.plum)
+                // Each of these closes the sheet, several to open another: the sheet leaves first, so
+                // the next panel rises over the page instead of replacing this one in a single frame.
                 DetailManagementActions(
                     isSeries = isSeries,
                     followed = followed,
                     isPlex = isPlex,
-                    onToggleFollow = onToggleFollow,
-                    onOrganization = onOrganization,
-                    onRefresh = onRefresh,
-                    onAnalyze = onAnalyze,
-                    onEditMetadata = onEditMetadata,
+                    onToggleFollow = overlayAction(onToggleFollow),
+                    onOrganization = overlayAction(onOrganization),
+                    onRefresh = overlayAction(onRefresh),
+                    onAnalyze = overlayAction(onAnalyze),
+                    onEditMetadata = overlayAction(onEditMetadata),
                 )
                 Spacer(Modifier.height(4.dp))
             }
@@ -407,6 +410,7 @@ private fun DetailQuickActionStrip(actions: List<DetailQuickAction>) {
     }
 }
 
+/** Every quick action closes the sheet; 下载 and 播出日历 open the next panel once it has left. */
 @Composable
 private fun RowScope.DetailQuickActionItem(action: DetailQuickAction) {
     val palette = LocalPalette.current
@@ -415,7 +419,7 @@ private fun RowScope.DetailQuickActionItem(action: DetailQuickAction) {
         Modifier
             .weight(1f)
             .height(82.dp)
-            .pressable(role = Role.Button, onClick = action.onClick),
+            .pressable(role = Role.Button, onClick = overlayAction(action.onClick)),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {

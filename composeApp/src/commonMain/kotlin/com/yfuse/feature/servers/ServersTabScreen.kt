@@ -89,6 +89,7 @@ import com.yfuse.core.designsystem.MinTouchTarget
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.MotionSwap
 import com.yfuse.core.designsystem.OrbProgress
+import com.yfuse.core.designsystem.OverlayActionRow
 import com.yfuse.core.designsystem.OverlayButton
 import com.yfuse.core.designsystem.OverlayButtonRow
 import com.yfuse.core.designsystem.OverlayButtonTone
@@ -1354,14 +1355,13 @@ private fun ServerManagementDialog(
                     }
                     Column(verticalArrangement = Arrangement.spacedBy(OverlayOptionSpacing)) {
                         state.snapshot.plexHomeUsers.forEach { user ->
-                            OverlayOptionRow(
+                            OverlayActionRow(
                                 label = user.name,
                                 description =
                                     buildString {
                                         append(if (user.admin) "管理员" else "家庭用户")
                                         if (user.pinProtected) append(" · 需要 PIN")
                                     },
-                                selected = false,
                                 onClick = {
                                     onSwitchHomeUser(
                                         user.id,
@@ -1377,7 +1377,7 @@ private fun ServerManagementDialog(
                 Spacer(Modifier.height(8.dp))
                 Column(verticalArrangement = Arrangement.spacedBy(OverlayOptionSpacing)) {
                     state.snapshot.libraries.forEach { library ->
-                        OverlayOptionRow(
+                        OverlayActionRow(
                             label = library.name,
                             description =
                                 if (state.busyId == "library:${library.id}") {
@@ -1385,7 +1385,6 @@ private fun ServerManagementDialog(
                                 } else {
                                     "扫描 ${library.collectionType?.ifBlank { "媒体库" } ?: "媒体库"}"
                                 },
-                            selected = false,
                             onClick = { onRefreshLibrary(library.id) },
                         )
                     }
@@ -1415,10 +1414,9 @@ private fun ServerManagementDialog(
                                     ?.toInt()
                                     ?.let { " · $it%" }
                                     .orEmpty()
-                            OverlayOptionRow(
+                            OverlayActionRow(
                                 label = task.name,
                                 description = "${task.state}$progress${task.lastResult?.let { " · 上次 $it" }.orEmpty()}",
-                                selected = false,
                                 onClick = { onRunTask(task.id) },
                             )
                         }

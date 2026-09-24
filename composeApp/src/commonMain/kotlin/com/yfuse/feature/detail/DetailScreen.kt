@@ -44,6 +44,7 @@ import com.yfuse.core.designsystem.ActionToast
 import com.yfuse.core.designsystem.AnimatedColorContent
 import com.yfuse.core.designsystem.ArtworkAccent
 import com.yfuse.core.designsystem.ArtworkPageTheme
+import com.yfuse.core.designsystem.DialogPresence
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.HeroPageFade
@@ -52,6 +53,7 @@ import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.MediaSharedElementKey
 import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.OrbProgressDefaults
+import com.yfuse.core.designsystem.OverlayPage
 import com.yfuse.core.designsystem.SkeletonHandoff
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.WindowWidthTier
@@ -1025,7 +1027,8 @@ fun DetailScreen(component: DetailComponent) {
                     )
                 }
 
-                if (sourceListOpen) {
+                // Held through its exit: 再点已选项 closes the list here while playback starts.
+                DialogPresence(Unit.takeIf { sourceListOpen }) {
                     AnimatedColorContent(detailAccentState) { detailAccent ->
                         SourceListDialog(
                             sources = comparableSources,
@@ -1046,15 +1049,19 @@ fun DetailScreen(component: DetailComponent) {
                 }
 
                 // A layer rather than a route: it covers the page that owns this season and its
-                // artwork, and the detail store has already loaded the episodes it lists.
-                if (allEpisodesOpen && detail != null) {
+                // artwork, and the detail store has already loaded the episodes it lists. It
+                // arrives and leaves like a pushed route all the same.
+                OverlayPage(
+                    value = detail?.takeIf { allEpisodesOpen },
+                    onBack = { allEpisodesOpen = false },
+                ) { shown ->
                     SeasonEpisodesPage(
                         seasonLabel =
                             state.seasons
                                 .firstOrNull { it.id == state.selectedSeasonId }
                                 ?.name
                                 ?: "剧集",
-                        seriesName = detail.seriesName?.ifBlank { null } ?: detail.title,
+                        seriesName = shown.seriesName?.ifBlank { null } ?: shown.title,
                         episodes = state.episodes,
                         heroUrls = heroUrls,
                         baseUrl = playBaseUrl,
