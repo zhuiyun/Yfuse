@@ -25,6 +25,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.yfuse.app.floatingNavigationContentInset
 import com.yfuse.core.data.CrossServerMediaGroup
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
@@ -38,7 +39,6 @@ import com.yfuse.core.designsystem.OrbProgressDefaults
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.OverlayOptionRow
 import com.yfuse.core.designsystem.PageHint
-import com.yfuse.core.designsystem.TabBarInset
 import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.touchTarget
@@ -109,7 +109,8 @@ fun UnifiedLibraryScreen(
         LazyVerticalGrid(
             columns = GridCells.Adaptive(125.dp),
             modifier = Modifier.weight(1f),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = TabBarInset),
+            // The dock's real clearance — it grows with 三键导航 and 大号文字 — not a fixed 122dp.
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = floatingNavigationContentInset()),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {

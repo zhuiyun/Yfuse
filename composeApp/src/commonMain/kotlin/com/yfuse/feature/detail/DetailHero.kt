@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
@@ -463,7 +464,8 @@ private fun DetailTopBarIcon(
 internal fun TitleBlock(
     detail: MediaDetail,
     title: String,
-    accent: Color,
+    /** Read while drawing: the artwork's colour blends in without recomposing the block. */
+    accent: () -> Color,
     version: MediaVersion?,
     modifier: Modifier = Modifier,
 ) {
@@ -595,14 +597,18 @@ private val ArtworkInkFaint = Color.White.copy(alpha = 0.84f)
 @Composable
 private fun RatingFigure(
     rating: Double,
-    accent: Color,
+    accent: () -> Color,
 ) {
     Row(
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text("TMDB", style = AppTypography.body.strong, color = ArtworkInkSub)
-        Text(rating.toString(), style = AppTypography.section.strong, color = lerp(accent, Color.White, 0.38f))
+        BasicText(
+            rating.toString(),
+            style = AppTypography.section.strong,
+            color = { lerp(accent(), Color.White, 0.38f) },
+        )
     }
 }
 

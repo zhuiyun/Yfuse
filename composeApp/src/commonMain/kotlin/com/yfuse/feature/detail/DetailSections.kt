@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -213,12 +214,12 @@ internal fun OverviewSection(
     text: String,
     expanded: Boolean,
     onToggle: () -> Unit,
-    accent: Color,
+    /** Read while drawing the 展开 link, so the artwork's colour blends in without a recomposition. */
+    accent: () -> Color,
     modifier: Modifier = Modifier,
 ) {
     val palette = LocalPalette.current
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
-    val interactiveForeground = readableStateAccent(accent, palette.background, minimumRatio = 4.5f)
     var overflowed by remember(text) { mutableStateOf(false) }
     val canToggle = overflowed || expanded
     Column(
@@ -250,10 +251,11 @@ internal fun OverviewSection(
         )
         if (overflowed || expanded) {
             Spacer(Modifier.height(6.dp))
-            Text(
+            val background = palette.background
+            BasicText(
                 if (expanded) "收起" else "展开",
                 style = AppTypography.body.strong,
-                color = interactiveForeground,
+                color = { readableStateAccent(accent(), background, minimumRatio = 4.5f) },
             )
         }
     }
