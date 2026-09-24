@@ -52,6 +52,37 @@ class OverlayVisibilityTest {
         }
     }
 
+    @Test
+    fun a_dialog_window_records_the_page_without_moving_the_dock() {
+        val visibility = OverlayVisibility()
+        val recomposer = Recomposer(EmptyCoroutineContext)
+        val dialog = Composition(EmptyApplier(), recomposer)
+        val page = Composition(EmptyApplier(), recomposer)
+        try {
+            dialog.setContent {
+                CompositionLocalProvider(LocalOverlayVisibility provides visibility) {
+                    ReportOverlayVisible(inWindow = false)
+                }
+            }
+            assertTrue(visibility.any)
+            assertFalse(visibility.coversShell)
+
+            page.setContent {
+                CompositionLocalProvider(LocalOverlayVisibility provides visibility) {
+                    ReportOverlayVisible()
+                }
+            }
+            assertTrue(visibility.coversShell)
+            page.dispose()
+            assertFalse(visibility.coversShell)
+            assertTrue(visibility.any)
+        } finally {
+            dialog.dispose()
+            page.dispose()
+            recomposer.cancel()
+        }
+    }
+
     private class EmptyApplier : AbstractApplier<Unit>(Unit) {
         override fun insertTopDown(
             index: Int,

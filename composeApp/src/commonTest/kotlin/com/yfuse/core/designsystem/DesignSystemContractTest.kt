@@ -1,6 +1,7 @@
 package com.yfuse.core.designsystem
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -44,6 +45,17 @@ class DesignSystemContractTest {
                 4.5f,
                 "onErrorContainer",
             )
+        }
+    }
+
+    @Test
+    fun dialog_text_roles_clear_small_text_contrast_on_the_default_pane() {
+        listOf(LightPalette, DarkPalette).forEach { palette ->
+            // The pane as it lands over the page when nothing brighter is behind it.
+            val pane = palette.dialogTint.compositeOver(palette.background)
+            listOf(palette.dialogBody, palette.dialogSub2, palette.dialogSub, palette.dialogHint).forEach {
+                assertContrastAtLeast(it, pane, 4.5f, "dialog text role")
+            }
         }
     }
 

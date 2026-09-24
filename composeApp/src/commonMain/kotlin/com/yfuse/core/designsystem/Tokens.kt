@@ -254,6 +254,10 @@ data class Palette(
     val dialogBody: Color,
     /** [sub2] recalibrated for [dialogTint]. */
     val dialogSub2: Color,
+    /** [sub] recalibrated for [dialogTint]. */
+    val dialogSub: Color,
+    /** [hint] recalibrated for [dialogTint]: placeholder and empty-state copy inside a dialog. */
+    val dialogHint: Color,
     /** The neutral plate controls inside a dialog fall back to under 减弱透明度. */
     val mutedControl: Color,
     /** 毛玻璃's cool haze, mixed into every frosted fill. */
@@ -341,6 +345,10 @@ val LightPalette =
         // 5.3:1 / 5.0:1 on the composited light pane; see DesignSystemContractTest.
         dialogBody = Color(0xFF58606E),
         dialogSub2 = Color(0xFF5B6371),
+        // `sub` and `hint` were left at their page values and measured about 4.7:1 and 4.2:1 on
+        // this pane; 5.1:1 and 4.8:1 now.
+        dialogSub = Color(0xFF5A6270),
+        dialogHint = Color(0xFF5E6674),
         mutedControl = Color(0xFFBEC3CB),
         mist = Color(0xFFDCE7F4),
         depth = Color(0xFFC8D6E6),
@@ -390,6 +398,9 @@ val DarkPalette =
         dialogTint = Color(0xFF191E27).copy(alpha = 0.72f),
         dialogBody = Color(0xFFB7BFCB),
         dialogSub2 = Color(0xFF9199A8),
+        dialogSub = Color(0xFF9AA4B4),
+        // The page's hint is 4.3:1 on the lighter pane.
+        dialogHint = Color(0xFF7E8694),
         mutedControl = Color(0xFF353B45),
         mist = Color(0xFF213149),
         depth = Color(0xFF09111F),

@@ -372,7 +372,7 @@ fun App(root: RootComponent) {
                         // still across the whole app was also the only thing that ever blinked.
                         // Whether the dock is *wanted* still follows [showBottomBar] alone, so
                         // nothing that reasons about the bar's presence is waiting on an animation.
-                        val dockShown = showBottomBar && overlays?.any != true
+                        val dockShown = showBottomBar && overlays?.coversShell != true
                         // The dock leaves when a route is pushed and comes back when one is popped,
                         // so those are its durations — they used to be the other way round, which
                         // made the bar linger after the page it belonged to had already gone.
