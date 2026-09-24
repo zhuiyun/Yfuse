@@ -42,9 +42,9 @@ import androidx.compose.ui.unit.dp
 import com.arkivanov.decompose.extensions.compose.subscribeAsState
 import com.yfuse.app.BindBackgroundServices
 import com.yfuse.app.RootComponent
-import com.yfuse.core.designsystem.AccessibilityOptions
+import com.yfuse.app.effectiveGlassStyle
+import com.yfuse.app.rememberAppAccessibilityOptions
 import com.yfuse.core.designsystem.AppIcons
-import com.yfuse.core.designsystem.GlassStyle
 import com.yfuse.core.designsystem.YfuseTheme
 import com.yfuse.core.network.LocalNetworkAccessNotice
 import com.yfuse.feature.home.HomeTabComponent
@@ -76,9 +76,10 @@ private val tvDestinations =
 /** Public Android-TV entry point used by TvMainActivity. */
 @Composable
 fun TvApp(component: RootComponent) {
-    val reduceTransparency by component.themePreferences.reduceTransparency.collectAsState()
-    val largeText by component.themePreferences.largeText.collectAsState()
-    val reduceMotion by component.themePreferences.reduceMotion.collectAsState()
+    // The phone's builder: the person's switches plus the system's 「移除动画」, which the
+    // television never heard — its reel kept turning and its focus kept scaling with animations
+    // off for the whole device.
+    val accessibility = rememberAppAccessibilityOptions(component.themePreferences)
     val dialogAnimation by component.themePreferences.dialogAnimation.collectAsState()
     val glassStyle by component.themePreferences.glassStyle.collectAsState()
     val loadingAnimation by component.themePreferences.loadingAnimation.collectAsState()
@@ -89,13 +90,8 @@ fun TvApp(component: RootComponent) {
     // tokens — a grey or white panel over a dark room. A television has one theme.
     YfuseTheme(
         dark = true,
-        accessibility =
-            AccessibilityOptions(
-                reduceTransparency = reduceTransparency,
-                largeText = largeText,
-                reduceMotion = reduceMotion,
-            ),
-        glassStyle = if (reduceTransparency) GlassStyle.Frosted else glassStyle,
+        accessibility = accessibility,
+        glassStyle = effectiveGlassStyle(glassStyle, accessibility.reduceTransparency),
         dialogAnimation = dialogAnimation,
         loadingAnimation = loadingAnimation,
         glassMaterials = glassMaterials,
