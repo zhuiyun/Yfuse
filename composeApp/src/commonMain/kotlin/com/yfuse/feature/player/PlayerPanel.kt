@@ -48,6 +48,7 @@ import com.yfuse.core.designsystem.LocalDialogContentMotion
 import com.yfuse.core.designsystem.LocalMutedGlass
 import com.yfuse.core.designsystem.LocalOverlayComplete
 import com.yfuse.core.designsystem.LocalOverlayDismiss
+import com.yfuse.core.designsystem.LocalOverlayEntrance
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.PlatformPredictiveBackHandler
 import com.yfuse.core.designsystem.Shadows
@@ -256,6 +257,7 @@ internal fun PlayerSidePanel(
                     }
                 },
                 LocalPanelPresence provides null,
+                LocalOverlayEntrance provides openFraction,
             ) { content() }
         },
     )

@@ -387,7 +387,7 @@ private fun BufferingRing(modifier: Modifier = Modifier) {
             rememberInfiniteTransition(label = "buffering-ring").animateFloat(
                 initialValue = 0f,
                 targetValue = 360f,
-                animationSpec = infiniteRepeatable(Motion.tween(Motion.REFRESH_SPIN, easing = LinearEasing)),
+                animationSpec = infiniteRepeatable(Motion.tween(Motion.SPINNER_TURN, easing = LinearEasing)),
                 label = "buffering-turn",
             )
         } else {

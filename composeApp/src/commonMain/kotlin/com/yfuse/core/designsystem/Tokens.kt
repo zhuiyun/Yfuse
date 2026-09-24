@@ -853,11 +853,11 @@ object Motion {
     const val CAROUSEL_COLOR = 600
 
     /**
-     * One turn of an indeterminate spinner.
+     * One turn of an indeterminate spinner — the arc round the player's play key while it stalls.
      *
-     * Slow enough to read as "working" rather than "frantic" — the thing it reports on is a
-     * round of network probes, which takes about this long per server.
+     * Slow enough to read as "working" rather than "frantic".
      */
+    const val SPINNER_TURN = 900
 }
 
 // ---------------------------------------------------------------- typography

@@ -628,7 +628,7 @@ internal fun AppearanceSettingsScreen(
                     SettingsDivider()
                     SettingRow(
                         "播放器进出场",
-                        playerTransitionSummary,
+                        if (calm) "静息主题下为标准淡入" else playerTransitionSummary,
                         true,
                         onPlayerTransition,
                         icon = AppIcons.Play,

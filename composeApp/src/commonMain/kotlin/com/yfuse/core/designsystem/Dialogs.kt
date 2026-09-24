@@ -48,6 +48,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -76,6 +77,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import com.yfuse.core.designsystem.ThemeIcon as Icon
@@ -406,6 +408,7 @@ fun GlassDialog(
             LocalDialogContentMotion provides contentMotion,
             LocalDialogMotionHost provides modalMotionHost,
             LocalDialogPaneTitle provides paneTitle,
+            LocalOverlayEntrance provides progress,
             // A dialog opened from inside this one belongs to it, not to this one's owner.
             LocalDialogPresence provides null,
         ) {
@@ -490,6 +493,18 @@ fun GlassDialog(
 }
 
 internal val LocalOverlayDismiss = staticCompositionLocalOf<(() -> Unit)?> { null }
+
+/**
+ * How far the dialog or drawer this is composed in has come in, 0..1; null outside one. Content
+ * that changes the layout as it arrives — a field that raises the keyboard above all — waits for
+ * [awaitOverlayEntered], so the keyboard does not resize the panel while it is still moving in.
+ */
+val LocalOverlayEntrance = staticCompositionLocalOf<(() -> Float)?> { null }
+
+/** Returns once [entrance] (see [LocalOverlayEntrance]) has finished; at once outside an overlay. */
+suspend fun awaitOverlayEntered(entrance: (() -> Float)?) {
+    if (entrance != null) snapshotFlow { entrance() >= 1f }.first { it }
+}
 
 /** Where an [OverlayHeader] publishes its title, so the dialog can announce itself as a pane. */
 internal val LocalDialogPaneTitle = staticCompositionLocalOf<MutableState<String?>?> { null }

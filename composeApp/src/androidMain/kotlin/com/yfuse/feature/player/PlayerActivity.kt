@@ -58,6 +58,7 @@ import com.yfuse.core.designsystem.DialogAnimation
 import com.yfuse.core.designsystem.GlassMaterials
 import com.yfuse.core.designsystem.GlassStyle
 import com.yfuse.core.designsystem.LoadingAnimation
+import com.yfuse.core.designsystem.MotionTheme
 import com.yfuse.core.designsystem.ParticleLight
 import com.yfuse.core.designsystem.ParticleStyle
 import com.yfuse.core.designsystem.PlatformPredictiveBackHandler
@@ -498,6 +499,7 @@ class PlayerActivity : ComponentActivity() {
             val glassStyle = preferences?.glassStyle?.collectAsState()?.value ?: GlassStyle.Liquid
             val particleLight = preferences?.particleLight?.collectAsState()?.value ?: ParticleLight.Gentle
             val particleStyle = preferences?.particleStyle?.collectAsState()?.value ?: ParticleStyle.Stardust
+            val motionTheme = preferences?.motionTheme?.collectAsState()?.value ?: MotionTheme.Classic
             YfuseTheme(
                 dark = true,
                 dialogAnimation = dialogAnimation,
@@ -509,6 +511,7 @@ class PlayerActivity : ComponentActivity() {
                 particleStyle = particleStyle,
                 particleLimit = 32,
                 particleActive = false,
+                motionTheme = motionTheme,
             ) {
                 val leavePreparation = {
                     val drawn =
@@ -789,6 +792,7 @@ class PlayerActivity : ComponentActivity() {
             val glassStyle = preferences?.glassStyle?.collectAsState()?.value ?: GlassStyle.Liquid
             val particleLight = preferences?.particleLight?.collectAsState()?.value ?: ParticleLight.Gentle
             val particleStyle = preferences?.particleStyle?.collectAsState()?.value ?: ParticleStyle.Stardust
+            val motionTheme = preferences?.motionTheme?.collectAsState()?.value ?: MotionTheme.Classic
             YfuseTheme(
                 dark = true,
                 dialogAnimation = dialogAnimation,
@@ -800,6 +804,7 @@ class PlayerActivity : ComponentActivity() {
                 particleStyle = particleStyle,
                 particleLimit = 32,
                 particleActive = !inPictureInPicture,
+                motionTheme = motionTheme,
             ) {
                 PlayerRoot(
                     transition = transition,
