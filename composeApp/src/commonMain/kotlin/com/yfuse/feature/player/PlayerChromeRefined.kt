@@ -305,6 +305,8 @@ internal fun RefinedBottomBar(
     onNext: () -> Unit,
     onSeek: (Long) -> Unit,
     onScrub: () -> Unit,
+    /** The finger has left the rail, whether the drag was committed or cancelled. */
+    onScrubEnd: () -> Unit = {},
     trickplay: TrickplayStoryboard?,
     progressMarkers: List<PlaybackProgressMarker>,
     hasEpisodes: Boolean,
@@ -343,6 +345,7 @@ internal fun RefinedBottomBar(
         onNext = onNext,
         onSeek = onSeek,
         onScrub = onScrub,
+        onScrubEnd = onScrubEnd,
         trickplay = trickplay,
         progressMarkers = progressMarkers,
         hasEpisodes = hasEpisodes,
@@ -375,6 +378,7 @@ private fun RefinedBottomBarContent(
     onNext: () -> Unit,
     onSeek: (Long) -> Unit,
     onScrub: () -> Unit,
+    onScrubEnd: () -> Unit,
     trickplay: TrickplayStoryboard?,
     progressMarkers: List<PlaybackProgressMarker>,
     hasEpisodes: Boolean,
@@ -567,6 +571,7 @@ private fun RefinedBottomBarContent(
                         scrubbed.value = it
                         pendingSeek = it
                         onSeek(scrubPositionMs(it, timeline.value.durationMs))
+                        onScrubEnd()
                     },
                     onCancel = {
                         // Handed to the release animation in the same breath, so the thumb never
@@ -574,6 +579,7 @@ private fun RefinedBottomBarContent(
                         releasing.value = scrubbed.value
                         cancelledFrom = scrubbed.value
                         scrubbed.value = null
+                        onScrubEnd()
                     },
                     modifier = Modifier.fillMaxWidth(),
                 )

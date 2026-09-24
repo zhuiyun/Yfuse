@@ -2,9 +2,9 @@ package com.yfuse.feature.player
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.snap
@@ -25,7 +25,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -36,22 +35,27 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
@@ -88,6 +92,7 @@ import com.yfuse.core.designsystem.softSelectionSurface
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.util.currentClockTime
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.isActive
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
@@ -427,24 +432,29 @@ private fun BufferingRing(modifier: Modifier = Modifier) {
  */
 @Composable
 internal fun VolumeSlider(
-    volume: Float,
+    /** A reader: the rocker and a drag move it many times a second, and only the bar follows it. */
+    volume: () -> Float,
     onVolume: (Float) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val light = rememberLightFeedback()
     val currentLight by rememberUpdatedState(light)
     val accent = rememberAccentColorsForSurface(dark = true)
-    val targetFraction = volume.coerceIn(0f, 1f)
+    val latestVolume by rememberUpdatedState(volume)
     var height by remember { mutableIntStateOf(1) }
     var focused by remember { mutableStateOf(false) }
     var dragging by remember { mutableStateOf(false) }
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
-    val animatedFraction by animateFloatAsState(
-        targetValue = targetFraction,
-        animationSpec = Motion.settle(reduceMotion),
-        label = "volume-level",
-    )
-    val fraction = if (dragging) targetFraction else animatedFraction
+    // The level as drawn: eased to each new volume, straight onto it under a finger. The fill
+    // reads it while drawing and the figure through a whole-percent derived state, so the frames
+    // of a settle repaint the rail instead of recomposing the slider.
+    val shown = remember { Animatable(volume().coerceIn(0f, 1f)) }
+    LaunchedEffect(reduceMotion) {
+        snapshotFlow { latestVolume().coerceIn(0f, 1f) to dragging }.collectLatest { (target, underFinger) ->
+            if (underFinger || reduceMotion) shown.snapTo(target) else shown.animateTo(target, Motion.settle())
+        }
+    }
+    val percent by remember { derivedStateOf { (shown.value * 100).toInt() } }
     val adjust: (Float) -> Boolean = { target ->
         onVolume(target.coerceIn(0f, 1f))
         currentLight.emit(LightEffect.Trail, fractionY = 1f - target)
@@ -461,27 +471,24 @@ internal fun VolumeSlider(
                 ).padding(horizontal = 12.dp, vertical = 14.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Text("${(fraction * 100).toInt()}", style = AppTypography.caption.strong, color = Color.White)
+            Text("$percent", style = AppTypography.caption.strong, color = Color.White)
             Spacer(Modifier.height(10.dp))
             Box(
                 Modifier
                     .width(6.dp)
                     .height(140.dp)
                     .clip(AppShapes.track)
-                    .background(Color.White.copy(alpha = 0.22f)),
-                contentAlignment = Alignment.BottomCenter,
-            ) {
-                // Muted draws no fill at all rather than a zero-height sliver.
-                if (fraction > 0f) {
-                    Box(
-                        Modifier
-                            .fillMaxWidth()
-                            .fillMaxHeight(fraction)
-                            .clip(AppShapes.track)
-                            .background(Color.White),
-                    )
-                }
-            }
+                    .background(Color.White.copy(alpha = 0.22f))
+                    .drawBehind {
+                        val level = shown.value
+                        // Muted draws no fill at all rather than a zero-height sliver.
+                        if (level <= 0f) return@drawBehind
+                        val fill = Size(size.width, size.height * level)
+                        translate(top = size.height - fill.height) {
+                            drawOutline(AppShapes.track.createOutline(fill, layoutDirection, this), Color.White)
+                        }
+                    },
+            )
             Spacer(Modifier.height(10.dp))
             Icon(AppIcons.Volume, null, tint = Color.White, modifier = Modifier.size(14.dp))
         }
@@ -499,14 +506,14 @@ internal fun VolumeSlider(
                         Modifier
                     },
                 ).semantics {
-                    stateDescription = "音量 ${(fraction * 100).toInt()}%"
-                    progressBarRangeInfo = ProgressBarRangeInfo(fraction, 0f..1f, 100)
+                    stateDescription = "音量 $percent%"
+                    progressBarRangeInfo = ProgressBarRangeInfo(percent / 100f, 0f..1f, 100)
                     setProgress { adjust(it) }
                 }.onKeyEvent { event ->
                     if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
                     when (event.key) {
-                        Key.DirectionDown, Key.DirectionLeft -> adjust(fraction - 0.05f)
-                        Key.DirectionUp, Key.DirectionRight -> adjust(fraction + 0.05f)
+                        Key.DirectionDown, Key.DirectionLeft -> adjust(latestVolume() - 0.05f)
+                        Key.DirectionUp, Key.DirectionRight -> adjust(latestVolume() + 0.05f)
                         else -> false
                     }
                 }.onFocusChanged { focused = it.isFocused }

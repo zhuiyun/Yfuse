@@ -184,17 +184,19 @@ internal fun PlayerControls(
     trickplay: TrickplayStoryboard? = null,
     /*
      * System volume, 0f..1f, and its setter — read by the right-edge drag gesture and by the
-     * slider the volume rocker raises. There is no on-screen volume control any more.
+     * slider the volume rocker raises. There is no on-screen volume control any more. A reader
+     * rather than a value: a drag or the rocker changes it many times a second, and as a value
+     * each of those recomposed every control on this screen.
      */
-    volume: Float = 0f,
+    volume: () -> Float = { 0f },
     onVolume: (Float) -> Unit = {},
     /*
      * Increments on each volume key press. Any change raises the vertical slider; the value
      * itself is meaningless, which is what lets a press at the volume ceiling still show it.
      */
     volumeKeyPresses: Long = 0L,
-    // Current window brightness, 0f..1f. Vertical drags on the left half adjust it.
-    brightness: Float = 0.5f,
+    // Current window brightness, 0f..1f, as a reader for the same reason. Vertical drags on the left half adjust it.
+    brightness: () -> Float = { 0.5f },
     onBrightness: (Float) -> Unit = {},
     // Engine picker rows: label to selected.
     engineOptions: List<Pair<String, Boolean>> = emptyList(),
@@ -300,6 +302,9 @@ internal fun PlayerControls(
     val screenReaderActive = rememberScreenReaderActive()
     // Bumped by every interaction so the auto-hide timer restarts.
     var interactions by remember { mutableIntStateOf(0) }
+    // A finger on the progress rail. Held still over a preview it sends no samples, and the timer
+    // used to hide the bar out from under it — cancelling the drag it was about to commit.
+    var scrubbing by remember { mutableStateOf(false) }
     val latestPosition by remember(playback) { derivedStateOf { playback.value.positionMs } }
     val latestDuration by rememberUpdatedState(state.durationMs)
     val latestVolume by rememberUpdatedState(volume)
@@ -522,6 +527,7 @@ internal fun PlayerControls(
         accessibilityManager,
         controlsHaveFocus,
         screenReaderActive,
+        scrubbing,
     ) {
         val overlayOpen =
             gestureHelpOpen ||
@@ -540,7 +546,8 @@ internal fun PlayerControls(
             !playbackActive ||
             overlayOpen ||
             controlsHaveFocus ||
-            screenReaderActive
+            screenReaderActive ||
+            scrubbing
         ) {
             return@LaunchedEffect
         }
@@ -808,8 +815,8 @@ internal fun PlayerControls(
                     var totalY = 0f
                     var startX = 0f
                     var seekTarget = latestPosition
-                    var volumeAtDragStart = latestVolume
-                    var brightnessAtDragStart = latestBrightness
+                    var volumeAtDragStart = latestVolume()
+                    var brightnessAtDragStart = latestBrightness()
                     detectPlayerDragGestures(
                         canStart = { origin -> !locked && allowsPlayerDrag(origin.y, currentSystemGestureTop) },
                         onDragStart = { offset ->
@@ -817,8 +824,8 @@ internal fun PlayerControls(
                             totalX = 0f
                             totalY = 0f
                             seekTarget = latestPosition
-                            volumeAtDragStart = latestVolume
-                            brightnessAtDragStart = latestBrightness
+                            volumeAtDragStart = latestVolume()
+                            brightnessAtDragStart = latestBrightness()
                         },
                         onDragEnd = {
                             if (
@@ -954,7 +961,11 @@ internal fun PlayerControls(
                 ) {
                     DisposableEffect(Unit) {
                         ambientPresenceChanged(true)
-                        onDispose { ambientPresenceChanged(false) }
+                        onDispose {
+                            ambientPresenceChanged(false)
+                            // A rail taken away mid-drag reports no end of its own.
+                            scrubbing = false
+                        }
                     }
                     PlaybackTimelineContent(playback) { timelineState ->
                         val remoteSeek = remoteChromeState?.seekTargetMs?.takeIf { remoteChromeState.seeking }
@@ -991,7 +1002,14 @@ internal fun PlayerControls(
                                 poke()
                                 onSeek(it)
                             },
-                            onScrub = { interactions++ },
+                            onScrub = {
+                                scrubbing = true
+                                interactions++
+                            },
+                            onScrubEnd = {
+                                scrubbing = false
+                                poke()
+                            },
                             trickplay = trickplay,
                             progressMarkers =
                                 remember(

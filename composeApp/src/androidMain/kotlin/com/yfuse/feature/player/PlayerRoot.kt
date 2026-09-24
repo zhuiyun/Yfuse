@@ -3475,7 +3475,9 @@ internal fun PlayerRoot(
                         Toast.makeText(context, "画面：${scaleMode.label}", Toast.LENGTH_SHORT).show()
                     },
                     trickplay = currentTrickplay,
-                    volume = castState.volume?.takeIf { castState.hasActiveSession } ?: volumeLevel.value,
+                    // Readers, not values: read here, every step of a volume or brightness drag
+                    // recomposed the whole control surface.
+                    volume = { castState.volume?.takeIf { castState.hasActiveSession } ?: volumeLevel.value },
                     onVolume = { requestedVolume ->
                         if (castState.hasActiveSession) {
                             scope.launch { castManager.setVolume(requestedVolume) }
@@ -3484,7 +3486,7 @@ internal fun PlayerRoot(
                         }
                     },
                     volumeKeyPresses = volumeKeyPresses.collectAsState().value,
-                    brightness = brightnessLevel.value,
+                    brightness = { brightnessLevel.value },
                     onBrightness = { setBrightness(it) },
                     engineOptions =
                         PlaybackEngineSelection.selectable.map { selection ->
