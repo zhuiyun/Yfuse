@@ -22,6 +22,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -122,6 +123,24 @@ fun TvRoot(component: RootComponent) {
     val navRequesters = remember { RootComponent.Tab.entries.associateWith { FocusRequester() } }
     val contentRequesters = remember { RootComponent.Tab.entries.associateWith { FocusRequester() } }
 
+    // A pushed page keeps its saveable state — its list's scroll position above all — for as long
+    // as it is in its tab's stack, so detail A → related B → back finds A where the viewer left it.
+    // The bare `when` this replaces rebuilt A from the top, carrying B's scroll position into it.
+    val pageStates = rememberSaveableStateHolder()
+    val stackedPageKeys =
+        buildSet {
+            homeStack.items.forEach { add(tvPageKey(RootComponent.Tab.Home, it.key)) }
+            libraryStack.items.forEach { add(tvPageKey(RootComponent.Tab.Browse, it.key)) }
+            searchStack.items.forEach { add(tvPageKey(RootComponent.Tab.Search, it.key)) }
+        }
+    val knownPageKeys = remember { mutableSetOf<String>() }
+    LaunchedEffect(stackedPageKeys) {
+        // Popped pages forget, so opening the same title again starts at its top.
+        (knownPageKeys - stackedPageKeys).forEach(pageStates::removeState)
+        knownPageKeys.clear()
+        knownPageKeys.addAll(stackedPageKeys)
+    }
+
     val atRoot =
         when (activeTab) {
             RootComponent.Tab.Home -> homeStack.active.instance is HomeTabComponent.Child.Home
@@ -178,17 +197,34 @@ fun TvRoot(component: RootComponent) {
                 }
             }
         } else {
-            TvSecondaryContent(
-                component = component,
-                activeTab = activeTab,
-                focusMemory = focusMemory,
-                homeChild = homeStack.active.instance,
-                libraryChild = libraryStack.active.instance,
-                searchChild = searchStack.active.instance,
-            )
+            val pageKey =
+                when (activeTab) {
+                    RootComponent.Tab.Home -> tvPageKey(activeTab, homeStack.active.key)
+                    RootComponent.Tab.Browse -> tvPageKey(activeTab, libraryStack.active.key)
+                    RootComponent.Tab.Search -> tvPageKey(activeTab, searchStack.active.key)
+                    RootComponent.Tab.Profile,
+                    RootComponent.Tab.Servers,
+                    -> activeTab.name
+                }
+            pageStates.SaveableStateProvider(pageKey) {
+                TvSecondaryContent(
+                    component = component,
+                    activeTab = activeTab,
+                    focusMemory = focusMemory,
+                    homeChild = homeStack.active.instance,
+                    libraryChild = libraryStack.active.instance,
+                    searchChild = searchStack.active.instance,
+                )
+            }
         }
     }
 }
+
+/** A pushed page's key in the saved-state holder: unique within its tab's stack, and a String. */
+private fun tvPageKey(
+    tab: RootComponent.Tab,
+    childKey: String,
+): String = "${tab.name}:$childKey"
 
 @Composable
 private fun TvNavigationRail(

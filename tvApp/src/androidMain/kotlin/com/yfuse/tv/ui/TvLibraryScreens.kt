@@ -407,7 +407,7 @@ internal fun TvLibraryGridScreen(
         candidates = gridCandidates,
         scrollToAnchor = { anchor ->
             if (anchor.sectionId == gridScope && contentCandidates.isNotEmpty()) {
-                component.gridState.scrollToItem(
+                component.gridState.revealForRestore(
                     anchor.fallbackIndex.coerceIn(0, contentCandidates.lastIndex),
                 )
             }

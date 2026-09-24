@@ -26,6 +26,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -65,12 +66,14 @@ internal fun TvDetailScreen(
     val secondaryNavigationRequester = remember { FocusRequester() }
     var sheet by remember(component.itemId) { mutableStateOf<TvDetailSheet?>(null) }
     if (detail != null && server != null) {
+        // One route per title, so returning from a related title restores this page's own focus.
+        val route = tvDetailRoute(detail.id)
         TvRestoreRouteFocusEffect(
-            route = "detail",
+            route = route,
             focusMemory = focusMemory,
             fallback = playRequester,
             contentGeneration = listOf(detail.id, state.selectedSeasonId, state.episodes.size, state.related.size),
-            context = FocusContext("detail", server.id, server.userId),
+            context = FocusContext(route, server.id, server.userId),
         )
     }
 
@@ -166,7 +169,17 @@ internal fun TvDetailScreen(
                 }
 
                 item(key = "detail-personal:${detail.id}") {
-                    PersonalMediaActions(detail, server.id, Modifier.padding(horizontal = TvSafeHorizontal))
+                    // The phone's own buttons, which focus memory does not see: focus reaching them
+                    // still ends the page's restore, or episodes arriving later would pull it away.
+                    PersonalMediaActions(
+                        detail,
+                        server.id,
+                        Modifier
+                            .padding(horizontal = TvSafeHorizontal)
+                            .onFocusChanged {
+                                if (it.hasFocus) focusMemory.settleRestore(tvDetailRoute(detail.id))
+                            },
+                    )
                 }
 
                 if (state.seasons.isNotEmpty()) {
@@ -632,17 +645,18 @@ private fun TvEpisodeRow(
                 index = index,
             )
         }
-    val context = FocusContext("detail", serverId, profileId)
-    if (focusMemory.lastForRoute("detail", context)?.sectionId == episodeScope) {
-        TvRestoreRouteFocusEffect(
-            route = "detail",
+    val route = tvDetailRoute(detail.id)
+    val saved = focusMemory.lastForRoute(route, FocusContext(route, serverId, profileId))
+    if (saved != null && saved.sectionId == episodeScope) {
+        TvRestoreSectionFocusEffect(
+            route = route,
             focusMemory = focusMemory,
-            contentGeneration = episodes.map(Episode::id),
-            context = context,
+            saved = saved,
             candidates = candidates,
+            contentGeneration = episodes.map(Episode::id),
             scrollToAnchor = { anchor ->
                 if (candidates.isNotEmpty()) {
-                    rowState.scrollToItem(anchor.fallbackIndex.coerceIn(0, candidates.lastIndex))
+                    rowState.revealForRestore(anchor.fallbackIndex.coerceIn(0, candidates.lastIndex))
                 }
             },
         )

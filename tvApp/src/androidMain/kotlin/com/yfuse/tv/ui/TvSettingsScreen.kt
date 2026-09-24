@@ -14,6 +14,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -44,6 +45,10 @@ internal fun TvSettingsScreen(
 ) {
     var page by rememberSaveable { mutableStateOf(TvSettingsPage.Root) }
     val pageRequester = remember { FocusRequester() }
+    // Each page keeps its saveable state — the root list's scroll position above all — while
+    // another is open. A bare `when` rebuilt the root from the top, so back from a sub-page far
+    // down the list could not find the row that had opened it.
+    val pageStates = rememberSaveableStateHolder()
 
     BackHandler(enabled = page != TvSettingsPage.Root) {
         page = if (page == TvSettingsPage.GlassMaterial) TvSettingsPage.Appearance else TvSettingsPage.Root
@@ -55,6 +60,29 @@ internal fun TvSettingsScreen(
         if (page != TvSettingsPage.Root) pageRequester.requestFocusWhenAttached()
     }
 
+    pageStates.SaveableStateProvider(page.name) {
+        TvSettingsPageContent(
+            page = page,
+            component = component,
+            focusMemory = focusMemory,
+            navigationRequester = navigationRequester,
+            contentRequester = contentRequester,
+            pageRequester = pageRequester,
+            onOpen = { page = it },
+        )
+    }
+}
+
+@Composable
+private fun TvSettingsPageContent(
+    page: TvSettingsPage,
+    component: ProfileComponent,
+    focusMemory: TvUiFocusMemory,
+    navigationRequester: FocusRequester,
+    contentRequester: FocusRequester,
+    pageRequester: FocusRequester,
+    onOpen: (TvSettingsPage) -> Unit,
+) {
     when (page) {
         TvSettingsPage.Root ->
             TvSettingsRootPage(
@@ -62,7 +90,7 @@ internal fun TvSettingsScreen(
                 focusMemory = focusMemory,
                 navigationRequester = navigationRequester,
                 contentRequester = contentRequester,
-                onOpen = { page = it },
+                onOpen = onOpen,
             )
         TvSettingsPage.Personal,
         TvSettingsPage.Family,
@@ -76,7 +104,7 @@ internal fun TvSettingsScreen(
                 focusMemory = focusMemory,
                 navigationRequester = navigationRequester,
                 firstRowRequester = pageRequester,
-                onBack = { page = TvSettingsPage.Root },
+                onBack = { onOpen(TvSettingsPage.Root) },
             )
         TvSettingsPage.Account ->
             TvAccountSettingsPage(
@@ -84,7 +112,7 @@ internal fun TvSettingsScreen(
                 focusMemory = focusMemory,
                 navigationRequester = navigationRequester,
                 firstRowRequester = pageRequester,
-                onOpenSessions = { page = TvSettingsPage.AccountSessions },
+                onOpenSessions = { onOpen(TvSettingsPage.AccountSessions) },
             )
         TvSettingsPage.AccountSessions ->
             TvAccountSessionsPage(
@@ -127,14 +155,14 @@ internal fun TvSettingsScreen(
                 focusMemory = focusMemory,
                 navigationRequester = navigationRequester,
                 firstRowRequester = pageRequester,
-                onGlassMaterial = { page = TvSettingsPage.GlassMaterial },
+                onGlassMaterial = { onOpen(TvSettingsPage.GlassMaterial) },
             )
         TvSettingsPage.GlassMaterial -> {
             val materials by component.themePreferences.glassMaterials.collectAsState()
             GlassMaterialSettingsScreen(
                 materials = materials,
                 onChange = component.themePreferences::setGlassMaterial,
-                onBack = { page = TvSettingsPage.Appearance },
+                onBack = { onOpen(TvSettingsPage.Appearance) },
                 firstControlRequester = pageRequester,
             )
         }
@@ -194,6 +222,9 @@ private fun TvSettingsRootPage(
         focusMemory = focusMemory,
         fallback = contentRequester,
         contentGeneration = listOf(state.currentServer?.id, largeText, reduceMotion, account::class),
+        // Every sub-page shares the settings route; back from 弹幕 belongs on the 弹幕 row, not on
+        // whichever row of 弹幕 had focus last.
+        section = scope,
     )
 
     TvSettingsPageScaffold(page = TvSettingsPage.Root) {

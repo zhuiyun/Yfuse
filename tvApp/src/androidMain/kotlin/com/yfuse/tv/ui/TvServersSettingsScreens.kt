@@ -93,7 +93,7 @@ internal fun TvServersScreen(
         candidates = serverCandidates,
         scrollToAnchor = { anchor ->
             if (anchor.sectionId == "servers:grid" && serverCandidates.isNotEmpty()) {
-                serverGridState.scrollToItem(anchor.fallbackIndex.coerceIn(0, serverCandidates.lastIndex))
+                serverGridState.revealForRestore(anchor.fallbackIndex.coerceIn(0, serverCandidates.lastIndex))
             }
         },
     )

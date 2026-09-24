@@ -123,7 +123,7 @@ internal fun TvSearchHomeScreen(
         candidates = searchCandidates,
         scrollToAnchor = { anchor ->
             if (anchor.sectionId == resultScope && resultCandidates.isNotEmpty()) {
-                resultGridState.scrollToItem(anchor.fallbackIndex.coerceIn(0, resultCandidates.lastIndex))
+                resultGridState.revealForRestore(anchor.fallbackIndex.coerceIn(0, resultCandidates.lastIndex))
             }
         },
     )
@@ -141,6 +141,9 @@ internal fun TvSearchHomeScreen(
             onSubmit = { store.accept(SearchIntent.Submit) },
             focusRequester = contentRequester,
             navigationRequester = navigationRequester,
+            // The field is not a focus-memory target: say it has focus, or results arriving while
+            // the viewer types would restore an older card over it.
+            onFocused = { focusMemory.settleRestore("search") },
         )
         Spacer(Modifier.height(13.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -340,6 +343,7 @@ private fun TvSearchField(
     onSubmit: () -> Unit,
     focusRequester: FocusRequester,
     navigationRequester: FocusRequester,
+    onFocused: () -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
     val border by animateColorAsState(
@@ -351,8 +355,10 @@ private fun TvSearchField(
         Modifier
             .fillMaxWidth()
             .height(62.dp)
-            .onFocusChanged { focused = it.hasFocus }
-            .border(3.dp, border, RoundedCornerShape(14.dp))
+            .onFocusChanged {
+                focused = it.hasFocus
+                if (it.hasFocus) onFocused()
+            }.border(3.dp, border, RoundedCornerShape(14.dp))
             .background(if (focused) Color.White else TvSurface, RoundedCornerShape(14.dp))
             .padding(horizontal = 20.dp),
         verticalAlignment = Alignment.CenterVertically,

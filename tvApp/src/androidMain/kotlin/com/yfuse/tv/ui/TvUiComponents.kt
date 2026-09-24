@@ -26,12 +26,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -71,11 +73,11 @@ import com.yfuse.tv.focus.FocusAnchor
 import com.yfuse.tv.focus.FocusCandidate
 import com.yfuse.tv.focus.FocusContext
 import com.yfuse.tv.focus.FocusRepository
+import com.yfuse.tv.focus.FocusRestorePolicy
 import com.yfuse.tv.focus.FocusRestoreRequest
 import com.yfuse.tv.focus.FocusTargetId
 import com.yfuse.tv.focus.InMemoryFocusRepository
 import com.yfuse.tv.focus.RemoteIntent
-import com.yfuse.tv.focus.RestoreTvFocusEffect
 import com.yfuse.tv.focus.TvFocusRequesterRegistry
 import com.yfuse.tv.focus.tvFocusTarget
 import com.yfuse.tv.focus.tvRemoteKeyHandler
@@ -91,6 +93,24 @@ internal val TvRailWidth = 184.dp
 internal val TvFocusInset = 8.dp
 
 /**
+ * The page a focus scope belongs to: the scope's first segment, except that every 详情 is a route
+ * of its own (`detail:<itemId>`). They all share one screen, and detail A → related B → back used
+ * to find B's last focus waiting where A's should have been. A detail dialog's scope (`detail:more`)
+ * has no section after the id, and stays with the plain `detail` route.
+ */
+internal fun tvFocusRoute(scope: String): String {
+    val route = scope.substringBefore(':')
+    if (route != DETAIL_ROUTE) return route
+    val rest = scope.substringAfter(':', missingDelimiterValue = "")
+    return if (':' in rest) tvDetailRoute(rest.substringBefore(':')) else route
+}
+
+/** The focus route of one detail page — see [tvFocusRoute]. */
+internal fun tvDetailRoute(itemId: String): String = "$DETAIL_ROUTE:$itemId"
+
+private const val DETAIL_ROUTE = "detail"
+
+/**
  * TV focus is restored by semantic identity, never by a Lazy list index. An item can move after
  * a refresh and still receive focus when the user backs out of detail.
  */
@@ -103,6 +123,9 @@ internal class TvUiFocusMemory {
     private val rowStates = mutableMapOf<String, LazyListState>()
     private val gridStates = mutableMapOf<String, LazyGridState>()
 
+    /** Routes just entered whose saved focus has not been put back yet — see [TvRestoreRouteFocusEffect]. */
+    private val pendingRestores = mutableSetOf<String>()
+
     fun remember(
         scope: String,
         stableId: String,
@@ -110,8 +133,11 @@ internal class TvUiFocusMemory {
         profileId: String? = null,
     ) {
         anchors[scope] = stableId
-        val route = scope.substringBefore(':')
+        val route = tvFocusRoute(scope)
         routeContexts[route] = FocusContext(route, serverId, profileId)
+        // Focus is in the page now — put there by the restore, its fallback or the viewer — so
+        // this entry has nothing left to put back.
+        settleRestore(route)
     }
 
     fun anchor(scope: String): String? = anchors[scope]
@@ -121,9 +147,10 @@ internal class TvUiFocusMemory {
         stableId: String,
     ): FocusTargetId = FocusTargetId(scope, stableId)
 
-    fun context(scope: String): FocusContext =
-        routeContexts[scope.substringBefore(':')]
-            ?: FocusContext(route = scope.substringBefore(':'))
+    fun context(scope: String): FocusContext {
+        val route = tvFocusRoute(scope)
+        return routeContexts[route] ?: FocusContext(route = route)
+    }
 
     fun activateContext(context: FocusContext): FocusContext {
         routeContexts[context.route] = context
@@ -137,6 +164,13 @@ internal class TvUiFocusMemory {
         context: FocusContext? = null,
     ): FocusAnchor? = repository.last(context ?: contextForRoute(route))
 
+    /** The last focus inside one [section] of a route, whatever the route has focused since. */
+    fun lastInSection(
+        route: String,
+        section: String,
+        context: FocusContext? = null,
+    ): FocusAnchor? = repository.lastInSection(context ?: contextForRoute(route), section)
+
     fun requestLastForRoute(
         route: String,
         context: FocusContext? = null,
@@ -145,9 +179,47 @@ internal class TvUiFocusMemory {
         return requesterRegistry.requestFocus(FocusTargetId(anchor.sectionId, anchor.itemStableId))
     }
 
+    /** Focuses [stableId] in [scope] when it is on screen; false when it is not. */
+    fun requestFocus(
+        scope: String,
+        stableId: String,
+    ): Boolean = requesterRegistry.requestFocus(targetId(scope, stableId))
+
+    /** A new entry into [route]: its saved focus is put back once, not on every recomposition. */
+    fun beginRestore(route: String) {
+        pendingRestores.add(route)
+    }
+
+    fun restorePending(route: String): Boolean = route in pendingRestores
+
+    /**
+     * Ends [route]'s entry restore. Focus landing on anything [remember] does not see — a text
+     * field, a phone control embedded in the page — has to say so here, or a restore still
+     * waiting for content would later take focus away from it.
+     */
+    fun settleRestore(route: String) {
+        pendingRestores.remove(route)
+    }
+
     fun rowState(section: String): LazyListState = rowStates.getOrPut(section) { LazyListState() }
 
     fun gridState(route: String): LazyGridState = gridStates.getOrPut(route) { LazyGridState() }
+}
+
+/** Scrolls [index] into view for a restore, and leaves a row that already shows it where it is. */
+internal suspend fun LazyListState.revealForRestore(
+    index: Int,
+    scrollOffset: Int = 0,
+) {
+    if (layoutInfo.visibleItemsInfo.none { it.index == index }) scrollToItem(index, scrollOffset)
+}
+
+/** [LazyListState.revealForRestore] for a grid. */
+internal suspend fun LazyGridState.revealForRestore(
+    index: Int,
+    scrollOffset: Int = 0,
+) {
+    if (layoutInfo.visibleItemsInfo.none { it.index == index }) scrollToItem(index, scrollOffset)
 }
 
 internal enum class TvArtworkShape(
@@ -221,7 +293,7 @@ internal fun TvFocusableSurface(
                 targetId = targetId,
                 anchor =
                     FocusAnchor(
-                        route = focusScope.substringBefore(':'),
+                        route = tvFocusRoute(focusScope),
                         serverId = serverId,
                         profileId = profileId,
                         sectionId = focusScope,
@@ -480,8 +552,19 @@ internal fun TvMediaCard(
 }
 
 /**
- * Restores the last stable target for a route. The saved context includes server/profile, so a
- * card from another household profile cannot receive focus after an account switch.
+ * Puts focus back where the viewer left this page — once, when the page is entered.
+ *
+ * It used to rebuild its request from the last focus on every recomposition, and every new
+ * request scrolled and refocused again: a row that recomposed for an unrelated reason — the next
+ * grid page arriving, the home reel turning, a download ticking — jumped to put the focused card
+ * first, and a page whose saved card had gone pulled focus off the navigation rail on each turn
+ * of the reel. An entry now lasts only until something in the route has focus: this restore, its
+ * [fallback] or the viewer. [contentGeneration] lets an entry that is still waiting try again
+ * when the content it needs arrives, and does nothing after that.
+ *
+ * The saved context includes server/profile, so a card from another household profile cannot
+ * receive focus after an account switch. [section] restores that section's own last focus rather
+ * than the route's: 设置's root shares its route with every sub-page it opens.
  */
 @Composable
 internal fun TvRestoreRouteFocusEffect(
@@ -492,46 +575,106 @@ internal fun TvRestoreRouteFocusEffect(
     context: FocusContext? = null,
     candidates: List<FocusCandidate> = emptyList(),
     scrollToAnchor: suspend (FocusAnchor) -> Unit = {},
+    section: String? = null,
 ) {
+    DisposableEffect(focusMemory, route) {
+        focusMemory.beginRestore(route)
+        onDispose { focusMemory.settleRestore(route) }
+    }
     val restoreContext = context?.let(focusMemory::activateContext) ?: focusMemory.contextForRoute(route)
-    val saved = focusMemory.lastForRoute(route, restoreContext)
-    if (saved != null) {
-        val target = FocusTargetId(saved.sectionId, saved.itemStableId)
-        val restoreCandidates =
-            candidates.ifEmpty {
-                listOf(
-                    FocusCandidate(
-                        targetId = target,
-                        sectionId = saved.sectionId,
-                        itemStableId = saved.itemStableId,
-                        index = saved.fallbackIndex,
+    val saved =
+        if (section == null) {
+            focusMemory.lastForRoute(route, restoreContext)
+        } else {
+            focusMemory.lastInSection(route, section, restoreContext)
+        }
+    TvPendingFocusRestore(
+        route = route,
+        focusMemory = focusMemory,
+        saved = saved,
+        candidates = candidates,
+        fallback = fallback,
+        contentGeneration = contentGeneration,
+        scrollToAnchor = scrollToAnchor,
+    )
+}
+
+/**
+ * A scrolling row's part in its page's restore: while the page's entry is still waiting and the
+ * saved card is in this row, bring the card into view — only when it is out of view — and focus
+ * it, or its nearest neighbour when it has gone. It begins no entry of its own.
+ */
+@Composable
+internal fun TvRestoreSectionFocusEffect(
+    route: String,
+    focusMemory: TvUiFocusMemory,
+    saved: FocusAnchor,
+    candidates: List<FocusCandidate>,
+    contentGeneration: Any?,
+    scrollToAnchor: suspend (FocusAnchor) -> Unit,
+) {
+    TvPendingFocusRestore(
+        route = route,
+        focusMemory = focusMemory,
+        saved = saved,
+        candidates = candidates,
+        fallback = null,
+        contentGeneration = contentGeneration,
+        scrollToAnchor = scrollToAnchor,
+    )
+}
+
+@Composable
+private fun TvPendingFocusRestore(
+    route: String,
+    focusMemory: TvUiFocusMemory,
+    saved: FocusAnchor?,
+    candidates: List<FocusCandidate>,
+    fallback: FocusRequester?,
+    contentGeneration: Any?,
+    scrollToAnchor: suspend (FocusAnchor) -> Unit,
+) {
+    val latestSaved by rememberUpdatedState(saved)
+    val latestCandidates by rememberUpdatedState(candidates)
+    val latestFallback by rememberUpdatedState(fallback)
+    val latestScrollToAnchor by rememberUpdatedState(scrollToAnchor)
+    val policy = remember { FocusRestorePolicy() }
+    LaunchedEffect(focusMemory, route, contentGeneration) {
+        if (!focusMemory.restorePending(route)) return@LaunchedEffect
+        val anchor = latestSaved
+        val decision =
+            anchor?.let {
+                val target = FocusTargetId(it.sectionId, it.itemStableId)
+                policy.resolve(
+                    FocusRestoreRequest(
+                        context = it.context,
+                        candidates =
+                            latestCandidates.ifEmpty {
+                                listOf(FocusCandidate(target, it.sectionId, it.itemStableId, it.fallbackIndex))
+                            },
+                        preferredTargetId = target,
                     ),
+                    it,
                 )
             }
-        RestoreTvFocusEffect(
-            request =
-                FocusRestoreRequest(
-                    context = saved.context,
-                    candidates = restoreCandidates,
-                    preferredTargetId = target,
-                ),
-            repository = focusMemory.repository,
-            requesterRegistry = focusMemory.requesterRegistry,
-            scrollToAnchor = scrollToAnchor,
-        )
-        LaunchedEffect(route, saved, restoreCandidates, fallback, contentGeneration) {
-            repeat(4) { withFrameNanos { } }
-            if (restoreCandidates.none { focusMemory.requesterRegistry.contains(it.targetId) }) {
-                fallback?.let { runCatching { it.requestFocus() } }
+        val candidate = decision?.candidate
+        val resolved = decision?.anchor
+        if (candidate != null && resolved != null) latestScrollToAnchor(resolved)
+        // The saved card gets these frames to attach; the fallback only comes after them, which
+        // also lets the shell's own first focus on the rail land before a page takes it.
+        repeat(RESTORE_ATTEMPT_FRAMES) {
+            withFrameNanos { }
+            if (!focusMemory.restorePending(route)) return@LaunchedEffect
+            if (candidate != null && focusMemory.requesterRegistry.requestFocus(candidate.targetId)) {
+                return@LaunchedEffect
             }
         }
-    } else if (fallback != null) {
-        LaunchedEffect(route, fallback, contentGeneration) {
-            withFrameNanos { }
-            runCatching { fallback.requestFocus() }
-        }
+        val fallbackRequester = latestFallback ?: return@LaunchedEffect
+        runCatching { fallbackRequester.requestFocus() }
     }
 }
+
+private const val RESTORE_ATTEMPT_FRAMES = 4
 
 @Composable
 internal fun TvMediaRow(
@@ -546,9 +689,9 @@ internal fun TvMediaRow(
 ) {
     if (items.isEmpty()) return
     val rowState = focusMemory.rowState(sectionKey)
-    val route = sectionKey.substringBefore(':')
+    val route = tvFocusRoute(sectionKey)
     val saved = focusMemory.lastForRoute(route)
-    if (saved?.sectionId == sectionKey) {
+    if (saved != null && saved.sectionId == sectionKey) {
         val candidates =
             items.mapIndexed { index, item ->
                 FocusCandidate(
@@ -569,15 +712,15 @@ internal fun TvMediaRow(
                         )
                     },
                 )
-        TvRestoreRouteFocusEffect(
+        TvRestoreSectionFocusEffect(
             route = route,
             focusMemory = focusMemory,
-            contentGeneration = items.map(TvMediaCardModel::stableId),
-            context = saved.context,
+            saved = saved,
             candidates = candidates,
+            contentGeneration = items.map(TvMediaCardModel::stableId),
             scrollToAnchor = { anchor ->
                 if (anchor.sectionId == sectionKey) {
-                    rowState.scrollToItem(
+                    rowState.revealForRestore(
                         anchor.fallbackIndex.coerceIn(0, candidates.lastIndex),
                         anchor.scrollOffset,
                     )
