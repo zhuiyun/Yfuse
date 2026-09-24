@@ -311,12 +311,12 @@ internal fun TvSearchHomeScreen(
                         items = results,
                         key = { _, hit -> "search:server:${hit.serverId}:${hit.item.id}" },
                     ) { index, hit ->
+                        // No guess at which cards sit in the first column: left out of the page is
+                        // the tab content's own exit, see TvRootTabContent.
                         TvMediaCard(
                             model = hit.toTvCard(component),
                             focusScope = resultScope,
                             focusMemory = focusMemory,
-                            navigationRequester = navigationRequester,
-                            returnToNavigationOnLeft = index % 6 == 0,
                             fallbackIndex = index,
                             onFocused = {
                                 val group = state.visibleGroups.firstOrNull { it.serverId == hit.serverId }

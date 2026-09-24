@@ -24,7 +24,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
@@ -266,9 +268,13 @@ private fun TvNavigationRail(
                                 event.type == KeyEventType.KeyDown &&
                                 event.key == Key.DirectionRight
                             ) {
-                                val route = destination.tab.tvFocusRoute()
-                                if (!focusMemory.requestLastForRoute(route)) {
-                                    contentRequesters.getValue(destination.tab).requestFocus()
+                                if (!isSelected) {
+                                    // Right into a tab that is not open opens it; the page's
+                                    // entry restore brings focus in once it is there. The key
+                                    // used to be consumed with nothing to move to.
+                                    onSelected(destination.tab)
+                                } else if (!focusMemory.requestLastForRoute(destination.tab.tvFocusRoute())) {
+                                    runCatching { contentRequesters.getValue(destination.tab).requestFocus() }
                                 }
                                 true
                             } else {
@@ -326,8 +332,39 @@ private fun RootComponent.Tab.tvFocusRoute(): String =
         RootComponent.Tab.Profile -> "settings"
     }
 
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 private fun TvRootTabContent(
+    component: RootComponent,
+    activeTab: RootComponent.Tab,
+    focusMemory: TvUiFocusMemory,
+    navigationRequester: FocusRequester,
+    contentRequester: FocusRequester,
+) {
+    // Left out of the page lands on its own tab in the rail, from wherever it leaves. Pages used
+    // to guess which cards sat in their first column — search assumed six columns on a grid that
+    // fits four — and every card they missed fell to whichever rail item was geometrically nearest.
+    Box(
+        Modifier
+            .fillMaxSize()
+            .focusProperties {
+                exit = { direction ->
+                    if (direction == FocusDirection.Left) navigationRequester else FocusRequester.Default
+                }
+            }.focusGroup(),
+    ) {
+        TvRootTabPage(
+            component = component,
+            activeTab = activeTab,
+            focusMemory = focusMemory,
+            navigationRequester = navigationRequester,
+            contentRequester = contentRequester,
+        )
+    }
+}
+
+@Composable
+private fun TvRootTabPage(
     component: RootComponent,
     activeTab: RootComponent.Tab,
     focusMemory: TvUiFocusMemory,
