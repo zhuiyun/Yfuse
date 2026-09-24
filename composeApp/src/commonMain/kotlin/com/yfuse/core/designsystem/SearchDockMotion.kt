@@ -41,9 +41,11 @@ internal fun Modifier.searchFieldArrival(): Modifier {
             progress.snapTo(1f)
         } else if (target != null
         ) {
+            // The page's own arrival length (Motion.TAB): at MODAL the field was still moving
+            // 100ms after the search route around it had settled.
             progress.animateTo(
                 1f,
-                tween(Motion.MODAL, easing = Motion.Curve),
+                tween(Motion.TAB, easing = Motion.Curve),
             )
         }
     }
