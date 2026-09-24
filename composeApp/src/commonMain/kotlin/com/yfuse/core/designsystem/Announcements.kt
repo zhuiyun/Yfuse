@@ -1,7 +1,9 @@
 package com.yfuse.core.designsystem
 
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 
@@ -15,3 +17,28 @@ import androidx.compose.ui.semantics.semantics
  */
 fun Modifier.liveStatus(assertive: Boolean = false): Modifier =
     semantics { liveRegion = if (assertive) LiveRegionMode.Assertive else LiveRegionMode.Polite }
+
+/**
+ * 下拉刷新 as an action a screen reader can reach. Touch exploration never produces the pull, so
+ * a page that refreshes only by being pulled could not be refreshed at all with TalkBack on.
+ *
+ * Put it on a node a screen reader actually lands on — the page's title or first header — since
+ * the actions menu lists the focused node's actions, not its container's.
+ */
+fun Modifier.refreshAction(
+    enabled: Boolean = true,
+    onRefresh: () -> Unit,
+): Modifier =
+    if (!enabled) {
+        this
+    } else {
+        semantics {
+            customActions =
+                listOf(
+                    CustomAccessibilityAction("刷新") {
+                        onRefresh()
+                        true
+                    },
+                )
+        }
+    }
