@@ -32,8 +32,10 @@ import kotlinx.coroutines.flow.first
  * searching looked alive and a button that was working looked stuck. This is that same pulse
  * as a modifier, so the two read as the same state.
  *
- * Draws nothing until [active] has held for [Motion.STANDARD]: a fast response never
- * flashes an ornament. Reduced motion or reduced transparency draws nothing at all.
+ * Draws nothing until [active] has held for [Motion.BUSY_SHOW_AFTER], then stays at least
+ * [Motion.BUSY_MIN_VISIBLE] — [rememberDelayedBusy], the clock every waiting indicator shares —
+ * so a fast response never flashes an ornament and a slow one never blinks it. Reduced motion or
+ * reduced transparency draws nothing at all.
  */
 @Composable
 fun Modifier.waitingPulse(
@@ -43,14 +45,15 @@ fun Modifier.waitingPulse(
 ): Modifier {
     val accessibility = LocalAccessibilityOptions.current
     val moving = LocalRouteVisible.current && !accessibility.reduceMotion && !accessibility.reduceTransparency
-    val waiting = active && moving
+    // The hold is for work that finished early, not for motion being switched off: under
+    // reduced motion the pulse stops at once.
+    val earned = rememberDelayedBusy(active) && moving
     val pulse = remember { Animatable(0f) }
     val shown = remember { mutableStateOf(false) }
-    LaunchedEffect(waiting) {
+    LaunchedEffect(earned) {
         pulse.snapTo(0f)
         shown.value = false
-        if (!waiting) return@LaunchedEffect
-        delay(Motion.STANDARD.toLong())
+        if (!earned) return@LaunchedEffect
         shown.value = true
         val durationScale = coroutineContext[MotionDurationScale]
         while (true) {
@@ -65,7 +68,7 @@ fun Modifier.waitingPulse(
             delay(16)
         }
     }
-    if (!waiting) return this
+    if (!earned) return this
     return drawBehind {
         if (!shown.value) return@drawBehind
         val value = pulse.value

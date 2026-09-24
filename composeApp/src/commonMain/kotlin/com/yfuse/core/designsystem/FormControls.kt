@@ -177,7 +177,9 @@ fun YfButton(
             .graphicsLayer { alpha = glassButtonAlpha(enabled) }
             .pressable(
                 enabled = enabled && !loading,
-                haptic = HapticSignal.Confirm.takeIf { tone != YfButtonTone.Secondary },
+                // Tap, not Confirm: a press is not a result, and 登录 or 删除 that then failed had
+                // already buzzed success. The outcome, when it lands, is the screen's to signal.
+                haptic = HapticSignal.Tap.takeIf { tone != YfButtonTone.Secondary },
                 focusShape = AppShapes.control,
                 onClickLabel = label,
                 onClick = onClick,
@@ -258,7 +260,7 @@ fun YfLinkButton(
             .graphicsLayer { alpha = if (enabled) 1f else 0.42f }
             .pressable(
                 enabled = enabled,
-                haptic = HapticSignal.Confirm.takeIf { destructive },
+                haptic = HapticSignal.Tap.takeIf { destructive },
                 focusShape = AppShapes.control,
                 onClickLabel = label,
                 onClick = onClick,

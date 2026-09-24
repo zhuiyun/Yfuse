@@ -1119,12 +1119,11 @@ fun ProfileScreen(component: ProfileComponent) {
             )
         }
 
-        // Both cache actions live on a settings sub-page, where the floating tab bar is gone
-        // and only the system navigation is under the toast.
+        // Both cache actions live on a settings sub-page, where the floating tab bar is gone;
+        // the toast clears the system navigation by itself.
         ActionToast(
             message = notice,
             onDismiss = { notice = null },
-            modifier = Modifier.padding(bottom = systemNavigationContentInset()),
         )
     }
 }

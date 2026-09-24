@@ -14,23 +14,38 @@ import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.lerp
 import kotlin.math.PI
 import kotlin.math.cos
+import kotlin.math.max
 import kotlin.math.sin
 
-/** Brushes and paths are cached across frames. All nine studies fit the same 56-unit square. */
+/**
+ * Brushes and paths are cached across frames. All nine studies fit the same 56-unit square.
+ *
+ * [monochrome] draws every study in [accent] alone. A caller that passes a colour — a button's
+ * ink, white over artwork, the error red — means that colour; it used to get the full spectrum
+ * with a 12% tint of it in one hue.
+ */
 internal class LoadingArtwork(
     dark: Boolean,
     accent: Color,
+    monochrome: Boolean = false,
 ) {
-    private val cyan = if (dark) Color(0xFF54E0EC) else Color(0xFF13AFC7)
-    private val blue = lerp(if (dark) Color(0xFF819DFF) else Color(0xFF4968EE), accent, 0.12f)
-    private val violet = if (dark) Color(0xFFB394FF) else Color(0xFF9055E9)
-    private val pink = if (dark) Color(0xFFFF89C8) else Color(0xFFE85AA1)
-    private val orange = if (dark) Color(0xFFFFAB70) else Color(0xFFF07847)
-    private val gold = if (dark) Color(0xFFFFD178) else Color(0xFFE6A132)
-    private val mint = if (dark) Color(0xFF66E5B8) else Color(0xFF22B590)
+    private val cyan = hue(monochrome, accent, dark, onDark = Color(0xFF54E0EC), onLight = Color(0xFF13AFC7))
+    private val blue =
+        if (monochrome) {
+            accent
+        } else {
+            lerp(if (dark) Color(0xFF819DFF) else Color(0xFF4968EE), accent, 0.12f)
+        }
+    private val violet = hue(monochrome, accent, dark, onDark = Color(0xFFB394FF), onLight = Color(0xFF9055E9))
+    private val pink = hue(monochrome, accent, dark, onDark = Color(0xFFFF89C8), onLight = Color(0xFFE85AA1))
+    private val orange = hue(monochrome, accent, dark, onDark = Color(0xFFFFAB70), onLight = Color(0xFFF07847))
+    private val gold = hue(monochrome, accent, dark, onDark = Color(0xFFFFD178), onLight = Color(0xFFE6A132))
+    private val mint = hue(monochrome, accent, dark, onDark = Color(0xFF66E5B8), onLight = Color(0xFF22B590))
     private val centre = Offset(28f, 28f)
-    private val ringStroke = Stroke(2.6f)
-    private val rippleStroke = Stroke(1.5f)
+    private var strokeFloor = 0f
+    private var ringStroke = Stroke(RING_STROKE)
+    private var rippleStroke = Stroke(RIPPLE_STROKE)
+
     private val orbit =
         Brush.sweepGradient(
             0f to Color.Transparent,
@@ -85,6 +100,18 @@ internal class LoadingArtwork(
             quadraticTo(0f, 0f, -8f, -5f)
             close()
         }
+
+    /**
+     * Keeps every line at least one device pixel wide, given how many artwork units one pixel
+     * spans at the size being drawn. A 10dp orb drew its ripple about 0.27dp wide — gone on most
+     * screens, and flickering in and out of existence on the rest.
+     */
+    fun floorStrokes(unitsPerPixel: Float) {
+        if (unitsPerPixel == strokeFloor) return
+        strokeFloor = unitsPerPixel
+        ringStroke = Stroke(max(RING_STROKE, unitsPerPixel))
+        rippleStroke = Stroke(max(RIPPLE_STROKE, unitsPerPixel))
+    }
 
     fun DrawScope.draw(
         animation: LoadingAnimation,
@@ -206,3 +233,19 @@ internal class LoadingArtwork(
         }
     }
 }
+
+private const val RING_STROKE = 2.6f
+private const val RIPPLE_STROKE = 1.5f
+
+private fun hue(
+    monochrome: Boolean,
+    accent: Color,
+    dark: Boolean,
+    onDark: Color,
+    onLight: Color,
+): Color =
+    when {
+        monochrome -> accent
+        dark -> onDark
+        else -> onLight
+    }

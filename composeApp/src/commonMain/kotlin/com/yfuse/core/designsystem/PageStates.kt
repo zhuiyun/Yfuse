@@ -35,6 +35,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -313,19 +317,29 @@ fun SkeletonPosterTile(
     }
 }
 
+/**
+ * A shelf of poster placeholders, sized like the shelf it stands in for — 2:3 posters 12dp apart
+ * — so the real rail lands where the skeleton was instead of nudging every row below it.
+ */
 @Composable
 fun SkeletonRail(
     modifier: Modifier = Modifier,
     posterWidth: Dp = 104.dp,
-    posterHeight: Dp = 150.dp,
+    posterHeight: Dp = posterWidth * 1.5f,
     count: Int = 3,
     phaseMs: Int = 0,
 ) {
     // No sweep of its own: the page that holds the rail draws one band across everything,
     // so two shelves loading together share one pass of light instead of each flashing.
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(
+        modifier.clearAndSetSemantics {
+            contentDescription = "正在加载"
+            progressBarRangeInfo = ProgressBarRangeInfo.Indeterminate
+        },
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
         SkeletonBlock(Modifier.width(90.dp).height(16.dp), phaseMs = phaseMs)
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(SkeletonRailGap)) {
             repeat(count) { index ->
                 SkeletonPosterTile(
                     Modifier.width(posterWidth),
@@ -339,5 +353,8 @@ fun SkeletonRail(
 
 /** Phase between neighbouring placeholders in a row or along a grid diagonal. */
 const val SKELETON_PHASE_STEP_MS = Motion.SKELETON_PHASE_STEP
+
+/** The gap between posters on a real shelf. */
+private val SkeletonRailGap = 12.dp
 private const val SWEEP_ALPHA_DARK = 0.07f
 private const val SWEEP_ALPHA_LIGHT = 0.09f

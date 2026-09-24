@@ -4,10 +4,10 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
@@ -15,12 +15,17 @@ import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -37,6 +42,7 @@ import androidx.compose.ui.semantics.dismiss
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import kotlin.math.abs
@@ -45,11 +51,33 @@ import com.yfuse.core.designsystem.ThemeText as Text
 private const val TOAST_MS = 2_600L
 private const val MAX_TOASTS = 3
 
+/** Characters a toast gets for its base time; each one past it adds [TOAST_MS_PER_CHAR]. */
+private const val TOAST_BASE_CHARS = 12
+private const val TOAST_MS_PER_CHAR = 80L
+private const val TOAST_MAX_MS = 7_000L
+
+/**
+ * How long [message] stays up before the accessibility service's own adjustment. 2.6s was
+ * every toast's time, and a 30-character notice that asks for something was gone before it
+ * had been read.
+ */
+internal fun toastDurationMillis(message: String): Long =
+    (TOAST_MS + (message.length - TOAST_BASE_CHARS).coerceAtLeast(0) * TOAST_MS_PER_CHAR).coerceAtMost(TOAST_MAX_MS)
+
+/**
+ * The bottom clearance the shell asks toasts to keep: the floating dock's, while the dock is
+ * over the page. Null where nothing floats there, and a toast then clears the system bar alone.
+ */
+val LocalToastBottomInset = compositionLocalOf<Dp?> { null }
+
 internal class ToastEntry(
     val message: String,
     val accent: Color?,
 ) {
     var visible by mutableStateOf(true)
+
+    /** -1 or 1 once swiped away sideways, so it leaves the way it was thrown; 0 otherwise. */
+    var thrown by mutableIntStateOf(0)
 }
 
 internal class ToastQueue {
@@ -66,7 +94,10 @@ internal class ToastQueue {
             return
         }
         entries.removeAll { it.message == message }
-        while (entries.size >= MAX_TOASTS) entries.removeAt(0)
+        // The oldest leaves the way every toast leaves; it used to vanish in one frame. A burst
+        // can outrun the exits, so anything past twice the stack still goes at once.
+        while (entries.count { it.visible } >= MAX_TOASTS) entries.first { it.visible }.visible = false
+        while (entries.size >= MAX_TOASTS * 2) entries.removeAt(0)
         val entry = ToastEntry(message, accent)
         latest = entry
         entries.add(entry)
@@ -92,9 +123,16 @@ fun BoxScope.ActionToast(
     val latestMessage by rememberUpdatedState(message)
     val latestDismiss by rememberUpdatedState(onDismiss)
     val duration = if (LocalAccessibilityOptions.current.reduceMotion || !LocalRouteVisible.current) 0 else Motion.TAB
+    // The toast finds its own floor: each page used to pass a padding of its own, fixed numbers
+    // that ignored the navigation bar and put toasts under three-button navigation.
+    val systemBar = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val floor = LocalToastBottomInset.current ?: (systemBar + Dimens.sectionGap)
     LaunchedEffect(message) { queue.post(message, accent) }
     Column(
-        modifier.align(Alignment.BottomCenter).motionAwareAnimateContentSize(),
+        modifier
+            .align(Alignment.BottomCenter)
+            .padding(bottom = floor)
+            .motionAwareAnimateContentSize(),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
@@ -146,13 +184,14 @@ private fun ActionToastEntry(
     LaunchedEffect(entry.visible, dragging, accessibility, duration) {
         if (entry.visible) {
             if (!dragging) {
+                val base = toastDurationMillis(entry.message)
                 val recommended =
                     accessibility?.calculateRecommendedTimeoutMillis(
-                        TOAST_MS,
+                        base,
                         containsText = true,
                         containsControls = true,
-                    ) ?: TOAST_MS
-                delay(maxOf(TOAST_MS, recommended))
+                    ) ?: base
+                delay(maxOf(base, recommended))
                 latestClose()
             }
         } else {
@@ -160,10 +199,18 @@ private fun ActionToastEntry(
             latestGone()
         }
     }
+    val thrown = entry.thrown
     AnimatedVisibility(
         visibleState = visibility,
-        enter = fadeIn(tween(duration)) + slideInVertically(tween(duration, easing = Motion.Curve)) { it / 2 },
-        exit = fadeOut(tween(duration)) + slideOutVertically(tween(duration, easing = Motion.Curve)) { it / 2 },
+        enter = fadeIn(Motion.tween(duration)) + slideInVertically(Motion.tween(duration)) { it / 2 },
+        // A toast swiped sideways carries on sideways; it used to turn and drop out downwards.
+        exit =
+            fadeOut(Motion.tween(duration)) +
+                if (thrown != 0) {
+                    slideOutHorizontally(Motion.tween(duration)) { it * thrown }
+                } else {
+                    slideOutVertically(Motion.tween(duration)) { it / 2 }
+                },
     ) {
         Text(
             entry.message,
@@ -189,6 +236,7 @@ private fun ActionToastEntry(
                                 (abs(offset) > threshold / 4f && abs(velocity) > threshold * 8f)
                             ) {
                                 currentExitLight.emit(LightEffect.Dissolve, directionX = if (offset < 0f) -1f else 1f)
+                                entry.thrown = if (offset < 0f) -1 else 1
                                 latestClose()
                             } else {
                                 offset = 0f

@@ -180,7 +180,6 @@ internal fun AccountSettingsScreen(
         ActionToast(
             message = notice,
             onDismiss = { notice = null },
-            modifier = Modifier.padding(bottom = TabBarInset),
         )
     }
 }

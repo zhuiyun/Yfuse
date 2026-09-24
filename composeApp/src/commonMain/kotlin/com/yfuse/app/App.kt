@@ -78,6 +78,7 @@ import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.LocalPulseSweepEnabled
 import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.LocalTabIdentity
+import com.yfuse.core.designsystem.LocalToastBottomInset
 import com.yfuse.core.designsystem.LocalTabReselected
 import com.yfuse.core.designsystem.MinTouchTarget
 import com.yfuse.core.designsystem.Motion
@@ -339,27 +340,37 @@ fun App(root: RootComponent) {
                             val previousRootTab = remember { arrayOf(active) }
                             val rootMotion = remember(active) { rootTabMotion(previousRootTab[0], active) }
                             SideEffect { previousRootTab[0] = active }
+                            // Toasts on a root page keep clear of the floating dock; everywhere else
+                            // they only need to clear the system bar.
+                            val toastFloor =
+                                if (showBottomBar && overlays?.coversShell != true) {
+                                    floatingNavigationContentInset()
+                                } else {
+                                    null
+                                }
                             // Top-level tabs are a real Navigation 3 back stack, while each tab's
                             // nested host continues to own its child routes. This host opts into
                             // equal-level root motion; nested stacks own their push/pop gestures.
-                            OfficialNavDisplay(
-                                backStack = topLevelBackStack(active),
-                                onBack = { root.selectTab(Tab.Home) },
-                                contentKey = { "tab:${it.name}" },
-                                modifier = Modifier.fillMaxSize(),
-                                motion = rootMotion,
-                            ) { tab ->
-                                CompositionLocalProvider(LocalTabIdentity provides tab.name) {
-                                    tabStates.SaveableStateProvider(tab.name) {
-                                        when (tab) {
-                                            Tab.Home ->
-                                                com.yfuse.feature.personal.PersonalDiscoveryGuard(
-                                                    onOpenLibrary = { root.selectTab(Tab.Browse) },
-                                                ) { HomeTabScreen(root.home) }
-                                            Tab.Browse -> LibraryScreen(root.browse)
-                                            Tab.Servers -> ServersTabScreen(root.servers)
-                                            Tab.Search -> SearchScreen(root.search)
-                                            Tab.Profile -> ProfileTabScreen(root.profile)
+                            CompositionLocalProvider(LocalToastBottomInset provides toastFloor) {
+                                OfficialNavDisplay(
+                                    backStack = topLevelBackStack(active),
+                                    onBack = { root.selectTab(Tab.Home) },
+                                    contentKey = { "tab:${it.name}" },
+                                    modifier = Modifier.fillMaxSize(),
+                                    motion = rootMotion,
+                                ) { tab ->
+                                    CompositionLocalProvider(LocalTabIdentity provides tab.name) {
+                                        tabStates.SaveableStateProvider(tab.name) {
+                                            when (tab) {
+                                                Tab.Home ->
+                                                    com.yfuse.feature.personal.PersonalDiscoveryGuard(
+                                                        onOpenLibrary = { root.selectTab(Tab.Browse) },
+                                                    ) { HomeTabScreen(root.home) }
+                                                Tab.Browse -> LibraryScreen(root.browse)
+                                                Tab.Servers -> ServersTabScreen(root.servers)
+                                                Tab.Search -> SearchScreen(root.search)
+                                                Tab.Profile -> ProfileTabScreen(root.profile)
+                                            }
                                         }
                                     }
                                 }
