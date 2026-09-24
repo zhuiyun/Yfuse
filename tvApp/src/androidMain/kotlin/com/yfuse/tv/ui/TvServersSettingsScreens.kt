@@ -159,7 +159,8 @@ internal fun TvServersScreen(
             LazyVerticalGrid(
                 columns = GridCells.Fixed(3),
                 state = serverGridState,
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize().tvFocusBleed(),
+                contentPadding = TvFocusBleedPadding,
                 horizontalArrangement = Arrangement.spacedBy(18.dp),
                 verticalArrangement = Arrangement.spacedBy(18.dp),
             ) {

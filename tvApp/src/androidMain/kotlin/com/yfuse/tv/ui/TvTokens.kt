@@ -99,6 +99,18 @@ internal object TvFocusMotion {
     val selectedBorder = 2.dp
     val focusBorder = 3.dp
 
+    /** How far a focused poster or card grows; the more of the screen a surface takes, the less. */
+    const val CARD_SCALE = 1.055f
+
+    /** Action buttons. */
+    const val BUTTON_SCALE = 1.035f
+
+    /** Entries of the navigation rail. */
+    const val NAVIGATION_SCALE = 1.025f
+
+    /** Full-width settings rows. */
+    const val ROW_SCALE = 1.015f
+
     /** Critically damped: a D-pad held down interrupts this constantly, and it must not ring. */
     fun <T> spec(reduceMotion: Boolean): AnimationSpec<T> =
         if (reduceMotion) {

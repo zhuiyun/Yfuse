@@ -29,6 +29,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -70,6 +71,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -82,6 +84,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
+import androidx.compose.ui.unit.offset
 import coil3.compose.AsyncImage
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.Motion
@@ -107,6 +110,24 @@ internal val TvRailWidth = 184.dp
  * focused first or last item lost its lift and part of its white edge there.
  */
 internal val TvFocusInset = 8.dp
+
+/**
+ * Room for a focused item's lift on every side of a lazy row or grid, which clip at their edges.
+ * Pad the container with [TvFocusBleedPadding] and apply this: the padding is handed back to the
+ * layout around it, so the items land where they would unpadded and nothing nearby moves.
+ */
+internal fun Modifier.tvFocusBleed(): Modifier =
+    layout { measurable, constraints ->
+        val inset = TvFocusInset.roundToPx()
+        val placeable = measurable.measure(constraints.offset(horizontal = inset * 2, vertical = inset * 2))
+        layout(
+            (placeable.width - inset * 2).coerceAtLeast(0),
+            (placeable.height - inset * 2).coerceAtLeast(0),
+        ) { placeable.place(-inset, -inset) }
+    }
+
+/** The padding [tvFocusBleed] hands back to the layout. */
+internal val TvFocusBleedPadding = PaddingValues(TvFocusInset)
 
 /**
  * The page a focus scope belongs to: the scope's first segment, except that every 详情 is a route
@@ -288,7 +309,7 @@ internal fun TvFocusableSurface(
     selectable: Boolean = false,
     /** A disabled surface keeps its focus stop, so the remote is never stranded, but does not act. */
     enabled: Boolean = true,
-    scaleWhenFocused: Float = 1.055f,
+    scaleWhenFocused: Float = TvFocusMotion.CARD_SCALE,
     shape: RoundedCornerShape = RoundedCornerShape(14.dp),
     onFocused: (() -> Unit)? = null,
     onContextMenu: (() -> Unit)? = null,
@@ -378,7 +399,10 @@ internal fun TvFocusableSurface(
                     val edge = lerp(restEdgeWidth, TvFocusMotion.focusBorder, amount).toPx()
                     drawOutline(outline, lerp(restEdge, Color.White, amount), style = Stroke(edge * 2f))
                 }
-            }.clickable(onClick = { if (enabled) onClick() })
+            }
+            // No ripple: the lift, the edge and the plate already say focus and press on a
+            // television, and Material's ripple would add a grey wash and a focus overlay on top.
+            .clickable(interactionSource = null, indication = null, onClick = { if (enabled) onClick() })
             .testTag(stableId)
             .semantics {
                 role = Role.Button
@@ -419,6 +443,11 @@ internal fun TvFocusText(
     fontSize: TextUnit,
     fontWeight: FontWeight,
     modifier: Modifier = Modifier,
+    /**
+     * Steps the size down, to four fifths at most, before an ellipsis: for a label with a fixed
+     * home — 我的与设置 in the rail had 71dp, and wrapped or lost its last characters.
+     */
+    shrinkToFit: Boolean = false,
 ) {
     val focus = LocalTvFocusAmount.current
     BasicText(
@@ -428,6 +457,12 @@ internal fun TvFocusText(
         overflow = TextOverflow.Ellipsis,
         maxLines = 1,
         color = { lerp(rest, focused, focus.value.coerceIn(0f, 1f)) },
+        autoSize =
+            if (shrinkToFit) {
+                TextAutoSize.StepBased(minFontSize = fontSize * 0.8f, maxFontSize = fontSize)
+            } else {
+                null
+            },
     )
 }
 
@@ -471,7 +506,7 @@ internal fun TvActionButton(
         serverId = serverId,
         profileId = profileId,
         shape = RoundedCornerShape(12.dp),
-        scaleWhenFocused = 1.035f,
+        scaleWhenFocused = TvFocusMotion.BUTTON_SCALE,
     ) {
         // Fill and ink follow the focus clock while drawing, so the white plate and the black
         // label arrive with the lift instead of cutting over at composition.

@@ -10,6 +10,7 @@ import androidx.compose.ui.focus.FocusRequester
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.GlassStyle
 import com.yfuse.core.designsystem.LoadingAnimation
+import com.yfuse.core.designsystem.platformAnimationsDisabled
 import com.yfuse.core.model.ServerLayout
 import com.yfuse.core.model.StartupTab
 import com.yfuse.feature.profile.ProfileComponent
@@ -173,15 +174,23 @@ internal fun TvAppearanceSettingsPage(
             )
         }
         item(key = "appearance-reduce-motion") {
+            // The switch shows the person's own choice; a system that has removed animations
+            // already has them reduced here, and says so rather than looking switched off.
+            val systemMotionOff = platformAnimationsDisabled()
             TvToggleRow(
-                title = "减少动态效果",
+                title = "减少动画",
                 checked = reduceMotion,
                 stableId = "appearance:reduce-motion",
                 focusMemory = focusMemory,
                 onToggle = prefs::setReduceMotion,
                 icon = AppIcons.SkipMarkers,
                 focusScope = focusScope,
-                subtitle = "关闭首页大图轮播与焦点缩放动画",
+                subtitle =
+                    if (systemMotionOff && !reduceMotion) {
+                        "系统已关闭动画，应用已自动减少"
+                    } else {
+                        "关闭首页大图轮播与焦点缩放动画"
+                    },
                 navigationRequester = navigationRequester,
             )
         }

@@ -518,7 +518,11 @@ internal fun TvLibraryGridScreen(
                 Spacer(Modifier.height(16.dp))
             }
             if (state.genres.isNotEmpty()) {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                LazyRow(
+                    modifier = Modifier.tvFocusBleed(),
+                    contentPadding = TvFocusBleedPadding,
+                    horizontalArrangement = Arrangement.spacedBy(9.dp),
+                ) {
                     item(key = "grid-genre-all") {
                         TvActionButton(
                             label = "全部类型",

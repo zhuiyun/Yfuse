@@ -192,7 +192,11 @@ internal fun TvDetailScreen(
                             verticalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
                             Text("季", color = TvOnSurface, fontSize = TvType.section, fontWeight = FontWeight.Bold)
-                            LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            LazyRow(
+                                modifier = Modifier.tvFocusBleed(),
+                                contentPadding = TvFocusBleedPadding,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
                                 itemsIndexed(
                                     state.seasons,
                                     key = { _, season -> "season:${server.id}:${detail.id}:${season.id}" },
@@ -250,7 +254,11 @@ internal fun TvDetailScreen(
                             verticalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
                             Text("播放版本", color = TvOnSurface, fontSize = TvType.section, fontWeight = FontWeight.Bold)
-                            LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            LazyRow(
+                                modifier = Modifier.tvFocusBleed(),
+                                contentPadding = TvFocusBleedPadding,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
                                 itemsIndexed(
                                     versions,
                                     key = { _, version ->
@@ -282,7 +290,11 @@ internal fun TvDetailScreen(
                             verticalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
                             Text("服务器片源", color = TvOnSurface, fontSize = TvType.section, fontWeight = FontWeight.Bold)
-                            LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            LazyRow(
+                                modifier = Modifier.tvFocusBleed(),
+                                contentPadding = TvFocusBleedPadding,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
                                 itemsIndexed(
                                     comparableSources.filter { it.reachable && it.itemId != null },
                                     key = { _, source -> "source:${source.serverId}:${source.itemId}" },

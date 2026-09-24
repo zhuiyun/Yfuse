@@ -227,7 +227,11 @@ internal fun TvSearchHomeScreen(
                                 )
                             }
                         }
-                        LazyRow(horizontalArrangement = Arrangement.spacedBy(11.dp)) {
+                        LazyRow(
+                            modifier = Modifier.tvFocusBleed(),
+                            contentPadding = TvFocusBleedPadding,
+                            horizontalArrangement = Arrangement.spacedBy(11.dp),
+                        ) {
                             itemsIndexed(
                                 state.recent,
                                 key = { _, term -> "search-recent:$term" },
@@ -261,7 +265,11 @@ internal fun TvSearchHomeScreen(
                             fontSize = TvType.section,
                             fontWeight = FontWeight.Bold,
                         )
-                        LazyRow(horizontalArrangement = Arrangement.spacedBy(11.dp)) {
+                        LazyRow(
+                            modifier = Modifier.tvFocusBleed(),
+                            contentPadding = TvFocusBleedPadding,
+                            horizontalArrangement = Arrangement.spacedBy(11.dp),
+                        ) {
                             itemsIndexed(
                                 suggestions.take(10),
                                 key = { _, term -> "search-suggestion:$term" },
@@ -308,7 +316,8 @@ internal fun TvSearchHomeScreen(
                 LazyVerticalGrid(
                     columns = GridCells.Adaptive(minSize = 142.dp),
                     state = resultGridState,
-                    modifier = Modifier.fillMaxSize().then(arrival),
+                    modifier = Modifier.fillMaxSize().tvFocusBleed().then(arrival),
+                    contentPadding = TvFocusBleedPadding,
                     horizontalArrangement = Arrangement.spacedBy(17.dp),
                     verticalArrangement = Arrangement.spacedBy(18.dp),
                 ) {

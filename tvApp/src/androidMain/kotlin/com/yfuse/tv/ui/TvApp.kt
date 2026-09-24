@@ -336,7 +336,7 @@ private fun TvNavigationRail(
                 selected = isSelected,
                 selectable = true,
                 focusRequester = navRequesters.getValue(destination.tab),
-                scaleWhenFocused = 1.025f,
+                scaleWhenFocused = TvFocusMotion.NAVIGATION_SCALE,
                 modifier =
                     Modifier
                         .widthIn(min = 124.dp)
@@ -381,6 +381,7 @@ private fun TvNavigationRail(
                         focused = Color.Black,
                         fontSize = TvType.caption,
                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                        shrinkToFit = true,
                     )
                 }
             }

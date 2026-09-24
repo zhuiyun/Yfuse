@@ -163,7 +163,7 @@ internal fun TvSettingRow(
         focusRequester = focusRequester,
         navigationRequester = navigationRequester,
         returnToNavigationOnLeft = true,
-        scaleWhenFocused = 1.015f,
+        scaleWhenFocused = TvFocusMotion.ROW_SCALE,
     ) {
         Row(
             Modifier.fillMaxSize().padding(horizontal = 20.dp),
