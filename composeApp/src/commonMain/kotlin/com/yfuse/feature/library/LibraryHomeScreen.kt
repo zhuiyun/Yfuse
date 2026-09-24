@@ -433,6 +433,12 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                                     value = state.currentServer?.serverName.orEmpty(),
                                                     icon = AppIcons.Server,
                                                     onClick = { serverMenuOpen = true },
+                                                    // Without the reel this row is the page's title:
+                                                    // 下拉刷新 lives here for someone who cannot pull.
+                                                    modifier =
+                                                        Modifier.refreshAction(enabled = !state.refreshing) {
+                                                            store.accept(LibraryIntent.Retry)
+                                                        },
                                                 )
                                             }
                                         }

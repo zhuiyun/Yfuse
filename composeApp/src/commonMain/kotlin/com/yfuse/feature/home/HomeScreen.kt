@@ -97,7 +97,6 @@ import com.yfuse.core.designsystem.ScrollToTopOnReselect
 import com.yfuse.core.designsystem.SkeletonArrivalScope
 import com.yfuse.core.designsystem.SkeletonRail
 import com.yfuse.core.designsystem.StatusBarIconStyle
-import com.yfuse.core.designsystem.TabBarInset
 import com.yfuse.core.designsystem.arrivalSweep
 import com.yfuse.core.designsystem.carouselArtworkMotion
 import com.yfuse.core.designsystem.carouselCaptionEntry
@@ -579,7 +578,6 @@ internal fun HomeContentBody(
         ActionToast(
             message = state.actionMessage,
             onDismiss = { onIntent(HomeIntent.DismissMessage) },
-            modifier = Modifier.padding(bottom = TabBarInset),
         )
 
         if (state.resolving) {

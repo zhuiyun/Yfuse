@@ -31,7 +31,8 @@ import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
-internal const val HANDOFF_ROW_MS = 55
+/** The one row stagger: search results and skeleton hand-offs arrive on the same beat. */
+internal const val HANDOFF_ROW_MS = Motion.SEARCH_ROW_STAGGER
 private const val HANDOFF_REVEAL_MS = 1000
 
 internal class SkeletonArrival(

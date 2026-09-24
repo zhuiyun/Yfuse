@@ -554,7 +554,6 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
         ActionToast(
             message = state.actionMessage,
             onDismiss = { component.store.accept(GridIntent.DismissMessage) },
-            modifier = Modifier.padding(bottom = 24.dp),
         )
     }
 }

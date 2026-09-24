@@ -135,6 +135,8 @@ fun SettingRow(
     loading: Boolean = false,
     showChevron: Boolean = onClick != null,
     dense: Boolean = supporting != null,
+    /** Applied first, on the node that carries the row's click and semantics. */
+    modifier: Modifier = Modifier,
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
@@ -149,7 +151,7 @@ fun SettingRow(
     val compact = dense
 
     val rowModifier =
-        Modifier
+        modifier
             .fillMaxWidth()
             .let { if (embedded) it else it.flatGlass(AppShapes.control, palette.card2, palette.border) }
             .let {
