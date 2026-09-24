@@ -10,6 +10,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yfuse.core.designsystem.Brand
@@ -42,6 +43,12 @@ internal val TvHairline: Color = DarkPalette.border.copy(alpha = 0.08f)
 
 /** The brand emphasis as the dark theme resolves it: 4.5:1 on a dark surface, dark ink on top. */
 internal val TvAccent: Color = resolveAccentColors(Brand.Primary, dark = true).accent
+
+/**
+ * A selected card, row or chip at rest: a fifth of the accent over the plate, under a 2dp accent
+ * edge. The edge alone, 1dp wide, could not be picked out from three metres.
+ */
+internal val TvSelectedPlate: Color = TvAccent.copy(alpha = 0.2f).compositeOver(TvSurface)
 
 /** Failed outcomes and destructive actions. */
 internal val TvDanger: Color = DarkPalette.error
@@ -88,6 +95,7 @@ internal object TvType {
  */
 internal object TvFocusMotion {
     val restBorder = 1.dp
+    val selectedBorder = 2.dp
     val focusBorder = 3.dp
 
     /** Critically damped: a D-pad held down interrupts this constantly, and it must not ring. */

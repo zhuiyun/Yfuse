@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -29,6 +28,7 @@ import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
@@ -323,6 +323,7 @@ private fun TvNavigationRail(
                 focusMemory = focusMemory,
                 onClick = { onSelected(destination.tab) },
                 selected = isSelected,
+                selectable = true,
                 focusRequester = navRequesters.getValue(destination.tab),
                 scaleWhenFocused = 1.025f,
                 modifier =
@@ -346,38 +347,27 @@ private fun TvNavigationRail(
                                 false
                             }
                         },
-            ) { focused ->
+            ) {
+                // The white plate and black ink come in on the surface's focus clock; the open tab
+                // is marked by the surface's own selected plate and edge, as everywhere else.
+                val focus = LocalTvFocusAmount.current
                 Row(
                     Modifier
-                        .background(
-                            if (focused || isSelected) {
-                                Color.White.copy(alpha = if (focused) 0.96f else 0.12f)
-                            } else {
-                                Color.Transparent
-                            },
-                        ).padding(horizontal = 14.dp, vertical = 13.dp),
+                        .drawBehind { drawRect(Color.White.copy(alpha = 0.96f * focus.value.coerceIn(0f, 1f))) }
+                        .padding(horizontal = 14.dp, vertical = 13.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(
-                        imageVector = destination.icon,
-                        contentDescription = null,
-                        tint =
-                            when {
-                                focused -> Color.Black
-                                isSelected -> TvAccent
-                                else -> TvOnSurfaceMuted
-                            },
+                    TvFocusIcon(
+                        icon = destination.icon,
+                        rest = if (isSelected) TvAccent else TvOnSurfaceMuted,
+                        focused = Color.Black,
                         modifier = Modifier.size(24.dp),
                     )
                     Spacer(Modifier.width(13.dp))
-                    Text(
+                    TvFocusText(
                         text = destination.label,
-                        color =
-                            when {
-                                focused -> Color.Black
-                                isSelected -> TvOnSurface
-                                else -> TvOnSurfaceMuted
-                            },
+                        rest = if (isSelected) TvOnSurface else TvOnSurfaceMuted,
+                        focused = Color.Black,
                         fontSize = TvType.caption,
                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                     )

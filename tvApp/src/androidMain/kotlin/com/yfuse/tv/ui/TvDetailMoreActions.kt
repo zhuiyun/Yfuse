@@ -417,6 +417,7 @@ internal fun TvEpisodeProgressDialog(
                             focusScope = focusScope,
                             subtitle = if (episode.played) "已看过" else "未看",
                             selected = episode.id in state.progressSelection,
+                            selectable = true,
                         )
                     }
                 }

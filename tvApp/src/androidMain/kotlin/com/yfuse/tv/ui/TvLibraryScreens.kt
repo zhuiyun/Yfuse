@@ -227,6 +227,7 @@ private fun TvLibraryServerSelector(
                     onClick = { onSelect(server.id) },
                     modifier = Modifier.width(150.dp),
                     selected = server.id == selectedId,
+                    selectable = true,
                     navigationRequester = navigationRequester,
                     returnToNavigationOnLeft = index == 0,
                     serverId = server.id,
@@ -468,6 +469,7 @@ internal fun TvLibraryGridScreen(
                             onClick = { store.accept(GridIntent.SetSort(sort)) },
                             modifier = Modifier.width(122.dp),
                             selected = sort == state.sort,
+                            selectable = true,
                             serverId = component.serverId,
                         )
                     }
@@ -488,6 +490,7 @@ internal fun TvLibraryGridScreen(
                             onClick = { store.accept(GridIntent.SetResolution(resolution)) },
                             modifier = Modifier.width(112.dp),
                             selected = resolution == state.resolution,
+                            selectable = true,
                             serverId = component.serverId,
                         )
                     }
@@ -525,6 +528,7 @@ internal fun TvLibraryGridScreen(
                             onClick = { store.accept(GridIntent.SetGenre(null)) },
                             modifier = Modifier.width(122.dp),
                             selected = state.genre == null,
+                            selectable = true,
                             serverId = component.serverId,
                         )
                     }
@@ -537,6 +541,7 @@ internal fun TvLibraryGridScreen(
                             onClick = { store.accept(GridIntent.SetGenre(genre)) },
                             modifier = Modifier.width(122.dp),
                             selected = state.genre == genre,
+                            selectable = true,
                             serverId = component.serverId,
                         )
                     }

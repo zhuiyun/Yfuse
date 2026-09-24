@@ -517,6 +517,7 @@ private fun TvSettingsRootPage(
                         focusScope = scope,
                         selected = state.currentServer?.id == server.id,
                         navigationRequester = navigationRequester,
+                        selectable = true,
                     )
                 }
             }

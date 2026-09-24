@@ -296,6 +296,7 @@ internal fun TvCalendarScreen(
                             onClick = { store.accept(CalendarIntent.SelectFilter(filter)) },
                             modifier = Modifier.width(130.dp),
                             selected = filter == state.filter,
+                            selectable = true,
                             navigationRequester = primaryRequester,
                             returnToNavigationOnLeft = index == 0,
                         )

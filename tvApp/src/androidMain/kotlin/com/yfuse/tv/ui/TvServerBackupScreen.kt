@@ -188,6 +188,7 @@ internal fun TvServerBackupPage(
                     selected = selectedFile?.name == file.name,
                     enabled = !busy,
                     navigationRequester = navigationRequester,
+                    selectable = true,
                 )
             }
         }

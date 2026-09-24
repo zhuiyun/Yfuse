@@ -157,6 +157,7 @@ internal fun TvSearchHomeScreen(
                     onClick = { store.accept(SearchIntent.SetType(type)) },
                     modifier = Modifier.width(116.dp),
                     selected = type == state.type,
+                    selectable = true,
                     navigationRequester = navigationRequester,
                     returnToNavigationOnLeft = type == SearchType.All,
                 )

@@ -215,6 +215,7 @@ private fun TvServerCard(
         focusMemory = focusMemory,
         onClick = onOpen,
         selected = selected,
+        selectable = true,
         navigationRequester = navigationRequester,
         returnToNavigationOnLeft = returnToNavigationOnLeft,
         fallbackIndex = fallbackIndex,
@@ -327,6 +328,7 @@ private fun TvServerDialog(
                         onClick = { sendIntent(ServersIntent.ProviderChanged(kind)) },
                         modifier = Modifier.width(136.dp),
                         selected = kind == state.form.kind,
+                        selectable = true,
                     )
                 }
                 TvActionButton(

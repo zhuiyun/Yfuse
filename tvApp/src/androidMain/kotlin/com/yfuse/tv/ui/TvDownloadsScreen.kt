@@ -94,6 +94,7 @@ internal fun TvDownloadsPage(
                         focusMemory = focusMemory,
                         onClick = { filter = entry },
                         selected = entry == filter,
+                        selectable = true,
                         focusRequester = if (index == 0) firstRowRequester else null,
                         navigationRequester = navigationRequester,
                         returnToNavigationOnLeft = index == 0,

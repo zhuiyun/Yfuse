@@ -5,6 +5,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -27,22 +28,28 @@ import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Icon
+import androidx.compose.foundation.text.BasicText
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusRequester
@@ -50,11 +57,13 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -64,11 +73,13 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
 import coil3.compose.AsyncImage
@@ -245,8 +256,17 @@ internal data class TvMediaCardModel(
     val badge: String? = null,
     val artworkShape: TvArtworkShape = TvArtworkShape.Poster,
     val selected: Boolean = false,
+    /** Whether the card is one choice among its row's — see [TvFocusableSurface]'s `selectable`. */
+    val selectable: Boolean = false,
     val onClick: () -> Unit,
 )
+
+/**
+ * How far the enclosing [TvFocusableSurface] has come into focus, 0 to 1, on the clock its scale
+ * and edge run on. Read it only while drawing: a fill or an ink that follows it moves with the
+ * lift, where one chosen at composition cut over the moment focus arrived.
+ */
+internal val LocalTvFocusAmount = staticCompositionLocalOf<State<Float>> { mutableFloatStateOf(0f) }
 
 @Composable
 internal fun TvFocusableSurface(
@@ -258,7 +278,16 @@ internal fun TvFocusableSurface(
     focusRequester: FocusRequester? = null,
     navigationRequester: FocusRequester? = null,
     returnToNavigationOnLeft: Boolean = false,
+    /** Drawn as a fifth of the accent over the plate with a 2dp accent edge — see [TvSelectedPlate]. */
     selected: Boolean = false,
+    /**
+     * Whether [selected] is a choice a screen reader should announce — a filter, a season, a tab.
+     * A toggle or a state that only borrows the look (已收藏, 已授权) says itself in its label;
+     * announcing every surface as selectable had every card and button read as 「未选择」.
+     */
+    selectable: Boolean = false,
+    /** A disabled surface keeps its focus stop, so the remote is never stranded, but does not act. */
+    enabled: Boolean = true,
     scaleWhenFocused: Float = 1.055f,
     shape: RoundedCornerShape = RoundedCornerShape(14.dp),
     onFocused: (() -> Unit)? = null,
@@ -282,7 +311,11 @@ internal fun TvFocusableSurface(
             label = "tv-focus",
         )
     val focusScale = TvFocusMotion.scale(scaleWhenFocused, reduceMotion)
+    // A 1dp accent edge alone was the selected state, and could not be told from the rest across
+    // a room: selection now tints the plate too and draws the edge twice as wide.
+    val restPlate = if (selected) TvSelectedPlate else TvSurface
     val restEdge = if (selected) TvAccent.copy(alpha = 0.88f) else TvHairline
+    val restEdgeWidth = if (selected) TvFocusMotion.selectedBorder else TvFocusMotion.restBorder
     val requesterModifier =
         if (focusRequester == null) Modifier else Modifier.focusRequester(focusRequester)
     val targetId = remember(focusScope, stableId) { focusMemory.targetId(focusScope, stableId) }
@@ -338,23 +371,64 @@ internal fun TvFocusableSurface(
                 val outline = shape.createOutline(size, layoutDirection, this)
                 onDrawWithContent {
                     val amount = focusAmount.value.coerceIn(0f, 1f)
-                    drawOutline(outline, lerp(TvSurface, TvSurfaceFocused, amount))
+                    drawOutline(outline, lerp(restPlate, TvSurfaceFocused, amount))
                     drawContent()
                     // The clip removes the outer half of a centred stroke, so twice the width
                     // leaves exactly the token inside the shape — what `border` used to draw.
-                    val edge = lerp(TvFocusMotion.restBorder, TvFocusMotion.focusBorder, amount).toPx()
+                    val edge = lerp(restEdgeWidth, TvFocusMotion.focusBorder, amount).toPx()
                     drawOutline(outline, lerp(restEdge, Color.White, amount), style = Stroke(edge * 2f))
                 }
-            }.clickable(onClick = onClick)
+            }.clickable(onClick = { if (enabled) onClick() })
             .testTag(stableId)
             .semantics {
                 role = Role.Button
-                this.selected = selected
+                if (selectable) this.selected = selected
+                if (!enabled) disabled()
                 contentDescription?.let { this.contentDescription = it }
             },
     ) {
-        content(focused)
+        CompositionLocalProvider(LocalTvFocusAmount provides focusAmount) {
+            content(focused)
+        }
     }
+}
+
+/** An icon whose tint follows [LocalTvFocusAmount] from [rest] to [focused] while drawing. */
+@Composable
+internal fun TvFocusIcon(
+    icon: ImageVector,
+    rest: Color,
+    focused: Color,
+    modifier: Modifier = Modifier,
+) {
+    val focus = LocalTvFocusAmount.current
+    val painter = rememberVectorPainter(icon)
+    Canvas(modifier) {
+        with(painter) {
+            draw(size, colorFilter = ColorFilter.tint(lerp(rest, focused, focus.value.coerceIn(0f, 1f))))
+        }
+    }
+}
+
+/** One line of label whose ink follows [LocalTvFocusAmount] from [rest] to [focused] while drawing. */
+@Composable
+internal fun TvFocusText(
+    text: String,
+    rest: Color,
+    focused: Color,
+    fontSize: TextUnit,
+    fontWeight: FontWeight,
+    modifier: Modifier = Modifier,
+) {
+    val focus = LocalTvFocusAmount.current
+    BasicText(
+        text = text,
+        modifier = modifier,
+        style = LocalTextStyle.current.copy(fontSize = fontSize, fontWeight = fontWeight),
+        overflow = TextOverflow.Ellipsis,
+        maxLines = 1,
+        color = { lerp(rest, focused, focus.value.coerceIn(0f, 1f)) },
+    )
 }
 
 /**
@@ -373,6 +447,8 @@ internal fun TvActionButton(
     icon: ImageVector? = null,
     primary: Boolean = false,
     selected: Boolean = false,
+    selectable: Boolean = false,
+    enabled: Boolean = true,
     focusRequester: FocusRequester? = null,
     navigationRequester: FocusRequester? = null,
     returnToNavigationOnLeft: Boolean = false,
@@ -390,55 +466,43 @@ internal fun TvActionButton(
         navigationRequester = navigationRequester,
         returnToNavigationOnLeft = returnToNavigationOnLeft,
         selected = selected,
+        selectable = selectable,
+        enabled = enabled,
         serverId = serverId,
         profileId = profileId,
         shape = RoundedCornerShape(12.dp),
         scaleWhenFocused = 1.035f,
-    ) { focused ->
+    ) {
+        // Fill and ink follow the focus clock while drawing, so the white plate and the black
+        // label arrive with the lift instead of cutting over at composition.
+        val focus = LocalTvFocusAmount.current
+        val restFill = if (primary) TvAccent.copy(alpha = 0.9f) else Color.Transparent
+        val restInk =
+            when {
+                !enabled -> TvOnSurface.copy(alpha = 0.45f)
+                primary -> Color.Black
+                else -> TvOnSurface
+            }
+        val focusInk = if (enabled) Color.Black else Color.Black.copy(alpha = 0.45f)
         Row(
             modifier =
                 Modifier
                     .fillMaxSize()
-                    .background(
-                        when {
-                            focused -> Color.White
-                            primary -> TvAccent.copy(alpha = 0.9f)
-                            else -> Color.Transparent
-                        },
-                    ).padding(horizontal = 20.dp),
+                    .drawBehind { drawRect(lerp(restFill, Color.White, focus.value.coerceIn(0f, 1f))) }
+                    .padding(horizontal = 20.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center,
         ) {
             if (icon != null) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    tint =
-                        if (focused) {
-                            Color.Black
-                        } else if (primary) {
-                            Color.Black
-                        } else {
-                            TvOnSurface
-                        },
-                    modifier = Modifier.size(22.dp),
-                )
+                TvFocusIcon(icon = icon, rest = restInk, focused = focusInk, modifier = Modifier.size(22.dp))
                 Spacer(Modifier.width(10.dp))
             }
-            Text(
+            TvFocusText(
                 text = label,
-                color =
-                    if (focused) {
-                        Color.Black
-                    } else if (primary) {
-                        Color.Black
-                    } else {
-                        TvOnSurface
-                    },
+                rest = restInk,
+                focused = focusInk,
                 fontSize = TvType.body,
                 fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
             )
         }
     }
@@ -460,7 +524,11 @@ internal fun TvMediaCard(
     val width = if (model.artworkShape == TvArtworkShape.Poster) 142.dp else 232.dp
     TvFocusableSurface(
         stableId = model.stableId,
-        contentDescription = listOfNotNull(model.title, model.subtitle).joinToString("，"),
+        // One sentence for the whole card. The artwork below stays silent: it carried the title
+        // as well, and the card was read with its title twice.
+        contentDescription =
+            listOfNotNull(model.title, model.subtitle?.takeIf(String::isNotBlank), model.badge)
+                .joinToString("，"),
         focusScope = focusScope,
         focusMemory = focusMemory,
         onClick = model.onClick,
@@ -469,6 +537,7 @@ internal fun TvMediaCard(
         navigationRequester = navigationRequester,
         returnToNavigationOnLeft = returnToNavigationOnLeft,
         selected = model.selected,
+        selectable = model.selectable,
         onFocused = onFocused,
         onContextMenu = onContextMenu,
         fallbackIndex = fallbackIndex,
@@ -484,7 +553,7 @@ internal fun TvMediaCard(
             ) {
                 AsyncImage(
                     model = model.imageUrl,
-                    contentDescription = model.title,
+                    contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
                 )

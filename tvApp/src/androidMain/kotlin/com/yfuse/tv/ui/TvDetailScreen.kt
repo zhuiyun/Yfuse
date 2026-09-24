@@ -205,6 +205,7 @@ internal fun TvDetailScreen(
                                         onClick = { store.accept(DetailIntent.SelectSeason(season.id)) },
                                         modifier = Modifier.width(132.dp),
                                         selected = season.id == state.selectedSeasonId,
+                                        selectable = true,
                                         serverId = server.id,
                                         profileId = server.userId,
                                     )
@@ -264,6 +265,7 @@ internal fun TvDetailScreen(
                                         onClick = { store.accept(DetailIntent.SelectVersion(version.id)) },
                                         modifier = Modifier.width(260.dp),
                                         selected = version.id == state.selectedVersionId,
+                                        selectable = true,
                                         serverId = (state.playServer ?: server).id,
                                         profileId = (state.playServer ?: server).userId,
                                     )
@@ -301,6 +303,7 @@ internal fun TvDetailScreen(
                                         selected =
                                             source.serverId == state.selectedSourceServerId &&
                                                 source.itemId == state.selectedSourceItemId,
+                                        selectable = true,
                                         serverId = source.serverId,
                                     )
                                 }
@@ -599,9 +602,11 @@ private fun TvDetailHero(
                             stableId = "detail:${detail.id}:download",
                             focusScope = "detail:${detail.id}:hero",
                             focusMemory = focusMemory,
-                            onClick = { if (downloadEnabled) onDownload() },
+                            onClick = onDownload,
                             icon = AppIcons.Download,
-                            selected = !downloadEnabled,
+                            // Unavailable until a version is resolved: said as 已停用, not dressed
+                            // up as a selected state.
+                            enabled = downloadEnabled,
                             serverId = serverId,
                             profileId = profileId,
                         )
@@ -705,6 +710,7 @@ private fun TvEpisodeRow(
                             progress = episode.playedPercentage?.div(100.0)?.toFloat(),
                             artworkShape = TvArtworkShape.Landscape,
                             selected = episode.id == selectedEpisodeId,
+                            selectable = true,
                             onClick = { onEpisode(episode) },
                         ),
                     focusScope = episodeScope,
