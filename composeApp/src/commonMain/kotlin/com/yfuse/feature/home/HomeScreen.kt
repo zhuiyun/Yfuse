@@ -401,6 +401,10 @@ internal fun HomeContentBody(
                                 .SmartPlaylistShelf()
                         }
                     }
+                    // Offline, the calendar fails for the same reason the recommendations did.
+                    // One card says so, and its 重试 retries both; a second card below it only
+                    // repeated the first.
+                    val recommendationsFailed = state.error != null && state.content.isEmpty
                     if (state.loading && state.content.isEmpty) {
                         // Two shelves' worth of placeholders rather than one spinner: the page
                         // this becomes is a stack of rails, and a skeleton that is the wrong
@@ -411,11 +415,14 @@ internal fun HomeContentBody(
                                 phaseMs = shelf * SKELETON_SHELF_PHASE_MS,
                             )
                         }
-                    } else if (state.error != null && state.content.isEmpty) {
+                    } else if (recommendationsFailed) {
                         motionItem(key = "recommendations-error") {
                             ErrorState(
                                 message = state.error!!,
-                                onRetry = { onIntent(HomeIntent.Retry) },
+                                onRetry = {
+                                    onIntent(HomeIntent.Retry)
+                                    if (calendarState.error != null) onRefreshCalendar()
+                                },
                                 modifier = Modifier.fillMaxWidth(),
                             )
                         }
@@ -509,7 +516,7 @@ internal fun HomeContentBody(
                             }
                         }
 
-                        calendarState.error != null -> {
+                        calendarState.error != null && !recommendationsFailed -> {
                             motionItem(key = "airing-calendar-error") {
                                 ErrorState(
                                     message = calendarState.error!!,

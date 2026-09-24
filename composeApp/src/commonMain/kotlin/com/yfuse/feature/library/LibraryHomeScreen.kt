@@ -48,6 +48,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
@@ -97,6 +98,7 @@ import com.yfuse.core.designsystem.ScrollToTopOnReselect
 import com.yfuse.core.designsystem.SectionHeader
 import com.yfuse.core.designsystem.SettingRow
 import com.yfuse.core.designsystem.SkeletonArrivalScope
+import com.yfuse.core.designsystem.SkeletonBlock
 import com.yfuse.core.designsystem.SkeletonRail
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.arrivalSweep
@@ -336,6 +338,8 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
     ) {
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val heroHeight = libraryHeroHeight(maxHeight, wideLayout = maxWidth >= 600.dp)
+            // The reel is switched on, but the first load has not brought anything to show in it.
+            val heroPending = libraryCarousel && state.loading && state.content.isEmpty
             Box(Modifier.fillMaxSize().drawBehind { drawRect(sampledPageColor.value) })
             val lightPageReached by rememberScrolledPastHero(listState, heroHeight)
             val showSidePreview = maxWidth >= 600.dp || maxWidth > maxHeight
@@ -403,18 +407,34 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                             ) {
                                 if (!libraryCarousel || slide == null) {
                                     waveItem(key = "library-header") {
-                                        Column(
-                                            Modifier.fillMaxWidth().statusBarsPadding().padding(
-                                                horizontal = Dimens.pageHorizontal,
-                                                vertical = 12.dp,
-                                            ),
+                                        // While the first load runs with the reel switched on, the
+                                        // header holds the reel's height: the rows under it start
+                                        // where they will stay, instead of being pushed down a whole
+                                        // hero when the reel lands on top of them.
+                                        Box(
+                                            Modifier
+                                                .fillMaxWidth()
+                                                .then(if (heroPending) Modifier.height(heroHeight) else Modifier),
                                         ) {
-                                            SettingRow(
-                                                title = "媒体库",
-                                                value = state.currentServer?.serverName.orEmpty(),
-                                                icon = AppIcons.Server,
-                                                onClick = { serverMenuOpen = true },
-                                            )
+                                            if (heroPending) {
+                                                SkeletonBlock(
+                                                    Modifier.matchParentSize().fadeIntoPage(),
+                                                    shape = RectangleShape,
+                                                )
+                                            }
+                                            Column(
+                                                Modifier.fillMaxWidth().statusBarsPadding().padding(
+                                                    horizontal = Dimens.pageHorizontal,
+                                                    vertical = 12.dp,
+                                                ),
+                                            ) {
+                                                SettingRow(
+                                                    title = "媒体库",
+                                                    value = state.currentServer?.serverName.orEmpty(),
+                                                    icon = AppIcons.Server,
+                                                    onClick = { serverMenuOpen = true },
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -599,9 +619,6 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                         )
                                     }
                                 }
-                                if (state.loading && state.content.isEmpty) {
-                                    motionItem(key = "library-loading") { SkeletonRow() }
-                                }
                                 if (state.content.rows.isNotEmpty() || state.currentServer != null) {
                                     if (showSmartPlaylists) {
                                         waveItem(key = "smart-playlists") {
@@ -630,6 +647,11 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                             },
                                         )
                                     }
+                                }
+                                // Where 播放记录 and the shelves will land: under the category
+                                // cards, not above them, so the page does not reshuffle on arrival.
+                                if (state.loading && state.content.isEmpty) {
+                                    motionItem(key = "library-loading") { SkeletonRow() }
                                 }
                                 if (state.content.resume.isNotEmpty()) {
                                     waveItem(key = "library-resume") {

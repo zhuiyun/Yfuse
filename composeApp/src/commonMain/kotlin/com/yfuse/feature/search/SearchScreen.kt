@@ -152,11 +152,13 @@ private fun SearchHomeScreen(
     val keyboard = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
     val routeVisible = LocalRouteVisible.current
+    val awaitingFirstResults = state.loading && state.groups.isEmpty()
     val resultHandoff =
         rememberSearchResultsHandoff(
             state.resultsPhase(),
             loading = state.loading,
             presentationKey = state.presentationKey(),
+            skeleton = awaitingFirstResults,
         )
     var coverageExpanded by remember(state.searchedQuery) { mutableStateOf(false) }
     // Clears the floating dock as it is actually laid out, not a fixed 122dp that left the last
@@ -215,7 +217,6 @@ private fun SearchHomeScreen(
                 }
             }
 
-            val awaitingFirstResults = state.loading && state.groups.isEmpty()
             if (awaitingFirstResults) {
                 motionItem(key = "search-skeleton") { SearchSkeleton() }
             }
@@ -258,6 +259,8 @@ private fun SearchHomeScreen(
                                         .fillMaxWidth()
                                         .padding(horizontal = Dimens.pageHorizontal)
                                         .then(resultHandoff.item(key = "error")),
+                                // The handoff already brings it in; its own rise on top moved it twice.
+                                animateEntrance = false,
                             )
                         }
 

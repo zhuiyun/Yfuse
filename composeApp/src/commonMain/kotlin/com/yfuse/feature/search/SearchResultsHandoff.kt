@@ -215,6 +215,8 @@ internal fun rememberSearchResultsHandoff(
     phase: SearchResultsPhase,
     loading: Boolean = phase == SearchResultsPhase.Loading,
     presentationKey: Any? = null,
+    /** The result skeleton is on screen and already says the first answer is on its way. */
+    skeleton: Boolean = false,
 ): SearchRevealMotion {
     val moving = LocalRouteVisible.current && !LocalAccessibilityOptions.current.reduceMotion
     val enhanced = moving && LocalPulseSweepEnabled.current
@@ -264,6 +266,14 @@ internal fun rememberSearchResultsHandoff(
     // Refreshing the same query retains Results; it still needs visible request feedback.
     val waiting = highlights && loading
     val tension = animateFloatAsState(if (waiting) 1f else 0f, Motion.settle(!moving), label = "search-request-tension")
+    // One loader per request. While the skeleton stands in for the first results, the page
+    // bloom and the icon's beat were two more on top of it; the field keeps its own pulse.
+    val ornament =
+        animateFloatAsState(
+            if (waiting && !skeleton) 1f else 0f,
+            Motion.settle(!moving),
+            label = "search-request-ornament",
+        )
     LaunchedEffect(waiting) {
         if (!waiting) {
             if (moving) pulse.animateTo(0f, tween(Motion.STANDARD, easing = Motion.Curve)) else pulse.snapTo(0f)
@@ -327,9 +337,10 @@ internal fun rememberSearchResultsHandoff(
             Modifier
         } else {
             Modifier.graphicsLayer {
-                scaleX = 1f + 0.16f * pulse.value
+                val beat = pulse.value * ornament.value
+                scaleX = 1f + 0.16f * beat
                 scaleY = scaleX
-                rotationZ = 8f * pulse.value
+                rotationZ = 8f * beat
             }
         }
     // While the request runs, a faint accent bloom drifts across the page on the same beat as
@@ -341,11 +352,12 @@ internal fun rememberSearchResultsHandoff(
         } else {
             Modifier.drawWithContent {
                 drawContent()
-                if (waiting) {
+                val bloom = ornament.value
+                if (waiting && bloom > 0f) {
                     drawRect(
                         brush =
                             Brush.radialGradient(
-                                listOf(accent.copy(alpha = 0.07f + 0.04f * pulse.value), Color.Transparent),
+                                listOf(accent.copy(alpha = (0.07f + 0.04f * pulse.value) * bloom), Color.Transparent),
                                 center =
                                     Offset(
                                         size.width * (0.2f + 0.6f * pulse.value),
