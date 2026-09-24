@@ -1,5 +1,6 @@
 package com.yfuse.feature.player
 
+import android.content.Context
 import android.content.Intent
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -30,7 +31,7 @@ actual fun PendingPlayerLauncher(
                     startPlaybackRequested = startPlaybackRequested,
                 ).also { createdIntent ->
                     launchIntent = createdIntent
-                    com.yfuse.core.designsystem.PlayerArtworkOrigins.issueLaunch(playerTransitionStyle())?.let {
+                    com.yfuse.core.designsystem.PlayerArtworkOrigins.issueLaunch(playerTransitionStyle(context))?.let {
                         createdIntent.putExtra(PLAYER_ARTWORK_TOKEN, it)
                     }
                     context.startActivity(createdIntent)
@@ -90,7 +91,7 @@ actual fun PlayerLauncher(
                     startPlaybackRequested = startPlaybackRequested,
                 ).also { createdIntent ->
                     launchIntent = createdIntent
-                    com.yfuse.core.designsystem.PlayerArtworkOrigins.issueLaunch(playerTransitionStyle())?.let {
+                    com.yfuse.core.designsystem.PlayerArtworkOrigins.issueLaunch(playerTransitionStyle(context))?.let {
                         createdIntent.putExtra(PLAYER_ARTWORK_TOKEN, it)
                     }
                     context.startActivity(createdIntent)
@@ -115,8 +116,13 @@ actual fun PlayerLauncher(
     }
 }
 
-/** The set chosen in 设置 → 外观 → 播放器进出场; the first one if the preferences cannot be read. */
-private fun playerTransitionStyle(): PlayerTransitionStyle {
+/**
+ * The set chosen in 设置 → 外观 → 播放器进出场; the first one if the preferences cannot be read.
+ * The plain fade while the system plays animations faster or slower than drawn (see
+ * [animationScalesAtNormalSpeed]).
+ */
+private fun playerTransitionStyle(context: Context): PlayerTransitionStyle {
+    if (!context.animationScalesAtNormalSpeed()) return PlayerTransitionStyle.None
     val preferences = runCatching { GlobalContext.get().get<ThemePreferences>() }.getOrNull()
     return preferences?.playerTransition?.value ?: PlayerTransitionStyle.Turn
 }
