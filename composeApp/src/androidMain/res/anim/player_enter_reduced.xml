@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Under 减弱动态效果 the player still fades in, without moving: cutting from a light page to a
+     black landscape frame in one frame is harsher than any motion the setting removes. -->
+<alpha xmlns:android="http://schemas.android.com/apk/res/android"
+    android:interpolator="@interpolator/yfuse_curve"
+    android:fromAlpha="0"
+    android:toAlpha="1"
+    android:duration="@integer/player_reduced_fade_duration" />

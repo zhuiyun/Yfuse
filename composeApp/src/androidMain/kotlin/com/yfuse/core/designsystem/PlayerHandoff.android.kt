@@ -13,13 +13,29 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.RenderEffect
 import androidx.compose.ui.graphics.asComposeRenderEffect
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalView
 import android.graphics.RenderEffect as AndroidRenderEffect
 
 @Composable
 internal actual fun rememberScreenGeometrySource(): ScreenGeometrySource {
     val view = LocalView.current
-    return remember(view) { ScreenGeometrySource { screenGeometryOf(view) } }
+    // Only a new configuration resizes the display this window can have, so the size is kept per
+    // configuration; a half turn changes neither, which is why the rotation is still read each time.
+    val configuration = LocalConfiguration.current
+    return remember(view, configuration) { CachedScreenGeometry(view) }
+}
+
+/** [screenGeometryOf], with the display's size — the costliest of its system calls — read once. */
+private class CachedScreenGeometry(
+    private val view: View,
+) : ScreenGeometrySource {
+    private var size: Size? = null
+
+    override fun current(): ScreenGeometry {
+        val known = size ?: displaySizeOf(view).takeIf { it.width > 0f && it.height > 0f }?.also { size = it }
+        return screenGeometryOf(view, known)
+    }
 }
 
 /**
@@ -27,27 +43,34 @@ internal actual fun rememberScreenGeometrySource(): ScreenGeometrySource {
  * rotation (the whole display for a full-screen app), and the window's own offset on the glass —
  * the player window is letterboxed away from a camera cutout in landscape, the page is not.
  */
-internal fun screenGeometryOf(view: View): ScreenGeometry {
-    val display = view.display
-    val rotation = display?.rotation ?: Surface.ROTATION_0
-    val size =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            val bounds =
-                view.context
-                    .getSystemService(WindowManager::class.java)
-                    ?.maximumWindowMetrics
-                    ?.bounds
-            if (bounds != null) Size(bounds.width().toFloat(), bounds.height().toFloat()) else Size.Zero
-        } else {
-            val point = Point()
-            @Suppress("DEPRECATION")
-            display?.getRealSize(point)
-            Size(point.x.toFloat(), point.y.toFloat())
-        }
+internal fun screenGeometryOf(
+    view: View,
+    size: Size? = null,
+): ScreenGeometry {
+    val rotation = view.display?.rotation ?: Surface.ROTATION_0
     val location = IntArray(2)
     view.getLocationOnScreen(location)
-    return ScreenGeometry(rotation, size, Offset(location[0].toFloat(), location[1].toFloat()))
+    return ScreenGeometry(
+        rotation,
+        size ?: displaySizeOf(view),
+        Offset(location[0].toFloat(), location[1].toFloat()),
+    )
 }
+
+private fun displaySizeOf(view: View): Size =
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        val bounds =
+            view.context
+                .getSystemService(WindowManager::class.java)
+                ?.maximumWindowMetrics
+                ?.bounds
+        if (bounds != null) Size(bounds.width().toFloat(), bounds.height().toFloat()) else Size.Zero
+    } else {
+        val point = Point()
+        @Suppress("DEPRECATION")
+        view.display?.getRealSize(point)
+        Size(point.x.toFloat(), point.y.toFloat())
+    }
 
 internal actual val supportsTideShader: Boolean = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
 

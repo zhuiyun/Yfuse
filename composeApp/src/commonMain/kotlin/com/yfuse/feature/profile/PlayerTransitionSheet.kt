@@ -41,7 +41,7 @@ internal fun PlayerTransitionSheet(
     GlassDialog(onDismiss = onDismiss) {
         OverlayHeader(
             "播放器进出场",
-            "${PlayerTransitionStyle.entries.size} 套开合方式，从播放键或大图打开播放器、关闭时回到原处",
+            "${PlayerTransitionStyle.entries.count { it.choreographed }} 套开合方式，从播放键或大图打开播放器、关闭时回到原处",
             onClose = onDismiss,
         )
         if (LocalAccessibilityOptions.current.reduceMotion) {
@@ -66,7 +66,10 @@ internal fun PlayerTransitionSheet(
     }
 }
 
-/** A still of each set's idea: a picture turning, a slit of light, a glass bar, a zoom, a wave, a bloom. */
+/**
+ * A still of each set's idea: a picture turning, a slit of light, a glass bar, a zoom, a wave, a
+ * bloom — and for no set, a frame simply fading up.
+ */
 @Composable
 private fun PlayerTransitionGlyph(style: PlayerTransitionStyle) {
     val ink = LocalPalette.current.text
@@ -79,6 +82,7 @@ private fun PlayerTransitionGlyph(style: PlayerTransitionStyle) {
             PlayerTransitionStyle.PushIn -> pushGlyph(ink, accent)
             PlayerTransitionStyle.Tide -> tideGlyph(ink, accent)
             PlayerTransitionStyle.Defocus -> defocusGlyph(accent)
+            PlayerTransitionStyle.None -> fadeGlyph(ink)
         }
     }
 }
@@ -201,6 +205,23 @@ private fun DrawScope.tideGlyph(
         }
         drawPath(path, if (row == 1) accent else ink.copy(alpha = 0.45f), style = Stroke(1.6.dp.toPx()))
     }
+}
+
+private fun DrawScope.fadeGlyph(ink: Color) {
+    val width = 28.dp.toPx()
+    val height = 18.dp.toPx()
+    drawRoundRect(
+        Brush.horizontalGradient(
+            0f to ink.copy(alpha = 0.04f),
+            1f to ink.copy(alpha = 0.42f),
+            startX = center.x - width / 2f,
+            endX = center.x + width / 2f,
+        ),
+        topLeft = Offset(center.x - width / 2f, center.y - height / 2f),
+        size = Size(width, height),
+        cornerRadius = CornerRadius(3.dp.toPx()),
+    )
+    frameOutline(ink, width, height, alpha = 0.55f)
 }
 
 private fun DrawScope.defocusGlyph(accent: Color) {

@@ -105,34 +105,76 @@ internal fun PlayerSidePanel(
     var motionJob by remember { mutableStateOf<Job?>(null) }
     var closing by remember { mutableStateOf(false) }
     var afterExit by remember { mutableStateOf<(() -> Unit)?>(null) }
+    val presence = LocalPanelPresence.current
+    val currentPresence by rememberUpdatedState(presence)
+    val ownerClosed = presence?.visible == false
+    var closedByOwner by remember { mutableStateOf(false) }
+    var dismissed by remember { mutableStateOf(false) }
 
-    suspend fun settleDrawer(dismiss: Boolean) {
+    /** [velocity] is the release's, px/s: a flung drawer keeps going rather than pausing to restart. */
+    suspend fun settleDrawer(
+        dismiss: Boolean,
+        velocity: Float,
+    ) {
         if (reduceMotion) {
             offsetPx = if (dismiss) widthPx else 0f
         } else {
             Animatable(offsetPx).animateTo(
                 targetValue = if (dismiss) widthPx else 0f,
                 animationSpec = Motion.drawer(),
+                initialVelocity = velocity,
             ) {
                 offsetPx = value
             }
         }
-        if (dismiss) (afterExit ?: currentDismiss)()
+        if (!dismiss) return
+        val owner = currentPresence
+        if (owner != null && !owner.visible) {
+            // The owner has already let go; the way out was all that was left.
+            afterExit?.invoke()
+            owner.onExited()
+        } else {
+            (afterExit ?: currentDismiss)()
+            dismissed = true
+        }
     }
 
-    fun animateDrawer(dismiss: Boolean) {
+    fun animateDrawer(
+        dismiss: Boolean,
+        velocity: Float = 0f,
+    ) {
         if (closing) return
         closing = dismiss
         motionJob?.cancel()
-        motionJob = scope.launch { settleDrawer(dismiss) }
+        motionJob = scope.launch { settleDrawer(dismiss, velocity) }
     }
 
     val requestDismiss = { animateDrawer(true) }
     LaunchedEffect(reduceMotion) {
         if (!directlyManipulating && !closing) animateDrawer(false)
     }
+    // Closed from state — a pick applied, another panel opened — it leaves the way it would for
+    // the person; reopened before it is gone, it comes back from wherever it had got to.
+    LaunchedEffect(ownerClosed) {
+        if (ownerClosed) {
+            if (!closing) {
+                closedByOwner = true
+                afterExit = null
+                animateDrawer(true)
+            }
+        } else if (closedByOwner) {
+            closedByOwner = false
+            closing = false
+            animateDrawer(false)
+        }
+    }
+    // Closed by the person: the owner lets go a frame later, and so can the keep-alive.
+    LaunchedEffect(dismissed, ownerClosed) {
+        if (dismissed && ownerClosed) currentPresence?.onExited()
+    }
 
     PlatformPredictiveBackHandler(
+        enabled = !closing,
         onProgress = { progress ->
             if (!closing) {
                 motionJob?.cancel()
@@ -163,7 +205,9 @@ internal fun PlayerSidePanel(
                 } else {
                     Modifier
                 },
-            ).noRippleClickable(requestDismiss),
+            )
+            // On its way out the drawer is no longer in the way: a tap meant for the picture reaches it.
+            .then(if (closing) Modifier else Modifier.noRippleClickable(requestDismiss)),
     )
     Column(
         modifier
@@ -191,7 +235,7 @@ internal fun PlayerSidePanel(
                 onDragStopped = { velocity ->
                     val dismiss = drawerShouldDismiss(offsetPx, widthPx, velocity)
                     directlyManipulating = false
-                    animateDrawer(dismiss)
+                    animateDrawer(dismiss, velocity)
                 },
             ).shadow(Shadows.playerSheet, PlayerPanelShape)
             .mutedGlassPanel(PlayerPanelShape, samplePage = false, dark = true)
@@ -211,6 +255,7 @@ internal fun PlayerSidePanel(
                         animateDrawer(true)
                     }
                 },
+                LocalPanelPresence provides null,
             ) { content() }
         },
     )
@@ -269,9 +314,43 @@ internal fun PlayerPopupPanel(
 ) {
     var leaving by remember { mutableStateOf(false) }
     var afterExit by remember { mutableStateOf<(() -> Unit)?>(null) }
+    val presence = LocalPanelPresence.current
+    val currentPresence by rememberUpdatedState(presence)
+    val ownerClosed = presence?.visible == false
+    var closedByOwner by remember { mutableStateOf(false) }
+    var dismissed by remember { mutableStateOf(false) }
     val selectedAnimation = LocalDialogAnimation.current
     val animation = remember { selectedAnimation }
-    val progress = rememberOverlayTransition(leaving, animation) { (afterExit ?: onDismiss)() }
+    val progress =
+        rememberOverlayTransition(leaving, animation) {
+            val owner = currentPresence
+            if (owner != null && !owner.visible) {
+                // The owner has already let go; the way out was all that was left.
+                afterExit?.invoke()
+                owner.onExited()
+            } else {
+                (afterExit ?: onDismiss)()
+                dismissed = true
+            }
+        }
+    // Closed from state — a pick applied, another panel opened — it leaves the way it would for
+    // the person; reopened before it is gone, it comes back from wherever it had got to.
+    LaunchedEffect(ownerClosed) {
+        if (ownerClosed) {
+            if (!leaving) {
+                closedByOwner = true
+                afterExit = null
+                leaving = true
+            }
+        } else if (closedByOwner) {
+            closedByOwner = false
+            leaving = false
+        }
+    }
+    // Closed by the person: the owner lets go a frame later, and so can the keep-alive.
+    LaunchedEffect(dismissed, ownerClosed) {
+        if (dismissed && ownerClosed) currentPresence?.onExited()
+    }
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     var backProgress by remember { mutableFloatStateOf(0f) }
     val backOffset by animateFloatAsState(
@@ -305,15 +384,19 @@ internal fun PlayerPopupPanel(
     val contentMotion = remember(animation, progress) { DialogContentMotion(animation, progress) }
     val handleHeight = if (animation == DialogAnimation.MagneticDrag) DialogDragHandleHeight else 0.dp
     PlatformPredictiveBackHandler(
+        enabled = !leaving,
         onProgress = { if (!leaving && !reduceMotion) backProgress = it.coerceIn(0f, 1f) },
         onBack = requestDismiss,
         onCancel = { backProgress = 0f },
     )
-    Box(
-        Modifier
-            .fillMaxSize()
-            .noRippleClickable(requestDismiss),
-    )
+    // On its way out the popup is no longer in the way: a tap meant for the picture reaches it.
+    if (!leaving) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .noRippleClickable(requestDismiss),
+        )
+    }
     Column(
         modifier
             .width(PlayerPopupWidth)
@@ -343,6 +426,7 @@ internal fun PlayerPopupPanel(
                         leaving = true
                     }
                 },
+                LocalPanelPresence provides null,
             ) {
                 if (animation == DialogAnimation.MagneticDrag) DialogDragHandle(drag, !reduceMotionByUser && !leaving)
                 content()

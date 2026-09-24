@@ -21,7 +21,6 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.ClipOp
 import androidx.compose.ui.graphics.Color
@@ -52,6 +51,7 @@ import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.CURTAIN_GATE_EARLIEST
 import com.yfuse.core.designsystem.CURTAIN_GATE_LATEST
 import com.yfuse.core.designsystem.CURTAIN_GATE_OPEN
+import com.yfuse.core.designsystem.HandoffBlurs
 import com.yfuse.core.designsystem.HandoffBox
 import com.yfuse.core.designsystem.HandoffInOut
 import com.yfuse.core.designsystem.HandoffLaunch
@@ -116,6 +116,9 @@ internal class PlayerTransitionState(
 
     private var lag: Float? = null
     private var readyAt: Float? = null
+
+    /** When the stand-in gave up waiting for a late picture; see [tick]. Read by the host's composition. */
+    private var lateAt by mutableStateOf<Float?>(null)
     private var turnedAt: Float? = null
     private var gateAt: Float? = null
     private var closingAt: Float? = null
@@ -152,10 +155,27 @@ internal class PlayerTransitionState(
 
     val playerTime: Float get() = now - (lag ?: 0f)
 
-    /** ms since the way out began; negative until then (including while the gesture is live). */
-    val exitTime: Float get() = exitAt?.let { now - it } ?: -1f
+    /**
+     * How much faster than it was drawn the way out plays. Each set's exit runs 440–920 ms on its
+     * own clock, and the page cannot be touched until it is over, so it is played close to
+     * [Motion.CONTINUITY_EXIT] — evenly, which keeps every set ending on the very frame the page
+     * picks up from — but never more than [MAX_EXIT_PACE] times faster, past which a turn of the
+     * whole picture stops reading as one.
+     */
+    private val exitPace = (timing.exitFinish.toFloat() / Motion.CONTINUITY_EXIT).coerceIn(1f, MAX_EXIT_PACE)
 
-    fun tick() {
+    /**
+     * ms since the way out began, on the set's own drawn clock (see [exitPace]); negative until
+     * then, including while the gesture is live.
+     */
+    val exitTime: Float get() = exitAt?.let { (now - it) * exitPace } ?: -1f
+
+    /**
+     * Advances the clock. [handsOverLate] is set by a host with a continuity overlay under the
+     * stand-in: a picture still not ready once the stand-in has landed is then no longer waited
+     * for, and the overlay — the one surface that can say the network is why — takes over.
+     */
+    fun tick(handsOverLate: Boolean) {
         now = launch.elapsedMs()
         if (lag == null) lag = handoffPlayerLag(timing, now)
         if (style == PlayerTransitionStyle.Curtain && gateAt == null) {
@@ -166,6 +186,9 @@ internal class PlayerTransitionState(
                     playerTime >= CURTAIN_GATE_LATEST -> CURTAIN_GATE_LATEST.toFloat()
                     else -> null
                 }
+        }
+        if (handsOverLate && readyAt == null && lateAt == null && playerTime >= landAt() + HANDOFF_DELAY_MS) {
+            lateAt = playerTime
         }
         if (!backActive && !closing && backProgress > 0f) {
             backProgress = (backProgress - FRAME_MS / BACK_CANCEL_MS).coerceAtLeast(0f)
@@ -203,8 +226,12 @@ internal class PlayerTransitionState(
             timing.land.toFloat()
         }
 
-    /** When the stand-in starts handing over to the live picture; null until the picture is ready. */
+    /**
+     * When the stand-in starts handing over to the live picture — or, once it has stopped waiting,
+     * to the continuity overlay; null until one of the two.
+     */
     fun handoffAt(): Float? {
+        lateAt?.let { return it }
         val ready = readyAt ?: return null
         if (style == PlayerTransitionStyle.Curtain) {
             val gate = gateAt ?: return null
@@ -231,8 +258,11 @@ internal class PlayerTransitionState(
         return handoffSegment(playerTime, chromeIn, Motion.STANDARD.toFloat())
     }
 
-    /** True while the stand-in still covers the video surface. */
-    fun coversPicture(): Boolean = !disabled && !finished && (closing || !entered())
+    /**
+     * True while the stand-in still covers the video surface. A late picture's continuity overlay
+     * is let in as the stand-in starts to leave, so the two cross rather than dipping to black.
+     */
+    fun coversPicture(): Boolean = !disabled && !finished && (closing || (lateAt == null && !entered()))
 
     fun onBackProgress(progress: Float) {
         if (disabled || closing || finished) return
@@ -330,10 +360,13 @@ internal fun PlayerTransitionLayer(
     if (disabled || state.disabled || state.finished) return
     val drives = layer != PlayerTransitionLayerKind.Exit
     if (drives) {
+        // The preparation screen has nothing under the stand-in to hand a late picture to; the
+        // player's own entrance has the continuity overlay.
+        val handsOverLate = layer == PlayerTransitionLayerKind.Entrance
         LaunchedEffect(state, state.closing, state.backActive) {
             while (true) {
                 withFrameMillis { }
-                state.tick()
+                state.tick(handsOverLate)
                 if (!state.needsFrames()) break
             }
         }
@@ -440,6 +473,8 @@ private class PlayerScene(
     var screen: ScreenGeometry? = null
     lateinit var artLayer: GraphicsLayer
     lateinit var fieldLayer: GraphicsLayer
+    private val fieldBlurs = HandoffBlurs(TileMode.Clamp)
+    private val artBlurs = HandoffBlurs(TileMode.Decal)
 
     private val launch get() = state.launch
     private val style get() = state.style
@@ -497,6 +532,7 @@ private class PlayerScene(
                 PlayerTransitionStyle.PushIn -> pushIn(tp)
                 PlayerTransitionStyle.Tide -> tideIn(tp)
                 PlayerTransitionStyle.Defocus -> defocusIn(tp)
+                PlayerTransitionStyle.None -> Unit
             }
         }
     }
@@ -517,6 +553,7 @@ private class PlayerScene(
                 PlayerTransitionStyle.PushIn -> pushOut(te)
                 PlayerTransitionStyle.Tide -> tideOut(te)
                 PlayerTransitionStyle.Defocus -> defocusOut(te)
+                PlayerTransitionStyle.None -> Unit
             }
         }
     }
@@ -969,8 +1006,7 @@ private class PlayerScene(
         keepClear: HandoffBox?,
     ) {
         if (alpha <= 0f || painter == null) return
-        val blur = FIELD_BLUR_DP * density
-        fieldLayer.renderEffect = BlurEffect(blur, blur, TileMode.Clamp)
+        fieldLayer.renderEffect = fieldBlurs.of(FIELD_BLUR_DP * density)
         fieldLayer.alpha = alpha.coerceIn(0f, 1f)
         fieldLayer.record(IntSize(size.width.toInt(), size.height.toInt())) {
             drawArtwork(painter, box.scaled(FIELD_OVERSCAN), 1f, colorFilter = SATURATE_FIELD)
@@ -1001,7 +1037,7 @@ private class PlayerScene(
             drawArtwork(painter, box, alpha, zoom)
             return
         }
-        layer.renderEffect = BlurEffect(blur, blur, TileMode.Decal)
+        layer.renderEffect = artBlurs.of(blur)
         layer.alpha = alpha.coerceIn(0f, 1f)
         layer.record(IntSize(size.width.toInt(), size.height.toInt())) { drawArtwork(painter, box, 1f, zoom) }
         drawLayer(layer)
@@ -1024,6 +1060,7 @@ private const val FRAME_MS = 16f
 private const val BACK_CANCEL_MS = 220f
 private const val GESTURE_REACH = 0.85f
 private const val SNAPSHOT_TIMEOUT_MS = 160L
+private const val MAX_EXIT_PACE = 2f
 private const val HANDOFF_DELAY_MS = 40f
 private const val GATE_OPENING_MS = 180f
 private const val CURTAIN_CHROME_AFTER_LAND = 40f

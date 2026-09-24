@@ -298,12 +298,22 @@ private fun Core2SubtitleChannel(
     DisposableEffect(assRenderer) { onDispose(assRenderer::close) }
     val assOverrides = remember(appearance) { appearance.assStyleOverrides() }
     LaunchedEffect(assRenderer, cues, clock, animateFrames, timelineGeneration, offsetMs, canvasSize, assOverrides) {
+        // The cues on screen change only where one starts or ends. Between two such moments the
+        // lookup is skipped, instead of walking the track behind the playhead every frame.
+        var lookedUpAtUs = Long.MAX_VALUE
+        var unchangedUntilUs = Long.MIN_VALUE
+
         fun submit(positionMs: Long) {
             // The loop below runs at display rate. Writing a freshly built list back every frame
             // recomposed this channel sixty times a second for a caption that had not changed;
             // only a different set of cues is a change worth publishing.
-            val next = timeline.activeAt(positionMs * MICROS_PER_MILLISECOND, offsetMs * MICROS_PER_MILLISECOND)
-            if (!sameSubtitleCues(activeCues, next)) activeCues = next
+            val subtitleUs = (positionMs - offsetMs) * MICROS_PER_MILLISECOND
+            if (subtitleUs < lookedUpAtUs || subtitleUs >= unchangedUntilUs) {
+                val next = timeline.activeAt(positionMs * MICROS_PER_MILLISECOND, offsetMs * MICROS_PER_MILLISECOND)
+                if (!sameSubtitleCues(activeCues, next)) activeCues = next
+                lookedUpAtUs = subtitleUs
+                unchangedUntilUs = nextSubtitleChangeUs(timeline.cues, next, subtitleUs)
+            }
             assRenderer.submit(
                 cues,
                 (positionMs - offsetMs) * MICROS_PER_MILLISECOND,
@@ -372,6 +382,29 @@ private fun Core2SubtitleChannel(
             }
         }
     }
+}
+
+/**
+ * The next moment after [positionUs] at which the cues on screen change: the soonest end among
+ * the [active] cues, or the next start in [ordered] (the track sorted by start). A subtitle clock
+ * still before zero also changes at zero, where the track begins to show. [Long.MAX_VALUE] when
+ * nothing is left to change.
+ */
+internal fun nextSubtitleChangeUs(
+    ordered: List<YSubtitleCue>,
+    active: List<YSubtitleCue>,
+    positionUs: Long,
+): Long {
+    var low = 0
+    var high = ordered.size
+    while (low < high) {
+        val middle = (low + high) ushr 1
+        if (ordered[middle].startUs <= positionUs) low = middle + 1 else high = middle
+    }
+    val nextStart = ordered.getOrNull(low)?.startUs ?: Long.MAX_VALUE
+    val nextEnd = active.minOfOrNull(YSubtitleCue::endUs) ?: Long.MAX_VALUE
+    val change = minOf(nextStart, nextEnd)
+    return if (positionUs < 0L) minOf(change, 0L) else change
 }
 
 /** The clock inputs, and only those, so an unrelated diagnostic change cannot re-anchor captions. */

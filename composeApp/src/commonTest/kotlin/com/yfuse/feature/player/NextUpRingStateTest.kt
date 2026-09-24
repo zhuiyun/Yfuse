@@ -21,6 +21,17 @@ class NextUpRingStateTest {
     }
 
     @Test
+    fun the_spoken_countdown_rounds_up_and_follows_speed() {
+        assertEquals(10, nextUpSecondsLeft(10_000L, 1f))
+        assertEquals(3, nextUpSecondsLeft(2_001L, 1f))
+        assertEquals(5, nextUpSecondsLeft(10_000L, 2f))
+        assertEquals(0, nextUpSecondsLeft(-40L, 1f))
+        for (speed in listOf(0f, -1f, Float.NaN, Float.POSITIVE_INFINITY)) {
+            assertEquals(4, nextUpSecondsLeft(3_500L, speed))
+        }
+    }
+
+    @Test
     fun pause_seek_and_cancel_stop_an_inflight_prediction_and_replace_the_displayed_position() =
         runTest {
             val clock = BroadcastFrameClock()

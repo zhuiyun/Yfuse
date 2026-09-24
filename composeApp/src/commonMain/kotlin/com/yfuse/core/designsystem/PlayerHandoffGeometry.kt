@@ -304,6 +304,8 @@ internal val PlayerTransitionStyle.timing: HandoffTiming
             PlayerTransitionStyle.PushIn -> HandoffTiming(160, 80, 340, 380, 1240, 1200, 280, 920, 80, 560)
             PlayerTransitionStyle.Tide -> HandoffTiming(380, 80, 600, 600, 1100, 1060, 280, 440, 80, 900)
             PlayerTransitionStyle.Defocus -> HandoffTiming(160, 80, 320, 380, 1240, 1180, 280, 900, 80, 700)
+            // Never launched; were it, the window would simply be there on its first frame.
+            PlayerTransitionStyle.None -> HandoffTiming(0, 0, 0, EXPECTED_FIRST_FRAME_MS, 0, 0, 0, 0, 0, 0)
         }
 
 internal const val EXPECTED_FIRST_FRAME_MS = 140

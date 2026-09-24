@@ -22,20 +22,41 @@ internal data class PlayerArtworkOrigin(
     /** [bounds] on the display, the frame the player window can map from. */
     val boundsOnScreen: Rect
         get() = bounds.translate(screen.windowOffset)
+
+    /** How much of the artwork its window shows, in square pixels. */
+    fun visibleArea(): Float {
+        val shown = bounds.intersect(viewport)
+        return if (shown.width > 0f && shown.height > 0f) shown.width * shown.height else 0f
+    }
 }
 
-/** Geometry/URLs only. Never retains Activities, Views, bitmaps, or layout coordinates. */
+/**
+ * Geometry and URLs, plus — only for as long as an artwork is composed — the way to ask its window
+ * about the display. A tap and a launch keep nothing but geometry and URLs: never an Activity, a
+ * View, a bitmap or layout coordinates.
+ */
 internal object PlayerArtworkOrigins {
-    private val sources = linkedMapOf<Any, PlayerArtworkOrigin>()
+    private class Entry(
+        val origin: PlayerArtworkOrigin,
+        val screen: ScreenGeometrySource?,
+    )
+
+    private val sources = linkedMapOf<Any, Entry>()
     private var pending: Pair<PlayerArtworkOrigin, TimeMark>? = null
     private var sequence = 0L
     private val launches = linkedMapOf<Long, Pair<HandoffLaunch, TimeMark>>()
 
+    /**
+     * [origin] as laid out in its window. [screen] is asked about the display only when a tap
+     * starts a launch from it: the artwork is laid out again on every frame a list or the reel
+     * moves, and each of those questions is a round trip to the system.
+     */
     fun register(
         owner: Any,
         origin: PlayerArtworkOrigin,
+        screen: ScreenGeometrySource? = null,
     ) {
-        sources[owner] = origin
+        sources[owner] = Entry(origin, screen)
         while (sources.size > 96) sources.remove(sources.keys.first())
     }
 
@@ -43,7 +64,20 @@ internal object PlayerArtworkOrigins {
         sources.remove(owner)
     }
 
-    fun resolve(key: MediaSharedElementKey): PlayerArtworkOrigin? = sources.values.lastOrNull { it.key == key }
+    /** Where the artwork for [key] is now, on the display as it is now. */
+    fun resolve(key: MediaSharedElementKey): PlayerArtworkOrigin? =
+        entryFor(key)?.let { entry -> entry.screen?.let { entry.origin.copy(screen = it.current()) } ?: entry.origin }
+
+    /**
+     * A hero and a poster further down the page can carry the same title's key, and the play key
+     * belongs to the hero: of the artworks registered for [key], the one showing the most of
+     * itself — the most recent, between equals.
+     */
+    private fun entryFor(key: MediaSharedElementKey): Entry? =
+        sources.values
+            .filter { it.origin.key == key }
+            .asReversed()
+            .maxByOrNull { it.origin.visibleArea() }
 
     fun begin(key: MediaSharedElementKey?) {
         pending = key?.let(::resolve)?.let { it to TimeSource.Monotonic.markNow() }
@@ -54,11 +88,13 @@ internal object PlayerArtworkOrigins {
      * starts the page's half of [style] at this moment — the one at which the player is really on
      * its way, rather than at the tap, which may still end in a version picker or an error.
      *
-     * No token when nothing is pending, the tap is stale, or the artwork has scrolled mostly off
-     * the screen: the player then opens with the plain window fade.
+     * No token when nothing is pending, the tap is stale, the artwork has scrolled mostly off
+     * the screen, or [style] is [PlayerTransitionStyle.None]: the player then opens with the plain
+     * window fade.
      */
     fun issueLaunch(style: PlayerTransitionStyle): Long? {
         val candidate = pending.also { pending = null } ?: return null
+        if (!style.choreographed) return null
         if (candidate.second.elapsedNow().inWholeMilliseconds > 5000L) return null
         val origin = candidate.first
         val hero = origin.boundsOnScreen
@@ -89,6 +125,11 @@ internal object PlayerArtworkOrigins {
 /** Below this share of the artwork on screen there is nothing recognisable left to carry. */
 private const val MIN_VISIBLE_SHARE = 0.4f
 
+/**
+ * Offers this artwork as the start of a player transition. Put it only where a launch can start
+ * — a hero with its play key — since every registration is laid out again each frame it moves.
+ * The layout callback records window bounds and nothing else; the display is asked once, at the tap.
+ */
 @Composable
 internal fun Modifier.playerArtworkSource(
     key: MediaSharedElementKey?,
@@ -97,20 +138,19 @@ internal fun Modifier.playerArtworkSource(
     val owner = remember { Any() }
     val enabled = key != null && LocalRouteVisible.current && !LocalAccessibilityOptions.current.reduceMotion
     val screen = rememberScreenGeometrySource()
+    val candidates = remember(urls) { urls.filterNotNull().filter(String::isNotBlank) }
     DisposableEffect(owner, enabled) { onDispose { PlayerArtworkOrigins.remove(owner) } }
     return onGloballyPositioned { coordinates ->
         if (enabled && key != null) {
             val bounds = coordinates.boundsInWindow()
             val viewport = coordinates.findRootCoordinates().boundsInWindow()
-            val candidates = urls.filterNotNull().filter(String::isNotBlank)
             if (bounds.width > 0f &&
                 bounds.height > 0f &&
                 viewport.width > 0f &&
                 viewport.height > 0f &&
                 candidates.isNotEmpty()
             ) {
-                val origin = PlayerArtworkOrigin(key, bounds, viewport, candidates, screen.current())
-                PlayerArtworkOrigins.register(owner, origin)
+                PlayerArtworkOrigins.register(owner, PlayerArtworkOrigin(key, bounds, viewport, candidates), screen)
             } else {
                 PlayerArtworkOrigins.remove(owner)
             }

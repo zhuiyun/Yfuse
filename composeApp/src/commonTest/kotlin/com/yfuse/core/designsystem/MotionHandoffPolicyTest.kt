@@ -1,6 +1,8 @@
 package com.yfuse.core.designsystem
 
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -35,6 +37,66 @@ class MotionHandoffPolicyTest {
             PlayerHandoff.settle()
         }
         assertNull(PlayerArtworkOrigins.resolve(key))
+    }
+
+    @Test fun the_plain_fade_never_holds_the_page_and_spends_the_tap() {
+        val owner = Any()
+        val key = MediaSharedElementKey("test", "plain")
+        val origin = PlayerArtworkOrigin(key, Rect(0f, 0f, 100f, 100f), Rect(0f, 0f, 100f, 200f), listOf("test://hero"))
+        try {
+            PlayerArtworkOrigins.register(owner, origin)
+            PlayerArtworkOrigins.begin(key)
+            assertNull(PlayerArtworkOrigins.issueLaunch(PlayerTransitionStyle.None))
+            assertEquals(HandoffPhase.Idle, PlayerHandoff.phase)
+            assertNull(PlayerArtworkOrigins.issueLaunch(PlayerTransitionStyle.Turn))
+        } finally {
+            PlayerArtworkOrigins.remove(owner)
+            PlayerHandoff.settle()
+        }
+    }
+
+    @Test fun the_display_is_asked_at_the_tap_not_on_every_layout() {
+        val owner = Any()
+        val key = MediaSharedElementKey("test", "asked")
+        val display = ScreenGeometry(0, Size(1080f, 2400f), windowOffset = Offset(0f, 40f))
+        var asked = 0
+        val source =
+            ScreenGeometrySource {
+                asked++
+                display
+            }
+        val viewport = Rect(0f, 0f, 1080f, 2360f)
+        try {
+            repeat(3) {
+                val origin = PlayerArtworkOrigin(key, Rect(0f, 0f, 1080f, 1150f), viewport, listOf("test://hero"))
+                PlayerArtworkOrigins.register(owner, origin, source)
+            }
+            assertEquals(0, asked)
+            val resolved = requireNotNull(PlayerArtworkOrigins.resolve(key))
+            assertEquals(1, asked)
+            assertEquals(display, resolved.screen)
+            assertEquals(Rect(0f, 40f, 1080f, 1190f), resolved.boundsOnScreen)
+        } finally {
+            PlayerArtworkOrigins.remove(owner)
+        }
+    }
+
+    @Test fun a_launch_flies_from_the_hero_rather_than_a_poster_with_its_key() {
+        val hero = Any()
+        val poster = Any()
+        val key = MediaSharedElementKey("test", "shared")
+        val viewport = Rect(0f, 0f, 1080f, 2400f)
+        val heroOrigin = PlayerArtworkOrigin(key, Rect(0f, 0f, 1080f, 1150f), viewport, listOf("test://hero"))
+        val posterOrigin = PlayerArtworkOrigin(key, Rect(40f, 1900f, 340f, 2350f), viewport, listOf("test://poster"))
+        try {
+            // Laid out after the hero, which is what used to make it the one a launch flew from.
+            PlayerArtworkOrigins.register(hero, heroOrigin)
+            PlayerArtworkOrigins.register(poster, posterOrigin)
+            assertEquals(heroOrigin, PlayerArtworkOrigins.resolve(key))
+        } finally {
+            PlayerArtworkOrigins.remove(hero)
+            PlayerArtworkOrigins.remove(poster)
+        }
     }
 
     @Test fun artwork_mostly_off_screen_starts_no_transition() {

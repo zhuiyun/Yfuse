@@ -1,7 +1,6 @@
 package com.yfuse.feature.player
 
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
@@ -66,8 +65,8 @@ internal fun PlayerPreparationContent(
             contentKey = { it.preparationStage() },
             transitionSpec = {
                 val duration = if (reduceMotion) 0 else Motion.STATE_HANDOFF
-                fadeIn(tween(duration, easing = Motion.Curve)) togetherWith
-                    fadeOut(tween(duration, easing = Motion.Curve))
+                fadeIn(Motion.tween(duration)) togetherWith fadeOut(Motion.tween(duration)) using
+                    Motion.sizeTransform(reduceMotion)
             },
             contentAlignment = Alignment.Center,
             modifier = Modifier.align(Alignment.Center),

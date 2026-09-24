@@ -72,6 +72,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
@@ -100,8 +102,11 @@ import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.lightFeedback
 import com.yfuse.core.designsystem.lightOnAppear
 import com.yfuse.core.designsystem.lightOnChange
+import com.yfuse.core.designsystem.liveStatus
+import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberAnimatedArtworkAccent
 import com.yfuse.core.designsystem.rememberLightFeedback
+import com.yfuse.core.designsystem.touchTarget
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.abs
@@ -300,6 +305,8 @@ internal fun RefinedBottomBar(
     onNext: () -> Unit,
     onSeek: (Long) -> Unit,
     onScrub: () -> Unit,
+    /** The finger has left the rail, whether the drag was committed or cancelled. */
+    onScrubEnd: () -> Unit = {},
     trickplay: TrickplayStoryboard?,
     progressMarkers: List<PlaybackProgressMarker>,
     hasEpisodes: Boolean,
@@ -338,6 +345,7 @@ internal fun RefinedBottomBar(
         onNext = onNext,
         onSeek = onSeek,
         onScrub = onScrub,
+        onScrubEnd = onScrubEnd,
         trickplay = trickplay,
         progressMarkers = progressMarkers,
         hasEpisodes = hasEpisodes,
@@ -370,6 +378,7 @@ private fun RefinedBottomBarContent(
     onNext: () -> Unit,
     onSeek: (Long) -> Unit,
     onScrub: () -> Unit,
+    onScrubEnd: () -> Unit,
     trickplay: TrickplayStoryboard?,
     progressMarkers: List<PlaybackProgressMarker>,
     hasEpisodes: Boolean,
@@ -562,6 +571,7 @@ private fun RefinedBottomBarContent(
                         scrubbed.value = it
                         pendingSeek = it
                         onSeek(scrubPositionMs(it, timeline.value.durationMs))
+                        onScrubEnd()
                     },
                     onCancel = {
                         // Handed to the release animation in the same breath, so the thumb never
@@ -569,6 +579,7 @@ private fun RefinedBottomBarContent(
                         releasing.value = scrubbed.value
                         cancelledFrom = scrubbed.value
                         scrubbed.value = null
+                        onScrubEnd()
                     },
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -668,6 +679,8 @@ private fun RefinedBottomBarContent(
 @Composable
 internal fun CompactAutoSkipPill(
     label: String,
+    /** The countdown's meaning without its seconds — said once, as the pill arrives. */
+    announcement: String,
     onCancel: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -678,7 +691,12 @@ internal fun CompactAutoSkipPill(
                 shape = AppShapes.pill,
                 fill = Color.Black.copy(alpha = 0.58f),
                 border = Color.White.copy(alpha = 0.22f),
-            ).noRippleClickable(onCancel)
+            ).pressable(onClickLabel = "取消自动跳过", onClick = onCancel)
+            .touchTarget()
+            // Live, but with the ticking label left out of the spoken tree: every second would
+            // otherwise be read out. The live region goes before the clear, which would drop it.
+            .liveStatus()
+            .clearAndSetSemantics { contentDescription = announcement }
             .padding(horizontal = 10.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -792,9 +810,16 @@ private fun RefinedSpeedControl(
     onClick: () -> Unit,
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
-    val label = if (speed % 1f == 0f) "${speed.toInt()}×" else "$speed×"
+    val figure = if (speed % 1f == 0f) "${speed.toInt()}" else "$speed"
+    val label = "$figure×"
     Box(
-        Modifier.noRippleClickable(onClick).size(40.dp),
+        Modifier
+            // Named for what it sets, with the rate as its state: read out, 「1.25×」 alone was a
+            // number with nothing to say what it was the rate of.
+            .pressable(label = "播放速度", onClick = onClick)
+            .touchTarget()
+            .semantics { stateDescription = "$figure 倍" }
+            .size(40.dp),
         contentAlignment = Alignment.Center,
     ) {
         Box(
@@ -814,6 +839,7 @@ private fun RefinedSpeedControl(
                     style = AppTypography.caption.strong,
                     color = Color.White,
                     maxLines = 1,
+                    modifier = Modifier.clearAndSetSemantics {},
                 )
             }
         }

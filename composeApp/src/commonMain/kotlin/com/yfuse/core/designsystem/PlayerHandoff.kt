@@ -168,7 +168,8 @@ private const val KEY_MEMORY_MS = 4_000L
  * Marks a play key, so a transition can start from the key the user actually pressed.
  *
  * Only observes: the press is read on the initial pass and never consumed, so the key's own
- * `pressable` still gets the click.
+ * `pressable` still gets the click. Layout records the key's window bounds and nothing else; where
+ * the window sits on the glass is read at the press, not on every frame the page scrolls the key.
  */
 @Composable
 internal fun Modifier.playerHandoffKey(
@@ -181,11 +182,14 @@ internal fun Modifier.playerHandoffKey(
     val cornerPx = with(LocalDensity.current) { corner.toPx() }
     val bounds = remember { arrayOfNulls<Rect>(1) }
     return this
-        .onGloballyPositioned { bounds[0] = it.boundsInWindow().translate(screen.current().windowOffset) }
-        .pointerInput(cornerPx, tint, ink, glass) {
+        .onGloballyPositioned { bounds[0] = it.boundsInWindow() }
+        .pointerInput(cornerPx, tint, ink, glass, screen) {
             awaitEachGesture {
                 awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-                bounds[0]?.let { PlayerHandoff.keyPressed(HandoffKey(it, cornerPx, tint, ink, glass)) }
+                bounds[0]?.let { inWindow ->
+                    val onScreen = inWindow.translate(screen.current().windowOffset)
+                    PlayerHandoff.keyPressed(HandoffKey(onScreen, cornerPx, tint, ink, glass))
+                }
             }
         }
 }
