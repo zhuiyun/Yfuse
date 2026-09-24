@@ -1,11 +1,38 @@
 package com.yfuse.feature.player
 
 import androidx.compose.ui.unit.IntSize
+import com.yfuse.core2.subtitle.YSubtitleCue
 import com.yfuse.core2.subtitle.YSubtitlePayload
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class Core2SurfaceTest {
+    @Test
+    fun the_cues_on_screen_next_change_at_the_soonest_start_or_end() {
+        val first = cue("a", startUs = 1_000L, endUs = 5_000L)
+        val second = cue("b", startUs = 3_000L, endUs = 4_000L)
+        val third = cue("c", startUs = 8_000L, endUs = 9_000L)
+        val ordered = listOf(first, second, third)
+        // Before anything: the first start.
+        assertEquals(1_000L, nextSubtitleChangeUs(ordered, emptyList(), 0L))
+        // Inside the first cue: the second one starting.
+        assertEquals(3_000L, nextSubtitleChangeUs(ordered, listOf(first), 2_000L))
+        // Both on screen: the shorter one ending.
+        assertEquals(4_000L, nextSubtitleChangeUs(ordered, listOf(first, second), 3_500L))
+        // A gap: the next start, not the ends already passed.
+        assertEquals(8_000L, nextSubtitleChangeUs(ordered, emptyList(), 6_000L))
+        // Past the last cue nothing changes again.
+        assertEquals(Long.MAX_VALUE, nextSubtitleChangeUs(ordered, emptyList(), 9_500L))
+        // A clock still before zero changes at zero at the latest.
+        assertEquals(0L, nextSubtitleChangeUs(ordered, emptyList(), -2_000L))
+    }
+
+    private fun cue(
+        id: String,
+        startUs: Long,
+        endUs: Long,
+    ) = YSubtitleCue(id, startUs, endUs, YSubtitlePayload.Text(plainText = id, sourceMarkup = id))
+
     @Test
     fun dual_subtitles_use_the_bottom_even_when_authored_at_the_top() {
         assertEquals(2, core2SubtitleAlignment(authored = 8, secondary = false, dual = true))
