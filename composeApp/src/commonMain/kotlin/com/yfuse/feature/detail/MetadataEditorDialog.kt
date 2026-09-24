@@ -30,9 +30,10 @@ import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.OverlayActionRow
 import com.yfuse.core.designsystem.OverlayHeader
-import com.yfuse.core.designsystem.OverlayOptionRow
 import com.yfuse.core.designsystem.flatGlass
+import com.yfuse.core.designsystem.overlayDismiss
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.model.MediaServerKind
 import com.yfuse.core.model.SavedServer
@@ -88,7 +89,9 @@ internal fun MetadataEditorDialog(
             draft = loaded.draft
         }
     }
-    GlassDialog(onDismiss = { if (!busy) onDismiss() }) {
+    // Edited text is not something a fast flick should be able to throw away.
+    val editing = original?.let { draft != it.draft } == true
+    GlassDialog(onDismiss = onDismiss, dismissEnabled = !busy, dragToDismiss = !editing) {
         OverlayHeader("编辑元数据", "修改将保存到 ${server.serverName}，需要服务器编辑权限")
         if (original != null) {
             MetadataField("标题", draft.title, 500, true, busy) { draft = draft.copy(title = it) }
@@ -96,7 +99,7 @@ internal fun MetadataEditorDialog(
             if (server.kind != MediaServerKind.Plex) {
                 MetadataField("TMDB ID", draft.tmdbId, 20, true, busy) { draft = draft.copy(tmdbId = it) }
             }
-            OverlayOptionRow(if (busy) "处理中…" else "保存文字信息", false, {
+            OverlayActionRow(if (busy) "处理中…" else "保存文字信息", {
                 val before = original
                 if (!busy && before != null) {
                     scope.launch {
@@ -111,7 +114,7 @@ internal fun MetadataEditorDialog(
                 }
             })
             listOf("Primary" to "选择海报", "Backdrop" to "选择背景图").forEach { (type, title) ->
-                OverlayOptionRow(title, false, {
+                OverlayActionRow(title, {
                     if (!busy) {
                         scope.launch {
                             operation {
@@ -166,7 +169,7 @@ internal fun MetadataEditorDialog(
                     }
                 }
                 selected?.let { artwork ->
-                    OverlayOptionRow("应用所选图片", false, {
+                    OverlayActionRow("应用所选图片", {
                         if (!busy) {
                             scope.launch {
                                 operation {
@@ -181,12 +184,12 @@ internal fun MetadataEditorDialog(
                 }
             }
         } else if (!busy) {
-            OverlayOptionRow("重新读取", false, { reload += 1 })
+            OverlayActionRow("重新读取", { reload += 1 })
         }
         if (busy) Text("正在与服务器通信…", style = AppTypography.caption.regular, color = palette.sub)
         error?.let { Text(it, style = AppTypography.caption.regular, color = palette.error) }
         notice?.let { Text(it, style = AppTypography.caption.regular, color = palette.text) }
-        OverlayOptionRow("关闭", false, { if (!busy) onDismiss() })
+        OverlayActionRow("关闭", overlayDismiss(onDismiss))
     }
 }
 

@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -27,7 +28,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.onSizeChanged
@@ -43,14 +43,14 @@ import com.yfuse.core.designsystem.ActionToast
 import com.yfuse.core.designsystem.AnimatedColorContent
 import com.yfuse.core.designsystem.ArtworkAccent
 import com.yfuse.core.designsystem.ArtworkPageTheme
+import com.yfuse.core.designsystem.DialogPresence
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.HeroPageFade
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.MediaSharedElementKey
-import com.yfuse.core.designsystem.OrbProgress
-import com.yfuse.core.designsystem.OrbProgressDefaults
+import com.yfuse.core.designsystem.OverlayPage
 import com.yfuse.core.designsystem.SkeletonHandoff
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.WindowWidthTier
@@ -204,8 +204,13 @@ fun DetailScreen(component: DetailComponent) {
         )
     val detailAccent = detailAccentState.target
     var seasonPickerOpen by remember { mutableStateOf(false) }
-    // Where the season title sits, in root coordinates; the floating season list opens from it.
-    var seasonPickerAnchor by remember { mutableStateOf<Rect?>(null) }
+    // Where the season title sits; the floating season list opens from it.
+    val seasonPickerAnchor = remember { SeasonPickerAnchor() }
+    // The season whose episodes the rail is showing. It trails the selection while a newly picked
+    // season loads: the header already names that season, the cards are still the last one's.
+    val listedSeason = remember { arrayOf(state.selectedSeasonId) }
+    val listedSeasonId = if (state.episodesLoading) listedSeason[0] else state.selectedSeasonId
+    SideEffect { listedSeason[0] = listedSeasonId }
     var overviewExpanded by remember { mutableStateOf(false) }
     // Hoisted out of the list: the hero badges what this copy is, and 媒体信息 at the foot
     // of the page spells the same file out — one answer to "which file", read twice.
@@ -638,9 +643,11 @@ fun DetailScreen(component: DetailComponent) {
                                                         ?: "剧集",
                                                 availableEpisodeCount = state.episodes.size,
                                                 seasonCount = state.seasons.size,
+                                                seasonLoading = listedSeasonId != state.selectedSeasonId,
+                                                listedSeasonId = listedSeasonId,
                                                 pickerOpen = seasonPickerOpen,
                                                 onTogglePicker = { seasonPickerOpen = !seasonPickerOpen },
-                                                onPickerAnchor = { seasonPickerAnchor = it },
+                                                onPickerAnchor = { seasonPickerAnchor.bounds = it },
                                                 onManageProgress = {
                                                     component.store.accept(DetailIntent.OpenProgressManager)
                                                 },
@@ -792,6 +799,9 @@ fun DetailScreen(component: DetailComponent) {
                         showPlay = detail != null,
                         showMore = detail != null,
                         solid = barSolid,
+                        // 播放 waits on whichever key was pressed — the dock's, or this one once the
+                        // dock has scrolled away — and on no second orb over the page.
+                        resolving = state.resolvingPlay,
                         onBack = component.onBack,
                         onPlay = playerArtworkOnClick(sharedHeroKey) { component.store.accept(DetailIntent.Play) },
                         onMore = { moreSheetOpen = true },
@@ -803,7 +813,7 @@ fun DetailScreen(component: DetailComponent) {
                 AnimatedColorContent(detailAccentState) { detailAccent ->
                     SeasonPickerOverlay(
                         open = seasonPickerOpen && state.seasons.size > 1,
-                        anchor = seasonPickerAnchor,
+                        anchor = seasonPickerAnchor.bounds,
                         backdrop = detailBackdrop,
                         accent = detailAccent,
                         seasons = state.seasons.map { it.id to it.name },
@@ -814,10 +824,6 @@ fun DetailScreen(component: DetailComponent) {
                         },
                         onDismiss = { seasonPickerOpen = false },
                     )
-                }
-
-                if (state.resolvingPlay) {
-                    OrbProgress(modifier = Modifier.align(Alignment.Center), size = OrbProgressDefaults.Page)
                 }
 
                 if (metadataEditorOpen && detail != null && state.server != null) {
@@ -1017,7 +1023,8 @@ fun DetailScreen(component: DetailComponent) {
                     )
                 }
 
-                if (sourceListOpen) {
+                // Held through its exit: 再点已选项 closes the list here while playback starts.
+                DialogPresence(Unit.takeIf { sourceListOpen }) {
                     AnimatedColorContent(detailAccentState) { detailAccent ->
                         SourceListDialog(
                             sources = comparableSources,
@@ -1038,15 +1045,19 @@ fun DetailScreen(component: DetailComponent) {
                 }
 
                 // A layer rather than a route: it covers the page that owns this season and its
-                // artwork, and the detail store has already loaded the episodes it lists.
-                if (allEpisodesOpen && detail != null) {
+                // artwork, and the detail store has already loaded the episodes it lists. It
+                // arrives and leaves like a pushed route all the same.
+                OverlayPage(
+                    value = detail?.takeIf { allEpisodesOpen },
+                    onBack = { allEpisodesOpen = false },
+                ) { shown ->
                     SeasonEpisodesPage(
                         seasonLabel =
                             state.seasons
                                 .firstOrNull { it.id == state.selectedSeasonId }
                                 ?.name
                                 ?: "剧集",
-                        seriesName = detail.seriesName?.ifBlank { null } ?: detail.title,
+                        seriesName = shown.seriesName?.ifBlank { null } ?: shown.title,
                         episodes = state.episodes,
                         heroUrls = heroUrls,
                         baseUrl = playBaseUrl,

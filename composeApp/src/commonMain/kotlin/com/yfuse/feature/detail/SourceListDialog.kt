@@ -27,7 +27,7 @@ import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.RecommendBadge
-import com.yfuse.core.designsystem.overlayAction
+import com.yfuse.core.designsystem.overlayActionBeforeExit
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.solidGlass
 import com.yfuse.core.model.ServerSource
@@ -44,6 +44,9 @@ import com.yfuse.core.designsystem.ThemeText as Text
  *
  * Centred, because that is where overlays live outside the player. It is a long list, so
  * it scrolls inside a bounded panel rather than growing past the screen.
+ *
+ * Hold it in a [com.yfuse.core.designsystem.DialogPresence]: picking the selected copy again
+ * starts playback and closes the list from its owner while the exit is still to play.
  */
 @Composable
 internal fun SourceListDialog(
@@ -88,7 +91,9 @@ internal fun SourceListDialog(
                     entry.itemId?.let { onSelect(entry.serverId, it) }
                     Unit
                 }
-                val animatedSelect = overlayAction(select)
+                // 再点已选项 plays. The player takes the screen anyway, so it starts now and the
+                // list leaves alongside rather than holding playback back for its exit.
+                val animatedSelect = overlayActionBeforeExit(select)
                 SourceRow(
                     entry = entry,
                     selected = selected,

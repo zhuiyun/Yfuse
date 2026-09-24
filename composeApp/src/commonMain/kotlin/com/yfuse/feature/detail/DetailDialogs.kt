@@ -21,11 +21,13 @@ import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OrbProgress
+import com.yfuse.core.designsystem.OverlayActionRow
 import com.yfuse.core.designsystem.OverlayButtonRow
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.OverlayOptionRow
 import com.yfuse.core.designsystem.OverlayOptionSpacing
 import com.yfuse.core.designsystem.motionItems
+import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.model.Episode
 import com.yfuse.core.model.MediaContainer
 import com.yfuse.core.model.MediaContainerKind
@@ -202,7 +204,8 @@ internal fun OfflineDownloadDialog(
             dismissLabel = "取消",
             confirmLabel = "加入下载",
             onDismiss = onDismiss,
-            onConfirm = { onConfirm(selection) },
+            // The owner closes this and starts the download in one step; the panel leaves first.
+            onConfirm = overlayAction { onConfirm(selection) },
             confirmEnabled =
                 (versions.isEmpty() || selectedVersion != null) &&
                     !(batchMode == OfflineBatchMode.Unwatched && batchCount == 0),
@@ -267,7 +270,7 @@ internal fun OrganizationContainerDialog(
                     color = palette.sub,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
                 )
-                OverlayOptionRow(label = "重试", selected = false, onClick = onRetry)
+                OverlayActionRow(label = "重试", onClick = onRetry)
             }
 
             containers.isEmpty() ->

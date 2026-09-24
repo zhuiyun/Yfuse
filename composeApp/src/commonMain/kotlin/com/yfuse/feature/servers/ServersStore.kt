@@ -81,6 +81,14 @@ data class LoginForm(
                 if (kind == MediaServerKind.Plex) password.isNotBlank() else username.isNotBlank()
 }
 
+/**
+ * Whether the form holds anything entered since it [opened] — typed, picked, or filled in from a
+ * discovered server — that closing it would throw away. [LoginForm.submitting] and
+ * [LoginForm.error] are the form's progress, not its content.
+ */
+internal fun LoginForm.hasInputSince(opened: LoginForm): Boolean =
+    copy(submitting = false, error = null) != opened.copy(submitting = false, error = null)
+
 internal data class ParsedServerAddress(
     val https: Boolean?,
     val host: String,

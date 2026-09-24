@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.DialogAnimation
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OrbProgress
@@ -77,6 +78,8 @@ internal fun EpisodeProgressManager(
             maxWidth = 680.dp,
             windowPadding = PaddingValues(horizontal = if (compact) 8.dp else 26.dp, vertical = 12.dp),
             modifier = Modifier.fillMaxHeight(if (compact) 0.88f else 0.82f),
+            // On a phone it is a sheet on the bottom edge, and rises from it whatever the chosen 弹窗动画.
+            animation = if (compact) DialogAnimation.Slide else null,
         ) {
             Column(Modifier.fillMaxSize()) {
                 ProgressManagerHeader(

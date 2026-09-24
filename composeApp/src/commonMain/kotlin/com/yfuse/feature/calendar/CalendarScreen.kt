@@ -168,11 +168,7 @@ fun CalendarScreen(component: CalendarComponent) {
     StatusBarIconStyle(darkIcons = !palette.isDark)
 
     Box(Modifier.fillMaxSize()) {
-        Column(
-            Modifier.fillMaxSize().statusBarsPadding().contentHandoff(
-                state.section to contentPhase(state.loading, days.isNotEmpty(), state.error != null),
-            ),
-        ) {
+        Column(Modifier.fillMaxSize().statusBarsPadding()) {
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -267,93 +263,102 @@ fun CalendarScreen(component: CalendarComponent) {
                 Spacer(Modifier.height(10.dp))
             }
 
-            if (state.section == CalendarSection.Schedule) {
-                CalendarWeekHeader(
-                    days = state.days,
-                    today = state.today,
-                    filter = state.filter,
-                    filtersExpanded = filtersExpanded,
-                    error = state.error,
-                    hasConfirmedData = state.confirmedDays.isNotEmpty(),
-                    onToggleFilters = { filtersExpanded = !filtersExpanded },
-                    onRetry = { component.store.accept(CalendarIntent.Refresh) },
-                )
-                val filterProgress = rememberDisclosureProgress(filtersExpanded)
-                DisclosureContent(filtersExpanded, filterProgress) {
-                    LazyRow(
-                        modifier = Modifier.selectableGroup(),
-                        contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+            // Only what the section shows hands over, keyed by the section. The back key, 刷新 and
+            // the section bar used to fade in with it: the handoff covered the whole page.
+            Column(Modifier.fillMaxSize().contentHandoff(state.section)) {
+                if (state.section == CalendarSection.Schedule) {
+                    CalendarWeekHeader(
+                        days = state.days,
+                        today = state.today,
+                        filter = state.filter,
+                        filtersExpanded = filtersExpanded,
+                        error = state.error,
+                        hasConfirmedData = state.confirmedDays.isNotEmpty(),
+                        onToggleFilters = { filtersExpanded = !filtersExpanded },
+                        onRetry = { component.store.accept(CalendarIntent.Refresh) },
+                    )
+                    val filterProgress = rememberDisclosureProgress(filtersExpanded)
+                    DisclosureContent(filtersExpanded, filterProgress) {
+                        LazyRow(
+                            modifier = Modifier.selectableGroup(),
+                            contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            motionItems(CalendarFilter.entries) { filter ->
+                                val active = filter == state.filter
+                                YfChip(
+                                    label = filter.label,
+                                    selected = active,
+                                    onClick = {
+                                        component.store.accept(CalendarIntent.SelectFilter(filter))
+                                        filtersExpanded = false
+                                    },
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                    }
+
+                    SkeletonHandoff(
+                        loading = state.loading && days.isEmpty(),
+                        // Within the schedule only the results hand over as it loads, empties or
+                        // fails; the week header and its filters stay where they are.
+                        modifier =
+                            Modifier
+                                .fillMaxSize()
+                                .contentHandoff(contentPhase(state.loading, days.isNotEmpty(), state.error != null)),
+                        skeleton = { CalendarLoadingContent() },
                     ) {
-                        motionItems(CalendarFilter.entries) { filter ->
-                            val active = filter == state.filter
-                            YfChip(
-                                label = filter.label,
-                                selected = active,
-                                onClick = {
-                                    component.store.accept(CalendarIntent.SelectFilter(filter))
-                                    filtersExpanded = false
-                                },
-                            )
+                        when {
+                            state.error != null && days.isEmpty() ->
+                                ErrorState(
+                                    message = state.error!!,
+                                    onRetry = { component.store.accept(CalendarIntent.Refresh) },
+                                    modifier = Modifier.align(Alignment.Center),
+                                )
+
+                            state.filteredToNothing ->
+                                PageHint(
+                                    "这段时间「${state.filter.label}」没有更新",
+                                    Modifier.align(Alignment.Center),
+                                    actionLabel = "查看全部",
+                                    onAction = {
+                                        component.store.accept(CalendarIntent.SelectFilter(CalendarFilter.All))
+                                    },
+                                )
+
+                            days.isEmpty() ->
+                                PageHint(
+                                    "这段时间没有查到在播剧集",
+                                    Modifier.align(Alignment.Center),
+                                    actionLabel = "刷新",
+                                    onAction = { component.store.accept(CalendarIntent.Refresh) },
+                                )
+
+                            else ->
+                                AdaptiveCalendarResults(
+                                    days = days,
+                                    today = state.today,
+                                    filter = state.filter,
+                                    weeklyStats = weeklyStats,
+                                    reduceMotion = reduceMotion,
+                                    bottomContentInset = bottomContentInset,
+                                    onOpen = { entry -> dialogEntry = entry },
+                                )
                         }
                     }
-                    Spacer(Modifier.height(8.dp))
+                } else {
+                    CalendarAuxiliaryPane(
+                        state = state,
+                        followedSeries = followedSeries,
+                        component = component,
+                        bottomContentInset = bottomContentInset,
+                        onExportCalendar = { share.shareCalendar(component.exportCalendar(state.days)) },
+                        onExportDiagnostics = {
+                            share.shareText(component.diagnosticReport(state.days))
+                        },
+                    )
                 }
-
-                SkeletonHandoff(
-                    loading = state.loading && days.isEmpty(),
-                    modifier = Modifier.fillMaxSize(),
-                    skeleton = { CalendarLoadingContent() },
-                ) {
-                    when {
-                        state.error != null && days.isEmpty() ->
-                            ErrorState(
-                                message = state.error!!,
-                                onRetry = { component.store.accept(CalendarIntent.Refresh) },
-                                modifier = Modifier.align(Alignment.Center),
-                            )
-
-                        state.filteredToNothing ->
-                            PageHint(
-                                "这段时间「${state.filter.label}」没有更新",
-                                Modifier.align(Alignment.Center),
-                                actionLabel = "查看全部",
-                                onAction = {
-                                    component.store.accept(CalendarIntent.SelectFilter(CalendarFilter.All))
-                                },
-                            )
-
-                        days.isEmpty() ->
-                            PageHint(
-                                "这段时间没有查到在播剧集",
-                                Modifier.align(Alignment.Center),
-                                actionLabel = "刷新",
-                                onAction = { component.store.accept(CalendarIntent.Refresh) },
-                            )
-
-                        else ->
-                            AdaptiveCalendarResults(
-                                days = days,
-                                today = state.today,
-                                filter = state.filter,
-                                weeklyStats = weeklyStats,
-                                reduceMotion = reduceMotion,
-                                bottomContentInset = bottomContentInset,
-                                onOpen = { entry -> dialogEntry = entry },
-                            )
-                    }
-                }
-            } else {
-                CalendarAuxiliaryPane(
-                    state = state,
-                    followedSeries = followedSeries,
-                    component = component,
-                    bottomContentInset = bottomContentInset,
-                    onExportCalendar = { share.shareCalendar(component.exportCalendar(state.days)) },
-                    onExportDiagnostics = {
-                        share.shareText(component.diagnosticReport(state.days))
-                    },
-                )
             }
         }
         dialogEntry?.let { entry ->
@@ -1253,9 +1258,12 @@ private fun CalendarTrackingPane(
         }
 
     if (followedSeries.isEmpty()) {
+        // Every show in 日历 opens a sheet with 加入追剧, so that is the way out of an empty list.
         PageHint(
-            "还没有加入追剧的剧集，可在剧集详情的更多操作中添加",
+            "还没有加入追剧的剧集，可在日历或剧集详情的更多操作中添加",
             Modifier.fillMaxWidth().padding(top = 40.dp),
+            actionLabel = "查看日历",
+            onAction = { component.store.accept(CalendarIntent.SelectSection(CalendarSection.Schedule)) },
         )
         return
     }
@@ -1585,7 +1593,13 @@ private fun CalendarResourcesPane(
         }
 
     if (summaries.isEmpty()) {
-        PageHint("暂无可汇总的追剧资源", Modifier.fillMaxWidth().padding(top = 40.dp))
+        // The summary is built from the schedule, so reading it again is what can fill this.
+        PageHint(
+            "暂无可汇总的追剧资源",
+            Modifier.fillMaxWidth().padding(top = 40.dp),
+            actionLabel = "刷新",
+            onAction = { component.store.accept(CalendarIntent.Refresh) },
+        )
         return
     }
 

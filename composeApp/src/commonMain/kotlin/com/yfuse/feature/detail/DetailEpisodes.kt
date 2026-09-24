@@ -28,6 +28,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -48,6 +49,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppIcons
@@ -64,12 +66,17 @@ import com.yfuse.core.designsystem.PlatformBackHandler
 import com.yfuse.core.designsystem.Poster
 import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.backdropBlur
+import com.yfuse.core.designsystem.contentHandoff
+import com.yfuse.core.designsystem.disclosureRotation
 import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.motionItemsIndexed
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.rememberDisclosureProgress
 import com.yfuse.core.designsystem.selectionColor
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.solidGlass
+import com.yfuse.core.designsystem.touchTarget
+import com.yfuse.core.designsystem.waitingPulse
 import com.yfuse.core.model.Episode
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.designsystem.ThemeIcon as Icon
@@ -84,6 +91,9 @@ private val SeasonPickerGap = 10.dp
 
 /** Scale the season list grows from; the rest of the way is the settle spring. */
 private const val SEASON_PICKER_SCALE_FROM = 0.88f
+
+/** The last season's episodes while the one just picked loads: still there, plainly not current. */
+private const val STALE_EPISODES_ALPHA = 0.6f
 
 /**
  * Season header. The season title itself is the picker's trigger — `第 1 季 ⌄` — and the list
@@ -103,6 +113,8 @@ private fun EpisodeHeader(
     availableEpisodeCount: Int,
     seasonCount: Int,
     pickerOpen: Boolean,
+    seasonLoading: Boolean,
+    staleAlpha: State<Float>,
     onTogglePicker: () -> Unit,
     onPickerAnchor: (Rect) -> Unit,
     onManageProgress: () -> Unit,
@@ -110,13 +122,7 @@ private fun EpisodeHeader(
     modifier: Modifier = Modifier,
 ) {
     val palette = LocalPalette.current
-    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
-    val rotation by
-        animateFloatAsState(
-            targetValue = if (pickerOpen) 180f else 0f,
-            animationSpec = Motion.settle(reduceMotion),
-            label = "seasonChevron",
-        )
+    val chevron = rememberDisclosureProgress(pickerOpen)
     Row(
         modifier.fillMaxWidth().padding(bottom = 10.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -130,8 +136,12 @@ private fun EpisodeHeader(
                         onClickLabel = "切换季数",
                         focusShape = AppShapes.chip,
                         onClick = onTogglePicker,
-                    ).semantics { this.selected = pickerOpen }
-                    .heightIn(min = 44.dp)
+                    ).semantics {
+                        this.selected = pickerOpen
+                        if (seasonLoading) stateDescription = "正在读取剧集"
+                    }.touchTarget()
+                    // The season just picked is named at once; this says its episodes are on the way.
+                    .waitingPulse(active = seasonLoading, shape = AppShapes.chip, color = accent)
                     .padding(end = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -147,21 +157,23 @@ private fun EpisodeHeader(
                     AppIcons.ChevronDown,
                     contentDescription = null,
                     tint = accent,
-                    modifier = Modifier.size(14.dp).graphicsLayer { rotationZ = rotation },
+                    modifier = Modifier.size(14.dp).disclosureRotation(chevron, degrees = 180f),
                 )
             }
         } else {
             Text(seasonLabel, style = AppTypography.section.strong, color = palette.text)
         }
+        // Both open the episodes on show, which are the last season's until the new ones land.
         Row(
+            Modifier.graphicsLayer { alpha = staleAlpha.value },
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             // This count comes from Emby, not the official production total.
             Row(
                 Modifier
-                    .pressable(onClick = onSeeAll)
-                    .heightIn(min = 44.dp),
+                    .pressable(enabled = !seasonLoading, onClick = onSeeAll)
+                    .touchTarget(),
                 horizontalArrangement = Arrangement.spacedBy(3.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -179,8 +191,8 @@ private fun EpisodeHeader(
             }
             Row(
                 Modifier
-                    .pressable(onClickLabel = "管理观看进度", onClick = onManageProgress)
-                    .heightIn(min = 44.dp)
+                    .pressable(enabled = !seasonLoading, onClickLabel = "管理观看进度", onClick = onManageProgress)
+                    .touchTarget()
                     .padding(horizontal = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -343,6 +355,15 @@ private class SeasonPickerPlacement {
     var above = false
 }
 
+/**
+ * Where the season title sits, in root coordinates. A plain field rather than snapshot state:
+ * the title reports itself on every layout pass while the page scrolls, and as state each report
+ * recomposed the page's overlay layer. Only the composition that opens the list reads it.
+ */
+internal class SeasonPickerAnchor {
+    var bounds: Rect? = null
+}
+
 @Composable
 private fun SeasonRow(
     name: String,
@@ -408,6 +429,10 @@ internal fun EpisodeSection(
     seasonLabel: String,
     availableEpisodeCount: Int,
     seasonCount: Int,
+    /** A newly picked season is on its way; [episodes] still belong to the last one. */
+    seasonLoading: Boolean,
+    /** The season [episodes] belong to. The rail hands over when it changes. */
+    listedSeasonId: String?,
     pickerOpen: Boolean,
     onTogglePicker: () -> Unit,
     onPickerAnchor: (Rect) -> Unit,
@@ -418,6 +443,19 @@ internal fun EpisodeSection(
     val listState = rememberLazyListState()
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val routeVisible = LocalRouteVisible.current
+    // Held back for the busy threshold, so a season answered from cache never dims at all.
+    val staleDelay = if (seasonLoading) Motion.BUSY_SHOW_AFTER else 0
+    val staleAlpha =
+        animateFloatAsState(
+            targetValue = if (seasonLoading) STALE_EPISODES_ALPHA else 1f,
+            animationSpec =
+                if (reduceMotion) {
+                    snap(delayMillis = staleDelay)
+                } else {
+                    Motion.tween(Motion.STANDARD, delayMillis = staleDelay)
+                },
+            label = "staleEpisodes",
+        )
     val focusedEpisodeIndex =
         remember(episodes, selectedEpisodeId) {
             episodeFocusIndex(episodes, selectedEpisodeId)
@@ -436,6 +474,8 @@ internal fun EpisodeSection(
             availableEpisodeCount = availableEpisodeCount,
             seasonCount = seasonCount,
             pickerOpen = pickerOpen,
+            seasonLoading = seasonLoading,
+            staleAlpha = staleAlpha,
             onTogglePicker = onTogglePicker,
             onPickerAnchor = onPickerAnchor,
             onManageProgress = onManageProgress,
@@ -467,6 +507,12 @@ internal fun EpisodeSection(
             }
             LazyRow(
                 state = listState,
+                // The last season's cards stay where they are, dimmed and inert, until the new
+                // season's land and take their place.
+                modifier =
+                    Modifier
+                        .contentHandoff(listedSeasonId.orEmpty())
+                        .graphicsLayer { alpha = staleAlpha.value },
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.Bottom,
                 contentPadding =
@@ -488,6 +534,7 @@ internal fun EpisodeSection(
                         seriesPosterUrl = seriesPosterUrl,
                         accent = accent,
                         selected = episode.id == selectedEpisodeId,
+                        enabled = !seasonLoading,
                         onPlay = { onPlayEpisode(episode) },
                     )
                 }
@@ -504,6 +551,7 @@ private fun EpisodeCard(
     seriesPosterUrl: String?,
     accent: Color,
     selected: Boolean,
+    enabled: Boolean,
     onPlay: () -> Unit,
 ) {
     val palette = LocalPalette.current
@@ -524,7 +572,7 @@ private fun EpisodeCard(
                 scaleX = selectedScale
                 scaleY = selectedScale
                 transformOrigin = TransformOrigin(0.5f, 1f)
-            }.pressable(onClick = onPlay)
+            }.pressable(enabled = enabled, onClick = onPlay)
             .solidGlass(
                 shape = AppShapes.card,
                 fill =
