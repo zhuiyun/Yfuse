@@ -21,7 +21,6 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.ClipOp
 import androidx.compose.ui.graphics.Color
@@ -52,6 +51,7 @@ import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.CURTAIN_GATE_EARLIEST
 import com.yfuse.core.designsystem.CURTAIN_GATE_LATEST
 import com.yfuse.core.designsystem.CURTAIN_GATE_OPEN
+import com.yfuse.core.designsystem.HandoffBlurs
 import com.yfuse.core.designsystem.HandoffBox
 import com.yfuse.core.designsystem.HandoffInOut
 import com.yfuse.core.designsystem.HandoffLaunch
@@ -473,6 +473,8 @@ private class PlayerScene(
     var screen: ScreenGeometry? = null
     lateinit var artLayer: GraphicsLayer
     lateinit var fieldLayer: GraphicsLayer
+    private val fieldBlurs = HandoffBlurs(TileMode.Clamp)
+    private val artBlurs = HandoffBlurs(TileMode.Decal)
 
     private val launch get() = state.launch
     private val style get() = state.style
@@ -1004,8 +1006,7 @@ private class PlayerScene(
         keepClear: HandoffBox?,
     ) {
         if (alpha <= 0f || painter == null) return
-        val blur = FIELD_BLUR_DP * density
-        fieldLayer.renderEffect = BlurEffect(blur, blur, TileMode.Clamp)
+        fieldLayer.renderEffect = fieldBlurs.of(FIELD_BLUR_DP * density)
         fieldLayer.alpha = alpha.coerceIn(0f, 1f)
         fieldLayer.record(IntSize(size.width.toInt(), size.height.toInt())) {
             drawArtwork(painter, box.scaled(FIELD_OVERSCAN), 1f, colorFilter = SATURATE_FIELD)
@@ -1036,7 +1037,7 @@ private class PlayerScene(
             drawArtwork(painter, box, alpha, zoom)
             return
         }
-        layer.renderEffect = BlurEffect(blur, blur, TileMode.Decal)
+        layer.renderEffect = artBlurs.of(blur)
         layer.alpha = alpha.coerceIn(0f, 1f)
         layer.record(IntSize(size.width.toInt(), size.height.toInt())) { drawArtwork(painter, box, 1f, zoom) }
         drawLayer(layer)
