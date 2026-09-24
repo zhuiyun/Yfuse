@@ -312,7 +312,9 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                             filtered =
                                 state.genre != null ||
                                     state.resolution != LibraryResolution.All,
+                            unplayedOnly = state.unplayedOnly,
                             onClearFilters = { component.store.accept(GridIntent.ClearFilters) },
+                            onShowPlayed = { component.store.accept(GridIntent.SetUnplayedOnly(false)) },
                             onBack = component.onBack,
                             modifier = Modifier.align(Alignment.Center),
                         )
@@ -741,13 +743,16 @@ private fun GridFooter(
 
 /**
  * An empty grid always offers the way out of itself: clearing a genre that matched
- * nothing, or leaving a collection the user has not filled yet.
+ * nothing, showing the watched titles 只看未看 hid, or leaving a collection the user has not
+ * filled yet.
  */
 @Composable
 private fun EmptyGridHint(
     title: String,
     filtered: Boolean,
+    unplayedOnly: Boolean,
     onClearFilters: () -> Unit,
+    onShowPlayed: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -757,6 +762,15 @@ private fun EmptyGridHint(
             modifier = modifier,
             actionLabel = "查看全部",
             onAction = onClearFilters,
+        )
+        return
+    }
+    if (unplayedOnly) {
+        PageHint(
+            "没有未看的内容",
+            modifier = modifier,
+            actionLabel = "显示全部",
+            onAction = onShowPlayed,
         )
         return
     }
@@ -775,6 +789,6 @@ private fun EmptyGridHint(
                 actionLabel = "去媒体库看看",
                 onAction = onBack,
             )
-        else -> PageHint("暂无内容", modifier = modifier)
+        else -> PageHint("暂无内容", modifier = modifier, actionLabel = "返回", onAction = onBack)
     }
 }

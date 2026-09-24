@@ -73,6 +73,7 @@ import com.yfuse.core.designsystem.MediaSharedElementKey
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.OfficialNavDisplay
 import com.yfuse.core.designsystem.OrbProgress
+import com.yfuse.core.designsystem.PageHint
 import com.yfuse.core.designsystem.Poster
 import com.yfuse.core.designsystem.SKELETON_PHASE_STEP_MS
 import com.yfuse.core.designsystem.ScrollToTopOnReselect
@@ -272,7 +273,10 @@ private fun SearchHomeScreen(
                                     .padding(horizontal = Dimens.pageHorizontal)
                                     .then(resultHandoff.item(key = "empty")),
                             ) {
-                                EmptyResults(filtered = state.type != SearchType.All)
+                                EmptyResults(
+                                    filtered = state.type != SearchType.All,
+                                    onShowAllTypes = { store.accept(SearchIntent.SetType(SearchType.All)) },
+                                )
                             }
                         }
 
@@ -808,24 +812,31 @@ private fun SearchCoverageNotice(
     }
 }
 
+/**
+ * Nothing matched. Narrowed to one type, the way out is to widen it again, one tap from here
+ * rather than back up at the chips. The search handoff already brings this in, so the hint's
+ * own entrance stays off.
+ */
 @Composable
-private fun EmptyResults(filtered: Boolean) {
-    val palette = LocalPalette.current
-    Column(
-        Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 36.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Icon(AppIcons.Search, null, tint = palette.hint, modifier = Modifier.size(26.dp))
-        Spacer(Modifier.height(9.dp))
-        Text(
-            if (filtered) {
-                "这个类型下没有匹配的内容\n换一个类型再看看"
-            } else {
-                "所有服务器中都没有找到相关内容\n试试片名的一部分"
-            },
-            style = AppTypography.caption.reading,
-            color = palette.hint,
-            textAlign = TextAlign.Center,
+private fun EmptyResults(
+    filtered: Boolean,
+    onShowAllTypes: () -> Unit,
+) {
+    if (filtered) {
+        PageHint(
+            "这个类型下没有匹配的内容",
+            modifier = Modifier.fillMaxWidth(),
+            actionLabel = "查看全部类型",
+            onAction = onShowAllTypes,
+            icon = AppIcons.Search,
+            animateEntrance = false,
+        )
+    } else {
+        PageHint(
+            "所有服务器中都没有找到相关内容\n试试片名的一部分",
+            modifier = Modifier.fillMaxWidth(),
+            icon = AppIcons.Search,
+            animateEntrance = false,
         )
     }
 }
