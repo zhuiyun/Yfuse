@@ -762,3 +762,15 @@ TV 共用同一套 `RootComponent` 栈，同样受影响。媒体库 tab 已经�
 - 对比度数值按代码里的颜色模型估算，没有在设备上取色。
 - HarmonyOS 移植、投屏接收页、`watchTogetherServer` 不在范围内。
 - 本轮没有改动代码，也没有打包，所以不涉及 `version.properties` 和 `release-notes.txt`。
+
+## 十一、实施记录（1.0.86 / 248）
+
+本清单的 P0–P3 已在分支 `claude/animation-interaction-review-vhabgo` 上实施，版本为 1.0.86（248），更新说明见 `release-notes.txt`。以下几处做法与建议不同，或者只做了一部分：
+
+- **P2-40**：`ThemeText`、图片揭示和光粒已不在组合期读取路由可见性，海报改用 `derivedStateOf`。`pressable` 改写成 `Modifier.Node` 属于长期项，本轮没有做。
+- **P2-41**：没有把各分区改成 `ColorProducer`。现在详情页各分区和浮层直接使用取色后的结果，取色到达时只重组一次。评分数字和“展开”链接在绘制阶段读取过渡中的颜色；播放键和顶栏仍在各自的小作用域里跟随过渡。
+- **P2-42**：TV 不再使用粒子，弹窗不采样页面，也就不再模糊；弹窗动画只提供“柔和浮起”“底部升起”，之前选过的其他款式按“柔和浮起”播放。
+- **P2-44**：`verifyDesignSystemUsage` 新增三条规则，覆盖手机共享代码、Android 代码和 TV 代码：`tween` 没有 easing、`Motion.tween` 用了字面量时长、`AnimatedContent` 没有尺寸决策。一个名称以 `…Transform(` 结尾的辅助函数若自己决定了尺寸，也算通过。现有代码全部通过这三条规则。
+- **P3 TV**：焦点放大的留白由新的 `tvFocusBleed()` 提供。它把 `contentPadding` 还给外部布局，所以周围元素的位置不变。“我的与设置”在宽度不够时先缩小字号，最多缩到 80%，仍放不下才显示省略号。
+
+本轮仍然没有在本环境中构建：没有 Android SDK，`dl.google.com` 无法访问。验证手段是 ktlint（按模块基线）、上述规则的等价脚本、导入与命名参数的静态检查，以及人工审阅。打包、签名和 APK 核验需在本地按 `AGENTS.md` 完成。
