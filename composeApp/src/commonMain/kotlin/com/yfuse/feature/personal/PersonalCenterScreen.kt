@@ -95,7 +95,7 @@ fun PersonalCenterScreen(
     var showPin by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
 
-    fun attempt(action: suspend () -> Result<*>) {
+    fun attempt(action: suspend () -> Result<Any?>) {
         scope.launch {
             action()
                 .onSuccess { failure = null }
