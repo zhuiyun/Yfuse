@@ -17,9 +17,9 @@ enum class LoadingAnimation(
     Ripple("静水涟漪", "珠彩核心与缓缓扩散的极光圆环", 2800),
     Spectrum("光谱律动", "青绿、蓝紫、粉橙五束光依次起伏", 1250),
     Beads("轻盈三点", "三颗渐变光点，轻巧地错峰浮动", 1650),
-    BeadWave("三点轻跃", "B1 · 彩色小圆点依次微弹，柔软轻盈", 1800),
-    BeadBreath("三点呼吸", "B2 · 原位轻轻缩放，依次亮起", 2400),
-    BeadRelay("三点接力", "B3 · 三颗彩点轮流跃过彼此", 3000),
+    BeadWave("三点轻跃", "彩色小圆点依次微弹，柔软轻盈", 1800),
+    BeadBreath("三点呼吸", "原位轻轻缩放，依次亮起", 2400),
+    BeadRelay("三点接力", "三颗彩点轮流跃过彼此", 3000),
 }
 
 val LocalLoadingAnimation = staticCompositionLocalOf { LoadingAnimation.Orbit }

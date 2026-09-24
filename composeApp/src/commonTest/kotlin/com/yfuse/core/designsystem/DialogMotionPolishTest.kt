@@ -60,6 +60,17 @@ class DialogMotionPolishTest {
     }
 
     @Test
+    fun past_the_commit_point_the_panel_stretches_instead_of_hitting_a_wall() {
+        assertEquals(50f, dialogDragResistance(50f, 96f))
+        assertEquals(96f, dialogDragResistance(96f, 96f))
+        val near = dialogDragResistance(150f, 96f)
+        val far = dialogDragResistance(600f, 96f)
+        assertTrue(near > 96f && near < 150f, "it keeps moving, but less than the finger")
+        assertTrue(far > near && far < 96f * 3f, "it never reaches three thresholds")
+        assertEquals(400f, dialogDragTravel(dialogDragResistance(400f, 96f), 96f), 0.5f)
+    }
+
+    @Test
     fun drag_dismisses_once_and_respects_disabled_dismissal() =
         runTest {
             var enabled = false

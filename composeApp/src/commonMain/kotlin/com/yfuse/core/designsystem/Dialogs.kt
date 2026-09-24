@@ -319,7 +319,7 @@ fun GlassDialog(
         val modalMotionHost =
             remember {
                 DialogMotionHost().apply {
-                    touch = parentMotionHost.touch
+                    touch = parentMotionHost.recentTouch
                     poster = parentMotionHost.poster
                 }
             }

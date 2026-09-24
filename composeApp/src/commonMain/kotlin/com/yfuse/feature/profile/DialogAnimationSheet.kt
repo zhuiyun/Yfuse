@@ -49,7 +49,7 @@ internal fun DialogAnimationSheet(
     GlassDialog(onDismiss = onDismiss, scrollable = false) {
         val host = LocalDialogMotionHost.current
         val openPreview = {
-            previewOrigin.touch = host.touch
+            previewOrigin.touch = host.recentTouch
             previewOrigin.poster = host.poster
             preview = highlighted
         }

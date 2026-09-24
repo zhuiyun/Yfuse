@@ -2,7 +2,6 @@ package com.yfuse.core.designsystem
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
@@ -32,8 +31,8 @@ internal fun <T> MotionSwap(
         targetState = value,
         modifier = modifier,
         transitionSpec = {
-            (fadeIn(tween(duration)) togetherWith fadeOut(tween(duration)))
-                .using(SizeTransform(clip = false) { _, _ -> tween(duration, easing = Motion.Curve) })
+            (fadeIn(Motion.tween(duration)) togetherWith fadeOut(Motion.tween(duration)))
+                .using(SizeTransform(clip = false) { _, _ -> Motion.tween(duration) })
         },
         contentAlignment = Alignment.Center,
         label = "small-state-handoff",

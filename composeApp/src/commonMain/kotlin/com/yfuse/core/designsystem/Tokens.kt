@@ -674,7 +674,6 @@ object Motion {
     const val DOWNLOAD_FLOW = 1_400
     const val DOWNLOAD_COMPLETE = 380
     const val THEME_CROSSFADE = 380
-    const val ORB_COMET = 1_200
     const val ARTWORK_REVEAL = 400
     const val POSTER_FADE = 180
     const val NEXT_UP_INTERPOLATION = 500
@@ -684,7 +683,6 @@ object Motion {
     const val ARRIVAL_REVEAL = 480
     const val ATTENTION_SWEEP = 520
     const val BURST = 420
-    const val BURST_RELEASE = 200
     const val SKELETON_PULSE = 1_600
     const val SKELETON_SWEEP = 2_800
     const val SKELETON_PHASE_STEP = 110
@@ -758,6 +756,13 @@ object Motion {
 
     /** Right-edge drawers remain interruptible while opening, settling, or cancelling back. */
     fun <T> drawer(): SpringSpec<T> = spring(dampingRatio = 0.86f, stiffness = Spring.StiffnessMediumLow)
+
+    /** Something turning on — a favourite, a follow: one dip, one small rebound, rest. */
+    fun <T> burst(): SpringSpec<T> = spring(dampingRatio = 0.5f, stiffness = Spring.StiffnessMediumLow)
+
+    /** Something turning off: a brief swell that settles without passing rest. */
+    fun <T> burstRelease(): SpringSpec<T> =
+        spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium)
 
     /** [settle], or an instant cut under 减弱动态效果. */
     fun <T> settle(reduceMotion: Boolean): FiniteAnimationSpec<T> = if (reduceMotion) snap() else settle<T>()

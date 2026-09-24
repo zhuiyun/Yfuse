@@ -4,10 +4,10 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.animation.using
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
@@ -120,12 +120,16 @@ fun SwitchRow(
                 Spacer(Modifier.height(3.dp))
                 // Helper copy that depends on the switch ("已开启…" / "关闭后…") crossfades with it
                 // instead of being swapped in the frame the thumb starts moving.
-                val copyFade = if (LocalAccessibilityOptions.current.reduceMotion) 0 else Motion.QUICK
+                val reduceCopyMotion = LocalAccessibilityOptions.current.reduceMotion
+                val copyFade = if (reduceCopyMotion) 0 else Motion.QUICK
                 AnimatedContent(
                     targetState = copy,
                     transitionSpec = {
-                        fadeIn(tween(copyFade, easing = Motion.Curve)) togetherWith
-                            fadeOut(tween(copyFade, easing = Motion.Curve))
+                        // The height change between one line and two follows the same switch: the
+                        // default size spring answered only to the system animator scale.
+                        fadeIn(Motion.tween(copyFade)) togetherWith
+                            fadeOut(Motion.tween(copyFade)) using
+                            Motion.sizeTransform(reduceCopyMotion)
                     },
                     label = "switch-row-description",
                 ) { text ->

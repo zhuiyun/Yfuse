@@ -12,6 +12,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.toggleableState
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
@@ -21,11 +23,13 @@ import com.yfuse.core.designsystem.ThemeText as Text
  *
  * Consolidates five near-identical private implementations that had drifted apart (搜索的
  * TypeChip、媒体库的 GenreChip、下载页的 DownloadChip、剧集批处理的 PresetChip——此前只有
- * `heightIn(44.dp)`，未达到 48dp 的最小触控目标——以及日历的筛选 chip)。[Role.Tab] is fixed
- * rather than exposed: [selected] is mandatory, and a chip that can be selected is exactly
- * what Material's own `FilterChip` announces as a tab.
+ * `heightIn(44.dp)`，未达到 48dp 的最小触控目标——以及日历的筛选 chip)。
  *
  * @param leadingIcon optional glyph before the label, tinted to match the label colour.
+ * @param role what the chip is to a screen reader. [Role.Tab] — one of a set that switches a
+ *   view — is the default; a filter that can be combined with others is a [Role.Checkbox] and
+ *   is announced as checked or not rather than selected, and one choice of several that
+ *   exclude each other is a [Role.RadioButton].
  */
 @Composable
 fun YfChip(
@@ -36,6 +40,7 @@ fun YfChip(
     leadingIcon: ImageVector? = null,
     enabled: Boolean = true,
     onClickLabel: String? = null,
+    role: Role = Role.Tab,
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
@@ -46,12 +51,17 @@ fun YfChip(
                 .pressable(
                     enabled = enabled,
                     haptic = HapticSignal.Select,
-                    role = Role.Tab,
+                    role = role,
                     focusShape = AppShapes.chip,
                     onClickLabel = onClickLabel,
                     onClick = onClick,
-                ).semantics { this.selected = selected }
-                .touchTarget()
+                ).semantics {
+                    if (role == Role.Checkbox || role == Role.Switch) {
+                        toggleableState = ToggleableState(selected)
+                    } else {
+                        this.selected = selected
+                    }
+                }.touchTarget()
                 .glass(
                     shape = AppShapes.chip,
                     fill = selectionColor(if (selected) accent.container else palette.card2),

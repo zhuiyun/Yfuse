@@ -9,6 +9,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.animation.using
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -117,11 +118,11 @@ fun AppUpdateOverlay(
         AnimatedVisibility(
             visible = transferring || ready,
             enter =
-                fadeIn(tween(sectionMs, easing = Motion.Curve)) +
-                    expandVertically(tween(sectionMs, easing = Motion.Curve)),
+                fadeIn(Motion.tween(sectionMs)) +
+                    expandVertically(Motion.tween(sectionMs)),
             exit =
-                fadeOut(tween(sectionMs, easing = Motion.Curve)) +
-                    shrinkVertically(tween(sectionMs, easing = Motion.Curve)),
+                fadeOut(Motion.tween(sectionMs)) +
+                    shrinkVertically(Motion.tween(sectionMs)),
         ) {
             val progress = downloading?.progress ?: paused?.progress ?: if (ready) 1f else 0f
             val downloaded =
@@ -149,8 +150,9 @@ fun AppUpdateOverlay(
                                 else -> "已暂停"
                             },
                         transitionSpec = {
-                            fadeIn(tween(swapMs, easing = Motion.Curve)) togetherWith
-                                fadeOut(tween(swapMs, easing = Motion.Curve))
+                            fadeIn(Motion.tween(swapMs)) togetherWith
+                                fadeOut(Motion.tween(swapMs)) using
+                                Motion.sizeTransform(reduceMotion)
                         },
                         label = "update-phase",
                     ) { phase ->
@@ -158,8 +160,8 @@ fun AppUpdateOverlay(
                     }
                     AnimatedVisibility(
                         visible = ready,
-                        enter = fadeIn(tween(swapMs)),
-                        exit = fadeOut(tween(swapMs)),
+                        enter = fadeIn(Motion.tween(swapMs)),
+                        exit = fadeOut(Motion.tween(swapMs)),
                     ) {
                         BurstIcon(
                             icon = AppIcons.Check,
@@ -184,8 +186,8 @@ fun AppUpdateOverlay(
                 }
                 AnimatedVisibility(
                     visible = paused?.message != null,
-                    enter = fadeIn(tween(sectionMs)) + expandVertically(tween(sectionMs, easing = Motion.Curve)),
-                    exit = fadeOut(tween(sectionMs)) + shrinkVertically(tween(sectionMs, easing = Motion.Curve)),
+                    enter = fadeIn(Motion.tween(sectionMs)) + expandVertically(Motion.tween(sectionMs)),
+                    exit = fadeOut(Motion.tween(sectionMs)) + shrinkVertically(Motion.tween(sectionMs)),
                 ) {
                     Text(paused?.message.orEmpty(), style = sc(11.5f, 500), color = Brand.Danger)
                 }
@@ -194,8 +196,8 @@ fun AppUpdateOverlay(
         val error = state as? UpdateState.Error
         AnimatedVisibility(
             visible = error != null,
-            enter = fadeIn(tween(sectionMs)) + expandVertically(tween(sectionMs, easing = Motion.Curve)),
-            exit = fadeOut(tween(sectionMs)) + shrinkVertically(tween(sectionMs, easing = Motion.Curve)),
+            enter = fadeIn(Motion.tween(sectionMs)) + expandVertically(Motion.tween(sectionMs)),
+            exit = fadeOut(Motion.tween(sectionMs)) + shrinkVertically(Motion.tween(sectionMs)),
         ) {
             Text(
                 error?.message.orEmpty(),
@@ -225,8 +227,9 @@ fun AppUpdateOverlay(
             AnimatedContent(
                 targetState = primaryLabel,
                 transitionSpec = {
-                    fadeIn(tween(swapMs, easing = Motion.Curve)) togetherWith
-                        fadeOut(tween(swapMs, easing = Motion.Curve))
+                    fadeIn(Motion.tween(swapMs)) togetherWith
+                        fadeOut(Motion.tween(swapMs)) using
+                        Motion.sizeTransform(reduceMotion)
                 },
                 modifier = Modifier.weight(1f),
                 label = "update-primary",
