@@ -4,11 +4,6 @@ package com.yfuse.feature.servers
 
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.animateBounds
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -49,7 +44,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -63,6 +57,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
+import com.yfuse.app.floatingNavigationContentInset
 import com.yfuse.core.data.LatencySeverity
 import com.yfuse.core.data.RouteHealth
 import com.yfuse.core.data.SERVER_ICON_EMOJI_MAX_CHARS
@@ -81,13 +76,13 @@ import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassLift
 import com.yfuse.core.designsystem.HapticSignal
+import com.yfuse.core.designsystem.InlineLoadingContent
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.MinTouchTarget
 import com.yfuse.core.designsystem.Motion
-import com.yfuse.core.designsystem.MotionSwap
 import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.OverlayActionRow
 import com.yfuse.core.designsystem.OverlayButton
@@ -107,13 +102,13 @@ import com.yfuse.core.designsystem.SkeletonHandoff
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.TabBarInset
 import com.yfuse.core.designsystem.YfFormField
-import com.yfuse.core.designsystem.contentHandoff
 import com.yfuse.core.designsystem.flatGlass
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.refreshAction
 import com.yfuse.core.designsystem.serverTintColor
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.touchTarget
@@ -189,13 +184,24 @@ fun ServersTabScreen(component: ServersTabComponent) {
     val refreshState by component.refreshState.collectAsState()
     val refreshing = refreshState.refreshing
     var requestedRefreshGeneration by remember { mutableStateOf<Long?>(null) }
-    val requestRefresh: () -> Unit = {
-        component.refreshAll()?.let { requestedRefreshGeneration = it }
+    // One indicator per request: a pull shows the pull orb, the header key (and TalkBack's 刷新
+    // action) the orb in the key. Both at once was two spinners for the same round of probes.
+    var refreshByPull by remember { mutableStateOf(false) }
+    val requestRefresh: (Boolean) -> Unit = { byPull ->
+        component.refreshAll()?.let {
+            requestedRefreshGeneration = it
+            refreshByPull = byPull
+        }
     }
     SideEffect {
         if (!routeVisible) requestedRefreshGeneration = null
     }
-    val refreshFeedback = serverRefreshFeedback(refreshState, requestedRefreshGeneration, routeVisible)
+    // Only a failure is worth a toast: a refresh that worked shows in the cards it updated, and its
+    // indicator has already said when it finished.
+    val refreshFeedback =
+        serverRefreshFeedback(refreshState, requestedRefreshGeneration, routeVisible)?.takeIf {
+            it.result == ServerRefreshResult.Failure || it.result == ServerRefreshResult.PartialFailure
+        }
     val pullState = rememberPullToRefreshState()
     RefreshThresholdHaptics(pullState, refreshing = refreshing)
 
@@ -225,10 +231,12 @@ fun ServersTabScreen(component: ServersTabComponent) {
 
     Box(Modifier.fillMaxSize()) {
         PullToRefreshBox(
-            isRefreshing = refreshing,
-            onRefresh = requestRefresh,
+            isRefreshing = refreshing && refreshByPull,
+            onRefresh = { requestRefresh(true) },
             state = pullState,
-            indicator = { RefreshIndicator(pullState, refreshing, Modifier.align(Alignment.TopCenter)) },
+            indicator = {
+                RefreshIndicator(pullState, refreshing && refreshByPull, Modifier.align(Alignment.TopCenter))
+            },
             modifier = Modifier.fillMaxSize(),
         ) {
             SkeletonHandoff(
@@ -249,16 +257,18 @@ fun ServersTabScreen(component: ServersTabComponent) {
                                 GridCells.Adaptive(ServerCardMinWidth)
                             },
                         state = gridState,
-                        modifier =
-                            Modifier.fillMaxSize().statusBarsPadding().contentHandoff(
-                                visibleServers.isEmpty(),
-                            ),
+                        // No handoff over the whole grid: it faded 添加, 刷新 and the layout key in
+                        // with every filter that emptied the list. The results hand over on their
+                        // own — cards and the empty line fade in and out as items.
+                        modifier = Modifier.fillMaxSize().statusBarsPadding(),
                         contentPadding =
                             PaddingValues(
                                 start = Dimens.pageHorizontal,
                                 end = Dimens.pageHorizontal,
                                 top = Dimens.contentTop,
-                                bottom = TabBarInset,
+                                // Clears the dock however tall it is: three-key navigation and
+                                // large text both push it up past a fixed inset.
+                                bottom = floatingNavigationContentInset(),
                             ),
                         // The cards carry their own shadow, so the air between them has to be
                         // wider than the shadow or the grid reads as one slab of tiles.
@@ -269,8 +279,8 @@ fun ServersTabScreen(component: ServersTabComponent) {
                             ServersHeader(
                                 onAdd = { component.store.accept(ServersIntent.OpenAddDialog) },
                                 refreshing = refreshing,
-                                refreshFeedback = refreshFeedback,
-                                onRefreshAll = requestRefresh,
+                                refreshingFromKey = refreshing && !refreshByPull,
+                                onRefreshAll = { requestRefresh(false) },
                                 layout = layout,
                                 onLayout = component::setLayout,
                                 filter = listFilter,
@@ -331,9 +341,9 @@ fun ServersTabScreen(component: ServersTabComponent) {
                             val cardMotion =
                                 Modifier
                                     .animateItem(
-                                        fadeInSpec = if (moving) tween(Motion.QUICK) else null,
+                                        fadeInSpec = if (moving) Motion.tween(Motion.QUICK) else null,
                                         placementSpec = null,
-                                        fadeOutSpec = if (moving) tween(Motion.STANDARD) else null,
+                                        fadeOutSpec = if (moving) Motion.tween(Motion.STANDARD) else null,
                                     ).then(
                                         if (moving) {
                                             Modifier.animateBounds(
@@ -562,8 +572,10 @@ private fun routesSummary(
 @Composable
 private fun ServersHeader(
     onAdd: () -> Unit,
+    /** A refresh is under way, however it was started; the key waits for it. */
     refreshing: Boolean,
-    refreshFeedback: ServerRefreshOutcome?,
+    /** The refresh under way came from the key, so the key carries its indicator. */
+    refreshingFromKey: Boolean,
     onRefreshAll: () -> Unit,
     layout: ServerLayout,
     onLayout: (ServerLayout) -> Unit,
@@ -572,21 +584,6 @@ private fun ServersHeader(
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
-    val animateRefresh = refreshing && LocalRouteVisible.current && !LocalAccessibilityOptions.current.reduceMotion
-    val spin =
-        if (animateRefresh) {
-            rememberInfiniteTransition(label = "servers-refresh").animateFloat(
-                initialValue = 0f,
-                targetValue = 360f,
-                animationSpec =
-                    infiniteRepeatable(
-                        animation = tween(Motion.REFRESH_SPIN, easing = LinearEasing),
-                    ),
-                label = "servers-refresh-angle",
-            )
-        } else {
-            null
-        }
     Column(
         Modifier.fillMaxWidth().padding(bottom = 4.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -599,7 +596,8 @@ private fun ServersHeader(
                 "我的服务器",
                 style = AppTypography.display.strong,
                 color = palette.text,
-                modifier = Modifier.weight(1f),
+                // A pull-to-refresh page: TalkBack's touch exploration never produces the pull.
+                modifier = Modifier.weight(1f).refreshAction(enabled = !refreshing, onRefresh = onRefreshAll),
             )
             Row(
                 Modifier
@@ -688,34 +686,28 @@ private fun ServersHeader(
                     modifier = Modifier.size(15.dp),
                 )
             }
+            // The orb in the key while its refresh runs, then the key again. The spinning glyph,
+            // the result glyph after it and the toast on top were three answers to one request;
+            // a failure still gets the toast.
             Box(
                 Modifier
                     .pressable(
                         enabled = !refreshing,
                         label = "刷新全部服务器",
                         onClick = onRefreshAll,
-                    ).touchTarget()
+                    ).semantics { if (refreshing) stateDescription = "正在刷新" }
+                    .touchTarget()
                     .shadow(GlassLift.control, CircleShape)
                     .liquidGlass(CircleShape, palette.card2, palette.border, sheen = 0.75f)
                     .size(ServerHeaderCircleSize),
                 contentAlignment = Alignment.Center,
             ) {
-                MotionSwap(refreshFeedback?.result) { result ->
+                InlineLoadingContent(loading = refreshingFromKey, slotSize = 15.dp, color = accent.accent) {
                     Icon(
-                        when (result) {
-                            ServerRefreshResult.Success -> AppIcons.Check
-                            ServerRefreshResult.PartialFailure, ServerRefreshResult.Failure -> AppIcons.Info
-                            ServerRefreshResult.Cancelled -> AppIcons.Close
-                            ServerRefreshResult.Empty, null -> AppIcons.Refresh
-                        },
+                        AppIcons.Refresh,
                         contentDescription = null,
-                        tint =
-                            refreshFeedback?.let { refreshResultColor(it.result) }
-                                ?: if (refreshing) accent.accent else palette.sub2,
-                        modifier =
-                            Modifier
-                                .size(15.dp)
-                                .graphicsLayer { rotationZ = spin?.value ?: 0f },
+                        tint = palette.sub2,
+                        modifier = Modifier.size(15.dp),
                     )
                 }
             }

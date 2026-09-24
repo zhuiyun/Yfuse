@@ -51,8 +51,6 @@ import com.yfuse.core.designsystem.HeroPageFade
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.MediaSharedElementKey
-import com.yfuse.core.designsystem.OrbProgress
-import com.yfuse.core.designsystem.OrbProgressDefaults
 import com.yfuse.core.designsystem.OverlayPage
 import com.yfuse.core.designsystem.SkeletonHandoff
 import com.yfuse.core.designsystem.StatusBarIconStyle
@@ -802,6 +800,9 @@ fun DetailScreen(component: DetailComponent) {
                         showPlay = detail != null,
                         showMore = detail != null,
                         solid = barSolid,
+                        // 播放 waits on whichever key was pressed — the dock's, or this one once the
+                        // dock has scrolled away — and on no second orb over the page.
+                        resolving = state.resolvingPlay,
                         onBack = component.onBack,
                         onPlay = playerArtworkOnClick(sharedHeroKey) { component.store.accept(DetailIntent.Play) },
                         onMore = { moreSheetOpen = true },
@@ -824,10 +825,6 @@ fun DetailScreen(component: DetailComponent) {
                         },
                         onDismiss = { seasonPickerOpen = false },
                     )
-                }
-
-                if (state.resolvingPlay) {
-                    OrbProgress(modifier = Modifier.align(Alignment.Center), size = OrbProgressDefaults.Page)
                 }
 
                 if (metadataEditorOpen && detail != null && state.server != null) {
