@@ -9,7 +9,6 @@ import androidx.compose.animation.core.SpringSpec
 import androidx.compose.animation.core.TweenSpec
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -615,7 +614,7 @@ object Motion {
         durationMillis: Int,
         delayMillis: Int = 0,
         easing: Easing = Curve,
-    ): TweenSpec<T> = androidx.compose.animation.core.tween(durationMillis, delayMillis, easing)
+    ): TweenSpec<T> = TweenSpec(durationMillis, delayMillis, easing)
 
     /**
      * The size half of an `AnimatedContent` swap.

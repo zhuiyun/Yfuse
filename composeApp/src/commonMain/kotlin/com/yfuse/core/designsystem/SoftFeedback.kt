@@ -2,7 +2,6 @@ package com.yfuse.core.designsystem
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
@@ -28,7 +27,7 @@ internal fun Modifier.softSelectionSurface(
     pressedColor: Color = LocalPalette.current.text.copy(alpha = 0.08f),
     enabled: Boolean = true,
 ): Modifier {
-    val pressed by interactionSource.collectIsPressedAsState()
+    val pressed by interactionSource.collectVisiblePressAsState()
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion || !LocalRouteVisible.current
     val selection =
         animateFloatAsState(
@@ -59,7 +58,7 @@ internal fun Modifier.softActionSurface(
     interactionSource: MutableInteractionSource,
     enabled: Boolean,
 ): Modifier {
-    val pressed by interactionSource.collectIsPressedAsState()
+    val pressed by interactionSource.collectVisiblePressAsState()
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion || !LocalRouteVisible.current
     val scale =
         animateFloatAsState(

@@ -31,7 +31,35 @@ class MotionAccessibilityPolicyTest {
                 pressedScale = 0.92f,
             ),
         )
-        assertEquals(1f, focusRingTargetAlpha(enabled = true, focused = true, hovered = false))
-        assertEquals(0f, focusRingTargetAlpha(enabled = false, focused = true, hovered = true))
+        assertEquals(1f, focusRingTargetAlpha(enabled = true, focused = true))
+        assertEquals(0f, focusRingTargetAlpha(enabled = false, focused = true))
     }
+
+    @Test
+    fun reduce_motion_answers_a_press_with_the_state_layer_instead_of_the_scale() {
+        assertEquals(PRESSED_LAYER_ALPHA, layer(pressed = true, reduceMotion = true))
+        // With motion on, the scale is the answer and ordinary controls are not washed twice.
+        assertEquals(0f, layer(pressed = true))
+        assertEquals(PRESSED_LAYER_ALPHA, layer(pressed = true, tintOnPress = true))
+        val disabled = layer(pressed = true, hovered = true, reduceMotion = true, tintOnPress = true, enabled = false)
+        assertEquals(0f, disabled)
+    }
+
+    @Test
+    fun hover_is_a_quiet_wash_without_ring_or_lift() {
+        assertEquals(HOVER_LAYER_ALPHA, layer(hovered = true))
+        assertEquals(0f, focusRingTargetAlpha(enabled = true, focused = false))
+        assertEquals(
+            1f,
+            pressScaleTarget(reduceMotion = false, pressed = false, highlighted = false, pressedScale = 0.97f),
+        )
+    }
+
+    private fun layer(
+        pressed: Boolean = false,
+        hovered: Boolean = false,
+        reduceMotion: Boolean = false,
+        tintOnPress: Boolean = false,
+        enabled: Boolean = true,
+    ): Float = pressLayerTargetAlpha(enabled, pressed, hovered, reduceMotion, tintOnPress)
 }

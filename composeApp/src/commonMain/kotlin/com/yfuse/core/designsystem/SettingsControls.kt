@@ -20,6 +20,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -67,6 +69,7 @@ fun Section(
                 title,
                 style = AppTypography.body.strong.copy(letterSpacing = 0.5.sp),
                 color = palette.sub2,
+                modifier = Modifier.semantics { heading() },
             )
             if (action != null) {
                 Text(
@@ -151,7 +154,16 @@ fun SettingRow(
             .let { if (embedded) it else it.flatGlass(AppShapes.control, palette.card2, palette.border) }
             .let {
                 if (onClick != null) {
-                    it.pressable(enabled = enabled && !loading, onClickLabel = title, onClick = onClick)
+                    // A full-width row scaled to 0.97 read as its words sliding towards the middle;
+                    // rows answer with a barely-there scale and their own ink instead.
+                    it.pressable(
+                        enabled = enabled && !loading,
+                        pressedScale = PressFeedback.QUIET,
+                        tintOnPress = true,
+                        focusShape = if (embedded) AppShapes.chip else AppShapes.control,
+                        onClickLabel = title,
+                        onClick = onClick,
+                    )
                 } else {
                     it
                 }

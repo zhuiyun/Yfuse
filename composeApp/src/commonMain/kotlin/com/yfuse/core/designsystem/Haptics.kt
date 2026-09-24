@@ -33,6 +33,9 @@ enum class HapticSignal {
 
     /** A drag crossed the point where releasing would commit — pull-to-refresh, 拖动关闭弹窗. */
     Threshold,
+
+    /** A long press opened something — a poster's quick actions, a server card's menu. */
+    LongPress,
 }
 
 interface Haptics {

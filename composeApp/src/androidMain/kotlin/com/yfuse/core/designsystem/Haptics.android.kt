@@ -38,11 +38,14 @@ private class ViewHaptics(
                         HapticFeedbackConstants.LONG_PRESS
                     }
                 HapticSignal.Threshold ->
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                        HapticFeedbackConstants.GESTURE_START
-                    } else {
-                        HapticFeedbackConstants.CLOCK_TICK
+                    when {
+                        // The constant made for exactly this — a gesture crossing its commit point.
+                        Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE ->
+                            HapticFeedbackConstants.GESTURE_THRESHOLD_ACTIVATE
+                        Build.VERSION.SDK_INT >= Build.VERSION_CODES.R -> HapticFeedbackConstants.GESTURE_START
+                        else -> HapticFeedbackConstants.CLOCK_TICK
                     }
+                HapticSignal.LongPress -> HapticFeedbackConstants.LONG_PRESS
             }
         view.performHapticFeedback(constant)
     }

@@ -2,14 +2,19 @@ package com.yfuse.core.designsystem
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -26,8 +31,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -40,6 +47,11 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.Role
@@ -158,7 +170,9 @@ internal fun SettingSegmentControl(
             Box(
                 Modifier
                     .then(if (expanded) Modifier.weight(1f) else Modifier)
-                    .heightIn(min = 30.dp)
+                    // 36dp of glass; Compose's hit testing widens a target this small towards the
+                    // 48dp minimum where no neighbour is closer, which the pill's 2dp gaps allow.
+                    .heightIn(min = 36.dp)
                     .then(indicator.item(index))
                     .pressable(
                         pressedScale = 0.97f,
@@ -304,6 +318,8 @@ internal fun GlassSlider(
     modifier: Modifier = Modifier,
     valueRange: ClosedFloatingPointRange<Float> = 0f..1f,
     steps: Int = 0,
+    /** How far one arrow key moves the value, as a fraction of the range; null is one stop. */
+    keyStride: Float? = null,
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
@@ -314,11 +330,15 @@ internal fun GlassSlider(
     val currentFraction by rememberUpdatedState(value)
     val span = (valueRange.endInclusive - valueRange.start).let { if (it > 0f) it else 1f }
     val fraction = ((value - valueRange.start) / span).coerceIn(0f, 1f)
-    val progress by animateFloatAsState(
-        targetValue = fraction,
-        animationSpec = Motion.settle<Float>(reduceMotion),
-        label = "sliderKnob",
-    )
+    // Under the finger the knob is the finger: a spring there trailed it by roughly 0.08s of
+    // travel. Taps, keys and values set from outside still settle on the shared spring.
+    var dragging by remember { mutableStateOf(false) }
+    val knob = remember { Animatable(fraction) }
+    LaunchedEffect(fraction, dragging, reduceMotion) {
+        if (dragging || reduceMotion) knob.snapTo(fraction) else knob.animateTo(fraction, Motion.settle())
+    }
+    val focusSource = remember { MutableInteractionSource() }
+    val focused by focusSource.collectIsFocusedAsState()
     val track = palette.sub2.copy(alpha = if (palette.isDark) 0.30f else 0.28f)
     val latestChange by rememberUpdatedState(onValueChange)
     // Which stop the value last answered on, so one crossing is one tick rather than one per
@@ -349,11 +369,29 @@ internal fun GlassSlider(
                     report((target - valueRange.start) / span)
                     true
                 }
-            }.pointerInput(steps, valueRange) {
+            }
+            // A keyboard or remote reaches it too: left and right move one stop (or a twentieth).
+            .onPreviewKeyEvent { event ->
+                val direction =
+                    when (event.key) {
+                        Key.DirectionLeft, Key.Minus -> -1
+                        Key.DirectionRight, Key.Plus, Key.Equals -> 1
+                        else -> 0
+                    }
+                if (direction == 0 || event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                val stride = keyStride ?: if (steps > 0) 1f / (steps + 1) else SLIDER_KEY_STRIDE
+                report(currentFraction.let { (it - valueRange.start) / span } + direction * stride)
+                true
+            }.focusable(interactionSource = focusSource)
+            .pointerInput(steps, valueRange) {
                 val thumb = SliderThumb.toPx()
                 detectHorizontalDragGestures(
-                    onDragStart = { start -> report(sliderFractionAt(start.x, size.width, thumb)) },
+                    onDragStart = { start ->
+                        dragging = true
+                        report(sliderFractionAt(start.x, size.width, thumb))
+                    },
                     onDragEnd = {
+                        dragging = false
                         currentLight.emit(
                             LightEffect.Converge,
                             fractionX =
@@ -366,7 +404,10 @@ internal fun GlassSlider(
                                 ).coerceIn(0f, 1f),
                         )
                     },
-                    onDragCancel = { currentLight.clear() },
+                    onDragCancel = {
+                        dragging = false
+                        currentLight.clear()
+                    },
                 ) { change, _ ->
                     change.consume()
                     report(sliderFractionAt(change.position.x, size.width, thumb))
@@ -387,22 +428,27 @@ internal fun GlassSlider(
                 // than composed: the fill changes with every frame of the spring.
                 .drawBehind {
                     drawRect(track)
-                    drawRect(accent.accent, size = Size(size.width * progress, size.height))
+                    drawRect(accent.accent, size = Size(size.width * knob.value, size.height))
                 },
         )
         Box(
             Modifier
-                .offset { IntOffset((travel.toPx() * progress).roundToInt(), 0) }
+                .offset { IntOffset((travel.toPx() * knob.value).roundToInt(), 0) }
                 .size(SliderThumb)
                 .shadow(GlassLift.control, CircleShape)
                 .clip(CircleShape)
-                .background(Color.White),
+                .background(Color.White)
+                .then(if (focused) Modifier.border(SliderFocusRing, accent.accent, CircleShape) else Modifier),
         )
     }
 }
 
 private val SliderThumb = 22.dp
 private val SliderTrack = 5.dp
+private val SliderFocusRing = 2.dp
+
+/** How far one key press moves a continuous slider. */
+private const val SLIDER_KEY_STRIDE = 0.05f
 
 /** Where along the knob's travel [x] falls, with the knob's own width taken out of the span. */
 private fun sliderFractionAt(
