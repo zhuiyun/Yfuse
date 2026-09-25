@@ -56,16 +56,30 @@ fun heroMediaTypeLabel(type: String): String =
  * Keep the living poster cinematic, but expose a little more of the first content rail on
  * compact phones. Both tabs still resolve from the same token so switching tabs never makes
  * the carousel jump in height.
+ *
+ * The 480dp floor is for a phone held upright. A phone on its side is only 360–430dp tall, and
+ * there the floor made the reel taller than the screen: its 播放 and 收藏 row sat under the
+ * floating dock, or below the fold altogether. On a viewport that short the floor gives way to
+ * [SHORT_VIEWPORT_HERO_SHARE] of it, which keeps that row above the dock.
  */
 fun livingPosterHeroHeight(
     viewportHeight: Dp,
     wideLayout: Boolean,
-): Dp =
-    if (wideLayout) {
-        (viewportHeight * 0.67f).coerceIn(480.dp, 730.dp)
+): Dp {
+    val floor = minOf(480.dp, viewportHeight * SHORT_VIEWPORT_HERO_SHARE)
+    return if (wideLayout) {
+        (viewportHeight * 0.67f).coerceIn(floor, 730.dp)
     } else {
-        (viewportHeight * 0.72f).coerceIn(480.dp, 610.dp)
+        (viewportHeight * 0.72f).coerceIn(floor, 610.dp)
     }
+}
+
+/**
+ * The most of a short viewport the reel may take. The caption's action row sits
+ * [LivingPosterDefaults.CAPTION_BOTTOM] above the reel's foot, about as high as the floating
+ * dock reaches; the tenth left below the reel is the margin between the two.
+ */
+private const val SHORT_VIEWPORT_HERO_SHARE = 0.9f
 
 /**
  * A quiet, blurred echo of the settled artwork behind the inset poster.

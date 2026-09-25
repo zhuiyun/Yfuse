@@ -55,6 +55,7 @@ import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.Brand
+import com.yfuse.core.designsystem.ConfirmDialog
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.LightEffect
@@ -173,14 +174,22 @@ internal fun DownloadsScreen(
     var showSettings by remember { mutableStateOf(false) }
     var filter by remember { mutableStateOf(DownloadFilter.All) }
     var sort by remember { mutableStateOf(DownloadSort.Updated) }
+    // Its own flag rather than "anything selected": 多选 opens on an empty selection now, and
+    // the mode has to survive having nothing ticked in it.
+    var selecting by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
     var notice by remember { mutableStateOf<String?>(null) }
+    // A delete takes gigabytes that cannot be had back offline, so it asks first. The rows are
+    // captured when it is asked, so the dialog names what it will remove even if the queue moves.
+    var pendingRemoval by remember { mutableStateOf<List<OfflineMedia>?>(null) }
+    var confirmClearRules by remember { mutableStateOf(false) }
 
     val shown =
         remember(items, filter, sort) {
             filterAndSortDownloads(items, filter, sort)
         }
     val selectedItems = items.filter { it.id in selected }
+    val allShownSelected = shown.isNotEmpty() && shown.all { it.id in selected }
     val summary = remember(items) { summarizeOfflineQueue(items) }
     val canPauseAll = summary.active > 0
     val canResumeAll = summary.paused > 0 || summary.failed > 0
@@ -222,24 +231,42 @@ internal fun DownloadsScreen(
                         enter = downloadRevealEnter(vertical = false),
                         exit = downloadRevealExit(vertical = false),
                     ) {
-                        Text(
-                            if (selected.isEmpty()) "多选" else "完成",
-                            style = AppTypography.body.strong,
-                            color = accent,
-                            modifier =
-                                Modifier
-                                    .pressable(
-                                        onClickLabel = if (selected.isEmpty()) "选中当前下载" else "退出多选",
-                                    ) {
-                                        selected =
-                                            if (selected.isEmpty()) {
-                                                shown.mapTo(linkedSetOf()) { it.id }
-                                            } else {
-                                                emptySet()
-                                            }
-                                    }.touchTarget()
-                                    .padding(horizontal = 8.dp),
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            // 多选 used to tick every download on the way in, so 多选 then 删除
+                            // emptied the whole queue in two taps. It opens on nothing now, and
+                            // ticking everything is its own step.
+                            if (selecting) {
+                                Text(
+                                    if (allShownSelected) "取消全选" else "全选",
+                                    style = AppTypography.body.strong,
+                                    color = accent,
+                                    modifier =
+                                        Modifier
+                                            .pressable(
+                                                onClickLabel = if (allShownSelected) "取消选中" else "选中当前下载",
+                                            ) {
+                                                val shownIds = shown.mapTo(linkedSetOf()) { it.id }
+                                                selected =
+                                                    if (allShownSelected) selected - shownIds else selected + shownIds
+                                            }.touchTarget()
+                                            .padding(horizontal = 8.dp),
+                                )
+                            }
+                            Text(
+                                if (selecting) "完成" else "多选",
+                                style = AppTypography.body.strong,
+                                color = accent,
+                                modifier =
+                                    Modifier
+                                        .pressable(
+                                            onClickLabel = if (selecting) "退出多选" else "进入多选",
+                                        ) {
+                                            selecting = !selecting
+                                            selected = emptySet()
+                                        }.touchTarget()
+                                        .padding(horizontal = 8.dp),
+                            )
+                        }
                     }
                 }
             }
@@ -417,7 +444,7 @@ internal fun DownloadsScreen(
                                     title = "清除追更规则",
                                     value = "$autoDownloadRuleCount 条",
                                     embedded = true,
-                                    onClick = manager::clearAutoDownloadRules,
+                                    onClick = { confirmClearRules = true },
                                 )
                             }
                             SettingsDivider()
@@ -559,9 +586,7 @@ internal fun DownloadsScreen(
                                     manager.resumeMany(selectedItems.map(OfflineMedia::id))
                                 }
                                 BatchAction("删除", Modifier.fillMaxWidth(), danger = true) {
-                                    notice = "已删除 ${selectedItems.size} 项下载"
-                                    manager.removeMany(selectedItems.map(OfflineMedia::id))
-                                    selected = emptySet()
+                                    pendingRemoval = selectedItems
                                 }
                             }
                         } else {
@@ -576,9 +601,7 @@ internal fun DownloadsScreen(
                                     manager.resumeMany(selectedItems.map(OfflineMedia::id))
                                 }
                                 BatchAction("删除", Modifier.weight(1f), danger = true) {
-                                    notice = "已删除 ${selectedItems.size} 项下载"
-                                    manager.removeMany(selectedItems.map(OfflineMedia::id))
-                                    selected = emptySet()
+                                    pendingRemoval = selectedItems
                                 }
                             }
                         }
@@ -619,17 +642,14 @@ internal fun DownloadsScreen(
                     DownloadTaskRow(
                         item = item,
                         selected = item.id in selected,
-                        selectionMode = selected.isNotEmpty(),
+                        selectionMode = selecting,
                         onToggleSelected = {
                             selected = if (item.id in selected) selected - item.id else selected + item.id
                         },
                         onPlay = { onPlay(item) },
                         onPause = { manager.pause(item.id) },
                         onResume = { manager.resume(item.id) },
-                        onRemove = {
-                            manager.remove(item.id)
-                            selected = selected - item.id
-                        },
+                        onRemove = { pendingRemoval = listOf(item) },
                         modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),
                     )
                 }
@@ -643,6 +663,68 @@ internal fun DownloadsScreen(
             message = notice,
             onDismiss = { notice = null },
         )
+
+        pendingRemoval?.let { removing ->
+            val (title, message) = downloadRemovalCopy(removing)
+            ConfirmDialog(
+                title = title,
+                message = message,
+                confirmLabel = "删除",
+                destructive = true,
+                onConfirm = {
+                    val ids = removing.map(OfflineMedia::id)
+                    manager.removeMany(ids)
+                    if (selecting) {
+                        // Only the batch bar deletes while selecting: the row's own ✕ is hidden then.
+                        notice = "已删除 ${removing.size} 项下载"
+                        selecting = false
+                        selected = emptySet()
+                    }
+                    pendingRemoval = null
+                },
+                onDismiss = { pendingRemoval = null },
+            )
+        }
+
+        if (confirmClearRules) {
+            ConfirmDialog(
+                title = "清除追更规则？",
+                message = "$autoDownloadRuleCount 条追更规则会被清除，之后更新的剧集不再自动下载；已下载的内容会保留。",
+                confirmLabel = "清除",
+                destructive = true,
+                onConfirm = {
+                    manager.clearAutoDownloadRules()
+                    confirmClearRules = false
+                },
+                onDismiss = { confirmClearRules = false },
+            )
+        }
+    }
+}
+
+/**
+ * The delete confirmation's title and message: how many downloads go and the space they hold.
+ *
+ * The space is what is on disk now — a transfer stopped halfway counts only what it has — and it
+ * is left out when there is none, rather than promising to free "0 B".
+ */
+internal fun downloadRemovalCopy(items: List<OfflineMedia>): Pair<String, String> {
+    val bytes = items.sumOf { it.downloadedBytes.coerceAtLeast(0L) }
+    val single = items.singleOrNull()
+    return if (single != null) {
+        "删除下载？" to
+            if (bytes > 0L) {
+                "“${single.title}”的离线文件（${formatDownloadBytes(bytes)}）会从这台设备删除，不能撤销。"
+            } else {
+                "“${single.title}”的下载任务会被移除，不能撤销。"
+            }
+    } else {
+        "删除 ${items.size} 项下载？" to
+            if (bytes > 0L) {
+                "选中的 ${items.size} 项下载共占用 ${formatDownloadBytes(bytes)}，删除后需要重新下载，不能撤销。"
+            } else {
+                "选中的 ${items.size} 项下载任务会被移除，不能撤销。"
+            }
     }
 }
 

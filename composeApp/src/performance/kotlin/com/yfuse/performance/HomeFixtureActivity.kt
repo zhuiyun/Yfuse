@@ -150,7 +150,6 @@ class HomeFixtureActivity : ComponentActivity() {
                             onRefreshCalendar = {},
                             onOpenProfile = {},
                             onOpenCalendar = {},
-                            onOpenLibrary = {},
                             onOpenCalendarEntry = {},
                         )
                     }

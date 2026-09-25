@@ -7,6 +7,7 @@ import com.yfuse.core.model.AudioTrackInfo
 import com.yfuse.core.model.Episode
 import com.yfuse.core.model.MediaVersion
 import com.yfuse.core.model.SubtitleTrackInfo
+import com.yfuse.core.sync.playback.PlaybackStateRecord
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -328,6 +329,32 @@ data class OfflineDownloadRequest(
 )
 
 fun offlinePlaybackUri(path: String): String = if ("://" in path) path else "file://$path"
+
+/**
+ * Where a downloaded copy picks up: the point this profile last reached on the same server item,
+ * from the device-local records an online launch resumes from too.
+ *
+ * A download is played for want of the server, so the server's own resume point is no source.
+ * The offline player records its progress under the same server item, which is what lets a film
+ * begun online be finished offline and the other way round; the latest record is the one that
+ * counts. A finished title, or one already into its credits, starts over as an online launch would.
+ */
+internal fun offlineStartPositionMs(
+    item: OfflineMedia,
+    states: List<PlaybackStateRecord>,
+): Long {
+    val state =
+        states
+            .filter { it.serverId == item.serverId && it.serverItemId == item.itemId }
+            .maxByOrNull(PlaybackStateRecord::lastPlayedAtEpochMs)
+            ?: return 0L
+    if (state.played) return 0L
+    if (state.durationMs > 0L && state.positionMs >= (state.durationMs * OFFLINE_FINISHED_RATIO).toLong()) return 0L
+    return state.positionMs.coerceAtLeast(0L)
+}
+
+/** Where a title counts as finished — the line PlaybackSyncManager draws for every launch. */
+private const val OFFLINE_FINISHED_RATIO = 0.95
 
 fun buildOfflineDownloadRequests(
     serverId: String,

@@ -24,6 +24,7 @@ import com.yfuse.core.account.AccountState
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.ConfirmDialog
 import com.yfuse.core.designsystem.DialogPresence
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
@@ -94,6 +95,9 @@ fun PersonalCenterScreen(
     var switching by remember { mutableStateOf<PersonalProfile?>(null) }
     var showPin by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
+    // Both removals used to run on the first tap, and neither has a way back on this page.
+    var removingProfile by remember { mutableStateOf<PersonalProfile?>(null) }
+    var removingEntry by remember { mutableStateOf<PersonalEntry?>(null) }
 
     fun attempt(action: suspend () -> Result<Any?>) {
         scope.launch {
@@ -243,7 +247,7 @@ fun PersonalCenterScreen(
                                 if (profile.id != DEFAULT_PERSONAL_PROFILE && profile.id != state.activeProfile.id) {
                                     SettingsDivider()
                                     SettingRow("移除资料", "移除此家庭成员", embedded = true, onClick = {
-                                        attempt { personal.deleteProfile(profile.id) }
+                                        removingProfile = profile
                                     })
                                 }
                             }
@@ -464,15 +468,7 @@ fun PersonalCenterScreen(
                 }
                 items(visible, key = { it.identity }) { entry ->
                     PersonalEntryCard(entry, onOpen = { onOpenMedia(entry.media) }, onRemove = {
-                        attempt {
-                            runCatching {
-                                when (entry.collection) {
-                                    PersonalCollection.Favorite -> personal.setFavorite(entry.media, false)
-                                    PersonalCollection.WatchLater -> personal.setWatchLater(entry.media, false)
-                                    PersonalCollection.History -> personal.removeHistory(entry.media)
-                                }
-                            }
-                        }
+                        removingEntry = entry
                     })
                 }
             }
@@ -534,6 +530,46 @@ fun PersonalCenterScreen(
                     }.onFailure { dialogError = it.message ?: PERSONAL_ACTION_FAILED }
             }
         }
+    }
+    removingProfile?.let { profile ->
+        ConfirmDialog(
+            title = "移除家庭资料？",
+            message = "“${profile.name}”的想看、收藏、观看历史和追剧会一并删除，不能撤销。",
+            confirmLabel = "移除",
+            destructive = true,
+            onConfirm = {
+                attempt { personal.deleteProfile(profile.id) }
+                removingProfile = null
+            },
+            onDismiss = { removingProfile = null },
+        )
+    }
+    removingEntry?.let { entry ->
+        val collection =
+            when (entry.collection) {
+                PersonalCollection.Favorite -> "收藏"
+                PersonalCollection.WatchLater -> "想看"
+                PersonalCollection.History -> "观看历史"
+            }
+        ConfirmDialog(
+            title = "移除这条记录？",
+            message = "“${entry.media.title}”会从当前资料的${collection}中移除。",
+            confirmLabel = "移除",
+            destructive = true,
+            onConfirm = {
+                attempt {
+                    runCatching {
+                        when (entry.collection) {
+                            PersonalCollection.Favorite -> personal.setFavorite(entry.media, false)
+                            PersonalCollection.WatchLater -> personal.setWatchLater(entry.media, false)
+                            PersonalCollection.History -> personal.removeHistory(entry.media)
+                        }
+                    }
+                }
+                removingEntry = null
+            },
+            onDismiss = { removingEntry = null },
+        )
     }
 }
 

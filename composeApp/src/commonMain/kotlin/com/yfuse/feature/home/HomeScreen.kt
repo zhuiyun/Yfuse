@@ -31,6 +31,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
@@ -136,6 +137,7 @@ import com.yfuse.core.designsystem.skeletonSweep
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.CalendarEntry
 import com.yfuse.core.model.LibraryStatus
+import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.model.TmdbRow
 import com.yfuse.core.model.showsReleaseDate
@@ -252,7 +254,6 @@ private fun HomeContent(
         onRefreshCalendar = { component.refreshCalendar(forceRefresh = true) },
         onOpenProfile = component.onOpenProfile,
         onOpenCalendar = component.onOpenCalendar,
-        onOpenLibrary = component.onOpenLibrary,
         onOpenCalendarEntry = component::openCalendarEntry,
     )
 }
@@ -271,7 +272,6 @@ internal fun HomeContentBody(
     onRefreshCalendar: () -> Unit,
     onOpenProfile: () -> Unit,
     onOpenCalendar: () -> Unit,
-    onOpenLibrary: () -> Unit,
     onOpenCalendarEntry: (CalendarEntry) -> Unit,
     /** False until a slide's artwork has been sampled: there is no page colour to paint yet. */
     heroPageSampled: Boolean = true,
@@ -284,6 +284,37 @@ internal fun HomeContentBody(
     val themeAccent = LocalAccentColors.current.accent
     var expandedRow by remember { mutableStateOf<TmdbRow?>(null) }
     var quickActions by remember { mutableStateOf<HomeQuickActions?>(null) }
+    // A library shelf opened out by its 全部. Held by kind, and its entries read live, so a card
+    // marked watched from inside the page leaves it as it leaves the shelf.
+    var expandedShelf by remember { mutableStateOf<HomeLibraryShelf?>(null) }
+    val upNext = remember(state.nextUp, state.resume) { homeNextUpShelf(state.nextUp, state.resume) }
+
+    fun shelfEntries(shelf: HomeLibraryShelf): List<HomeResumeEntry> =
+        when (shelf) {
+            HomeLibraryShelf.ContinueWatching -> state.resume
+            HomeLibraryShelf.NextUp -> upNext
+            HomeLibraryShelf.Favorites -> state.favorites
+        }
+    val openEntry: (HomeResumeEntry) -> Unit = { entry ->
+        // Detail is pushed over the home page; coming back lands on the feed, as it does from a
+        // TMDB shelf's 全部.
+        expandedShelf = null
+        onIntent(HomeIntent.OpenResume(entry))
+    }
+    val openShelfEmptied = expandedShelf?.let { shelfEntries(it).isEmpty() } == true
+    LaunchedEffect(openShelfEmptied) {
+        // The last card marked watched: the shelf has left the home page, and its page goes too.
+        if (openShelfEmptied) expandedShelf = null
+    }
+    val heroSlides = state.featuredSlides
+    // With no picks to show — TMDB out of reach, most often — the reel was still 480dp of empty
+    // gradient, and the card saying why sat under it with 继续观看 below the fold. It folds to
+    // its header once a load has come back empty, and stays folded through the next retry or
+    // pull instead of opening back up only to fold again if that one fails too. The first load
+    // keeps the full-height placeholder, so arriving picks do not push the page down.
+    var heroFoldedBefore by remember { mutableStateOf(false) }
+    val heroFolded = heroSlides.isEmpty() && (!state.loading || heroFoldedBefore)
+    SideEffect { heroFoldedBefore = heroFolded }
 
     val pullState = rememberPullToRefreshState()
     RefreshThresholdHaptics(pullState, refreshing = state.refreshing)
@@ -327,7 +358,8 @@ internal fun HomeContentBody(
 
         val scrolledPastHero by rememberScrolledPastHero(listState, heroHeight)
         val heroVisible = !scrolledPastHero
-        StatusBarIconStyle(darkIcons = !heroVisible && !palette.isDark)
+        // A folded header has no artwork under the status bar, so the icons follow the page.
+        StatusBarIconStyle(darkIcons = (heroFolded || !heroVisible) && !palette.isDark)
         // Reading `listState.isScrollInProgress` directly in the item's content recomposed the
         // hero every time a scroll started or stopped (LibraryHomeScreen's carouselVisible
         // already takes this shape); derivedStateOf collapses that to one flip per visibility
@@ -374,24 +406,35 @@ internal fun HomeContentBody(
                     // Navigation in the hero header must remain available even when the remote
                     // recommendation feed is loading or unavailable.
                     motionItem(key = "home-hero", arrival = false) {
-                        Box(Modifier.heroScrollCollapse(listState, heroHeight)) {
-                            HomeHeroCarousel(
-                                items = state.featuredSlides.take(8),
+                        if (heroFolded) {
+                            HeroHeader(
                                 userName = state.server?.userName,
-                                height = heroHeight,
-                                showSidePreview = showSidePreview,
-                                visible = heroCarouselVisible,
-                                held = quickActions != null || expandedRow != null,
                                 refreshing = state.refreshing,
                                 onRefresh = refreshPage,
                                 onOpenProfile = onOpenProfile,
                                 onOpenCalendar = onOpenCalendar,
-                                onPlay = { onIntent(HomeIntent.Play(it)) },
-                                onDetails = { onIntent(HomeIntent.Open(it)) },
-                                onFavorite = { onIntent(HomeIntent.Favorite(it)) },
-                                onAccent = onHeroAccent,
-                                onPageColor = onHeroPageColor,
+                                onArtwork = false,
                             )
+                        } else {
+                            Box(Modifier.heroScrollCollapse(listState, heroHeight)) {
+                                HomeHeroCarousel(
+                                    items = heroSlides.take(8),
+                                    userName = state.server?.userName,
+                                    height = heroHeight,
+                                    showSidePreview = showSidePreview,
+                                    visible = heroCarouselVisible,
+                                    held = quickActions != null || expandedRow != null || expandedShelf != null,
+                                    refreshing = state.refreshing,
+                                    onRefresh = refreshPage,
+                                    onOpenProfile = onOpenProfile,
+                                    onOpenCalendar = onOpenCalendar,
+                                    onPlay = { onIntent(HomeIntent.Play(it)) },
+                                    onDetails = { onIntent(HomeIntent.Open(it)) },
+                                    onFavorite = { onIntent(HomeIntent.Favorite(it)) },
+                                    onAccent = onHeroAccent,
+                                    onPageColor = onHeroPageColor,
+                                )
+                            }
                         }
                     }
 
@@ -471,13 +514,30 @@ internal fun HomeContentBody(
                         }
                     }
 
+                    // 全部 on these used to switch to the 库 tab, which reads one server where these
+                    // shelves gather every server's, and whose 播放记录 has no 全部 at all. It opens
+                    // the shelf itself now, the way a TMDB shelf's 全部 does.
                     if (state.resume.isNotEmpty()) {
                         motionItem(key = "continue-watching") {
                             ContinueWatching(
                                 items = state.resume,
-                                onSeeAll = onOpenLibrary,
-                                onClick = { onIntent(HomeIntent.OpenResume(it)) },
-                                onQuickActions = { quickActions = it.homeQuickActions(onIntent) },
+                                onSeeAll = { expandedShelf = HomeLibraryShelf.ContinueWatching },
+                                onClick = openEntry,
+                                onQuickActions = { quickActions = it.homeQuickActions(onIntent, openEntry) },
+                            )
+                        }
+                    }
+
+                    // The next episode of a show just finished was loaded all along and only used
+                    // to rank the calendar, so the show left the home page with the episode.
+                    if (upNext.isNotEmpty()) {
+                        motionItem(key = "next-up") {
+                            ContinueWatching(
+                                title = HomeLibraryShelf.NextUp.title,
+                                items = upNext,
+                                onSeeAll = { expandedShelf = HomeLibraryShelf.NextUp },
+                                onClick = openEntry,
+                                onQuickActions = { quickActions = it.homeQuickActions(onIntent, openEntry) },
                             )
                         }
                     }
@@ -485,11 +545,11 @@ internal fun HomeContentBody(
                     if (state.favorites.isNotEmpty()) {
                         motionItem(key = "favorites") {
                             LibraryMediaShelf(
-                                title = "我的收藏",
+                                title = HomeLibraryShelf.Favorites.title,
                                 items = state.favorites,
-                                onSeeAll = onOpenLibrary,
-                                onClick = { onIntent(HomeIntent.OpenResume(it)) },
-                                onQuickActions = { quickActions = it.homeQuickActions(onIntent) },
+                                onSeeAll = { expandedShelf = HomeLibraryShelf.Favorites },
+                                onClick = openEntry,
+                                onQuickActions = { quickActions = it.homeQuickActions(onIntent, openEntry) },
                             )
                         }
                     }
@@ -602,8 +662,86 @@ internal fun HomeContentBody(
                 onDismiss = { expandedRow = null },
             )
         }
+
+        OverlayPage(value = expandedShelf, onBack = { expandedShelf = null }) { shelf ->
+            val entries = shelfEntries(shelf)
+            LibraryRowPage(
+                title = shelf.title,
+                caption =
+                    libraryRowPageCaption(
+                        source = shelf.source,
+                        shown = entries.size,
+                        total = if (shelf == HomeLibraryShelf.Favorites) state.favoritesTotal else entries.size,
+                    ),
+                entries = entries,
+                onOpen = openEntry,
+                onQuickActions = { quickActions = it.homeQuickActions(onIntent, openEntry) },
+                onDismiss = { expandedShelf = null },
+            )
+        }
     }
 }
+
+/** The library-backed shelves whose 全部 opens a [LibraryRowPage]; titles and badges as on the shelf. */
+private enum class HomeLibraryShelf(
+    val title: String,
+    val source: String,
+) {
+    ContinueWatching("继续观看", "Emby"),
+    NextUp("下一集", "Emby"),
+    Favorites("我的收藏", "媒体库"),
+}
+
+/**
+ * "媒体库 · 12 项", or, when the home page holds only part of a shelf, how much it leaves out:
+ * every server lends the home page its newest few favourites, not all of them.
+ */
+internal fun libraryRowPageCaption(
+    source: String,
+    shown: Int,
+    total: Int,
+): String = if (total > shown) "$source · 显示 $shown 项，共 $total 项" else "$source · $shown 项"
+
+/**
+ * 下一集 as its shelf shows it: one card per show, and none for a show 继续观看 already holds.
+ *
+ * The local next-up list names a half-watched episode as its own next one, so without this every
+ * show in 继续观看 appeared twice, a shelf apart. [HomeState.nextUp] itself stays as loaded; the TV
+ * home lays it out on its own terms.
+ */
+internal fun homeNextUpShelf(
+    nextUp: List<HomeResumeEntry>,
+    resume: List<HomeResumeEntry>,
+): List<HomeResumeEntry> {
+    val shelf = mutableListOf<HomeResumeEntry>()
+    nextUp.forEach { candidate ->
+        val shown = resume.any { it.isSameShowAs(candidate) } || shelf.any { it.isSameShowAs(candidate) }
+        if (!shown) shelf += candidate
+    }
+    return shelf
+}
+
+/**
+ * On one server a show is its series id. Across servers only the name can say: ids mean nothing
+ * there, and an episode's provider ids name the episode rather than the show.
+ */
+private fun HomeResumeEntry.isSameShowAs(other: HomeResumeEntry): Boolean =
+    if (server.id == other.server.id) {
+        item.homeShowId() == other.item.homeShowId()
+    } else {
+        val title = item.title.homeCalendarIdentityTitle()
+        item.isEpisodic() &&
+            other.item.isEpisodic() &&
+            title.isNotEmpty() &&
+            title == other.item.title.homeCalendarIdentityTitle()
+    }
+
+/** An episode's show is its series, which is also whose poster it carries. */
+private fun MediaItem.homeShowId(): String =
+    if (type.equals("Episode", ignoreCase = true)) posterItemId.ifBlank { id } else id
+
+private fun MediaItem.isEpisodic(): Boolean =
+    type.equals("Episode", ignoreCase = true) || type.equals("Series", ignoreCase = true)
 
 /**
  * 首屏大图 — 390px, edge to edge, starting behind the status bar (§2 首页).
@@ -950,7 +1088,12 @@ private fun HeroHeader(
     onOpenProfile: () -> Unit,
     onOpenCalendar: () -> Unit,
     modifier: Modifier = Modifier,
+    /** False when there is no artwork under it: white on the bare page is unreadable in light. */
+    onArtwork: Boolean = true,
 ) {
+    val palette = LocalPalette.current
+    val shadow = HeroTextShadow.takeIf { onArtwork }
+    val ink = if (onArtwork) Color.White else palette.text
     Row(
         modifier
             .fillMaxWidth()
@@ -968,13 +1111,13 @@ private fun HeroHeader(
             Column {
                 Text(
                     homeGreeting(currentHourOfDay()),
-                    style = AppTypography.caption.regular.copy(shadow = HeroTextShadow),
-                    color = Color.White.copy(alpha = 0.82f),
+                    style = AppTypography.caption.regular.copy(shadow = shadow),
+                    color = if (onArtwork) Color.White.copy(alpha = 0.82f) else palette.sub2,
                 )
                 Text(
                     "继续你的旅程",
-                    style = AppTypography.section.strong.copy(shadow = HeroTextShadow),
-                    color = Color.White,
+                    style = AppTypography.section.strong.copy(shadow = shadow),
+                    color = ink,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     // The page's title: where TalkBack lands first, and so where 下拉刷新 lives
@@ -992,15 +1135,15 @@ private fun HeroHeader(
                     .size(36.dp)
                     .glass(
                         shape = CircleShape,
-                        fill = Color.White.copy(alpha = 0.14f),
-                        border = Color.White.copy(alpha = 0.34f),
+                        fill = if (onArtwork) Color.White.copy(alpha = 0.14f) else palette.card2,
+                        border = if (onArtwork) Color.White.copy(alpha = 0.34f) else palette.border,
                     ),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
                     AppIcons.WatchCalendar,
                     "追剧日历",
-                    tint = Color.White,
+                    tint = ink,
                     modifier = Modifier.size(17.dp),
                 )
             }
@@ -1196,12 +1339,34 @@ private data class HomeQuickActions(
     val actions: List<HomeQuickAction>,
 )
 
-/** Library-backed shelves: 首页's store can open a title, but it owns none of its flags. */
-private fun HomeResumeEntry.homeQuickActions(onIntent: (HomeIntent) -> Unit): HomeQuickActions {
+/**
+ * Library-backed shelves. 查看详情 alone was only the tap again; the watched flag is the one thing
+ * these shelves can change about a title without opening it, through the same writes the detail
+ * page's 标记已看 makes.
+ */
+private fun HomeResumeEntry.homeQuickActions(
+    onIntent: (HomeIntent) -> Unit,
+    onOpen: (HomeResumeEntry) -> Unit,
+): HomeQuickActions {
     val entry = this
+    val item = entry.item
     return HomeQuickActions(
-        title = entry.item.title,
-        actions = listOf(HomeQuickAction("查看详情") { onIntent(HomeIntent.OpenResume(entry)) }),
+        // An episode goes by its show's name; the sheet has to say which episode it would mark.
+        title =
+            if (item.type.equals("Episode", ignoreCase = true)) {
+                listOfNotNull(item.title, item.subtitle).joinToString(" · ")
+            } else {
+                item.title
+            },
+        actions =
+            listOf(
+                HomeQuickAction("查看详情") { onOpen(entry) },
+                if (item.played) {
+                    HomeQuickAction("标记未看") { onIntent(HomeIntent.SetPlayed(entry, false)) }
+                } else {
+                    HomeQuickAction("标记已看") { onIntent(HomeIntent.SetPlayed(entry, true)) }
+                },
+            ),
     )
 }
 
@@ -1235,9 +1400,11 @@ private fun ContinueWatching(
     onSeeAll: () -> Unit,
     onClick: (HomeResumeEntry) -> Unit,
     onQuickActions: (HomeResumeEntry) -> Unit,
+    /** 下一集 is the same rail of stills; only its title, and what each card announces, differ. */
+    title: String = "继续观看",
 ) {
     Column {
-        HomeShelfHeader(title = "继续观看", source = "Emby", onSeeAll = onSeeAll)
+        HomeShelfHeader(title = title, source = "Emby", onSeeAll = onSeeAll)
         LazyRow(
             contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
             horizontalArrangement = Arrangement.spacedBy(11.dp),
@@ -1245,6 +1412,7 @@ private fun ContinueWatching(
             motionItems(items, key = { "${it.server.id}:${it.item.id}" }) { entry ->
                 ContinueWatchingCard(
                     entry = entry,
+                    shelfTitle = title,
                     onClick = { onClick(entry) },
                     onLongClick = { onQuickActions(entry) },
                 )
@@ -1256,6 +1424,7 @@ private fun ContinueWatching(
 @Composable
 private fun ContinueWatchingCard(
     entry: HomeResumeEntry,
+    shelfTitle: String,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
 ) {
@@ -1278,7 +1447,7 @@ private fun ContinueWatchingCard(
                 ),
             rating = item.communityRating,
             progress = item.playedPercentage?.let { (it / 100.0).toFloat() },
-            contentDescription = "继续观看 ${item.title}${item.subtitle?.let { "，$it" }.orEmpty()}",
+            contentDescription = "$shelfTitle ${item.title}${item.subtitle?.let { "，$it" }.orEmpty()}",
             onClick = onClick,
             onLongClick = onLongClick,
             sharedTransitionKey = MediaSharedElementKey(entry.server.id, item.id),
