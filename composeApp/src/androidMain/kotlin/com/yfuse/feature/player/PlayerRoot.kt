@@ -1119,6 +1119,8 @@ internal fun PlayerRoot(
             state.buffering,
             state.ended,
             state.error,
+            // Woken without playing: the pause goes on, and so does the wait for the screensaver.
+            controlsWakeRequests,
         ) {
             oledPauseProtectionActive = false
             if (!state.playing && !state.buffering && !state.ended && state.error == null) {
@@ -2607,7 +2609,7 @@ internal fun PlayerRoot(
         // Held as State and read where the level is drawn. Destructured to a Float here, every
         // pointer sample of a volume/brightness drag invalidated this whole runtime scope.
         val (volumeLevel, setVolume) = rememberSystemVolume()
-        val (brightnessLevel, setBrightness) = rememberWindowBrightness()
+        val (brightnessLevel, setBrightness) = rememberWindowBrightness(followSystem = inPictureInPicture)
 
         suspend fun loadCastItem(
             deviceId: String,
@@ -3564,8 +3566,9 @@ internal fun PlayerRoot(
                         castState.activeDevice?.let {
                             "${it.name} · ${castState.status.label}"
                         },
-                    // Connecting or live; an unexpected drop hands back to this device on its own.
-                    castActive = castState.activeDevice != null && castState.termination == null,
+                    // Connecting or live, as the app's status capsule counts it. A first load that failed
+                    // keeps its device with an error and no termination; that is not a cast in progress.
+                    castActive = castState.hasActiveSession || castState.status == CastPlaybackStatus.Connecting,
                     castPositionSource = {
                         liveCastState.value.activeDevice?.let {
                             if (!liveCastState.value.positionConfirmed) {

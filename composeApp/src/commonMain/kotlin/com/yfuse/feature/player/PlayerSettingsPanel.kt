@@ -43,6 +43,8 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -1429,7 +1431,9 @@ private fun OffsetStepper(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         listOf(-coarseStepMs, -fineStepMs).forEach { step ->
-            OffsetStep(stepLabel(step)) { onChange(steppedOffsetMs(valueMs, step, limitMs)) }
+            OffsetStep(stepLabel(step), spoken = valueLabel(step)) {
+                onChange(steppedOffsetMs(valueMs, step, limitMs))
+            }
         }
         Text(
             valueLabel(valueMs),
@@ -1442,7 +1446,9 @@ private fun OffsetStepper(
             modifier = Modifier.weight(1.6f).liveStatus(),
         )
         listOf(fineStepMs, coarseStepMs).forEach { step ->
-            OffsetStep(stepLabel(step)) { onChange(steppedOffsetMs(valueMs, step, limitMs)) }
+            OffsetStep(stepLabel(step), spoken = valueLabel(step)) {
+                onChange(steppedOffsetMs(valueMs, step, limitMs))
+            }
         }
     }
 }
@@ -1450,6 +1456,8 @@ private fun OffsetStepper(
 @Composable
 private fun RowScope.OffsetStep(
     label: String,
+    /** The step with its direction and unit — 提前 0.5 秒 — where the key only has room for −0.5. */
+    spoken: String,
     onClick: () -> Unit,
 ) {
     Text(
@@ -1462,16 +1470,21 @@ private fun RowScope.OffsetStep(
             Modifier
                 .weight(1f)
                 .playerChoiceFeedback(selected = false, shape = AppShapes.pill, onClick = onClick)
+                .semantics { contentDescription = spoken }
                 .padding(vertical = Dimens.space.sm),
     )
 }
 
-/** One press of an offset stepper: the new absolute value, held inside what every engine accepts. */
+/**
+ * One press of an offset stepper: the new absolute value, held inside what every engine accepts.
+ * A value saved past [limitMs] elsewhere (a remembered series delay may reach ±10 s) is never
+ * pulled in by a step away from zero; it only moves back towards the range.
+ */
 internal fun steppedOffsetMs(
     currentMs: Long,
     stepMs: Long,
     limitMs: Long,
-): Long = (currentMs + stepMs).coerceIn(-limitMs, limitMs)
+): Long = (currentMs + stepMs).coerceIn(minOf(-limitMs, currentMs), maxOf(limitMs, currentMs))
 
 /** Seconds as the steppers move them — 1_500 → 1.5, 2_000 → 2, 250 → 0.25 — without the sign. */
 internal fun offsetSecondsLabel(offsetMs: Long): String {

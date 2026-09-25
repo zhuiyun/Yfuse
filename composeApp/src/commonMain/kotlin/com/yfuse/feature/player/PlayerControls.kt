@@ -1652,6 +1652,7 @@ internal fun PlayerControls(
                             poke()
                             onStopCast()
                         },
+                        announce = castError != null,
                     )
                 }
 

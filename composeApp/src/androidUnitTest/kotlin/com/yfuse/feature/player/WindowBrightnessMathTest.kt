@@ -11,9 +11,19 @@ class WindowBrightnessMathTest {
     }
 
     @Test
+    fun aVendorScaleIsReadAgainstItsOwnMaximum() {
+        assertEquals(600f / 2_047f, windowBrightnessForSystemSetting(600, maximum = 2_047))
+        assertEquals(1f, windowBrightnessForSystemSetting(4_095, maximum = 4_095))
+    }
+
+    @Test
     fun startingLevelStaysInsideTheRangeADragCanReach() {
         assertEquals(0.02f, windowBrightnessForSystemSetting(0))
-        assertEquals(1f, windowBrightnessForSystemSetting(1_023))
+    }
+
+    @Test
+    fun aReadingPastTheKnownMaximumKeepsTheMidpointInsteadOfFullBrightness() {
+        assertEquals(0.5f, windowBrightnessForSystemSetting(1_023))
     }
 
     @Test

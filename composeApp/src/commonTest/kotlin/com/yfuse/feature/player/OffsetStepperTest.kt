@@ -13,6 +13,13 @@ class OffsetStepperTest {
     }
 
     @Test
+    fun `a value saved past the limit moves back towards it and never jumps to the limit`() {
+        assertEquals(2_950L, steppedOffsetMs(currentMs = 3_000L, stepMs = -50L, limitMs = 2_000L))
+        assertEquals(3_000L, steppedOffsetMs(currentMs = 3_000L, stepMs = 50L, limitMs = 2_000L))
+        assertEquals(-4_800L, steppedOffsetMs(currentMs = -5_000L, stepMs = 200L, limitMs = 2_000L))
+    }
+
+    @Test
     fun `seconds read the way the steps move them`() {
         assertEquals("0", offsetSecondsLabel(0L))
         assertEquals("0.3", offsetSecondsLabel(300L))

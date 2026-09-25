@@ -78,6 +78,7 @@ import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.LightEffect
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalRouteVisible
@@ -127,21 +128,27 @@ internal fun PlaybackErrorOverlay(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            // Spoken at once and marked as a heading: the failure has stopped what the person was
-            // doing, and the explanation and the ways out below are found from here.
-            Text(
-                "播放遇到问题",
-                style = AppTypography.section.strong,
-                color = Color.White,
-                modifier = Modifier.liveStatus(assertive = true).semantics { heading() },
-            )
-            Text(
-                message,
-                style = AppTypography.body.regular,
-                color = Color.White.copy(alpha = 0.72f),
-                maxLines = 3,
-                overflow = TextOverflow.Ellipsis,
-            )
+            // Spoken at once, reason included: the failure has stopped what the person was doing.
+            // The title stays a heading, where the explanation and the ways out below are found from.
+            Column(
+                Modifier.liveStatus(assertive = true),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                Text(
+                    "播放遇到问题",
+                    style = AppTypography.section.strong,
+                    color = Color.White,
+                    modifier = Modifier.semantics { heading() },
+                )
+                Text(
+                    message,
+                    style = AppTypography.body.regular,
+                    color = Color.White.copy(alpha = 0.72f),
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             onExplain?.let { explain ->
                 Text(
                     "查看原因与导出日志",
@@ -599,6 +606,8 @@ internal fun CastSessionPill(
     onOpen: () -> Unit,
     onDisconnect: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Read the line out as it changes: only while something went wrong, not at every poll. */
+    announce: Boolean = false,
 ) {
     Row(
         modifier.glass(
@@ -612,8 +621,13 @@ internal fun CastSessionPill(
             Modifier
                 .pressable(onClickLabel = "投屏设置", onClick = onOpen)
                 .touchTarget()
-                .padding(start = 16.dp, end = 12.dp, top = 8.dp, bottom = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                .padding(
+                    start = Dimens.space.lg,
+                    end = Dimens.space.md,
+                    top = Dimens.space.sm,
+                    bottom = Dimens.space.sm,
+                ),
+            horizontalArrangement = Arrangement.spacedBy(Dimens.space.sm),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(AppIcons.Cast, "投屏", tint = Color.White, modifier = Modifier.size(14.dp))
@@ -623,8 +637,9 @@ internal fun CastSessionPill(
                 color = Color.White.copy(alpha = 0.92f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                // A dropped receiver or a failed command changes this line while nobody is looking.
-                modifier = Modifier.widthIn(max = 160.dp).liveStatus(),
+                // A failed command changes this line while nobody is looking. DLNA polling swaps
+                // 缓冲中 and 播放中 back and forth, which is not worth interrupting anyone for.
+                modifier = Modifier.widthIn(max = 160.dp).then(if (announce) Modifier.liveStatus() else Modifier),
             )
         }
         Box(
@@ -641,7 +656,12 @@ internal fun CastSessionPill(
                 Modifier
                     .pressable(onClickLabel = "断开投屏", onClick = onDisconnect)
                     .touchTarget()
-                    .padding(start = 12.dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
+                    .padding(
+                        start = Dimens.space.md,
+                        end = Dimens.space.lg,
+                        top = Dimens.space.sm,
+                        bottom = Dimens.space.sm,
+                    ),
         )
     }
 }

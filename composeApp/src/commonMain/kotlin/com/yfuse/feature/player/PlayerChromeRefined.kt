@@ -278,7 +278,8 @@ internal fun RefinedTopBar(
             }
             CircleControl(
                 icon = AppIcons.Cast,
-                description = if (castActive) "投屏，已连接" else "投屏",
+                // Also while connecting, so not 已连接.
+                description = if (castActive) "投屏中" else "投屏",
                 size = 28.dp,
                 iconSize = 12.dp,
                 active = castActive,
