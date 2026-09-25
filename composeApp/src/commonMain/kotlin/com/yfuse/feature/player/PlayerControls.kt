@@ -289,6 +289,8 @@ internal fun PlayerControls(
     onAmbientChromeVisibleChange: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier,
     systemGestureTopPx: Float = 0f,
+    /** Bumped by the owner to bring the controls up, as a tap on the picture would. */
+    wakeRequests: Int = 0,
 ) {
     val currentSystemGestureTop by rememberUpdatedState(systemGestureTopPx)
     val state by rememberPlayerControlSnapshot(playback)
@@ -726,6 +728,9 @@ internal fun PlayerControls(
         if (timeout == Long.MAX_VALUE) return@LaunchedEffect
         delay(timeout)
         volumeSliderVisible = false
+    }
+    LaunchedEffect(wakeRequests) {
+        if (wakeRequests > 0) poke()
     }
     // A segment's skip offer is only good while playback is inside it, and making the viewer summon
     // the controls first spent a good part of that. Entering one raises the pill on its own for a
