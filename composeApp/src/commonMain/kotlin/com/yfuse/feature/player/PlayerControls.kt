@@ -86,6 +86,9 @@ private const val GESTURE_HUD_MS = 1_600L
 /** How long the lock and 长按解锁 stay on the picture after locking or after a touch on it. */
 private const val LOCKED_CONTROLS_MS = 3_000L
 
+/** How long 跳过片头 / 跳过片尾 stays up on its own once playback enters the segment. */
+private const val MANUAL_SKIP_STANDALONE_MS = 6_000L
+
 /**
  * How long the volume slider stays up after the last press or drag.
  *
@@ -141,11 +144,17 @@ internal fun playbackStoppedAtItemEnd(state: PlaybackState): Boolean =
 /** A queue item parked this close to its end has, for the viewer, ended. */
 private const val ITEM_END_SLACK_MS = 1_000L
 
+/**
+ * The manual 跳过片头 / 跳过片尾 pill: up on its own for the first seconds after playback enters the
+ * segment ([segmentJustEntered]) whatever the controls are doing, and with the controls after that.
+ * Never while an automatic skip counts down; that pill speaks for the segment then.
+ */
 internal fun shouldShowManualSkipPill(
     segmentLabel: String?,
     countdownSeconds: Int?,
     controlsVisible: Boolean,
-): Boolean = controlsVisible && countdownSeconds == null && segmentLabel != null
+    segmentJustEntered: Boolean,
+): Boolean = segmentLabel != null && countdownSeconds == null && (controlsVisible || segmentJustEntered)
 
 /**
  * 长按快进/快退 — how fast the playhead runs while a press is held down.
@@ -718,6 +727,24 @@ internal fun PlayerControls(
         delay(timeout)
         volumeSliderVisible = false
     }
+    // A segment's skip offer is only good while playback is inside it, and making the viewer summon
+    // the controls first spent a good part of that. Entering one raises the pill on its own for a
+    // few seconds; after that it comes and goes with the controls like every other key.
+    var skipSegmentJustEntered by remember { mutableStateOf(false) }
+    LaunchedEffect(skip.segmentLabel, state.currentIndex, accessibilityManager) {
+        skipSegmentJustEntered = skip.segmentLabel != null
+        if (!skipSegmentJustEntered) return@LaunchedEffect
+        val timeout =
+            accessibilityManager?.calculateRecommendedTimeoutMillis(
+                originalTimeoutMillis = MANUAL_SKIP_STANDALONE_MS,
+                containsIcons = false,
+                containsText = true,
+                containsControls = true,
+            ) ?: MANUAL_SKIP_STANDALONE_MS
+        if (timeout == Long.MAX_VALUE) return@LaunchedEffect
+        delay(timeout)
+        skipSegmentJustEntered = false
+    }
     LaunchedEffect(locked, lockedRevealRevision, interactions, screenReaderActive, accessibilityManager) {
         if (!locked) {
             lockedControlsVisible = false
@@ -1170,7 +1197,13 @@ internal fun PlayerControls(
                 }
                 val lastSkipLabel = remember { arrayOf("") }
                 skip.segmentLabel?.let { lastSkipLabel[0] = it }
-                val manualSkip = shouldShowManualSkipPill(skip.segmentLabel, skip.countdownSeconds, visible)
+                val manualSkip =
+                    shouldShowManualSkipPill(
+                        segmentLabel = skip.segmentLabel,
+                        countdownSeconds = skip.countdownSeconds,
+                        controlsVisible = visible,
+                        segmentJustEntered = skipSegmentJustEntered,
+                    )
                 ChromeVisibility(
                     visible = manualSkip,
                     edge = ChromeEdge.Bottom,

@@ -549,9 +549,10 @@ internal fun VolumeSlider(
 /**
  * The pill offering to move the playhead past a 片头 / 片尾.
  *
- * Deliberately outside the show/hide of the rest of the controls: the offer is only good
- * for as long as playback is inside the segment, and making the user summon the controls
- * first would spend a chunk of that window.
+ * Not tied to the rest of the controls at first: the offer is only good for as long as playback
+ * is inside the segment, and making the user summon the controls first would spend a chunk of
+ * that window. It comes up on its own as playback enters the segment, and only after those first
+ * seconds does it follow the controls' show/hide — see [shouldShowManualSkipPill].
  */
 @Composable
 internal fun SkipPill(
