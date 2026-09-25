@@ -16,9 +16,39 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  published:
+    name: Confirm the update was published
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: read
+    outputs:
+      published: ${{ steps.check.outputs.published }}
+    steps:
+      - name: Check that the run uploaded the update
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          # A package-only run (publish off) also succeeds, with its upload steps skipped. Only an
+          # update that actually reached the server gets a public release.
+          conclusion="$(gh run view "$RUN_ID" --repo "$GITHUB_REPOSITORY" --json jobs \
+            --jq '[.jobs[].steps[] | select(.name == "Publish update atomically") | .conclusion] | first // "missing"')"
+          echo "Publish update atomically: $conclusion"
+          if [[ "$conclusion" == "success" ]]; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::Run $RUN_ID did not publish an update; no GitHub release is created"
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
+
   release:
     name: Tag, checksum, SBOM, and publish release
-    if: github.event.workflow_run.conclusion == 'success'
+    needs: published
+    if: needs.published.outputs.published == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
