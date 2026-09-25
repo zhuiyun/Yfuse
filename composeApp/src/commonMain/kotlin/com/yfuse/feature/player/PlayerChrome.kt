@@ -67,6 +67,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.setProgress
@@ -126,7 +127,14 @@ internal fun PlaybackErrorOverlay(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Text("播放遇到问题", style = AppTypography.section.strong, color = Color.White)
+            // Spoken at once and marked as a heading: the failure has stopped what the person was
+            // doing, and the explanation and the ways out below are found from here.
+            Text(
+                "播放遇到问题",
+                style = AppTypography.section.strong,
+                color = Color.White,
+                modifier = Modifier.liveStatus(assertive = true).semantics { heading() },
+            )
             Text(
                 message,
                 style = AppTypography.body.regular,
