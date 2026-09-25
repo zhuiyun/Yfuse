@@ -189,10 +189,12 @@ internal sealed interface DetailMsg {
 
     data class AudioLanguageSelected(
         val language: String?,
+        val ordinal: Int? = null,
     ) : DetailMsg
 
     data class SubtitleLanguageSelected(
         val language: String?,
+        val ordinal: Int? = null,
     ) : DetailMsg
 
     data object OrganizationLoading : DetailMsg

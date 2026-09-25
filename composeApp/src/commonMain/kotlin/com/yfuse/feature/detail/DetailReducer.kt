@@ -181,8 +181,19 @@ internal object DetailReducer : Reducer<DetailState, DetailMsg> {
                 }
             is DetailMsg.ActionMessage -> copy(actionMessage = msg.value)
             is DetailMsg.SourceFailure -> copy(sourceFailure = msg.value, selectionLoading = false)
-            is DetailMsg.AudioLanguageSelected -> copy(preferredAudioLanguage = msg.language)
-            is DetailMsg.SubtitleLanguageSelected -> copy(preferredSubtitleLanguage = msg.language)
+            is DetailMsg.AudioLanguageSelected ->
+                copy(
+                    preferredAudioLanguage = msg.language,
+                    preferredAudioOrdinal = msg.ordinal.takeIf { msg.language != null },
+                )
+            is DetailMsg.SubtitleLanguageSelected ->
+                copy(
+                    preferredSubtitleLanguage = msg.language,
+                    preferredSubtitleOrdinal =
+                        msg.ordinal.takeIf {
+                            msg.language != null && msg.language != PlaybackTrackRequest.SUBTITLES_OFF
+                        },
+                )
             DetailMsg.OrganizationLoading ->
                 copy(
                     organizationLoading = true,
@@ -296,5 +307,18 @@ private fun DetailState.withSelectedVersion(versionId: String?): DetailState {
         selectedVersionId = version?.id,
         preferredAudioLanguage = audioLanguage,
         preferredSubtitleLanguage = subtitleLanguage,
+        preferredAudioOrdinal =
+            preferredAudioOrdinal.keptFor(audioLanguage, version?.audioTracks.orEmpty().map { it.language }),
+        preferredSubtitleOrdinal =
+            preferredSubtitleOrdinal.keptFor(subtitleLanguage, version?.subtitleTracks.orEmpty().map { it.language }),
     )
 }
+
+/** A pick among one language's tracks survives a change of file only if the new file has that many. */
+private fun Int?.keptFor(
+    language: String?,
+    languages: List<String?>,
+): Int? =
+    this?.takeIf { ordinal ->
+        language != null && languages.count { it.equals(language, ignoreCase = true) } > ordinal
+    }

@@ -4,7 +4,10 @@ import com.yfuse.core.data.PlaybackPreferences
 import com.yfuse.core.data.PlaybackTrackRequest
 import com.yfuse.core.data.RememberedPlaybackTrack
 import com.yfuse.core2.api.YInitialTrackSelection
+import com.yfuse.core2.api.YTrack
 import com.yfuse.core2.api.YTrackPreference
+import com.yfuse.core2.api.YTrackType
+import com.yfuse.core2.api.matchingPreference
 
 internal fun PlayerMediaItem.initialPlaybackTracks(
     preferences: PlaybackPreferences,
@@ -14,13 +17,13 @@ internal fun PlayerMediaItem.initialPlaybackTracks(
     val subtitle = requested?.subtitleLanguage
     return YInitialTrackSelection(
         audio =
-            requested?.audioLanguage?.let { YTrackPreference(language = it) }
+            requested?.let { tracks -> tracks.audioLanguage?.let { requestedTrackPreference(it, tracks.audioHint) } }
                 ?: remembered?.audio?.toInitialTrackPreference(),
         subtitle =
             if (subtitle == PlaybackTrackRequest.SUBTITLES_OFF) {
                 null
             } else {
-                subtitle?.let { YTrackPreference(language = it) }
+                subtitle?.let { requestedTrackPreference(it, requested?.subtitleHint) }
                     ?: remembered?.primarySubtitle?.toInitialTrackPreference()
             },
         subtitlesDisabled =
@@ -32,6 +35,27 @@ internal fun PlayerMediaItem.initialPlaybackTracks(
 
 private fun RememberedPlaybackTrack.toInitialTrackPreference() =
     YTrackPreference(language, label, codec, languageOrdinal)
+
+/** The detail page's pick: the language decides, and the hint only chooses among its tracks. */
+private fun requestedTrackPreference(
+    language: String,
+    hint: PlaybackTrackRequest.TrackHint?,
+) = YTrackPreference(language, hint?.label, hint?.codec, hint?.languageOrdinal)
+
+/**
+ * [matchingLanguage] narrowed by the detail page's hint. Once the tracks are known the request is
+ * applied again, and by language alone that re-selected the first of two 中文 tracks over the one
+ * the initial selection had just opened with.
+ */
+internal fun List<EngineTrack>.matchingRequestedTrack(
+    language: String,
+    hint: PlaybackTrackRequest.TrackHint?,
+): String? {
+    if (language.isBlank()) return null
+    return map { YTrack(it.id, YTrackType.Audio, it.label, it.language, it.codec, it.selected) }
+        .matchingPreference(requestedTrackPreference(language, hint))
+        ?.id
+}
 
 internal fun YInitialTrackSelection?.withInitialHandoff(
     item: PlayerMediaItem,

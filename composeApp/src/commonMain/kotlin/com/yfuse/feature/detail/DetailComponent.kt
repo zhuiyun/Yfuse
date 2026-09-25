@@ -284,11 +284,7 @@ class DetailComponent(
         ) {
             val selected = playback.items.getOrNull(playback.startIndex) ?: return
             if (playback.loading || playback.error != null || !selected.canPreloadSource) return
-            val tracks =
-                com.yfuse.core.data.PlaybackTrackRequest.Tracks(
-                    store.state.preferredAudioLanguage,
-                    store.state.preferredSubtitleLanguage,
-                )
+            val tracks = store.state.requestedTracks()
             if (sourceWarmup != null && warmedTrackRequest == tracks && warmedPreheatMode == mode) return
             sourceWarmup?.cancel()
             warmedTrackRequest = tracks

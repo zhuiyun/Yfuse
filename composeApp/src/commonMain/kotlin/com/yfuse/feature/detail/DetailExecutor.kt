@@ -190,9 +190,9 @@ internal class DetailExecutor(
                 selectSeason(intent.seasonId)
             }
             is DetailIntent.SelectAudioLanguage ->
-                dispatch(DetailMsg.AudioLanguageSelected(intent.language))
+                dispatch(DetailMsg.AudioLanguageSelected(intent.language, intent.ordinal))
             is DetailIntent.SelectSubtitleLanguage ->
-                dispatch(DetailMsg.SubtitleLanguageSelected(intent.language))
+                dispatch(DetailMsg.SubtitleLanguageSelected(intent.language, intent.ordinal))
             is DetailIntent.SelectEpisode -> {
                 val pendingServerId = pendingSourceServerId
                 val pendingItemId = pendingSourceItemId
@@ -1443,10 +1443,13 @@ internal class DetailExecutor(
         val versionId =
             current.selectedVersionId
                 ?.takeIf { selected -> target.versions.any { it.id == selected } }
+        val tracks = current.requestedTracks()
         playbackTrackRequest.set(
             itemId = target.id,
-            audioLanguage = current.preferredAudioLanguage,
-            subtitleLanguage = current.preferredSubtitleLanguage,
+            audioLanguage = tracks.audioLanguage,
+            subtitleLanguage = tracks.subtitleLanguage,
+            audioHint = tracks.audioHint,
+            subtitleHint = tracks.subtitleHint,
         )
         val mediaKey = target.providerIds.watchKey(target.id)
         val fallbackServers =

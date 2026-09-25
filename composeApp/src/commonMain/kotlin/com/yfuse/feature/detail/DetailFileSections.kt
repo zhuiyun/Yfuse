@@ -433,7 +433,8 @@ internal fun VersionSection(
  * whichever the file marks default, and finding out it was the wrong one means hearing it,
  * pausing, and going two panels deep while the room waits.
  *
- * Selection travels as a language rather than a stream number — see [PlaybackTrackRequest].
+ * Selection travels as a language rather than a stream number — see [PlaybackTrackRequest] —
+ * narrowed to one track when the file holds several of that language (see [TrackChoice]).
  * 默认 is a real choice and always present: it is the only one that says "I have no opinion",
  * and without it a picker that has been touched can never be untouched.
  */
@@ -441,10 +442,12 @@ internal fun VersionSection(
 internal fun TrackSection(
     version: MediaVersion,
     audioLanguage: String?,
+    audioOrdinal: Int?,
     subtitleLanguage: String?,
+    subtitleOrdinal: Int?,
     accent: Color,
-    onSelectAudio: (String?) -> Unit,
-    onSelectSubtitle: (String?) -> Unit,
+    onSelectAudio: (TrackChoice) -> Unit,
+    onSelectSubtitle: (TrackChoice) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -452,17 +455,8 @@ internal fun TrackSection(
             Column {
                 SectionHeader("音轨", Modifier.padding(horizontal = Dimens.pageHorizontal))
                 TrackChipRow(
-                    options =
-                        buildList {
-                            add(TrackChoice(null, "默认"))
-                            // A track the server tagged with no language is unreachable —
-                            // language is the only handle the player has on it — so it is not
-                            // offered rather than offered and silently ignored.
-                            version.audioTracks.forEach { track ->
-                                track.language?.let { add(TrackChoice(it, track.label)) }
-                            }
-                        },
-                    selected = audioLanguage,
+                    options = remember(version) { audioTrackChoices(version) },
+                    isSelected = { it.isSelected(audioLanguage, audioOrdinal) },
                     accent = accent,
                     onSelect = onSelectAudio,
                 )
@@ -472,15 +466,8 @@ internal fun TrackSection(
             Column {
                 SectionHeader("字幕", Modifier.padding(horizontal = Dimens.pageHorizontal))
                 TrackChipRow(
-                    options =
-                        buildList {
-                            add(TrackChoice(null, "默认"))
-                            add(TrackChoice(PlaybackTrackRequest.SUBTITLES_OFF, "关闭"))
-                            version.subtitleTracks.forEach { track ->
-                                track.language?.let { add(TrackChoice(it, track.label)) }
-                            }
-                        },
-                    selected = subtitleLanguage,
+                    options = remember(version) { subtitleTrackChoices(version) },
+                    isSelected = { it.isSelected(subtitleLanguage, subtitleOrdinal) },
                     accent = accent,
                     onSelect = onSelectSubtitle,
                 )
@@ -489,18 +476,12 @@ internal fun TrackSection(
     }
 }
 
-/** One selectable track, as the value that travels and the words on the chip. */
-private data class TrackChoice(
-    val value: String?,
-    val label: String,
-)
-
 @Composable
 private fun TrackChipRow(
     options: List<TrackChoice>,
-    selected: String?,
+    isSelected: (TrackChoice) -> Boolean,
     accent: Color,
-    onSelect: (String?) -> Unit,
+    onSelect: (TrackChoice) -> Unit,
 ) {
     val palette = LocalPalette.current
     val stateColors = detailStateColors(accent, palette.background, palette.isDark)
@@ -512,7 +493,7 @@ private fun TrackChipRow(
         // Positional keys on purpose: a file can carry two tracks the server tags with the
         // same language, so the value is not unique and cannot be one.
         motionItems(options) { option ->
-            val active = option.value == selected
+            val active = isSelected(option)
             Text(
                 option.label,
                 style = if (active) AppTypography.body.strong else AppTypography.body.medium,
@@ -525,7 +506,7 @@ private fun TrackChipRow(
                         .pressable(
                             role = Role.RadioButton,
                             onClickLabel = "选择${option.label}",
-                            onClick = { onSelect(option.value) },
+                            onClick = { onSelect(option) },
                         ).semantics { this.selected = active }
                         .touchTarget()
                         .shadow(GlassLift.control, AppShapes.chip)

@@ -692,13 +692,19 @@ fun DetailScreen(component: DetailComponent) {
                                         TrackSection(
                                             version = playableVersion,
                                             audioLanguage = state.preferredAudioLanguage,
+                                            audioOrdinal = state.preferredAudioOrdinal,
                                             subtitleLanguage = state.preferredSubtitleLanguage,
+                                            subtitleOrdinal = state.preferredSubtitleOrdinal,
                                             accent = detailAccent,
-                                            onSelectAudio = {
-                                                component.store.accept(DetailIntent.SelectAudioLanguage(it))
+                                            onSelectAudio = { choice ->
+                                                component.store.accept(
+                                                    DetailIntent.SelectAudioLanguage(choice.value, choice.ordinal),
+                                                )
                                             },
-                                            onSelectSubtitle = {
-                                                component.store.accept(DetailIntent.SelectSubtitleLanguage(it))
+                                            onSelectSubtitle = { choice ->
+                                                component.store.accept(
+                                                    DetailIntent.SelectSubtitleLanguage(choice.value, choice.ordinal),
+                                                )
                                             },
                                             modifier = Modifier.padding(top = Dimens.sectionGap),
                                         )
