@@ -801,6 +801,17 @@ val confirmMdkDistributionRights =
             else -> error("confirmMdkDistributionRights must be omitted, true, or false")
         }
     } ?: false
+
+// Passed only by publish-android.yml for a manual run with `publish` turned off: the signed APK is
+// kept as that run's artifact and never reaches the updater.
+val packageOnlyRelease =
+    providers.gradleProperty("yfusePackageOnly").orNull?.let { raw ->
+        when (raw.trim().lowercase()) {
+            "", "true" -> true
+            "false" -> false
+            else -> error("yfusePackageOnly must be omitted, true, or false")
+        }
+    } ?: false
 val signDeviceTestsWithReleaseKey =
     providers.gradleProperty("signDeviceTestsWithReleaseKey").orNull?.let { raw ->
         when (raw.trim().lowercase()) {
@@ -1072,6 +1083,7 @@ val verifyReleaseSigning by tasks.registering {
         // (docs/android-release.md), so a local build only warns. A real CI production build can
         // and should have UPDATE_MANIFEST_SIGNING_KEY / YFUSE_UPDATE_MANIFEST_PUBLIC_KEY
         // configured, so CI fails loudly instead of silently shipping an unsigned-manifest release.
+        // A CI package-only build ships nothing, so it only warns, like a local build.
         if (releaseSigningReady && !allowDebugSigning && updateManifestPublicKey.isBlank()) {
             val warningLines =
                 listOf(
@@ -1083,7 +1095,7 @@ val verifyReleaseSigning by tasks.registering {
                         "above the `updateManifestPublicKey` property in this file for exact steps.",
                     "!".repeat(78),
                 )
-            if (isCi) {
+            if (isCi && !packageOnlyRelease) {
                 throw GradleException(
                     (
                         listOf(

@@ -277,8 +277,22 @@ to work while immutable releases take over. This does not widen the public HTTP
 policy: only the legacy update manifest and its APK remain available over HTTP.
 
 The generated APK, `update.json`, and `update-v2.json` are also retained as a GitHub
-Actions artifact for 30 days. Both manifests describe the same release metadata;
+Actions artifact for 7 days. Both manifests describe the same release metadata;
 only their `apkUrl` values differ.
+
+### Package without publishing
+
+Run the manual fallback above with **publish** turned off to get a production-signed APK that
+nobody is offered yet. The run, named `Package Yfuse <versionName> (<versionCode>) without
+publishing`, passes the same quality-gate, version, test, lint, MDK, signing, and APK checks,
+then saves the APK and both manifests as its `Yfuse-<versionName>` artifact for 7 days. It
+skips the watch-server check and every step that reaches the deployment server, so the update
+host and installed apps are untouched, and `release.yml` creates a GitHub release only for a
+run whose "Publish update atomically" step succeeded.
+
+A missing update-manifest key only warns in such a run, as it does in a local build; a
+publishing CI run still refuses it. Publishing the same version later is a separate manual
+run with **publish** on.
 
 ## Reproducible dependencies and native artifacts
 

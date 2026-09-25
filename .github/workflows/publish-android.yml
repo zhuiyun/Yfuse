@@ -1,4 +1,8 @@
 name: Publish Android update
+run-name: >-
+  ${{ github.event_name == 'workflow_dispatch' && !inputs.publish
+  && format('Package Yfuse {0} ({1}) without publishing', inputs.version_name, inputs.version_code)
+  || '' }}
 
 on:
   push:
@@ -29,6 +33,14 @@ on:
         required: true
         default: false
         type: boolean
+      publish:
+        description: >-
+          Upload the update to the server; a successful upload also creates the GitHub release.
+          Turn off to only build, verify and keep the production-signed APK as this run's
+          artifact (7 days): nothing is uploaded and installed apps keep their current version.
+        required: true
+        default: true
+        type: boolean
 
 permissions:
   contents: read
@@ -56,6 +68,9 @@ jobs:
       # variable. Gradle's own verifyProductionMdkRights task fails the build if this is not
       # exactly "true" for a production-signed, MDK-included package (the default here).
       CONFIRM_MDK_DISTRIBUTION_RIGHTS: ${{ inputs.confirm_mdk_distribution_rights }}
+      # A push to master always publishes. A manual run with `publish` off stops after saving the
+      # signed, verified APK as the run artifact: every step that reaches the servers is skipped.
+      PUBLISH_UPDATE: ${{ github.event_name == 'push' || inputs.publish }}
       ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
       ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
       ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
@@ -202,6 +217,7 @@ jobs:
           echo "WATCH_BASE_URL=$normalized_watch_url" >> "$GITHUB_ENV"
 
       - name: Verify watch server protocol
+        if: env.PUBLISH_UPDATE == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -439,10 +455,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          package_only=true
+          [[ "$PUBLISH_UPDATE" != "true" ]] || package_only=false
           ./gradlew :composeApp:assembleRelease \
             -PyfuseVersionCode="$VERSION_CODE" \
             -PyfuseVersionName="$VERSION_NAME" \
             -PconfirmMdkDistributionRights="$CONFIRM_MDK_DISTRIBUTION_RIGHTS" \
+            -PyfusePackageOnly="$package_only" \
             -Pkotlin.incremental=false \
             --no-daemon
 
@@ -598,7 +617,8 @@ jobs:
             build/update/update-v2.json >/dev/null
 
       - name: Save release artifact
-        continue-on-error: true
+        # Publishing does not depend on this copy; a package-only run has nothing else to show.
+        continue-on-error: ${{ env.PUBLISH_UPDATE == 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: Yfuse-${{ steps.apk.outputs.version_name }}
@@ -608,6 +628,7 @@ jobs:
           compression-level: 0
 
       - name: Configure pinned SSH host
+        if: env.PUBLISH_UPDATE == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -635,6 +656,7 @@ jobs:
 
       - name: Publish update atomically
         id: activate
+        if: env.PUBLISH_UPDATE == 'true'
         shell: bash
         env:
           APK_FILE_NAME: ${{ steps.apk.outputs.file_name }}
@@ -863,6 +885,7 @@ jobs:
           echo "rollback_token=$rollback_token" >> "$GITHUB_OUTPUT"
 
       - name: Verify server and public download
+        if: env.PUBLISH_UPDATE == 'true'
         shell: bash
         env:
           EXPECTED_SHA256: ${{ steps.apk.outputs.sha256 }}
@@ -983,6 +1006,7 @@ jobs:
           [[ "$(stat -c '%s' build/update/Yfuse-public-legacy.apk)" == "$EXPECTED_SIZE" ]]
 
       - name: Finalize release and retain three APK versions
+        if: env.PUBLISH_UPDATE == 'true'
         shell: bash
         env:
           APK_FILE_NAME: ${{ steps.apk.outputs.file_name }}
