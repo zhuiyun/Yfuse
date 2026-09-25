@@ -913,7 +913,11 @@ fun DetailScreen(component: DetailComponent) {
                         played = detail.played,
                         isPlex = state.server?.kind == com.yfuse.core.model.MediaServerKind.Plex,
                         watchAvailable = watchAvailable,
-                        watchActive = watchState.roomCode != null,
+                        // 继续分享邀请 only for a room this title can be shared into; any other room is
+                        // left, after asking, for a new one.
+                        watchActive =
+                            watchRoomAction(watchState, detail.providerIds.watchKey(detail.id)) ==
+                                WatchRoomAction.Share,
                         serverFavoriteAvailable = serverFavoriteAvailable,
                         serverFavorite = detail.isFavorite,
                         serverWatchLater = state.watchLater,
