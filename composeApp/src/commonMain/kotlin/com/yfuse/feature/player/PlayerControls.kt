@@ -1659,8 +1659,12 @@ internal fun PlayerControls(
                     .filter { (id, _) -> id != selectedVersionId }
                     .take(MAX_ERROR_ALTERNATIVES)
                     .map { (id, label) -> "版本 · $label" to { onSelectVersion(id) } }
+            // One strategy on offer (a native-only package) is no alternative to itself, whichever
+            // row happens to be marked: reloading it replays the same path into the same failure.
             val otherEngines =
                 engineOptions
+                    .takeIf { it.size > 1 }
+                    .orEmpty()
                     .mapIndexedNotNull { index, (label, selected) ->
                         if (selected) null else label to { onSelectEngine(index) }
                     }.take(MAX_ERROR_ALTERNATIVES)
