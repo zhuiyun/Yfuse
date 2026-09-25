@@ -818,6 +818,21 @@ fun ProfileScreen(component: ProfileComponent) {
 
         offlineToPlay?.takeIf { it.playable }?.let { offline ->
             val path = offline.localPath ?: return@let
+            // It opened at 00:00 however far the title had got. A download is what plays without
+            // the server, so the point comes from this device's own progress records instead; read
+            // once per launch, so a recomposition cannot restart the launch at another position.
+            val startPositionMs =
+                remember(offline) {
+                    runCatching {
+                        val states =
+                            org.koin.core.context.GlobalContext
+                                .get()
+                                .get<com.yfuse.core.sync.playback.PlaybackSyncStore>()
+                                .statesForServer(offline.serverId)
+                        com.yfuse.core.offline
+                            .offlineStartPositionMs(offline, states)
+                    }.getOrDefault(0L)
+                }
             PlayerLauncher(
                 items =
                     listOf(
@@ -832,7 +847,7 @@ fun ProfileScreen(component: ProfileComponent) {
                         ),
                     ),
                 startIndex = 0,
-                startPositionMs = 0L,
+                startPositionMs = startPositionMs,
                 onLaunched = { offlineToPlay = null },
             )
         }
