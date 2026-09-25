@@ -223,6 +223,9 @@ sealed interface SearchIntent {
 
     data object ClearFilters : SearchIntent
 
+    /** Leaves a smart playlist: its name and every filter it brought go together. */
+    data object ExitPlaylist : SearchIntent
+
     data class SelectPerson(
         val person: PersonHit?,
     ) : SearchIntent
@@ -342,6 +345,8 @@ private sealed interface SearchMsg {
 
     data object FiltersCleared : SearchMsg
 
+    data object PlaylistExited : SearchMsg
+
     data object Cleared : SearchMsg
 }
 
@@ -440,6 +445,14 @@ class SearchStoreFactory(
                     dispatch(SearchMsg.FiltersCleared)
                     facetJob?.cancel()
                     refreshCurrent()
+                }
+                SearchIntent.ExitPlaylist -> {
+                    debounceJob?.cancel()
+                    facetJob?.cancel()
+                    dispatch(SearchMsg.PlaylistExited)
+                    // The playlist's own words carry on as an ordinary search across every
+                    // server; a playlist that had none goes back to the start page.
+                    search(state().query)
                 }
                 is SearchIntent.SelectPerson -> selectPerson(intent.person)
                 is SearchIntent.LoadMore -> loadMore(intent.serverId)
@@ -587,7 +600,14 @@ class SearchStoreFactory(
             val allServers = registry.data.value.servers
             val servers = state().serverId?.let { selected -> allServers.filter { it.id == selected } } ?: allServers
             if (servers.isEmpty()) {
-                dispatch(SearchMsg.Failed(query, "还没有可用的服务器，请先到「我的」添加服务器"))
+                val message =
+                    if (allServers.isEmpty()) {
+                        "还没有可用的服务器，请先到「服务器」添加"
+                    } else {
+                        // Only a smart playlist names one server, and this one has since gone.
+                        "片单指定的服务器已不在列表里，退出片单即可搜索全部服务器"
+                    }
+                dispatch(SearchMsg.Failed(query, message))
                 return
             }
             val snapshot = state()
@@ -749,13 +769,19 @@ class SearchStoreFactory(
                         sort = SearchSort.entries.firstOrNull { it.name == msg.rule.sort } ?: SearchSort.RecentlyAdded,
                     )
                 is SearchMsg.QueryChanged ->
-                    copy(
-                        query = msg.value,
-                        playlistName = if (msg.value == query) playlistName else null,
-                        error = null,
-                        aggregated = if (msg.value.trim() == query.trim()) aggregated else emptyList(),
-                        type = if (msg.value.trim() == query.trim()) type else SearchType.All,
-                    )
+                    if (msg.value.trim() == query.trim()) {
+                        copy(query = msg.value, error = null)
+                    } else {
+                        // A new word leaves the smart playlist, and the filters it brought leave
+                        // with it. This page has no control that shows or clears them, so kept
+                        // they would quietly narrow every later search.
+                        withoutFilters().copy(
+                            query = msg.value,
+                            playlistName = null,
+                            error = null,
+                            aggregated = emptyList(),
+                        )
+                    }
                 // The input keeps whatever the user has typed since; only the searched
                 // query and the results belong to the request that is now loading.
                 is SearchMsg.Loading ->
@@ -940,33 +966,32 @@ class SearchStoreFactory(
                                 },
                         )
                     }
-                SearchMsg.FiltersCleared ->
-                    copy(
-                        type = SearchType.All,
-                        serverId = null,
-                        libraryId = null,
-                        libraryOptions = emptyList(),
-                        year = null,
-                        genre = null,
-                        genreOptions = emptyList(),
-                        watchStatus = SearchWatchStatus.All,
-                        sort = SearchSort.Relevance,
-                    )
+                SearchMsg.FiltersCleared -> withoutFilters()
+                SearchMsg.PlaylistExited -> withoutFilters().copy(playlistName = null)
                 SearchMsg.Cleared ->
                     SearchState(
                         recent = recent,
                         serverOptions = serverOptions,
-                        type = type,
-                        serverId = serverId,
-                        libraryId = libraryId,
-                        libraryOptions = libraryOptions,
-                        year = year,
-                        genre = genre,
-                        genreOptions = genreOptions,
-                        watchStatus = watchStatus,
-                        sort = sort,
+                        // The type chips are the one narrowing still on screen, and the TV clear
+                        // button puts focus back on the chosen chip. Server, library, year,
+                        // genre, watch state and sort only ever come from a smart playlist now
+                        // that the filter panel is gone, and clearing leaves the playlist.
+                        type = if (playlistName == null) type else SearchType.All,
                     )
             }
+
+        private fun SearchState.withoutFilters(): SearchState =
+            copy(
+                type = SearchType.All,
+                serverId = null,
+                libraryId = null,
+                libraryOptions = emptyList(),
+                year = null,
+                genre = null,
+                genreOptions = emptyList(),
+                watchStatus = SearchWatchStatus.All,
+                sort = SearchSort.Relevance,
+            )
     }
 }
 

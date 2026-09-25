@@ -67,11 +67,9 @@ class CalendarComponent(
         followStore.setReminder(tmdbId, mode, beforeMinutes)
     }
 
-    fun setReminderForAll(
-        mode: CalendarReminderMode,
-        beforeMinutes: Int,
-    ) {
-        followStore.setReminderForAll(mode, beforeMinutes)
+    /** Switches every show's mode; each keeps the lead time it was given in its own sheet. */
+    fun setReminderForAll(mode: CalendarReminderMode) {
+        followStore.setReminderForAll(mode)
     }
 
     suspend fun refreshSeries(series: FollowedSeries): Result<List<CalendarDay>> =

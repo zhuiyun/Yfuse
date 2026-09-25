@@ -60,6 +60,7 @@ import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.Brand
+import com.yfuse.core.designsystem.ConfirmDialog
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.DisclosureContent
 import com.yfuse.core.designsystem.ErrorState
@@ -216,6 +217,14 @@ private fun SearchHomeScreen(
                         loading = state.loading,
                     )
                     Spacer(Modifier.height(8.dp))
+                }
+            }
+            state.playlistName?.let { name ->
+                motionItem(key = "search-playlist-banner") {
+                    PlaylistBanner(
+                        name = name,
+                        onExit = { store.accept(SearchIntent.ExitPlaylist) },
+                    )
                 }
             }
             state.person?.let { person ->
@@ -399,6 +408,8 @@ internal fun SearchField(
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
     val shape = AppShapes.pill
+    val keyboard = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
     Row(
         Modifier
             .fillMaxWidth()
@@ -427,7 +438,15 @@ internal fun SearchField(
                 textStyle = AppTypography.body.regular.copy(color = palette.text),
                 cursorBrush = SolidColor(accent.accent),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = { onSubmit() }),
+                keyboardActions =
+                    KeyboardActions(
+                        onSearch = {
+                            onSubmit()
+                            // The results land under the keyboard; pressing search means read them.
+                            focusManager.clearFocus(force = true)
+                            keyboard?.hide()
+                        },
+                    ),
                 modifier =
                     Modifier
                         .fillMaxWidth()
@@ -600,6 +619,43 @@ private fun PersonBanner(
             style = AppTypography.caption.strong,
             color = accent.accent,
             modifier = Modifier.pressable(onClick = onClear).touchTarget(),
+        )
+    }
+}
+
+/**
+ * Which smart playlist the results come from. Its saved server, library and watch-state
+ * filters have no control on this page, so this is where they are named and dropped.
+ */
+@Composable
+private fun PlaylistBanner(
+    name: String,
+    onExit: () -> Unit,
+) {
+    val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = Dimens.pageHorizontal)
+            .glass(AppShapes.chip, palette.card2, palette.border)
+            .padding(horizontal = Dimens.space.lg, vertical = Dimens.space.sm),
+        horizontalArrangement = Arrangement.spacedBy(Dimens.space.md),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            "智能片单 · $name",
+            style = AppTypography.body.strong,
+            color = palette.text,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            "退出片单",
+            style = AppTypography.caption.strong,
+            color = accent.accent,
+            modifier = Modifier.pressable(onClick = onExit).touchTarget(),
         )
     }
 }
@@ -808,7 +864,7 @@ private fun SearchCoverageNotice(
                 }
                 if (unavailable.isNotEmpty()) {
                     Text(
-                        "前往「我的」检查登录",
+                        "前往「服务器」检查登录",
                         style = AppTypography.caption.strong,
                         color = accent.accent,
                         modifier =
@@ -1068,6 +1124,8 @@ private fun RecentSearches(
 ) {
     val palette = LocalPalette.current
     var editing by remember { mutableStateOf(false) }
+    // 清空 sits one chip away from 编辑 and wipes every term at once, with no way back.
+    var confirmClear by remember { mutableStateOf(false) }
     // History emptied while the row was in edit mode has nothing left to edit.
     LaunchedEffect(canEdit) { if (!canEdit) editing = false }
     Column(Modifier.padding(horizontal = Dimens.pageHorizontal)) {
@@ -1084,9 +1142,22 @@ private fun RecentSearches(
                         accent = editing,
                         onClick = { editing = !editing },
                     )
-                    HistoryAction(label = "清空", accent = false, onClick = onClearAll)
+                    HistoryAction(label = "清空", accent = false, onClick = { confirmClear = true })
                 }
             }
+        }
+        if (confirmClear) {
+            ConfirmDialog(
+                title = "清空搜索记录？",
+                message = "将删除全部 ${terms.size} 条搜索记录，删除后不能恢复。",
+                confirmLabel = "确认清空",
+                destructive = true,
+                onConfirm = {
+                    confirmClear = false
+                    onClearAll()
+                },
+                onDismiss = { confirmClear = false },
+            )
         }
         FlowRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
