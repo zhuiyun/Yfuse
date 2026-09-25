@@ -729,4 +729,6 @@ expect fun createOfflineMediaManager(
     settings: Settings,
     registry: ServerRegistry,
     repository: EmbyRepository,
+    /** The User-Agent the app presents to servers; a download sends it as playback does. */
+    userAgent: () -> String,
 ): OfflineMediaManager

@@ -181,7 +181,10 @@ fun appModule(
             progressProjection = get(),
         )
     }
-    single<OfflineMediaManager> { createOfflineMediaManager(get(), get(), get()) }
+    single<OfflineMediaManager> {
+        val userAgent = get<UserAgentPreferences>()
+        createOfflineMediaManager(get(), get(), get()) { userAgent.userAgent.value }
+    }
     single {
         PlaybackReportingCoordinator(
             repository = get(),
