@@ -78,6 +78,11 @@ class ServersTabComponent(
      */
     val access: StateFlow<PersonalAccessPolicy> get() = personal.policy
 
+    /** Arriving from 库's empty page: the add form, open — unless this profile cannot add one. */
+    fun openAddServer() {
+        if (personal.policy.value.canManageServers) store.accept(ServersIntent.OpenAddDialog)
+    }
+
     /** Grid or list; see [ServerLayout]. */
     val layout: StateFlow<ServerLayout> = themePreferences.serverLayout
 

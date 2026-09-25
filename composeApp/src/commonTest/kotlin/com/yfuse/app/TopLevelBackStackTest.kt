@@ -1,6 +1,7 @@
 package com.yfuse.app
 
 import com.yfuse.app.RootComponent.Tab
+import com.yfuse.core.model.StartupTab
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -27,5 +28,20 @@ class TopLevelBackStackTest {
     fun no_saved_tab_or_an_unknown_one_falls_back_to_the_startup_rule() {
         assertNull(restoredTab(null))
         assertNull(restoredTab("Downloads"))
+    }
+
+    @Test
+    fun automatic_start_opens_servers_until_there_is_one_and_the_library_after() {
+        assertEquals(Tab.Servers, startupTab(StartupTab.Automatic, hasServers = false))
+        assertEquals(Tab.Browse, startupTab(StartupTab.Automatic, hasServers = true))
+    }
+
+    @Test
+    fun a_chosen_start_tab_holds_with_or_without_servers() {
+        listOf(false, true).forEach { hasServers ->
+            assertEquals(Tab.Home, startupTab(StartupTab.Home, hasServers))
+            assertEquals(Tab.Browse, startupTab(StartupTab.Library, hasServers))
+            assertEquals(Tab.Servers, startupTab(StartupTab.Servers, hasServers))
+        }
     }
 }

@@ -29,6 +29,8 @@ class LibraryComponent(
     val repo: EmbyRepository,
     val registry: ServerRegistry,
     private val dependencies: AppDependencies,
+    /** The way out of an empty 库: to 服务器, with its add form open. */
+    private val onAddServer: () -> Unit = {},
 ) : ComponentContext by componentContext {
     private val navigation = StackNavigation<Config>()
     private val playerRouteLaunchGate = PlayerRouteLaunchGate()
@@ -155,6 +157,7 @@ class LibraryComponent(
                         storeFactory = storeFactory,
                         repo = repo,
                         registry = registry,
+                        onAddServer = onAddServer,
                         onOpenUnified = { navigation.pushToFront(Config.Unified) },
                         onSeeAll = { libraryId, title ->
                             navigation.pushToFront(Config.Grid(libraryId, title))

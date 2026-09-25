@@ -48,11 +48,10 @@ class RootComponent(
 ) : ComponentContext by componentContext {
     enum class Tab { Home, Browse, Servers, Search, Profile }
 
-    // Where a cold start lands. [StartupTab.Automatic] keeps the rule this used to hard-code:
-    // someone who has already connected a server opens the app to watch what is on it, while
-    // 首页's TMDB recommendations are the right first screen only until there is a library to
-    // show — at which point they double as the prompt to go and add one. The other values are
-    // the user overriding that guess; see [StartupTab].
+    // Where a cold start lands. [StartupTab.Automatic]: someone who has already connected a
+    // server opens the app to watch what is on it, and someone who has not opens it on 服务器,
+    // where the first one is added — 首页 used to be that first screen and had no way to add
+    // one. The other values are the user overriding that guess; see [StartupTab].
     //
     // A restored process is not a cold start. Every tab's own stack comes back through its
     // serializer, so without the saved tab the shell reopened on the startup tab while the page
@@ -114,6 +113,7 @@ class RootComponent(
             repo = repo,
             registry = registry,
             dependencies = dependencies,
+            onAddServer = ::openAddServer,
         )
 
     /** 服务器: the saved servers as a grid. */
@@ -245,6 +245,12 @@ class RootComponent(
     fun openDownloads() {
         selectTab(Tab.Profile)
         profile.openDownloads()
+    }
+
+    /** 库 with nothing to show: over to 服务器, with its add form already open. */
+    private fun openAddServer() {
+        selectTab(Tab.Servers)
+        servers.openAddServer()
     }
 
     private fun openSearch() {
@@ -385,5 +391,5 @@ internal fun startupTab(
         StartupTab.Library -> RootComponent.Tab.Browse
         StartupTab.Servers -> RootComponent.Tab.Servers
         StartupTab.Automatic ->
-            if (hasServers) RootComponent.Tab.Browse else RootComponent.Tab.Home
+            if (hasServers) RootComponent.Tab.Browse else RootComponent.Tab.Servers
     }

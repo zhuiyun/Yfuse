@@ -239,6 +239,7 @@ private fun utcDate(epochMs: Long): String {
 @Composable
 fun LibraryHomeScreen(component: LibraryHomeComponent) {
     val state by component.store.states.collectAsState(component.store.state)
+    val access by component.access.collectAsState()
     val libraryCarousel by component.themePreferences.libraryCarousel.collectAsState()
     val store = component.store
     val baseUrl = state.currentServer?.baseUrl.orEmpty()
@@ -359,14 +360,20 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                 if (showSidePreview) LivingPosterDefaults.TRAILING_PEEK else 0.dp
             StatusBarIconStyle(darkIcons = (!libraryCarousel || slide == null || lightPageReached) && !palette.isDark)
             when {
+                state.currentServer == null && access.canManageServers ->
+                    PageHint(
+                        "还没有可用的服务器，添加一台就能在这里浏览媒体库",
+                        Modifier.align(Alignment.Center),
+                        actionLabel = "添加服务器",
+                        onAction = component.onAddServer,
+                    )
+
                 state.currentServer == null ->
                     PageHint(
-                        "当前资料没有可用服务器，请到「服务器」添加或由家长关联",
+                        "当前资料没有可用服务器，请由家长关联",
                         Modifier.align(Alignment.Center),
-                        // No "跳到添加服务器" entry point reaches this screen without threading a
-                        // new callback through LibraryComponent/root navigation (out of this
-                        // package's scope); refresh at least recovers a profile/server change
-                        // made elsewhere without a full app restart.
+                        // A child profile cannot add one itself; a refresh picks up a server a
+                        // parent has linked since, without a restart.
                         actionLabel = "重试",
                         onAction = { store.accept(LibraryIntent.Retry) },
                     )

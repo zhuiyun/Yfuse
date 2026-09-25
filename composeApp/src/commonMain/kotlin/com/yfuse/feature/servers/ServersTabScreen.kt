@@ -1293,7 +1293,7 @@ private fun EmptyServers(onAdd: () -> Unit) {
     ) {
         Icon(AppIcons.Server, null, tint = palette.sub2, modifier = Modifier.size(28.dp))
         Spacer(Modifier.height(12.dp))
-        Text("连接一台 Emby 服务器", style = AppTypography.body.strong, color = palette.text)
+        Text("连接 Emby、Jellyfin 或 Plex 服务器", style = AppTypography.body.strong, color = palette.text)
         Spacer(Modifier.height(4.dp))
         Text(
             "填入地址和账号即可，之后可以随时在这里切换",
