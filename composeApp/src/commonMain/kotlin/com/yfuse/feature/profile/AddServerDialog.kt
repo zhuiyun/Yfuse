@@ -41,6 +41,7 @@ import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.OverlayButton
 import com.yfuse.core.designsystem.OverlayButtonTone
 import com.yfuse.core.designsystem.OverlayHeader
+import com.yfuse.core.designsystem.liveStatus
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.MediaServerKind
@@ -524,7 +525,9 @@ fun AddServerDialog(
                 form.error,
                 style = AppTypography.caption.medium,
                 color = palette.error,
-                modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+                // Read out as it appears: with TalkBack on, the spinner stopping was all that said
+                // the connection had failed.
+                modifier = Modifier.fillMaxWidth().padding(top = 10.dp).liveStatus(assertive = true),
             )
         }
 
