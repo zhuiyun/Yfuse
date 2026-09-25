@@ -267,6 +267,8 @@ internal fun TransportRow(
     onSeekBackward: () -> Unit,
     onSeekForward: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Applied to the play/pause key alone: where a remote's focus lands when the controls come up. */
+    playKeyModifier: Modifier = Modifier,
 ) {
     // The same wait as the status chip's, so a seek's short stall shows nothing in either place.
     val bufferingIndicatorVisible =
@@ -340,7 +342,7 @@ internal fun TransportRow(
                         if (state.buffering) settledPlaying = !pause
                         onPlayPause()
                     },
-                    modifier = Modifier.semantics { if (bufferingIndicatorVisible) stateDescription = "缓冲中" },
+                    modifier = playKeyModifier.semantics { if (bufferingIndicatorVisible) stateDescription = "缓冲中" },
                 )
             }
             // Drawn over the key but never hit: a tap on the ring is a tap on the key. Qualified,

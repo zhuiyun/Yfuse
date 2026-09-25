@@ -1750,7 +1750,10 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun togglePlaybackWithFocus() {
-        if (!activeState.playing && !playbackAllowedByLifecycle()) return
+        // The viewer's intent, not the picture: an engine asked to play reports playing == false
+        // while it buffers, and reading that as paused turned OK during a stall into a second play.
+        val playRequested = activePlayer?.playbackRequested ?: activeState.playing
+        if (!playRequested && !playbackAllowedByLifecycle()) return
         val castManager = remoteCastManager
         if (castManager?.state?.value?.hasActiveSession == true) {
             lifecycleScope.launch {
@@ -1762,7 +1765,7 @@ class PlayerActivity : ComponentActivity() {
             }
             return
         }
-        if (activeState.playing) {
+        if (playRequested) {
             playbackGate?.pause()
         } else if (ensureAudioFocus()) {
             startPlaybackKeepAliveService(fromUserAction = true)

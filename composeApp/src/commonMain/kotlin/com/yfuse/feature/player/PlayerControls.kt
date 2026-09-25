@@ -35,8 +35,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -517,6 +520,19 @@ internal fun PlayerControls(
     DisposableEffect(remoteChrome) {
         onDispose { remoteChrome?.detach() }
     }
+    // A remote has no pointer. The controls used to arrive with nothing focused, so the first OK fell
+    // through to play/pause and the first arrow landed wherever focus search began. Whenever they are
+    // up with focus nowhere — just raised, a panel closed, the focused key swapped between 播放 and
+    // 暂停 — the transport key takes it. A key the viewer has moved to is never taken over.
+    val playKeyFocus = remember { FocusRequester() }
+    LaunchedEffect(remoteChrome, remoteLayer, controlsHaveFocus) {
+        if (remoteChrome == null || remoteLayer != TvPlayerChromeLayer.Controls || controlsHaveFocus) {
+            return@LaunchedEffect
+        }
+        // The bar is composed with the layer; let it attach before asking.
+        repeat(2) { withFrameNanos { } }
+        runCatching { playKeyFocus.requestFocus() }
+    }
 
     LaunchedEffect(
         visible,
@@ -550,7 +566,10 @@ internal fun PlayerControls(
             !visible ||
             !playbackActive ||
             overlayOpen ||
-            controlsHaveFocus ||
+            // Focus holds the controls up for a keyboard, which has no other way to keep them. A
+            // remote restarts this timer with every key it sends (ShowControls pokes), so there a
+            // focused key alone must not park the controls over the picture for good.
+            (controlsHaveFocus && remoteChrome == null) ||
             screenReaderActive ||
             scrubbing
         ) {
@@ -1044,6 +1063,8 @@ internal fun PlayerControls(
                             danmakuEnabled = danmaku.enabled,
                             onOpenDanmaku = { openSettingsPanel(SettingsPanelKind.Danmaku) },
                             ambientLight = ambientLight,
+                            playKeyModifier =
+                                if (remoteChrome != null) Modifier.focusRequester(playKeyFocus) else Modifier,
                         )
                     }
                 }
