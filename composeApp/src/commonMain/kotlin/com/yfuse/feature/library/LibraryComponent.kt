@@ -13,6 +13,7 @@ import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.yfuse.app.AppDependencies
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
+import com.yfuse.core.model.SavedServer
 import com.yfuse.feature.detail.DetailComponent
 import com.yfuse.feature.player.PlayerComponent
 import kotlinx.coroutines.CancellationException
@@ -31,6 +32,8 @@ class LibraryComponent(
     private val dependencies: AppDependencies,
     /** The way out of an empty 库: to 服务器, with its add form open. */
     private val onAddServer: () -> Unit = {},
+    /** The way out of a server that refused its session: to 服务器, on that server's sign-in form. */
+    private val onReauthenticate: (SavedServer) -> Unit = {},
 ) : ComponentContext by componentContext {
     private val navigation = StackNavigation<Config>()
     private val playerRouteLaunchGate = PlayerRouteLaunchGate()
@@ -158,6 +161,8 @@ class LibraryComponent(
                         repo = repo,
                         registry = registry,
                         onAddServer = onAddServer,
+                        onReauthenticate = onReauthenticate,
+                        serverHealth = dependencies.serverHealthMonitor.health,
                         onOpenUnified = { navigation.pushToFront(Config.Unified) },
                         onSeeAll = { libraryId, title ->
                             navigation.pushToFront(Config.Grid(libraryId, title))

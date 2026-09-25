@@ -110,12 +110,17 @@ fun AddServerDialog(
         },
     ) {
         OverlayHeader(
-            title = if (editing) "编辑服务器" else "添加服务器",
+            title =
+                when {
+                    state.reauthenticating -> "重新登录"
+                    editing -> "编辑服务器"
+                    else -> "添加服务器"
+                },
             subtitle =
-                if (editing) {
-                    "名称可直接修改；连接信息变更后需重新登录"
-                } else {
-                    "连接 Emby、Jellyfin 或 Plex 服务器"
+                when {
+                    state.reauthenticating -> "保存的登录已失效，重新登录后即可继续浏览"
+                    editing -> "名称可直接修改；连接信息变更后需重新登录"
+                    else -> "连接 Emby、Jellyfin 或 Plex 服务器"
                 },
             onClose = onDismiss,
         )
@@ -429,12 +434,18 @@ fun AddServerDialog(
                     ServerFormInput(
                         label = "密码",
                         value = form.password,
-                        placeholder = if (editing) "仅修改名称时无需填写" else "留空表示无密码",
+                        placeholder =
+                            when {
+                                state.reauthenticating -> "输入密码重新登录"
+                                editing -> "仅修改名称时无需填写"
+                                else -> "留空表示无密码"
+                            },
                         enabled = !form.submitting,
                         password = true,
                         divider = true,
                         autofillType = ContentType.Password,
                         onSubmit = submit,
+                        autoFocus = state.reauthenticating,
                     ) { sendIntent(ServersIntent.PasswordChanged(it)) }
                     // The only reachable add-server UI, now that the full-page 添加服务器
                     // (`ServersScreen`) is gone — Quick Connect used to live there and nowhere
@@ -518,7 +529,12 @@ fun AddServerDialog(
         }
 
         OverlayButton(
-            label = if (editing) "保存修改" else "连接到服务器",
+            label =
+                when {
+                    state.reauthenticating -> "重新登录"
+                    editing -> "保存修改"
+                    else -> "连接到服务器"
+                },
             onClick = { sendIntent(ServersIntent.Submit) },
             modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
             tone = OverlayButtonTone.Primary,

@@ -11,14 +11,18 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.autofill.ContentType
 import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.Role
@@ -35,7 +39,9 @@ import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.LocalAccentColors
+import com.yfuse.core.designsystem.LocalOverlayEntrance
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.awaitOverlayEntered
 import com.yfuse.core.designsystem.formDivider
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.pressable
@@ -98,12 +104,24 @@ internal fun ServerFormInput(
     autofillType: ContentType? = null,
     /** The keyboard's 完成 on this field sends the form, as the button would, instead of only closing. */
     onSubmit: (() -> Unit)? = null,
+    /** Takes focus once the dialog has arrived — the password of a server to sign in to again. */
+    autoFocus: Boolean = false,
     onValueChange: (String) -> Unit,
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
     val focusManager = LocalFocusManager.current
     var revealPassword by rememberSaveable { mutableStateOf(false) }
+    val focusRequester = remember { FocusRequester() }
+    if (autoFocus) {
+        val entrance = LocalOverlayEntrance.current
+        LaunchedEffect(Unit) {
+            // Once the dialog is in: a keyboard raised during its entrance resizes the panel while
+            // it is still moving, and the two animate against each other.
+            awaitOverlayEntered(entrance)
+            runCatching { focusRequester.requestFocus() }
+        }
+    }
     ServerFormRow(label = label, divider = divider) {
         Box(contentAlignment = Alignment.CenterStart) {
             if (value.isEmpty() && placeholder != null) {
@@ -140,6 +158,7 @@ internal fun ServerFormInput(
                     modifier =
                         Modifier
                             .weight(1f)
+                            .focusRequester(focusRequester)
                             .semantics {
                                 contentDescription = label
                                 if (autofillType != null) contentType = autofillType

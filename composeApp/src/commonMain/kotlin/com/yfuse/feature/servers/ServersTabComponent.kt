@@ -86,6 +86,16 @@ class ServersTabComponent(
         if (personal.policy.value.canManageServers) store.accept(ServersIntent.OpenAddDialog)
     }
 
+    /**
+     * [server] stopped accepting its saved session: its own form, prefilled, to sign in again.
+     * A child profile cannot replace the session, so it gets nothing to fill in.
+     */
+    fun reauthenticate(server: SavedServer) {
+        if (personal.policy.value.canManageServers) {
+            store.accept(ServersIntent.EditServer(server, reauthenticate = true))
+        }
+    }
+
     /** Grid or list; see [ServerLayout]. */
     val layout: StateFlow<ServerLayout> = themePreferences.serverLayout
 

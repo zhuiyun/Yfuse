@@ -249,6 +249,47 @@ class ServersStoreTest {
             store.dispose()
         }
 
+    @Test
+    fun signing_in_again_authenticates_even_with_the_password_left_blank() =
+        runTest {
+            val registry = testRegistry()
+            val existing =
+                SavedServer(
+                    id = SavedServer.idOf("http://host:8096", "u1"),
+                    baseUrl = "http://host:8096",
+                    serverName = "家庭影院",
+                    userId = "u1",
+                    userName = "zhuiyun",
+                    accessToken = "refused-token",
+                    localCleartextConfirmed = true,
+                )
+            registry.addOrUpdate(existing)
+            var signIns = 0
+            val store =
+                store(registry) { request ->
+                    if (request.url.encodedPath.endsWith("AuthenticateByName")) signIns++
+                    authRoutes(
+                        request,
+                        authBody = """{"AccessToken":"fresh-token","User":{"Id":"u1","Name":"zhuiyun"}}""",
+                    )
+                }
+            store.states.first { it.servers.isNotEmpty() }
+
+            store.accept(ServersIntent.EditServer(existing, reauthenticate = true))
+            assertTrue(store.state.reauthenticating)
+            store.labels.test {
+                store.accept(ServersIntent.Submit)
+                assertEquals(ServersLabel.ServerAdded(first = false), awaitItem())
+                cancelAndConsumeRemainingEvents()
+            }
+
+            assertEquals(1, signIns)
+            assertEquals("fresh-token", registry.serverById(existing.id)?.accessToken)
+            assertEquals("已重新登录「家庭影院」", store.state.notice)
+            assertFalse(store.state.reauthenticating)
+            store.dispose()
+        }
+
     /** A registry whose active profile is a child's, holding the one server it was given. */
     private suspend fun childRegistry(server: SavedServer): ServerRegistry {
         val settings = MapSettings()

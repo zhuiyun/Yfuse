@@ -60,6 +60,7 @@ import androidx.compose.ui.unit.dp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.app.floatingNavigationContentInset
 import com.yfuse.core.data.FAVORITES_COLLECTION_ID
+import com.yfuse.core.data.ServerHealthStatus
 import com.yfuse.core.data.WATCH_LATER_COLLECTION_ID
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
@@ -240,6 +241,25 @@ private fun utcDate(epochMs: Long): String {
 fun LibraryHomeScreen(component: LibraryHomeComponent) {
     val state by component.store.states.collectAsState(component.store.state)
     val access by component.access.collectAsState()
+    val serverHealth = component.serverHealth.collectAsState()
+    val currentServerId = state.currentServer?.id
+    // Derived, so a probe of some other server does not recompose the page.
+    val sessionRefused by remember(currentServerId) {
+        derivedStateOf {
+            currentServerId != null &&
+                serverHealth.value[currentServerId]?.status == ServerHealthStatus.AuthRequired
+        }
+    }
+    // A refused session fails every request the page makes: what it needs is a new sign-in, not
+    // another try. A child profile cannot sign in again, so retrying is all it is offered.
+    val signInServer = state.currentServer?.takeIf { sessionRefused && access.canManageServers }
+    val recover = {
+        if (signInServer != null) {
+            component.onReauthenticate(signInServer)
+        } else {
+            component.store.accept(LibraryIntent.Retry)
+        }
+    }
     val libraryCarousel by component.themePreferences.libraryCarousel.collectAsState()
     val store = component.store
     val baseUrl = state.currentServer?.baseUrl.orEmpty()
@@ -381,8 +401,9 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                 state.error != null && state.content.isEmpty ->
                     ErrorState(
                         message = state.error!!,
-                        onRetry = { store.accept(LibraryIntent.Retry) },
+                        onRetry = recover,
                         modifier = Modifier.align(Alignment.Center),
+                        retryLabel = if (signInServer != null) "重新登录" else "重试",
                     )
 
                 else ->
@@ -628,7 +649,8 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                             nowEpochMs = freshnessNowEpochMs,
                                             error = state.error,
                                             loading = state.loading,
-                                            onRetry = { store.accept(LibraryIntent.Retry) },
+                                            signIn = signInServer != null,
+                                            onRetry = recover,
                                         )
                                     }
                                 }
@@ -733,6 +755,8 @@ private fun LibraryFreshnessBanner(
     nowEpochMs: Long,
     error: String?,
     loading: Boolean,
+    /** The server refused its session, and [onRetry] signs in again instead of reloading. */
+    signIn: Boolean,
     onRetry: () -> Unit,
 ) {
     val palette = LocalPalette.current
@@ -767,7 +791,7 @@ private fun LibraryFreshnessBanner(
         }
         if (error != null && !loading) {
             Text(
-                text = "重试",
+                text = if (signIn) "重新登录" else "重试",
                 style = AppTypography.body.strong,
                 color = accent.accent,
                 textAlign = TextAlign.Center,
@@ -776,7 +800,7 @@ private fun LibraryFreshnessBanner(
                         .align(Alignment.End)
                         .pressable(
                             role = Role.Button,
-                            onClickLabel = "重新加载媒体库",
+                            onClickLabel = if (signIn) "重新登录服务器" else "重新加载媒体库",
                             onClick = onRetry,
                         ).touchTarget()
                         .padding(horizontal = 10.dp),

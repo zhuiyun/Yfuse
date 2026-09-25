@@ -315,6 +315,12 @@ data class ServersState(
      *  host or account, which would otherwise create a new entry). */
     val editingServerId: String? = null,
     /**
+     * The edit was opened to sign in again, after the server stopped accepting the saved
+     * session: the password field takes focus, and saving signs in even with the password left
+     * blank rather than taking the rename-only shortcut that would keep the refused session.
+     */
+    val reauthenticating: Boolean = false,
+    /**
      * One-shot notice — 「已连接…」 for a save the form closed on, or why the registry refused an
      * edit; cleared by [ServersIntent.DismissNotice].
      */
@@ -327,9 +333,11 @@ sealed interface ServersIntent {
     data object DismissDialog : ServersIntent
 
     /** Open the dialog in edit mode, prefilled from the saved server. Renaming is local;
-     *  changing the host or account still requires re-authentication. */
+     *  changing the host or account still requires re-authentication. [reauthenticate] opens
+     *  it to sign in again; see [ServersState.reauthenticating]. */
     data class EditServer(
         val server: SavedServer,
+        val reauthenticate: Boolean = false,
     ) : ServersIntent
 
     data class ServerNameChanged(
@@ -451,6 +459,7 @@ private sealed interface Msg {
 
     data class EditOpen(
         val server: SavedServer,
+        val reauthenticate: Boolean,
     ) : Msg
 
     data class ServerName(
@@ -625,7 +634,7 @@ class ServersStoreFactory(
                 is ServersIntent.ShowNotice -> dispatch(Msg.Notice(intent.message))
                 is ServersIntent.EditServer -> {
                     cancelDialogJobs()
-                    dispatch(Msg.EditOpen(intent.server))
+                    dispatch(Msg.EditOpen(intent.server, intent.reauthenticate))
                 }
                 is ServersIntent.ServerNameChanged -> dispatch(Msg.ServerName(intent.value))
                 is ServersIntent.ProviderChanged -> {
@@ -1185,10 +1194,12 @@ class ServersStoreFactory(
 
             // A display-name-only edit is local metadata. Keep the token, server id and
             // default selection intact instead of asking the user to enter their password.
+            // Not when signing in again: the kept token is the one the server refused.
             if (
                 existing != null &&
                 form.password.isBlank() &&
-                !state().connectionEdited
+                !state().connectionEdited &&
+                !state().reauthenticating
             ) {
                 val renamed =
                     writeRegistry { registry.rename(existing.id, requestedName) }.getOrElse {
@@ -1279,6 +1290,7 @@ class ServersStoreFactory(
                         plexAccount = PlexAccountUiState.Idle,
                         plexHomePin = "",
                         connectionEdited = false,
+                        reauthenticating = false,
                     )
                 Msg.DialogClose ->
                     copy(
@@ -1292,6 +1304,7 @@ class ServersStoreFactory(
                         plexAccount = PlexAccountUiState.Idle,
                         plexHomePin = "",
                         connectionEdited = false,
+                        reauthenticating = false,
                     )
                 is Msg.EditOpen -> {
                     // Reuse the add dialog in-place by prefilling the form from the saved
@@ -1314,6 +1327,7 @@ class ServersStoreFactory(
                         plexAccount = PlexAccountUiState.Idle,
                         plexHomePin = "",
                         connectionEdited = false,
+                        reauthenticating = msg.reauthenticate,
                         form =
                             LoginForm(
                                 kind = msg.server.kind,
@@ -1455,10 +1469,10 @@ class ServersStoreFactory(
                         // same form and are otherwise indistinguishable afterwards. The name says
                         // which server it was, which a bare 「已添加」 does not once there are several.
                         notice =
-                            if (editingServerId != null) {
-                                "已更新「${msg.serverName}」"
-                            } else {
-                                "已连接「${msg.serverName}」"
+                            when {
+                                editingServerId == null -> "已连接「${msg.serverName}」"
+                                reauthenticating -> "已重新登录「${msg.serverName}」"
+                                else -> "已更新「${msg.serverName}」"
                             },
                         editingServerId = null,
                         scanning = false,
@@ -1468,6 +1482,7 @@ class ServersStoreFactory(
                         plexAccount = PlexAccountUiState.Idle,
                         plexHomePin = "",
                         connectionEdited = false,
+                        reauthenticating = false,
                     )
                 is Msg.SubmitError -> copy(form = form.copy(submitting = false, error = msg.m))
                 Msg.ScanStarted -> copy(scanning = true, discovered = emptyList(), scanError = null)

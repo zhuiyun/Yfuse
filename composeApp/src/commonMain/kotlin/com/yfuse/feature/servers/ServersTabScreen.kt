@@ -156,6 +156,12 @@ fun ServersTabScreen(component: ServersTabComponent) {
     // A child profile may choose among its servers but not change them: the registry refuses the
     // edit, and offering it only led to that refusal.
     val canManage = access.canManageServers
+
+    // A server that refuses its saved session fails every request 库 would make, so its card opens
+    // the sign-in form instead. One that is only offline still opens: 库 shows what it cached.
+    fun signsInFirst(server: SavedServer): Boolean =
+        canManage && health[server.id]?.status == ServerHealthStatus.AuthRequired
+
     val gridState = rememberLazyGridState()
     val share = rememberShareHandler()
 
@@ -315,13 +321,17 @@ fun ServersTabScreen(component: ServersTabComponent) {
                                 contentType = "current-server",
                                 span = { GridItemSpan(maxLineSpan) },
                             ) {
+                                val signIn = signsInFirst(server)
                                 CurrentServerHero(
                                     server = server,
                                     health = health[server.id],
                                     stats = serverStats[server.id],
                                     serverCount = state.servers.size,
                                     onlineCount = onlineServerCount,
-                                    onOpen = { component.onOpenLibrary() },
+                                    signInOnOpen = signIn,
+                                    onOpen = {
+                                        if (signIn) component.reauthenticate(server) else component.onOpenLibrary()
+                                    },
                                     onMore = { actionsFor = server },
                                     modifier = Modifier,
                                 )
@@ -376,15 +386,21 @@ fun ServersTabScreen(component: ServersTabComponent) {
                                             Modifier
                                         },
                                     )
+                            val signIn = signsInFirst(server)
                             ServerCard(
                                 server = server,
                                 isCurrent = false,
                                 health = health[server.id],
                                 stats = serverStats[server.id],
                                 lastWatchedLabel = formatWatchedAgo(lastWatched[server.id], nowEpochMs),
+                                signInOnClick = signIn,
                                 onClick = {
-                                    component.store.accept(ServersIntent.SelectDefault(server.id))
-                                    component.onOpenLibrary()
+                                    if (signIn) {
+                                        component.reauthenticate(server)
+                                    } else {
+                                        component.store.accept(ServersIntent.SelectDefault(server.id))
+                                        component.onOpenLibrary()
+                                    }
                                 },
                                 onMore = { actionsFor = server },
                                 modifier = cardMotion,
@@ -756,6 +772,8 @@ private fun CurrentServerHero(
     stats: ServerStats?,
     serverCount: Int,
     onlineCount: Int,
+    /** [onOpen] signs in again rather than opening 库; see [ServerCard]'s `signInOnClick`. */
+    signInOnOpen: Boolean,
     onOpen: () -> Unit,
     onMore: () -> Unit,
     modifier: Modifier = Modifier,
@@ -773,7 +791,7 @@ private fun CurrentServerHero(
             .fillMaxWidth()
             .semantics { selected = true }
             .pressable(
-                onClickLabel = "打开${server.serverName}媒体库",
+                onClickLabel = if (signInOnOpen) "重新登录${server.serverName}" else "打开${server.serverName}媒体库",
                 onLongClick = onMore,
                 onLongClickLabel = "打开${server.serverName}操作",
                 onClick = onOpen,
@@ -989,6 +1007,8 @@ private fun ServerCard(
     health: ServerHealth?,
     stats: ServerStats?,
     lastWatchedLabel: String,
+    /** The server wants a new sign-in, and [onClick] opens that form instead of 库. */
+    signInOnClick: Boolean,
     onClick: () -> Unit,
     onMore: () -> Unit,
     modifier: Modifier = Modifier,
@@ -1039,10 +1059,10 @@ private fun ServerCard(
             .semantics { selected = isCurrent }
             .pressable(
                 onClickLabel =
-                    if (isCurrent) {
-                        "打开${server.serverName}媒体库"
-                    } else {
-                        "切换到${server.serverName}"
+                    when {
+                        signInOnClick -> "重新登录${server.serverName}"
+                        isCurrent -> "打开${server.serverName}媒体库"
+                        else -> "切换到${server.serverName}"
                     },
                 onLongClick = onMore,
                 onLongClickLabel = "打开${server.serverName}操作",

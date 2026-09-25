@@ -12,6 +12,7 @@ import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.TmdbRepository
 import com.yfuse.core.designsystem.LaunchWaveGate
 import com.yfuse.core.designsystem.TabReselection
+import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.StartupTab
 import com.yfuse.core.sync.ServerSyncManager
 import com.yfuse.core.sync.WatchInvite
@@ -114,6 +115,7 @@ class RootComponent(
             registry = registry,
             dependencies = dependencies,
             onAddServer = ::openAddServer,
+            onReauthenticate = ::signInAgain,
         )
 
     /** 服务器: the saved servers as a grid. */
@@ -251,6 +253,12 @@ class RootComponent(
     private fun openAddServer() {
         selectTab(Tab.Servers)
         servers.openAddServer()
+    }
+
+    /** 库's server refused its saved session: over to 服务器, on that server's own sign-in form. */
+    private fun signInAgain(server: SavedServer) {
+        selectTab(Tab.Servers)
+        servers.reauthenticate(server)
     }
 
     private fun openSearch() {
