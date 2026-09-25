@@ -282,7 +282,10 @@ data class ServersState(
      *  id is preserved so [ServersStore] can replace it on submit (the user may change the
      *  host or account, which would otherwise create a new entry). */
     val editingServerId: String? = null,
-    /** One-shot confirmation for a save the form closed on; cleared by [ServersIntent.DismissNotice]. */
+    /**
+     * One-shot notice — 「已连接…」 for a save the form closed on, or why the registry refused an
+     * edit; cleared by [ServersIntent.DismissNotice].
+     */
     val notice: String? = null,
 )
 
@@ -388,8 +391,13 @@ sealed interface ServersIntent {
 }
 
 sealed interface ServersLabel {
-    /** A server was just added/logged in; the shell may jump to the library tab. */
-    data object ServerAdded : ServersLabel
+    /**
+     * A server was just added or signed in to again. [first] is set when the registry had no
+     * server before it — the one a first run was waiting for — and the tab then moves on to 库.
+     */
+    data class ServerAdded(
+        val first: Boolean,
+    ) : ServersLabel
 }
 
 private sealed interface Action {
@@ -463,7 +471,10 @@ private sealed interface Msg {
 
     data object Submitting : Msg
 
-    data object SubmitDone : Msg
+    /** The form's save went through; [serverName] is what the confirmation calls the server. */
+    data class SubmitDone(
+        val serverName: String,
+    ) : Msg
 
     data class Notice(
         val value: String?,
@@ -915,6 +926,7 @@ class ServersStoreFactory(
                                 authenticated.toSavedServer(
                                     serverName = requestedName.takeIf(String::isNotBlank) ?: existing?.serverName,
                                 )
+                            val firstServer = editingId == null && state().servers.isEmpty()
                             val saved =
                                 writeRegistry {
                                     if (editingId == null) {
@@ -939,8 +951,8 @@ class ServersStoreFactory(
                             )
                             onAuthenticated(savedServer.id)
                             cancelDialogJobs()
-                            dispatch(Msg.SubmitDone)
-                            publish(ServersLabel.ServerAdded)
+                            dispatch(Msg.SubmitDone(savedServer.serverName))
+                            publish(ServersLabel.ServerAdded(first = firstServer))
                         }.onFailure {
                             if (requestId == plexAccountRequestId) {
                                 dispatch(
@@ -1093,6 +1105,7 @@ class ServersStoreFactory(
                     serverName = requestedName.takeIf { it.isNotBlank() } ?: existing?.serverName,
                     localCleartextConfirmed = state().form.httpRiskAccepted,
                 )
+            val firstServer = editingId == null && state().servers.isEmpty()
             val saved =
                 writeRegistry {
                     if (editingId == null) {
@@ -1117,8 +1130,8 @@ class ServersStoreFactory(
             )
             onAuthenticated(savedServer.id)
             cancelDialogJobs()
-            dispatch(Msg.SubmitDone)
-            publish(ServersLabel.ServerAdded)
+            dispatch(Msg.SubmitDone(savedServer.serverName))
+            publish(ServersLabel.ServerAdded(first = firstServer))
         }
 
         private fun submit() {
@@ -1155,7 +1168,7 @@ class ServersStoreFactory(
                     return
                 }
                 cancelDialogJobs()
-                dispatch(Msg.SubmitDone)
+                dispatch(Msg.SubmitDone(requestedName))
                 return
             }
             dispatch(Msg.Submitting)
@@ -1174,6 +1187,7 @@ class ServersStoreFactory(
                                         ?: existing?.serverName,
                                 localCleartextConfirmed = form.httpRiskAccepted,
                             )
+                        val firstServer = editingId == null && state().servers.isEmpty()
                         val saved =
                             writeRegistry {
                                 if (editingId == null) {
@@ -1198,8 +1212,8 @@ class ServersStoreFactory(
                         )
                         onAuthenticated(savedServer.id)
                         cancelDialogJobs()
-                        dispatch(Msg.SubmitDone)
-                        publish(ServersLabel.ServerAdded)
+                        dispatch(Msg.SubmitDone(savedServer.serverName))
+                        publish(ServersLabel.ServerAdded(first = firstServer))
                     }.onFailure {
                         AppLog.warning(
                             category = "server.auth",
@@ -1387,13 +1401,19 @@ class ServersStoreFactory(
                 is Msg.PlexAccount -> copy(plexAccount = msg.state)
                 is Msg.PlexHomePin -> copy(plexHomePin = msg.value)
                 Msg.Submitting -> copy(form = form.copy(submitting = true, error = null))
-                Msg.SubmitDone ->
+                is Msg.SubmitDone ->
                     copy(
                         dialogVisible = false,
                         form = LoginForm(),
                         // Read before the copy clears it: an edit and a first login close the
-                        // same form and are otherwise indistinguishable afterwards.
-                        notice = if (editingServerId != null) "服务器已更新" else "服务器已添加",
+                        // same form and are otherwise indistinguishable afterwards. The name says
+                        // which server it was, which a bare 「已添加」 does not once there are several.
+                        notice =
+                            if (editingServerId != null) {
+                                "已更新「${msg.serverName}」"
+                            } else {
+                                "已连接「${msg.serverName}」"
+                            },
                         editingServerId = null,
                         scanning = false,
                         discovered = emptyList(),

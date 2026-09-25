@@ -4,6 +4,7 @@ import com.arkivanov.decompose.ComponentContext
 import com.arkivanov.essenty.lifecycle.doOnDestroy
 import com.arkivanov.essenty.lifecycle.doOnPause
 import com.arkivanov.mvikotlin.core.store.StoreFactory
+import com.arkivanov.mvikotlin.extensions.coroutines.labels
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.app.AppDependencies
 import com.yfuse.core.data.EmbyRepository
@@ -24,7 +25,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -327,6 +330,11 @@ class ServersTabComponent(
     }
 
     init {
+        // The first server is what a first run was waiting for: move on to what is on it. Later
+        // ones stay here, beside the servers the user is managing.
+        store.labels
+            .onEach { label -> if (label is ServersLabel.ServerAdded && label.first) onOpenLibrary() }
+            .launchIn(scope)
         lifecycle.doOnPause { refreshController.suppressFeedback() }
         lifecycle.doOnDestroy { store.dispose() }
     }

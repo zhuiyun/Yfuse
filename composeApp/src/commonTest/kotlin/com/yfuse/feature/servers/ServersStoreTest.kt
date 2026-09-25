@@ -74,10 +74,11 @@ class ServersStoreTest {
 
             store.labels.test {
                 store.accept(ServersIntent.Submit)
-                assertEquals(ServersLabel.ServerAdded, awaitItem())
+                assertEquals(ServersLabel.ServerAdded(first = true), awaitItem())
                 cancelAndConsumeRemainingEvents()
             }
 
+            assertEquals("已连接「zhuiyun」", store.state.notice)
             assertEquals(1, registry.data.value.servers.size)
             assertEquals(
                 "zhuiyun",
@@ -111,10 +112,11 @@ class ServersStoreTest {
 
             store.labels.test {
                 store.accept(ServersIntent.Submit)
-                assertEquals(ServersLabel.ServerAdded, awaitItem())
+                assertEquals(ServersLabel.ServerAdded(first = true), awaitItem())
                 cancelAndConsumeRemainingEvents()
             }
 
+            assertEquals("已连接「客厅影院」", store.state.notice)
             assertEquals(
                 "客厅影院",
                 registry.data.value.servers
@@ -153,6 +155,30 @@ class ServersStoreTest {
             assertEquals("existing-token", renamed?.accessToken)
             assertEquals(false, store.state.dialogVisible)
             assertEquals(null, store.state.editingServerId)
+            assertEquals("已更新「家庭影院」", store.state.notice)
+            store.dispose()
+        }
+
+    @Test
+    fun a_server_added_beside_others_is_not_the_first() =
+        runTest {
+            val registry = testRegistry()
+            registry.addOrUpdate(
+                SavedServer("id1", "http://h", "N", "u", "user", "tok", localCleartextConfirmed = true),
+            )
+            val store = store(registry) { req -> authRoutes(req) }
+            store.states.first { it.servers.isNotEmpty() }
+            store.accept(ServersIntent.HostChanged("https://media.example.com"))
+            store.accept(ServersIntent.UsernameChanged("zhuiyun"))
+            store.accept(ServersIntent.PasswordChanged("123456"))
+
+            store.labels.test {
+                store.accept(ServersIntent.Submit)
+                assertEquals(ServersLabel.ServerAdded(first = false), awaitItem())
+                cancelAndConsumeRemainingEvents()
+            }
+
+            assertEquals(2, registry.data.value.servers.size)
             store.dispose()
         }
 
@@ -200,9 +226,11 @@ class ServersStoreTest {
 
             store.labels.test {
                 store.accept(ServersIntent.Submit)
-                assertEquals(ServersLabel.ServerAdded, awaitItem())
+                assertEquals(ServersLabel.ServerAdded(first = false), awaitItem())
                 cancelAndConsumeRemainingEvents()
             }
+
+            assertEquals("已更新「家庭影院」", store.state.notice)
 
             val updated =
                 registry.data.value.servers
