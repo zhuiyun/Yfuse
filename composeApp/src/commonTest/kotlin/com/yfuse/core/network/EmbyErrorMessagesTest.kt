@@ -49,4 +49,11 @@ class EmbyErrorMessagesTest {
         assertEquals("出错了，请稍后重试", message)
         assertFalse("JSON" in message)
     }
+
+    @Test
+    fun a_screen_reading_the_exception_message_gets_the_user_text() {
+        // Several screens still show Throwable.message; it used to read "Server(code=500)".
+        assertEquals("服务器错误（500），请稍后重试", EmbyErrorException(EmbyError.Server(500)).message)
+        assertEquals("无法连接服务器，请检查网络后重试", EmbyErrorException(EmbyError.Network).message)
+    }
 }

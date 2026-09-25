@@ -10,6 +10,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.model.SavedServer
+import com.yfuse.core.network.toUserMessage
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
@@ -100,7 +101,7 @@ internal fun rememberPlayerSubtitleLibrary(
                                         message =
                                             result.fold(
                                                 onSuccess = { "字幕已添加到服务器，重新打开影片后可选择新轨道。" },
-                                                onFailure = { it.message ?: "字幕下载失败，请重试。" },
+                                                onFailure = { it.toUserMessage("字幕下载失败，请重试。") },
                                             ),
                                     )
                             }

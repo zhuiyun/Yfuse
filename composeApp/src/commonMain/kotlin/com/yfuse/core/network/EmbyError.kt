@@ -64,7 +64,13 @@ sealed interface EmbyError {
     ) : EmbyError
 }
 
-/** Carries an [EmbyError] through [Result.failure]. */
+/**
+ * Carries an [EmbyError] through [Result.failure].
+ *
+ * The message is the user-facing text, because a screen that shows `Throwable.message` used to
+ * put the data-class name ("Network", "Server(code=500)") in front of the user. The structured
+ * [error] is still here for code, and embyApiCall logs it alongside the original failure.
+ */
 class EmbyErrorException(
     val error: EmbyError,
     /**
@@ -73,4 +79,4 @@ class EmbyErrorException(
      * level nor another strike against the server's health.
      */
     val fromCooldown: Boolean = false,
-) : Exception(error.toString())
+) : Exception(error.toUserMessage())

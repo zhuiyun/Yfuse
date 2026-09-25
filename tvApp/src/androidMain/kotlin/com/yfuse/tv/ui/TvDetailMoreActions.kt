@@ -27,6 +27,7 @@ import com.yfuse.core.designsystem.overlayDismiss
 import com.yfuse.core.model.CalendarDay
 import com.yfuse.core.model.MediaDetail
 import com.yfuse.core.model.MediaServerKind
+import com.yfuse.core.network.toUserMessage
 import com.yfuse.feature.detail.DetailComponent
 import com.yfuse.feature.detail.DetailIntent
 import com.yfuse.feature.detail.DetailState
@@ -154,7 +155,7 @@ internal fun TvDetailMoreDialog(
                             .refreshServerMetadata(detail)
                             .fold(
                                 onSuccess = { status = "已请求服务器重新识别" },
-                                onFailure = { status = "刷新失败：${it.message ?: "请重试"}" },
+                                onFailure = { status = "刷新失败：${it.toUserMessage("请重试")}" },
                             )
                         busy = false
                     }
@@ -177,7 +178,7 @@ internal fun TvDetailMoreDialog(
                                 .analyzeServerMetadata(detail)
                                 .fold(
                                     onSuccess = { status = "已请求 Plex 重新分析" },
-                                    onFailure = { status = "分析失败：${it.message ?: "请重试"}" },
+                                    onFailure = { status = "分析失败：${it.toUserMessage("请重试")}" },
                                 )
                             busy = false
                         }

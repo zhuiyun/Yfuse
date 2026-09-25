@@ -1055,7 +1055,7 @@ private class AndroidCastManager(
                     restoreCastSessionAfterFailedLoad(
                         previous = previous,
                         failed = mutableState.value,
-                        message = "DLNA 投屏失败：${error.message ?: "设备拒绝播放"}",
+                        message = "投屏设备没有开始播放，请确认设备在线后重试，或换一台设备",
                     )
                 if (previousProtocol == ActiveProtocol.Dlna) previousDlnaTarget?.let(::startDlnaPolling)
                 false
@@ -1127,10 +1127,11 @@ private class AndroidCastManager(
     ): Boolean =
         withContext(Dispatchers.Main.immediate) {
             val target = activeDlnaTarget() ?: return@withContext false
+            val label = dlnaActionLabel(action)
             val result =
                 readDlnaSessionResult(mutableState.value.castSessionToken(), { mutableState.value }) {
                     soap(target.avTransportUrl, action, arguments)
-                    confirmDlnaTransport(target, accepted) ?: error("设备未确认$action")
+                    confirmDlnaTransport(target, accepted) ?: error("设备未确认$label")
                 } ?: return@withContext false
             result
                 .onSuccess { snapshot ->
@@ -1142,7 +1143,8 @@ private class AndroidCastManager(
                         )
                     }
                 }.onFailure { error ->
-                    mutableState.update { it.commandFailed("DLNA $action 失败：${error.message}") }
+                    AppLog.warning("cast", "dlna_command_failed", "DLNA $action failed", error)
+                    mutableState.update { it.commandFailed(dlnaNoResponse(label)) }
                 }.isSuccess
         }
 
@@ -1195,7 +1197,8 @@ private class AndroidCastManager(
                         )
                     }
                 }.onFailure { error ->
-                    mutableState.update { it.commandFailed("DLNA 跳转失败：${error.message}") }
+                    AppLog.warning("cast", "dlna_command_failed", "DLNA Seek failed", error)
+                    mutableState.update { it.commandFailed(dlnaNoResponse("跳转")) }
                 }.isSuccess
         }
 
@@ -1242,10 +1245,11 @@ private class AndroidCastManager(
                         )
                     }
                 }.onFailure { error ->
+                    AppLog.warning("cast", "dlna_command_failed", "DLNA SetVolume failed", error)
                     mutableState.update {
                         it.copy(
                             capabilities = it.capabilities.copy(volume = CastCapability.Unknown),
-                            error = "DLNA 音量调节失败：${error.message}",
+                            error = dlnaNoResponse("音量调节"),
                         )
                     }
                 }.isSuccess
@@ -1265,7 +1269,8 @@ private class AndroidCastManager(
                         accepted = { it == "STOPPED" || it == "NO_MEDIA_PRESENT" },
                     ) != null
                 }?.getOrElse { error ->
-                    mutableState.update { it.commandFailed("DLNA 停止失败：${error.message}") }
+                    AppLog.warning("cast", "dlna_command_failed", "DLNA Stop failed", error)
+                    mutableState.update { it.commandFailed(dlnaNoResponse("停止")) }
                     false
                 } ?: return@withContext false
             if (!stopped) {
@@ -1467,6 +1472,22 @@ private fun dlnaStatus(value: String): CastPlaybackStatus =
         "STOPPED", "NO_MEDIA_PRESENT" -> CastPlaybackStatus.Ended
         else -> CastPlaybackStatus.Error
     }
+
+/** SOAP action names are protocol vocabulary; the viewer sees the command they asked for. */
+private fun dlnaActionLabel(action: String): String =
+    when (action) {
+        "Play" -> "播放"
+        "Pause" -> "暂停"
+        "Seek" -> "跳转"
+        "Stop" -> "停止"
+        else -> "操作"
+    }
+
+/**
+ * What a failed DLNA command tells the viewer. The socket or SOAP text said nothing they could
+ * act on, and read "null" when there was none, so it goes to the diagnostic log instead.
+ */
+private fun dlnaNoResponse(label: String): String = "投屏设备没有响应（$label），请重试"
 
 private fun String.serviceControlUrl(serviceName: String): String? =
     Regex(
