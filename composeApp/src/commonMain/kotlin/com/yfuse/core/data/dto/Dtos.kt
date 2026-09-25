@@ -598,6 +598,9 @@ fun MediaSourceDto.toMediaVersion(
                         sampleRateHz = stream.SampleRate,
                         external = stream.IsExternal,
                         default = stream.IsDefault,
+                        // `language` above drops the title whenever a tag exists; the title is still
+                        // what separates a commentary from the feature in the same language.
+                        title = stream.Title?.takeIf { it.isNotBlank() },
                     )
                 },
         subtitleTracks =
@@ -615,6 +618,7 @@ fun MediaSourceDto.toMediaVersion(
                         external = stream.IsExternal == true,
                         default = stream.IsDefault == true,
                         uri = stream.DeliveryUrl?.takeIf(String::isNotBlank),
+                        title = stream.Title?.takeIf { it.isNotBlank() },
                     )
                 },
         supportsDirectPlay = SupportsDirectPlay,

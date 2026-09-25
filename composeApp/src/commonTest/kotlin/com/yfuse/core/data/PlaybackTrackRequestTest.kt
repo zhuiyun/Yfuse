@@ -29,6 +29,22 @@ class PlaybackTrackRequestTest {
     }
 
     @Test
+    fun a_pick_among_one_language_travels_with_that_language_and_is_acknowledged_with_it() {
+        val request = PlaybackTrackRequest()
+        val hint = PlaybackTrackRequest.TrackHint(label = "简英双语", codec = "ass", languageOrdinal = 1)
+        request.set("movie", audioLanguage = "中文", subtitleLanguage = "中文", subtitleHint = hint)
+        val original = requireNotNull(request.peek("movie"))
+        assertEquals(hint, original.subtitleHint)
+
+        request.acknowledge("movie", original, audioApplied = true, subtitleApplied = false)
+        assertEquals(PlaybackTrackRequest.Tracks(null, "中文", subtitleHint = hint), request.peek("movie"))
+
+        // 关闭 names no track, so a hint cannot ride along with it.
+        request.set("movie", subtitleLanguage = PlaybackTrackRequest.SUBTITLES_OFF, subtitleHint = hint)
+        assertNull(request.peek("movie")?.subtitleHint)
+    }
+
+    @Test
     fun the_request_reaches_the_entry_it_was_made_for() {
         val request = PlaybackTrackRequest()
         request.set("item-1", audioLanguage = "chi", subtitleLanguage = "eng")

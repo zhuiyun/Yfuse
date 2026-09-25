@@ -1627,7 +1627,7 @@ internal fun PlayerRoot(
             var audioApplied = requested.audioLanguage == null
             var subtitleApplied = requested.subtitleLanguage == null
             requested.audioLanguage?.let { language ->
-                state.audioTracks.matchingLanguage(language)?.let { trackId ->
+                state.audioTracks.matchingRequestedTrack(language, requested.audioHint)?.let { trackId ->
                     state.audioTracks.firstOrNull { it.id == trackId }?.let { track ->
                         handoverItemId = currentItem?.id
                         audioRestore = state.audioTracks.restorePreferenceFor(track)
@@ -1651,7 +1651,7 @@ internal fun PlayerRoot(
                 }
                 else ->
                     state.subtitleTracks
-                        .matchingLanguage(subtitle)
+                        .matchingRequestedTrack(subtitle, requested.subtitleHint)
                         ?.let { trackId ->
                             state.subtitleTracks.firstOrNull { it.id == trackId }?.let { track ->
                                 handoverItemId = currentItem?.id

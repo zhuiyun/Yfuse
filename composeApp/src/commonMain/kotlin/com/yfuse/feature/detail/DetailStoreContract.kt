@@ -34,6 +34,12 @@ data class DetailState(
     val preferredAudioLanguage: String? = null,
     val preferredSubtitleLanguage: String? = null,
     /**
+     * Which of the preferred language's tracks, counted as `sameLanguageOrdinals` counts them.
+     * Two 中文 subtitle tracks share everything a language can say; null means the first.
+     */
+    val preferredAudioOrdinal: Int? = null,
+    val preferredSubtitleOrdinal: Int? = null,
+    /**
      * The entry 播放 would actually open, resolved at load rather than on the tap.
      *
      * For a film that is the item itself. For a series it is the 下一集 — a different item
@@ -91,6 +97,11 @@ sealed interface DetailIntent {
     /** The one-shot 提示 has been on screen long enough — see [ActionToast]. */
     data object DismissMessage : DetailIntent
 
+    /** A 提示 about something the page did outside the store, such as queueing a download. */
+    data class ShowMessage(
+        val message: String,
+    ) : DetailIntent
+
     data object Play : DetailIntent
 
     data object ToggleFavorite : DetailIntent
@@ -138,14 +149,16 @@ sealed interface DetailIntent {
         val seasonId: String,
     ) : DetailIntent
 
-    /** Null restores the file's own default track. */
+    /** Null restores the file's own default track; [ordinal] picks among that language's tracks. */
     data class SelectAudioLanguage(
         val language: String?,
+        val ordinal: Int? = null,
     ) : DetailIntent
 
     /** `PlaybackTrackRequest.SUBTITLES_OFF` starts with subtitles off. */
     data class SelectSubtitleLanguage(
         val language: String?,
+        val ordinal: Int? = null,
     ) : DetailIntent
 
     data class SelectEpisode(

@@ -90,6 +90,8 @@ internal fun OfflineDownloadDialog(
     var autoDownloadNewEpisodes by remember(detail.id) { mutableStateOf(false) }
     val selectedVersion = versions.firstOrNull { it.id == versionId } ?: versions.firstOrNull()
     val selectedSubtitle = selectedVersion?.subtitleTracks?.firstOrNull { it.index == subtitleIndex }
+    val episode = detail.seriesId != null
+    val batchModes = offlineBatchModes(episode, episodes.size)
     val batchCount =
         when (batchMode) {
             OfflineBatchMode.Current -> 1
@@ -131,7 +133,7 @@ internal fun OfflineDownloadDialog(
         )
 
         Text("范围", style = AppTypography.caption.strong, color = palette.sub2)
-        OfflineChoiceRow(OfflineBatchMode.entries, batchMode, { it.label }) { batchMode = it }
+        OfflineChoiceRow(batchModes, batchMode, { offlineBatchModeLabel(it, episode) }) { batchMode = it }
 
         if (versions.size > 1) {
             Text("版本", style = AppTypography.caption.strong, color = palette.sub2)
@@ -210,6 +212,51 @@ internal fun OfflineDownloadDialog(
                 (versions.isEmpty() || selectedVersion != null) &&
                     !(batchMode == OfflineBatchMode.Unwatched && batchCount == 0),
         )
+    }
+}
+
+/** Only an episode has a season to widen to; a film is offered 本片 and nothing else. */
+internal fun offlineBatchModes(
+    episode: Boolean,
+    seasonEpisodes: Int,
+): List<OfflineBatchMode> =
+    if (episode && seasonEpisodes > 0) {
+        OfflineBatchMode.entries
+    } else {
+        listOf(OfflineBatchMode.Current)
+    }
+
+internal fun offlineBatchModeLabel(
+    mode: OfflineBatchMode,
+    episode: Boolean,
+): String =
+    when {
+        mode != OfflineBatchMode.Current -> mode.label
+        episode -> "本集"
+        else -> "本片"
+    }
+
+/** What one 加入下载 queued. [skipped] episodes had no file resembling the chosen version. */
+data class OfflineEnqueueResult(
+    val queued: Int,
+    val skipped: Int,
+    /** 仅 Wi-Fi 下载 is on and this device is not on Wi-Fi, so nothing starts yet. */
+    val waitingForWifi: Boolean,
+)
+
+/**
+ * What 加入下载 says it did. The dialog closing used to be the only answer, so a download waiting
+ * for Wi-Fi looked like a tap that had not landed, and people tapped again.
+ */
+internal fun offlineEnqueueMessage(
+    result: OfflineEnqueueResult,
+    episode: Boolean,
+): String {
+    if (result.queued == 0) return "没有加入下载：其他集里没有与所选版本相符的文件"
+    return buildString {
+        append(if (episode) "已加入 ${result.queued} 集下载" else "已加入下载")
+        if (result.skipped > 0) append("，${result.skipped} 集没有相符的版本，已跳过")
+        if (result.waitingForWifi) append(" · 连上 Wi-Fi 后开始")
     }
 }
 

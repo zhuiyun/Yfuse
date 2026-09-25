@@ -141,6 +141,7 @@ internal class DetailExecutor(
                 }
             }
             DetailIntent.DismissMessage -> dispatch(DetailMsg.ActionMessage(null))
+            is DetailIntent.ShowMessage -> dispatch(DetailMsg.ActionMessage(intent.message))
             DetailIntent.Play -> play(fromStart = false)
             DetailIntent.PlayFromStart -> play(fromStart = true)
             DetailIntent.ToggleFavorite -> toggleFavorite()
@@ -190,9 +191,9 @@ internal class DetailExecutor(
                 selectSeason(intent.seasonId)
             }
             is DetailIntent.SelectAudioLanguage ->
-                dispatch(DetailMsg.AudioLanguageSelected(intent.language))
+                dispatch(DetailMsg.AudioLanguageSelected(intent.language, intent.ordinal))
             is DetailIntent.SelectSubtitleLanguage ->
-                dispatch(DetailMsg.SubtitleLanguageSelected(intent.language))
+                dispatch(DetailMsg.SubtitleLanguageSelected(intent.language, intent.ordinal))
             is DetailIntent.SelectEpisode -> {
                 val pendingServerId = pendingSourceServerId
                 val pendingItemId = pendingSourceItemId
@@ -1443,10 +1444,13 @@ internal class DetailExecutor(
         val versionId =
             current.selectedVersionId
                 ?.takeIf { selected -> target.versions.any { it.id == selected } }
+        val tracks = current.requestedTracks()
         playbackTrackRequest.set(
             itemId = target.id,
-            audioLanguage = current.preferredAudioLanguage,
-            subtitleLanguage = current.preferredSubtitleLanguage,
+            audioLanguage = tracks.audioLanguage,
+            subtitleLanguage = tracks.subtitleLanguage,
+            audioHint = tracks.audioHint,
+            subtitleHint = tracks.subtitleHint,
         )
         val mediaKey = target.providerIds.watchKey(target.id)
         val fallbackServers =
@@ -1518,21 +1522,21 @@ internal class DetailExecutor(
         val sync = syncManager
         dispatch(DetailMsg.PlayedChanged(server.id, detail.id, target))
         scope.launch {
-            sync
-                .setPlayed(server, detail.id, detail.title, target)
-                .onSuccess {
-                    if (isVisibleSource(server.id, detail.id)) {
-                        dispatch(
-                            DetailMsg.ActionMessage(
-                                if (target) "已标记为看过" else "已标记为未看",
-                            ),
-                        )
-                    }
-                }.onFailure {
-                    if (isVisibleSource(server.id, detail.id)) {
-                        dispatch(DetailMsg.ActionMessage("服务器暂不可用，已看状态已排队同步"))
-                    }
+            val written = sync.setPlayed(server, detail.id, detail.title, target).isSuccess
+            if (!isVisibleSource(server.id, detail.id)) return@launch
+            val message =
+                when {
+                    !written -> "服务器暂不可用，已看状态已排队同步"
+                    target -> "已标记为看过"
+                    else -> "已标记为未看"
                 }
+            if (detail.type.equals("Series", ignoreCase = true)) {
+                // The server marks every episode with the series. A queued write still reaches
+                // it as shown, so the episodes follow either way, as the batch editor's do.
+                dispatch(DetailMsg.SeriesProgressChanged(server.id, detail.id, target, message))
+            } else {
+                dispatch(DetailMsg.ActionMessage(message))
+            }
         }
     }
 

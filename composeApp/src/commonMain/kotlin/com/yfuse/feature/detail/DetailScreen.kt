@@ -43,6 +43,7 @@ import com.yfuse.core.designsystem.ActionToast
 import com.yfuse.core.designsystem.AnimatedColorContent
 import com.yfuse.core.designsystem.ArtworkAccent
 import com.yfuse.core.designsystem.ArtworkPageTheme
+import com.yfuse.core.designsystem.ConfirmDialog
 import com.yfuse.core.designsystem.DialogPresence
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
@@ -72,6 +73,7 @@ import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.network.currentPlaybackNetworkClass
 import com.yfuse.core.network.toUserMessage
 import com.yfuse.core.sync.WatchInvite
+import com.yfuse.core.sync.WatchTogetherState
 import com.yfuse.core.sync.watchKey
 import com.yfuse.core.util.rememberShareHandler
 import com.yfuse.feature.player.PlaybackSelection
@@ -128,6 +130,25 @@ internal fun shouldApplyPlaybackSelection(
         }
     }
 }
+
+/** What 一起看 on the detail page does, given the room this device is already in. */
+internal enum class WatchRoomAction { Create, Share, ConfirmReplace }
+
+/**
+ * Creating a room leaves the current one first, so tapping 一起看 while in a room for this title
+ * used to rebuild it under a new code, leaving everyone who had joined behind the old one. A room
+ * for this title is shared again instead, one for another title is only left once the person
+ * agrees, and a room whose title is not known yet is shared rather than left.
+ */
+internal fun watchRoomAction(
+    state: WatchTogetherState,
+    mediaKey: String,
+): WatchRoomAction =
+    when {
+        state.roomCode == null -> WatchRoomAction.Create
+        state.mediaKey.isNullOrBlank() || state.mediaKey == mediaKey -> WatchRoomAction.Share
+        else -> WatchRoomAction.ConfirmReplace
+    }
 
 /** The selected visual target puts the glass summary over the lower third of the hero. */
 @Composable
@@ -308,6 +329,8 @@ fun DetailScreen(component: DetailComponent) {
     val watchEndpoint by watchPreferences.endpoint.collectAsState()
     val share = rememberShareHandler()
     var shareSheetOpen by remember { mutableStateOf(false) }
+    var replaceRoomConfirmOpen by remember { mutableStateOf(false) }
+    var seriesPlayedConfirmOpen by remember { mutableStateOf(false) }
     var moreSheetOpen by remember { mutableStateOf(false) }
     var metadataEditorOpen by remember { mutableStateOf(false) }
     var downloadSheetOpen by remember { mutableStateOf(false) }
@@ -332,6 +355,44 @@ fun DetailScreen(component: DetailComponent) {
             }
         }
     val detailIsFollowed = detailFollow != null
+    // An episode page holds only the episode's own ids. A followed show — 追剧, or one the library
+    // tracks by itself — has recorded the series' TMDB id, which is what its TMDB page is under.
+    val seriesTmdbId =
+        detail
+            ?.takeIf { it.type.equals("Episode", ignoreCase = true) }
+            ?.seriesId
+            ?.let { seriesId ->
+                followedSeries.firstOrNull { followed ->
+                    followed.seriesItemId == seriesId &&
+                        (followed.serverId == null || followed.serverId == (state.server?.id ?: component.serverId))
+                }
+            }?.tmdbId
+            ?.takeIf { it > 0 }
+            ?.toString()
+    val serverFavoriteAvailable =
+        state.playServer
+            ?.kind
+            ?.capabilities()
+            ?.favorites != false
+    // Read at page level, not only inside 更多操作: the title block says which lists hold this title.
+    val personalLists =
+        detail?.let { item ->
+            state.server?.let { server ->
+                com.yfuse.feature.personal
+                    .rememberPersonalMediaLists(item, server.id)
+            }
+        }
+    val detailStatusList =
+        detail
+            ?.let { item ->
+                detailStatuses(
+                    favorite = serverFavoriteAvailable && item.isFavorite,
+                    watchLater = state.watchLater,
+                    played = item.played,
+                    personalFavorite = personalLists?.favorite == true,
+                    personalWanted = personalLists?.wanted == true,
+                )
+            }.orEmpty()
 
     LaunchedEffect(airingCalendarOpen, airingCalendarReload, detail?.id) {
         val target = detail ?: return@LaunchedEffect
@@ -564,6 +625,8 @@ fun DetailScreen(component: DetailComponent) {
                                                     captionLift = with(density) { it.height.toDp() } +
                                                         SheetGap + PlayButtonHeroOverlap
                                                 },
+                                            statuses = detailStatusList,
+                                            onStatusClick = { moreSheetOpen = true },
                                         )
                                         AnimatedColorContent(detailPlayColorState) { detailPlayColor ->
                                             DetailActionDock(
@@ -587,7 +650,9 @@ fun DetailScreen(component: DetailComponent) {
                                 }
 
                                 // 收藏 / 稍后看 and the personal lists live in the 更多操作 sheet: under the play
-                                // key they pushed the synopsis and the sources below the fold.
+                                // key they pushed the synopsis and the sources below the fold. The title
+                                // block still says which of them are on, and the top bar keeps 服务器收藏
+                                // one tap away.
                                 val overview = detail.overview
                                 if (!overview.isNullOrBlank()) {
                                     motionItem(key = "overview") {
@@ -623,8 +688,9 @@ fun DetailScreen(component: DetailComponent) {
 
                                 // Episodes are the next decision after reading the synopsis. Keeping the
                                 // rail here avoids making a series viewer cross file metadata, artwork and
-                                // external links before they can choose what to watch.
-                                if (state.episodes.isNotEmpty()) {
+                                // external links before they can choose what to watch. A season with none
+                                // keeps the section while there are other seasons to pick.
+                                if (state.episodes.isNotEmpty() || state.seasons.size > 1) {
                                     motionItem(key = "episodes") {
                                         EpisodeSection(
                                             baseUrl = playBaseUrl,
@@ -692,13 +758,19 @@ fun DetailScreen(component: DetailComponent) {
                                         TrackSection(
                                             version = playableVersion,
                                             audioLanguage = state.preferredAudioLanguage,
+                                            audioOrdinal = state.preferredAudioOrdinal,
                                             subtitleLanguage = state.preferredSubtitleLanguage,
+                                            subtitleOrdinal = state.preferredSubtitleOrdinal,
                                             accent = detailAccent,
-                                            onSelectAudio = {
-                                                component.store.accept(DetailIntent.SelectAudioLanguage(it))
+                                            onSelectAudio = { choice ->
+                                                component.store.accept(
+                                                    DetailIntent.SelectAudioLanguage(choice.value, choice.ordinal),
+                                                )
                                             },
-                                            onSelectSubtitle = {
-                                                component.store.accept(DetailIntent.SelectSubtitleLanguage(it))
+                                            onSelectSubtitle = { choice ->
+                                                component.store.accept(
+                                                    DetailIntent.SelectSubtitleLanguage(choice.value, choice.ordinal),
+                                                )
                                             },
                                             modifier = Modifier.padding(top = Dimens.sectionGap),
                                         )
@@ -730,9 +802,17 @@ fun DetailScreen(component: DetailComponent) {
                                     }
                                 }
 
-                                if (externalLinks(detail.providerIds).isNotEmpty()) {
+                                val links =
+                                    externalLinks(
+                                        providerIds = detail.providerIds,
+                                        type = detail.type,
+                                        seriesTmdbId = seriesTmdbId,
+                                        seasonNumber = detail.seasonNumber,
+                                        episodeNumber = detail.episodeNumber,
+                                    )
+                                if (links.isNotEmpty()) {
                                     motionItem(key = "links") {
-                                        ExternalLinksSection(detail.providerIds, Modifier.sectionPadding())
+                                        ExternalLinksSection(links, Modifier.sectionPadding())
                                     }
                                 }
 
@@ -795,6 +875,8 @@ fun DetailScreen(component: DetailComponent) {
                         onBack = component.onBack,
                         onPlay = playerArtworkOnClick(sharedHeroKey) { component.store.accept(DetailIntent.Play) },
                         onMore = { moreSheetOpen = true },
+                        favorite = detail?.isFavorite?.takeIf { serverFavoriteAvailable },
+                        onToggleFavorite = { component.store.accept(DetailIntent.ToggleFavorite) },
                     )
                 }
 
@@ -831,20 +913,16 @@ fun DetailScreen(component: DetailComponent) {
                         played = detail.played,
                         isPlex = state.server?.kind == com.yfuse.core.model.MediaServerKind.Plex,
                         watchAvailable = watchAvailable,
-                        watchActive = watchState.roomCode != null,
-                        serverFavoriteAvailable =
-                            state.playServer
-                                ?.kind
-                                ?.capabilities()
-                                ?.favorites != false,
+                        // 继续分享邀请 only for a room this title can be shared into; any other room is
+                        // left, after asking, for a new one.
+                        watchActive =
+                            watchRoomAction(watchState, detail.providerIds.watchKey(detail.id)) ==
+                                WatchRoomAction.Share,
+                        serverFavoriteAvailable = serverFavoriteAvailable,
                         serverFavorite = detail.isFavorite,
                         serverWatchLater = state.watchLater,
                         serverWatchLaterMutating = state.watchLaterMutating,
-                        personalLists =
-                            state.server?.let { server ->
-                                com.yfuse.feature.personal
-                                    .rememberPersonalMediaLists(detail, server.id)
-                            },
+                        personalLists = personalLists,
                         onToggleServerFavorite = { component.store.accept(DetailIntent.ToggleFavorite) },
                         onToggleServerWatchLater = { component.store.accept(DetailIntent.ToggleWatchLater) },
                         onDownload = {
@@ -872,7 +950,12 @@ fun DetailScreen(component: DetailComponent) {
                         },
                         onTogglePlayed = {
                             moreSheetOpen = false
-                            component.store.accept(DetailIntent.TogglePlayed)
+                            // A series is every episode's history and resume point in one tap.
+                            if (detail.type.equals("Series", ignoreCase = true)) {
+                                seriesPlayedConfirmOpen = true
+                            } else {
+                                component.store.accept(DetailIntent.TogglePlayed)
+                            }
                         },
                         onOrganization = {
                             moreSheetOpen = false
@@ -899,11 +982,15 @@ fun DetailScreen(component: DetailComponent) {
                         // handoff so the host can share the room before entering the player.
                         onWatchTogether = {
                             moreSheetOpen = false
-                            watchTogether.createRoom(
-                                endpoint = watchEndpoint,
-                                mediaKey = detail.providerIds.watchKey(detail.id),
-                            )
-                            shareSheetOpen = true
+                            val mediaKey = detail.providerIds.watchKey(detail.id)
+                            when (watchRoomAction(watchState, mediaKey)) {
+                                WatchRoomAction.Share -> shareSheetOpen = true
+                                WatchRoomAction.ConfirmReplace -> replaceRoomConfirmOpen = true
+                                WatchRoomAction.Create -> {
+                                    watchTogether.createRoom(endpoint = watchEndpoint, mediaKey = mediaKey)
+                                    shareSheetOpen = true
+                                }
+                            }
                         },
                         onDismiss = { moreSheetOpen = false },
                     )
@@ -923,7 +1010,10 @@ fun DetailScreen(component: DetailComponent) {
                             },
                         onConfirm = { selection ->
                             downloadSheetOpen = false
-                            component.download(selection)
+                            component.download(selection)?.let { result ->
+                                val message = offlineEnqueueMessage(result, episode = downloadTarget.seriesId != null)
+                                component.store.accept(DetailIntent.ShowMessage(message))
+                            }
                         },
                         onDismiss = { downloadSheetOpen = false },
                     )
@@ -1090,6 +1180,45 @@ fun DetailScreen(component: DetailComponent) {
                         onDismiss = {
                             component.store.accept(DetailIntent.CloseProgressManager)
                         },
+                    )
+                }
+
+                if (seriesPlayedConfirmOpen && detail != null) {
+                    val markPlayed = !detail.played
+                    ConfirmDialog(
+                        title = if (markPlayed) "整部剧标记为已看？" else "整部剧标记为未看？",
+                        message = seriesProgressConfirmMessage(detail.title, state.seasons.size, markPlayed),
+                        confirmLabel = if (markPlayed) "标记已看" else "标记未看",
+                        destructive = true,
+                        onConfirm = {
+                            seriesPlayedConfirmOpen = false
+                            component.store.accept(DetailIntent.TogglePlayed)
+                        },
+                        onDismiss = { seriesPlayedConfirmOpen = false },
+                    )
+                }
+
+                if (replaceRoomConfirmOpen && detail != null) {
+                    ConfirmDialog(
+                        title = "离开当前房间，为这部影片新建房间？",
+                        message =
+                            if (watchState.isHost) {
+                                "其他成员会留在原房间，房主身份稍后交给其中一人；新房间要重新发送邀请。"
+                            } else {
+                                "你会离开正在同步的房间，之后仍可以用房间码重新加入。"
+                            },
+                        confirmLabel = "新建房间",
+                        dismissLabel = "留在房间",
+                        destructive = true,
+                        onConfirm = {
+                            replaceRoomConfirmOpen = false
+                            watchTogether.createRoom(
+                                endpoint = watchEndpoint,
+                                mediaKey = detail.providerIds.watchKey(detail.id),
+                            )
+                            shareSheetOpen = true
+                        },
+                        onDismiss = { replaceRoomConfirmOpen = false },
                     )
                 }
 
