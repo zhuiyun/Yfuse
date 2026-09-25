@@ -355,6 +355,20 @@ fun DetailScreen(component: DetailComponent) {
             }
         }
     val detailIsFollowed = detailFollow != null
+    // An episode page holds only the episode's own ids. A followed show — 追剧, or one the library
+    // tracks by itself — has recorded the series' TMDB id, which is what its TMDB page is under.
+    val seriesTmdbId =
+        detail
+            ?.takeIf { it.type.equals("Episode", ignoreCase = true) }
+            ?.seriesId
+            ?.let { seriesId ->
+                followedSeries.firstOrNull { followed ->
+                    followed.seriesItemId == seriesId &&
+                        (followed.serverId == null || followed.serverId == (state.server?.id ?: component.serverId))
+                }
+            }?.tmdbId
+            ?.takeIf { it > 0 }
+            ?.toString()
     val serverFavoriteAvailable =
         state.playServer
             ?.kind
@@ -787,9 +801,17 @@ fun DetailScreen(component: DetailComponent) {
                                     }
                                 }
 
-                                if (externalLinks(detail.providerIds).isNotEmpty()) {
+                                val links =
+                                    externalLinks(
+                                        providerIds = detail.providerIds,
+                                        type = detail.type,
+                                        seriesTmdbId = seriesTmdbId,
+                                        seasonNumber = detail.seasonNumber,
+                                        episodeNumber = detail.episodeNumber,
+                                    )
+                                if (links.isNotEmpty()) {
                                     motionItem(key = "links") {
-                                        ExternalLinksSection(detail.providerIds, Modifier.sectionPadding())
+                                        ExternalLinksSection(links, Modifier.sectionPadding())
                                     }
                                 }
 

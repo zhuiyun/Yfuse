@@ -149,12 +149,12 @@ internal fun ArtworkSection(
 /** 外部链接 — where this title lives outside the library. */
 @Composable
 internal fun ExternalLinksSection(
-    providerIds: Map<String, String>,
+    /** Label and address pairs from [externalLinks]. */
+    links: List<Pair<String, String>>,
     modifier: Modifier = Modifier,
 ) {
     val palette = LocalPalette.current
     val uriHandler = LocalUriHandler.current
-    val links = remember(providerIds) { externalLinks(providerIds) }
     if (links.isEmpty()) return
     Column(modifier) {
         SectionHeader("外部链接")
@@ -194,17 +194,48 @@ internal fun ExternalLinksSection(
 /**
  * The provider ids Emby carries that have a public page worth opening. Anything else it
  * returns (a scraper's internal key, say) has nowhere to link to and is left out.
+ *
+ * TMDB and TheTVDB number films, series and episodes separately, so the page depends on [type]:
+ * every link used to be a film's, and a series opened whichever film shared its number, or a 404.
+ * An episode's own TMDB id numbers the episode, which no TMDB page is addressed by, so its TMDB
+ * link needs the series' id and is left out without one.
  */
-internal fun externalLinks(providerIds: Map<String, String>): List<Pair<String, String>> {
+internal fun externalLinks(
+    providerIds: Map<String, String>,
+    type: String? = null,
+    seriesTmdbId: String? = null,
+    seasonNumber: Int? = null,
+    episodeNumber: Int? = null,
+): List<Pair<String, String>> {
     fun id(name: String) =
         providerIds.entries
             .firstOrNull { it.key.equals(name, ignoreCase = true) }
             ?.value
             ?.takeIf { it.isNotBlank() }
+    val episode = type.equals("Episode", ignoreCase = true)
+    val tmdb =
+        when {
+            episode ->
+                seriesTmdbId?.takeIf { it.isNotBlank() }?.let { show ->
+                    if (seasonNumber != null && episodeNumber != null) {
+                        "https://www.themoviedb.org/tv/$show/season/$seasonNumber/episode/$episodeNumber"
+                    } else {
+                        "https://www.themoviedb.org/tv/$show"
+                    }
+                }
+            type.equals("Series", ignoreCase = true) -> id("Tmdb")?.let { "https://www.themoviedb.org/tv/$it" }
+            else -> id("Tmdb")?.let { "https://www.themoviedb.org/movie/$it" }
+        }
+    val tvdbKind =
+        when {
+            episode -> "episode"
+            type.equals("Movie", ignoreCase = true) -> "movie"
+            else -> "series"
+        }
     return buildList {
-        id("Tmdb")?.let { add("TMDB" to "https://www.themoviedb.org/movie/$it") }
+        tmdb?.let { add("TMDB" to it) }
         id("Imdb")?.let { add("IMDb" to "https://www.imdb.com/title/$it/") }
-        id("Tvdb")?.let { add("TheTVDB" to "https://thetvdb.com/dereferrer/series/$it") }
+        id("Tvdb")?.let { add("TheTVDB" to "https://thetvdb.com/dereferrer/$tvdbKind/$it") }
     }
 }
 
