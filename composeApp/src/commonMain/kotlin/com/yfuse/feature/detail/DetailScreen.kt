@@ -332,6 +332,30 @@ fun DetailScreen(component: DetailComponent) {
             }
         }
     val detailIsFollowed = detailFollow != null
+    val serverFavoriteAvailable =
+        state.playServer
+            ?.kind
+            ?.capabilities()
+            ?.favorites != false
+    // Read at page level, not only inside 更多操作: the title block says which lists hold this title.
+    val personalLists =
+        detail?.let { item ->
+            state.server?.let { server ->
+                com.yfuse.feature.personal
+                    .rememberPersonalMediaLists(item, server.id)
+            }
+        }
+    val detailStatusList =
+        detail
+            ?.let { item ->
+                detailStatuses(
+                    favorite = serverFavoriteAvailable && item.isFavorite,
+                    watchLater = state.watchLater,
+                    played = item.played,
+                    personalFavorite = personalLists?.favorite == true,
+                    personalWanted = personalLists?.wanted == true,
+                )
+            }.orEmpty()
 
     LaunchedEffect(airingCalendarOpen, airingCalendarReload, detail?.id) {
         val target = detail ?: return@LaunchedEffect
@@ -564,6 +588,8 @@ fun DetailScreen(component: DetailComponent) {
                                                     captionLift = with(density) { it.height.toDp() } +
                                                         SheetGap + PlayButtonHeroOverlap
                                                 },
+                                            statuses = detailStatusList,
+                                            onStatusClick = { moreSheetOpen = true },
                                         )
                                         AnimatedColorContent(detailPlayColorState) { detailPlayColor ->
                                             DetailActionDock(
@@ -587,7 +613,9 @@ fun DetailScreen(component: DetailComponent) {
                                 }
 
                                 // 收藏 / 稍后看 and the personal lists live in the 更多操作 sheet: under the play
-                                // key they pushed the synopsis and the sources below the fold.
+                                // key they pushed the synopsis and the sources below the fold. The title
+                                // block still says which of them are on, and the top bar keeps 服务器收藏
+                                // one tap away.
                                 val overview = detail.overview
                                 if (!overview.isNullOrBlank()) {
                                     motionItem(key = "overview") {
@@ -801,6 +829,8 @@ fun DetailScreen(component: DetailComponent) {
                         onBack = component.onBack,
                         onPlay = playerArtworkOnClick(sharedHeroKey) { component.store.accept(DetailIntent.Play) },
                         onMore = { moreSheetOpen = true },
+                        favorite = detail?.isFavorite?.takeIf { serverFavoriteAvailable },
+                        onToggleFavorite = { component.store.accept(DetailIntent.ToggleFavorite) },
                     )
                 }
 
@@ -838,19 +868,11 @@ fun DetailScreen(component: DetailComponent) {
                         isPlex = state.server?.kind == com.yfuse.core.model.MediaServerKind.Plex,
                         watchAvailable = watchAvailable,
                         watchActive = watchState.roomCode != null,
-                        serverFavoriteAvailable =
-                            state.playServer
-                                ?.kind
-                                ?.capabilities()
-                                ?.favorites != false,
+                        serverFavoriteAvailable = serverFavoriteAvailable,
                         serverFavorite = detail.isFavorite,
                         serverWatchLater = state.watchLater,
                         serverWatchLaterMutating = state.watchLaterMutating,
-                        personalLists =
-                            state.server?.let { server ->
-                                com.yfuse.feature.personal
-                                    .rememberPersonalMediaLists(detail, server.id)
-                            },
+                        personalLists = personalLists,
                         onToggleServerFavorite = { component.store.accept(DetailIntent.ToggleFavorite) },
                         onToggleServerWatchLater = { component.store.accept(DetailIntent.ToggleWatchLater) },
                         onDownload = {

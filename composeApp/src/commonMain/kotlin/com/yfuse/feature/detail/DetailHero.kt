@@ -9,6 +9,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -46,8 +48,12 @@ import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.toggleableState
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Density
@@ -61,6 +67,7 @@ import com.yfuse.core.designsystem.BackdropState
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.DolbyBadge
 import com.yfuse.core.designsystem.FallbackImage
+import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.HeroInk
 import com.yfuse.core.designsystem.InlineLoadingContent
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
@@ -315,6 +322,9 @@ internal fun DetailTopBar(
     onBack: () -> Unit,
     onPlay: () -> Unit,
     onMore: () -> Unit,
+    /** 服务器收藏 beside 更多操作; null when the title has no server favourite to switch. */
+    favorite: Boolean? = null,
+    onToggleFavorite: () -> Unit = {},
 ) {
     val palette = LocalPalette.current
     val playBody = primaryActionColor(accent)
@@ -396,6 +406,19 @@ internal fun DetailTopBar(
                     Text("播放", style = AppTypography.body.strong, color = playInk)
                 }
             }
+            if (favorite != null) {
+                // One tap, where it used to be … → switch → close. Like 更多操作 it stays up
+                // over the artwork; the title gives up the width, never the play shortcut.
+                DetailTopBarIcon(
+                    icon = if (favorite) AppIcons.HeartFilled else AppIcons.Heart,
+                    description = "服务器收藏",
+                    progress = progress,
+                    surfaceColor = surfaceColor,
+                    onClick = onToggleFavorite,
+                    checked = favorite,
+                    stateLabel = if (favorite) "已收藏" else "未收藏",
+                )
+            }
             if (showMore) {
                 // Unlike the title and the play shortcut this does not fade in with scroll:
                 // it is the only route to 下载 / 标记已看 / 一起看, so it has to be reachable
@@ -412,7 +435,10 @@ internal fun DetailTopBar(
     }
 }
 
-/** Both glyph tint and glass colour follow scroll solely in the draw phase. */
+/**
+ * Both glyph tint and glass colour follow scroll solely in the draw phase. A [checked] key is a
+ * switch: it says its state, and it is felt, because it changes state in place.
+ */
 @Composable
 private fun DetailTopBarIcon(
     icon: ImageVector,
@@ -420,13 +446,18 @@ private fun DetailTopBarIcon(
     progress: State<Float>,
     surfaceColor: Color,
     onClick: () -> Unit,
+    checked: Boolean? = null,
+    stateLabel: String? = null,
 ) {
     val palette = LocalPalette.current
     val painter = rememberVectorPainter(icon)
     Canvas(
         Modifier
-            .pressable(onClick = onClick)
-            .touchTarget()
+            .pressable(
+                haptic = HapticSignal.Confirm.takeIf { checked != null },
+                role = if (checked == null) Role.Button else Role.Checkbox,
+                onClick = onClick,
+            ).touchTarget()
             .size(38.dp)
             .liquidGlass(
                 shape = CircleShape,
@@ -435,7 +466,11 @@ private fun DetailTopBarIcon(
                 over = { lerp(HeroInk, surfaceColor, progress.value) },
                 sheen = 0.7f,
             ).padding(11.dp)
-            .semantics { contentDescription = description },
+            .semantics {
+                contentDescription = description
+                if (checked != null) toggleableState = ToggleableState(checked)
+                if (stateLabel != null) stateDescription = stateLabel
+            },
     ) {
         with(painter) {
             draw(size, colorFilter = ColorFilter.tint(lerp(Color.White, palette.text, progress.value)))
@@ -468,6 +503,9 @@ internal fun TitleBlock(
     accent: () -> Color,
     version: MediaVersion?,
     modifier: Modifier = Modifier,
+    /** 已收藏 / 稍后观看 / 已看完 and the personal lists; nothing is drawn when there are none. */
+    statuses: List<DetailStatus> = emptyList(),
+    onStatusClick: () -> Unit = {},
 ) {
     Column(
         modifier.fillMaxWidth(),
@@ -524,8 +562,93 @@ internal fun TitleBlock(
                 if (dolbyAtmos) DolbyBadge("ATMOS", ArtworkInk)
             }
         }
+        // Its 48dp touch target is its spacing: the chips sit centred in it, a gap either side.
+        if (statuses.isNotEmpty()) DetailStatusRow(statuses, onStatusClick)
     }
 }
+
+/**
+ * A state the title is in. These moved into 更多操作 with 1.0.85 so the synopsis could rise, and
+ * the page stopped saying whether a film was already collected or watched at all.
+ */
+internal enum class DetailStatus(
+    val label: String,
+) {
+    Favorite("已收藏"),
+    WatchLater("稍后观看"),
+    Played("已看完"),
+    PersonalFavorite("个人收藏"),
+    PersonalWanted("想看"),
+}
+
+internal fun detailStatuses(
+    favorite: Boolean,
+    watchLater: Boolean,
+    played: Boolean,
+    personalFavorite: Boolean,
+    personalWanted: Boolean,
+): List<DetailStatus> =
+    buildList {
+        if (favorite) add(DetailStatus.Favorite)
+        if (watchLater) add(DetailStatus.WatchLater)
+        if (played) add(DetailStatus.Played)
+        if (personalFavorite) add(DetailStatus.PersonalFavorite)
+        if (personalWanted) add(DetailStatus.PersonalWanted)
+    }
+
+/**
+ * The title's states as read-only chips. One tap on the row opens 更多操作, where each is
+ * switched; a screen reader hears the states, then that the row opens the sheet.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun DetailStatusRow(
+    statuses: List<DetailStatus>,
+    onClick: () -> Unit,
+) {
+    FlowRow(
+        Modifier
+            .pressable(
+                focusShape = AppShapes.chip,
+                onClickLabel = "打开更多操作",
+                onClick = onClick,
+            ).touchTarget(),
+        horizontalArrangement = Arrangement.spacedBy(Dimens.space.sm),
+        verticalArrangement = Arrangement.spacedBy(Dimens.space.sm),
+    ) {
+        statuses.forEach { status ->
+            Row(
+                Modifier
+                    // On the artwork in both themes, like the title: its own dark plate rather
+                    // than glass, which re-tints with the palette and can turn light under
+                    // 减少透明效果. White caption ink on it clears 4.5:1 even over a white sky.
+                    .background(StatusChipFill, AppShapes.chip)
+                    .border(Dimens.hairline, StatusChipEdge, AppShapes.chip)
+                    .padding(horizontal = Dimens.space.sm, vertical = Dimens.space.xs),
+                horizontalArrangement = Arrangement.spacedBy(Dimens.space.xs),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    status.icon(),
+                    contentDescription = null,
+                    tint = ArtworkInk,
+                    modifier = Modifier.size(12.dp),
+                )
+                Text(status.label, style = AppTypography.caption.strong, color = ArtworkInk, maxLines = 1)
+            }
+        }
+    }
+}
+
+private fun DetailStatus.icon(): ImageVector =
+    when (this) {
+        DetailStatus.Favorite, DetailStatus.PersonalFavorite -> AppIcons.HeartFilled
+        DetailStatus.WatchLater, DetailStatus.PersonalWanted -> AppIcons.BookmarkFilled
+        DetailStatus.Played -> AppIcons.Check
+    }
+
+private val StatusChipFill = HeroInk.copy(alpha = 0.66f)
+private val StatusChipEdge = Color.White.copy(alpha = 0.22f)
 
 /** `1小时13分钟` — hours only when there are any, because "0小时13分钟" reads as a bug. */
 internal fun runtimeLabel(minutes: Int): String {
