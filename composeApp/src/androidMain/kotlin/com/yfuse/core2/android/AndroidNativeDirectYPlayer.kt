@@ -897,10 +897,19 @@ internal class AndroidNativeDirectYPlayer(
                     ?.id
                     ?.substringAfter(':')
                     ?.toIntOrNull()
+                    // A preference can land on DTS behind an AAC label, which nothing here can play;
+                    // choosing among every track then beats failing on the one it named.
+                    ?.takeUnless { index -> demux.trackFormat(index).aacLabelWithoutConfig() }
             val audioCandidates = preferredAudioIndex?.let(::listOf) ?: platformAudioTrackIndices
             val initialAudioTrack =
                 audioCandidates.firstNotNullOfOrNull { index ->
                     val format = demux.trackFormat(index)
+                    if (format.aacLabelWithoutConfig()) {
+                        // DTS in an `mp4a` entry: the AAC decoder would play it as silence, so the
+                        // real AAC track behind it has to win (toCore2AudioTrackFormat agrees).
+                        logAacLabelWithoutConfig("NativeDirect", discoveredAudio, index, item.sourceHints)
+                        return@firstNotNullOfOrNull null
+                    }
                     val coreFormat =
                         runCatching { format.toCore2AudioTrackFormat(item.sourceHints) }.getOrNull()
                             ?: return@firstNotNullOfOrNull null
@@ -934,7 +943,10 @@ internal class AndroidNativeDirectYPlayer(
                 val rejectedAudioMimes =
                     platformAudioTrackIndices
                         .mapNotNull { index ->
-                            demux.trackFormat(index).getString(MediaFormat.KEY_MIME)?.lowercase()
+                            val format = demux.trackFormat(index)
+                            format.getString(MediaFormat.KEY_MIME)?.lowercase()?.let { mime ->
+                                if (format.aacLabelWithoutConfig()) "$mime without AudioSpecificConfig" else mime
+                            }
                         }.distinct()
                         .joinToString(",")
                 throw YPlaybackException(
@@ -3472,7 +3484,9 @@ private fun YMediaItem.toAndroidSource(): YAndroidMediaSource =
  * convention `AndroidCore2MediaProbe` already follows — so the device probe decides there is no
  * output path and the caller's fail-closed guard reports a real reason. `toYAudioCodec` itself
  * keeps returning null for unmapped types because [AndroidYCapabilityProvider] uses it to build the
- * decoder capability set, where an Unknown entry would claim support for everything.
+ * decoder capability set, where an Unknown entry would claim support for everything. An AAC label
+ * with no AudioSpecificConfig is Unknown too: it is DTS or another codec in an `mp4a` entry, and the
+ * AAC decoder would play it as silence ([aacLabelWithoutConfig]).
  *
  * Channel count and sample rate are read defensively for the same reason: `MediaFormat.getInteger`
  * throws when a container omits the key. Server probe metadata fills those gaps; a codec-aware,
@@ -3481,7 +3495,7 @@ private fun YMediaItem.toAndroidSource(): YAndroidMediaSource =
 internal fun MediaFormat.toCore2AudioTrackFormat(sourceHints: YMediaSourceHints? = null): YAudioTrackFormat {
     val mime = requireNotNull(getString(MediaFormat.KEY_MIME)).normalizedAudioMimeType()
     val profile = intOrZero(MediaFormat.KEY_PROFILE)
-    val baseCodec = mime.toYAudioCodec() ?: YAudioCodec.Unknown
+    val baseCodec = platformAudioCodec()
     val codec =
         when {
             baseCodec == YAudioCodec.Eac3 && profile == ATMOS_PROFILE -> YAudioCodec.Eac3Joc

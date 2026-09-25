@@ -160,6 +160,16 @@ internal class AndroidNativeTunnelSession(
         }
         val videoFormat = tunnelConfig.configureVideoFormat(originalVideoFormat)
         val audioFormat = demuxer.trackFormat(audioIndex)
+        if (audioFormat.aacLabelWithoutConfig()) {
+            // The AAC decoder would swallow this track's frames without a sample of PCM, leaving the
+            // tunnel no audio to keep time with. Failing here lets another route play the file.
+            logAacLabelWithoutConfig("NativeTunnel", discoveredAudio, audioIndex, sourceHints = null)
+            throw YPlaybackException(
+                category = YPlaybackFailureCategory.Container,
+                stage = YPlaybackFailureStage.Demux,
+                safeDetail = "Tunnel audio track is labelled AAC without an AudioSpecificConfig",
+            )
+        }
 
         var videoConfiguredForProbe = false
         try {

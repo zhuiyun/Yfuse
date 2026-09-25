@@ -10,7 +10,6 @@ import com.yfuse.core2.api.YPlaybackRoute
 import com.yfuse.core2.bitstream.YBitstream
 import com.yfuse.core2.bitstream.YDolbyVisionNalEvidence
 import com.yfuse.core2.bitstream.YSamplePacking
-import com.yfuse.core2.capability.YAudioCodec
 import com.yfuse.core2.capability.YAudioRequirement
 import com.yfuse.core2.capability.YCapabilityProvider
 import com.yfuse.core2.capability.YContainer
@@ -316,7 +315,8 @@ internal class AndroidCore2MediaProbe(
             val audio =
                 audioFormat?.let { format ->
                     YAudioRequirement(
-                        codec = audioMime?.toYAudioCodec() ?: YAudioCodec.Unknown,
+                        // Unknown for DTS behind an AAC label too, which sends it to the FFmpeg truth probe.
+                        codec = format.platformAudioCodec(),
                         channelCount = format.intOrZero(MediaFormat.KEY_CHANNEL_COUNT).coerceAtLeast(1),
                         sampleRate = format.intOrZero(MediaFormat.KEY_SAMPLE_RATE).coerceAtLeast(1),
                     )
@@ -378,7 +378,7 @@ internal class AndroidCore2MediaProbe(
                     video = AUDIO_ONLY_VIDEO_PLACEHOLDER,
                     audio =
                         YAudioRequirement(
-                            codec = audioMime?.toYAudioCodec() ?: YAudioCodec.Unknown,
+                            codec = audioFormat.platformAudioCodec(),
                             channelCount =
                                 audioFormat.intOrZero(MediaFormat.KEY_CHANNEL_COUNT).coerceAtLeast(1),
                             sampleRate =
