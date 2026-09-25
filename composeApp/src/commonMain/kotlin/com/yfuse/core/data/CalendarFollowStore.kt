@@ -295,12 +295,13 @@ class CalendarFollowStore(
         }
     }
 
+    /** Null [beforeMinutes] keeps each series' own lead time and switches only the mode. */
     fun setReminderForAll(
         mode: CalendarReminderMode,
-        beforeMinutes: Int = 30,
+        beforeMinutes: Int? = null,
     ) {
         synchronized(stateLock) {
-            val normalizedBefore = beforeMinutes.coerceIn(0, 24 * 60)
+            val normalizedBefore = beforeMinutes?.coerceIn(0, 24 * 60)
             _followed.value.forEach { previous ->
                 if (
                     previous.reminderMode == CalendarReminderMode.WhenAvailable ||
@@ -311,7 +312,7 @@ class CalendarFollowStore(
             }
             updateLocked(
                 _followed.value.map {
-                    it.copy(reminderMode = mode, remindBeforeMinutes = normalizedBefore)
+                    it.copy(reminderMode = mode, remindBeforeMinutes = normalizedBefore ?: it.remindBeforeMinutes)
                 },
             )
         }

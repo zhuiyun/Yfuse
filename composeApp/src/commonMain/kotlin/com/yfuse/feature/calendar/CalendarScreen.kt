@@ -1295,10 +1295,7 @@ private fun CalendarTrackingPane(
                         Modifier
                             .pressable {
                                 confirmUnfollowAll = false
-                                component.setReminderForAll(
-                                    CalendarReminderMode.BeforeAndAtBroadcast,
-                                    beforeMinutes = 30,
-                                )
+                                component.setReminderForAll(CalendarReminderMode.BeforeAndAtBroadcast)
                             }.touchTarget(),
                 )
                 Text(
@@ -1309,10 +1306,7 @@ private fun CalendarTrackingPane(
                         Modifier
                             .pressable {
                                 confirmUnfollowAll = false
-                                component.setReminderForAll(
-                                    CalendarReminderMode.Off,
-                                    beforeMinutes = 30,
-                                )
+                                component.setReminderForAll(CalendarReminderMode.Off)
                             }.touchTarget(),
                 )
                 Spacer(Modifier.weight(1f))
@@ -1799,7 +1793,7 @@ private fun CalendarSettingsPane(
         }
         motionItem {
             Text(
-                "平台和内容筛选会同时作用于“日历”页；提醒的具体模式和提前量可在“追剧”页或剧集详情中调整。",
+                "平台和内容筛选会同时作用于“日历”页；提醒模式可在“追剧”页切换，提前量在剧集详情页的“播出日历”中调整。",
                 style = AppTypography.caption.regular,
                 color = palette.sub2,
                 modifier = Modifier.padding(vertical = 8.dp),

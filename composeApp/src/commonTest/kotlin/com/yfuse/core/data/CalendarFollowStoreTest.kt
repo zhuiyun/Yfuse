@@ -107,6 +107,22 @@ class CalendarFollowStoreTest {
     }
 
     @Test
+    fun switching_every_mode_keeps_each_series_lead_time() {
+        val store = CalendarFollowStore(MapSettings())
+        store.follow(FollowedSeries(tmdbId = 1, title = "剧一", remindBeforeMinutes = 120))
+        store.follow(FollowedSeries(tmdbId = 2, title = "剧二", remindBeforeMinutes = 10))
+
+        store.setReminderForAll(CalendarReminderMode.Off)
+        store.setReminderForAll(CalendarReminderMode.BeforeAndAtBroadcast)
+
+        assertEquals(
+            mapOf(1 to 120, 2 to 10),
+            store.followed.value.associate { it.tmdbId to it.remindBeforeMinutes },
+        )
+        assertTrue(store.followed.value.all { it.reminderMode == CalendarReminderMode.BeforeAndAtBroadcast })
+    }
+
+    @Test
     fun unfollow_removes_delivery_and_baseline_keys() {
         val settings = MapSettings()
         val store = CalendarFollowStore(settings)
