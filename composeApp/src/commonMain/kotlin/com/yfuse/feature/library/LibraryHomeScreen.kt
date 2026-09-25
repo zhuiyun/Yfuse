@@ -1308,7 +1308,8 @@ private fun PlaybackHistory(
     onItemClick: (MediaItem) -> Unit,
 ) {
     Column {
-        SectionHeader("播放记录")
+        // SectionHeader has no side inset of its own; this lines it up with the rail's padding below.
+        SectionHeader("播放记录", Modifier.padding(horizontal = Dimens.pageHorizontal))
         LazyRow(
             contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -1374,7 +1375,12 @@ private fun CategorySection(
     onItemClick: (MediaItem) -> Unit,
 ) {
     Column {
-        SectionHeader(row.title, actionLabel = "全部", onAction = onSeeAll)
+        SectionHeader(
+            row.title,
+            Modifier.padding(horizontal = Dimens.pageHorizontal),
+            actionLabel = "全部",
+            onAction = onSeeAll,
+        )
         if (row.loadFailed) {
             Text(
                 text = "暂时无法加载，点击“全部”查看或下拉重试",
