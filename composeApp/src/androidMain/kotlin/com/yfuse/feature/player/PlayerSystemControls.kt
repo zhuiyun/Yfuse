@@ -1,5 +1,6 @@
 package com.yfuse.feature.player
 
+import android.content.Context
 import android.database.ContentObserver
 import android.media.AudioManager
 import android.os.Build
@@ -7,6 +8,7 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.view.KeyEvent
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.LocalActivity
@@ -34,16 +36,52 @@ internal fun rememberWindowBrightness(): Pair<State<Float>, (Float) -> Unit> {
     val level =
         remember(activity) {
             val current = activity?.window?.attributes?.screenBrightness ?: -1f
-            mutableFloatStateOf(if (current in 0f..1f) current else 0.5f)
+            // -1 is the window's default, "follow the system". A drag used to start from a made-up
+            // midpoint instead, so the first nudge on a phone dimmed to 10% for the night threw it
+            // to half brightness. The system's own level is where the finger actually is.
+            mutableFloatStateOf(if (current in 0f..1f) current else systemBrightnessFraction(activity))
         }
+    // The override belongs to this player. The window goes back to following the system as the
+    // player's composition ends rather than whenever the window itself happens to be torn down.
+    DisposableEffect(activity) {
+        onDispose {
+            activity?.window?.let { window ->
+                runCatching {
+                    window.attributes =
+                        window.attributes.apply {
+                            screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+                        }
+                }
+            }
+        }
+    }
     return level to { target: Float ->
-        val clamped = target.coerceIn(0.02f, 1f)
+        val clamped = target.coerceIn(MIN_WINDOW_BRIGHTNESS, 1f)
         level.floatValue = clamped
         activity?.window?.let { window ->
             window.attributes = window.attributes.apply { screenBrightness = clamped }
         }
     }
 }
+
+/** The system's SCREEN_BRIGHTNESS as a window level, or the old midpoint when it cannot be read. */
+private fun systemBrightnessFraction(context: Context?): Float {
+    val resolver = context?.contentResolver ?: return windowBrightnessForSystemSetting(null)
+    val setting = runCatching { Settings.System.getInt(resolver, Settings.System.SCREEN_BRIGHTNESS) }.getOrNull()
+    return windowBrightnessForSystemSetting(setting)
+}
+
+/**
+ * SCREEN_BRIGHTNESS is 0..255; a window level is 0..1, floored where a brightness drag stops.
+ * Null — the setting missing or unreadable — keeps the midpoint the player always used.
+ */
+internal fun windowBrightnessForSystemSetting(setting: Int?): Float =
+    setting?.let { (it / SYSTEM_BRIGHTNESS_MAX).coerceIn(MIN_WINDOW_BRIGHTNESS, 1f) } ?: 0.5f
+
+private const val SYSTEM_BRIGHTNESS_MAX = 255f
+
+/** Where a brightness drag stops: a fully black backlight reads as the screen switching off. */
+private const val MIN_WINDOW_BRIGHTNESS = 0.02f
 
 /** Reads and writes STREAM_MUSIC so the player's level chip reflects real system volume. */
 @Composable
