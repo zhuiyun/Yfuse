@@ -21,6 +21,7 @@ import com.yfuse.core.logging.AppLog
 import com.yfuse.core.logging.redactDiagnosticText
 import com.yfuse.core.model.Episode
 import com.yfuse.core.model.MediaServerKind
+import com.yfuse.core.network.DEFAULT_EMBY_USER_AGENT
 import com.yfuse.core.network.EmbyStream
 import com.yfuse.core.network.validateEmbyServerEndpoint
 import kotlinx.coroutines.CancellationException
@@ -85,9 +86,8 @@ private fun offlineFailureKind(error: Throwable): DownloadFailureKind =
     when (error) {
         is OfflineHttpException ->
             when (error.statusCode) {
-                HttpURLConnection.HTTP_UNAUTHORIZED,
-                HttpURLConnection.HTTP_FORBIDDEN,
-                -> DownloadFailureKind.Authentication
+                // 403 is a refusal, not an expired login: signing in again cannot change it.
+                HttpURLConnection.HTTP_UNAUTHORIZED -> DownloadFailureKind.Authentication
                 in 500..599, HttpURLConnection.HTTP_CLIENT_TIMEOUT, 429 -> DownloadFailureKind.Server
                 else -> DownloadFailureKind.Source
             }
@@ -122,7 +122,12 @@ private fun offlineFailureMessage(
             )
         DownloadFailureKind.Source ->
             when (error) {
-                is OfflineHttpException -> "下载源不可用（HTTP ${error.statusCode}），请检查服务器或媒体源"
+                is OfflineHttpException ->
+                    if (error.statusCode == HttpURLConnection.HTTP_FORBIDDEN) {
+                        "服务器拒绝了这次下载（HTTP 403），可能未对此账号开放下载"
+                    } else {
+                        "下载源不可用（HTTP ${error.statusCode}），请检查服务器或媒体源"
+                    }
                 else -> redactDiagnosticText(error.message ?: "下载源不可用，请重新选择媒体源")
             }
         DownloadFailureKind.Unknown -> redactDiagnosticText(error.message ?: "下载失败，可点按重试")
@@ -371,7 +376,15 @@ actual fun createOfflineMediaManager(
     settings: Settings,
     registry: ServerRegistry,
     repository: EmbyRepository,
-): OfflineMediaManager = AndroidOfflineMediaManager(offlineApplicationContext, settings, registry, repository)
+    userAgent: () -> String,
+): OfflineMediaManager =
+    AndroidOfflineMediaManager(
+        context = offlineApplicationContext,
+        settings = settings,
+        registry = registry,
+        repository = repository,
+        userAgent = userAgent,
+    )
 
 internal fun sanitizeLegacyOfflineItem(item: OfflineMedia): OfflineMedia =
     item.copy(
@@ -393,12 +406,15 @@ internal fun resolveOfflineSourceUrl(
     require(server.kind != MediaServerKind.Plex) {
         "Plex 离线源必须先通过服务器协商解析"
     }
+    // The user rides along as it does for playback, so the transfer can present the same Emby
+    // identity (see [openOfflineTransfer]); a server that serves the player serves the download.
     return if (item.quality == OfflineDownloadQuality.Original) {
         EmbyStream.directPlay(
             baseUrl = server.baseUrl,
             itemId = item.itemId,
             token = server.accessToken,
             mediaSourceId = item.mediaSourceId,
+            userId = server.userId,
         )
     } else {
         EmbyStream.progressiveTranscode(
@@ -408,6 +424,7 @@ internal fun resolveOfflineSourceUrl(
             maxWidth = requireNotNull(item.quality.maxWidth),
             videoBitrate = requireNotNull(item.quality.videoBitrateBps),
             mediaSourceId = item.mediaSourceId,
+            userId = server.userId,
         )
     }
 }
@@ -515,8 +532,9 @@ private fun String.resumeValidatorHeaderValue(): String = substringAfter(':')
 
 /**
  * Raw offline transfers bypass Ktor, so they validate the user-configured HTTP/HTTPS endpoint
- * before opening a socket. Redirects stay disabled: authenticated Emby download URLs carry
- * api_key in the query and must never be replayed to a different authority.
+ * before opening a socket. Redirects are followed by hand in [openOfflineTransfer]: the api_key
+ * stays in this first URL's query and identity headers stay on its origin, so a hop to another
+ * authority never carries the token.
  */
 internal fun requireAllowedOfflineTransferUrl(
     value: String,
@@ -630,6 +648,8 @@ internal class AndroidOfflineMediaManager(
     private val settings: Settings,
     private val registry: ServerRegistry,
     private val repository: EmbyRepository,
+    /** What the app calls itself to servers; downloads send it as playback does. */
+    private val userAgent: () -> String = { DEFAULT_EMBY_USER_AGENT },
 ) : OfflineMediaManager {
     private companion object {
         const val INDEX_KEY = "offline.media.index.v1"
@@ -722,6 +742,13 @@ internal class AndroidOfflineMediaManager(
 
     override fun clearOperationError() {
         _operationError.value = null
+    }
+
+    override fun retryIndex() {
+        if (_indexStatus.value != OfflineIndexStatus.Failed) return
+        _indexStatus.value = OfflineIndexStatus.Loading
+        _operationError.value = null
+        commands.submit(::initialize)
     }
 
     private fun command(action: () -> Unit) {
@@ -1387,14 +1414,13 @@ internal class AndroidOfflineMediaManager(
                 var responseValidator: String?
                 while (true) {
                     if (!isCurrentDownload(snapshot)) return@withContext
+                    val resumeFrom = existing
+                    val validatorToMatch = expectedValidator
                     connection =
-                        (source.openConnection() as HttpURLConnection).apply {
-                            connectTimeout = 20_000
-                            readTimeout = 30_000
-                            instanceFollowRedirects = false
-                            if (existing > 0L) {
-                                setRequestProperty("Range", "bytes=$existing-")
-                                expectedValidator?.let {
+                        openOfflineTransfer(source, userAgent()) {
+                            if (resumeFrom > 0L) {
+                                setRequestProperty("Range", "bytes=$resumeFrom-")
+                                validatorToMatch?.let {
                                     setRequestProperty("If-Range", it.resumeValidatorHeaderValue())
                                 }
                             }
@@ -1744,12 +1770,7 @@ internal class AndroidOfflineMediaManager(
             var connection: HttpURLConnection? = null
             try {
                 if (!isCurrentDownload(snapshot)) return@withContext null
-                connection =
-                    (source.openConnection() as HttpURLConnection).apply {
-                        connectTimeout = 20_000
-                        readTimeout = 30_000
-                        instanceFollowRedirects = false
-                    }
+                connection = openOfflineTransfer(source, userAgent())
                 if (connection.responseCode !in 200..299) {
                     throw OfflineHttpException(connection.responseCode)
                 }

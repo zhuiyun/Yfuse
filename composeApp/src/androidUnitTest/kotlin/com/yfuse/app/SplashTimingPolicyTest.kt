@@ -6,7 +6,7 @@ import kotlin.test.assertTrue
 
 class SplashTimingPolicyTest {
     @Test
-    fun every_launch_runs_the_same_12s_the_choreography_is_drawn_for() {
+    fun a_returning_launch_is_a_600ms_greeting() {
         val timing =
             splashTiming(
                 firstLaunch = false,
@@ -14,14 +14,12 @@ class SplashTimingPolicyTest {
                 systemAnimationsOff = false,
             )
 
-        // 折带展开's beats are authored against a 1_200ms clock; a shell that ran for any
-        // other length would simply be playing it at the wrong speed.
-        assertEquals(1_200, timing.motionDurationMs + timing.fadeDurationMs)
+        assertTrue(timing.motionDurationMs + timing.fadeDurationMs <= 600)
         assertEquals(0, timing.stillFrameHoldMs)
     }
 
     @Test
-    fun first_launch_is_not_a_longer_gate_than_any_other_launch() {
+    fun the_first_launch_plays_the_whole_welcome() {
         val timing =
             splashTiming(
                 firstLaunch = true,
@@ -29,7 +27,19 @@ class SplashTimingPolicyTest {
                 systemAnimationsOff = false,
             )
 
+        // 折带展开's beats are authored against a 1_200ms clock.
         assertEquals(1_200, timing.motionDurationMs + timing.fadeDurationMs)
+    }
+
+    @Test
+    fun a_shorter_launch_joins_the_timeline_later_instead_of_playing_it_faster() {
+        val first = splashTiming(firstLaunch = true, reduceMotion = false, systemAnimationsOff = false)
+        val returning = splashTiming(firstLaunch = false, reduceMotion = false, systemAnimationsOff = false)
+
+        assertEquals(0f, splashClockStart(fadeStartMs = 1_080f, motionDurationMs = first.motionDurationMs))
+        // The clock covers exactly as much of the timeline as there is time for: 1× speed.
+        val start = splashClockStart(fadeStartMs = 1_080f, motionDurationMs = returning.motionDurationMs)
+        assertEquals(returning.motionDurationMs.toFloat(), 1_080f - start)
     }
 
     @Test

@@ -1,7 +1,6 @@
 package com.yfuse.feature.player
 
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
@@ -22,7 +21,7 @@ internal fun <T> SubtitleHandoff(
     AnimatedContent(
         targetState = value,
         modifier = modifier,
-        transitionSpec = { (fadeIn(tween(duration)) togetherWith fadeOut(tween(duration))).using(null) },
+        transitionSpec = { (fadeIn(Motion.tween(duration)) togetherWith fadeOut(Motion.tween(duration))).using(null) },
         contentAlignment = Alignment.BottomCenter,
         label = "subtitleLineHandoff",
     ) { content(it) }

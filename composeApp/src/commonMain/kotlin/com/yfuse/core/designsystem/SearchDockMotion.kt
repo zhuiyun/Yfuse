@@ -33,7 +33,7 @@ internal fun Modifier.searchDockSource(): Modifier =
 @Composable
 internal fun Modifier.searchFieldArrival(): Modifier {
     val origin = remember { SearchDockOrigin.consume() }
-    val moving = LocalRouteVisible.current && !LocalAccessibilityOptions.current.reduceMotion
+    val moving = LocalRouteVisible.current && !LocalAccessibilityOptions.current.reduceMotion && !calmMotion()
     var target by remember { mutableStateOf<Rect?>(null) }
     val progress = remember { Animatable(if (origin == null || !moving) 1f else 0f) }
     LaunchedEffect(target, moving) {
@@ -41,9 +41,11 @@ internal fun Modifier.searchFieldArrival(): Modifier {
             progress.snapTo(1f)
         } else if (target != null
         ) {
+            // The page's own arrival length (Motion.TAB): at MODAL the field was still moving
+            // 100ms after the search route around it had settled.
             progress.animateTo(
                 1f,
-                tween(Motion.MODAL, easing = Motion.Curve),
+                tween(Motion.TAB, easing = Motion.Curve),
             )
         }
     }

@@ -9,6 +9,7 @@ import com.yfuse.core.designsystem.GlassMaterial
 import com.yfuse.core.designsystem.GlassMaterials
 import com.yfuse.core.designsystem.GlassStyle
 import com.yfuse.core.designsystem.LoadingAnimation
+import com.yfuse.core.designsystem.MotionTheme
 import com.yfuse.core.designsystem.ParticleLight
 import com.yfuse.core.designsystem.ParticleStyle
 import com.yfuse.core.designsystem.PlayerTransitionStyle
@@ -52,6 +53,7 @@ class ThemePreferences(
         const val KEY_GLASS_DARK = "appearance.glassMaterial.dark"
         const val KEY_LOADING_ANIMATION = "appearance.loadingAnimation"
         const val KEY_PLAYER_TRANSITION = "appearance.playerTransition"
+        const val KEY_MOTION_THEME = "appearance.motionTheme"
         const val KEY_SERVER_LAYOUT = "appearance.serverLayout"
         const val KEY_BACKGROUND_IMAGE = "appearance.backgroundImage"
         const val KEY_BACKGROUND_DIM = "appearance.backgroundDim"
@@ -189,6 +191,16 @@ class ThemePreferences(
     fun setPlayerTransition(style: PlayerTransitionStyle) {
         settings.putString(KEY_PLAYER_TRANSITION, style.name)
         _playerTransition.value = style
+    }
+
+    private val _motionTheme = MutableStateFlow(load(KEY_MOTION_THEME, MotionTheme.entries, MotionTheme.Classic))
+
+    /** One choice for the whole motion language; see [MotionTheme]. 经典 leaves everything as it was. */
+    val motionTheme: StateFlow<MotionTheme> = _motionTheme.asStateFlow()
+
+    fun setMotionTheme(theme: MotionTheme) {
+        settings.putString(KEY_MOTION_THEME, theme.name)
+        _motionTheme.value = theme
     }
 
     private val _serverLayout = MutableStateFlow(load(KEY_SERVER_LAYOUT, ServerLayout.entries, ServerLayout.Grid))

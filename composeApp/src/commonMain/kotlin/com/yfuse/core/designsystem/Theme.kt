@@ -294,8 +294,12 @@ fun YfuseTheme(
     particleActive: Boolean = true,
     loadingAnimation: LoadingAnimation = LoadingAnimation.Orbit,
     glassMaterials: GlassMaterials = GlassMaterials(),
+    motionTheme: MotionTheme = MotionTheme.Classic,
     content: @Composable () -> Unit,
 ) {
+    // 静息 overrides the decorative choices it has an opinion on; the individual settings are kept
+    // and come back with 经典.
+    val calm = motionTheme == MotionTheme.Calm
     val targetPalette = if (dark) DarkPalette else LightPalette
     val targetAccent = remember(dark) { resolveAccentColors(Brand.Primary, dark) } // design-system: brand-identity
     val colors = remember(targetPalette, targetAccent) { ThemeColors(targetPalette, targetAccent) }
@@ -310,9 +314,10 @@ fun YfuseTheme(
         LocalAccessibilityOptions provides accessibility,
         LocalGlassStyle provides glassStyle,
         LocalGlassMaterials provides glassMaterials,
-        LocalDialogAnimation provides dialogAnimation,
-        LocalLoadingAnimation provides loadingAnimation,
-        LocalParticleLight provides particleLight,
+        LocalDialogAnimation provides if (calm) DialogAnimation.Lift else dialogAnimation,
+        LocalLoadingAnimation provides if (calm) CalmLoadingAnimation else loadingAnimation,
+        LocalParticleLight provides if (calm) ParticleLight.Off else particleLight,
+        LocalMotionTheme provides motionTheme,
         LocalParticleStyle provides particleStyle,
         LocalParticleLimit provides particleLimit.coerceIn(0, 64),
         LocalParticleActive provides particleActive,

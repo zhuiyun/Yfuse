@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -25,6 +26,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -35,6 +37,7 @@ import coil3.compose.AsyncImage
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.data.rankServerSources
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.contentHandoff
 import com.yfuse.core.model.Episode
 import com.yfuse.core.model.MediaDetail
 import com.yfuse.core.model.MediaItem
@@ -64,15 +67,19 @@ internal fun TvDetailScreen(
     val secondaryNavigationRequester = remember { FocusRequester() }
     var sheet by remember(component.itemId) { mutableStateOf<TvDetailSheet?>(null) }
     if (detail != null && server != null) {
+        // One route per title, so returning from a related title restores this page's own focus.
+        val route = tvDetailRoute(detail.id)
         TvRestoreRouteFocusEffect(
-            route = "detail",
+            route = route,
             focusMemory = focusMemory,
             fallback = playRequester,
             contentGeneration = listOf(detail.id, state.selectedSeasonId, state.episodes.size, state.related.size),
-            context = FocusContext("detail", server.id, server.userId),
+            context = FocusContext(route, server.id, server.userId),
         )
     }
 
+    // The page fades in over its loading state rather than cutting in.
+    val arrival = Modifier.contentHandoff(state.loading && detail == null)
     when {
         state.loading && detail == null -> TvLoadingState("正在读取详情")
         state.error != null && detail == null ->
@@ -133,7 +140,7 @@ internal fun TvDetailScreen(
                     else -> "下载中"
                 }
             LazyColumn(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize().then(arrival),
                 contentPadding = PaddingValues(bottom = TvSafeVertical + 38.dp),
                 verticalArrangement = Arrangement.spacedBy(26.dp),
             ) {
@@ -165,7 +172,17 @@ internal fun TvDetailScreen(
                 }
 
                 item(key = "detail-personal:${detail.id}") {
-                    PersonalMediaActions(detail, server.id, Modifier.padding(horizontal = TvSafeHorizontal))
+                    // The phone's own buttons, which focus memory does not see: focus reaching them
+                    // still ends the page's restore, or episodes arriving later would pull it away.
+                    PersonalMediaActions(
+                        detail,
+                        server.id,
+                        Modifier
+                            .padding(horizontal = TvSafeHorizontal)
+                            .onFocusChanged {
+                                if (it.hasFocus) focusMemory.settleRestore(tvDetailRoute(detail.id))
+                            },
+                    )
                 }
 
                 if (state.seasons.isNotEmpty()) {
@@ -175,7 +192,11 @@ internal fun TvDetailScreen(
                             verticalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
                             Text("季", color = TvOnSurface, fontSize = TvType.section, fontWeight = FontWeight.Bold)
-                            LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            LazyRow(
+                                modifier = Modifier.tvFocusBleed(),
+                                contentPadding = TvFocusBleedPadding,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
                                 itemsIndexed(
                                     state.seasons,
                                     key = { _, season -> "season:${server.id}:${detail.id}:${season.id}" },
@@ -188,6 +209,7 @@ internal fun TvDetailScreen(
                                         onClick = { store.accept(DetailIntent.SelectSeason(season.id)) },
                                         modifier = Modifier.width(132.dp),
                                         selected = season.id == state.selectedSeasonId,
+                                        selectable = true,
                                         serverId = server.id,
                                         profileId = server.userId,
                                     )
@@ -232,7 +254,11 @@ internal fun TvDetailScreen(
                             verticalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
                             Text("播放版本", color = TvOnSurface, fontSize = TvType.section, fontWeight = FontWeight.Bold)
-                            LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            LazyRow(
+                                modifier = Modifier.tvFocusBleed(),
+                                contentPadding = TvFocusBleedPadding,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
                                 itemsIndexed(
                                     versions,
                                     key = { _, version ->
@@ -247,6 +273,7 @@ internal fun TvDetailScreen(
                                         onClick = { store.accept(DetailIntent.SelectVersion(version.id)) },
                                         modifier = Modifier.width(260.dp),
                                         selected = version.id == state.selectedVersionId,
+                                        selectable = true,
                                         serverId = (state.playServer ?: server).id,
                                         profileId = (state.playServer ?: server).userId,
                                     )
@@ -263,7 +290,11 @@ internal fun TvDetailScreen(
                             verticalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
                             Text("服务器片源", color = TvOnSurface, fontSize = TvType.section, fontWeight = FontWeight.Bold)
-                            LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            LazyRow(
+                                modifier = Modifier.tvFocusBleed(),
+                                contentPadding = TvFocusBleedPadding,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
                                 itemsIndexed(
                                     comparableSources.filter { it.reachable && it.itemId != null },
                                     key = { _, source -> "source:${source.serverId}:${source.itemId}" },
@@ -284,6 +315,7 @@ internal fun TvDetailScreen(
                                         selected =
                                             source.serverId == state.selectedSourceServerId &&
                                                 source.itemId == state.selectedSourceItemId,
+                                        selectable = true,
                                         serverId = source.serverId,
                                     )
                                 }
@@ -419,8 +451,9 @@ private fun TvDetailHero(
 ) {
     Box(Modifier.fillMaxWidth().height(475.dp).background(TvPlaceholder)) {
         AsyncImage(
-            model = heroUrl,
-            contentDescription = detail.title,
+            model = rememberTvImage(heroUrl),
+            // Silent: the title is written over it, and the backdrop read it a second time.
+            contentDescription = null,
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize(),
         )
@@ -526,70 +559,84 @@ private fun TvDetailHero(
                 }
             }
             Spacer(Modifier.height(11.dp))
-            // Secondary actions sit on their own line: six buttons do not fit the 650dp hero
-            // column, and a clipped control on a television is an unreachable one.
-            Row(horizontalArrangement = Arrangement.spacedBy(11.dp)) {
-                TvActionButton(
-                    label = if (detail.isFavorite) "服务器已收藏" else "服务器收藏",
-                    stableId = "detail:${detail.id}:favorite",
-                    focusScope = "detail:${detail.id}:hero",
-                    focusMemory = focusMemory,
-                    onClick = onToggleFavorite,
-                    modifier = Modifier.width(142.dp),
-                    icon = if (detail.isFavorite) AppIcons.HeartFilled else AppIcons.Heart,
-                    selected = detail.isFavorite,
-                    serverId = serverId,
-                    profileId = profileId,
-                )
-                TvActionButton(
-                    label = if (detail.played) "已看过" else "标记已看",
-                    stableId = "detail:${detail.id}:played",
-                    focusScope = "detail:${detail.id}:hero",
-                    focusMemory = focusMemory,
-                    onClick = onTogglePlayed,
-                    modifier = Modifier.width(150.dp),
-                    icon = AppIcons.Check,
-                    selected = detail.played,
-                    serverId = serverId,
-                    profileId = profileId,
-                )
-                TvActionButton(
-                    label = if (watchLater) "服务器已稍后看" else "服务器稍后看",
-                    stableId = "detail:${detail.id}:watch-later",
-                    focusScope = "detail:${detail.id}:hero",
-                    focusMemory = focusMemory,
-                    onClick = { if (!watchLaterBusy) onToggleWatchLater() },
-                    modifier = Modifier.width(168.dp),
-                    icon = AppIcons.Bookmark,
-                    selected = watchLater,
-                    serverId = serverId,
-                    profileId = profileId,
-                )
-                if (downloadLabel != null) {
+            // Secondary actions sit on their own line, and it scrolls: spelled out in full they are
+            // wider than the 650dp hero column, and a plain Row measured the last of them — 更多,
+            // with 播出日历 and 进度管理 behind it — to 0dp, unreachable. Shifted left by the inset it
+            // pads, so the first button still lines up with 播放.
+            LazyRow(
+                state = focusMemory.rowState("detail:${detail.id}:hero-actions"),
+                modifier = Modifier.offset(x = -TvFocusInset),
+                contentPadding = PaddingValues(horizontal = TvFocusInset),
+                horizontalArrangement = Arrangement.spacedBy(11.dp),
+            ) {
+                item(key = "favorite") {
                     TvActionButton(
-                        label = downloadLabel,
-                        stableId = "detail:${detail.id}:download",
+                        label = if (detail.isFavorite) "服务器已收藏" else "服务器收藏",
+                        stableId = "detail:${detail.id}:favorite",
                         focusScope = "detail:${detail.id}:hero",
                         focusMemory = focusMemory,
-                        onClick = { if (downloadEnabled) onDownload() },
-                        modifier = Modifier.width(160.dp),
-                        icon = AppIcons.Download,
-                        selected = !downloadEnabled,
+                        onClick = onToggleFavorite,
+                        icon = if (detail.isFavorite) AppIcons.HeartFilled else AppIcons.Heart,
+                        selected = detail.isFavorite,
                         serverId = serverId,
                         profileId = profileId,
                     )
                 }
-                TvActionButton(
-                    label = "更多",
-                    stableId = "detail:${detail.id}:more",
-                    focusScope = "detail:${detail.id}:hero",
-                    focusMemory = focusMemory,
-                    onClick = onOpenMore,
-                    modifier = Modifier.width(118.dp),
-                    icon = AppIcons.More,
-                    serverId = serverId,
-                    profileId = profileId,
-                )
+                item(key = "played") {
+                    TvActionButton(
+                        label = if (detail.played) "已看过" else "标记已看",
+                        stableId = "detail:${detail.id}:played",
+                        focusScope = "detail:${detail.id}:hero",
+                        focusMemory = focusMemory,
+                        onClick = onTogglePlayed,
+                        icon = AppIcons.Check,
+                        selected = detail.played,
+                        serverId = serverId,
+                        profileId = profileId,
+                    )
+                }
+                item(key = "watch-later") {
+                    TvActionButton(
+                        label = if (watchLater) "服务器已稍后看" else "服务器稍后看",
+                        stableId = "detail:${detail.id}:watch-later",
+                        focusScope = "detail:${detail.id}:hero",
+                        focusMemory = focusMemory,
+                        onClick = { if (!watchLaterBusy) onToggleWatchLater() },
+                        icon = AppIcons.Bookmark,
+                        selected = watchLater,
+                        serverId = serverId,
+                        profileId = profileId,
+                    )
+                }
+                if (downloadLabel != null) {
+                    item(key = "download") {
+                        TvActionButton(
+                            label = downloadLabel,
+                            stableId = "detail:${detail.id}:download",
+                            focusScope = "detail:${detail.id}:hero",
+                            focusMemory = focusMemory,
+                            onClick = onDownload,
+                            icon = AppIcons.Download,
+                            // Unavailable until a version is resolved: said as 已停用, not dressed
+                            // up as a selected state.
+                            enabled = downloadEnabled,
+                            serverId = serverId,
+                            profileId = profileId,
+                        )
+                    }
+                }
+                item(key = "more") {
+                    TvActionButton(
+                        label = "更多",
+                        stableId = "detail:${detail.id}:more",
+                        focusScope = "detail:${detail.id}:hero",
+                        focusMemory = focusMemory,
+                        onClick = onOpenMore,
+                        icon = AppIcons.More,
+                        serverId = serverId,
+                        profileId = profileId,
+                    )
+                }
             }
         }
     }
@@ -619,17 +666,18 @@ private fun TvEpisodeRow(
                 index = index,
             )
         }
-    val context = FocusContext("detail", serverId, profileId)
-    if (focusMemory.lastForRoute("detail", context)?.sectionId == episodeScope) {
-        TvRestoreRouteFocusEffect(
-            route = "detail",
+    val route = tvDetailRoute(detail.id)
+    val saved = focusMemory.lastForRoute(route, FocusContext(route, serverId, profileId))
+    if (saved != null && saved.sectionId == episodeScope) {
+        TvRestoreSectionFocusEffect(
+            route = route,
             focusMemory = focusMemory,
-            contentGeneration = episodes.map(Episode::id),
-            context = context,
+            saved = saved,
             candidates = candidates,
+            contentGeneration = episodes.map(Episode::id),
             scrollToAnchor = { anchor ->
                 if (candidates.isNotEmpty()) {
-                    rowState.scrollToItem(anchor.fallbackIndex.coerceIn(0, candidates.lastIndex))
+                    rowState.revealForRestore(anchor.fallbackIndex.coerceIn(0, candidates.lastIndex))
                 }
             },
         )
@@ -675,6 +723,7 @@ private fun TvEpisodeRow(
                             progress = episode.playedPercentage?.div(100.0)?.toFloat(),
                             artworkShape = TvArtworkShape.Landscape,
                             selected = episode.id == selectedEpisodeId,
+                            selectable = true,
                             onClick = { onEpisode(episode) },
                         ),
                     focusScope = episodeScope,

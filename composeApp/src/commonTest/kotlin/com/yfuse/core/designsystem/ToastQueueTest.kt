@@ -19,10 +19,12 @@ class ToastQueueTest {
     @Test fun bursts_are_bounded_and_duplicates_get_a_new_identity() {
         val queue = ToastQueue()
         repeat(10) { queue.post("notice-$it") }
-        assertEquals(listOf("notice-7", "notice-8", "notice-9"), queue.entries.map { it.message })
+        // Overflow leaves by its exit rather than vanishing, so the older ones linger hidden.
+        assertEquals(listOf("notice-7", "notice-8", "notice-9"), queue.entries.filter { it.visible }.map { it.message })
+        assertTrue(queue.entries.size <= 6)
         val old = queue.entries.last()
         queue.post("notice-9")
-        assertEquals(3, queue.entries.size)
+        assertEquals(3, queue.entries.count { it.visible })
         assertFalse(queue.dismiss(old))
         assertTrue(queue.dismiss(queue.entries.last()))
     }

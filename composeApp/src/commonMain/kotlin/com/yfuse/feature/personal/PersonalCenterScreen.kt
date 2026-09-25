@@ -4,6 +4,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -23,7 +24,9 @@ import com.yfuse.core.account.AccountState
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.DialogPresence
 import com.yfuse.core.designsystem.Dimens
+import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.Section
@@ -34,6 +37,7 @@ import com.yfuse.core.designsystem.SwitchRow
 import com.yfuse.core.designsystem.YfButton
 import com.yfuse.core.designsystem.YfButtonTone
 import com.yfuse.core.designsystem.YfFormField
+import com.yfuse.core.designsystem.liveStatus
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.personal.DEFAULT_PERSONAL_PROFILE
 import com.yfuse.core.personal.PersonalCollection
@@ -81,11 +85,26 @@ fun PersonalCenterScreen(
     var tab by rememberSaveable(initialTab) { mutableStateOf(initialTab) }
     var query by rememberSaveable { mutableStateOf("") }
     var message by remember { mutableStateOf<String?>(null) }
+    // A failed action stays on the page in the error colour with 重试 beside it, instead of passing
+    // as a caption in the grey of the page's own notes. A dialog tells its own failure inside it.
+    var failure by remember { mutableStateOf<PersonalFailure?>(null) }
+    var dialogError by remember { mutableStateOf<String?>(null) }
     var editing by remember { mutableStateOf<PersonalProfile?>(null) }
     var showEditor by remember { mutableStateOf(false) }
     var switching by remember { mutableStateOf<PersonalProfile?>(null) }
     var showPin by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
+
+    fun attempt(action: suspend () -> Result<Any?>) {
+        scope.launch {
+            action()
+                .onSuccess { failure = null }
+                .onFailure { error ->
+                    message = null
+                    failure = PersonalFailure(error.message ?: PERSONAL_ACTION_FAILED) { attempt(action) }
+                }
+        }
+    }
 
     val contentTabs = listOf(PersonalCenterTab.WatchLater, PersonalCenterTab.Favorites, PersonalCenterTab.History)
     val contentPage = initialTab in contentTabs
@@ -109,7 +128,20 @@ fun PersonalCenterScreen(
             }
         }
         message?.let { notice -> item { PersonalNotice(notice) } }
-        state.error?.let { notice -> item { PersonalNotice(notice, error = true) } }
+        failure?.let { failed ->
+            item {
+                ErrorState(
+                    message = failed.message,
+                    onRetry = {
+                        failure = null
+                        failed.retry()
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
+        // A failed 立即同步 also leaves its reason here; the card above already says it.
+        state.error?.takeIf { it != failure?.message }?.let { notice -> item { PersonalNotice(notice, error = true) } }
         when (tab) {
             PersonalCenterTab.Profiles -> {
                 item { PersonalNotice("每份资料分别保存想看、收藏、观看历史和追剧。") }
@@ -131,6 +163,7 @@ fun PersonalCenterScreen(
                                         (
                                             {
                                                 editing = null
+                                                dialogError = null
                                                 showEditor = true
                                             }
                                         )
@@ -147,6 +180,7 @@ fun PersonalCenterScreen(
                                     } else {
                                         (
                                             {
+                                                dialogError = null
                                                 showPin =
                                                     true
                                             }
@@ -189,14 +223,10 @@ fun PersonalCenterScreen(
                                         (
                                             {
                                                 if (state.activeProfile.child) {
+                                                    dialogError = null
                                                     switching = profile
                                                 } else {
-                                                    scope.launch {
-                                                        personal.switchProfile(profile.id).onFailure {
-                                                            message =
-                                                                it.message
-                                                        }
-                                                    }
+                                                    attempt { personal.switchProfile(profile.id) }
                                                 }
                                             }
                                         )
@@ -206,18 +236,14 @@ fun PersonalCenterScreen(
                                 SettingsDivider()
                                 SettingRow("编辑资料", "名称、类型与服务器权限", embedded = true, onClick = {
                                     editing = profile
+                                    dialogError = null
                                     showEditor =
                                         true
                                 })
                                 if (profile.id != DEFAULT_PERSONAL_PROFILE && profile.id != state.activeProfile.id) {
                                     SettingsDivider()
                                     SettingRow("移除资料", "移除此家庭成员", embedded = true, onClick = {
-                                        scope.launch {
-                                            personal.deleteProfile(profile.id).onFailure {
-                                                message =
-                                                    it.message
-                                            }
-                                        }
+                                        attempt { personal.deleteProfile(profile.id) }
                                     })
                                 }
                             }
@@ -263,14 +289,10 @@ fun PersonalCenterScreen(
                                     } else {
                                         (
                                             {
-                                                scope.launch {
+                                                attempt {
                                                     account
                                                         .syncPersonalNow()
                                                         .onSuccess { message = "个人数据已同步" }
-                                                        .onFailure {
-                                                            message =
-                                                                it.message
-                                                        }
                                                 }
                                             }
                                         )
@@ -366,21 +388,11 @@ fun PersonalCenterScreen(
                             )
                             SettingsDivider()
                             SettingRow("保留本机", "使用当前资料的选择", embedded = true, onClick = {
-                                scope.launch {
-                                    serverSync.resolveConflict(conflict, true).onFailure {
-                                        message =
-                                            it.message
-                                    }
-                                }
+                                attempt { serverSync.resolveConflict(conflict, true) }
                             })
                             SettingsDivider()
                             SettingRow("采用服务器", "使用服务器的选择", embedded = true, onClick = {
-                                scope.launch {
-                                    serverSync.resolveConflict(conflict, false).onFailure {
-                                        message =
-                                            it.message
-                                    }
-                                }
+                                attempt { serverSync.resolveConflict(conflict, false) }
                             })
                         }
                     }
@@ -407,7 +419,7 @@ fun PersonalCenterScreen(
                                         } else {
                                             (
                                                 {
-                                                    scope.launch {
+                                                    attempt {
                                                         busy = true
                                                         try {
                                                             personal
@@ -415,7 +427,7 @@ fun PersonalCenterScreen(
                                                                 .onSuccess {
                                                                     message =
                                                                         "已导入 " + it + " 项，现有个人选择已保留"
-                                                                }.onFailure { message = it.message }
+                                                                }
                                                         } finally {
                                                             busy = false
                                                         }
@@ -452,57 +464,91 @@ fun PersonalCenterScreen(
                 }
                 items(visible, key = { it.identity }) { entry ->
                     PersonalEntryCard(entry, onOpen = { onOpenMedia(entry.media) }, onRemove = {
-                        runCatching {
-                            when (entry.collection) {
-                                PersonalCollection.Favorite -> personal.setFavorite(entry.media, false)
-                                PersonalCollection.WatchLater -> personal.setWatchLater(entry.media, false)
-                                PersonalCollection.History -> personal.removeHistory(entry.media)
+                        attempt {
+                            runCatching {
+                                when (entry.collection) {
+                                    PersonalCollection.Favorite -> personal.setFavorite(entry.media, false)
+                                    PersonalCollection.WatchLater -> personal.setWatchLater(entry.media, false)
+                                    PersonalCollection.History -> personal.removeHistory(entry.media)
+                                }
                             }
-                        }.onFailure { message = it.message }
+                        }
                     })
                 }
             }
         }
     }
-    if (showEditor) {
-        PersonalProfileEditor(editing, servers, { showEditor = false }) { name, child, ids ->
+    // These close once the change has gone through; held in a presence they leave the way they
+    // came instead of vanishing in a frame.
+    DialogPresence(if (showEditor) ProfileEditorTarget(editing) else null) { target ->
+        PersonalProfileEditor(
+            profile = target.profile,
+            servers = servers,
+            onDismiss = { showEditor = false },
+            error = dialogError,
+        ) { name, child, ids ->
             busy = true
+            dialogError = null
             scope.launch {
                 try {
-                    personal.saveProfile(editing?.id, name, child, ids).onSuccess { showEditor = false }.onFailure {
-                        message =
-                            it.message
-                    }
+                    personal
+                        .saveProfile(target.profile?.id, name, child, ids)
+                        .onSuccess { showEditor = false }
+                        .onFailure { dialogError = it.message ?: PERSONAL_ACTION_FAILED }
                 } finally {
                     busy = false
                 }
             }
         }
     }
-    switching?.let { profile ->
-        PersonalPinDialog("切换到 ${profile.name}", false, { switching = null }) { pin, _ ->
+    DialogPresence(switching) { profile ->
+        PersonalPinDialog(
+            title = "切换到 ${profile.name}",
+            setting = false,
+            onDismiss = { switching = null },
+            error = dialogError,
+        ) { pin, _ ->
+            dialogError = null
             scope.launch {
-                personal.switchProfile(profile.id, pin.toCharArray()).onSuccess { switching = null }.onFailure {
-                    message =
-                        it.message
-                }
+                personal
+                    .switchProfile(profile.id, pin.toCharArray())
+                    .onSuccess { switching = null }
+                    .onFailure { dialogError = it.message ?: PERSONAL_ACTION_FAILED }
             }
         }
     }
-    if (showPin) {
-        PersonalPinDialog("家长 PIN", true, { showPin = false }) { old, next ->
+    DialogPresence(showPin.takeIf { it }) {
+        PersonalPinDialog(
+            title = "家长 PIN",
+            setting = true,
+            onDismiss = { showPin = false },
+            error = dialogError,
+        ) { old, next ->
+            dialogError = null
             scope.launch {
                 personal
                     .setGuardianPin(next.toCharArray(), old.toCharArray())
                     .onSuccess {
                         showPin = false
-                        message =
-                            "家长 PIN 已保存"
-                    }.onFailure { message = it.message }
+                        message = "家长 PIN 已保存"
+                    }.onFailure { dialogError = it.message ?: PERSONAL_ACTION_FAILED }
             }
         }
     }
 }
+
+/** A page action that did not go through, and the same action to run again. */
+private class PersonalFailure(
+    val message: String,
+    val retry: () -> Unit,
+)
+
+/** Whose profile the editor is open on; a null [profile] is a new one. */
+private data class ProfileEditorTarget(
+    val profile: PersonalProfile?,
+)
+
+private const val PERSONAL_ACTION_FAILED = "操作没有完成，请重试"
 
 /**
  * Human copy for a sync conflict's two sides, phrased for what [kind] actually is — the
@@ -572,6 +618,8 @@ private fun PersonalProfileEditor(
     profile: PersonalProfile?,
     servers: List<SavedServer>,
     onDismiss: () -> Unit,
+    /** Why the last save did not go through, told where the person is looking. */
+    error: String? = null,
     onSave: (String, Boolean, Set<String>) -> Unit,
 ) {
     var name by remember(profile?.id) { mutableStateOf(profile?.name.orEmpty()) }
@@ -610,6 +658,7 @@ private fun PersonalProfileEditor(
                     )
                 }
             }
+            error?.let { PersonalDialogError(it) }
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 PersonalButton("保存", { onSave(name, child, ids) })
                 PersonalButton("取消", onDismiss)
@@ -623,6 +672,8 @@ private fun PersonalPinDialog(
     title: String,
     setting: Boolean,
     onDismiss: () -> Unit,
+    /** Why the last attempt did not go through — a wrong PIN, most often. */
+    error: String? = null,
     onSubmit: (String, String) -> Unit,
 ) {
     var pin by remember { mutableStateOf("") }
@@ -641,12 +692,24 @@ private fun PersonalPinDialog(
                     next = it.filter(Char::isDigit).take(12)
                 }, label = "新 PIN（4–12 位）", visualTransformation = PasswordVisualTransformation())
             }
+            error?.let { PersonalDialogError(it) }
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 PersonalButton("确认", { onSubmit(pin, next) })
                 PersonalButton("取消", onDismiss)
             }
         }
     }
+}
+
+/** A dialog's own failure: in the error colour, and said at once by a screen reader. */
+@Composable
+private fun PersonalDialogError(text: String) {
+    Text(
+        text,
+        style = AppTypography.caption.regular,
+        color = LocalPalette.current.error,
+        modifier = Modifier.liveStatus(assertive = true),
+    )
 }
 
 @Composable

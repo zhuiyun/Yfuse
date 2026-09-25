@@ -50,11 +50,13 @@ internal fun TvTmdbInfoScreen(
     val state by component.state.collectAsState()
     val following by component.following.collectAsState()
     val item = state.detail.item
-    val primaryRequester = remember { FocusRequester() }
+    val backRequester = remember { FocusRequester() }
+    // A page opened to be watched starts on 播放, not on the way back out of it.
+    val playRequester = remember { FocusRequester() }
     TvRestoreRouteFocusEffect(
         route = "tmdb-info",
         focusMemory = focusMemory,
-        fallback = primaryRequester,
+        fallback = playRequester,
         contentGeneration = listOf(item.id, state.loading, state.playable, state.sources.size),
     )
 
@@ -72,8 +74,9 @@ internal fun TvTmdbInfoScreen(
                     .background(TvSurface),
             ) {
                 AsyncImage(
-                    model = TmdbImages.backdrop(item.backdropPath, "w1280"),
-                    contentDescription = item.title,
+                    model = rememberTvImage(TmdbImages.backdrop(item.backdropPath, "w1280")),
+                    // Silent: the title is written over it, and the backdrop read it a second time.
+                    contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
                 )
@@ -108,7 +111,7 @@ internal fun TvTmdbInfoScreen(
                         onClick = component.onBack,
                         modifier = Modifier.width(118.dp),
                         icon = AppIcons.ChevronLeft,
-                        focusRequester = primaryRequester,
+                        focusRequester = backRequester,
                     )
                     Spacer(Modifier.height(18.dp))
                     Text(
@@ -158,6 +161,7 @@ internal fun TvTmdbInfoScreen(
                             modifier = Modifier.width(170.dp),
                             icon = AppIcons.Play,
                             primary = state.playable,
+                            focusRequester = playRequester,
                         )
                         if (item.mediaType == "tv") {
                             TvActionButton(
@@ -175,6 +179,28 @@ internal fun TvTmdbInfoScreen(
                     state.error?.let { error ->
                         Spacer(Modifier.height(10.dp))
                         Text(error, color = TvDanger, fontSize = TvType.caption)
+                    }
+                    // The page keeps what the list gave it; the rest can be asked for again.
+                    state.detailError?.let { detailError ->
+                        Spacer(Modifier.height(10.dp))
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(11.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(detailError, color = TvOnSurfaceMuted, fontSize = TvType.caption)
+                            TvActionButton(
+                                label = "重试",
+                                stableId = "tmdb-info:${item.id}:retry-detail",
+                                focusScope = "tmdb-info:${item.id}:hero",
+                                focusMemory = focusMemory,
+                                onClick = {
+                                    // The row goes as the request starts; focus waits on 播放, not on nothing.
+                                    runCatching { playRequester.requestFocus() }
+                                    component.retryDetail()
+                                },
+                                icon = AppIcons.Refresh,
+                            )
+                        }
                     }
                 }
             }
@@ -205,7 +231,7 @@ internal fun TvTmdbInfoScreen(
                             )
                         },
                     focusMemory = focusMemory,
-                    navigationRequester = primaryRequester,
+                    navigationRequester = backRequester,
                     modifier = Modifier.padding(horizontal = TvSafeHorizontal),
                 )
             }
@@ -283,7 +309,11 @@ internal fun TvCalendarScreen(
                         modifier = Modifier.width(125.dp),
                     )
                 }
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                LazyRow(
+                    modifier = Modifier.tvFocusBleed(),
+                    contentPadding = TvFocusBleedPadding,
+                    horizontalArrangement = Arrangement.spacedBy(9.dp),
+                ) {
                     itemsIndexed(CalendarFilter.entries, key = { _, filter -> "calendar:filter:${filter.name}" }) {
                             index,
                             filter,
@@ -296,6 +326,7 @@ internal fun TvCalendarScreen(
                             onClick = { store.accept(CalendarIntent.SelectFilter(filter)) },
                             modifier = Modifier.width(130.dp),
                             selected = filter == state.filter,
+                            selectable = true,
                             navigationRequester = primaryRequester,
                             returnToNavigationOnLeft = index == 0,
                         )

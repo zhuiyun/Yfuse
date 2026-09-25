@@ -50,6 +50,7 @@ import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.ArtworkPageTheme
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.Dimens
+import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.HeroPageFade
 import com.yfuse.core.designsystem.InlineLoadingContent
@@ -471,6 +472,14 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                                     OrbProgress(size = 18.dp, color = themeAccent)
                                 }
                             }
+                        }
+
+                        state.detailError?.let { detailError ->
+                            ErrorState(
+                                message = detailError,
+                                onRetry = component::retryDetail,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
                         }
                     }
                 }

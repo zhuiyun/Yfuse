@@ -630,6 +630,13 @@ enum class OfflineIndexStatus { Loading, Ready, Failed }
 
 interface OfflineMediaManager {
     val indexStatus: StateFlow<OfflineIndexStatus>
+
+    /**
+     * Reads the download index again after it failed — storage that was unavailable at launch
+     * and is back. The only way out used to be restarting the app. Does nothing unless failed.
+     */
+    fun retryIndex() {}
+
     val items: StateFlow<List<OfflineMedia>>
     val wifiOnly: StateFlow<Boolean>
     val policy: StateFlow<OfflineDownloadPolicy>
@@ -722,4 +729,6 @@ expect fun createOfflineMediaManager(
     settings: Settings,
     registry: ServerRegistry,
     repository: EmbyRepository,
+    /** The User-Agent the app presents to servers; a download sends it as playback does. */
+    userAgent: () -> String,
 ): OfflineMediaManager

@@ -3,7 +3,6 @@
 package com.yfuse.feature.search
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
@@ -56,6 +55,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.arkivanov.decompose.extensions.compose.subscribeAsState
 import com.arkivanov.mvikotlin.extensions.coroutines.states
+import com.yfuse.app.floatingNavigationContentInset
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
@@ -72,13 +72,14 @@ import com.yfuse.core.designsystem.MediaSharedElementKey
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.OfficialNavDisplay
 import com.yfuse.core.designsystem.OrbProgress
+import com.yfuse.core.designsystem.OrbProgressDefaults
+import com.yfuse.core.designsystem.PageHint
 import com.yfuse.core.designsystem.Poster
 import com.yfuse.core.designsystem.SKELETON_PHASE_STEP_MS
 import com.yfuse.core.designsystem.ScrollToTopOnReselect
 import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.SkeletonBlock
 import com.yfuse.core.designsystem.StatusBarIconStyle
-import com.yfuse.core.designsystem.TabBarInset
 import com.yfuse.core.designsystem.YfChip
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.mediaLazyItemKey
@@ -152,13 +153,27 @@ private fun SearchHomeScreen(
     val keyboard = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
     val routeVisible = LocalRouteVisible.current
+    val awaitingFirstResults = state.loading && state.groups.isEmpty()
+    // Every letter typed is a new state. The filtered and ranked lists are worked out once per
+    // change to what they come from, not on each of the several reads a recomposition makes, and
+    // the rows handed the same lists stay skippable.
+    val visibleAggregated =
+        remember(state.aggregated, state.type, state.sort, state.searchedQuery) { state.visibleAggregated }
+    val visibleGroups = remember(state.groups, state.type) { state.visibleGroups }
+    val availableTypes = remember(state.groups, state.type) { state.availableTypes }
+    val visibleResultCount =
+        if (state.aggregated.isNotEmpty()) visibleAggregated.size else visibleGroups.sumOf { it.items.size }
     val resultHandoff =
         rememberSearchResultsHandoff(
-            state.resultsPhase(),
+            state.resultsPhase(visibleResultCount),
             loading = state.loading,
             presentationKey = state.presentationKey(),
+            skeleton = awaitingFirstResults,
         )
     var coverageExpanded by remember(state.searchedQuery) { mutableStateOf(false) }
+    // Clears the floating dock as it is actually laid out, not a fixed 122dp that left the last
+    // result under the glass with three-button navigation or large text.
+    val bottomContentInset = floatingNavigationContentInset()
     StatusBarIconStyle(darkIcons = !palette.isDark)
     ScrollToTopOnReselect(component.listState)
 
@@ -185,7 +200,7 @@ private fun SearchHomeScreen(
         LazyColumn(
             state = component.listState,
             modifier = Modifier.fillMaxSize().statusBarsPadding(),
-            contentPadding = PaddingValues(top = Dimens.contentTop, bottom = TabBarInset),
+            contentPadding = PaddingValues(top = Dimens.contentTop, bottom = bottomContentInset),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             motionItem(key = "search-field") {
@@ -212,7 +227,6 @@ private fun SearchHomeScreen(
                 }
             }
 
-            val awaitingFirstResults = state.loading && state.groups.isEmpty()
             if (awaitingFirstResults) {
                 motionItem(key = "search-skeleton") { SearchSkeleton() }
             }
@@ -228,8 +242,8 @@ private fun SearchHomeScreen(
                             if (compactResults) "显示简介" else "紧凑结果",
                         ) { compactResults = !compactResults }
                         ResultsHeading(
-                            count = state.visibleResultCount,
-                            types = state.availableTypes,
+                            count = visibleResultCount,
+                            types = availableTypes,
                             selected = state.type,
                             onSelectType = { store.accept(SearchIntent.SetType(it)) },
                         )
@@ -255,24 +269,29 @@ private fun SearchHomeScreen(
                                         .fillMaxWidth()
                                         .padding(horizontal = Dimens.pageHorizontal)
                                         .then(resultHandoff.item(key = "error")),
+                                // The handoff already brings it in; its own rise on top moved it twice.
+                                animateEntrance = false,
                             )
                         }
 
                     // 没有找到相关内容 — `400 12px Manrope`, `--pg-hint`, `padding:20px 0`.
-                    state.visibleGroups.all { it.items.isEmpty() } && !state.loading ->
+                    visibleGroups.all { it.items.isEmpty() } && !state.loading ->
                         motionItem(key = "search-results-empty") {
                             Box(
                                 Modifier
                                     .padding(horizontal = Dimens.pageHorizontal)
                                     .then(resultHandoff.item(key = "empty")),
                             ) {
-                                EmptyResults(filtered = state.type != SearchType.All)
+                                EmptyResults(
+                                    filtered = state.type != SearchType.All,
+                                    onShowAllTypes = { store.accept(SearchIntent.SetType(SearchType.All)) },
+                                )
                             }
                         }
 
                     state.aggregated.isNotEmpty() ->
                         motionItemsIndexed(
-                            items = state.visibleAggregated,
+                            items = visibleAggregated,
                             key = { _, group -> group.identity },
                             contentType = { _, _ -> "aggregated-search-result" },
                         ) { index, group ->
@@ -302,7 +321,7 @@ private fun SearchHomeScreen(
 
                     else ->
                         motionItemsIndexed(
-                            items = state.visibleGroups,
+                            items = visibleGroups,
                             key = { _, group -> "server-results-${group.serverId}" },
                             contentType = { _, _ -> "server-search-group" },
                         ) { index, group ->
@@ -422,8 +441,8 @@ internal fun SearchField(
             val reduce = LocalAccessibilityOptions.current.reduceMotion || !LocalRouteVisible.current
             this@Row.AnimatedVisibility(
                 visible = loading,
-                enter = fadeIn(tween(if (reduce) 0 else Motion.QUICK)),
-                exit = fadeOut(tween(if (reduce) 0 else Motion.QUICK)),
+                enter = fadeIn(Motion.tween(if (reduce) 0 else Motion.QUICK)),
+                exit = fadeOut(Motion.tween(if (reduce) 0 else Motion.QUICK)),
             ) {
                 OrbProgress(size = SearchFieldOrbSize, contentDescription = "正在搜索")
             }
@@ -683,6 +702,10 @@ private fun ServerGroup(
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                if (group.loadingMore) {
+                    OrbProgress(size = OrbProgressDefaults.Inline, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                }
                 Text(
                     when {
                         group.loadingMore -> "正在加载更多…"
@@ -802,24 +825,31 @@ private fun SearchCoverageNotice(
     }
 }
 
+/**
+ * Nothing matched. Narrowed to one type, the way out is to widen it again, one tap from here
+ * rather than back up at the chips. The search handoff already brings this in, so the hint's
+ * own entrance stays off.
+ */
 @Composable
-private fun EmptyResults(filtered: Boolean) {
-    val palette = LocalPalette.current
-    Column(
-        Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 36.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Icon(AppIcons.Search, null, tint = palette.hint, modifier = Modifier.size(26.dp))
-        Spacer(Modifier.height(9.dp))
-        Text(
-            if (filtered) {
-                "这个类型下没有匹配的内容\n换一个类型再看看"
-            } else {
-                "所有服务器中都没有找到相关内容\n试试片名的一部分"
-            },
-            style = AppTypography.caption.reading,
-            color = palette.hint,
-            textAlign = TextAlign.Center,
+private fun EmptyResults(
+    filtered: Boolean,
+    onShowAllTypes: () -> Unit,
+) {
+    if (filtered) {
+        PageHint(
+            "这个类型下没有匹配的内容",
+            modifier = Modifier.fillMaxWidth(),
+            actionLabel = "查看全部类型",
+            onAction = onShowAllTypes,
+            icon = AppIcons.Search,
+            animateEntrance = false,
+        )
+    } else {
+        PageHint(
+            "所有服务器中都没有找到相关内容\n试试片名的一部分",
+            modifier = Modifier.fillMaxWidth(),
+            icon = AppIcons.Search,
+            animateEntrance = false,
         )
     }
 }

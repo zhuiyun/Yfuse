@@ -1,5 +1,6 @@
 package com.yfuse.feature.player
 
+import android.content.Context
 import android.content.Intent
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -7,6 +8,8 @@ import androidx.compose.ui.platform.LocalContext
 import com.arkivanov.mvikotlin.core.store.Store
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.ThemePreferences
+import com.yfuse.core.designsystem.MotionTheme
+import com.yfuse.core.designsystem.PlayerHandoff
 import com.yfuse.core.designsystem.PlayerTransitionStyle
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.PlayerEngine
@@ -30,7 +33,7 @@ actual fun PendingPlayerLauncher(
                     startPlaybackRequested = startPlaybackRequested,
                 ).also { createdIntent ->
                     launchIntent = createdIntent
-                    com.yfuse.core.designsystem.PlayerArtworkOrigins.issueLaunch(playerTransitionStyle())?.let {
+                    com.yfuse.core.designsystem.PlayerArtworkOrigins.issueLaunch(playerTransitionStyle(context))?.let {
                         createdIntent.putExtra(PLAYER_ARTWORK_TOKEN, it)
                     }
                     context.startActivity(createdIntent)
@@ -45,6 +48,9 @@ actual fun PendingPlayerLauncher(
             onLaunched()
         }.onFailure {
             launchIntent?.let(PlayerActivity::discardPendingLaunch)
+            // The page has begun leaving for a player that is not coming: bring it back now, not
+            // after the stuck-launch deadline.
+            PlayerHandoff.release()
             AppLog.error(
                 category = "feature.player",
                 event = "activity_launch_failed",
@@ -90,7 +96,7 @@ actual fun PlayerLauncher(
                     startPlaybackRequested = startPlaybackRequested,
                 ).also { createdIntent ->
                     launchIntent = createdIntent
-                    com.yfuse.core.designsystem.PlayerArtworkOrigins.issueLaunch(playerTransitionStyle())?.let {
+                    com.yfuse.core.designsystem.PlayerArtworkOrigins.issueLaunch(playerTransitionStyle(context))?.let {
                         createdIntent.putExtra(PLAYER_ARTWORK_TOKEN, it)
                     }
                     context.startActivity(createdIntent)
@@ -105,6 +111,9 @@ actual fun PlayerLauncher(
             onLaunched()
         }.onFailure {
             launchIntent?.let(PlayerActivity::discardLaunch)
+            // The page has begun leaving for a player that is not coming: bring it back now, not
+            // after the stuck-launch deadline.
+            PlayerHandoff.release()
             AppLog.error(
                 category = "feature.player",
                 event = "activity_launch_failed",
@@ -115,9 +124,15 @@ actual fun PlayerLauncher(
     }
 }
 
-/** The set chosen in 设置 → 外观 → 播放器进出场; the first one if the preferences cannot be read. */
-private fun playerTransitionStyle(): PlayerTransitionStyle {
+/**
+ * The set chosen in 设置 → 外观 → 播放器进出场; the first one if the preferences cannot be read.
+ * The plain fade under the 静息 motion theme, and while the system plays animations faster or
+ * slower than drawn (see [animationScalesAtNormalSpeed]).
+ */
+private fun playerTransitionStyle(context: Context): PlayerTransitionStyle {
+    if (!context.animationScalesAtNormalSpeed()) return PlayerTransitionStyle.None
     val preferences = runCatching { GlobalContext.get().get<ThemePreferences>() }.getOrNull()
+    if (preferences?.motionTheme?.value == MotionTheme.Calm) return PlayerTransitionStyle.None
     return preferences?.playerTransition?.value ?: PlayerTransitionStyle.Turn
 }
 

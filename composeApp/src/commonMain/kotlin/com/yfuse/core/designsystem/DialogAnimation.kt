@@ -19,6 +19,9 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import kotlin.math.PI
 import kotlin.math.sin
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.TimeMark
+import kotlin.time.TimeSource
 
 enum class DialogAnimation(
     val label: String,
@@ -73,15 +76,28 @@ enum class DialogAnimation(
 
 val LocalDialogAnimation = staticCompositionLocalOf { DialogAnimation.Lift }
 
-/** Kept for source compatibility; all implemented animations are now available to everyone. */
-val LocalDialogAnimationLab = staticCompositionLocalOf { true }
-
 internal class DialogMotionHost {
     var origin = Offset.Zero
     var height = 0f
     var touch: Offset? = null
+        set(value) {
+            field = value
+            touchedAt = value?.let { TimeSource.Monotonic.markNow() }
+        }
+    private var touchedAt: TimeMark? = null
     var poster: DialogPosterSource? = null
+
+    /**
+     * The last touch, if it is recent enough to be what opened the dialog. The touch used to be
+     * kept forever, so a dialog TalkBack or code opened unfolded from wherever a finger had last
+     * been, however long ago.
+     */
+    val recentTouch: Offset?
+        get() = touch?.takeIf { touchedAt?.let { mark -> mark.elapsedNow() < TouchAnchorWindow } == true }
 }
+
+/** How long a touch stays the anchor a dialog unfolds from. */
+private val TouchAnchorWindow = 500.milliseconds
 
 internal val LocalDialogMotionHost = staticCompositionLocalOf { DialogMotionHost() }
 
@@ -243,7 +259,7 @@ internal fun Modifier.dialogMotion(
     progress: () -> Float,
 ): Modifier {
     val host = LocalDialogMotionHost.current
-    val anchor = remember { host.touch }
+    val anchor = remember { host.recentTouch }
     val position = remember { DialogPanelPosition() }
     val glow = LocalAccentColors.current.accent
     val cache = remember(glow) { DialogDrawCache(glow) }

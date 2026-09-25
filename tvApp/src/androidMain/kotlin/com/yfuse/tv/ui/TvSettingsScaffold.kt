@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
@@ -144,33 +145,36 @@ internal fun TvSettingRow(
     selected: Boolean = false,
     focusRequester: FocusRequester? = null,
     navigationRequester: FocusRequester? = null,
+    /** True for a row that is one choice among others — see [TvFocusableSurface]. */
+    selectable: Boolean = false,
 ) {
     TvFocusableSurface(
         stableId = stableId,
         focusScope = focusScope,
         focusMemory = focusMemory,
-        onClick = { if (enabled) onClick() },
+        onClick = onClick,
         contentDescription = if (value.isBlank()) title else "$title，$value",
         modifier = modifier.fillMaxWidth().height(if (subtitle == null) 72.dp else 88.dp),
         selected = selected,
+        selectable = selectable,
+        // Read as 已停用 and inert, but still a focus stop: a row that turns disabled under the
+        // remote — 添加 once its word is added — must not strand it.
+        enabled = enabled,
         focusRequester = focusRequester,
         navigationRequester = navigationRequester,
         returnToNavigationOnLeft = true,
-        scaleWhenFocused = 1.015f,
-    ) { focused ->
+        scaleWhenFocused = TvFocusMotion.ROW_SCALE,
+    ) {
         Row(
             Modifier.fillMaxSize().padding(horizontal = 20.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(
-                icon,
-                contentDescription = null,
-                tint =
-                    when {
-                        !enabled -> TvOnSurfaceMuted.copy(alpha = 0.45f)
-                        focused -> Color.White
-                        else -> TvAccent
-                    },
+            val restTint = if (enabled) TvAccent else TvOnSurfaceMuted.copy(alpha = 0.45f)
+            TvFocusIcon(
+                icon = icon,
+                rest = restTint,
+                focused = if (enabled) Color.White else restTint,
+                modifier = Modifier.size(24.dp),
             )
             Spacer(Modifier.width(17.dp))
             Column(Modifier.weight(1f)) {

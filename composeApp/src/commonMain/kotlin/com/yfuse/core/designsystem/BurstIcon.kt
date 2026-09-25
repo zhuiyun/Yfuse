@@ -2,8 +2,6 @@ package com.yfuse.core.designsystem
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearOutSlowInEasing
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
@@ -48,7 +46,8 @@ fun BurstIcon(
     modifier: Modifier = Modifier,
     iconSize: Dp = 14.dp,
 ) {
-    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    // 静息 marks the change without the burst: the icon swaps, nothing pops or rings.
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion || calmMotion()
     val light = rememberLightFeedback()
     val visible = LocalRouteVisible.current
     val pop = remember { Animatable(1f) }
@@ -83,20 +82,14 @@ fun BurstIcon(
                     ring.animateTo(1f, tween(Motion.BURST, easing = LinearOutSlowInEasing))
                 }
             }
-            pop.snapTo(0.6f)
-            pop.animateTo(
-                targetValue = 1f,
-                animationSpec =
-                    spring(
-                        dampingRatio = 0.38f,
-                        stiffness = Spring.StiffnessMediumLow,
-                    ),
-            )
+            // A kick, not a jump: one dip and one small rebound (about 1.05) from wherever the icon
+            // already is. It used to snap to 0.6 on every tap — rapid taps visibly jumped — and a
+            // ζ0.38 spring swung it past 1.1 and back three times.
+            pop.animateTo(1f, Motion.burst(), initialVelocity = -BURST_KICK)
         } else {
             ring.snapTo(1f)
-            pop.snapTo(1.16f)
             // Turning something off is an undo, not an event: it settles rather than celebrates.
-            pop.animateTo(1f, tween(Motion.BURST_RELEASE, easing = Motion.Curve))
+            pop.animateTo(1f, Motion.burstRelease(), initialVelocity = BURST_RELEASE_KICK)
         }
     }
 
@@ -127,3 +120,9 @@ fun BurstIcon(
         )
     }
 }
+
+/** Scale units per second the icon is kicked by when it turns on (a dip to about 0.68). */
+private const val BURST_KICK = 12f
+
+/** The smaller outward kick of turning off (a swell to about 1.08). */
+private const val BURST_RELEASE_KICK = 8f

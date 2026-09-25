@@ -2,30 +2,27 @@ package com.yfuse.feature.player
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class PlayerMicroMotionTest {
     @Test
-    fun short_buffering_keeps_the_transport_icon_stable() {
-        assertEquals(
-            TransportVisualState.Pause,
-            transportVisualState(
-                playing = true,
-                buffering = true,
-                bufferingIndicatorVisible = false,
-            ),
-        )
+    fun buffering_keeps_the_transport_icon_it_had_settled_on() {
+        // A seek mid-film: the engine stops reporting `playing` until the picture is back.
+        assertTrue(transportShowsPause(playing = false, buffering = true, settledPlaying = true))
+        // A seek while paused stays 播放.
+        assertFalse(transportShowsPause(playing = false, buffering = true, settledPlaying = false))
     }
 
     @Test
-    fun sustained_buffering_replaces_transport_with_progress() {
-        assertEquals(
-            TransportVisualState.Buffering,
-            transportVisualState(
-                playing = false,
-                buffering = true,
-                bufferingIndicatorVisible = true,
-            ),
-        )
+    fun buffering_before_anything_has_settled_offers_pause() {
+        assertTrue(transportShowsPause(playing = false, buffering = true, settledPlaying = null))
+    }
+
+    @Test
+    fun outside_buffering_the_key_follows_the_engine() {
+        assertTrue(transportShowsPause(playing = true, buffering = false, settledPlaying = false))
+        assertFalse(transportShowsPause(playing = false, buffering = false, settledPlaying = true))
     }
 
     @Test

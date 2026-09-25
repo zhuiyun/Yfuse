@@ -31,8 +31,8 @@ internal interface SplashChoreography {
      * [mark] is the artwork of the logo this choreography is paired with — see
      * [SplashAnimation.mark] — passed in rather than loaded here because a `DrawScope`
      * cannot read resources, and reloading the bitmap per frame during startup is the one
-     * place in the app where that would actually be felt. It is null for the cloud
-     * choreographies, which draw every shape they need.
+     * place in the app where that would actually be felt. A choreography that draws every
+     * shape itself receives null.
      */
     fun DrawScope.drawMark(
         nowMs: Float,
@@ -52,9 +52,8 @@ internal val SplashAnimation.choreography: SplashChoreography
 /**
  * The artwork a variant unfolds, or null when the choreography draws its own shapes.
  *
- * B needs the ribbon without its own motion bars — it animates the streak separately, and a
- * mark that already carried one would draw two — while A pops the plain mark out of nothing.
- * The cloud choreographies are pure vector work and need no bitmap at all.
+ * The ribbon comes without its own motion bars: the choreography animates the streak
+ * separately, and a mark that already carried one would draw two.
  */
 internal fun SplashAnimation.markResource(): Int? =
     when (this) {

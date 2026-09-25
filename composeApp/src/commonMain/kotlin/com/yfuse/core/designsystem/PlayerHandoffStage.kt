@@ -1,6 +1,5 @@
 package com.yfuse.core.designsystem
 
-import androidx.compose.animation.core.Spring
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -10,6 +9,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
@@ -17,11 +17,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
-import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.GraphicsLayerScope
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.TransformOrigin
@@ -45,6 +43,8 @@ import androidx.compose.ui.unit.IntSize
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.exp
@@ -59,9 +59,10 @@ import kotlin.time.TimeSource
  *
  * On a launch the page plays its way out and then holds its last frame for as long as the player
  * is up — the player fades in over, and later out over, exactly that frame. When the player comes
- * back it hands over from the same frame and the page plays its way in. Touches are held for the
- * duration, so a second tap cannot start a second launch under the first. Idle, this is the
- * modifier it was applied to and nothing else.
+ * back it hands over from the same frame and the page plays its way in. Touches are held while the
+ * page is leaving, so a second tap cannot start a second launch under the first; on the way back
+ * the page is already the page again, and holding them there kept it out of reach for most of a
+ * second after 关闭. Idle, this is the modifier it was applied to and nothing else.
  */
 @Composable
 internal fun Modifier.playerHandoffStage(): Modifier {
@@ -107,15 +108,27 @@ internal fun Modifier.playerHandoffStage(): Modifier {
         .pointerInput(launch) {
             awaitPointerEventScope {
                 while (true) {
-                    awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
+                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                    if (PlayerHandoff.phase == HandoffPhase.Leaving) event.changes.forEach { it.consume() }
                 }
             }
         }.drawWithContent {
             drawContent()
             scene.drawOverlay(this, clock, heroLayer, fieldLayer)
         }.onGloballyPositioned {
-            scene.origin = it.positionInWindow() + screen.current().windowOffset
+            val geometry = screen.current()
+            scene.origin = it.positionInWindow() + geometry.windowOffset
             scene.size = it.size
+            // Laid out again, on the way back, for a display turned or resized since the launch:
+            // the phone was turned during the film, the artwork is no longer where the player
+            // just put it down, and a way back from there would land on nothing. Let it go.
+            val phase = PlayerHandoff.phase
+            if ((phase == HandoffPhase.Returning || phase == HandoffPhase.Releasing) &&
+                PlayerHandoff.launch === launch &&
+                (geometry.rotation != launch.screen.rotation || geometry.size != launch.screen.size)
+            ) {
+                PlayerHandoff.settle()
+            }
         }.graphicsLayer { scene.transformContent(this, clock) }
 }
 
@@ -137,17 +150,33 @@ private suspend fun runStageClock(
     lifecycle: Lifecycle,
 ) {
     val timing = launch.style.timing
+    val leftBy = pageLeftBy(launch.style)
     var backMark: TimeMark? = null
     while (true) {
         withFrameMillis { }
-        clock.leave = launch.elapsedMs()
+        val sinceLaunch = launch.elapsedMs()
+        // Past its last step the page is its held frame: written once, not on every frame.
+        val leave = if (sinceLaunch >= leftBy) HELD else sinceLaunch
+        if (clock.leave != leave) clock.leave = leave
         when (PlayerHandoff.phase) {
             HandoffPhase.Idle -> return
             HandoffPhase.Leaving ->
                 // The player never came: the launch failed, or is stuck behind a dialog. The page
                 // cannot sit dimmed under an app that is still in front.
-                if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) && clock.leave > STUCK_AFTER_MS) {
+                if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) && sinceLaunch > STUCK_AFTER_MS) {
                     PlayerHandoff.release(launch)
+                } else if (leave == HELD) {
+                    // Nothing on the page changes again until the player comes back, so the page
+                    // stops redrawing — a full-screen blur, for two of the sets — while the player
+                    // starts up. Only a launch that may yet turn out stuck keeps a deadline.
+                    val untilStuck = STUCK_AFTER_MS - sinceLaunch
+                    if (untilStuck >= 0f) {
+                        // Rounded up: a deadline that lands before STUCK_AFTER_MS leaves the next
+                        // pass neither releasing nor keeping one, and a page in front stuck held.
+                        withTimeoutOrNull(untilStuck.toLong() + 1L) { awaitLeavingEnds() }
+                    } else {
+                        awaitLeavingEnds()
+                    }
                 }
             HandoffPhase.Returning, HandoffPhase.Releasing -> {
                 val mark = backMark ?: TimeSource.Monotonic.markNow().also { backMark = it }
@@ -165,6 +194,22 @@ private suspend fun runStageClock(
     }
 }
 
+private suspend fun awaitLeavingEnds() {
+    snapshotFlow { PlayerHandoff.phase }.first { it != HandoffPhase.Leaving }
+}
+
+/**
+ * When each set's page has drawn its last change on the way out (the steps in the draw functions
+ * below); from there it is the frame it holds. 开幕's glow and 玻璃舱's blur outlast the moment the
+ * player takes over, 潮汐's wash is under a near-black dim by its end.
+ */
+private fun pageLeftBy(style: PlayerTransitionStyle): Float =
+    when (style) {
+        PlayerTransitionStyle.Curtain -> 480f
+        PlayerTransitionStyle.Glass -> 300f
+        else -> style.timing.pageHeld.toFloat()
+    }
+
 private const val ABANDONED_AFTER_MS = 900f
 private const val STUCK_AFTER_MS = 3_000f
 private const val RELEASE_MS = 260f
@@ -180,6 +225,8 @@ private class StageScene(
     var field: Painter? = null
     var leaveField: Painter? = null
     var play: Painter? = null
+    private val blurs = HandoffBlurs(TileMode.Clamp)
+    private val saturations = HandoffSaturations()
 
     private val style get() = launch.style
 
@@ -213,8 +260,7 @@ private class StageScene(
                 val s = 1f - 0.06f * r
                 scaleX = s
                 scaleY = s
-                val blur = 4f * density * r
-                renderEffect = if (blur > 0.5f) BlurEffect(blur, blur, TileMode.Clamp) else null
+                renderEffect = blurs.of(4f * density * r)
             }
             PlayerTransitionStyle.PushIn -> {
                 val zoom = pushZoom(this.size)
@@ -265,6 +311,7 @@ private class StageScene(
                 PlayerTransitionStyle.PushIn -> drawPushIn(t, u)
                 PlayerTransitionStyle.Tide -> drawTide(t, u)
                 PlayerTransitionStyle.Defocus -> drawDefocus(t, u, heroLayer, fieldLayer)
+                PlayerTransitionStyle.None -> Unit
             }
         }
     }
@@ -280,7 +327,7 @@ private class StageScene(
         drawRect(Color.Black, alpha = dim)
         val lift =
             if (returning) {
-                1f - handoffSpring(u - 60f, SETTLE_DAMPING, Spring.StiffnessMediumLow)
+                1f - handoffSpring(u - 60f, SettleSpring.dampingRatio, SettleSpring.stiffness)
             } else {
                 handoffSegment(t, 40f, 220f)
             }
@@ -517,10 +564,9 @@ private class StageScene(
         val defocus = if (returning) 1f - handoffSegment(u, 60f, 480f) else handoffSegment(t, 0f, 320f)
         val copy = if (returning) 1f - handoffSegment(u, 420f, 220f) else 1f
         val hero = HandoffBox.of(hero()).scaled(1f + 0.18f * defocus)
-        val blur = 26f * density * defocus
-        heroLayer.renderEffect = if (blur > 0.5f) BlurEffect(blur, blur, TileMode.Clamp) else null
+        heroLayer.renderEffect = blurs.of(26f * density * defocus)
         heroLayer.record(IntSize(this.size.width.toInt(), this.size.height.toInt())) {
-            drawArtwork(art, hero, 1f, colorFilter = saturation(1f + 0.3f * defocus))
+            drawArtwork(art, hero, 1f, colorFilter = saturations.of(1f + 0.3f * defocus))
         }
         heroLayer.alpha = copy
         drawLayer(heroLayer)
@@ -529,10 +575,9 @@ private class StageScene(
         if (fieldAlpha <= 0f) return
         val painter = if (returning) field ?: leaveField else leaveField
         val screen = HandoffBox(Offset(this.size.width / 2f, this.size.height / 2f), this.size.width, this.size.height)
-        val fieldBlur = FIELD_BLUR_DP * density
-        fieldLayer.renderEffect = BlurEffect(fieldBlur, fieldBlur, TileMode.Clamp)
+        fieldLayer.renderEffect = blurs.of(FIELD_BLUR_DP * density)
         fieldLayer.record(IntSize(this.size.width.toInt(), this.size.height.toInt())) {
-            drawArtwork(painter, screen.scaled(FIELD_OVERSCAN), 1f, colorFilter = saturation(1.35f))
+            drawArtwork(painter, screen.scaled(FIELD_OVERSCAN), 1f, colorFilter = saturations.of(FIELD_SATURATION))
         }
         fieldLayer.alpha = fieldAlpha
         drawLayer(fieldLayer)
@@ -549,11 +594,11 @@ private class StageScene(
         )
 }
 
-/** Pushes or pulls a picture's colour, the way the 虚焦 field is richer than the artwork it comes from. */
-private fun saturation(amount: Float): ColorFilter =
-    ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(amount) })
+/** The 虚焦 field is richer than the artwork it comes from. */
+private const val FIELD_SATURATION = 1.35f
 
-private const val SETTLE_DAMPING = 0.85f
+/** [Motion.settle] itself, drawn frame by frame: the artwork lands home with the app's settle, not a copy of it. */
+private val SettleSpring = Motion.settle<Float>()
 
 /** The leaving clock's value once the page is holding: past every set's last page-side step. */
 private const val HELD = 10_000f

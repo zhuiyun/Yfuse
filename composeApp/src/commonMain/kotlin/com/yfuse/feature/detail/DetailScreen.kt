@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -27,7 +28,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.onSizeChanged
@@ -43,14 +43,14 @@ import com.yfuse.core.designsystem.ActionToast
 import com.yfuse.core.designsystem.AnimatedColorContent
 import com.yfuse.core.designsystem.ArtworkAccent
 import com.yfuse.core.designsystem.ArtworkPageTheme
+import com.yfuse.core.designsystem.DialogPresence
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.HeroPageFade
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.MediaSharedElementKey
-import com.yfuse.core.designsystem.OrbProgress
-import com.yfuse.core.designsystem.OrbProgressDefaults
+import com.yfuse.core.designsystem.OverlayPage
 import com.yfuse.core.designsystem.SkeletonHandoff
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.WindowWidthTier
@@ -202,10 +202,19 @@ fun DetailScreen(component: DetailComponent) {
             darkTheme = palette.isDark,
             identity = heroIdentity,
         )
+    // The settled accent. Sections and overlays take it as it is and recompose once when the
+    // artwork's colour arrives; following the 500ms blend recomposed every one of them on every
+    // frame. The blend itself is painted where it shows: the rating and the 简介 link read it
+    // while drawing, and the play key and top bar follow it in their own small scopes.
     val detailAccent = detailAccentState.target
     var seasonPickerOpen by remember { mutableStateOf(false) }
-    // Where the season title sits, in root coordinates; the floating season list opens from it.
-    var seasonPickerAnchor by remember { mutableStateOf<Rect?>(null) }
+    // Where the season title sits; the floating season list opens from it.
+    val seasonPickerAnchor = remember { SeasonPickerAnchor() }
+    // The season whose episodes the rail is showing. It trails the selection while a newly picked
+    // season loads: the header already names that season, the cards are still the last one's.
+    val listedSeason = remember { arrayOf(state.selectedSeasonId) }
+    val listedSeasonId = if (state.episodesLoading) listedSeason[0] else state.selectedSeasonId
+    SideEffect { listedSeason[0] = listedSeasonId }
     var overviewExpanded by remember { mutableStateOf(false) }
     // Hoisted out of the list: the hero badges what this copy is, and 媒体信息 at the foot
     // of the page spells the same file out — one answer to "which file", read twice.
@@ -542,22 +551,20 @@ fun DetailScreen(component: DetailComponent) {
                                             .padding(top = SheetGap),
                                         verticalArrangement = Arrangement.spacedBy(SheetGap),
                                     ) {
-                                        AnimatedColorContent(detailAccentState) { detailAccent ->
-                                            TitleBlock(
-                                                detail = detail,
-                                                title = displayTitle,
-                                                accent = detailAccent,
-                                                // A series has no file of its own, so its 杜比 facts belong to
-                                                // the episode 继续观看 would open — which is the copy the badge
-                                                // would be describing anyway.
-                                                version = selectedVersion ?: state.playTarget?.versions?.firstOrNull(),
-                                                modifier =
-                                                    Modifier.onSizeChanged {
-                                                        captionLift = with(density) { it.height.toDp() } +
-                                                            SheetGap + PlayButtonHeroOverlap
-                                                    },
-                                            )
-                                        }
+                                        TitleBlock(
+                                            detail = detail,
+                                            title = displayTitle,
+                                            accent = { detailAccentState.value },
+                                            // A series has no file of its own, so its 杜比 facts belong to
+                                            // the episode 继续观看 would open — which is the copy the badge
+                                            // would be describing anyway.
+                                            version = selectedVersion ?: state.playTarget?.versions?.firstOrNull(),
+                                            modifier =
+                                                Modifier.onSizeChanged {
+                                                    captionLift = with(density) { it.height.toDp() } +
+                                                        SheetGap + PlayButtonHeroOverlap
+                                                },
+                                        )
                                         AnimatedColorContent(detailPlayColorState) { detailPlayColor ->
                                             DetailActionDock(
                                                 accent = detailPlayColor,
@@ -584,37 +591,33 @@ fun DetailScreen(component: DetailComponent) {
                                 val overview = detail.overview
                                 if (!overview.isNullOrBlank()) {
                                     motionItem(key = "overview") {
-                                        AnimatedColorContent(detailAccentState) { detailAccent ->
-                                            OverviewSection(
-                                                text = overview,
-                                                expanded = overviewExpanded,
-                                                onToggle = { overviewExpanded = !overviewExpanded },
-                                                accent = detailAccent,
-                                                modifier = Modifier.sectionPadding(),
-                                            )
-                                        }
+                                        OverviewSection(
+                                            text = overview,
+                                            expanded = overviewExpanded,
+                                            onToggle = { overviewExpanded = !overviewExpanded },
+                                            accent = { detailAccentState.value },
+                                            modifier = Modifier.sectionPadding(),
+                                        )
                                     }
                                 }
 
                                 if (state.server != null) {
                                     motionItem(key = "sources") {
-                                        AnimatedColorContent(detailAccentState) { detailAccent ->
-                                            SourceSection(
-                                                sources = comparableSources,
-                                                presentation = sourcePresentation,
-                                                loading = state.sourcesLoading,
-                                                error = state.sourcesError,
-                                                onRetry = { component.store.accept(DetailIntent.RetrySources) },
-                                                selectedServerId = state.selectedSourceServerId,
-                                                selectedItemId = state.selectedSourceItemId,
-                                                accent = detailAccent,
-                                                onSelect = { serverId, itemId ->
-                                                    component.store.accept(DetailIntent.SelectSource(serverId, itemId))
-                                                },
-                                                onSeeAll = { sourceListOpen = true },
-                                                modifier = Modifier.padding(top = Dimens.sectionGap),
-                                            )
-                                        }
+                                        SourceSection(
+                                            sources = comparableSources,
+                                            presentation = sourcePresentation,
+                                            loading = state.sourcesLoading,
+                                            error = state.sourcesError,
+                                            onRetry = { component.store.accept(DetailIntent.RetrySources) },
+                                            selectedServerId = state.selectedSourceServerId,
+                                            selectedItemId = state.selectedSourceItemId,
+                                            accent = detailAccent,
+                                            onSelect = { serverId, itemId ->
+                                                component.store.accept(DetailIntent.SelectSource(serverId, itemId))
+                                            },
+                                            onSeeAll = { sourceListOpen = true },
+                                            modifier = Modifier.padding(top = Dimens.sectionGap),
+                                        )
                                     }
                                 }
 
@@ -623,57 +626,55 @@ fun DetailScreen(component: DetailComponent) {
                                 // external links before they can choose what to watch.
                                 if (state.episodes.isNotEmpty()) {
                                     motionItem(key = "episodes") {
-                                        AnimatedColorContent(detailAccentState) { detailAccent ->
-                                            EpisodeSection(
-                                                baseUrl = playBaseUrl,
-                                                accessToken = playAccessToken,
-                                                episodes = state.episodes,
-                                                seriesPosterUrl = heroUrls.getOrNull(1),
-                                                selectedEpisodeId = state.selectedEpisodeId,
-                                                accent = detailAccent,
-                                                seasonLabel =
-                                                    state.seasons
-                                                        .firstOrNull { it.id == state.selectedSeasonId }
-                                                        ?.name
-                                                        ?: "剧集",
-                                                availableEpisodeCount = state.episodes.size,
-                                                seasonCount = state.seasons.size,
-                                                pickerOpen = seasonPickerOpen,
-                                                onTogglePicker = { seasonPickerOpen = !seasonPickerOpen },
-                                                onPickerAnchor = { seasonPickerAnchor = it },
-                                                onManageProgress = {
-                                                    component.store.accept(DetailIntent.OpenProgressManager)
-                                                },
-                                                onPlayEpisode = { episode ->
-                                                    com.yfuse.core.designsystem.PlayerArtworkOrigins.begin(
-                                                        sharedHeroKey,
-                                                    )
-                                                    component.store.accept(
-                                                        DetailIntent.SelectEpisode(
-                                                            episode.id,
-                                                            episode.resumePositionTicks ?: 0L,
-                                                        ),
-                                                    )
-                                                },
-                                                onSeeAll = { allEpisodesOpen = true },
-                                            )
-                                        }
+                                        EpisodeSection(
+                                            baseUrl = playBaseUrl,
+                                            accessToken = playAccessToken,
+                                            episodes = state.episodes,
+                                            seriesPosterUrl = heroUrls.getOrNull(1),
+                                            selectedEpisodeId = state.selectedEpisodeId,
+                                            accent = detailAccent,
+                                            seasonLabel =
+                                                state.seasons
+                                                    .firstOrNull { it.id == state.selectedSeasonId }
+                                                    ?.name
+                                                    ?: "剧集",
+                                            availableEpisodeCount = state.episodes.size,
+                                            seasonCount = state.seasons.size,
+                                            seasonLoading = listedSeasonId != state.selectedSeasonId,
+                                            listedSeasonId = listedSeasonId,
+                                            pickerOpen = seasonPickerOpen,
+                                            onTogglePicker = { seasonPickerOpen = !seasonPickerOpen },
+                                            onPickerAnchor = { seasonPickerAnchor.bounds = it },
+                                            onManageProgress = {
+                                                component.store.accept(DetailIntent.OpenProgressManager)
+                                            },
+                                            onPlayEpisode = { episode ->
+                                                com.yfuse.core.designsystem.PlayerArtworkOrigins.begin(
+                                                    sharedHeroKey,
+                                                )
+                                                component.store.accept(
+                                                    DetailIntent.SelectEpisode(
+                                                        episode.id,
+                                                        episode.resumePositionTicks ?: 0L,
+                                                    ),
+                                                )
+                                            },
+                                            onSeeAll = { allEpisodesOpen = true },
+                                        )
                                     }
                                 }
 
                                 if (playableVersions.isNotEmpty()) {
                                     motionItem(key = "versions") {
-                                        AnimatedColorContent(detailAccentState) { detailAccent ->
-                                            VersionSection(
-                                                versions = playableVersions,
-                                                selectedId = state.selectedVersionId,
-                                                accent = detailAccent,
-                                                onSelect = {
-                                                    component.store.accept(DetailIntent.SelectVersion(it))
-                                                },
-                                                modifier = Modifier.padding(top = Dimens.sectionGap),
-                                            )
-                                        }
+                                        VersionSection(
+                                            versions = playableVersions,
+                                            selectedId = state.selectedVersionId,
+                                            accent = detailAccent,
+                                            onSelect = {
+                                                component.store.accept(DetailIntent.SelectVersion(it))
+                                            },
+                                            modifier = Modifier.padding(top = Dimens.sectionGap),
+                                        )
                                     }
                                 }
 
@@ -688,21 +689,19 @@ fun DetailScreen(component: DetailComponent) {
                                     )
                                 ) {
                                     motionItem(key = "tracks") {
-                                        AnimatedColorContent(detailAccentState) { detailAccent ->
-                                            TrackSection(
-                                                version = playableVersion,
-                                                audioLanguage = state.preferredAudioLanguage,
-                                                subtitleLanguage = state.preferredSubtitleLanguage,
-                                                accent = detailAccent,
-                                                onSelectAudio = {
-                                                    component.store.accept(DetailIntent.SelectAudioLanguage(it))
-                                                },
-                                                onSelectSubtitle = {
-                                                    component.store.accept(DetailIntent.SelectSubtitleLanguage(it))
-                                                },
-                                                modifier = Modifier.padding(top = Dimens.sectionGap),
-                                            )
-                                        }
+                                        TrackSection(
+                                            version = playableVersion,
+                                            audioLanguage = state.preferredAudioLanguage,
+                                            subtitleLanguage = state.preferredSubtitleLanguage,
+                                            accent = detailAccent,
+                                            onSelectAudio = {
+                                                component.store.accept(DetailIntent.SelectAudioLanguage(it))
+                                            },
+                                            onSelectSubtitle = {
+                                                component.store.accept(DetailIntent.SelectSubtitleLanguage(it))
+                                            },
+                                            modifier = Modifier.padding(top = Dimens.sectionGap),
+                                        )
                                     }
                                 }
 
@@ -751,18 +750,16 @@ fun DetailScreen(component: DetailComponent) {
 
                                 if (state.related.isNotEmpty()) {
                                     motionItem(key = "related") {
-                                        AnimatedColorContent(detailAccentState) { detailAccent ->
-                                            RelatedSection(
-                                                baseUrl = baseUrl,
-                                                accessToken = accessToken,
-                                                serverId = state.server?.id,
-                                                items = state.related,
-                                                accent = detailAccent,
-                                                onOpen = { itemId ->
-                                                    state.server?.id?.let { component.onOpenRelated(it, itemId) }
-                                                },
-                                            )
-                                        }
+                                        RelatedSection(
+                                            baseUrl = baseUrl,
+                                            accessToken = accessToken,
+                                            serverId = state.server?.id,
+                                            items = state.related,
+                                            accent = detailAccent,
+                                            onOpen = { itemId ->
+                                                state.server?.id?.let { component.onOpenRelated(it, itemId) }
+                                            },
+                                        )
                                     }
                                 }
 
@@ -792,6 +789,9 @@ fun DetailScreen(component: DetailComponent) {
                         showPlay = detail != null,
                         showMore = detail != null,
                         solid = barSolid,
+                        // 播放 waits on whichever key was pressed — the dock's, or this one once the
+                        // dock has scrolled away — and on no second orb over the page.
+                        resolving = state.resolvingPlay,
                         onBack = component.onBack,
                         onPlay = playerArtworkOnClick(sharedHeroKey) { component.store.accept(DetailIntent.Play) },
                         onMore = { moreSheetOpen = true },
@@ -800,25 +800,19 @@ fun DetailScreen(component: DetailComponent) {
 
                 // Above the list and the top bar: it blurs the page, so it has to be a sibling
                 // drawn after everything it floats over.
-                AnimatedColorContent(detailAccentState) { detailAccent ->
-                    SeasonPickerOverlay(
-                        open = seasonPickerOpen && state.seasons.size > 1,
-                        anchor = seasonPickerAnchor,
-                        backdrop = detailBackdrop,
-                        accent = detailAccent,
-                        seasons = state.seasons.map { it.id to it.name },
-                        selectedSeasonId = state.selectedSeasonId,
-                        onSelectSeason = {
-                            seasonPickerOpen = false
-                            component.store.accept(DetailIntent.SelectSeason(it))
-                        },
-                        onDismiss = { seasonPickerOpen = false },
-                    )
-                }
-
-                if (state.resolvingPlay) {
-                    OrbProgress(modifier = Modifier.align(Alignment.Center), size = OrbProgressDefaults.Page)
-                }
+                SeasonPickerOverlay(
+                    open = seasonPickerOpen && state.seasons.size > 1,
+                    anchor = seasonPickerAnchor.bounds,
+                    backdrop = detailBackdrop,
+                    accent = detailAccent,
+                    seasons = state.seasons.map { it.id to it.name },
+                    selectedSeasonId = state.selectedSeasonId,
+                    onSelectSeason = {
+                        seasonPickerOpen = false
+                        component.store.accept(DetailIntent.SelectSeason(it))
+                    },
+                    onDismiss = { seasonPickerOpen = false },
+                )
 
                 if (metadataEditorOpen && detail != null && state.server != null) {
                     MetadataEditorDialog(
@@ -1017,36 +1011,39 @@ fun DetailScreen(component: DetailComponent) {
                     )
                 }
 
-                if (sourceListOpen) {
-                    AnimatedColorContent(detailAccentState) { detailAccent ->
-                        SourceListDialog(
-                            sources = comparableSources,
-                            presentation = sourcePresentation,
-                            selectedServerId = state.selectedSourceServerId,
-                            selectedItemId = state.selectedSourceItemId,
-                            accent = detailAccent,
-                            onSelect = { serverId, itemId ->
-                                val willPlay =
-                                    state.selectedSourceServerId == serverId &&
-                                        state.selectedSourceItemId == itemId
-                                if (willPlay) sourceListOpen = false
-                                component.store.accept(DetailIntent.SelectSource(serverId, itemId))
-                            },
-                            onDismiss = { sourceListOpen = false },
-                        )
-                    }
+                // Held through its exit: 再点已选项 closes the list here while playback starts.
+                DialogPresence(Unit.takeIf { sourceListOpen }) {
+                    SourceListDialog(
+                        sources = comparableSources,
+                        presentation = sourcePresentation,
+                        selectedServerId = state.selectedSourceServerId,
+                        selectedItemId = state.selectedSourceItemId,
+                        accent = detailAccent,
+                        onSelect = { serverId, itemId ->
+                            val willPlay =
+                                state.selectedSourceServerId == serverId &&
+                                    state.selectedSourceItemId == itemId
+                            if (willPlay) sourceListOpen = false
+                            component.store.accept(DetailIntent.SelectSource(serverId, itemId))
+                        },
+                        onDismiss = { sourceListOpen = false },
+                    )
                 }
 
                 // A layer rather than a route: it covers the page that owns this season and its
-                // artwork, and the detail store has already loaded the episodes it lists.
-                if (allEpisodesOpen && detail != null) {
+                // artwork, and the detail store has already loaded the episodes it lists. It
+                // arrives and leaves like a pushed route all the same.
+                OverlayPage(
+                    value = detail?.takeIf { allEpisodesOpen },
+                    onBack = { allEpisodesOpen = false },
+                ) { shown ->
                     SeasonEpisodesPage(
                         seasonLabel =
                             state.seasons
                                 .firstOrNull { it.id == state.selectedSeasonId }
                                 ?.name
                                 ?: "剧集",
-                        seriesName = detail.seriesName?.ifBlank { null } ?: detail.title,
+                        seriesName = shown.seriesName?.ifBlank { null } ?: shown.title,
                         episodes = state.episodes,
                         heroUrls = heroUrls,
                         baseUrl = playBaseUrl,
@@ -1125,14 +1122,11 @@ fun DetailScreen(component: DetailComponent) {
                 // Over the page rather than inside it: as a row in the action column this
                 // pushed 简介 and everything under it down the moment a tap was confirmed,
                 // and it stayed there until some other action happened to replace it.
-                AnimatedColorContent(detailAccentState) { detailAccent ->
-                    ActionToast(
-                        message = state.actionMessage ?: state.sourceFailure?.toDetailMessage(),
-                        onDismiss = { component.store.accept(DetailIntent.DismissMessage) },
-                        accent = detailAccent,
-                        modifier = Modifier.padding(bottom = 28.dp),
-                    )
-                }
+                ActionToast(
+                    message = state.actionMessage ?: state.sourceFailure?.toDetailMessage(),
+                    onDismiss = { component.store.accept(DetailIntent.DismissMessage) },
+                    accent = detailAccent,
+                )
             }
         }
     }

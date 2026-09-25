@@ -33,6 +33,16 @@ class LaunchWaveTest {
     }
 
     @Test
+    fun the_swing_overshoots_once_and_stays_under_eight_dp() {
+        // 3× density: the amplitude in px, and half a pixel as the edge of visibility.
+        val amplitude = LaunchWaveSpec.AMPLITUDE_DP * 3f
+        val peak = (1..LaunchWaveSpec.PERIOD_MS.toInt()).maxOf { -launchWaveBob(it.toFloat(), amplitude).offset }
+        assertTrue(peak <= 8f * 3f, "the highest rise is under 8dp")
+        val secondRise = launchWaveBob(LaunchWaveSpec.PERIOD_MS * 5f / 4f, amplitude)
+        assertTrue(abs(secondRise.offset) < 0.5f, "after the one dip below rest nothing visible moves")
+    }
+
+    @Test
     fun the_wave_crosses_one_window_top_to_bottom() {
         assertEquals(0f, launchWaveArrivalMs(topPx = 0f, windowPx = 2000f))
         assertEquals(LaunchWaveSpec.TRAVEL_MS / 2f, launchWaveArrivalMs(topPx = 1000f, windowPx = 2000f))

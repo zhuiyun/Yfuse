@@ -7,7 +7,7 @@ import com.arkivanov.decompose.router.stack.StackNavigation
 import com.arkivanov.decompose.router.stack.childStack
 import com.arkivanov.decompose.router.stack.pop
 import com.arkivanov.decompose.router.stack.popTo
-import com.arkivanov.decompose.router.stack.push
+import com.arkivanov.decompose.router.stack.pushToFront
 import com.arkivanov.decompose.value.Value
 import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.yfuse.app.AppDependencies
@@ -38,6 +38,9 @@ class HomeTabComponent(
     private val onOpenLibrary: () -> Unit,
     private val onOpenProfile: () -> Unit,
 ) : ComponentContext by componentContext {
+    // Every route goes on with pushToFront, as in the library tab: Decompose rejects a stack
+    // holding two equal configurations, and A → related B → A, reopening a title from an airing
+    // reminder while it is still in this stack, or a second tap during the push would build one.
     private val navigation = StackNavigation<Config>()
     private val playerNavigation = SingleFlightNavigationGuard<Config.Player>()
 
@@ -110,7 +113,7 @@ class HomeTabComponent(
 
     fun openPersonalTitle(media: com.yfuse.core.personal.PersonalMediaRef) {
         val tmdbId = media.tmdbId ?: return
-        navigation.push(
+        navigation.pushToFront(
             Config.Info(
                 TmdbItem(
                     id = tmdbId,
@@ -131,7 +134,7 @@ class HomeTabComponent(
         serverId: String?,
         itemId: String,
     ) {
-        navigation.push(Config.Detail(serverId ?: registry.defaultServer?.id, itemId))
+        navigation.pushToFront(Config.Detail(serverId ?: registry.defaultServer?.id, itemId))
     }
 
     /**
@@ -169,7 +172,7 @@ class HomeTabComponent(
         val active = stack.value.active.configuration as? Config.Player
         if (!playerNavigation.tryBegin(config, active)) return
         try {
-            navigation.push(config)
+            navigation.pushToFront(config)
         } catch (failure: Throwable) {
             if (failure is CancellationException) throw failure
             playerNavigation.complete(config)
@@ -195,18 +198,18 @@ class HomeTabComponent(
                         calendarRepository = calendarRepository,
                         initialCalendarLoad = true,
                         onOpenEmbyItem = { serverId, itemId ->
-                            navigation.push(Config.Detail(serverId, itemId))
+                            navigation.pushToFront(Config.Detail(serverId, itemId))
                         },
                         onPlayEmbyItem = { serverId, itemId, isSeries ->
                             openPlayer(Config.Player(serverId, itemId, 0L, isSeriesLaunch = isSeries))
                         },
                         onOpenTmdbItem = { item, embyItemId ->
-                            navigation.push(Config.Info(item, embyItemId))
+                            navigation.pushToFront(Config.Info(item, embyItemId))
                         },
                         onOpenSearch = onOpenSearch,
                         onOpenLibrary = onOpenLibrary,
                         onOpenProfile = onOpenProfile,
-                        onOpenCalendar = { navigation.push(Config.Calendar) },
+                        onOpenCalendar = { navigation.pushToFront(Config.Calendar) },
                     ),
                 )
             is Config.Detail ->
@@ -221,7 +224,7 @@ class HomeTabComponent(
                         dependencies = dependencies,
                         onBack = { navigation.pop() },
                         onOpenRelated = { serverId, itemId ->
-                            navigation.push(Config.Detail(serverId, itemId))
+                            navigation.pushToFront(Config.Detail(serverId, itemId))
                         },
                         onPlay = { serverId, id, ticks, mediaSourceId ->
                             openPlayer(Config.Player(serverId, id, ticks, mediaSourceId))
@@ -259,7 +262,7 @@ class HomeTabComponent(
                         registry = registry,
                         onBack = { navigation.pop() },
                         onOpenItem = { serverId, itemId ->
-                            navigation.push(Config.Detail(serverId ?: registry.defaultServer?.id, itemId))
+                            navigation.pushToFront(Config.Detail(serverId ?: registry.defaultServer?.id, itemId))
                         },
                     ),
                 )

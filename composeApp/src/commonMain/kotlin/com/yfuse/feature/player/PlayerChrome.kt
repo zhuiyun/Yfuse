@@ -1,14 +1,19 @@
 package com.yfuse.feature.player
 
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.snap
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
@@ -20,7 +25,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -31,18 +35,27 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawOutline
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
@@ -65,19 +78,21 @@ import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.LightEffect
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
+import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.Motion
-import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.PlayerTokens
 import com.yfuse.core.designsystem.PressFeedback
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.lightFeedback
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberAccentColorsForSurface
+import com.yfuse.core.designsystem.rememberDelayedBusy
 import com.yfuse.core.designsystem.rememberLightFeedback
 import com.yfuse.core.designsystem.softSelectionSurface
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.util.currentClockTime
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.isActive
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
@@ -253,21 +268,14 @@ internal fun TransportRow(
     onSeekForward: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var bufferingIndicatorVisible by remember { mutableStateOf(false) }
-    LaunchedEffect(state.buffering) {
-        if (!state.buffering) {
-            bufferingIndicatorVisible = false
-        } else {
-            delay(BUFFERING_INDICATOR_DELAY_MS)
-            bufferingIndicatorVisible = true
-        }
+    // The same wait as the status chip's, so a seek's short stall shows nothing in either place.
+    val bufferingIndicatorVisible =
+        rememberDelayedBusy(state.buffering, showAfterMillis = BUFFERING_INDICATOR_DELAY_MS.toInt())
+    var settledPlaying by remember { mutableStateOf<Boolean?>(null) }
+    LaunchedEffect(state.playing, state.buffering) {
+        if (!state.buffering) settledPlaying = state.playing
     }
-    val visualState =
-        transportVisualState(
-            playing = state.playing,
-            buffering = state.buffering,
-            bufferingIndicatorVisible = bufferingIndicatorVisible,
-        )
+    val showsPause = transportShowsPause(state.playing, state.buffering, settledPlaying)
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
 
     Row(
@@ -291,53 +299,60 @@ internal fun TransportRow(
             enabled = !locked && state.seekable,
             onClick = onSeekBackward,
         )
-        AnimatedContent(
-            targetState = visualState,
-            transitionSpec = {
-                if (reduceMotion) {
-                    fadeIn(snap()) togetherWith fadeOut(snap())
-                } else {
-                    (
-                        fadeIn(tween(Motion.QUICK, easing = Motion.Curve)) +
-                            scaleIn(
-                                animationSpec = Motion.settle(),
-                                initialScale = 0.82f,
-                            )
-                    ) togetherWith
-                        (
-                            fadeOut(tween(Motion.QUICK, easing = Motion.Curve)) +
-                                scaleOut(
-                                    tween(Motion.QUICK, easing = Motion.Curve),
-                                    targetScale = 0.88f,
+        // Buffering never takes the key away: a stalled film can still be paused, and a spoken
+        // cursor resting on the key does not lose it. The stall is a ring round the key instead.
+        Box(Modifier.size(TransportKeySize + ControlTouchPadding * 2), contentAlignment = Alignment.Center) {
+            AnimatedContent(
+                targetState = showsPause,
+                transitionSpec = {
+                    val swap =
+                        if (reduceMotion) {
+                            fadeIn(snap()) togetherWith fadeOut(snap())
+                        } else {
+                            (
+                                fadeIn(Motion.tween(Motion.QUICK)) +
+                                    scaleIn(
+                                        animationSpec = Motion.settle(),
+                                        initialScale = ICON_SWAP_SCALE_IN,
+                                    )
+                            ) togetherWith
+                                (
+                                    fadeOut(Motion.tween(Motion.QUICK)) +
+                                        scaleOut(
+                                            Motion.tween(Motion.QUICK),
+                                            targetScale = ICON_SWAP_SCALE_OUT,
+                                        )
                                 )
-                        )
-                }
-            },
-            contentAlignment = Alignment.Center,
-            modifier = Modifier.size(TransportKeySize + ControlTouchPadding * 2),
-            label = "transport-state",
-        ) { visual ->
-            when (visual) {
-                TransportVisualState.Buffering ->
-                    Box(
-                        Modifier.size(TransportKeySize + ControlTouchPadding * 2),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        OrbProgress(size = 16.dp, color = Color.White)
-                    }
-                TransportVisualState.Pause,
-                TransportVisualState.Play,
-                -> {
-                    val playing = visual == TransportVisualState.Pause
-                    CircleControl(
-                        if (playing) AppIcons.Pause else AppIcons.Play,
-                        if (playing) "暂停" else "播放",
-                        TransportKeySize,
-                        TransportIconSize,
-                        enabled = !locked && !state.buffering,
-                        onClick = onPlayPause,
-                    )
-                }
+                        }
+                    swap using Motion.sizeTransform(reduceMotion)
+                },
+                contentAlignment = Alignment.Center,
+                label = "transport-state",
+            ) { pause ->
+                CircleControl(
+                    if (pause) AppIcons.Pause else AppIcons.Play,
+                    if (pause) "暂停" else "播放",
+                    TransportKeySize,
+                    TransportIconSize,
+                    enabled = !locked,
+                    onClick = {
+                        // Nothing will report the answer until the stall ends; the key gives it now.
+                        if (state.buffering) settledPlaying = !pause
+                        onPlayPause()
+                    },
+                    modifier = Modifier.semantics { if (bufferingIndicatorVisible) stateDescription = "缓冲中" },
+                )
+            }
+            // Drawn over the key but never hit: a tap on the ring is a tap on the key. Qualified,
+            // because inside this Box the Row's `RowScope.AnimatedVisibility` would be chosen and
+            // the layout-scope DSL rule forbids reaching it from here.
+            androidx.compose.animation.AnimatedVisibility(
+                visible = bufferingIndicatorVisible,
+                enter = fadeIn(Motion.tween(if (reduceMotion) 0 else Motion.QUICK)),
+                exit = fadeOut(Motion.tween(if (reduceMotion) 0 else Motion.QUICK)),
+                label = "transport-buffering",
+            ) {
+                BufferingRing(Modifier.size(TransportKeySize + BufferingRingGap * 2))
             }
         }
 
@@ -362,6 +377,53 @@ internal fun TransportRow(
 }
 
 /**
+ * A stall, drawn round the transport key rather than in its place: a short arc running the rim.
+ * Under 减弱动态效果 the rim is simply lit — the key's 「缓冲中」 says the rest without motion.
+ */
+@Composable
+private fun BufferingRing(modifier: Modifier = Modifier) {
+    val moving = !LocalAccessibilityOptions.current.reduceMotion && LocalRouteVisible.current
+    // Only a ring that moves has a clock; a still one requests no frames at all.
+    val turn =
+        if (moving) {
+            rememberInfiniteTransition(label = "buffering-ring").animateFloat(
+                initialValue = 0f,
+                targetValue = 360f,
+                animationSpec = infiniteRepeatable(Motion.tween(Motion.SPINNER_TURN, easing = LinearEasing)),
+                label = "buffering-turn",
+            )
+        } else {
+            null
+        }
+    Canvas(modifier) {
+        val stroke = BufferingRingStroke.toPx()
+        val rim = Size(size.width - stroke, size.height - stroke)
+        val topLeft = Offset(stroke / 2f, stroke / 2f)
+        drawArc(
+            color = Color.White.copy(alpha = if (turn != null) 0.18f else 0.62f),
+            startAngle = 0f,
+            sweepAngle = 360f,
+            useCenter = false,
+            topLeft = topLeft,
+            size = rim,
+            style = Stroke(stroke),
+        )
+        // Read here, so the turn redraws the ring and nothing else.
+        turn?.let {
+            drawArc(
+                color = Color.White,
+                startAngle = it.value - 90f,
+                sweepAngle = BUFFERING_ARC_DEGREES,
+                useCenter = false,
+                topLeft = topLeft,
+                size = rim,
+                style = Stroke(stroke, cap = StrokeCap.Round),
+            )
+        }
+    }
+}
+
+/**
  * The vertical volume bar the rocker raises, in place of the system's own panel.
  *
  * Draggable rather than a read-only readout: once it is on screen and under the thumb, the
@@ -372,24 +434,32 @@ internal fun TransportRow(
  */
 @Composable
 internal fun VolumeSlider(
-    volume: Float,
+    /** A reader: the rocker and a drag move it many times a second, and only the bar follows it. */
+    volume: () -> Float,
     onVolume: (Float) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val light = rememberLightFeedback()
     val currentLight by rememberUpdatedState(light)
     val accent = rememberAccentColorsForSurface(dark = true)
-    val targetFraction = volume.coerceIn(0f, 1f)
+    val latestVolume by rememberUpdatedState(volume)
     var height by remember { mutableIntStateOf(1) }
     var focused by remember { mutableStateOf(false) }
     var dragging by remember { mutableStateOf(false) }
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
-    val animatedFraction by animateFloatAsState(
-        targetValue = targetFraction,
-        animationSpec = Motion.settle(reduceMotion),
-        label = "volume-level",
-    )
-    val fraction = if (dragging) targetFraction else animatedFraction
+    // The level as drawn: eased to each new volume, straight onto it under a finger. The fill
+    // reads it while drawing and the figure through a whole-percent derived state, so the frames
+    // of a settle repaint the rail instead of recomposing the slider.
+    val shown = remember { Animatable(volume().coerceIn(0f, 1f)) }
+    LaunchedEffect(reduceMotion) {
+        snapshotFlow { latestVolume().coerceIn(0f, 1f) to dragging }.collectLatest { (target, underFinger) ->
+            if (underFinger || reduceMotion) shown.snapTo(target) else shown.animateTo(target, Motion.settle())
+        }
+    }
+    val percent by remember { derivedStateOf { (shown.value * 100).toInt() } }
+    // What is spoken is where the volume is, not where the drawing has got to: a settle read out
+    // its in-between figures to a cursor resting on the bar.
+    val spokenPercent by remember { derivedStateOf { (latestVolume().coerceIn(0f, 1f) * 100).toInt() } }
     val adjust: (Float) -> Boolean = { target ->
         onVolume(target.coerceIn(0f, 1f))
         currentLight.emit(LightEffect.Trail, fractionY = 1f - target)
@@ -406,27 +476,24 @@ internal fun VolumeSlider(
                 ).padding(horizontal = 12.dp, vertical = 14.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Text("${(fraction * 100).toInt()}", style = AppTypography.caption.strong, color = Color.White)
+            Text("$percent", style = AppTypography.caption.strong, color = Color.White)
             Spacer(Modifier.height(10.dp))
             Box(
                 Modifier
                     .width(6.dp)
                     .height(140.dp)
                     .clip(AppShapes.track)
-                    .background(Color.White.copy(alpha = 0.22f)),
-                contentAlignment = Alignment.BottomCenter,
-            ) {
-                // Muted draws no fill at all rather than a zero-height sliver.
-                if (fraction > 0f) {
-                    Box(
-                        Modifier
-                            .fillMaxWidth()
-                            .fillMaxHeight(fraction)
-                            .clip(AppShapes.track)
-                            .background(Color.White),
-                    )
-                }
-            }
+                    .background(Color.White.copy(alpha = 0.22f))
+                    .drawBehind {
+                        val level = shown.value
+                        // Muted draws no fill at all rather than a zero-height sliver.
+                        if (level <= 0f) return@drawBehind
+                        val fill = Size(size.width, size.height * level)
+                        translate(top = size.height - fill.height) {
+                            drawOutline(AppShapes.track.createOutline(fill, layoutDirection, this), Color.White)
+                        }
+                    },
+            )
             Spacer(Modifier.height(10.dp))
             Icon(AppIcons.Volume, null, tint = Color.White, modifier = Modifier.size(14.dp))
         }
@@ -444,14 +511,14 @@ internal fun VolumeSlider(
                         Modifier
                     },
                 ).semantics {
-                    stateDescription = "音量 ${(fraction * 100).toInt()}%"
-                    progressBarRangeInfo = ProgressBarRangeInfo(fraction, 0f..1f, 100)
+                    stateDescription = "音量 $spokenPercent%"
+                    progressBarRangeInfo = ProgressBarRangeInfo(spokenPercent / 100f, 0f..1f, 100)
                     setProgress { adjust(it) }
                 }.onKeyEvent { event ->
                     if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
                     when (event.key) {
-                        Key.DirectionDown, Key.DirectionLeft -> adjust(fraction - 0.05f)
-                        Key.DirectionUp, Key.DirectionRight -> adjust(fraction + 0.05f)
+                        Key.DirectionDown, Key.DirectionLeft -> adjust(latestVolume() - 0.05f)
+                        Key.DirectionUp, Key.DirectionRight -> adjust(latestVolume() + 0.05f)
                         else -> false
                     }
                 }.onFocusChanged { focused = it.isFocused }
@@ -513,6 +580,12 @@ internal fun skipCountdownLabel(
     // 跳过片头 -> 片头. The type's own label is the only place this wording lives.
     val what = skipSegmentLabel?.removePrefix("跳过").orEmpty()
     return "$seconds 秒后跳过$what · 点击取消"
+}
+
+/** The same countdown as a screen reader hears it: once, and without the seconds that tick. */
+internal fun skipCountdownAnnouncement(skipSegmentLabel: String?): String {
+    val what = skipSegmentLabel?.removePrefix("跳过").orEmpty()
+    return "即将自动跳过$what"
 }
 
 @Composable
@@ -656,6 +729,8 @@ internal fun CircleControl(
                             lightFeedback = false,
                             interactionSource = interactions,
                             focusShape = CircleShape,
+                            // The ring paints its own pressed colour ([softSelectionSurface] below).
+                            stateLayer = false,
                             onClick = onClick,
                         ).touchTarget()
                 } else {
@@ -702,6 +777,13 @@ internal fun CircleControl(
 private val TransportKeySize = 28.dp
 
 private val TransportIconSize = 14.dp
+
+/** Clear of the key's own hairline, so the stall reads as a second ring and not a thicker first one. */
+private val BufferingRingGap = 5.dp
+
+private val BufferingRingStroke = 2.dp
+
+private const val BUFFERING_ARC_DEGREES = 100f
 
 /**
  * The paused key over the middle of the frame — the one control drawn away from an edge.

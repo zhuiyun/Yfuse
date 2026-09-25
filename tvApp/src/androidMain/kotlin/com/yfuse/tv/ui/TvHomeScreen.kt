@@ -2,7 +2,6 @@ package com.yfuse.tv.ui
 
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.snap
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -37,10 +36,15 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import coil3.SingletonImageLoader
 import coil3.compose.AsyncImage
+import coil3.compose.LocalPlatformContext
+import coil3.request.ImageRequest
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
+import com.yfuse.core.designsystem.Motion
+import com.yfuse.core.designsystem.contentHandoff
 import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.network.TmdbImages
@@ -75,21 +79,32 @@ internal fun TvHomeScreen(
     // The carousel holds still while any of its own controls has focus: the reader is
     // deciding about *this* title, and advancing under the play key would start another one.
     // Under 减弱动态效果 it never advances on its own.
+    val imageContext = LocalPlatformContext.current
     LaunchedEffect(heroItems.map(TmdbItem::id), heroIndex, heroFocused, reduceMotion) {
         if (heroItems.size > 1 && !heroFocused && !reduceMotion) {
             delay(8_000L)
-            heroIndex = (heroIndex + 1) % heroItems.size
+            val next = (heroIndex + 1) % heroItems.size
+            // Turn once the next backdrop is decoded: the crossfade used to fade in an image that
+            // had not loaded yet, grey placeholder first and the picture cutting in after it.
+            TmdbImages.backdrop(heroItems[next].backdropPath, "w1280")?.let { url ->
+                SingletonImageLoader.get(imageContext).execute(ImageRequest.Builder(imageContext).data(url).build())
+            }
+            heroIndex = next
         }
     }
 
-    if (state.loading && heroItems.isEmpty() && state.resume.isEmpty()) {
+    val waiting = state.loading && heroItems.isEmpty() && state.resume.isEmpty()
+    // Taken before the loading state returns, so it spans the swap: the page fades in over
+    // Motion.STATE_HANDOFF when it arrives instead of cutting in.
+    val arrival = Modifier.contentHandoff(waiting)
+    if (waiting) {
         TvLoadingState("正在准备首页")
         return
     }
 
     LazyColumn(
         state = component.listState,
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize().then(arrival),
         contentPadding = PaddingValues(top = TvSafeVertical, bottom = TvSafeVertical + 32.dp),
         verticalArrangement = Arrangement.spacedBy(25.dp),
     ) {
@@ -290,12 +305,13 @@ private fun TvHomeHero(
     ) {
         Crossfade(
             targetState = item,
-            animationSpec = if (reduceMotion) snap() else tween(),
+            animationSpec = if (reduceMotion) snap() else Motion.tween(Motion.AMBIENT),
             label = "tv-living-poster",
         ) { current ->
             AsyncImage(
-                model = TmdbImages.backdrop(current?.backdropPath, "w1280"),
-                contentDescription = current?.title,
+                model = rememberTvImage(TmdbImages.backdrop(current?.backdropPath, "w1280")),
+                // Silent: the title is written over it, and the backdrop read it a second time.
+                contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
             )

@@ -57,31 +57,26 @@ internal fun DetailSkeleton(heroHeight: Dp) {
                 .padding(top = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            // The title's lines alone: the page it becomes has no poster beside them.
+            Column(
+                Modifier.fillMaxWidth().padding(top = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 SkeletonBlock(
-                    Modifier.width(96.dp).height(142.dp),
-                    shape = AppShapes.card,
+                    Modifier.fillMaxWidth(0.72f).height(18.dp),
+                    shape = AppShapes.thumb,
+                    phaseMs = SKELETON_PHASE_STEP_MS,
                 )
-                Column(
-                    Modifier.weight(1f).padding(top = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    SkeletonBlock(
-                        Modifier.fillMaxWidth(0.72f).height(18.dp),
-                        shape = AppShapes.thumb,
-                        phaseMs = SKELETON_PHASE_STEP_MS,
-                    )
-                    SkeletonBlock(
-                        Modifier.fillMaxWidth(0.46f).height(11.dp),
-                        shape = AppShapes.thumb,
-                        phaseMs = SKELETON_PHASE_STEP_MS * 2,
-                    )
-                    SkeletonBlock(
-                        Modifier.width(64.dp).height(11.dp),
-                        shape = AppShapes.thumb,
-                        phaseMs = SKELETON_PHASE_STEP_MS * 3,
-                    )
-                }
+                SkeletonBlock(
+                    Modifier.fillMaxWidth(0.46f).height(11.dp),
+                    shape = AppShapes.thumb,
+                    phaseMs = SKELETON_PHASE_STEP_MS * 2,
+                )
+                SkeletonBlock(
+                    Modifier.width(64.dp).height(11.dp),
+                    shape = AppShapes.thumb,
+                    phaseMs = SKELETON_PHASE_STEP_MS * 3,
+                )
             }
             SkeletonBlock(
                 Modifier.fillMaxWidth().height(48.dp),

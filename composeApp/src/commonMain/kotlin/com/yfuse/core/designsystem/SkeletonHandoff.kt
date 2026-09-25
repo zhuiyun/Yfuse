@@ -22,15 +22,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.progressBarRangeInfo
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
-internal const val HANDOFF_ROW_MS = 55
+/** The one row stagger: search results and skeleton hand-offs arrive on the same beat. */
+internal const val HANDOFF_ROW_MS = Motion.SEARCH_ROW_STAGGER
 private const val HANDOFF_REVEAL_MS = 1000
 
 internal class SkeletonArrival(
@@ -57,7 +59,8 @@ internal fun SkeletonArrivalScope(
     loading: Boolean,
     content: @Composable () -> Unit,
 ) {
-    val moving = LocalRouteVisible.current && !LocalAccessibilityOptions.current.reduceMotion
+    // 静息 drops the row-by-row arrival: the skeleton's own fade out is enough.
+    val moving = LocalRouteVisible.current && !LocalAccessibilityOptions.current.reduceMotion && !calmMotion()
     val previous = remember { booleanArrayOf(loading) }
     val arrival =
         remember(loading, moving) {
@@ -70,7 +73,14 @@ internal fun SkeletonArrivalScope(
     CompositionLocalProvider(LocalSkeletonArrival provides arrival, content = content)
 }
 
-/** One live content tree. Only the cheap outgoing skeleton survives the finite dissolve. */
+/**
+ * One live content tree. Only the cheap outgoing skeleton survives the finite dissolve.
+ *
+ * The skeleton is earned, not shown on the first frame: a load that lands within
+ * [Motion.BUSY_SHOW_AFTER] — a cache hit — goes straight to its content with no skeleton and no
+ * staggered arrival, and one that does show a skeleton keeps it for [Motion.BUSY_MIN_VISIBLE]
+ * rather than blinking it.
+ */
 @Composable
 internal fun SkeletonHandoff(
     loading: Boolean,
@@ -79,22 +89,24 @@ internal fun SkeletonHandoff(
     content: @Composable BoxScope.() -> Unit,
 ) {
     val reduce = LocalAccessibilityOptions.current.reduceMotion || !LocalRouteVisible.current
-    SkeletonArrivalScope(loading) {
-        Box(
-            modifier.semantics {
-                if (loading) {
-                    progressBarRangeInfo = ProgressBarRangeInfo.Indeterminate
-                    stateDescription = "正在加载"
-                }
-            },
-        ) {
+    val showSkeleton = rememberDelayedBusy(loading)
+    // The arrival only follows a skeleton that was actually seen.
+    SkeletonArrivalScope(showSkeleton) {
+        Box(modifier) {
             AnimatedVisibility(
-                visible = loading,
-                enter = fadeIn(tween(if (reduce) 0 else Motion.QUICK)),
-                exit = fadeOut(tween(if (reduce) 0 else Motion.STANDARD)),
-                modifier = Modifier.matchParentSize().clearAndSetSemantics {},
+                visible = showSkeleton,
+                enter = fadeIn(Motion.tween(if (reduce) 0 else Motion.QUICK)),
+                exit = fadeOut(Motion.tween(if (reduce) 0 else Motion.STANDARD)),
+                // One leaf a screen reader can land on and that speaks when it appears. The label
+                // used to sit on the container while this layer cleared everything under it.
+                modifier =
+                    Modifier.matchParentSize().clearAndSetSemantics {
+                        contentDescription = "正在加载"
+                        progressBarRangeInfo = ProgressBarRangeInfo.Indeterminate
+                        liveRegion = LiveRegionMode.Polite
+                    },
             ) { Box { skeleton() } }
-            if (!loading) content()
+            if (!loading && !showSkeleton) content()
         }
     }
 }

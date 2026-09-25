@@ -37,6 +37,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -63,23 +64,22 @@ import com.yfuse.app.RootComponent.Tab
 import com.yfuse.core.account.AccountState
 import com.yfuse.core.account.canUseWatchTogether
 import com.yfuse.core.data.WatchTogetherPreferences
-import com.yfuse.core.designsystem.AccessibilityOptions
 import com.yfuse.core.designsystem.AppBackdrop
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.BackdropState
 import com.yfuse.core.designsystem.ConfirmDialog
 import com.yfuse.core.designsystem.Dimens
-import com.yfuse.core.designsystem.GlassStyle
 import com.yfuse.core.designsystem.HapticSignal
-import com.yfuse.core.designsystem.LaunchWaveGate
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalOverlayVisibility
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.LocalPulseSweepEnabled
+import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.LocalTabIdentity
 import com.yfuse.core.designsystem.LocalTabReselected
+import com.yfuse.core.designsystem.LocalToastBottomInset
 import com.yfuse.core.designsystem.MinTouchTarget
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.OfficialNavDisplay
@@ -89,13 +89,13 @@ import com.yfuse.core.designsystem.SkeletonPulseProvider
 import com.yfuse.core.designsystem.YfuseTheme
 import com.yfuse.core.designsystem.attentionSweep
 import com.yfuse.core.designsystem.backdropSource
+import com.yfuse.core.designsystem.calmMotion
 import com.yfuse.core.designsystem.drawLensIsland
 import com.yfuse.core.designsystem.drawMotionSweep
 import com.yfuse.core.designsystem.drawPhaseLight
-import com.yfuse.core.designsystem.launchWaveItem
 import com.yfuse.core.designsystem.liquidNavigationGlass
 import com.yfuse.core.designsystem.navigationGlass
-import com.yfuse.core.designsystem.platformAnimationsDisabled
+import com.yfuse.core.designsystem.playerHandoffStage
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberBackdropState
 import com.yfuse.core.designsystem.rememberPhaseLightCount
@@ -121,7 +121,6 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
-import com.yfuse.core.designsystem.playerHandoffStage
 
 private data class TabItem(
     val tab: Tab,
@@ -169,17 +168,12 @@ private val tabs =
 fun App(root: RootComponent) {
     BindBackgroundServices(root)
     val mode by root.themePreferences.mode.collectAsState()
-    val reduceTransparency by root.themePreferences.reduceTransparency.collectAsState()
-    val largeText by root.themePreferences.largeText.collectAsState()
-    val reduceMotion by root.themePreferences.reduceMotion.collectAsState()
     // 「移除动画」 on the device is the same request as our own 减弱动态效果, so the two are one
-    // effective value from here down. Without this the app kept animating for a user who had
-    // switched animation off system-wide — the only surface that honoured it was the player,
-    // which reads the setting itself for its window transitions. The user's own switch still
-    // travels separately, for the few places where motion is a gesture rather than a duration:
-    // see [AccessibilityOptions.reduceMotionByUser].
-    val systemMotionOff = platformAnimationsDisabled()
-    val motionOff = reduceMotion || systemMotionOff
+    // effective value from here down; the user's own switch still travels separately, for the
+    // few places where motion is a gesture rather than a duration — see
+    // [AccessibilityOptions.reduceMotionByUser]. Built in one place for every window.
+    val accessibility = rememberAppAccessibilityOptions(root.themePreferences)
+    val motionOff = accessibility.reduceMotion
     val pulseSweep by root.themePreferences.pulseSweep.collectAsState()
     val particleLight by root.themePreferences.particleLight.collectAsState()
     val dialogAnimation by root.themePreferences.dialogAnimation.collectAsState()
@@ -188,25 +182,18 @@ fun App(root: RootComponent) {
     val glassMaterials by root.themePreferences.glassMaterials.collectAsState()
     val backgroundImage by root.themePreferences.backgroundImage.collectAsState()
     val backgroundDim by root.themePreferences.backgroundDim.collectAsState()
+    val motionTheme by root.themePreferences.motionTheme.collectAsState()
     val dark = mode.resolveDark(isSystemInDarkTheme())
 
     YfuseTheme(
         dark = dark,
-        accessibility =
-            AccessibilityOptions(
-                reduceTransparency = reduceTransparency,
-                largeText = largeText,
-                reduceMotion = motionOff,
-                reduceMotionByUser = reduceMotion,
-            ),
-        // 减弱透明度 is an accessibility contract: it exists to make every surface opaque and
-        // legible, so a decorative material choice must not be able to reinstate the effect
-        // it turns off.
-        glassStyle = if (reduceTransparency) GlassStyle.Frosted else glassStyle,
+        accessibility = accessibility,
+        glassStyle = effectiveGlassStyle(glassStyle, accessibility.reduceTransparency),
         dialogAnimation = dialogAnimation,
         loadingAnimation = loadingAnimation,
         glassMaterials = glassMaterials,
         particleLight = particleLight,
+        motionTheme = motionTheme,
     ) {
         BindProductServices(root)
         val savedServers by root.dependencies.serverRegistry.data
@@ -335,7 +322,7 @@ fun App(root: RootComponent) {
                 AppBackdrop(
                     // A wallpaper is decoration, and 减弱透明度 is the switch for people who
                     // need the page to be a flat readable surface. It wins.
-                    imageUri = backgroundImage.takeUnless { reduceTransparency },
+                    imageUri = backgroundImage.takeUnless { accessibility.reduceTransparency },
                     dim = backgroundDim,
                 ) {
                     // The page's half of the player transitions draws over, and transforms, this whole
@@ -356,27 +343,37 @@ fun App(root: RootComponent) {
                             val previousRootTab = remember { arrayOf(active) }
                             val rootMotion = remember(active) { rootTabMotion(previousRootTab[0], active) }
                             SideEffect { previousRootTab[0] = active }
+                            // Toasts on a root page keep clear of the floating dock; everywhere else
+                            // they only need to clear the system bar.
+                            val toastFloor =
+                                if (showBottomBar && overlays?.coversShell != true) {
+                                    floatingNavigationContentInset()
+                                } else {
+                                    null
+                                }
                             // Top-level tabs are a real Navigation 3 back stack, while each tab's
                             // nested host continues to own its child routes. This host opts into
                             // equal-level root motion; nested stacks own their push/pop gestures.
-                            OfficialNavDisplay(
-                                backStack = topLevelBackStack(active),
-                                onBack = { root.selectTab(Tab.Home) },
-                                contentKey = { "tab:${it.name}" },
-                                modifier = Modifier.fillMaxSize(),
-                                motion = rootMotion,
-                            ) { tab ->
-                                CompositionLocalProvider(LocalTabIdentity provides tab.name) {
-                                    tabStates.SaveableStateProvider(tab.name) {
-                                        when (tab) {
-                                            Tab.Home ->
-                                                com.yfuse.feature.personal.PersonalDiscoveryGuard(
-                                                    onOpenLibrary = { root.selectTab(Tab.Browse) },
-                                                ) { HomeTabScreen(root.home) }
-                                            Tab.Browse -> LibraryScreen(root.browse)
-                                            Tab.Servers -> ServersTabScreen(root.servers)
-                                            Tab.Search -> SearchScreen(root.search)
-                                            Tab.Profile -> ProfileTabScreen(root.profile)
+                            CompositionLocalProvider(LocalToastBottomInset provides toastFloor) {
+                                OfficialNavDisplay(
+                                    backStack = topLevelBackStack(active),
+                                    onBack = { root.selectTab(Tab.Home) },
+                                    contentKey = { "tab:${it.name}" },
+                                    modifier = Modifier.fillMaxSize(),
+                                    motion = rootMotion,
+                                ) { tab ->
+                                    CompositionLocalProvider(LocalTabIdentity provides tab.name) {
+                                        tabStates.SaveableStateProvider(tab.name) {
+                                            when (tab) {
+                                                Tab.Home ->
+                                                    com.yfuse.feature.personal.PersonalDiscoveryGuard(
+                                                        onOpenLibrary = { root.selectTab(Tab.Browse) },
+                                                    ) { HomeTabScreen(root.home) }
+                                                Tab.Browse -> LibraryScreen(root.browse)
+                                                Tab.Servers -> ServersTabScreen(root.servers)
+                                                Tab.Search -> SearchScreen(root.search)
+                                                Tab.Profile -> ProfileTabScreen(root.profile)
+                                            }
                                         }
                                     }
                                 }
@@ -389,7 +386,7 @@ fun App(root: RootComponent) {
                         // still across the whole app was also the only thing that ever blinked.
                         // Whether the dock is *wanted* still follows [showBottomBar] alone, so
                         // nothing that reasons about the bar's presence is waiting on an animation.
-                        val dockShown = showBottomBar && overlays?.any != true
+                        val dockShown = showBottomBar && overlays?.coversShell != true
                         // The dock leaves when a route is pushed and comes back when one is popped,
                         // so those are its durations — they used to be the other way round, which
                         // made the bar linger after the page it belonged to had already gone.
@@ -412,12 +409,12 @@ fun App(root: RootComponent) {
                                 )
                         AnimatedVisibility(
                             visible = dockShown,
+                            // The one piece of furniture that stays still across the whole app
+                            // does not ride the cold-start library wave either.
                             modifier =
                                 Modifier
                                     .align(Alignment.BottomCenter)
-                                    .navigationBarsPadding()
-                                    // The dock is the last row the cold-start library wave reaches.
-                                    .launchWaveItem(LaunchWaveGate.current),
+                                    .navigationBarsPadding(),
                             enter = dockEnterTransition,
                             exit = dockExitTransition,
                             label = "bottomNavigationDock",
@@ -426,10 +423,13 @@ fun App(root: RootComponent) {
                                 dockOnScreen.value = true
                                 onDispose { dockOnScreen.value = false }
                             }
+                            // Still composed while it slides away, but no longer the bar: a tap on the
+                            // current tab in those 280ms popped the page that had just been pushed.
+                            val dockWanted by rememberUpdatedState(dockShown)
                             BottomNavigationDock(
                                 active = active,
-                                onSelect = onSelectTab,
-                                onSearch = { onSelectTab(Tab.Search) },
+                                onSelect = { if (dockWanted) onSelectTab(it) },
+                                onSearch = { if (dockWanted) onSelectTab(Tab.Search) },
                                 backdrop = backdrop,
                                 cueKey = pendingInvite?.roomCode,
                             )
@@ -466,10 +466,14 @@ fun App(root: RootComponent) {
                         // A room survives the process: the client keeps the capabilities the
                         // server granted, so a restart can offer to go back instead of making
                         // the guest hunt for the invite again. Declining forgets the room.
+                        // The shell's own dialogs are windows above everything, the launch splash
+                        // included; they wait for the app to be on screen before asking anything.
+                        val launchSettled = LocalRouteVisible.current
                         val resumableRoom by watchTogether.resumableRoom.collectAsState()
                         val rejoinOffer =
                             resumableRoom?.takeIf {
-                                watchAvailable &&
+                                launchSettled &&
+                                    watchAvailable &&
                                     watchState.roomCode == null &&
                                     !watchState.connecting &&
                                     !watchState.reconnecting
@@ -500,7 +504,7 @@ fun App(root: RootComponent) {
                             )
                         }
 
-                        pendingInvite?.let { invite ->
+                        pendingInvite?.takeIf { launchSettled }?.let { invite ->
                             if (invite.unsupportedEndpoint != null || watchAvailable) {
                                 WatchInviteSheet(
                                     roomCode = invite.roomCode,
@@ -720,7 +724,8 @@ internal fun GlassTabBar(
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
-    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    // 静息: the pill takes its new place without travelling or stretching.
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion || calmMotion()
     val liquid = liquidNavigationGlass()
     val navigationGlass = navigationGlassVisuals(palette, accent)
     // -1 while 搜索 is open: it is not one of the cells any more, so the pill has nowhere to
@@ -885,7 +890,8 @@ private fun LiquidGlassTabIcon(
     tint: Color,
     selected: Boolean = false,
 ) {
-    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    // No lift-and-settle on the selected glyph under 静息 either.
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion || calmMotion()
     val emphasis by animateFloatAsState(
         targetValue = if (selected) 1f else 0f,
         animationSpec = Motion.tabIcon(reduceMotion),

@@ -14,6 +14,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalUriHandler
@@ -28,6 +32,7 @@ import androidx.compose.ui.unit.sp
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.ConfirmDialog
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
@@ -48,6 +53,7 @@ import com.yfuse.feature.servers.ServerProtocolSegment
 import com.yfuse.feature.servers.ServerProviderSegment
 import com.yfuse.feature.servers.ServersIntent
 import com.yfuse.feature.servers.ServersState
+import com.yfuse.feature.servers.hasInputSince
 import com.yfuse.feature.servers.rememberServerConnectionIntent
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
@@ -79,8 +85,22 @@ fun AddServerDialog(
             onGranted = { sendIntent(ServersIntent.Scan) },
             onDenied = { sendIntent(ServersIntent.LocalNetworkPermissionDenied) },
         )
+    // What the form held when it opened: empty to add a server, its saved details to edit one.
+    val openedForm = remember(state.editingServerId) { form }
+    val holdsInput = form.hasInputSince(openedForm)
+    var confirmDiscard by remember { mutableStateOf(false) }
 
-    GlassDialog(onDismiss = onDismiss, scrollable = false) {
+    GlassDialog(
+        onDismiss = onDismiss,
+        scrollable = false,
+        // A flick that landed a little fast, or a tap beside the panel, used to throw away an
+        // address, an account and a password in one move. Once anything is entered, closing asks.
+        dragToDismiss = !holdsInput,
+        confirmDismiss = {
+            if (holdsInput) confirmDiscard = true
+            !holdsInput
+        },
+    ) {
         OverlayHeader(
             title = if (editing) "编辑服务器" else "添加服务器",
             subtitle =
@@ -494,6 +514,22 @@ fun AddServerDialog(
                     (!editing || form.serverName.isNotBlank()),
             loading = form.submitting,
         )
+
+        // Opened from inside the form, so it belongs to this dialog rather than to its owner.
+        if (confirmDiscard) {
+            ConfirmDialog(
+                title = "放弃更改？",
+                message = if (editing) "对这台服务器的修改还没有保存。" else "已填写的服务器信息还没有保存。",
+                confirmLabel = "放弃",
+                dismissLabel = "继续编辑",
+                destructive = true,
+                onConfirm = {
+                    confirmDiscard = false
+                    onDismiss()
+                },
+                onDismiss = { confirmDiscard = false },
+            )
+        }
     }
 }
 

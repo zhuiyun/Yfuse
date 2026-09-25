@@ -54,6 +54,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
+import com.yfuse.app.floatingNavigationContentInset
 import com.yfuse.core.designsystem.ActionToast
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
@@ -62,6 +63,7 @@ import com.yfuse.core.designsystem.ArrivalMotion
 import com.yfuse.core.designsystem.ArtworkPageTheme
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.CaptionedPoster
+import com.yfuse.core.designsystem.CarouselAutoAdvance
 import com.yfuse.core.designsystem.CloudPlayerLogo
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
@@ -83,9 +85,10 @@ import com.yfuse.core.designsystem.MediaSizing
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.OrbProgressDefaults
+import com.yfuse.core.designsystem.OverlayActionRow
 import com.yfuse.core.designsystem.OverlayHeader
-import com.yfuse.core.designsystem.OverlayOptionRow
 import com.yfuse.core.designsystem.OverlayOptionSpacing
+import com.yfuse.core.designsystem.OverlayPage
 import com.yfuse.core.designsystem.Poster
 import com.yfuse.core.designsystem.PrimaryGradient
 import com.yfuse.core.designsystem.RefreshIndicator
@@ -94,7 +97,6 @@ import com.yfuse.core.designsystem.ScrollToTopOnReselect
 import com.yfuse.core.designsystem.SkeletonArrivalScope
 import com.yfuse.core.designsystem.SkeletonRail
 import com.yfuse.core.designsystem.StatusBarIconStyle
-import com.yfuse.core.designsystem.TabBarInset
 import com.yfuse.core.designsystem.arrivalSweep
 import com.yfuse.core.designsystem.carouselArtworkMotion
 import com.yfuse.core.designsystem.carouselCaptionEntry
@@ -107,6 +109,7 @@ import com.yfuse.core.designsystem.heroMediaTypeLabel
 import com.yfuse.core.designsystem.heroScrollCollapse
 import com.yfuse.core.designsystem.heroTopScrim
 import com.yfuse.core.designsystem.lightFeedback
+import com.yfuse.core.designsystem.liveStatus
 import com.yfuse.core.designsystem.livingPosterFrame
 import com.yfuse.core.designsystem.livingPosterHeroHeight
 import com.yfuse.core.designsystem.loopingCarouselItemIndex
@@ -115,9 +118,11 @@ import com.yfuse.core.designsystem.loopingCarouselTargetPage
 import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.motionItemsIndexed
+import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.playerArtworkOnClick
 import com.yfuse.core.designsystem.playerArtworkSource
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.refreshAction
 import com.yfuse.core.designsystem.rememberArtworkAccentTarget
 import com.yfuse.core.designsystem.rememberArtworkPageColor
 import com.yfuse.core.designsystem.rememberCarouselCaptionProgress
@@ -137,7 +142,6 @@ import com.yfuse.core.model.showsReleaseDate
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.network.TmdbImages
 import com.yfuse.core.util.currentHourOfDay
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
@@ -161,6 +165,9 @@ private val HomeStatusBarScrimHeight = 128.dp
 
 /** Successive placeholder shelves breathe a little after one another, top to bottom. */
 private const val SKELETON_SHELF_PHASE_MS = 300
+
+/** Posters a TMDB shelf shows before its 全部 takes over. */
+private const val HOME_SHELF_POSTERS = 12
 
 /**
  * The caption clears the whole dissolve band.
@@ -286,6 +293,9 @@ internal fun HomeContentBody(
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val heroHeight = livingPosterHeroHeight(maxHeight, wideLayout = maxWidth >= 600.dp)
+        // Clears the floating dock as it is actually laid out: the fixed 122dp left the last shelf
+        // under the glass with three-button navigation or large text.
+        val bottomContentInset = floatingNavigationContentInset()
         val showSidePreview = maxWidth >= 600.dp || maxWidth > maxHeight
         // The artwork alpha dissolves directly into this one opaque, poster-derived colour.
         // No seam overlay or local colour band exists between the hero and the page.
@@ -331,14 +341,18 @@ internal fun HomeContentBody(
         // different one — changing under the user as their resume list filled up — on the
         // home tab. Both read the shared token now.
         // One page-wide clock for the shelves replaced by a refresh, so every shelf's posters
-        // rise under a single sweep of light rather than each shelf flashing on its own.
-        val refreshArrival = rememberRefreshReveal(state.refreshing)
+        // rise under a single sweep of light rather than each shelf flashing on its own. Only a
+        // refresh that changed what the shelves hold plays it: one that failed or brought back
+        // the same picks is not dressed up as new arrivals, and its notice below says why.
+        val shelfRevision = remember(state.content.rows) { homeShelfRevision(state.content.rows) }
+        val refreshArrival = rememberRefreshReveal(state.refreshing, revision = shelfRevision)
+        val refreshPage = {
+            onIntent(HomeIntent.Refresh)
+            onRefreshCalendar()
+        }
         PullToRefreshBox(
             isRefreshing = state.refreshing,
-            onRefresh = {
-                onIntent(HomeIntent.Refresh)
-                onRefreshCalendar()
-            },
+            onRefresh = refreshPage,
             state = pullState,
             indicator = { RefreshIndicator(pullState, state.refreshing, Modifier.align(Alignment.TopCenter)) },
             modifier = Modifier.fillMaxSize(),
@@ -348,13 +362,13 @@ internal fun HomeContentBody(
                     modifier =
                         Modifier
                             .fillMaxSize()
-                            // Page-level light: the skeleton sweep while shelves load, the arrival
-                            // sweep when a refresh lands. Both draw only while their clock runs.
-                            .skeletonSweep()
+                            // Page-level light for a refresh landing; it draws only while its clock
+                            // runs. The skeleton's band crosses the loading shelves alone: across the
+                            // whole list it also swept whatever had already arrived.
                             .arrivalSweep(refreshArrival)
                             .testTag("home-feed"),
                     state = listState,
-                    contentPadding = PaddingValues(bottom = TabBarInset),
+                    contentPadding = PaddingValues(bottom = bottomContentInset),
                     verticalArrangement = Arrangement.spacedBy(Dimens.sectionGap),
                 ) {
                     // Navigation in the hero header must remain available even when the remote
@@ -367,6 +381,9 @@ internal fun HomeContentBody(
                                 height = heroHeight,
                                 showSidePreview = showSidePreview,
                                 visible = heroCarouselVisible,
+                                held = quickActions != null || expandedRow != null,
+                                refreshing = state.refreshing,
+                                onRefresh = refreshPage,
                                 onOpenProfile = onOpenProfile,
                                 onOpenCalendar = onOpenCalendar,
                                 onPlay = { onIntent(HomeIntent.Play(it)) },
@@ -384,21 +401,36 @@ internal fun HomeContentBody(
                                 .SmartPlaylistShelf()
                         }
                     }
+                    // Offline, the calendar fails for the same reason the recommendations did.
+                    // One card says so, and its 重试 retries both; a second card below it only
+                    // repeated the first.
+                    val recommendationsFailed = state.error != null && state.content.isEmpty
                     if (state.loading && state.content.isEmpty) {
                         // Two shelves' worth of placeholders rather than one spinner: the page
                         // this becomes is a stack of rails, and a skeleton that is the wrong
                         // shape moves the content once it arrives.
-                        motionItems(2, key = { "recommendations-loading-$it" }) { shelf ->
-                            SkeletonRail(
-                                modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),
-                                phaseMs = shelf * SKELETON_SHELF_PHASE_MS,
-                            )
+                        motionItem(key = "recommendations-loading") {
+                            // One band across both, rather than one per shelf flashing together.
+                            Column(
+                                Modifier.skeletonSweep(),
+                                verticalArrangement = Arrangement.spacedBy(Dimens.sectionGap),
+                            ) {
+                                repeat(2) { shelf ->
+                                    SkeletonRail(
+                                        modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),
+                                        phaseMs = shelf * SKELETON_SHELF_PHASE_MS,
+                                    )
+                                }
+                            }
                         }
-                    } else if (state.error != null && state.content.isEmpty) {
+                    } else if (recommendationsFailed) {
                         motionItem(key = "recommendations-error") {
                             ErrorState(
                                 message = state.error!!,
-                                onRetry = { onIntent(HomeIntent.Retry) },
+                                onRetry = {
+                                    onIntent(HomeIntent.Retry)
+                                    if (calendarState.error != null) onRefreshCalendar()
+                                },
                                 modifier = Modifier.fillMaxWidth(),
                             )
                         }
@@ -420,7 +452,9 @@ internal fun HomeContentBody(
                                     text = notice,
                                     style = AppTypography.body.medium,
                                     color = palette.sub,
-                                    modifier = Modifier.weight(1f),
+                                    // How a pull that failed, or only partly landed, is told: the
+                                    // shelves no longer rise for it, so it has to be heard too.
+                                    modifier = Modifier.weight(1f).liveStatus(),
                                 )
                                 Text(
                                     text = "重新刷新",
@@ -486,13 +520,13 @@ internal fun HomeContentBody(
                         calendarState.loading -> {
                             motionItem(key = "airing-calendar-loading") {
                                 SkeletonRail(
-                                    modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),
+                                    modifier = Modifier.skeletonSweep().padding(horizontal = Dimens.pageHorizontal),
                                     count = 3,
                                 )
                             }
                         }
 
-                        calendarState.error != null -> {
+                        calendarState.error != null && !recommendationsFailed -> {
                             motionItem(key = "airing-calendar-error") {
                                 ErrorState(
                                     message = calendarState.error!!,
@@ -544,7 +578,6 @@ internal fun HomeContentBody(
         ActionToast(
             message = state.actionMessage,
             onDismiss = { onIntent(HomeIntent.DismissMessage) },
-            modifier = Modifier.padding(bottom = TabBarInset),
         )
 
         if (state.resolving) {
@@ -555,7 +588,9 @@ internal fun HomeContentBody(
             HomeQuickActionsSheet(sheet = sheet, onDismiss = { quickActions = null })
         }
 
-        expandedRow?.let { row ->
+        // Pushed and popped like a route rather than cut in and out; the reel above holds still
+        // while it is up (see HomeHeroCarousel's `held`).
+        OverlayPage(value = expandedRow, onBack = { expandedRow = null }) { row ->
             TmdbRowPage(
                 title = row.title,
                 items = row.items,
@@ -583,6 +618,10 @@ private fun HomeHeroCarousel(
     height: androidx.compose.ui.unit.Dp,
     showSidePreview: Boolean,
     visible: Boolean,
+    /** Something is open over the reel — a menu, 查看全部 — so it must not turn under it. */
+    held: Boolean,
+    refreshing: Boolean,
+    onRefresh: () -> Unit,
     onOpenProfile: () -> Unit,
     onOpenCalendar: () -> Unit,
     onPlay: (TmdbItem) -> Unit,
@@ -619,7 +658,6 @@ private fun HomeHeroCarousel(
         }
     }
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
-    val routeVisible = LocalRouteVisible.current
     // Touching the reel restarts its clock rather than stopping it for good. The pause
     // control this replaces could only be undone by finding it again, so a single swipe
     // left the hero permanently still with a play glyph as the only clue why.
@@ -627,30 +665,12 @@ private fun HomeHeroCarousel(
     val ambientItem = items.getOrNull(loopingCarouselItemIndex(pagerState.settledPage, items.size))
     val ambientUrls = remember(ambientItem) { tmdbHeroArtworkUrls(ambientItem) }
 
-    LaunchedEffect(
-        items.size,
-        carouselDragging,
-        reduceMotion,
-        routeVisible,
-        visible,
-        interaction,
-        carouselTouched.value,
-    ) {
-        // 390dp of artwork moving on its own is the largest single piece of motion in the
-        // app, and it was the one thing 减弱动态效果 did not switch off — the setting was
-        // honoured in fifteen places and not in the most conspicuous one.
-        if (!routeVisible || !visible || items.size <= 1 || carouselDragging || carouselTouched.value || reduceMotion) {
-            return@LaunchedEffect
-        }
-        while (true) {
-            delay(6_000)
-            if (pagerState.isScrollInProgress) continue
-            pagerState.animateScrollToPage(
-                page = pagerState.currentPage + 1,
-                animationSpec = tween(Motion.CAROUSEL, easing = Motion.Curve),
-            )
-        }
-    }
+    CarouselAutoAdvance(
+        pagerState = pagerState,
+        pageCount = items.size,
+        held = held || !visible || carouselDragging || carouselTouched.value,
+        restartKey = interaction,
+    )
 
     BoxWithConstraints(
         Modifier
@@ -761,6 +781,8 @@ private fun HomeHeroCarousel(
 
         HeroHeader(
             userName = userName,
+            refreshing = refreshing,
+            onRefresh = onRefresh,
             onOpenProfile = onOpenProfile,
             onOpenCalendar = onOpenCalendar,
             modifier = Modifier.align(Alignment.TopStart),
@@ -923,6 +945,8 @@ private fun HeroSlide(
 @Composable
 private fun HeroHeader(
     userName: String?,
+    refreshing: Boolean,
+    onRefresh: () -> Unit,
     onOpenProfile: () -> Unit,
     onOpenCalendar: () -> Unit,
     modifier: Modifier = Modifier,
@@ -953,6 +977,9 @@ private fun HeroHeader(
                     color = Color.White,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    // The page's title: where TalkBack lands first, and so where 下拉刷新 lives
+                    // for someone who cannot pull.
+                    modifier = Modifier.refreshAction(enabled = !refreshing, onRefresh = onRefresh),
                 )
             }
         }
@@ -1187,13 +1214,14 @@ private fun HomeQuickActionsSheet(
         OverlayHeader(title = sheet.title, onClose = onDismiss)
         Column(verticalArrangement = Arrangement.spacedBy(OverlayOptionSpacing)) {
             sheet.actions.forEach { action ->
-                OverlayOptionRow(
+                OverlayActionRow(
                     label = action.label,
-                    selected = false,
-                    onClick = {
-                        onDismiss()
-                        action.onSelect()
-                    },
+                    // The sheet leaves the way it came before the action takes over the page.
+                    onClick =
+                        overlayAction {
+                            onDismiss()
+                            action.onSelect()
+                        },
                 )
             }
         }
@@ -1545,6 +1573,15 @@ private fun HomeCalendarShelf(
     }
 }
 
+/**
+ * Which posters each TMDB shelf shows, in order: all a pull-to-refresh can visibly change there.
+ * Equal before and after a refresh that failed or brought back the same picks.
+ */
+internal fun homeShelfRevision(rows: List<TmdbRow>): List<List<String>> =
+    rows.map { row ->
+        listOf(row.title) + row.items.take(HOME_SHELF_POSTERS).map { "${it.mediaType}:${it.id}" }
+    }
+
 /** 为你推荐 — horizontal 2:3 rail; the next card remains visible as a scroll cue. */
 @Composable
 private fun Recommended(
@@ -1563,7 +1600,10 @@ private fun Recommended(
             contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            motionItemsIndexed(items.take(12), key = { _, it -> "${it.mediaType}:${it.id}" }) { index, item ->
+            motionItemsIndexed(
+                items.take(HOME_SHELF_POSTERS),
+                key = { _, it -> "${it.mediaType}:${it.id}" },
+            ) { index, item ->
                 CaptionedPoster(
                     url = TmdbImages.poster(item.posterPath),
                     fallbackUrls =

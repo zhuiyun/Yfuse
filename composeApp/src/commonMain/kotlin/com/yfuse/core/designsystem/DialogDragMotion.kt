@@ -38,6 +38,41 @@ internal fun shouldDismissDialogDrag(
     velocity >= -threshold * 4f &&
         (distance >= threshold || (distance >= threshold * 0.18f && velocity > threshold * 9f))
 
+/**
+ * Where the panel is drawn for [travel] of finger movement: one to one up to the commit point,
+ * then more and more reluctant, approaching [threshold] × 3 without reaching it. It used to follow
+ * the finger exactly and stop dead at 3× — a wall in the middle of a gesture.
+ */
+internal fun dialogDragResistance(
+    travel: Float,
+    threshold: Float,
+): Float {
+    if (travel <= threshold || threshold <= 0f) return travel.coerceAtLeast(0f)
+    val reach = threshold * RUBBER_REACH
+    val beyond = travel - threshold
+    return threshold + reach * (1f - 1f / (beyond * RUBBER_STIFFNESS / reach + 1f))
+}
+
+/** The finger travel that draws the panel at [offset]: the inverse of [dialogDragResistance]. */
+internal fun dialogDragTravel(
+    offset: Float,
+    threshold: Float,
+): Float {
+    if (offset <= threshold || threshold <= 0f) return offset.coerceAtLeast(0f)
+    val reach = threshold * RUBBER_REACH
+    val beyond = (offset - threshold).coerceAtMost(reach * RUBBER_REACH_LIMIT)
+    return threshold + reach / RUBBER_STIFFNESS * (1f / (1f - beyond / reach) - 1f)
+}
+
+/** How far past the commit point the panel can ever be drawn, in thresholds. */
+private const val RUBBER_REACH = 2f
+
+/** How readily the band gives: lower is stiffer. */
+private const val RUBBER_STIFFNESS = 0.55f
+
+/** Keeps the inverse finite at the asymptote. */
+private const val RUBBER_REACH_LIMIT = 0.999f
+
 @Stable
 internal class DialogDragState(
     private val scope: CoroutineScope,
@@ -55,11 +90,19 @@ internal class DialogDragState(
      * threshold does not rattle.
      */
     private val onThresholdCrossed: () -> Unit = {},
+    /**
+     * Asked instead of [dismiss] when the owner may decline — a form with unsaved input asking
+     * 「放弃更改？」 first. A declined release settles the panel home like a short pull.
+     */
+    private val tryDismiss: (() -> Boolean)? = null,
 ) : NestedScrollConnection {
     var offset by mutableFloatStateOf(0f)
         private set
     var dismissedByDrag = false
         private set
+
+    // The finger's own travel; [offset] is where that puts the panel.
+    private var travel = 0f
     private var crossedThreshold = false
     private var settle: Job? = null
 
@@ -71,6 +114,7 @@ internal class DialogDragState(
     fun reset() {
         stopSettling()
         offset = 0f
+        travel = 0f
         dismissedByDrag = false
         crossedThreshold = false
     }
@@ -78,13 +122,16 @@ internal class DialogDragState(
     fun move(delta: Float): Float {
         if (!enabled() || dismissedByDrag) return 0f
         stopSettling()
-        val before = offset
-        offset = (offset + delta).coerceIn(0f, threshold * 3f)
+        val before = travel
+        travel = (travel + delta).coerceAtLeast(0f)
+        offset = dialogDragResistance(travel, threshold)
         if (!crossedThreshold && offset >= threshold) {
             crossedThreshold = true
             onThresholdCrossed()
         }
-        return offset - before
+        // The whole of the finger's movement is the panel's, stretched or not: none of it may leak
+        // into the content's own scroll.
+        return travel - before
     }
 
     fun release(velocity: Float) {
@@ -92,9 +139,8 @@ internal class DialogDragState(
         stopSettling()
         crossedThreshold = false
         if (offset <= 0f) return
-        if (enabled() && shouldDismissDialogDrag(offset, velocity, threshold)) {
+        if (enabled() && shouldDismissDialogDrag(offset, velocity, threshold) && accepted()) {
             dismissedByDrag = true
-            dismiss()
         } else {
             settle =
                 scope.launch {
@@ -108,10 +154,17 @@ internal class DialogDragState(
                         Motion.settle<Float>(reduceMotion()),
                     ) { value, _ ->
                         offset = value.coerceAtLeast(0f)
+                        travel = dialogDragTravel(offset, threshold)
                     }
                     offset = 0f
+                    travel = 0f
                 }
         }
+    }
+
+    private fun accepted(): Boolean {
+        val ask = tryDismiss ?: return true.also { dismiss() }
+        return ask()
     }
 
     override fun onPreScroll(
@@ -142,10 +195,12 @@ internal class DialogDragState(
 internal fun rememberDialogDragState(
     enabled: () -> Boolean,
     dismiss: () -> Unit,
+    tryDismiss: (() -> Boolean)? = null,
 ): DialogDragState {
     val scope = rememberCoroutineScope()
     val currentEnabled by rememberUpdatedState(enabled)
     val currentDismiss by rememberUpdatedState(dismiss)
+    val currentTryDismiss by rememberUpdatedState(tryDismiss)
     val reduceMotion by rememberUpdatedState(LocalAccessibilityOptions.current.reduceMotion)
     val haptics by rememberUpdatedState(LocalHaptics.current)
     val threshold = with(LocalDensity.current) { 96.dp.toPx() }
@@ -157,6 +212,7 @@ internal fun rememberDialogDragState(
             threshold = threshold,
             reduceMotion = { reduceMotion },
             onThresholdCrossed = { haptics.play(HapticSignal.Threshold) },
+            tryDismiss = { currentTryDismiss?.invoke() ?: true.also { currentDismiss() } },
         )
     }
 }

@@ -17,6 +17,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
+import com.yfuse.core.designsystem.HapticSignal
+import com.yfuse.core.designsystem.LocalHaptics
 import com.yfuse.core.designsystem.Motion
 import kotlin.math.roundToInt
 
@@ -52,8 +54,17 @@ internal fun rememberLiquidTabMotion(
     var release by remember { mutableStateOf(0) }
     val currentSelection by rememberUpdatedState(selected)
     val select by rememberUpdatedState(onSelect)
+    val haptics = LocalHaptics.current
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
-    val target = dragIndex ?: selected.coerceAtLeast(0).toFloat()
+    // While 搜索 is open the pill is hidden (selected < 0). It used to glide to 首页 as it faded,
+    // then cross the whole bar from there to wherever the person went next. It stays put while
+    // hidden, and comes back already at the new tab: the bar fades it in, nothing slides.
+    val lastShown = remember { intArrayOf(selected.coerceAtLeast(0)) }
+    if (selected >= 0) lastShown[0] = selected
+    val wasHidden = remember { booleanArrayOf(selected < 0) }
+    val reappearing = selected >= 0 && wasHidden[0]
+    SideEffect { wasHidden[0] = selected < 0 }
+    val target = dragIndex ?: lastShown[0].toFloat()
     var previousTarget by remember { mutableStateOf(target) }
     var previousDirection by remember { mutableStateOf(true) }
     val rightward = if (target == previousTarget) previousDirection else target > previousTarget
@@ -66,13 +77,13 @@ internal fun rememberLiquidTabMotion(
     val left =
         animateFloatAsState(
             target + 0.09f,
-            Motion.liquidTabEdge(reduceMotion, dragging = dragIndex != null, leading = !rightward),
+            Motion.liquidTabEdge(reduceMotion || reappearing, dragging = dragIndex != null, leading = !rightward),
             label = "liquidTabLeft",
         )
     val right =
         animateFloatAsState(
             target + 0.91f,
-            Motion.liquidTabEdge(reduceMotion, dragging = dragIndex != null, leading = rightward),
+            Motion.liquidTabEdge(reduceMotion || reappearing, dragging = dragIndex != null, leading = rightward),
             label = "liquidTabRight",
         )
     val sweep = remember { Animatable(1f) }
@@ -105,7 +116,11 @@ internal fun rememberLiquidTabMotion(
                         if (destination != null) {
                             release++
                             // Returning to the same cell does not invoke the tab's scroll-to-top action.
-                            if (destination != currentSelection) select(destination)
+                            if (destination != currentSelection) {
+                                // The same tick a tap on the tab gives; a drag used to switch silently.
+                                haptics.play(HapticSignal.Select)
+                                select(destination)
+                            }
                         }
                     },
                     onDragCancel = { dragIndex = null },

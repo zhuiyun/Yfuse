@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
@@ -61,6 +62,7 @@ import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.DolbyBadge
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.HeroInk
+import com.yfuse.core.designsystem.InlineLoadingContent
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.MediaSharedElementKey
@@ -308,6 +310,8 @@ internal fun DetailTopBar(
     showPlay: Boolean,
     showMore: Boolean,
     solid: Boolean,
+    /** 播放 is resolving what it will open; the shortcut waits the way the dock's key does. */
+    resolving: Boolean,
     onBack: () -> Unit,
     onPlay: () -> Unit,
     onMore: () -> Unit,
@@ -370,7 +374,7 @@ internal fun DetailTopBar(
                     Modifier
                         .graphicsLayer { alpha = progress.value }
                         .pressable(
-                            enabled = solid,
+                            enabled = solid && !resolving,
                             pressedScale = PressFeedback.PRIMARY,
                             lightFeedback = false,
                             onClick = onPlay,
@@ -386,7 +390,9 @@ internal fun DetailTopBar(
                     horizontalArrangement = Arrangement.spacedBy(5.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(AppIcons.Play, null, tint = playInk, modifier = Modifier.size(10.dp))
+                    InlineLoadingContent(loading = resolving, slotSize = 10.dp, color = playInk) {
+                        Icon(AppIcons.Play, null, tint = playInk, modifier = Modifier.size(10.dp))
+                    }
                     Text("播放", style = AppTypography.body.strong, color = playInk)
                 }
             }
@@ -458,7 +464,8 @@ private fun DetailTopBarIcon(
 internal fun TitleBlock(
     detail: MediaDetail,
     title: String,
-    accent: Color,
+    /** Read while drawing: the artwork's colour blends in without recomposing the block. */
+    accent: () -> Color,
     version: MediaVersion?,
     modifier: Modifier = Modifier,
 ) {
@@ -590,14 +597,18 @@ private val ArtworkInkFaint = Color.White.copy(alpha = 0.84f)
 @Composable
 private fun RatingFigure(
     rating: Double,
-    accent: Color,
+    accent: () -> Color,
 ) {
     Row(
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text("TMDB", style = AppTypography.body.strong, color = ArtworkInkSub)
-        Text(rating.toString(), style = AppTypography.section.strong, color = lerp(accent, Color.White, 0.38f))
+        BasicText(
+            rating.toString(),
+            style = AppTypography.section.strong,
+            color = { lerp(accent(), Color.White, 0.38f) },
+        )
     }
 }
 

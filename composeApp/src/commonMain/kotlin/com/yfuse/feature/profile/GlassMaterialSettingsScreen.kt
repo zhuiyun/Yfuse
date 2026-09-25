@@ -3,7 +3,6 @@ package com.yfuse.feature.profile
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -29,14 +28,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onKeyEvent
-import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.semantics.contentDescription
@@ -396,7 +389,6 @@ private fun MaterialSlider(
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current.accent
-    var focused by remember { mutableStateOf(false) }
     Column {
         Row(
             Modifier.fillMaxWidth(),
@@ -415,26 +407,13 @@ private fun MaterialSlider(
             }
             Text(valueText, style = AppTypography.caption.strong, color = accent)
         }
+        // The slider owns focus, its ring and the arrow keys now; only the stride is this page's.
         GlassSlider(
             value = value,
             onValueChange = onChange,
             steps = steps,
-            modifier =
-                Modifier
-                    .border(1.dp, if (focused) accent else Color.Transparent, AppShapes.control)
-                    .onFocusChanged { focused = it.isFocused }
-                    .onKeyEvent {
-                        if (it.key != Key.DirectionLeft && it.key != Key.DirectionRight) {
-                            false
-                        } else {
-                            if (it.type == KeyEventType.KeyDown) {
-                                val step = keyStep
-                                onChange((value + if (it.key == Key.DirectionRight) step else -step).coerceIn(0f, 1f))
-                            }
-                            true
-                        }
-                    }.focusable()
-                    .semantics { contentDescription = title },
+            keyStride = keyStep,
+            modifier = Modifier.semantics { contentDescription = title },
         )
         Text(hint, style = AppTypography.caption.regular, color = palette.sub2)
     }

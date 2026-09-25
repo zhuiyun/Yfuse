@@ -38,6 +38,8 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
 import com.arkivanov.mvikotlin.core.store.Store
 import com.arkivanov.mvikotlin.extensions.coroutines.states
+import com.yfuse.app.effectiveGlassStyle
+import com.yfuse.app.rememberAppAccessibilityOptions
 import com.yfuse.core.account.AccountAccessTokenSource
 import com.yfuse.core.cast.CastCapability
 import com.yfuse.core.cast.CastManager
@@ -52,16 +54,16 @@ import com.yfuse.core.data.UserAgentPreferences
 import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.data.dto.toMediaVersion
 import com.yfuse.core.data.preferredVersion
-import com.yfuse.core.designsystem.AccessibilityOptions
 import com.yfuse.core.designsystem.DialogAnimation
 import com.yfuse.core.designsystem.GlassMaterials
+import com.yfuse.core.designsystem.GlassStyle
 import com.yfuse.core.designsystem.LoadingAnimation
+import com.yfuse.core.designsystem.MotionTheme
 import com.yfuse.core.designsystem.ParticleLight
 import com.yfuse.core.designsystem.ParticleStyle
 import com.yfuse.core.designsystem.PlatformPredictiveBackHandler
 import com.yfuse.core.designsystem.PlayerHandoff
 import com.yfuse.core.designsystem.YfuseTheme
-import com.yfuse.core.designsystem.platformAnimationsDisabled
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlayerEngine
@@ -493,20 +495,23 @@ class PlayerActivity : ComponentActivity() {
             val dialogAnimation = preferences?.dialogAnimation?.collectAsState()?.value ?: DialogAnimation.Lift
             val loadingAnimation = preferences?.loadingAnimation?.collectAsState()?.value ?: LoadingAnimation.Orbit
             val glassMaterials = preferences?.glassMaterials?.collectAsState()?.value ?: GlassMaterials()
-            val reduceMotion = preferences?.reduceMotion?.collectAsState()?.value ?: false
-            val systemMotionOff = platformAnimationsDisabled()
+            val accessibility = rememberAppAccessibilityOptions(preferences)
+            val glassStyle = preferences?.glassStyle?.collectAsState()?.value ?: GlassStyle.Liquid
             val particleLight = preferences?.particleLight?.collectAsState()?.value ?: ParticleLight.Gentle
             val particleStyle = preferences?.particleStyle?.collectAsState()?.value ?: ParticleStyle.Stardust
+            val motionTheme = preferences?.motionTheme?.collectAsState()?.value ?: MotionTheme.Classic
             YfuseTheme(
                 dark = true,
                 dialogAnimation = dialogAnimation,
                 loadingAnimation = loadingAnimation,
                 glassMaterials = glassMaterials,
-                accessibility = AccessibilityOptions(reduceMotion = reduceMotion || systemMotionOff),
+                accessibility = accessibility,
+                glassStyle = effectiveGlassStyle(glassStyle, accessibility.reduceTransparency),
                 particleLight = particleLight,
                 particleStyle = particleStyle,
                 particleLimit = 32,
                 particleActive = false,
+                motionTheme = motionTheme,
             ) {
                 val leavePreparation = {
                     val drawn =
@@ -783,20 +788,23 @@ class PlayerActivity : ComponentActivity() {
             val dialogAnimation = preferences?.dialogAnimation?.collectAsState()?.value ?: DialogAnimation.Lift
             val loadingAnimation = preferences?.loadingAnimation?.collectAsState()?.value ?: LoadingAnimation.Orbit
             val glassMaterials = preferences?.glassMaterials?.collectAsState()?.value ?: GlassMaterials()
-            val reduceMotion = preferences?.reduceMotion?.collectAsState()?.value ?: false
-            val systemMotionOff = platformAnimationsDisabled()
+            val accessibility = rememberAppAccessibilityOptions(preferences)
+            val glassStyle = preferences?.glassStyle?.collectAsState()?.value ?: GlassStyle.Liquid
             val particleLight = preferences?.particleLight?.collectAsState()?.value ?: ParticleLight.Gentle
             val particleStyle = preferences?.particleStyle?.collectAsState()?.value ?: ParticleStyle.Stardust
+            val motionTheme = preferences?.motionTheme?.collectAsState()?.value ?: MotionTheme.Classic
             YfuseTheme(
                 dark = true,
                 dialogAnimation = dialogAnimation,
                 loadingAnimation = loadingAnimation,
                 glassMaterials = glassMaterials,
-                accessibility = AccessibilityOptions(reduceMotion = reduceMotion || systemMotionOff),
+                accessibility = accessibility,
+                glassStyle = effectiveGlassStyle(glassStyle, accessibility.reduceTransparency),
                 particleLight = particleLight,
                 particleStyle = particleStyle,
                 particleLimit = 32,
                 particleActive = !inPictureInPicture,
+                motionTheme = motionTheme,
             ) {
                 PlayerRoot(
                     transition = transition,

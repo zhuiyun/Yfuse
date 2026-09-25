@@ -1,12 +1,14 @@
 package com.yfuse.core.designsystem
 
+import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.core.AnimationSpec
+import androidx.compose.animation.core.Easing
 import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.SpringSpec
+import androidx.compose.animation.core.TweenSpec
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -252,6 +254,10 @@ data class Palette(
     val dialogBody: Color,
     /** [sub2] recalibrated for [dialogTint]. */
     val dialogSub2: Color,
+    /** [sub] recalibrated for [dialogTint]. */
+    val dialogSub: Color,
+    /** [hint] recalibrated for [dialogTint]: placeholder and empty-state copy inside a dialog. */
+    val dialogHint: Color,
     /** The neutral plate controls inside a dialog fall back to under 减弱透明度. */
     val mutedControl: Color,
     /** 毛玻璃's cool haze, mixed into every frosted fill. */
@@ -339,6 +345,10 @@ val LightPalette =
         // 5.3:1 / 5.0:1 on the composited light pane; see DesignSystemContractTest.
         dialogBody = Color(0xFF58606E),
         dialogSub2 = Color(0xFF5B6371),
+        // `sub` and `hint` were left at their page values and measured about 4.7:1 and 4.2:1 on
+        // this pane; 5.1:1 and 4.8:1 now.
+        dialogSub = Color(0xFF5A6270),
+        dialogHint = Color(0xFF5E6674),
         mutedControl = Color(0xFFBEC3CB),
         mist = Color(0xFFDCE7F4),
         depth = Color(0xFFC8D6E6),
@@ -388,6 +398,9 @@ val DarkPalette =
         dialogTint = Color(0xFF191E27).copy(alpha = 0.72f),
         dialogBody = Color(0xFFB7BFCB),
         dialogSub2 = Color(0xFF9199A8),
+        dialogSub = Color(0xFF9AA4B4),
+        // The page's hint is 4.3:1 on the lighter pane.
+        dialogHint = Color(0xFF7E8694),
         mutedControl = Color(0xFF353B45),
         mist = Color(0xFF213149),
         depth = Color(0xFF09111F),
@@ -601,8 +614,35 @@ object Motion {
         androidx.compose.animation.core
             .CubicBezierEasing(0.32f, 0.72f, 0f, 1f)
 
+    /**
+     * A duration on the house curve — how a timed animation is written outside this file.
+     *
+     * A bare `tween(ms)` falls back to Compose's FastOutSlowIn, which is how 32 transitions came
+     * to disagree with the rest of the app about how things arrive: the toast faded on one curve
+     * and slid on another, list items entered on a third.
+     */
+    fun <T> tween(
+        durationMillis: Int,
+        delayMillis: Int = 0,
+        easing: Easing = Curve,
+    ): TweenSpec<T> = TweenSpec(durationMillis, delayMillis, easing)
+
+    /**
+     * The size half of an `AnimatedContent` swap.
+     *
+     * `togetherWith` quietly adds a default spring [SizeTransform] that answers only to the
+     * system's animator scale, so under our own 减弱动态效果 the fade was already instant while the
+     * container still sprang to its new size. Pass this through `using`.
+     */
+    fun sizeTransform(reduceMotion: Boolean): SizeTransform? =
+        if (reduceMotion) {
+            null
+        } else {
+            SizeTransform(clip = true) { _, _ -> settle() }
+        }
+
     // Semantic duration defaults. PUSH, TAB, MODAL, ACCENT, and CAROUSEL reuse this vocabulary.
-    // Other transitions retain individually tuned durations; REFRESH_SPIN is a rotation period.
+    // Other transitions retain individually tuned durations.
     const val QUICK = 120
     const val STANDARD = 180
     const val EMPHASIZED = 280
@@ -611,12 +651,29 @@ object Motion {
     const val STATE_HANDOFF = 150
     const val DISCLOSURE = 160
 
+    /**
+     * A wait shorter than this never shows its indicator. A request answered from cache would
+     * otherwise flash a skeleton or an orb for a frame or two, which reads as a glitch.
+     */
+    const val BUSY_SHOW_AFTER = STANDARD
+
+    /** Once a wait indicator has appeared it stays at least this long, so it reads as an answer. */
+    const val BUSY_MIN_VISIBLE = 400
+
+    /**
+     * Under 减弱动态效果 a change of scene still fades — no movement, no scale — for this long.
+     * A cut from a light page to a black player is the one "instant" change harsher than motion.
+     */
+    const val REDUCED_FADE = 150
+
+    /** How long the hero reel rests on a page before it moves on by itself. */
+    const val CAROUSEL_DWELL = 6_000
+
     // Decorative periods and individually tuned arrivals retain their existing timing.
     const val DETAIL_LOADING_BLOOM = 6_000
     const val DOWNLOAD_FLOW = 1_400
     const val DOWNLOAD_COMPLETE = 380
     const val THEME_CROSSFADE = 380
-    const val ORB_COMET = 1_200
     const val ARTWORK_REVEAL = 400
     const val POSTER_FADE = 180
     const val NEXT_UP_INTERPOLATION = 500
@@ -626,7 +683,6 @@ object Motion {
     const val ARRIVAL_REVEAL = 480
     const val ATTENTION_SWEEP = 520
     const val BURST = 420
-    const val BURST_RELEASE = 200
     const val SKELETON_PULSE = 1_600
     const val SKELETON_SWEEP = 2_800
     const val SKELETON_PHASE_STEP = 110
@@ -700,6 +756,13 @@ object Motion {
 
     /** Right-edge drawers remain interruptible while opening, settling, or cancelling back. */
     fun <T> drawer(): SpringSpec<T> = spring(dampingRatio = 0.86f, stiffness = Spring.StiffnessMediumLow)
+
+    /** Something turning on — a favourite, a follow: one dip, one small rebound, rest. */
+    fun <T> burst(): SpringSpec<T> = spring(dampingRatio = 0.5f, stiffness = Spring.StiffnessMediumLow)
+
+    /** Something turning off: a brief swell that settles without passing rest. */
+    fun <T> burstRelease(): SpringSpec<T> =
+        spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium)
 
     /** [settle], or an instant cut under 减弱动态效果. */
     fun <T> settle(reduceMotion: Boolean): FiniteAnimationSpec<T> = if (reduceMotion) snap() else settle<T>()
@@ -790,12 +853,11 @@ object Motion {
     const val CAROUSEL_COLOR = 600
 
     /**
-     * One turn of an indeterminate spinner.
+     * One turn of an indeterminate spinner — the arc round the player's play key while it stalls.
      *
-     * Slow enough to read as "working" rather than "frantic" — the thing it reports on is a
-     * round of network probes, which takes about this long per server.
+     * Slow enough to read as "working" rather than "frantic".
      */
-    const val REFRESH_SPIN = 900
+    const val SPINNER_TURN = 900
 }
 
 // ---------------------------------------------------------------- typography

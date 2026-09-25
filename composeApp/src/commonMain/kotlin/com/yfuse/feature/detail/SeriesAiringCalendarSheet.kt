@@ -1,7 +1,6 @@
 package com.yfuse.feature.detail
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,6 +20,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -38,7 +38,8 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.toggleableState
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.data.CalendarReminderMode
@@ -49,18 +50,23 @@ import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.ArtworkPageTheme
 import com.yfuse.core.designsystem.BurstIcon
 import com.yfuse.core.designsystem.DecorativeTints
+import com.yfuse.core.designsystem.DialogAnimation
+import com.yfuse.core.designsystem.DisclosureContent
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OrbProgress
+import com.yfuse.core.designsystem.PillSwitch
 import com.yfuse.core.designsystem.artworkPageSurface
+import com.yfuse.core.designsystem.disclosureRotation
 import com.yfuse.core.designsystem.flatGlass
 import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.overlayDismiss
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.rememberDisclosureProgress
 import com.yfuse.core.designsystem.rememberDominantColor
 import com.yfuse.core.designsystem.resolveAccentColors
 import com.yfuse.core.designsystem.selectionColor
@@ -139,6 +145,8 @@ internal fun SeriesAiringCalendarDialog(
     LaunchedEffect(followed) {
         if (!followed) reminderExpanded = false
     }
+    // The chevron and the picker under it turn and open on one clock.
+    val reminderProgress = rememberDisclosureProgress(reminderExpanded && followed)
 
     ArtworkPageTheme(
         background = dialogBackground,
@@ -155,6 +163,8 @@ internal fun SeriesAiringCalendarDialog(
             shape = AppShapes.sheet,
             // The artwork header carries the handle; the panel itself takes the drag.
             dragHandle = false,
+            // Pinned to the bottom edge, so it rises from it whatever the chosen 弹窗动画.
+            animation = DialogAnimation.Slide,
         ) {
             val palette = LocalPalette.current
             val lavender = resolveAccentColors(DecorativeTints.lavender, palette.isDark)
@@ -188,10 +198,11 @@ internal fun SeriesAiringCalendarDialog(
                         reminderMode = reminderMode,
                         remindBeforeMinutes = remindBeforeMinutes,
                         reminderExpanded = reminderExpanded,
+                        reminderProgress = reminderProgress,
                         onToggleFollow = onToggleFollow,
                         onToggleReminder = { reminderExpanded = !reminderExpanded },
                     )
-                    if (reminderExpanded && followed) {
+                    DisclosureContent(reminderExpanded && followed, reminderProgress) {
                         SeriesReminderPicker(
                             selected = reminderMode,
                             beforeMinutes = remindBeforeMinutes,
@@ -344,6 +355,7 @@ private fun SeriesCalendarSummaryControls(
     reminderMode: CalendarReminderMode,
     remindBeforeMinutes: Int,
     reminderExpanded: Boolean,
+    reminderProgress: State<Float>,
     onToggleFollow: () -> Unit,
     onToggleReminder: () -> Unit,
 ) {
@@ -363,8 +375,8 @@ private fun SeriesCalendarSummaryControls(
                 .heightIn(min = 66.dp)
                 // 加入追剧 and 更新提醒 both change state in place and navigate nowhere: the
                 // sheet stays exactly as it was, so the tap has to be felt as well as seen.
-                .pressable(haptic = HapticSignal.Confirm, role = Role.Switch, onClick = onToggleFollow)
-                .semantics { stateDescription = if (followed) "已加入追剧" else "未加入追剧" }
+                .pressable(haptic = HapticSignal.Select, role = Role.Switch, onClick = onToggleFollow)
+                .semantics { toggleableState = ToggleableState(followed) }
                 .flatGlass(
                     AppShapes.card,
                     lerp(palette.card2, follow.container, 0.72f),
@@ -398,7 +410,7 @@ private fun SeriesCalendarSummaryControls(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            SeriesTogglePill(checked = followed, activeColor = follow.accent)
+            PillSwitch(checked = followed, activeColor = follow.accent)
         }
 
         Row(
@@ -447,37 +459,9 @@ private fun SeriesCalendarSummaryControls(
                 AppIcons.ChevronDown,
                 contentDescription = if (reminderExpanded) "收起提醒方式" else "选择提醒方式",
                 tint = if (followed) reminder.accent else palette.hint,
-                modifier =
-                    Modifier
-                        .size(15.dp)
-                        .graphicsLayer { rotationZ = if (reminderExpanded) 180f else 0f },
+                modifier = Modifier.size(15.dp).disclosureRotation(reminderProgress, degrees = 180f),
             )
         }
-    }
-}
-
-@Composable
-private fun SeriesTogglePill(
-    checked: Boolean,
-    activeColor: Color,
-) {
-    val palette = LocalPalette.current
-    Box(
-        Modifier
-            .width(42.dp)
-            .height(24.dp)
-            .clip(CircleShape)
-            .background(if (checked) activeColor else palette.card3)
-            .border(1.dp, if (checked) activeColor else palette.border, CircleShape)
-            .padding(3.dp),
-    ) {
-        Box(
-            Modifier
-                .align(if (checked) Alignment.CenterEnd else Alignment.CenterStart)
-                .size(18.dp)
-                .clip(CircleShape)
-                .background(if (checked) Color.White else palette.sub2),
-        )
     }
 }
 

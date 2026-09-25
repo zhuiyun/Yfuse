@@ -20,11 +20,14 @@ import com.yfuse.core.data.SmartPlaylist
 import com.yfuse.core.data.SmartPlaylistStore
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.DialogPresence
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.OverlayActionRow
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.OverlayOptionRow
 import com.yfuse.core.designsystem.liquidGlass
+import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.touchTarget
 import org.koin.core.context.GlobalContext
@@ -106,19 +109,23 @@ fun SmartPlaylistShelf(
                 error?.let { Text(it, style = AppTypography.caption.regular, color = palette.error) }
             }
         }
-        editing?.let { rule ->
+        // Pinning and deleting close the sheet only once the store has taken the change; held in a
+        // presence, it still leaves the way it came instead of vanishing in a frame.
+        DialogPresence(editing) { rule ->
             GlassDialog(onDismiss = { editing = null }) {
                 OverlayHeader(rule.name, "按保存的条件获取最新结果")
-                OverlayOptionRow("打开放映片单", false, {
-                    editing = null
-                    apply(rule)
-                })
+                OverlayActionRow(
+                    "打开放映片单",
+                    overlayAction {
+                        editing = null
+                        apply(rule)
+                    },
+                )
                 OverlayOptionRow(if (rule.pinned) "从首页取消固定" else "固定到首页", rule.pinned, {
                     if (store.save(rule.copy(pinned = !rule.pinned))) editing = null
                 })
-                OverlayOptionRow(
+                OverlayActionRow(
                     "删除片单规则",
-                    false,
                     { if (store.remove(rule.name)) editing = null },
                     destructive = true,
                     description = "仅删除规则，不删除服务器媒体",

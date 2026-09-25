@@ -35,33 +35,49 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.Stable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.RoundRect
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import com.yfuse.core.designsystem.ThemeIcon as Icon
@@ -78,33 +94,117 @@ private val CheckBadgeSize = 20.dp
 private val CheckGlyphSize = 12.dp
 private val SelectionRingWidth = 2.dp
 
+/** The close key's visible circle, centred in its 48dp target: the focus ring outlines what is seen. */
+private object CloseKeyFocusShape : Shape {
+    override fun createOutline(
+        size: Size,
+        layoutDirection: LayoutDirection,
+        density: Density,
+    ): Outline {
+        val diameter = minOf(with(density) { CloseKeySize.toPx() }, size.width, size.height)
+        val left = (size.width - diameter) / 2f
+        val top = (size.height - diameter) / 2f
+        return Outline.Rounded(
+            RoundRect(left, top, left + diameter, top + diameter, CornerRadius(diameter / 2f)),
+        )
+    }
+}
+
 @Stable
 class OverlayVisibility {
+    /** Every open overlay. The dialog backdrop records the page while [any] is true. */
     var count by mutableStateOf(0)
+        private set
+
+    /**
+     * Overlays drawn inside the page's own window — a full-screen [BackOverlay], the profile's
+     * page stack. They compose below the shell's floating furniture, so the dock steps aside for
+     * them. A [GlassDialog] is a window of its own above everything and does not count: hiding
+     * the dock for one made every dialog on a root page a two-part motion, the bar sinking as the
+     * panel rose and climbing back 260ms after it had gone.
+     */
+    var inWindow by mutableStateOf(0)
         private set
 
     val any: Boolean get() = count > 0
 
-    internal fun enter() {
+    /** Whether something in the page's window is covering the shell's floating furniture. */
+    val coversShell: Boolean get() = inWindow > 0
+
+    internal fun enter(inWindow: Boolean = true) {
         count++
+        if (inWindow) this.inWindow++
     }
 
-    internal fun exit() {
+    internal fun exit(inWindow: Boolean = true) {
         count = (count - 1).coerceAtLeast(0)
+        if (inWindow) this.inWindow = (this.inWindow - 1).coerceAtLeast(0)
     }
 }
 
 val LocalOverlayVisibility = staticCompositionLocalOf<OverlayVisibility?> { null }
 
+/**
+ * @param inWindow false for an overlay in a window of its own, which covers the dock without the
+ *   dock's help. See [OverlayVisibility.inWindow].
+ */
 @Composable
-fun ReportOverlayVisible(enabled: Boolean = true) {
+fun ReportOverlayVisible(
+    enabled: Boolean = true,
+    inWindow: Boolean = true,
+) {
     val visibility = LocalOverlayVisibility.current
     if (!enabled || visibility == null) return
-    DisposableEffect(visibility) {
-        visibility.enter()
-        onDispose { visibility.exit() }
+    DisposableEffect(visibility, inWindow) {
+        visibility.enter(inWindow)
+        onDispose { visibility.exit(inWindow) }
     }
 }
+
+/** What a [DialogPresence] tells the dialog inside it. */
+@Immutable
+internal class DialogPresenceSignal(
+    val visible: Boolean,
+    val onExited: () -> Unit,
+)
+
+internal val LocalDialogPresence = compositionLocalOf<DialogPresenceSignal?> { null }
+
+/**
+ * Keeps a dialog composed through its exit when its owner closes it from outside.
+ *
+ * A dialog behind a plain `if` leaves the way it came only when the person closes it — the
+ * scrim, back, 关闭. When the owner closes it — a store that finished saving, a selection
+ * applied, a request that came back — the `if` turned false and panel and scrim vanished in one
+ * frame. Put the [GlassDialog] inside this instead: while [value] is null it stays composed with
+ * the last value, plays its exit, and then goes. A value that returns during the exit brings the
+ * dialog back instead.
+ *
+ * [content] must build the dialog from the value it is handed, not from the owner's state — that
+ * is already empty while the exit plays.
+ */
+@Composable
+fun <T : Any> DialogPresence(
+    value: T?,
+    content: @Composable (T) -> Unit,
+) {
+    var retained by remember { mutableStateOf(value) }
+    SideEffect { if (value != null) retained = value }
+    val shown = value ?: retained ?: return
+    val visible = value != null
+    // Content that is not a GlassDialog never reports its exit; do not keep it forever.
+    if (!visible) {
+        LaunchedEffect(Unit) {
+            delay(PRESENCE_RELEASE_AFTER_MS)
+            retained = null
+        }
+    }
+    val signal = remember(visible) { DialogPresenceSignal(visible) { retained = null } }
+    CompositionLocalProvider(LocalDialogPresence provides signal) { content(shown) }
+}
+
+/** Longer than the slowest exit of any dialog style; only a non-dialog [DialogPresence] waits this. */
+private const val PRESENCE_RELEASE_AFTER_MS = 1_500L
 
 /** The shared modal material used outside player chrome. */
 @Composable
@@ -125,13 +225,48 @@ fun GlassDialog(
     // of bare glass - a second sheet peeking out above the first. The gesture is unaffected: a
     // panel that is not scrollable is itself the drag surface.
     dragHandle: Boolean = true,
+    /**
+     * Whether pulling the panel down may close it. Off for a form holding unsaved input: a
+     * flick that lands a little too fast would otherwise throw away an address, a user name and
+     * a password in one move.
+     */
+    dragToDismiss: Boolean = true,
+    /**
+     * Asked before the scrim, back or a drag starts the exit. Return false to keep the dialog
+     * where it is — to ask 「放弃更改？」 first, say — instead of animating out and back in.
+     */
+    confirmDismiss: (() -> Boolean)? = null,
+    /**
+     * A fixed entrance for a panel whose shape already says how it arrives — a sheet pinned to
+     * the bottom edge rises from it. Null follows the person's 弹窗动画 choice.
+     */
+    animation: DialogAnimation? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val parentMotionHost = LocalDialogMotionHost.current
     var leaving by remember { mutableStateOf(false) }
     var afterExit by remember { mutableStateOf<(() -> Unit)?>(null) }
+    var exitsCompleted by remember { mutableIntStateOf(0) }
+    // Set when the exit under way is the owner's (see [DialogPresence]) rather than the person's.
+    var closedByOwner by remember { mutableStateOf(false) }
+    val presence = LocalDialogPresence.current
+    val currentPresence by rememberUpdatedState(presence)
+    val ownerClosed = presence?.visible == false
     val canDismiss by rememberUpdatedState(dismissEnabled)
-    val requestDismiss = remember { { if (canDismiss) leaving = true } }
+    val canDrag by rememberUpdatedState(dragToDismiss)
+    val confirm by rememberUpdatedState(confirmDismiss)
+    val tryDismiss: () -> Boolean =
+        remember {
+            {
+                if (!canDismiss || leaving || confirm?.invoke() == false) {
+                    false
+                } else {
+                    leaving = true
+                    true
+                }
+            }
+        }
+    val requestDismiss: () -> Unit = remember { { tryDismiss() } }
     val complete =
         remember {
             { action: () -> Unit ->
@@ -142,11 +277,28 @@ fun GlassDialog(
             }
         }
 
+    LaunchedEffect(ownerClosed) {
+        if (ownerClosed) {
+            if (!leaving) {
+                closedByOwner = true
+                afterExit = null
+                leaving = true
+            }
+        } else if (closedByOwner) {
+            // The owner changed its mind mid-exit: come back from wherever the exit had got to.
+            closedByOwner = false
+            leaving = false
+        }
+    }
+
     Dialog(
         onDismissRequest = requestDismiss,
         properties = properties,
     ) {
-        ReportOverlayVisible()
+        // Its own window, above the dock: it does not need the dock to step aside.
+        ReportOverlayVisible(inWindow = false)
+        // The panel is on its way out; a tap meant for the page should reach the page.
+        DialogTouchPassThrough(enabled = leaving)
         val palette = LocalPalette.current
         val material = LocalGlassMaterials.current.forTheme(palette.isDark).normalized(palette.isDark)
         val scrimColor = palette.scrim.copy(alpha = material.scrim)
@@ -157,19 +309,36 @@ fun GlassDialog(
         val dialogPalette =
             remember(palette, material, opaqueGlass) {
                 val surfacePalette = material.contentPalette(palette, opaqueGlass)
-                surfacePalette.copy(body = surfacePalette.dialogBody, sub2 = surfacePalette.dialogSub2)
+                surfacePalette.copy(
+                    body = surfacePalette.dialogBody,
+                    sub = surfacePalette.dialogSub,
+                    sub2 = surfacePalette.dialogSub2,
+                    hint = surfacePalette.dialogHint,
+                )
             }
         val selectedAnimation = LocalDialogAnimation.current
-        val animation = remember { selectedAnimation }
+        val chosenAnimation = remember { animation ?: selectedAnimation }
         val modalMotionHost =
             remember {
                 DialogMotionHost().apply {
-                    touch = parentMotionHost.touch
+                    touch = parentMotionHost.recentTouch
                     poster = parentMotionHost.poster
                 }
             }
         val progress =
-            rememberOverlayTransition(leaving = leaving, animation = animation) { (afterExit ?: onDismiss)() }
+            rememberOverlayTransition(leaving = leaving, animation = chosenAnimation) {
+                val owner = currentPresence
+                if (owner != null && !owner.visible) {
+                    // The owner has already let go; the exit was all that was left to do — apart
+                    // from an action the person chose before the owner closed it.
+                    afterExit?.invoke()
+                    owner.onExited()
+                } else {
+                    (afterExit ?: onDismiss)()
+                    exitsCompleted++
+                }
+            }
+        val paneTitle = remember { mutableStateOf<String?>(null) }
         // Durations answer to the system flag too — [rememberOverlayTransition] reads
         // `reduceMotion` — but a way of closing the dialog answers only to the person. 减弱动态效果
         // turns the gesture off because the panel would have to jump home with no settle;
@@ -186,11 +355,32 @@ fun GlassDialog(
                 enabled = {
                     !dragOff &&
                         canDismiss &&
+                        canDrag &&
                         !leaving &&
                         progress() >= 1f
                 },
                 dismiss = requestDismiss,
+                tryDismiss = tryDismiss,
             )
+        // The owner is expected to take the dialog out of composition in [onDismiss]. One that
+        // declines — it is still loading or saving, or its request failed — used to leave the
+        // panel parked at progress 0: invisible, with its window still taking every touch and
+        // back press, so the page underneath was dead until the app was killed. Still composed
+        // after the exit means declined, so come back rather than strand the person.
+        LaunchedEffect(exitsCompleted, ownerClosed) {
+            if (exitsCompleted == 0) return@LaunchedEffect
+            // Under a [DialogPresence] the owner accepts by emptying its value, and the dialog
+            // stays composed only so it could finish leaving: let it go now.
+            if (ownerClosed) {
+                currentPresence?.onExited()
+                return@LaunchedEffect
+            }
+            delay(DISMISS_DECLINED_AFTER_MS)
+            afterExit = null
+            closedByOwner = false
+            drag.reset()
+            leaving = false
+        }
         val panelDrag = rememberDraggableState { drag.move(it) }
         LaunchedEffect(dragOff, leaving) {
             if (dragOff) {
@@ -199,15 +389,16 @@ fun GlassDialog(
                 drag.stopSettling()
             }
         }
-        val contentMotion = remember(animation, progress) { DialogContentMotion(animation, progress) }
+        val contentMotion = remember(chosenAnimation, progress) { DialogContentMotion(chosenAnimation, progress) }
         val lightMoving by remember(progress) { derivedStateOf { progress() > 0f && progress() < 1f } }
         // The edge light rides a plate that moves as one piece; 磁吸归位 and 内容接力 move
         // their parts separately and would tear it.
         val simpleLightStyle =
-            animation == DialogAnimation.Lift ||
-                animation == DialogAnimation.Slide ||
-                animation == DialogAnimation.Touch
+            chosenAnimation == DialogAnimation.Lift ||
+                chosenAnimation == DialogAnimation.Slide ||
+                chosenAnimation == DialogAnimation.Touch
         val phaseLights = rememberPhaseLightCount(lightMoving && simpleLightStyle)
+        val shownTitle = paneTitle.value
         CompositionLocalProvider(
             LocalPalette provides dialogPalette,
             LocalOverlayDismiss provides requestDismiss,
@@ -216,6 +407,10 @@ fun GlassDialog(
             LocalOverlayComplete provides complete,
             LocalDialogContentMotion provides contentMotion,
             LocalDialogMotionHost provides modalMotionHost,
+            LocalDialogPaneTitle provides paneTitle,
+            LocalOverlayEntrance provides progress,
+            // A dialog opened from inside this one belongs to it, not to this one's owner.
+            LocalDialogPresence provides null,
         ) {
             Box(
                 Modifier
@@ -244,16 +439,18 @@ fun GlassDialog(
                         .padding(windowPadding)
                         .widthIn(max = maxWidth)
                         .fillMaxWidth()
+                        // TalkBack announces the pane by the title its [OverlayHeader] publishes.
+                        .semantics { shownTitle?.let { this.paneTitle = it } }
                         // At rest the drag contributes nothing — zero offset, no stretch — so every
                         // style keeps its authored enter and exit geometry untouched, and only a
                         // finger on the panel translates it.
                         .dialogMotion(
-                            animation,
+                            chosenAnimation,
                             drag = drag.takeIf { !dragOff },
                             progress = progress,
                         ).shadow(Shadows.sheet, shape)
                         .mutedGlassPanel(shape)
-                        .dialogInteriorMotion(animation, progress)
+                        .dialogInteriorMotion(chosenAnimation, progress)
                         .phaseLightEdge(progress, phaseLights)
                         .pointerInput(Unit) { detectTapGestures { } }
                         .then(modifier)
@@ -263,20 +460,20 @@ fun GlassDialog(
                         // scrollable child inside it still wins the gesture and feeds the same
                         // state through [nestedScroll] below.
                         .then(
-                            if (scrollable || dragOff) {
+                            if (scrollable || dragOff || !dragToDismiss) {
                                 Modifier
                             } else {
                                 Modifier.draggable(
                                     state = panelDrag,
                                     orientation = Orientation.Vertical,
-                                    enabled = canDismiss && !leaving,
+                                    enabled = canDismiss && canDrag && !leaving,
                                     onDragStopped = { drag.release(it) },
                                 )
                             },
                         ).padding(contentPadding)
                         // Before [verticalScroll], so a panel that has nothing left to scroll hands
                         // the remaining downward drag to the dialog instead of swallowing it.
-                        .then(if (dragOff) Modifier else Modifier.nestedScroll(drag))
+                        .then(if (dragOff || !dragToDismiss) Modifier else Modifier.nestedScroll(drag))
                         .then(
                             if (scrollable) {
                                 Modifier.verticalScroll(panelScrollState)
@@ -285,8 +482,8 @@ fun GlassDialog(
                             },
                         ),
                 ) {
-                    if (dragHandle && animation == DialogAnimation.MagneticDrag) {
-                        DialogDragHandle(drag, !dragOff && canDismiss && !leaving)
+                    if (dragHandle && chosenAnimation == DialogAnimation.MagneticDrag) {
+                        DialogDragHandle(drag, !dragOff && canDismiss && canDrag && !leaving)
                     }
                     content()
                 }
@@ -296,6 +493,28 @@ fun GlassDialog(
 }
 
 internal val LocalOverlayDismiss = staticCompositionLocalOf<(() -> Unit)?> { null }
+
+/**
+ * How far the dialog or drawer this is composed in has come in, 0..1; null outside one. Content
+ * that changes the layout as it arrives — a field that raises the keyboard above all — waits for
+ * [awaitOverlayEntered], so the keyboard does not resize the panel while it is still moving in.
+ */
+val LocalOverlayEntrance = staticCompositionLocalOf<(() -> Float)?> { null }
+
+/** Returns once [entrance] (see [LocalOverlayEntrance]) has finished; at once outside an overlay. */
+suspend fun awaitOverlayEntered(entrance: (() -> Float)?) {
+    if (entrance != null) snapshotFlow { entrance() >= 1f }.first { it }
+}
+
+/** Where an [OverlayHeader] publishes its title, so the dialog can announce itself as a pane. */
+internal val LocalDialogPaneTitle = staticCompositionLocalOf<MutableState<String?>?> { null }
+
+/**
+ * How long a dialog waits, after its exit, for its owner to remove it before concluding the
+ * dismissal was declined and coming back. Owners remove it within a frame or two.
+ */
+private const val DISMISS_DECLINED_AFTER_MS = 250L
+
 private val LocalOverlayLiquidButtons = staticCompositionLocalOf { true }
 internal val LocalOverlayComplete = staticCompositionLocalOf<((() -> Unit) -> Unit)?> { null }
 
@@ -304,10 +523,36 @@ fun overlayDismiss(fallback: () -> Unit): () -> Unit = LocalOverlayDismiss.curre
 
 /** For actions which remove the modal: finish its exit before changing the owning state. */
 @Composable
-fun overlayAction(action: () -> Unit): () -> Unit {
+fun overlayAction(action: () -> Unit): () -> Unit = rememberOverlayAction(action, beforeExit = false)
+
+/**
+ * Runs the action at once and lets the dialog's exit play alongside — for an action whose
+ * result takes over the screen anyway (选源 → 播放 opens the player), where waiting out a
+ * 240–300ms exit first is only latency. Hold the dialog in a [DialogPresence], or the owner
+ * removing it cuts the exit short.
+ */
+@Composable
+fun overlayActionBeforeExit(action: () -> Unit): () -> Unit = rememberOverlayAction(action, beforeExit = true)
+
+@Composable
+private fun rememberOverlayAction(
+    action: () -> Unit,
+    beforeExit: Boolean,
+): () -> Unit {
     val complete = LocalOverlayComplete.current
     val currentAction by rememberUpdatedState(action)
-    return remember(complete) { { if (complete == null) currentAction() else complete { currentAction() } } }
+    return remember(complete, beforeExit) {
+        {
+            when {
+                complete == null -> currentAction()
+                beforeExit -> {
+                    currentAction()
+                    complete {}
+                }
+                else -> complete { currentAction() }
+            }
+        }
+    }
 }
 
 @Composable
@@ -317,6 +562,8 @@ internal fun rememberOverlayTransition(
     onLeft: () -> Unit,
 ): () -> Float {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    // 静息 keeps the dialog's fade and short rise, at 60% of the length.
+    val scale = if (calmMotion()) CALM_DURATION_SCALE else 1f
     val progress = remember { Animatable(if (reduceMotion) 1f else 0f) }
     val finish by rememberUpdatedState(onLeft)
     // LaunchedEffect cancels an interrupted entrance. Exit also completes when dismissed
@@ -330,12 +577,12 @@ internal fun rememberOverlayTransition(
                 target,
                 if (leaving) {
                     tween(
-                        overlayRemainingDurationMillis(animation.exitMillis, progress.value, target),
+                        overlayRemainingDurationMillis(scaled(animation.exitMillis, scale), progress.value, target),
                         easing = Motion.Dialog.ExitCurve,
                     )
                 } else {
                     tween(
-                        overlayRemainingDurationMillis(animation.enterMillis, progress.value, target),
+                        overlayRemainingDurationMillis(scaled(animation.enterMillis, scale), progress.value, target),
                         easing = Motion.Dialog.EnterCurve,
                     )
                 },
@@ -345,6 +592,11 @@ internal fun rememberOverlayTransition(
     }
     return remember(progress) { { progress.value } }
 }
+
+private fun scaled(
+    millis: Int,
+    scale: Float,
+): Int = (millis * scale).roundToInt()
 
 internal fun overlayRemainingDurationMillis(
     duration: Int,
@@ -370,12 +622,20 @@ fun OverlayHeader(
     onClose: (() -> Unit)? = null,
 ) {
     val palette = LocalPalette.current
+    val paneTitle = LocalDialogPaneTitle.current
+    if (paneTitle != null) SideEffect { paneTitle.value = title }
     Row(
         Modifier.fillMaxWidth().dialogHeaderMotion().padding(bottom = Dimens.cardGap),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
-            Text(title, style = AppTypography.section.strong, color = palette.text, maxLines = 1)
+            Text(
+                title,
+                style = AppTypography.section.strong,
+                color = palette.text,
+                maxLines = 1,
+                modifier = Modifier.semantics { heading() },
+            )
             if (subtitle != null) {
                 Spacer(Modifier.height(Dimens.space.xs))
                 Text(
@@ -395,7 +655,7 @@ fun OverlayHeader(
                 tint = palette.sub2,
                 modifier =
                     Modifier
-                        .pressable(onClick = close)
+                        .pressable(focusShape = CloseKeyFocusShape, onClick = close)
                         .touchTarget()
                         .size(CloseKeySize)
                         .then(
@@ -447,7 +707,9 @@ fun OverlayButton(
             .graphicsLayer { alpha = glassButtonAlpha(enabled) }
             .pressable(
                 enabled = enabled && !loading,
-                haptic = if (tone == OverlayButtonTone.Plain) null else HapticSignal.Confirm,
+                // A tap, not Confirm: the press is not the outcome, and 登录 or 删除 that then
+                // fails had already buzzed 「成功」.
+                haptic = if (tone == OverlayButtonTone.Plain) null else HapticSignal.Tap,
                 focusShape = AppShapes.control,
                 onClickLabel = label,
                 onClick = onClick,
@@ -554,9 +816,16 @@ fun OverlayOptionRow(
     description: String? = null,
     destructive: Boolean = false,
     leadingContent: (@Composable () -> Unit)? = null,
+    /**
+     * [Role.RadioButton] for a choice among options. A row that *does* something — 关闭, 保存,
+     * 刷新 — is a [Role.Button]; see [OverlayActionRow]. Announcing those as radio buttons made
+     * TalkBack read 「关闭，单选按钮，未选中」.
+     */
+    role: Role = Role.RadioButton,
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
+    val choice = role != Role.Button
     val fill = if (destructive) palette.errorContainer.copy(alpha = 0.52f) else palette.card2
     val materialBorder = if (selected || destructive) null else palette.border
     val ink =
@@ -570,11 +839,11 @@ fun OverlayOptionRow(
             .dialogElementMotion(DialogElementRole.Option)
             .fillMaxWidth()
             .pressable(
-                haptic = if (destructive) HapticSignal.Confirm else HapticSignal.Select,
-                role = Role.RadioButton,
+                haptic = if (destructive) HapticSignal.Tap else HapticSignal.Select,
+                role = role,
                 focusShape = AppShapes.chip,
                 onClick = onClick,
-            ).semantics { this.selected = selected }
+            ).then(if (choice) Modifier.semantics { this.selected = selected } else Modifier)
             .heightIn(min = MinTouchTarget)
             .then(
                 if (LocalOverlayLiquidButtons.current) {
@@ -644,4 +913,29 @@ fun OverlayOptionRow(
             }
         }
     }
+}
+
+/**
+ * A row that does something rather than choosing something — 关闭, 保存, 刷新元数据. Same body
+ * as [OverlayOptionRow]; announced as a button and never as 「未选中」.
+ */
+@Composable
+fun OverlayActionRow(
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    description: String? = null,
+    destructive: Boolean = false,
+    leadingContent: (@Composable () -> Unit)? = null,
+) {
+    OverlayOptionRow(
+        label = label,
+        selected = false,
+        onClick = onClick,
+        modifier = modifier,
+        description = description,
+        destructive = destructive,
+        leadingContent = leadingContent,
+        role = Role.Button,
+    )
 }

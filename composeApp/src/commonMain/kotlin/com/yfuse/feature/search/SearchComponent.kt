@@ -8,7 +8,7 @@ import com.arkivanov.decompose.router.stack.StackNavigation
 import com.arkivanov.decompose.router.stack.childStack
 import com.arkivanov.decompose.router.stack.pop
 import com.arkivanov.decompose.router.stack.popTo
-import com.arkivanov.decompose.router.stack.push
+import com.arkivanov.decompose.router.stack.pushToFront
 import com.arkivanov.decompose.value.MutableValue
 import com.arkivanov.decompose.value.Value
 import com.arkivanov.essenty.lifecycle.doOnDestroy
@@ -34,6 +34,9 @@ class SearchComponent(
     private val dependencies: AppDependencies,
     private val onOpenServerSettings: () -> Unit,
 ) : ComponentContext by componentContext {
+    // Every route goes on with pushToFront, as in the library tab: Decompose rejects a stack
+    // holding two equal configurations, which A → related B → A or a second tap during the push
+    // would otherwise build.
     private val navigation = StackNavigation<Config>()
     private val playerNavigation = SingleFlightNavigationGuard<Config.Player>()
     private val _focusRequest = MutableValue(0)
@@ -142,7 +145,7 @@ class SearchComponent(
         val active = stack.value.active.configuration as? Config.Player
         if (!playerNavigation.tryBegin(config, active)) return
         try {
-            navigation.push(config)
+            navigation.pushToFront(config)
         } catch (failure: Throwable) {
             if (failure is CancellationException) throw failure
             playerNavigation.complete(config)
@@ -166,7 +169,7 @@ class SearchComponent(
                         dependencies = dependencies,
                         onOpenServerSettings = onOpenServerSettings,
                         onOpenItem = { serverId, itemId ->
-                            navigation.push(Config.Detail(serverId, itemId))
+                            navigation.pushToFront(Config.Detail(serverId, itemId))
                         },
                     ),
                 )
@@ -182,7 +185,7 @@ class SearchComponent(
                         dependencies = dependencies,
                         onBack = { navigation.pop() },
                         onOpenRelated = { serverId, itemId ->
-                            navigation.push(Config.Detail(serverId, itemId))
+                            navigation.pushToFront(Config.Detail(serverId, itemId))
                         },
                         onPlay = { serverId, itemId, ticks, mediaSourceId ->
                             openPlayer(Config.Player(serverId, itemId, ticks, mediaSourceId))

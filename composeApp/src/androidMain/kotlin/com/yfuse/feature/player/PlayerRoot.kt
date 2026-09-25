@@ -8,7 +8,6 @@ import android.widget.Toast
 import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExitTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
@@ -2711,13 +2710,13 @@ internal fun PlayerRoot(
                 {
                     val live = livePlayback.value
                     when {
-                        networkRecovery.pending -> "网络已恢复，正在续播"
-                        live.currentIndex != startIndex && live.positionMs < 3_000L -> "正在衔接下一集"
+                        networkRecovery.pending -> PlaybackStatusLine("网络已恢复，正在续播")
+                        live.currentIndex != startIndex && live.positionMs < 3_000L -> PlaybackStatusLine("正在衔接下一集")
                         else ->
                             networkShortfallMessage(
                                 live.diagnostics.networkBitsPerSecond,
                                 live.diagnostics.bitrateBitsPerSecond,
-                            ) ?: "正在准备画面"
+                            )?.let { PlaybackStatusLine("网速低于片源码率", it) } ?: PlaybackStatusLine("正在准备画面")
                     }
                 }
             }
@@ -2731,10 +2730,10 @@ internal fun PlayerRoot(
                             diagnostics.sourceBufferedMs,
                         ) / 1_000
                     when {
-                        networkRecovery.pending -> "网络已恢复，正在续播"
+                        networkRecovery.pending -> PlaybackStatusLine("网络已恢复，正在续播")
                         networkCannotCarrySource(diagnostics.networkBitsPerSecond, diagnostics.bitrateBitsPerSecond) ->
-                            "网络速度不足 · 已缓冲 $bufferedSeconds 秒"
-                        else -> "正在重新缓冲 · 已缓冲 $bufferedSeconds 秒"
+                            PlaybackStatusLine("网络速度不足", "网络速度不足 · 已缓冲 $bufferedSeconds 秒")
+                        else -> PlaybackStatusLine("正在重新缓冲", "正在重新缓冲 · 已缓冲 $bufferedSeconds 秒")
                     }
                 }
             }
@@ -2821,6 +2820,13 @@ internal fun PlayerRoot(
             val statusChipModifier =
                 Modifier.align(androidx.compose.ui.Alignment.TopCenter).padding(top = 68.dp)
             PlaybackTimelineContent(livePlayback) { state ->
+                val pictureReady = state.diagnostics.effectiveVideoReadiness == PlaybackOutputReadiness.Rendering
+                // Sound with no picture to wait for: ready the moment it is heard, for the
+                // continuity overlay and the entrance's stand-in alike.
+                val audioOnly =
+                    state.diagnostics.effectiveAudioReadiness == PlaybackOutputReadiness.Rendering &&
+                        state.videoHeight <= 0 &&
+                        currentItem?.activeVersion?.sourceVideoCodec.isNullOrBlank()
                 PlaybackContinuityOverlay(
                     artworkUrls = continuityArtwork,
                     title = currentItem?.title.orEmpty(),
@@ -2829,28 +2835,20 @@ internal fun PlayerRoot(
                             currentItem != null &&
                             state.error == null &&
                             !state.ended &&
-                            !(
-                                state.diagnostics.effectiveAudioReadiness == PlaybackOutputReadiness.Rendering &&
-                                    state.videoHeight <= 0 &&
-                                    currentItem.activeVersion?.sourceVideoCodec.isNullOrBlank()
-                            ) &&
-                            state.diagnostics.effectiveVideoReadiness != PlaybackOutputReadiness.Rendering,
+                            !audioOnly &&
+                            !pictureReady,
                     message = continuityMessage,
                     modifier = Modifier.fillMaxSize(),
                 )
                 PlayerTransitionLayer(
                     state = transition,
-                    ready =
-                        state.error != null ||
-                            state.diagnostics.effectiveVideoReadiness == PlaybackOutputReadiness.Rendering,
+                    ready = state.error != null || pictureReady || audioOnly,
                     inPictureInPicture = inPictureInPicture,
                     aspectRatio = transitionAspectRatio(scaleMode, state),
                     layer = PlayerTransitionLayerKind.Entrance,
                 )
                 PlaybackStatusChip(
-                    visible =
-                        state.diagnostics.effectiveVideoReadiness == PlaybackOutputReadiness.Rendering &&
-                            (state.buffering || networkRecovery.pending),
+                    visible = pictureReady && (state.buffering || networkRecovery.pending),
                     message = statusChipMessage,
                     modifier = statusChipModifier,
                 )
@@ -2860,8 +2858,8 @@ internal fun PlayerRoot(
                     // reads as the picture glitching rather than as the window changing shape.
                     AnimatedVisibility(
                         visible = !inPictureInPicture,
-                        enter = fadeIn(tween(pictureInPictureFadeMs)),
-                        exit = fadeOut(tween(pictureInPictureFadeMs)),
+                        enter = fadeIn(Motion.tween(pictureInPictureFadeMs)),
+                        exit = fadeOut(Motion.tween(pictureInPictureFadeMs)),
                     ) {
                         DanmakuOverlay(
                             comments = danmaku.visibleComments,
@@ -2890,7 +2888,7 @@ internal fun PlayerRoot(
 
             AnimatedVisibility(
                 visible = !inPictureInPicture,
-                enter = fadeIn(tween(pictureInPictureFadeMs)),
+                enter = fadeIn(Motion.tween(pictureInPictureFadeMs)),
                 exit = ExitTransition.None,
             ) {
                 PlayerControls(
@@ -3476,7 +3474,9 @@ internal fun PlayerRoot(
                         Toast.makeText(context, "画面：${scaleMode.label}", Toast.LENGTH_SHORT).show()
                     },
                     trickplay = currentTrickplay,
-                    volume = castState.volume?.takeIf { castState.hasActiveSession } ?: volumeLevel.value,
+                    // Readers, not values: read here, every step of a volume or brightness drag
+                    // recomposed the whole control surface.
+                    volume = { castState.volume?.takeIf { castState.hasActiveSession } ?: volumeLevel.value },
                     onVolume = { requestedVolume ->
                         if (castState.hasActiveSession) {
                             scope.launch { castManager.setVolume(requestedVolume) }
@@ -3485,7 +3485,7 @@ internal fun PlayerRoot(
                         }
                     },
                     volumeKeyPresses = volumeKeyPresses.collectAsState().value,
-                    brightness = brightnessLevel.value,
+                    brightness = { brightnessLevel.value },
                     onBrightness = { setBrightness(it) },
                     engineOptions =
                         PlaybackEngineSelection.selectable.map { selection ->

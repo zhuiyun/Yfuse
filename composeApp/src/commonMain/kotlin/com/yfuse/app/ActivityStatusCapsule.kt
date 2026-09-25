@@ -21,9 +21,11 @@ import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.OverlayActionRow
 import com.yfuse.core.designsystem.OverlayHeader
-import com.yfuse.core.designsystem.OverlayOptionRow
 import com.yfuse.core.designsystem.liquidGlass
+import com.yfuse.core.designsystem.liveStatus
+import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.offline.summarizeDownloads
@@ -112,25 +114,36 @@ internal fun ActivityStatusCapsule(
                     over = palette.background,
                 ).padding(horizontal = 18.dp, vertical = 10.dp),
         ) {
-            Text(lastLabel, style = AppTypography.caption.strong, color = palette.text, maxLines = 2)
+            // Stable wording — 「一起看 · 重连中」, 「下载任务 · 3 项」 — so it is read out when it
+            // changes; the ticking percentage lives in the dialog, not here.
+            Text(
+                lastLabel,
+                style = AppTypography.caption.strong,
+                color = palette.text,
+                maxLines = 2,
+                modifier = Modifier.liveStatus(),
+            )
         }
     }
-    // The dialog hides the dock through OverlayVisibility; it must not depend on dock visibility.
+    // A window of its own: it must not depend on dock visibility.
     if (expanded) {
         GlassDialog(onDismiss = { expanded = false }) {
             OverlayHeader("正在进行", onClose = { expanded = false })
             if (summary.visible) {
-                OverlayOptionRow(summary.title, false, {
-                    expanded = false
-                    root.openDownloads()
-                }, description = summary.detail)
-                if (summary.active > 0) OverlayOptionRow("暂停下载", false, offline::pauseAll)
-                if (summary.paused + summary.failed > 0) OverlayOptionRow("继续 / 重试下载", false, offline::resumeAll)
+                OverlayActionRow(
+                    summary.title,
+                    overlayAction {
+                        expanded = false
+                        root.openDownloads()
+                    },
+                    description = summary.detail,
+                )
+                if (summary.active > 0) OverlayActionRow("暂停下载", offline::pauseAll)
+                if (summary.paused + summary.failed > 0) OverlayActionRow("继续 / 重试下载", offline::resumeAll)
             }
             if (casting) {
-                OverlayOptionRow(
+                OverlayActionRow(
                     if (castState.status == CastPlaybackStatus.Playing) "暂停投屏" else "继续投屏",
-                    false,
                     {
                         if (!busy) {
                             busy = true
@@ -161,7 +174,7 @@ internal fun ActivityStatusCapsule(
                     },
                     description = castState.deviceName,
                 )
-                OverlayOptionRow("结束投屏", false, {
+                OverlayActionRow("结束投屏", {
                     if (!busy) {
                         busy = true
                         scope.launch {
@@ -183,22 +196,32 @@ internal fun ActivityStatusCapsule(
                 })
             }
             if (room) {
-                OverlayOptionRow(
+                // The room's own dialog enters once this one has left, not over it.
+                OverlayActionRow(
                     "一起看房间",
-                    false,
-                    {
+                    overlayAction {
                         expanded = false
                         onRoomInfo()
                     },
                     description =
                         watch.syncWarning ?: watch.error,
                 )
-                OverlayOptionRow("返回一起看", false, {
-                    expanded = false
-                    root.enterWatchRoom()
-                })
+                OverlayActionRow(
+                    "返回一起看",
+                    overlayAction {
+                        expanded = false
+                        root.enterWatchRoom()
+                    },
+                )
             }
-            operationError?.let { Text(it, style = AppTypography.caption.regular, color = palette.error) }
+            operationError?.let {
+                Text(
+                    it,
+                    style = AppTypography.caption.regular,
+                    color = palette.error,
+                    modifier = Modifier.liveStatus(assertive = true),
+                )
+            }
         }
     }
 }

@@ -48,11 +48,13 @@ import com.yfuse.core.designsystem.DarkPalette
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
+import com.yfuse.core.designsystem.LocalOverlayEntrance
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.OverlayButton
 import com.yfuse.core.designsystem.OverlayButtonTone
 import com.yfuse.core.designsystem.OverlayHeader
+import com.yfuse.core.designsystem.awaitOverlayEntered
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.ThemeIcon as Icon
@@ -577,8 +579,14 @@ private fun SearchField(
     action: ImageVector? = AppIcons.Search,
 ) {
     val focusRequester = remember { FocusRequester() }
+    val entrance = LocalOverlayEntrance.current
     if (autoFocus) {
-        LaunchedEffect(Unit) { runCatching { focusRequester.requestFocus() } }
+        LaunchedEffect(Unit) {
+            // Once the drawer or dialog has arrived: a keyboard raised on the first frame resizes
+            // the panel while its entrance is still playing, and the two animate against each other.
+            awaitOverlayEntered(entrance)
+            runCatching { focusRequester.requestFocus() }
+        }
     }
     Row(
         Modifier

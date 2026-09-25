@@ -15,7 +15,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 
-/** Reserve the larger icon slot; optional trailing text changes width with the handoff. */
+/**
+ * Reserve the larger icon slot; optional trailing text changes width with the handoff.
+ *
+ * The orb waits [Motion.BUSY_SHOW_AFTER] before replacing the icon and then stays at least
+ * [Motion.BUSY_MIN_VISIBLE] — the same clock as [waitingPulse] on the control around it, which
+ * used to hold back 180ms while the orb in the same button swapped in on frame 0.
+ */
 @Composable
 internal fun InlineLoadingContent(
     loading: Boolean,
@@ -25,8 +31,9 @@ internal fun InlineLoadingContent(
     content: @Composable () -> Unit,
 ) {
     val moving = LocalRouteVisible.current && !LocalAccessibilityOptions.current.reduceMotion
+    val busy = rememberDelayedBusy(loading)
     AnimatedContent(
-        targetState = loading,
+        targetState = busy,
         transitionSpec = {
             (
                 fadeIn(if (moving) tween(Motion.QUICK, easing = Motion.Curve) else snap()) togetherWith

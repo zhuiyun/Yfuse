@@ -74,28 +74,35 @@ class MainActivity : ComponentActivity() {
         // Registered before Decompose and Compose create their route callbacks, so those later
         // callbacks keep priority. This fallback only runs when every visible navigation stack
         // is already at the point where Android would otherwise finish the launcher activity.
-        onBackPressedDispatcher.addCallback(
-            this,
-            object : OnBackPressedCallback(true) {
-                override fun handleOnBackPressed() {
-                    isEnabled = false
-                    exitRearmJob?.cancel()
-                    exitRearmJob =
-                        lifecycleScope.launch {
-                            delay(EXIT_CONFIRMATION_WINDOW_MS)
-                            isEnabled = true
-                        }
-                    exitConfirmationToast?.cancel()
-                    exitConfirmationToast =
-                        Toast
-                            .makeText(
-                                this@MainActivity,
-                                "再按一次返回键退出 Yfuse",
-                                Toast.LENGTH_SHORT,
-                            ).also(Toast::show)
-                }
-            }.also { exitBackCallback = it },
-        )
+        //
+        // Only below Android 13. From 13 the system owns back at the root — it sends the task to
+        // the background instead of finishing it, and 14+ previews the return to the launcher as
+        // the gesture moves. An always-enabled callback here swallowed that preview and turned
+        // every back from a root page into two presses for nothing.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            onBackPressedDispatcher.addCallback(
+                this,
+                object : OnBackPressedCallback(true) {
+                    override fun handleOnBackPressed() {
+                        isEnabled = false
+                        exitRearmJob?.cancel()
+                        exitRearmJob =
+                            lifecycleScope.launch {
+                                delay(EXIT_CONFIRMATION_WINDOW_MS)
+                                isEnabled = true
+                            }
+                        exitConfirmationToast?.cancel()
+                        exitConfirmationToast =
+                            Toast
+                                .makeText(
+                                    this@MainActivity,
+                                    "再按一次返回键退出 Yfuse",
+                                    Toast.LENGTH_SHORT,
+                                ).also(Toast::show)
+                    }
+                }.also { exitBackCallback = it },
+            )
+        }
         preferHighRefreshRateForUi()
         enableEdgeToEdge()
         if (ServerSessionRecovery.showIfNeeded(this)) return

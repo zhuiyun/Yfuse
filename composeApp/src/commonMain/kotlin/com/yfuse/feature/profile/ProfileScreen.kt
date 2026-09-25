@@ -37,6 +37,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
@@ -68,6 +69,7 @@ import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.MinTouchTarget
+import com.yfuse.core.designsystem.MotionTheme
 import com.yfuse.core.designsystem.OfficialNavDisplay
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.OverlayOptionRow
@@ -91,6 +93,8 @@ import com.yfuse.core.designsystem.WindowWidthTier
 import com.yfuse.core.designsystem.YfFormField
 import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.motionItem
+import com.yfuse.core.designsystem.overlayAction
+import com.yfuse.core.designsystem.platformAnimationsDisabled
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.designsystem.windowWidthTier
@@ -110,6 +114,7 @@ import com.yfuse.core.designsystem.ThemeText as Text
 /** Which option sheet is open. Theme and glass style are answered in place on the root page. */
 private enum class Sheet {
     StartupTab,
+    MotionTheme,
     DialogAnimation,
     LoadingAnimation,
     PlayerTransition,
@@ -281,6 +286,7 @@ fun ProfileScreen(component: ProfileComponent) {
     val largeText by prefs.largeText.collectAsState()
     val reduceMotion by prefs.reduceMotion.collectAsState()
     val pulseSweep by prefs.pulseSweep.collectAsState()
+    val motionTheme by prefs.motionTheme.collectAsState()
     val libraryCarousel by prefs.libraryCarousel.collectAsState()
     val particleLight by prefs.particleLight.collectAsState()
     val decoder by prefs.decoder.collectAsState()
@@ -511,11 +517,13 @@ fun ProfileScreen(component: ProfileComponent) {
                                 "已设置 · ${(backgroundDim * 100).toInt()}% 遮罩"
                             },
                         startupSummary = startupTab.label,
+                        motionTheme = motionTheme,
                         dialogAnimationSummary = dialogAnimation.label,
                         loadingAnimationSummary = loadingAnimation.label,
                         playerTransitionSummary = playerTransition.label,
                         particleLightSummary = particleLight.label,
                         onParticleLight = { sheet = Sheet.ParticleLight },
+                        onMotionTheme = { sheet = Sheet.MotionTheme },
                         onDialogAnimation = { sheet = Sheet.DialogAnimation },
                         onLoadingAnimation = { sheet = Sheet.LoadingAnimation },
                         onPlayerTransition = { sheet = Sheet.PlayerTransition },
@@ -523,6 +531,7 @@ fun ProfileScreen(component: ProfileComponent) {
                         reduceTransparency = reduceTransparency,
                         largeText = largeText,
                         reduceMotion = reduceMotion,
+                        systemMotionOff = platformAnimationsDisabled(),
                         pulseSweep = pulseSweep,
                         onBackground = { sheet = Sheet.Background },
                         onBrand = { openPage(ProfilePage.Splash) },
@@ -829,6 +838,19 @@ fun ProfileScreen(component: ProfileComponent) {
         }
 
         when (sheet) {
+            Sheet.MotionTheme ->
+                OptionSheet(
+                    title = "动效主题",
+                    subtitle = "一处选择整套动效；开启“减少动画”时，两种主题都只保留瞬时切换",
+                    options = MotionTheme.entries.map { it.label to (it == motionTheme) },
+                    descriptions = MotionTheme.entries.map { it.description },
+                    onSelect = { index ->
+                        prefs.setMotionTheme(MotionTheme.entries[index])
+                        sheet = null
+                    },
+                    onDismiss = { sheet = null },
+                )
+
             Sheet.LoadingAnimation ->
                 LoadingAnimationSheet(
                     selected = loadingAnimation,
@@ -1119,12 +1141,11 @@ fun ProfileScreen(component: ProfileComponent) {
             )
         }
 
-        // Both cache actions live on a settings sub-page, where the floating tab bar is gone
-        // and only the system navigation is under the toast.
+        // Both cache actions live on a settings sub-page, where the floating tab bar is gone;
+        // the toast clears the system navigation by itself.
         ActionToast(
             message = notice,
             onDismiss = { notice = null },
-            modifier = Modifier.padding(bottom = systemNavigationContentInset()),
         )
     }
 }
@@ -1270,7 +1291,7 @@ private fun BrandAndSplashScreen(
 
     SettingsPage(
         title = "Logo 与开屏动画",
-        subtitle = "返回桌面后更新图标，可能需要几秒刷新；开屏遵循减少动态效果设置",
+        subtitle = "返回桌面后更新图标，可能需要几秒刷新；开屏遵循减少动画设置",
         onBack = onBack,
     ) {
         motionItem {
@@ -1438,7 +1459,12 @@ private fun BackgroundImageSheet(
                 )
             }
             Spacer(Modifier.height(6.dp))
-            GlassSlider(value = dim, onValueChange = onDim, valueRange = 0.3f..1f)
+            GlassSlider(
+                value = dim,
+                onValueChange = onDim,
+                valueRange = 0.3f..1f,
+                modifier = Modifier.semantics { contentDescription = "背景图遮罩" },
+            )
             Text("越低，背景图越清晰；越高，文字越容易读", style = AppTypography.caption.regular, color = palette.sub2)
         }
     }
@@ -1539,7 +1565,9 @@ private fun OptionSheet(
                     label = label,
                     selected = selected,
                     description = descriptions.getOrNull(index),
-                    onClick = { onSelect(index) },
+                    // Every caller closes the sheet on a choice: let it leave the way it came
+                    // rather than vanish with the state that held it.
+                    onClick = overlayAction { onSelect(index) },
                 )
             }
         }

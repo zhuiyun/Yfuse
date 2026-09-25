@@ -10,6 +10,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
@@ -495,12 +496,17 @@ internal fun rememberLightFeedback(
             LightFeedbackState(budget, limit, density, level == ParticleLight.Enhanced, style)
         }
     // Whether the light may show is a gate on emission, not a key: rebuilding the state under
-    // every control on a route change was the frame the transition dropped.
-    val active = LocalParticleActive.current && LocalRouteVisible.current
-    SideEffect {
-        state.windowInfo = windowInfo
-        if (state.active && !active) state.clear()
-        state.active = active
+    // every control on a route change was the frame the transition dropped. The route's half is
+    // followed in an effect rather than read here — this runs under every pressable control, and
+    // a read in composition recomposed all of them on both pages in the first frame of a push.
+    val particleActive = LocalParticleActive.current
+    val routeVisibility = rememberRouteVisibility()
+    SideEffect { state.windowInfo = windowInfo }
+    LaunchedEffect(state, routeVisibility, particleActive) {
+        snapshotFlow { particleActive && routeVisibility.value }.collect { active ->
+            if (state.active && !active) state.clear()
+            state.active = active
+        }
     }
     if (state.started) {
         LaunchedEffect(state) { state.run() }

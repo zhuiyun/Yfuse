@@ -36,6 +36,8 @@ import com.yfuse.core.data.DanmakuFontSize
 import com.yfuse.core.data.DanmakuKind
 import com.yfuse.core.data.DanmakuOpacity
 import com.yfuse.core.data.DanmakuSpeed
+import com.yfuse.core.designsystem.LocalAccessibilityOptions
+import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.sc
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -177,6 +179,29 @@ private fun canEnterLane(
     return gapMs >= max(previousClearMs, noCatchUpMs).toLong()
 }
 
+/**
+ * Under 减弱动态效果 a comment that would cross the screen holds still instead: laid out as the
+ * overlay's own top lines are, centred, for as long as those stay. 一起看's chat danmaku already
+ * stopped for the setting; these kept flying.
+ */
+internal fun DanmakuComment.heldStill(reduceMotion: Boolean): DanmakuComment =
+    if (reduceMotion && kind == DanmakuKind.Scroll) copy(kind = DanmakuKind.Top) else this
+
+/**
+ * A held comment's opacity [elapsedMs] into its [durationMs]: it arrives and leaves on a
+ * [fadeMs] fade, since it no longer travels in or out.
+ */
+internal fun danmakuHeldAlpha(
+    elapsedMs: Long,
+    durationMs: Long,
+    fadeMs: Long,
+): Float {
+    if (elapsedMs !in 0L..durationMs) return 0f
+    if (fadeMs <= 0L) return 1f
+    val edge = minOf(elapsedMs, durationMs - elapsedMs)
+    return (edge.toFloat() / fadeMs).coerceIn(0f, 1f)
+}
+
 internal fun lowerBoundDanmaku(
     comments: List<DanmakuComment>,
     timeMs: Long,
@@ -289,6 +314,7 @@ fun DanmakuOverlay(
 
     val textMeasurer = rememberTextMeasurer()
     val density = LocalDensity.current
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
 
     Box(
         modifier.fillMaxSize(),
@@ -326,6 +352,7 @@ fun DanmakuOverlay(
                     maxWidth,
                     textStyle,
                     density,
+                    reduceMotion,
                 ) {
                     HashMap<Int, Int>()
                 }
@@ -341,6 +368,7 @@ fun DanmakuOverlay(
                     maxWidth,
                     textStyle,
                     density,
+                    reduceMotion,
                 ) {
                     val bucketStart = timeBucket * WINDOW_BUCKET_MS
                     val maxDuration = max(speed.durationMs, FIXED_DURATION_MS)
@@ -371,7 +399,7 @@ fun DanmakuOverlay(
                                             .value
                                     }
                                 }
-                            DanmakuLayoutInput(index, comment, measuredWidth)
+                            DanmakuLayoutInput(index, comment.heldStill(reduceMotion), measuredWidth)
                         }
                     allocateDanmakuLanes(
                         inputs = inputs,
@@ -416,7 +444,15 @@ fun DanmakuOverlay(
                                         }
                                     IntOffset(x.roundToPx(), y.roundToPx())
                                 }.graphicsLayer {
-                                    alpha = if (renderedPositionMs - comment.timeMs in 0..duration) 1f else 0f
+                                    val elapsed = renderedPositionMs - comment.timeMs
+                                    alpha =
+                                        if (reduceMotion) {
+                                            danmakuHeldAlpha(elapsed, duration, Motion.REDUCED_FADE.toLong())
+                                        } else if (elapsed in 0..duration) {
+                                            1f
+                                        } else {
+                                            0f
+                                        }
                                 },
                     )
                 }

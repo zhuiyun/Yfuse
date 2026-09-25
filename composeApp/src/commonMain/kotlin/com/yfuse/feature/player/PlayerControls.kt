@@ -43,7 +43,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalAccessibilityManager
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AmbientLight
@@ -60,6 +62,7 @@ import com.yfuse.core.designsystem.LocalHaptics
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.lightOnChange
+import com.yfuse.core.designsystem.rememberScreenReaderActive
 import com.yfuse.tv.player.TvPlayerChromeBridge
 import com.yfuse.tv.player.TvPlayerChromeCommandType
 import com.yfuse.tv.player.TvPlayerChromeLayer
@@ -181,17 +184,19 @@ internal fun PlayerControls(
     trickplay: TrickplayStoryboard? = null,
     /*
      * System volume, 0f..1f, and its setter — read by the right-edge drag gesture and by the
-     * slider the volume rocker raises. There is no on-screen volume control any more.
+     * slider the volume rocker raises. There is no on-screen volume control any more. A reader
+     * rather than a value: a drag or the rocker changes it many times a second, and as a value
+     * each of those recomposed every control on this screen.
      */
-    volume: Float = 0f,
+    volume: () -> Float = { 0f },
     onVolume: (Float) -> Unit = {},
     /*
      * Increments on each volume key press. Any change raises the vertical slider; the value
      * itself is meaningless, which is what lets a press at the volume ceiling still show it.
      */
     volumeKeyPresses: Long = 0L,
-    // Current window brightness, 0f..1f. Vertical drags on the left half adjust it.
-    brightness: Float = 0.5f,
+    // Current window brightness, 0f..1f, as a reader for the same reason. Vertical drags on the left half adjust it.
+    brightness: () -> Float = { 0.5f },
     onBrightness: (Float) -> Unit = {},
     // Engine picker rows: label to selected.
     engineOptions: List<Pair<String, Boolean>> = emptyList(),
@@ -292,8 +297,14 @@ internal fun PlayerControls(
     // Read once for the whole surface: several transitions below have to collapse together.
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val accessibilityManager = LocalAccessibilityManager.current
+    // From Android 10 the recommended timeout only follows 操作时长, so TalkBack users still lost
+    // the controls after five seconds — and a hidden chrome is not something a spoken cursor finds.
+    val screenReaderActive = rememberScreenReaderActive()
     // Bumped by every interaction so the auto-hide timer restarts.
     var interactions by remember { mutableIntStateOf(0) }
+    // A finger on the progress rail. Held still over a preview it sends no samples, and the timer
+    // used to hide the bar out from under it — cancelling the drag it was about to commit.
+    var scrubbing by remember { mutableStateOf(false) }
     val latestPosition by remember(playback) { derivedStateOf { playback.value.positionMs } }
     val latestDuration by rememberUpdatedState(state.durationMs)
     val latestVolume by rememberUpdatedState(volume)
@@ -515,6 +526,8 @@ internal fun PlayerControls(
         interactions,
         accessibilityManager,
         controlsHaveFocus,
+        screenReaderActive,
+        scrubbing,
     ) {
         val overlayOpen =
             gestureHelpOpen ||
@@ -532,7 +545,9 @@ internal fun PlayerControls(
             !visible ||
             !playbackActive ||
             overlayOpen ||
-            controlsHaveFocus
+            controlsHaveFocus ||
+            screenReaderActive ||
+            scrubbing
         ) {
             return@LaunchedEffect
         }
@@ -686,6 +701,15 @@ internal fun PlayerControls(
         Box(
             Modifier
                 .fillMaxSize()
+                // Hidden chrome leaves no node behind, and touch exploration never sends the tap
+                // that brings it back: the picture itself is the control that does.
+                .semantics {
+                    contentDescription = "播放画面"
+                    onClick(label = "显示播放控件") {
+                        poke()
+                        true
+                    }
+                }
                 // Keyed on nothing: `settingsPanelKind`, `drawerOpen` and `visible` are read
                 // through their state delegates below, so the detector already sees the
                 // current values without being torn down. Keying on them meant any of
@@ -791,8 +815,8 @@ internal fun PlayerControls(
                     var totalY = 0f
                     var startX = 0f
                     var seekTarget = latestPosition
-                    var volumeAtDragStart = latestVolume
-                    var brightnessAtDragStart = latestBrightness
+                    var volumeAtDragStart = latestVolume()
+                    var brightnessAtDragStart = latestBrightness()
                     detectPlayerDragGestures(
                         canStart = { origin -> !locked && allowsPlayerDrag(origin.y, currentSystemGestureTop) },
                         onDragStart = { offset ->
@@ -800,8 +824,8 @@ internal fun PlayerControls(
                             totalX = 0f
                             totalY = 0f
                             seekTarget = latestPosition
-                            volumeAtDragStart = latestVolume
-                            brightnessAtDragStart = latestBrightness
+                            volumeAtDragStart = latestVolume()
+                            brightnessAtDragStart = latestBrightness()
                         },
                         onDragEnd = {
                             if (
@@ -937,7 +961,11 @@ internal fun PlayerControls(
                 ) {
                     DisposableEffect(Unit) {
                         ambientPresenceChanged(true)
-                        onDispose { ambientPresenceChanged(false) }
+                        onDispose {
+                            ambientPresenceChanged(false)
+                            // A rail taken away mid-drag reports no end of its own.
+                            scrubbing = false
+                        }
                     }
                     PlaybackTimelineContent(playback) { timelineState ->
                         val remoteSeek = remoteChromeState?.seekTargetMs?.takeIf { remoteChromeState.seeking }
@@ -974,7 +1002,14 @@ internal fun PlayerControls(
                                 poke()
                                 onSeek(it)
                             },
-                            onScrub = { interactions++ },
+                            onScrub = {
+                                scrubbing = true
+                                interactions++
+                            },
+                            onScrubEnd = {
+                                scrubbing = false
+                                poke()
+                            },
                             trickplay = trickplay,
                             progressMarkers =
                                 remember(
@@ -1010,8 +1045,11 @@ internal fun PlayerControls(
 
                 // Auto-skip is a small floating status chip. It is intentionally outside BottomBar's
                 // Column so the progress rail never moves when the countdown appears or disappears.
-                val lastAutoSkip = remember { arrayOf("") }
-                skip.countdownSeconds?.let { lastAutoSkip[0] = skipCountdownLabel(skip.segmentLabel, it) }
+                val lastAutoSkip = remember { arrayOf("", "") }
+                skip.countdownSeconds?.let {
+                    lastAutoSkip[0] = skipCountdownLabel(skip.segmentLabel, it)
+                    lastAutoSkip[1] = skipCountdownAnnouncement(skip.segmentLabel)
+                }
                 ChromeVisibility(
                     visible = skip.countdownSeconds != null,
                     edge = ChromeEdge.Bottom,
@@ -1023,6 +1061,7 @@ internal fun PlayerControls(
                 ) {
                     CompactAutoSkipPill(
                         label = lastAutoSkip[0],
+                        announcement = lastAutoSkip[1],
                         onCancel = {
                             if (skip.countdownSeconds != null) {
                                 poke()
@@ -1057,7 +1096,9 @@ internal fun PlayerControls(
                         .align(Alignment.BottomEnd)
                         .padding(end = 18.dp, bottom = 70.dp)
 
-                ChromeContent(settingsPanelKind, modifier = Modifier.fillMaxSize(), edge = ChromeEdge.End) { kind ->
+                // The popovers and drawers below play their own way in and out; the presence only
+                // keeps them composed while they do.
+                PanelPresence(settingsPanelKind, modifier = Modifier.fillMaxSize()) { kind ->
                     BackOverlay(
                         onBack = { settingsPanelKind = null },
                         enabled = settingsPanelKind != null,
@@ -1176,8 +1217,8 @@ internal fun PlayerControls(
                     }
                 }
 
-                ChromeContent(quickPopup, modifier = Modifier.fillMaxSize(), edge = ChromeEdge.End) { popup ->
-                    BackOverlay(onBack = { quickPopup = null }) {
+                PanelPresence(quickPopup, modifier = Modifier.fillMaxSize()) { popup ->
+                    BackOverlay(onBack = { quickPopup = null }, enabled = quickPopup != null) {
                         // 线路 and 倍速 share this anchor and this shell, so going from one to the
                         // other is a change of contents rather than of surface: the panel stays
                         // where it is and settles into the new list's height instead of being
@@ -1258,13 +1299,10 @@ internal fun PlayerControls(
                     )
                 }
 
-                ChromeVisibility(
-                    visible = watchChatOpen && watch.connected,
-                    modifier = Modifier.fillMaxSize(),
-                    edge = ChromeEdge.End,
-                ) {
+                PanelPresence(Unit.takeIf { watchChatOpen && watch.connected }, modifier = Modifier.fillMaxSize()) {
                     BackOverlay(
                         onBack = closeWatchChat,
+                        enabled = watchChatOpen,
                     ) {
                         WatchChatPanel(
                             participants = watch.participants,
@@ -1338,11 +1376,7 @@ internal fun PlayerControls(
                     }
                 }
 
-                ChromeVisibility(
-                    visible = danmakuSearchOpen,
-                    edge = ChromeEdge.End,
-                    modifier = Modifier.fillMaxSize(),
-                ) {
+                PanelPresence(Unit.takeIf { danmakuSearchOpen }, modifier = Modifier.fillMaxSize()) {
                     BackOverlay(
                         enabled = danmakuSearchOpen,
                         onBack = { danmakuSearchOpen = false },
@@ -1512,21 +1546,23 @@ internal fun PlayerControls(
                     targetState = gestureHud?.takeIf { !showPausedKey && !showEndedKeys },
                     contentKey = ::gestureHudMotionKey,
                     transitionSpec = {
-                        if (reduceMotion) {
-                            fadeIn(snap()) togetherWith fadeOut(snap())
-                        } else {
-                            (
-                                fadeIn(tween(Motion.QUICK, easing = Motion.Curve)) +
-                                    scaleIn(Motion.settle(), initialScale = 0.88f)
-                            ) togetherWith
+                        val swap =
+                            if (reduceMotion) {
+                                fadeIn(snap()) togetherWith fadeOut(snap())
+                            } else {
                                 (
-                                    fadeOut(tween(Motion.QUICK, easing = Motion.Curve)) +
-                                        scaleOut(
-                                            tween(Motion.QUICK, easing = Motion.Curve),
-                                            targetScale = 0.92f,
-                                        )
-                                )
-                        }
+                                    fadeIn(Motion.tween(Motion.QUICK)) +
+                                        scaleIn(Motion.settle(), initialScale = HUD_SCALE_IN)
+                                ) togetherWith
+                                    (
+                                        fadeOut(Motion.tween(Motion.QUICK)) +
+                                            scaleOut(
+                                                Motion.tween(Motion.QUICK),
+                                                targetScale = HUD_SCALE_OUT,
+                                            )
+                                    )
+                            }
+                        swap using Motion.sizeTransform(reduceMotion)
                     },
                     contentAlignment = Alignment.Center,
                     modifier = Modifier.align(Alignment.Center),

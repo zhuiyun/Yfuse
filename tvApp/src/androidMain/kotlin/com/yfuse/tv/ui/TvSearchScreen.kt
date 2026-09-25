@@ -49,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
+import com.yfuse.core.designsystem.contentHandoff
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.feature.search.SearchHomeComponent
@@ -74,6 +75,15 @@ internal fun TvSearchHomeScreen(
     val state by component.store.states.collectAsState(component.store.state)
     val store = component.store
     var managingRecent by remember { mutableStateOf(false) }
+
+    // Before a term, or the history, leaves under the remote: focus goes to [term] if given, else
+    // to the first suggestion shown, else to the chosen type — never to nothing.
+    fun moveFocusOffTerms(term: String? = null) {
+        if (term != null && focusMemory.requestFocus("search:terms", "search:recent:$term")) return
+        val suggestion = tvSearchSuggestions.firstOrNull { it !in state.recent }
+        if (suggestion != null && focusMemory.requestFocus("search:terms", "search:suggestion:$suggestion")) return
+        focusMemory.requestFocus("search:filters", "search:type:${state.type.name}")
+    }
     // Nothing left to manage once the list is empty; leaving the mode on would strand the remote
     // on a row that no longer exists.
     if (state.recent.isEmpty() && managingRecent) managingRecent = false
@@ -123,7 +133,7 @@ internal fun TvSearchHomeScreen(
         candidates = searchCandidates,
         scrollToAnchor = { anchor ->
             if (anchor.sectionId == resultScope && resultCandidates.isNotEmpty()) {
-                resultGridState.scrollToItem(anchor.fallbackIndex.coerceIn(0, resultCandidates.lastIndex))
+                resultGridState.revealForRestore(anchor.fallbackIndex.coerceIn(0, resultCandidates.lastIndex))
             }
         },
     )
@@ -141,6 +151,9 @@ internal fun TvSearchHomeScreen(
             onSubmit = { store.accept(SearchIntent.Submit) },
             focusRequester = contentRequester,
             navigationRequester = navigationRequester,
+            // The field is not a focus-memory target: say it has focus, or results arriving while
+            // the viewer types would restore an older card over it.
+            onFocused = { focusMemory.settleRestore("search") },
         )
         Spacer(Modifier.height(13.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -153,6 +166,7 @@ internal fun TvSearchHomeScreen(
                     onClick = { store.accept(SearchIntent.SetType(type)) },
                     modifier = Modifier.width(116.dp),
                     selected = type == state.type,
+                    selectable = true,
                     navigationRequester = navigationRequester,
                     returnToNavigationOnLeft = type == SearchType.All,
                 )
@@ -163,7 +177,11 @@ internal fun TvSearchHomeScreen(
                     stableId = "search:clear",
                     focusScope = "search:filters",
                     focusMemory = focusMemory,
-                    onClick = { store.accept(SearchIntent.Clear) },
+                    onClick = {
+                        // The key goes with the text it clears; focus waits on the chosen type.
+                        focusMemory.requestFocus("search:filters", "search:type:${state.type.name}")
+                        store.accept(SearchIntent.Clear)
+                    },
                     modifier = Modifier.width(116.dp),
                     icon = AppIcons.Close,
                 )
@@ -171,6 +189,8 @@ internal fun TvSearchHomeScreen(
         }
         Spacer(Modifier.height(18.dp))
 
+        // Results fade in over the searching state rather than cutting in.
+        val arrival = Modifier.contentHandoff(state.loading && results.isEmpty())
         when {
             state.loading && results.isEmpty() -> TvLoadingState("正在搜索所有服务器")
             state.error != null && results.isEmpty() ->
@@ -213,6 +233,8 @@ internal fun TvSearchHomeScreen(
                                     focusScope = "search:terms",
                                     focusMemory = focusMemory,
                                     onClick = {
+                                        // The whole row goes with the history.
+                                        moveFocusOffTerms()
                                         store.accept(SearchIntent.ClearRecent)
                                         managingRecent = false
                                     },
@@ -220,7 +242,11 @@ internal fun TvSearchHomeScreen(
                                 )
                             }
                         }
-                        LazyRow(horizontalArrangement = Arrangement.spacedBy(11.dp)) {
+                        LazyRow(
+                            modifier = Modifier.tvFocusBleed(),
+                            contentPadding = TvFocusBleedPadding,
+                            horizontalArrangement = Arrangement.spacedBy(11.dp),
+                        ) {
                             itemsIndexed(
                                 state.recent,
                                 key = { _, term -> "search-recent:$term" },
@@ -232,6 +258,10 @@ internal fun TvSearchHomeScreen(
                                     focusMemory = focusMemory,
                                     onClick = {
                                         if (managingRecent) {
+                                            // Focus goes to the term beside it before this one goes.
+                                            moveFocusOffTerms(
+                                                state.recent.getOrNull(index + 1) ?: state.recent.getOrNull(index - 1),
+                                            )
                                             store.accept(SearchIntent.ForgetRecent(term))
                                         } else {
                                             store.accept(SearchIntent.QueryChanged(term))
@@ -254,7 +284,11 @@ internal fun TvSearchHomeScreen(
                             fontSize = TvType.section,
                             fontWeight = FontWeight.Bold,
                         )
-                        LazyRow(horizontalArrangement = Arrangement.spacedBy(11.dp)) {
+                        LazyRow(
+                            modifier = Modifier.tvFocusBleed(),
+                            contentPadding = TvFocusBleedPadding,
+                            horizontalArrangement = Arrangement.spacedBy(11.dp),
+                        ) {
                             itemsIndexed(
                                 suggestions.take(10),
                                 key = { _, term -> "search-suggestion:$term" },
@@ -295,12 +329,14 @@ internal fun TvSearchHomeScreen(
                     "找到 ${state.visibleResultCount} 个结果",
                     color = TvOnSurfaceMuted,
                     fontSize = TvType.caption,
+                    modifier = arrival,
                 )
                 Spacer(Modifier.height(10.dp))
                 LazyVerticalGrid(
                     columns = GridCells.Adaptive(minSize = 142.dp),
                     state = resultGridState,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier.fillMaxSize().tvFocusBleed().then(arrival),
+                    contentPadding = TvFocusBleedPadding,
                     horizontalArrangement = Arrangement.spacedBy(17.dp),
                     verticalArrangement = Arrangement.spacedBy(18.dp),
                 ) {
@@ -308,12 +344,12 @@ internal fun TvSearchHomeScreen(
                         items = results,
                         key = { _, hit -> "search:server:${hit.serverId}:${hit.item.id}" },
                     ) { index, hit ->
+                        // No guess at which cards sit in the first column: left out of the page is
+                        // the tab content's own exit, see TvRootTabContent.
                         TvMediaCard(
                             model = hit.toTvCard(component),
                             focusScope = resultScope,
                             focusMemory = focusMemory,
-                            navigationRequester = navigationRequester,
-                            returnToNavigationOnLeft = index % 6 == 0,
                             fallbackIndex = index,
                             onFocused = {
                                 val group = state.visibleGroups.firstOrNull { it.serverId == hit.serverId }
@@ -340,6 +376,7 @@ private fun TvSearchField(
     onSubmit: () -> Unit,
     focusRequester: FocusRequester,
     navigationRequester: FocusRequester,
+    onFocused: () -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
     val border by animateColorAsState(
@@ -351,8 +388,10 @@ private fun TvSearchField(
         Modifier
             .fillMaxWidth()
             .height(62.dp)
-            .onFocusChanged { focused = it.hasFocus }
-            .border(3.dp, border, RoundedCornerShape(14.dp))
+            .onFocusChanged {
+                focused = it.hasFocus
+                if (it.hasFocus) onFocused()
+            }.border(3.dp, border, RoundedCornerShape(14.dp))
             .background(if (focused) Color.White else TvSurface, RoundedCornerShape(14.dp))
             .padding(horizontal = 20.dp),
         verticalAlignment = Alignment.CenterVertically,

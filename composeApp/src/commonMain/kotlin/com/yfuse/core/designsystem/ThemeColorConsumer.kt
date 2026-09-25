@@ -41,7 +41,12 @@ private class ThemeConsumerMemory(
 @Composable
 internal fun rememberThemeConsumerColor(target: Color): State<Color> {
     val theme = LocalThemeColorTarget.current
-    val reduced = LocalAccessibilityOptions.current.reduceMotion || !LocalRouteVisible.current
+    // Route visibility is consulted when a theme change arrives, not observed: read in
+    // composition, a route flip recomposed every ThemeText on the covered and uncovered pages.
+    val routeVisibility = rememberRouteVisibility()
+    val reduced =
+        LocalAccessibilityOptions.current.reduceMotion ||
+            !Snapshot.withoutReadObservation { routeVisibility.value }
     val memory = remember { ThemeConsumerMemory(theme, target) }
     val animation =
         remember(theme) {

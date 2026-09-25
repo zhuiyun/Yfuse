@@ -7,22 +7,31 @@ package com.yfuse.feature.player
  */
 internal const val BUFFERING_INDICATOR_DELAY_MS = 250L
 
-internal enum class TransportVisualState {
-    Play,
-    Pause,
-    Buffering,
-}
+/**
+ * A glyph swapping on a key (播放 ↔ 暂停) grows in from this and shrinks away to [ICON_SWAP_SCALE_OUT]:
+ * far enough to read as the key changing its answer, near enough not to read as a new key.
+ */
+internal const val ICON_SWAP_SCALE_IN = 0.82f
+internal const val ICON_SWAP_SCALE_OUT = 0.88f
 
-internal fun transportVisualState(
+/** The gesture HUD is a whole pill of text, so it travels less than a glyph does. */
+internal const val HUD_SCALE_IN = 0.88f
+internal const val HUD_SCALE_OUT = 0.92f
+
+/**
+ * Whether the transport key offers 暂停 rather than 播放.
+ *
+ * A stall reports `playing = false` while the viewer's request to play still stands, and the
+ * key is not taken away for it any more — a spinner used to replace it, so nobody could pause a
+ * film that would not start. Through buffering it keeps its [settledPlaying] answer, which the
+ * key itself flips when pressed; before there is one it offers 暂停, since a player that is
+ * buffering has almost always just been asked to play.
+ */
+internal fun transportShowsPause(
     playing: Boolean,
     buffering: Boolean,
-    bufferingIndicatorVisible: Boolean,
-): TransportVisualState =
-    when {
-        buffering && bufferingIndicatorVisible -> TransportVisualState.Buffering
-        playing -> TransportVisualState.Pause
-        else -> TransportVisualState.Play
-    }
+    settledPlaying: Boolean?,
+): Boolean = if (buffering) settledPlaying ?: true else playing
 
 /**
  * Keeps rapidly changing numeric HUD text in one animated surface. Only a change of gesture kind

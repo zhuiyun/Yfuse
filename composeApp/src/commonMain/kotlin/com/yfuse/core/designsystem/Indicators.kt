@@ -1,9 +1,12 @@
 package com.yfuse.core.designsystem
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -20,6 +23,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlin.math.abs
 import kotlin.math.floor
@@ -58,7 +62,6 @@ fun HeroPageIndicator(
     pageOffsetProvider: (() -> Float)? = null,
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
-    val palette = LocalPalette.current
     // Which dot is the selected one, as a float the row can be halfway between.
     //
     // The pager's own offset is continuous while the pager is moving, and that carried the whole
@@ -83,8 +86,35 @@ fun HeroPageIndicator(
             drawnPage.animateTo(target, Motion.settle<Float>())
         }
     }
+    BoxWithConstraints(modifier) {
+        // Eight 48dp slots are 384dp, wider than a 360dp phone: the last dot was squeezed to 24dp
+        // and the row sat off-centre. Each slot shrinks to its share of the width instead; the
+        // height keeps the full touch target.
+        val slot =
+            if (constraints.hasBoundedWidth && pageCount > 0) {
+                minOf(MinTouchTarget, maxWidth / pageCount)
+            } else {
+                MinTouchTarget
+            }
+        HeroPageDots(pageCount, selectedPage, onPageSelected, slot, onArtwork, drawnPage) {
+            if (reduceMotion) 0f else currentOffset.value?.invoke() ?: currentPageOffset.value
+        }
+    }
+}
+
+@Composable
+private fun HeroPageDots(
+    pageCount: Int,
+    selectedPage: Int,
+    onPageSelected: (Int) -> Unit,
+    slot: Dp,
+    onArtwork: Boolean,
+    drawnPage: Animatable<Float, AnimationVector1D>,
+    offset: () -> Float,
+) {
+    val palette = LocalPalette.current
     Row(
-        modifier = modifier.selectableGroup(),
+        modifier = Modifier.selectableGroup(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         repeat(pageCount.coerceAtLeast(0)) { index ->
@@ -98,10 +128,11 @@ fun HeroPageIndicator(
                     ).semantics {
                         selected = active
                         contentDescription = "第 ${index + 1} 张，共 $pageCount 张"
-                    }.size(MinTouchTarget)
+                    }.width(slot)
+                    .height(MinTouchTarget)
                     .drawBehind {
                         // Stable touch/layout slots; fractional pager movement invalidates drawing only.
-                        val offset = if (reduceMotion) 0f else pageOffsetProvider?.invoke() ?: pageOffset
+                        val offset = offset()
                         // One source of truth at a time. While the tap's spring is running it owns
                         // the whole position: `animateScrollToPage` snaps most of the way and then
                         // animates the tail, so its offset comes back to life partway through and

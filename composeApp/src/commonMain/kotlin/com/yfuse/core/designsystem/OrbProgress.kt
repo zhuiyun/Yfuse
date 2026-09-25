@@ -49,7 +49,9 @@ fun OrbProgress(
             }
         }
     val dark = LocalPalette.current.isDark
-    val artwork = remember(dark, color) { LoadingArtwork(dark, color) }
+    // The accent gets the full spectrum; any other colour was chosen on purpose and is kept.
+    val monochrome = color != LocalAccentColors.current.accent
+    val artwork = remember(dark, color, monochrome) { LoadingArtwork(dark, color, monochrome) }
     Canvas(
         modifier
             .size(size)
@@ -61,6 +63,7 @@ fun OrbProgress(
         // Read the clock only while drawing: no layout or composition work on animation frames.
         val side = this.size.minDimension
         if (side > 0f) {
+            artwork.floorStrokes(unitsPerPixel = 56f / side)
             translate((this.size.width - side) / 2f, (this.size.height - side) / 2f) {
                 scale(side / 56f, pivot = Offset.Zero) {
                     with(artwork) { draw(animation, phase.value, moving) }

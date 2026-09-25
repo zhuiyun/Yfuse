@@ -5,12 +5,14 @@ import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.model.Episode
 import com.yfuse.core.model.MediaVersion
 import com.yfuse.core.model.SavedServer
+import com.yfuse.core.network.embyPlaybackHeaders
 import com.yfuse.core.security.TestSecureStore
 import kotlinx.serialization.json.Json
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
+import java.net.URL
 import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -85,6 +87,38 @@ class OfflineMediaSecurityTest {
         assertTrue(sourceUrl.contains("api_key=fresh-token"))
         assertTrue(sourceUrl.contains("MediaSourceId=source%201"))
         assertFalse(sourceUrl.contains("old-secret"))
+        // The download presents the same Emby identity as playback of the same file.
+        assertTrue(sourceUrl.contains("UserId=user"))
+        val identity = embyPlaybackHeaders(sourceUrl) { "test-version" }
+        assertEquals("fresh-token", identity["X-Emby-Token"])
+    }
+
+    @Test
+    fun offline_transfers_follow_redirects_but_never_down_to_http() {
+        val origin = URL("https://media.example/Videos/episode/stream?api_key=secret")
+
+        assertNull(offlineRedirectTarget(origin, 200, "https://cdn.example/file"))
+        assertNull(offlineRedirectTarget(origin, 206, null))
+        // A redirect status without a Location is the answer itself, and fails as such.
+        assertNull(offlineRedirectTarget(origin, 302, "  "))
+        // Compared as text: URL.equals resolves host names.
+        assertEquals(
+            "https://cdn.example/signed/file.mp4?sig=abc",
+            offlineRedirectTarget(origin, 302, "https://cdn.example/signed/file.mp4?sig=abc")?.toString(),
+        )
+        assertEquals(
+            "https://media.example/files/episode.mp4",
+            offlineRedirectTarget(origin, 307, "/files/episode.mp4")?.toString(),
+        )
+        assertEquals(
+            "https://cdn.example/file",
+            offlineRedirectTarget(URL("http://192.168.1.20:8096/video"), 301, "https://cdn.example/file")?.toString(),
+        )
+        assertFailsWith<IllegalStateException> { offlineRedirectTarget(origin, 302, "http://cdn.example/file") }
+        assertFailsWith<IllegalStateException> { offlineRedirectTarget(origin, 302, "ftp://cdn.example/file") }
+        assertFailsWith<IllegalStateException> {
+            offlineRedirectTarget(origin, 302, "https://user:pass@cdn.example/file")
+        }
     }
 
     @Test

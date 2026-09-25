@@ -27,6 +27,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.Shape
@@ -72,7 +73,8 @@ fun FallbackImage(
     contentScale: ContentScale = ContentScale.Crop,
     /**
      * 图片渐进加载 §3.1. Off for artwork small enough that the blur is only cost — a 20dp
-     * cast avatar has nothing to resolve into.
+     * cast avatar has nothing to resolve into. It only ever turned the blur off: the opacity
+     * hand-off still runs, so a small picture no longer cuts in while its neighbours fade.
      */
     progressive: Boolean = true,
     /**
@@ -83,8 +85,12 @@ fun FallbackImage(
      * detail poster — pass `false` and take the cinematic resolve.
      */
     alphaOnly: Boolean = true,
-    /** Large artwork uses the default 400ms reveal; dense posters pass 180ms. */
-    revealDurationMillis: Int = Motion.ARTWORK_REVEAL,
+    /**
+     * Dense artwork — every opacity-only picture — hands off in [Motion.POSTER_FADE]; the few
+     * large pictures that take the blurred resolve keep [Motion.ARTWORK_REVEAL]. Thumbnails,
+     * avatars and category tiles used to fall through to the 400ms hero timing by omission.
+     */
+    revealDurationMillis: Int = if (alphaOnly) Motion.POSTER_FADE else Motion.ARTWORK_REVEAL,
     revealBlur: Dp = ArtworkRevealBlur,
     revealScaleFrom: Float = ARTWORK_REVEAL_SCALE_FROM,
     /** Reports the fallback candidate whose drawable actually reached the screen. */
@@ -112,7 +118,7 @@ fun FallbackImage(
         requestKey = candidates to candidateIndex,
         loaded = loaded,
         instant = instant,
-        enabled = progressive,
+        enabled = true,
         durationMillis = revealDurationMillis,
     )
     Box(modifier) {
@@ -135,8 +141,9 @@ fun FallbackImage(
                                 // The placeholder underneath is the caller's — [Poster] tints its
                                 // own well — because artwork colour is unknown before arrival.
                                 val remaining = 1f - settle
+                                val resolves = progressive && !alphaOnly
                                 val scale =
-                                    if (alphaOnly) {
+                                    if (!resolves) {
                                         1f
                                     } else {
                                         1f + (revealScaleFrom - 1f) * remaining
@@ -147,7 +154,7 @@ fun FallbackImage(
                                 // Below API 31 renderEffect is ignored, so the load resolves as a
                                 // scale-and-fade on those devices rather than not at all.
                                 renderEffect =
-                                    if (!alphaOnly && remaining > 0.01f) {
+                                    if (resolves && remaining > 0.01f) {
                                         val radius = revealBlur.toPx() * remaining
                                         artworkBlurCache.effect(radius)
                                     } else {
@@ -239,7 +246,6 @@ fun Poster(
     sharedTransitionKey: MediaSharedElementKey? = null,
     overlay: @Composable BoxScope.() -> Unit = {},
 ) {
-    val palette = LocalPalette.current
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val sharedController = LocalSharedMediaTransitionController.current
     val resolvedOnClick =
@@ -255,21 +261,19 @@ fun Poster(
         remember(url, fallbackUrl, fallbackUrls) {
             (listOfNotNull(url, fallbackUrl) + fallbackUrls).filter { it.isNotBlank() }.distinct()
         }
+    // The skeleton's own ink, falling slightly towards the foot: a tile that arrives from a
+    // skeleton keeps the colour it had instead of trading it for a second grey first.
+    val placeholder = skeletonFill()
+    val placeholderFall =
+        remember(placeholder) {
+            Brush.verticalGradient(
+                listOf(placeholder, placeholder.copy(alpha = (placeholder.alpha * PLACEHOLDER_FALL).coerceAtMost(1f))),
+            )
+        }
     Box(
         modifier
             .dialogPosterSource()
-            .clip(shape)
-            // 占位主色渐变 §3.1. The artwork's own colour cannot be known before the
-            // artwork arrives, so this is the palette's placeholder tone with a slight
-            // vertical fall — enough that an unloaded tile reads as a surface rather than
-            // a grey block, and enough for the blur to resolve *out of* something.
-            .background(
-                if (palette.isDark) {
-                    cssLinearGradient(180f, 0f to Color(0xFF283040), 1f to Color(0xFF1D2430))
-                } else {
-                    cssLinearGradient(180f, 0f to Color(0xFFE4E9F1), 1f to Color(0xFFD3DAE5))
-                },
-            ).let {
+            .let {
                 // 触摸反馈全应用统一走 [pressable]：压缩 0.97、无涟漪、跟随
                 // 「减弱动态效果」。这里原来是裸 clickable，也就是 Material 涟漪，
                 // 于是同一个海报组件在首页/媒体库点下去是涟漪、在详情页（外层套了
@@ -277,7 +281,9 @@ fun Poster(
                 // 反馈终于一致了 —— 之前带长按的海报走 combinedClickable，压根没有反馈。
                 //
                 // 海报是全 app 唯一开 tilt 的地方：它足够大，倾斜看得出来，而且这是
-                // 用户唯一会盯着看的图像内容。
+                // 用户唯一会盯着看的图像内容。Outside the clip, so the whole card leans: inside
+                // it the artwork turned within a frame that stayed put and showed the
+                // placeholder along every edge.
                 when {
                     resolvedOnClick != null || onLongClick != null ->
                         it.pressable(
@@ -288,7 +294,11 @@ fun Poster(
                         )
                     else -> it
                 }
-            },
+            }.clip(shape)
+            // 占位主色渐变 §3.1. The artwork's own colour cannot be known before the
+            // artwork arrives; this is the loading ink with a slight vertical fall — enough
+            // that an unloaded tile reads as a surface, and for the blur to resolve out of.
+            .background(placeholderFall),
     ) {
         FallbackImage(
             urls = candidates,
@@ -503,3 +513,6 @@ internal fun mediaRatingLabel(rating: Double?): String? {
     val value = rating?.takeIf { it.isFinite() && it > 0.0 } ?: return null
     return ((value.coerceAtMost(10.0) * 10.0).roundToInt() / 10.0).toString()
 }
+
+/** How much denser the placeholder is at the foot of a tile than at its head. */
+private const val PLACEHOLDER_FALL = 1.35f

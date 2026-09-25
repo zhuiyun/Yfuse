@@ -21,6 +21,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.toggleableState
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -28,6 +30,7 @@ import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.DarkPalette
 import com.yfuse.core.designsystem.GlassShapes
+import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.PillSwitch
 import com.yfuse.core.designsystem.PressFeedback
 import com.yfuse.core.designsystem.glass
@@ -172,7 +175,11 @@ internal fun PopupToggleHeader(
     Row(
         Modifier
             .fillMaxWidth()
-            .noRippleClickable(onToggle)
+            // A switch, as [com.yfuse.core.designsystem.SwitchRow] is one: read out as 「开关，已开启」
+            // rather than as a button with a label, with the same tick when it flips.
+            .pressable(role = Role.Switch, haptic = HapticSignal.Select, onClick = onToggle)
+            .touchTarget()
+            .semantics { toggleableState = ToggleableState(checked) }
             .padding(horizontal = 4.dp, vertical = 4.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
@@ -282,6 +289,8 @@ internal fun Modifier.playerChoiceFeedback(
         interactionSource = interactions,
         focusShape = shape,
         role = role,
+        // [softSelectionSurface] below paints the pressed colour; a state layer would wash it twice.
+        stateLayer = false,
         onClick = onClick,
     ).touchTarget()
         .then(
