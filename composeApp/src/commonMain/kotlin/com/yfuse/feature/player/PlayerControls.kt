@@ -117,6 +117,30 @@ internal fun trackLabel(
         else -> tracks.firstOrNull { it.id == id }?.label ?: "已切换"
     }
 
+/**
+ * True once the current item has finished and stands on its last frame.
+ *
+ * [PlaybackState.ended] says so for most engines. ExoPlayer told to stop at the end of a queue item
+ * — 自动播放下一集 off, 取消 on the next-up card, 睡眠定时's 本集结束 — does not end it: it pauses on
+ * the final frame with the next item still queued, and resuming runs straight into that one. To
+ * whoever is watching, that pause is the end of the episode, not a pause in the middle of it.
+ */
+internal fun playbackStoppedAtItemEnd(state: PlaybackState): Boolean =
+    state.error == null &&
+        (
+            state.ended ||
+                (
+                    state.hasNext &&
+                        !state.playing &&
+                        !state.buffering &&
+                        state.durationMs > 0L &&
+                        state.remainingMs <= ITEM_END_SLACK_MS
+                )
+        )
+
+/** A queue item parked this close to its end has, for the viewer, ended. */
+private const val ITEM_END_SLACK_MS = 1_000L
+
 internal fun shouldShowManualSkipPill(
     segmentLabel: String?,
     countdownSeconds: Int?,
@@ -170,6 +194,8 @@ internal fun PlayerControls(
     onNextItem: () -> Boolean,
     /** 取消 on the next-up card: the engine must not advance on its own either. */
     onDismissNextUp: () -> Unit = {},
+    /** 自动播放下一集, as the engine was built with it: off, nothing counts down to the next item. */
+    autoNext: Boolean = true,
     onRefreshEpisodes: () -> Unit,
     onSelectAudio: (String) -> Unit,
     audioControls: AudioControlState = AudioControlState(),
@@ -1546,6 +1572,10 @@ internal fun PlayerControls(
                     )
                 }
 
+                val stoppedAtItemEnd by remember(playback) {
+                    derivedStateOf { playbackStoppedAtItemEnd(playback.value) }
+                }
+
                 /**
                  * Paused, with one tap back into playback.
                  *
@@ -1556,8 +1586,8 @@ internal fun PlayerControls(
                  *
                  * Not while buffering: `playing` is false throughout startup and every seek, and a
                  * resume button over a frame that is already coming back is a lie. Not once the item
-                 * has ended either — 下一集 owns that moment, and "paused" would be the wrong word
-                 * for it.
+                 * has ended or stopped at its end either — the ending's keys below own that moment,
+                 * and "paused" would be the wrong word for it.
                  *
                  * A guest whose room is driven by its host still needs to be told the film is paused,
                  * so the key is drawn for them too — dimmed and inert, since the tap would only be
@@ -1570,7 +1600,8 @@ internal fun PlayerControls(
                     !state.playing &&
                         !state.buffering &&
                         !state.ended &&
-                        state.error == null
+                        state.error == null &&
+                        !stoppedAtItemEnd
                 ChromeVisibility(
                     visible = showPausedKey,
                     modifier = Modifier.align(Alignment.Center),
@@ -1594,34 +1625,55 @@ internal fun PlayerControls(
                 }
 
                 /**
-                 * The end of the last episode, where nothing used to be.
+                 * The end of an item that did not roll on into the next one, where nothing used to be.
                  *
-                 * 下一集 owns the end of everything else, and this is the case it does not cover:
-                 * a film, or the last entry in a series. The picture stops on its final frame with
-                 * no controls, nothing saying the film is over rather than stalled, and no way
-                 * back that does not start with a tap to summon the chrome. Two keys at the same
-                 * size and in the same place as 继续播放, because it is the same question — what
-                 * happens if I touch this — asked one moment later.
+                 * A film, the last entry in a series, or an episode that stopped at its end because
+                 * 自动播放下一集 is off (or 取消 or the sleep timer said so). The picture stops on its
+                 * final frame with no controls, nothing saying the episode is over rather than
+                 * stalled, and no way on that does not start with a tap to summon the chrome. Keys at
+                 * the same size and in the same place as 继续播放, because it is the same question —
+                 * what happens if I touch this — asked one moment later; 下一集 leads when there is one.
                  */
-                val showEndedKeys = state.ended && !state.hasNext && state.error == null
+                val showEndedKeys = stoppedAtItemEnd
                 ChromeVisibility(
                     visible = showEndedKeys,
                     modifier = Modifier.align(Alignment.Center),
                 ) {
                     Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+                        if (state.hasNext) {
+                            CircleControl(
+                                icon = AppIcons.Next,
+                                description = "下一集",
+                                size = CenterKeySize,
+                                iconSize = CenterKeyIconSize,
+                                enabled = !watchLocked,
+                                filled = true,
+                                onClick = {
+                                    poke()
+                                    onNextItem()
+                                },
+                            )
+                        }
                         CircleControl(
                             icon = AppIcons.Refresh,
                             description = "重播",
                             size = CenterKeySize,
                             iconSize = CenterKeyIconSize,
                             enabled = !watchLocked,
-                            filled = true,
-                            // Back to the first frame, and playing again: the engine reports the
-                            // ended item as paused, so the seek alone would leave it standing on
-                            // frame one.
+                            filled = !state.hasNext,
                             onClick = {
-                                latestOnSeek(0L)
-                                if (!playback.value.playing) onPlayPause()
+                                if (playback.value.ended) {
+                                    // Back to the first frame, and playing again: the engine reports
+                                    // the ended item as paused, so the seek alone would leave it
+                                    // standing on frame one.
+                                    latestOnSeek(0L)
+                                    if (!playback.value.playing) onPlayPause()
+                                } else {
+                                    // Parked on the last frame instead of ended: resuming would run
+                                    // into the next item before the seek landed, so the item is
+                                    // started again from the top.
+                                    onSelectItem(state.currentIndex)
+                                }
                                 poke()
                             },
                         )
@@ -1715,6 +1767,7 @@ internal fun PlayerControls(
                         onDismissNextUp()
                     },
                     modifier = Modifier.align(Alignment.BottomEnd).padding(end = 22.dp, bottom = 96.dp),
+                    autoAdvance = autoNext,
                 )
             }
         }

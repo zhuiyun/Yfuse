@@ -3007,6 +3007,7 @@ internal fun PlayerRoot(
                         }
                     },
                     onDismissNextUp = { nextUpDismissedItemId = activeItems.getOrNull(state.currentIndex)?.id },
+                    autoNext = autoNext,
                     onNextItem = {
                         sourceSwitchCoordinator.invalidate()
                         val next = state.currentIndex + 1
