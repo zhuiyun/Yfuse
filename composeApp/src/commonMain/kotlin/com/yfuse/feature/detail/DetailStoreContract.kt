@@ -97,6 +97,11 @@ sealed interface DetailIntent {
     /** The one-shot 提示 has been on screen long enough — see [ActionToast]. */
     data object DismissMessage : DetailIntent
 
+    /** A 提示 about something the page did outside the store, such as queueing a download. */
+    data class ShowMessage(
+        val message: String,
+    ) : DetailIntent
+
     data object Play : DetailIntent
 
     data object ToggleFavorite : DetailIntent

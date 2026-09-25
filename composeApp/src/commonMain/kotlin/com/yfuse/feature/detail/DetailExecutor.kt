@@ -141,6 +141,7 @@ internal class DetailExecutor(
                 }
             }
             DetailIntent.DismissMessage -> dispatch(DetailMsg.ActionMessage(null))
+            is DetailIntent.ShowMessage -> dispatch(DetailMsg.ActionMessage(intent.message))
             DetailIntent.Play -> play(fromStart = false)
             DetailIntent.PlayFromStart -> play(fromStart = true)
             DetailIntent.ToggleFavorite -> toggleFavorite()

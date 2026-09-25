@@ -977,7 +977,10 @@ fun DetailScreen(component: DetailComponent) {
                             },
                         onConfirm = { selection ->
                             downloadSheetOpen = false
-                            component.download(selection)
+                            component.download(selection)?.let { result ->
+                                val message = offlineEnqueueMessage(result, episode = downloadTarget.seriesId != null)
+                                component.store.accept(DetailIntent.ShowMessage(message))
+                            }
                         },
                         onDismiss = { downloadSheetOpen = false },
                     )
