@@ -150,6 +150,14 @@ internal sealed interface DetailMsg {
         val message: String,
     ) : DetailMsg
 
+    /** The whole series was marked, which the server applies to every one of its episodes. */
+    data class SeriesProgressChanged(
+        val serverId: String,
+        val itemId: String,
+        val played: Boolean,
+        val message: String,
+    ) : DetailMsg
+
     data class WatchLaterChanged(
         val serverId: String,
         val itemId: String,

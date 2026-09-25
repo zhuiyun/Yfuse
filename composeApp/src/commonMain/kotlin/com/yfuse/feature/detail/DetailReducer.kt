@@ -113,6 +113,8 @@ internal object DetailReducer : Reducer<DetailState, DetailMsg> {
                             playSourceDetail?.let { source ->
                                 if (source.id == msg.itemId) source.copy(played = msg.value) else source
                             },
+                        // Either way the server drops the resume point, so 继续播放 goes too.
+                        playPositionTicks = if (playTarget?.id == msg.itemId) 0L else playPositionTicks,
                         actionMessage = null,
                     )
                 } else {
@@ -134,24 +136,22 @@ internal object DetailReducer : Reducer<DetailState, DetailMsg> {
                     progressTotal = if (msg.value) msg.total else 0,
                 )
             is DetailMsg.EpisodesProgressChanged ->
-                copy(
-                    episodes =
-                        episodes.map { episode ->
-                            if (episode.id in msg.episodeIds) {
-                                episode.copy(
-                                    played = msg.played,
-                                    playedPercentage = null,
-                                    resumePositionTicks = null,
-                                )
-                            } else {
-                                episode
-                            }
-                        },
+                withEpisodeProgress(msg.episodeIds, msg.played).copy(
                     progressManagerOpen = false,
                     progressSelection = emptySet(),
                     progressSaving = false,
                     actionMessage = msg.message,
                 )
+            is DetailMsg.SeriesProgressChanged ->
+                if (server?.id == msg.serverId && detail?.id == msg.itemId) {
+                    // 播放's target is one of the series' episodes even when its season is not listed.
+                    withEpisodeProgress(
+                        episodes.mapTo(mutableSetOf()) { it.id } + listOfNotNull(playTarget?.id),
+                        msg.played,
+                    ).copy(actionMessage = msg.message)
+                } else {
+                    this
+                }
             is DetailMsg.WatchLaterChanged ->
                 if (
                     server?.id == msg.serverId && detail?.id == msg.itemId
@@ -291,6 +291,31 @@ internal object DetailReducer : Reducer<DetailState, DetailMsg> {
             }
         }
 }
+
+/**
+ * Marking an episode played or unplayed also drops its resume point on the server. The rail
+ * shows that at once, and so does 播放 when it would open one of these episodes: 继续播放 and 从头
+ * used to stay behind, offering to resume a position that no longer existed.
+ */
+private fun DetailState.withEpisodeProgress(
+    episodeIds: Set<String>,
+    played: Boolean,
+): DetailState =
+    copy(
+        episodes =
+            episodes.map { episode ->
+                if (episode.id in episodeIds) {
+                    episode.copy(
+                        played = played,
+                        playedPercentage = null,
+                        resumePositionTicks = null,
+                    )
+                } else {
+                    episode
+                }
+            },
+        playPositionTicks = if (playTarget?.id?.let(episodeIds::contains) == true) 0L else playPositionTicks,
+    )
 
 private fun DetailState.withSelectedVersion(versionId: String?): DetailState {
     val version = playTarget?.versions?.firstOrNull { it.id == versionId }

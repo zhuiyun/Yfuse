@@ -1522,21 +1522,21 @@ internal class DetailExecutor(
         val sync = syncManager
         dispatch(DetailMsg.PlayedChanged(server.id, detail.id, target))
         scope.launch {
-            sync
-                .setPlayed(server, detail.id, detail.title, target)
-                .onSuccess {
-                    if (isVisibleSource(server.id, detail.id)) {
-                        dispatch(
-                            DetailMsg.ActionMessage(
-                                if (target) "已标记为看过" else "已标记为未看",
-                            ),
-                        )
-                    }
-                }.onFailure {
-                    if (isVisibleSource(server.id, detail.id)) {
-                        dispatch(DetailMsg.ActionMessage("服务器暂不可用，已看状态已排队同步"))
-                    }
+            val written = sync.setPlayed(server, detail.id, detail.title, target).isSuccess
+            if (!isVisibleSource(server.id, detail.id)) return@launch
+            val message =
+                when {
+                    !written -> "服务器暂不可用，已看状态已排队同步"
+                    target -> "已标记为看过"
+                    else -> "已标记为未看"
                 }
+            if (detail.type.equals("Series", ignoreCase = true)) {
+                // The server marks every episode with the series. A queued write still reaches
+                // it as shown, so the episodes follow either way, as the batch editor's do.
+                dispatch(DetailMsg.SeriesProgressChanged(server.id, detail.id, target, message))
+            } else {
+                dispatch(DetailMsg.ActionMessage(message))
+            }
         }
     }
 

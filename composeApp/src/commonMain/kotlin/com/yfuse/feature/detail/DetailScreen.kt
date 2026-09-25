@@ -330,6 +330,7 @@ fun DetailScreen(component: DetailComponent) {
     val share = rememberShareHandler()
     var shareSheetOpen by remember { mutableStateOf(false) }
     var replaceRoomConfirmOpen by remember { mutableStateOf(false) }
+    var seriesPlayedConfirmOpen by remember { mutableStateOf(false) }
     var moreSheetOpen by remember { mutableStateOf(false) }
     var metadataEditorOpen by remember { mutableStateOf(false) }
     var downloadSheetOpen by remember { mutableStateOf(false) }
@@ -922,7 +923,12 @@ fun DetailScreen(component: DetailComponent) {
                         },
                         onTogglePlayed = {
                             moreSheetOpen = false
-                            component.store.accept(DetailIntent.TogglePlayed)
+                            // A series is every episode's history and resume point in one tap.
+                            if (detail.type.equals("Series", ignoreCase = true)) {
+                                seriesPlayedConfirmOpen = true
+                            } else {
+                                component.store.accept(DetailIntent.TogglePlayed)
+                            }
                         },
                         onOrganization = {
                             moreSheetOpen = false
@@ -1147,6 +1153,21 @@ fun DetailScreen(component: DetailComponent) {
                         onDismiss = {
                             component.store.accept(DetailIntent.CloseProgressManager)
                         },
+                    )
+                }
+
+                if (seriesPlayedConfirmOpen && detail != null) {
+                    val markPlayed = !detail.played
+                    ConfirmDialog(
+                        title = if (markPlayed) "整部剧标记为已看？" else "整部剧标记为未看？",
+                        message = seriesProgressConfirmMessage(detail.title, state.seasons.size, markPlayed),
+                        confirmLabel = if (markPlayed) "标记已看" else "标记未看",
+                        destructive = true,
+                        onConfirm = {
+                            seriesPlayedConfirmOpen = false
+                            component.store.accept(DetailIntent.TogglePlayed)
+                        },
+                        onDismiss = { seriesPlayedConfirmOpen = false },
                     )
                 }
 
