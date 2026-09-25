@@ -47,7 +47,7 @@ internal fun Throwable.toSourceSelectionFailure(): SourceSelectionFailure =
         is EpisodeUnavailableException -> SourceSelectionFailure.EpisodeMissing(seasonNumber, episodeNumber)
         else ->
             when (val error = (this as? EmbyErrorException)?.error) {
-                EmbyError.Network -> SourceSelectionFailure.NetworkUnavailable
+                is EmbyError.Unreachable -> SourceSelectionFailure.NetworkUnavailable
                 EmbyError.Unauthorized -> SourceSelectionFailure.AuthRequired
                 is EmbyError.AccessDenied -> SourceSelectionFailure.AccessDenied(error.provider)
                 is EmbyError.Server -> SourceSelectionFailure.Server(error.code)
