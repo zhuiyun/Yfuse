@@ -462,7 +462,7 @@ private fun SessionDeviceRow(
             )
         }
         if (current) {
-            Text("此设备", style = AppTypography.caption.strong, color = Brand.Online)
+            Text("此设备", style = AppTypography.caption.strong, color = palette.success)
         } else if (onRevoke != null) {
             CompactSessionAction(
                 label = "撤销",

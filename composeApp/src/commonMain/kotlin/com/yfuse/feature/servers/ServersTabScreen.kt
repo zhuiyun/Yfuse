@@ -873,7 +873,12 @@ private fun CurrentServerHero(
                     Text(
                         connectionLabel(health),
                         style = AppTypography.body.medium,
-                        color = if (status == ServerHealthStatus.Unknown) palette.sub2 else statusColor,
+                        color =
+                            if (status == ServerHealthStatus.Unknown) {
+                                palette.sub2
+                            } else {
+                                palette.statusText(statusColor)
+                            },
                         maxLines = 1,
                     )
                 }
@@ -957,7 +962,7 @@ private fun HeroMetric(
             Text(
                 value,
                 style = AppTypography.body.strong,
-                color = if (label == "延迟") palette.text else color,
+                color = if (label == "延迟") palette.text else palette.statusText(color),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -1461,7 +1466,7 @@ private fun ServerManagementDialog(
                 }
                 state.message?.let {
                     Spacer(Modifier.height(10.dp))
-                    Text(it, style = AppTypography.caption.medium, color = Semantic.Success)
+                    Text(it, style = AppTypography.caption.medium, color = palette.success)
                 }
                 state.error?.let {
                     Spacer(Modifier.height(10.dp))
