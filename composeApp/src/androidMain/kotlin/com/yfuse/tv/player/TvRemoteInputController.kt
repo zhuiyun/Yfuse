@@ -114,7 +114,12 @@ internal class TvRemoteInputController(
 
             RemotePhysicalKey.Activate -> {
                 val state = chrome.state.value
-                if (state.layer == TvPlayerChromeLayer.Hidden || !state.controlsHaveFocus) {
+                if (state.layer == TvPlayerChromeLayer.Hidden && state.skipPrompt) {
+                    // The pill is the one thing on screen OK can mean, and reaching it through the
+                    // controls spends the very segment it offers to skip. The chrome stays down.
+                    if (repeatCount == 0) chrome.activateSkipPrompt()
+                    consumeDown(keyCode)
+                } else if (state.layer == TvPlayerChromeLayer.Hidden || !state.controlsHaveFocus) {
                     if (repeatCount == 0) {
                         chrome.showControls()
                         playback.togglePlayPause()

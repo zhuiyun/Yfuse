@@ -574,14 +574,18 @@ internal fun SkipPill(
     )
 }
 
-/** "3 秒后跳过片头 · 点击取消" — the label says what will happen and how to stop it. */
+/**
+ * "3 秒后跳过片头 · 点击取消" — the label says what will happen and how to stop it. With [remote] it
+ * names the remote's way instead: OK over the picture cancels (see TvRemoteInputController).
+ */
 internal fun skipCountdownLabel(
     skipSegmentLabel: String?,
     seconds: Int,
+    remote: Boolean = false,
 ): String {
     // 跳过片头 -> 片头. The type's own label is the only place this wording lives.
     val what = skipSegmentLabel?.removePrefix("跳过").orEmpty()
-    return "$seconds 秒后跳过$what · 点击取消"
+    return "$seconds 秒后跳过$what · ${if (remote) "按确定键取消" else "点击取消"}"
 }
 
 /** The same countdown as a screen reader hears it: once, and without the seconds that tick. */

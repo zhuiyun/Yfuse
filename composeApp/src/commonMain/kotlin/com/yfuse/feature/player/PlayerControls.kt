@@ -494,6 +494,8 @@ internal fun PlayerControls(
     val latestRemotePanel by rememberUpdatedState(remotePanel)
     val latestRemoteLocked by rememberUpdatedState(locked)
     val latestCloseTopRemoteLayer by rememberUpdatedState { closeTopRemoteLayer() }
+    val latestSkip by rememberUpdatedState(skip)
+    val latestSkipActions by rememberUpdatedState(skipActions)
 
     LaunchedEffect(remoteChrome) {
         remoteChrome?.commands?.collect { command ->
@@ -505,6 +507,15 @@ internal fun PlayerControls(
                 TvPlayerChromeCommandType.CloseTop -> latestCloseTopRemoteLayer()
                 TvPlayerChromeCommandType.OpenTracks -> openSettingsPanel(SettingsPanelKind.Tracks)
                 TvPlayerChromeCommandType.OpenInfo -> openSettingsPanel(SettingsPanelKind.More)
+                // What a tap on the pill does, without the tap's reveal: OK over the picture means
+                // "get on with the film", not "show me the controls".
+                TvPlayerChromeCommandType.ActivateSkipPrompt -> {
+                    if (latestSkip.countdownSeconds != null) {
+                        latestSkipActions.onCancelAuto()
+                    } else if (latestSkip.segmentLabel != null) {
+                        latestSkipActions.onSkip()
+                    }
+                }
             }
         }
     }
@@ -1073,7 +1084,7 @@ internal fun PlayerControls(
                 // Column so the progress rail never moves when the countdown appears or disappears.
                 val lastAutoSkip = remember { arrayOf("", "") }
                 skip.countdownSeconds?.let {
-                    lastAutoSkip[0] = skipCountdownLabel(skip.segmentLabel, it)
+                    lastAutoSkip[0] = skipCountdownLabel(skip.segmentLabel, it, remote = remoteChrome != null)
                     lastAutoSkip[1] = skipCountdownAnnouncement(skip.segmentLabel)
                 }
                 ChromeVisibility(
@@ -1113,6 +1124,13 @@ internal fun PlayerControls(
                             }
                         },
                     )
+                }
+                // A remote cannot reach either pill while the controls are down, so OK over the
+                // picture acts on whichever one is showing (TvRemoteInputController reads this).
+                val remoteSkipPrompt = (manualSkip || skip.countdownSeconds != null) && !locked && errorMessage == null
+                DisposableEffect(remoteChrome, remoteSkipPrompt) {
+                    remoteChrome?.publishSkipPrompt(remoteSkipPrompt)
+                    onDispose { remoteChrome?.publishSkipPrompt(false) }
                 }
 
                 // Every playback function popup uses the same bottom-right anchor. Content may be

@@ -10,6 +10,8 @@ class PlayerStatusAnnouncementTest {
         val announcement = skipCountdownAnnouncement("跳过片头")
         assertEquals("即将自动跳过片头", announcement)
         assertEquals("3 秒后跳过片头 · 点击取消", skipCountdownLabel("跳过片头", 3))
+        // A remote has nothing to tap: OK over the picture cancels there.
+        assertEquals("3 秒后跳过片头 · 按确定键取消", skipCountdownLabel("跳过片头", 3, remote = true))
         assertFalse(announcement.any(Char::isDigit))
     }
 

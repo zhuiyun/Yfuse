@@ -58,9 +58,11 @@ class TvPlayerChromeControllerTest {
         )
         assertTrue(controller.state.value.attached)
         controller.updateSeekPreview(12_000L)
+        controller.publishSkipPrompt(true)
 
         controller.detach()
         assertFalse(controller.state.value.attached)
+        assertFalse(controller.state.value.skipPrompt)
         assertEquals(TvPlayerChromeLayer.Hidden, controller.state.value.layer)
         assertNull(controller.state.value.panel)
         assertFalse(controller.state.value.controlsHaveFocus)

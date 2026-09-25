@@ -61,6 +61,11 @@ internal class TvPlayerChromeController : TvPlayerChromeBridge {
         emit(TvPlayerChromeCommandType.OpenInfo)
     }
 
+    fun activateSkipPrompt() {
+        mutableState.update { it.copy(interactionRevision = it.interactionRevision + 1) }
+        emit(TvPlayerChromeCommandType.ActivateSkipPrompt)
+    }
+
     fun updateSeekPreview(positionMs: Long) {
         mutableState.update {
             it.copy(
@@ -96,6 +101,10 @@ internal class TvPlayerChromeController : TvPlayerChromeBridge {
         }
     }
 
+    override fun publishSkipPrompt(visible: Boolean) {
+        mutableState.update { it.copy(skipPrompt = visible) }
+    }
+
     /**
      * Back to "no control surface": the preparation screen, or the controls leaving composition.
      * The remote's own seek preview is left alone; it ends with the key's release.
@@ -107,6 +116,7 @@ internal class TvPlayerChromeController : TvPlayerChromeBridge {
                 panel = null,
                 controlsHaveFocus = false,
                 attached = false,
+                skipPrompt = false,
             )
         }
     }

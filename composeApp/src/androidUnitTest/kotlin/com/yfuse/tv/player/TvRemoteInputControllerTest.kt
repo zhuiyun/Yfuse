@@ -1,6 +1,9 @@
 package com.yfuse.tv.player
 
 import android.view.KeyEvent
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -165,6 +168,52 @@ class TvRemoteInputControllerTest {
         assertEquals(1, harness.toggles)
         assertEquals(TvPlayerChromeLayer.Hidden, harness.chrome.state.value.layer)
     }
+
+    @Test
+    fun ok_over_hidden_chrome_acts_on_a_skip_prompt_instead_of_pausing() =
+        runTest {
+            val harness = Harness()
+            val commands = mutableListOf<TvPlayerChromeCommandType>()
+            backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+                harness.chrome.commands.collect { commands += it.type }
+            }
+            harness.chrome.publishSkipPrompt(true)
+
+            assertTrue(harness.keyDown(KeyEvent.KEYCODE_DPAD_CENTER, timeMs = 1_000L))
+            // A held OK acts once, like a tap on the pill.
+            assertTrue(harness.keyDown(KeyEvent.KEYCODE_DPAD_CENTER, repeat = 1, timeMs = 1_500L))
+            assertTrue(harness.keyUp(KeyEvent.KEYCODE_DPAD_CENTER, timeMs = 1_510L))
+
+            assertEquals(listOf(TvPlayerChromeCommandType.ActivateSkipPrompt), commands)
+            assertEquals(0, harness.toggles)
+            // Nothing rose over the picture on the way.
+            assertEquals(TvPlayerChromeLayer.Hidden, harness.chrome.state.value.layer)
+
+            harness.chrome.publishSkipPrompt(false)
+            assertTrue(harness.keyDown(KeyEvent.KEYCODE_DPAD_CENTER, timeMs = 2_000L))
+            assertEquals(1, harness.toggles)
+        }
+
+    @Test
+    fun a_skip_prompt_leaves_ok_to_the_controls_once_they_are_up() =
+        runTest {
+            val harness = Harness()
+            val commands = mutableListOf<TvPlayerChromeCommandType>()
+            backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+                harness.chrome.commands.collect { commands += it.type }
+            }
+            harness.chrome.publishSkipPrompt(true)
+            harness.chrome.publishUiState(
+                layer = TvPlayerChromeLayer.Controls,
+                panel = null,
+                controlsHaveFocus = true,
+            )
+
+            // The focused key takes it, exactly as without a prompt.
+            assertFalse(harness.keyDown(KeyEvent.KEYCODE_DPAD_CENTER, timeMs = 1_000L))
+            assertFalse(TvPlayerChromeCommandType.ActivateSkipPrompt in commands)
+            assertEquals(0, harness.toggles)
+        }
 
     private class Harness(
         private var positionMs: Long = 30_000L,
