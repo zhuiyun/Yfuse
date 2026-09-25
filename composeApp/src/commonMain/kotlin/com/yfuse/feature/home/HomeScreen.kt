@@ -31,6 +31,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
@@ -284,6 +285,15 @@ internal fun HomeContentBody(
     val themeAccent = LocalAccentColors.current.accent
     var expandedRow by remember { mutableStateOf<TmdbRow?>(null) }
     var quickActions by remember { mutableStateOf<HomeQuickActions?>(null) }
+    val heroSlides = state.featuredSlides
+    // With no picks to show — TMDB out of reach, most often — the reel was still 480dp of empty
+    // gradient, and the card saying why sat under it with 继续观看 below the fold. It folds to
+    // its header once a load has come back empty, and stays folded through the next retry or
+    // pull instead of opening back up only to fold again if that one fails too. The first load
+    // keeps the full-height placeholder, so arriving picks do not push the page down.
+    var heroFoldedBefore by remember { mutableStateOf(false) }
+    val heroFolded = heroSlides.isEmpty() && (!state.loading || heroFoldedBefore)
+    SideEffect { heroFoldedBefore = heroFolded }
 
     val pullState = rememberPullToRefreshState()
     RefreshThresholdHaptics(pullState, refreshing = state.refreshing)
@@ -327,7 +337,8 @@ internal fun HomeContentBody(
 
         val scrolledPastHero by rememberScrolledPastHero(listState, heroHeight)
         val heroVisible = !scrolledPastHero
-        StatusBarIconStyle(darkIcons = !heroVisible && !palette.isDark)
+        // A folded header has no artwork under the status bar, so the icons follow the page.
+        StatusBarIconStyle(darkIcons = (heroFolded || !heroVisible) && !palette.isDark)
         // Reading `listState.isScrollInProgress` directly in the item's content recomposed the
         // hero every time a scroll started or stopped (LibraryHomeScreen's carouselVisible
         // already takes this shape); derivedStateOf collapses that to one flip per visibility
@@ -374,24 +385,35 @@ internal fun HomeContentBody(
                     // Navigation in the hero header must remain available even when the remote
                     // recommendation feed is loading or unavailable.
                     motionItem(key = "home-hero", arrival = false) {
-                        Box(Modifier.heroScrollCollapse(listState, heroHeight)) {
-                            HomeHeroCarousel(
-                                items = state.featuredSlides.take(8),
+                        if (heroFolded) {
+                            HeroHeader(
                                 userName = state.server?.userName,
-                                height = heroHeight,
-                                showSidePreview = showSidePreview,
-                                visible = heroCarouselVisible,
-                                held = quickActions != null || expandedRow != null,
                                 refreshing = state.refreshing,
                                 onRefresh = refreshPage,
                                 onOpenProfile = onOpenProfile,
                                 onOpenCalendar = onOpenCalendar,
-                                onPlay = { onIntent(HomeIntent.Play(it)) },
-                                onDetails = { onIntent(HomeIntent.Open(it)) },
-                                onFavorite = { onIntent(HomeIntent.Favorite(it)) },
-                                onAccent = onHeroAccent,
-                                onPageColor = onHeroPageColor,
+                                onArtwork = false,
                             )
+                        } else {
+                            Box(Modifier.heroScrollCollapse(listState, heroHeight)) {
+                                HomeHeroCarousel(
+                                    items = heroSlides.take(8),
+                                    userName = state.server?.userName,
+                                    height = heroHeight,
+                                    showSidePreview = showSidePreview,
+                                    visible = heroCarouselVisible,
+                                    held = quickActions != null || expandedRow != null,
+                                    refreshing = state.refreshing,
+                                    onRefresh = refreshPage,
+                                    onOpenProfile = onOpenProfile,
+                                    onOpenCalendar = onOpenCalendar,
+                                    onPlay = { onIntent(HomeIntent.Play(it)) },
+                                    onDetails = { onIntent(HomeIntent.Open(it)) },
+                                    onFavorite = { onIntent(HomeIntent.Favorite(it)) },
+                                    onAccent = onHeroAccent,
+                                    onPageColor = onHeroPageColor,
+                                )
+                            }
                         }
                     }
 
@@ -950,7 +972,12 @@ private fun HeroHeader(
     onOpenProfile: () -> Unit,
     onOpenCalendar: () -> Unit,
     modifier: Modifier = Modifier,
+    /** False when there is no artwork under it: white on the bare page is unreadable in light. */
+    onArtwork: Boolean = true,
 ) {
+    val palette = LocalPalette.current
+    val shadow = HeroTextShadow.takeIf { onArtwork }
+    val ink = if (onArtwork) Color.White else palette.text
     Row(
         modifier
             .fillMaxWidth()
@@ -968,13 +995,13 @@ private fun HeroHeader(
             Column {
                 Text(
                     homeGreeting(currentHourOfDay()),
-                    style = AppTypography.caption.regular.copy(shadow = HeroTextShadow),
-                    color = Color.White.copy(alpha = 0.82f),
+                    style = AppTypography.caption.regular.copy(shadow = shadow),
+                    color = if (onArtwork) Color.White.copy(alpha = 0.82f) else palette.sub2,
                 )
                 Text(
                     "继续你的旅程",
-                    style = AppTypography.section.strong.copy(shadow = HeroTextShadow),
-                    color = Color.White,
+                    style = AppTypography.section.strong.copy(shadow = shadow),
+                    color = ink,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     // The page's title: where TalkBack lands first, and so where 下拉刷新 lives
@@ -992,15 +1019,15 @@ private fun HeroHeader(
                     .size(36.dp)
                     .glass(
                         shape = CircleShape,
-                        fill = Color.White.copy(alpha = 0.14f),
-                        border = Color.White.copy(alpha = 0.34f),
+                        fill = if (onArtwork) Color.White.copy(alpha = 0.14f) else palette.card2,
+                        border = if (onArtwork) Color.White.copy(alpha = 0.34f) else palette.border,
                     ),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
                     AppIcons.WatchCalendar,
                     "追剧日历",
-                    tint = Color.White,
+                    tint = ink,
                     modifier = Modifier.size(17.dp),
                 )
             }
