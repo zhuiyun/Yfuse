@@ -128,6 +128,9 @@ private val ServerHeaderCircleSize = 42.dp
 /** How often 「上次观看」 re-reads the clock, so 「刚刚看过」 becomes 「1 分钟前」 on its own. */
 private const val AGE_TICK_MS = 30_000L
 
+/** Why a child profile finds nothing here to add, edit or remove, and the way to an adult one. */
+private const val CHILD_PROFILE_NOTE = "儿童资料不能管理服务器，请用家长 PIN 切换到成人资料"
+
 /**
  * 服务器 — every saved server as a card: what it is called, whether it answers and how
  * quickly, and how long it has been since anyone watched anything on it.
@@ -149,6 +152,10 @@ fun ServersTabScreen(component: ServersTabComponent) {
     val layout by component.layout.collectAsState()
     val listFilter by component.listFilter.collectAsState()
     val managementState by component.management.collectAsState()
+    val access by component.access.collectAsState()
+    // A child profile may choose among its servers but not change them: the registry refuses the
+    // edit, and offering it only led to that refusal.
+    val canManage = access.canManageServers
     val gridState = rememberLazyGridState()
     val share = rememberShareHandler()
 
@@ -276,7 +283,7 @@ fun ServersTabScreen(component: ServersTabComponent) {
                     ) {
                         motionItem(key = "header", span = { GridItemSpan(maxLineSpan) }) {
                             ServersHeader(
-                                onAdd = { component.store.accept(ServersIntent.OpenAddDialog) },
+                                onAdd = { component.store.accept(ServersIntent.OpenAddDialog) }.takeIf { canManage },
                                 refreshing = refreshing,
                                 refreshingFromKey = refreshing && !refreshByPull,
                                 onRefreshAll = { requestRefresh(false) },
@@ -285,6 +292,21 @@ fun ServersTabScreen(component: ServersTabComponent) {
                                 filter = listFilter,
                                 onFilter = { filterVisible = true },
                             )
+                        }
+
+                        if (!canManage) {
+                            motionItem(key = "child-profile", span = { GridItemSpan(maxLineSpan) }) {
+                                Text(
+                                    if (state.servers.isEmpty()) {
+                                        "这个资料还没有关联服务器，请用家长 PIN 切换到成人资料后添加"
+                                    } else {
+                                        CHILD_PROFILE_NOTE
+                                    },
+                                    style = AppTypography.body.medium,
+                                    color = palette.sub2,
+                                    modifier = Modifier.padding(bottom = 4.dp),
+                                )
+                            }
                         }
 
                         currentServer?.let { server ->
@@ -312,7 +334,8 @@ fun ServersTabScreen(component: ServersTabComponent) {
                             }
                         }
 
-                        if (state.servers.isEmpty()) {
+                        // A child profile's empty page is the note above: it has no way to add one.
+                        if (state.servers.isEmpty() && canManage) {
                             motionItem(key = "empty", span = { GridItemSpan(maxLineSpan) }) {
                                 EmptyServers(
                                     onAdd = { component.store.accept(ServersIntent.OpenAddDialog) },
@@ -388,6 +411,7 @@ fun ServersTabScreen(component: ServersTabComponent) {
         ServerActionsDialog(
             server = server,
             isCurrent = server.id == state.defaultServerId,
+            canManage = canManage,
             health = health[server.id],
             lastWatchedLabel = formatWatchedAgo(lastWatched[server.id], nowEpochMs),
             onOpenLibrary = {
@@ -569,7 +593,8 @@ private fun routesSummary(
 
 @Composable
 private fun ServersHeader(
-    onAdd: () -> Unit,
+    /** Null for a profile that cannot add servers; the key is then left out. */
+    onAdd: (() -> Unit)?,
     /** A refresh is under way, however it was started; the key waits for it. */
     refreshing: Boolean,
     /** The refresh under way came from the key, so the key carries its indicator. */
@@ -597,22 +622,24 @@ private fun ServersHeader(
                 // A pull-to-refresh page: TalkBack's touch exploration never produces the pull.
                 modifier = Modifier.weight(1f).refreshAction(enabled = !refreshing, onRefresh = onRefreshAll),
             )
-            Row(
-                Modifier
-                    .pressable(onClickLabel = "添加服务器", onClick = onAdd)
-                    .touchTarget()
-                    .shadow(GlassLift.control, AppShapes.chip)
-                    .liquidGlass(
-                        shape = AppShapes.chip,
-                        fill = accent.container,
-                        border = accent.border.copy(alpha = 0.42f),
-                        sheen = 0.7f,
-                    ).padding(horizontal = 13.dp, vertical = 9.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(AppIcons.Add, null, tint = accent.accent, modifier = Modifier.size(13.dp))
-                Text("添加", style = AppTypography.body.strong, color = accent.accent)
+            if (onAdd != null) {
+                Row(
+                    Modifier
+                        .pressable(onClickLabel = "添加服务器", onClick = onAdd)
+                        .touchTarget()
+                        .shadow(GlassLift.control, AppShapes.chip)
+                        .liquidGlass(
+                            shape = AppShapes.chip,
+                            fill = accent.container,
+                            border = accent.border.copy(alpha = 0.42f),
+                            sheen = 0.7f,
+                        ).padding(horizontal = 13.dp, vertical = 9.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(AppIcons.Add, null, tint = accent.accent, modifier = Modifier.size(13.dp))
+                    Text("添加", style = AppTypography.body.strong, color = accent.accent)
+                }
             }
         }
         Row(
@@ -1445,6 +1472,8 @@ private fun ServerManagementDialog(
 private fun ServerActionsDialog(
     server: SavedServer,
     isCurrent: Boolean,
+    /** False for a child profile: what changes the server is left out, and the note says why. */
+    canManage: Boolean,
     health: ServerHealth?,
     lastWatchedLabel: String,
     onOpenLibrary: () -> Unit,
@@ -1605,13 +1634,15 @@ private fun ServerActionsDialog(
             enabled = !isCurrent,
             onClick = overlayAction(onSetDefault),
         )
-        Spacer(Modifier.height(8.dp))
-        ServerActionRow(
-            icon = AppIcons.Cast,
-            label = "线路",
-            description = routesSummary(server, health),
-            onClick = overlayAction(onRoutes),
-        )
+        if (canManage) {
+            Spacer(Modifier.height(8.dp))
+            ServerActionRow(
+                icon = AppIcons.Cast,
+                label = "线路",
+                description = routesSummary(server, health),
+                onClick = overlayAction(onRoutes),
+            )
+        }
         Spacer(Modifier.height(8.dp))
         ServerActionRow(
             icon = AppIcons.Lock,
@@ -1619,35 +1650,40 @@ private fun ServerActionsDialog(
             description = "检查主线路与备用地址的传输安全",
             onClick = overlayAction(onDiagnostics),
         )
-        Spacer(Modifier.height(8.dp))
-        ServerActionRow(
-            icon = AppIcons.Server,
-            label = "服务器管理",
-            description = "扫描媒体库、查看并运行服务器任务",
-            onClick = overlayAction(onManage),
-        )
-        Spacer(Modifier.height(8.dp))
-        ServerActionRow(
-            icon = AppIcons.Grid,
-            label = "图标与颜色",
-            description = "给这台服务器一个一眼认得出的样子",
-            onClick = overlayAction(onIcon),
-        )
-        Spacer(Modifier.height(8.dp))
-        ServerActionRow(
-            icon = AppIcons.Edit,
-            label = "编辑连接与名称",
-            description = "改名不用重新登录，改地址或账号要",
-            onClick = overlayAction(onEdit),
-        )
-        Spacer(Modifier.height(8.dp))
-        ServerActionRow(
-            icon = AppIcons.Close,
-            label = "移除服务器",
-            description = "已下载的离线内容会保留",
-            destructive = true,
-            onClick = overlayAction(onRemove),
-        )
+        if (canManage) {
+            Spacer(Modifier.height(8.dp))
+            ServerActionRow(
+                icon = AppIcons.Server,
+                label = "服务器管理",
+                description = "扫描媒体库、查看并运行服务器任务",
+                onClick = overlayAction(onManage),
+            )
+            Spacer(Modifier.height(8.dp))
+            ServerActionRow(
+                icon = AppIcons.Grid,
+                label = "图标与颜色",
+                description = "给这台服务器一个一眼认得出的样子",
+                onClick = overlayAction(onIcon),
+            )
+            Spacer(Modifier.height(8.dp))
+            ServerActionRow(
+                icon = AppIcons.Edit,
+                label = "编辑连接与名称",
+                description = "改名不用重新登录，改地址或账号要",
+                onClick = overlayAction(onEdit),
+            )
+            Spacer(Modifier.height(8.dp))
+            ServerActionRow(
+                icon = AppIcons.Close,
+                label = "移除服务器",
+                description = "已下载的离线内容会保留",
+                destructive = true,
+                onClick = overlayAction(onRemove),
+            )
+        } else {
+            Spacer(Modifier.height(12.dp))
+            Text(CHILD_PROFILE_NOTE, style = AppTypography.caption.regular, color = palette.sub2)
+        }
     }
 }
 

@@ -83,8 +83,10 @@ import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberDisclosureProgress
 import com.yfuse.core.designsystem.touchTarget
+import com.yfuse.core.personal.PersonalLibraryRepository
 import com.yfuse.core.util.rememberShareHandler
 import kotlinx.coroutines.launch
+import org.koin.core.context.GlobalContext
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
 
@@ -340,6 +342,7 @@ private fun SignedInAccountCard(
     var issuedInvite by remember { mutableStateOf<IssuedInviteCode?>(null) }
     var inviteBusy by remember { mutableStateOf(false) }
     val share = rememberShareHandler()
+    val personal = remember { GlobalContext.get().get<PersonalLibraryRepository>() }
 
     LaunchedEffect(user.nickname, user.avatarId) {
         nickname = user.nickname
@@ -627,14 +630,20 @@ private fun SignedInAccountCard(
             loading = busy,
             dense = true,
             onClick = {
-                busy = true
-                // Posted from the press rather than from the continuation: signing out replaces
-                // this card with the signed-out one, and the scope that ran the call goes with
-                // it. The repository clears the session locally either way.
-                onNotice("已退出 Yfuse 账号")
-                scope.launch {
-                    account.logout()
-                    busy = false
+                if (!personal.policy.value.canManageServers) {
+                    // The repository refuses a child profile's sign-out, and says nothing: the
+                    // notice below would have confirmed a sign-out that never happened.
+                    onNotice("儿童资料不能退出 Yfuse 账号，请用家长 PIN 切换到成人资料")
+                } else {
+                    busy = true
+                    // Posted from the press rather than from the continuation: signing out replaces
+                    // this card with the signed-out one, and the scope that ran the call goes with
+                    // it. The repository clears the session locally either way.
+                    onNotice("已退出 Yfuse 账号")
+                    scope.launch {
+                        account.logout()
+                        busy = false
+                    }
                 }
             },
         )

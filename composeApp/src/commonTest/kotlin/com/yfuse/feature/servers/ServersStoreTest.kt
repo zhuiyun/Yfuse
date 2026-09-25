@@ -9,6 +9,7 @@ import com.russhwolf.settings.MapSettings
 import com.yfuse.core.data.AuthedServer
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.model.SavedServer
+import com.yfuse.core.personal.PersonalLibraryRepository
 import com.yfuse.core.security.TestSecureStore
 import com.yfuse.feature.authRoutes
 import com.yfuse.feature.testRegistry
@@ -216,6 +217,81 @@ class ServersStoreTest {
             assertNull(settings.getStringOrNull(oldCacheKey))
             assertEquals(other, registry.serverById(other.id))
             assertEquals(updated.id, registry.data.value.defaultServerId)
+            store.dispose()
+        }
+
+    /** A registry whose active profile is a child's, holding the one server it was given. */
+    private suspend fun childRegistry(server: SavedServer): ServerRegistry {
+        val settings = MapSettings()
+        val personal = PersonalLibraryRepository(settings)
+        val registry = ServerRegistry(settings, TestSecureStore(), personal = personal)
+        registry.addOrUpdate(server)
+        personal.setGuardianPin("583921".toCharArray()).getOrThrow()
+        personal.saveProfile(name = "孩子", child = true, serverIds = setOf(server.id)).getOrThrow()
+        val child =
+            personal.state.value.profiles
+                .last()
+                .id
+        personal.switchProfile(child).getOrThrow()
+        return registry
+    }
+
+    private val kidServer = SavedServer("kid", "https://media.example", "影院", "kid", "儿童", "token")
+
+    @Test
+    fun a_child_profile_removing_a_server_is_refused_instead_of_crashing() =
+        runTest {
+            val registry = childRegistry(kidServer)
+            val store = store(registry) { error("a refused removal must not make a network request") }
+            store.states.first { it.servers.isNotEmpty() }
+
+            store.accept(ServersIntent.Remove(kidServer.id))
+
+            assertEquals(
+                listOf(kidServer.id),
+                registry.data.value.servers
+                    .map { it.id },
+            )
+            assertEquals("请先使用家长 PIN 切换到成人资料", store.state.notice)
+            store.dispose()
+        }
+
+    @Test
+    fun a_child_profile_renaming_a_server_is_refused_instead_of_crashing() =
+        runTest {
+            val registry = childRegistry(kidServer)
+            val store = store(registry) { error("a rename must not make a network request") }
+            store.states.first { it.servers.isNotEmpty() }
+            store.accept(ServersIntent.EditServer(kidServer))
+            store.accept(ServersIntent.ServerNameChanged("客厅"))
+
+            store.accept(ServersIntent.Submit)
+
+            assertEquals("影院", registry.serverById(kidServer.id)?.serverName)
+            assertEquals("请先使用家长 PIN 切换到成人资料", store.state.form.error)
+            assertTrue(store.state.dialogVisible)
+            store.dispose()
+        }
+
+    @Test
+    fun a_child_profile_adding_a_server_is_refused_instead_of_crashing() =
+        runTest {
+            val registry = childRegistry(kidServer)
+            val store = store(registry) { req -> authRoutes(req) }
+            store.accept(ServersIntent.OpenAddDialog)
+            store.accept(ServersIntent.HostChanged("https://other.example"))
+            store.accept(ServersIntent.UsernameChanged("zhuiyun"))
+            store.accept(ServersIntent.PasswordChanged("123456"))
+
+            store.accept(ServersIntent.Submit)
+
+            val refused = store.states.first { it.form.error != null }
+            assertEquals("请先使用家长 PIN 切换到成人资料", refused.form.error)
+            assertEquals(
+                listOf(kidServer.id),
+                registry.data.value.servers
+                    .map { it.id },
+            )
             store.dispose()
         }
 

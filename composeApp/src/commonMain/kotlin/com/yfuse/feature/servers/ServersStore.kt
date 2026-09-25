@@ -360,6 +360,14 @@ sealed interface ServersIntent {
     /** The confirmation toast finished or was swiped away. */
     data object DismissNotice : ServersIntent
 
+    /**
+     * A result reached outside this store — an edit the tab made on the registry directly — to be
+     * shown the way the store's own notices are.
+     */
+    data class ShowNotice(
+        val message: String,
+    ) : ServersIntent
+
     data object LocalNetworkPermissionDenied : ServersIntent
 
     data class SelectDiscovered(
@@ -571,6 +579,7 @@ class ServersStoreFactory(
                     dispatch(Msg.DialogClose)
                 }
                 ServersIntent.DismissNotice -> dispatch(Msg.Notice(null))
+                is ServersIntent.ShowNotice -> dispatch(Msg.Notice(intent.message))
                 is ServersIntent.EditServer -> {
                     cancelDialogJobs()
                     dispatch(Msg.EditOpen(intent.server))
@@ -624,10 +633,31 @@ class ServersStoreFactory(
                 is ServersIntent.SelectDiscovered -> selectDiscovered(intent.server)
                 is ServersIntent.SelectPublicUser ->
                     dispatch(Msg.Username(intent.name))
-                is ServersIntent.SelectDefault -> registry.setDefault(intent.id)
-                is ServersIntent.Remove -> registry.remove(intent.id)
+                is ServersIntent.SelectDefault ->
+                    writeRegistry { registry.setDefault(intent.id) }
+                        .onFailure { dispatch(Msg.Notice(it.registryEditMessage())) }
+                is ServersIntent.Remove ->
+                    writeRegistry { registry.remove(intent.id) }
+                        .onFailure { dispatch(Msg.Notice(it.registryEditMessage())) }
             }
         }
+
+        /**
+         * Runs one write to the registry and hands back what went wrong instead of throwing it.
+         *
+         * The registry refuses every change from a child profile by throwing. Unguarded, that
+         * throw left through the tap (移除) or the login coroutine (添加, 编辑) that asked for the
+         * change and took the app down; each caller now reports it through the channel it has.
+         */
+        private fun <T> writeRegistry(write: () -> T): Result<T> =
+            runCatching(write).onFailure {
+                AppLog.warning(
+                    category = "server.registry",
+                    event = "edit_refused",
+                    message = "Saved server edit was refused",
+                    throwable = it,
+                )
+            }
 
         private fun scan() {
             scanJob?.cancel()
@@ -886,11 +916,16 @@ class ServersStoreFactory(
                                     serverName = requestedName.takeIf(String::isNotBlank) ?: existing?.serverName,
                                 )
                             val saved =
-                                if (editingId == null) {
-                                    registry.addOrUpdate(savedServer)
-                                    true
-                                } else {
-                                    registry.replace(editingId, savedServer)
+                                writeRegistry {
+                                    if (editingId == null) {
+                                        registry.addOrUpdate(savedServer)
+                                        true
+                                    } else {
+                                        registry.replace(editingId, savedServer)
+                                    }
+                                }.getOrElse {
+                                    dispatch(Msg.PlexAccount(PlexAccountUiState.Error(it.registryEditMessage())))
+                                    return@onSuccess
                                 }
                             if (!saved) {
                                 dispatch(Msg.PlexAccount(PlexAccountUiState.Error("原服务器已不存在，请重新添加")))
@@ -1059,11 +1094,16 @@ class ServersStoreFactory(
                     localCleartextConfirmed = state().form.httpRiskAccepted,
                 )
             val saved =
-                if (editingId == null) {
-                    registry.addOrUpdate(savedServer)
-                    true
-                } else {
-                    registry.replace(editingId, savedServer)
+                writeRegistry {
+                    if (editingId == null) {
+                        registry.addOrUpdate(savedServer)
+                        true
+                    } else {
+                        registry.replace(editingId, savedServer)
+                    }
+                }.getOrElse {
+                    dispatch(Msg.QuickConnect(QuickConnectUiState.Error(it.registryEditMessage())))
+                    return
                 }
             if (!saved) {
                 dispatch(Msg.QuickConnect(QuickConnectUiState.Error("原服务器已不存在，请重新添加")))
@@ -1105,7 +1145,12 @@ class ServersStoreFactory(
                 form.password.isBlank() &&
                 !state().connectionEdited
             ) {
-                if (!registry.rename(existing.id, requestedName)) {
+                val renamed =
+                    writeRegistry { registry.rename(existing.id, requestedName) }.getOrElse {
+                        dispatch(Msg.SubmitError(it.registryEditMessage()))
+                        return
+                    }
+                if (!renamed) {
                     dispatch(Msg.SubmitError("服务器已不存在，请重新打开编辑页面"))
                     return
                 }
@@ -1130,11 +1175,16 @@ class ServersStoreFactory(
                                 localCleartextConfirmed = form.httpRiskAccepted,
                             )
                         val saved =
-                            if (editingId == null) {
-                                registry.addOrUpdate(savedServer)
-                                true
-                            } else {
-                                registry.replace(editingId, savedServer)
+                            writeRegistry {
+                                if (editingId == null) {
+                                    registry.addOrUpdate(savedServer)
+                                    true
+                                } else {
+                                    registry.replace(editingId, savedServer)
+                                }
+                            }.getOrElse {
+                                dispatch(Msg.SubmitError(it.registryEditMessage()))
+                                return@onSuccess
                             }
                         if (!saved) {
                             dispatch(Msg.SubmitError("原服务器已不存在，请重新添加"))
@@ -1376,3 +1426,9 @@ private fun sanitizeServerName(value: String): String =
         .replace('\n', ' ')
         .trim()
         .take(60)
+
+/**
+ * What to tell the user when the registry refused an edit. Its refusals are written for them —
+ * a child profile's 「请先使用家长 PIN 切换到成人资料」 above all — so the wording is kept.
+ */
+internal fun Throwable.registryEditMessage(): String = message?.takeIf(String::isNotBlank) ?: "操作没有完成，请重试"
