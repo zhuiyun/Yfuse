@@ -157,10 +157,12 @@ jobs:
           version_code="$(sed -n 's/^VERSION_CODE=//p' version.properties | tail -n 1 | tr -d '\r')"
           version_name="$(sed -n 's/^VERSION_NAME=//p' version.properties | tail -n 1 | tr -d '\r')"
           grep -Fq "package: name='com.yfuse'" <<<"$package_line" || fail "Unexpected package: ${package_line:-none}"
-          # Backups would carry Emby tokens; the manifest must keep them off for good. aapt prints a
-          # false boolean as `(type 0x12)0x0`; an aapt2-style dump prints `=false`.
+          # Backups would carry Emby tokens; the manifest must keep them off for good. allowBackup is
+          # framework attribute 0x01010280 (0x0101002a, which this looked for before, is android:path,
+          # so the check could never pass). aapt prints a false boolean as `(type 0x12)0x0`, an
+          # aapt2-style dump as `=false`.
           manifest_tree="$("$build_tools/aapt" dump xmltree "$apk" AndroidManifest.xml)"
-          allow_backup="$(grep -F 'android:allowBackup(0x0101002a)' <<<"$manifest_tree" || true)"
+          allow_backup="$(grep -F 'allowBackup(0x01010280)' <<<"$manifest_tree" || true)"
           grep -Eq '\(type 0x12\)0x0([^0-9a-fx]|$)|=false([^a-z]|$)' <<<"$allow_backup" ||
             fail "android:allowBackup is not false in the packaged manifest: ${allow_backup:-attribute absent}"
           grep -Fq "versionCode='$version_code'" <<<"$package_line" ||
