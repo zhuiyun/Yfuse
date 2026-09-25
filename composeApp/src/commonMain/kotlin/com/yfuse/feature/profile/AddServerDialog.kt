@@ -92,9 +92,10 @@ fun AddServerDialog(
     val holdsInput = form.hasInputSince(openedForm)
     var confirmDiscard by remember { mutableStateOf(false) }
     // One rule for the button and for the keyboard's 完成, so the keyboard cannot send a form the
-    // button would refuse.
+    // button would refuse. The name-only shortcut is not open while signing in again: that needs
+    // the credentials, so a Plex server offers 重新登录 once a token is in or its account signs in.
     val canSubmit =
-        (form.canSubmit || (editing && !state.connectionEdited)) &&
+        (form.canSubmit || (editing && !state.connectionEdited && !state.reauthenticating)) &&
             endpointValidation.allowed &&
             (!editing || form.serverName.isNotBlank())
     val submit = { if (canSubmit && !form.submitting) sendIntent(ServersIntent.Submit) }
@@ -417,7 +418,12 @@ fun AddServerDialog(
                     ServerFormInput(
                         label = "手动 Plex Token（备用）",
                         value = form.password,
-                        placeholder = if (editing) "修改连接时重新填写 Token" else "输入 X-Plex-Token",
+                        placeholder =
+                            when {
+                                state.reauthenticating -> "输入新的 X-Plex-Token"
+                                editing -> "修改连接时重新填写 Token"
+                                else -> "输入 X-Plex-Token"
+                            },
                         enabled = !form.submitting,
                         password = true,
                         divider = false,

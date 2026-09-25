@@ -61,7 +61,12 @@ class ServersTabComponent(
             registry = registry,
             discovery = dependencies.lanDiscovery,
             quickConnectGateway = dependencies.quickConnectGateway,
-            onAuthenticated = dependencies.playbackReportingCoordinator::resumeAfterAuthentication,
+            onAuthenticated = { serverId ->
+                // The server has just answered and accepted the sign-in. Left to the next probe, a
+                // server signed in to again still read 需要重新登录 and offered the form once more.
+                dependencies.serverHealthMonitor.recordSuccess(serverId)
+                dependencies.playbackReportingCoordinator.resumeAfterAuthentication(serverId)
+            },
         ).create()
 
     val health: ServerHealthMonitor = dependencies.serverHealthMonitor
@@ -343,8 +348,12 @@ class ServersTabComponent(
         // The first server is what a first run was waiting for: move on to what is on it. Later
         // ones stay here, beside the servers the user is managing.
         store.labels
-            .onEach { label -> if (label is ServersLabel.ServerAdded && label.first) onOpenLibrary() }
-            .launchIn(scope)
+            .onEach { label ->
+                if (label !is ServersLabel.ServerAdded) return@onEach
+                // A lapsed sign-in interrupted opening that server; finish what the tap asked for.
+                label.signedInAgain?.let { store.accept(ServersIntent.SelectDefault(it)) }
+                if (label.first || label.signedInAgain != null) onOpenLibrary()
+            }.launchIn(scope)
         lifecycle.doOnPause { refreshController.suppressFeedback() }
         lifecycle.doOnDestroy { store.dispose() }
     }

@@ -279,7 +279,7 @@ class ServersStoreTest {
             assertTrue(store.state.reauthenticating)
             store.labels.test {
                 store.accept(ServersIntent.Submit)
-                assertEquals(ServersLabel.ServerAdded(first = false), awaitItem())
+                assertEquals(ServersLabel.ServerAdded(first = false, signedInAgain = existing.id), awaitItem())
                 cancelAndConsumeRemainingEvents()
             }
 
@@ -287,6 +287,55 @@ class ServersStoreTest {
             assertEquals("fresh-token", registry.serverById(existing.id)?.accessToken)
             assertEquals("已重新登录「家庭影院」", store.state.notice)
             assertFalse(store.state.reauthenticating)
+            store.dispose()
+        }
+
+    private fun plexServer(): SavedServer =
+        SavedServer(
+            id = SavedServer.idOf("http://plex:32400", "p1"),
+            baseUrl = "http://plex:32400",
+            serverName = "客厅 Plex",
+            userId = "p1",
+            userName = "zhuiyun",
+            accessToken = "plex-token",
+            localCleartextConfirmed = true,
+            kind = MediaServerKind.Plex,
+        )
+
+    @Test
+    fun a_plex_server_is_renamed_without_its_token() =
+        runTest {
+            val registry = testRegistry()
+            val existing = plexServer()
+            registry.addOrUpdate(existing)
+            val store = store(registry) { error("rename must not make a network request") }
+            store.states.first { it.servers.isNotEmpty() }
+
+            store.accept(ServersIntent.EditServer(existing))
+            store.accept(ServersIntent.ServerNameChanged("书房 Plex"))
+            store.accept(ServersIntent.Submit)
+
+            assertEquals("书房 Plex", registry.serverById(existing.id)?.serverName)
+            assertEquals("plex-token", registry.serverById(existing.id)?.accessToken)
+            assertFalse(store.state.dialogVisible)
+            store.dispose()
+        }
+
+    @Test
+    fun signing_in_to_plex_again_without_a_token_says_what_is_missing() =
+        runTest {
+            val registry = testRegistry()
+            val existing = plexServer()
+            registry.addOrUpdate(existing)
+            val store = store(registry) { error("an empty token must not reach the server") }
+            store.states.first { it.servers.isNotEmpty() }
+
+            store.accept(ServersIntent.EditServer(existing, reauthenticate = true))
+            store.accept(ServersIntent.Submit)
+
+            assertEquals("请填写 Plex Token，或使用上方的 Plex 账号登录", store.state.form.error)
+            assertTrue(store.state.dialogVisible)
+            assertEquals("plex-token", registry.serverById(existing.id)?.accessToken)
             store.dispose()
         }
 
@@ -554,6 +603,31 @@ class ServersStoreTest {
             store.accept(ServersIntent.HostChanged("192.168.1.8"))
 
             assertEquals("http://192.168.1.8:32400", store.state.form.url)
+            store.dispose()
+        }
+
+    @Test
+    fun a_lan_address_with_an_https_port_keeps_https() =
+        runTest {
+            val store = store(testRegistry()) { authRoutes(it) }
+
+            store.accept(ServersIntent.HostChanged("192.168.1.8:8920"))
+            assertEquals("https://192.168.1.8:8920", store.state.form.url)
+
+            store.accept(ServersIntent.HostChanged("nas.local:443"))
+            assertEquals("https://nas.local:443", store.state.form.url)
+            store.dispose()
+        }
+
+    @Test
+    fun an_https_port_typed_for_a_lan_address_moves_it_to_https() =
+        runTest {
+            val store = store(testRegistry()) { authRoutes(it) }
+            store.accept(ServersIntent.HostChanged("192.168.1.8"))
+
+            store.accept(ServersIntent.PortChanged("8920"))
+
+            assertEquals("https://192.168.1.8:8920", store.state.form.url)
             store.dispose()
         }
 

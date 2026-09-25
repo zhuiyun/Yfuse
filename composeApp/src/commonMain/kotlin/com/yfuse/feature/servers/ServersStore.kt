@@ -113,6 +113,12 @@ internal data class ParsedServerAddress(
 internal fun defaultServerPort(https: Boolean): String = if (https) "443" else "8096"
 
 /**
+ * A port that only HTTPS answers on — 443, or Emby and Jellyfin's 8920 — names the protocol as
+ * well, so `192.168.1.8:8920` is not sent over the LAN host's HTTP guess.
+ */
+internal fun portImpliesHttps(port: String?): Boolean = port == "443" || port == "8920"
+
+/**
  * A host that is almost certainly on the user's own network: a private IPv4 address (10/8,
  * 172.16/12, 192.168/16), loopback, `localhost`, or an mDNS `.local` name. Emby and Jellyfin
  * answer those on plain HTTP, port 8096; HTTPS there needs a certificate few home servers have.
@@ -434,9 +440,12 @@ sealed interface ServersLabel {
     /**
      * A server was just added or signed in to again. [first] is set when the registry had no
      * server before it — the one a first run was waiting for — and the tab then moves on to 库.
+     * [signedInAgain] names the server whose lapsed sign-in this replaced: the person asked to
+     * open it, and was stopped by the refused session, so the tab carries on there.
      */
     data class ServerAdded(
         val first: Boolean,
+        val signedInAgain: String? = null,
     ) : ServersLabel
 }
 
@@ -990,10 +999,7 @@ class ServersStoreFactory(
                                 message = "Plex cloud account server login succeeded",
                                 attributes = mapOf("serverId" to savedServer.id),
                             )
-                            onAuthenticated(savedServer.id)
-                            cancelDialogJobs()
-                            dispatch(Msg.SubmitDone(savedServer.serverName))
-                            publish(ServersLabel.ServerAdded(first = firstServer))
+                            finishSignIn(savedServer, firstServer)
                         }.onFailure {
                             if (requestId == plexAccountRequestId) {
                                 dispatch(
@@ -1169,38 +1175,61 @@ class ServersStoreFactory(
                 message = "Server Quick Connect succeeded",
                 attributes = mapOf("serverId" to savedServer.id),
             )
+            finishSignIn(savedServer, firstServer)
+        }
+
+        /** How every sign-in that reached the registry ends, whichever part of the form it came from. */
+        private fun finishSignIn(
+            savedServer: SavedServer,
+            firstServer: Boolean,
+        ) {
+            // Read before SubmitDone resets it.
+            val signedInAgain = state().reauthenticating
             onAuthenticated(savedServer.id)
             cancelDialogJobs()
             dispatch(Msg.SubmitDone(savedServer.serverName))
-            publish(ServersLabel.ServerAdded(first = firstServer))
+            publish(
+                ServersLabel.ServerAdded(
+                    first = firstServer,
+                    signedInAgain = savedServer.id.takeIf { signedInAgain },
+                ),
+            )
         }
 
         private fun submit() {
             val form = state().form
-            if (!form.canSubmit) {
-                val endpoint = validateEmbyServerEndpoint(form.url, form.httpRiskAccepted)
-                if (!endpoint.allowed && endpoint.message != null) {
-                    dispatch(Msg.SubmitError(endpoint.message))
-                }
-                return
-            }
+            if (form.submitting) return
+            val endpoint = validateEmbyServerEndpoint(form.url, form.httpRiskAccepted)
             val editingId = state().editingServerId
             val existing = editingId?.let { id -> state().servers.firstOrNull { it.id == id } }
             val requestedName = sanitizeServerName(form.serverName)
+            // A display-name-only edit is local metadata. Keep the token, server id and
+            // default selection intact instead of asking the user to enter their password.
+            // Not when signing in again: the kept token is the one the server refused. Decided
+            // before the credential check, which a Plex server's empty token field always failed.
+            val renameOnly =
+                existing != null &&
+                    endpoint.allowed &&
+                    form.password.isBlank() &&
+                    !state().connectionEdited &&
+                    !state().reauthenticating
+            if (!renameOnly && !form.canSubmit) {
+                // Said out loud: returning quietly left 重新登录 on a Plex server doing nothing.
+                val message =
+                    when {
+                        !endpoint.allowed -> endpoint.message
+                        form.kind == MediaServerKind.Plex -> "请填写 Plex Token，或使用上方的 Plex 账号登录"
+                        else -> "请输入用户名"
+                    }
+                message?.let { dispatch(Msg.SubmitError(it)) }
+                return
+            }
             if (existing != null && requestedName.isBlank()) {
                 dispatch(Msg.SubmitError("服务器名称不能为空"))
                 return
             }
 
-            // A display-name-only edit is local metadata. Keep the token, server id and
-            // default selection intact instead of asking the user to enter their password.
-            // Not when signing in again: the kept token is the one the server refused.
-            if (
-                existing != null &&
-                form.password.isBlank() &&
-                !state().connectionEdited &&
-                !state().reauthenticating
-            ) {
+            if (renameOnly && existing != null) {
                 val renamed =
                     writeRegistry { registry.rename(existing.id, requestedName) }.getOrElse {
                         dispatch(Msg.SubmitError(it.registryEditMessage()))
@@ -1253,10 +1282,7 @@ class ServersStoreFactory(
                             message = "Server login succeeded",
                             attributes = mapOf("serverId" to savedServer.id),
                         )
-                        onAuthenticated(savedServer.id)
-                        cancelDialogJobs()
-                        dispatch(Msg.SubmitDone(savedServer.serverName))
-                        publish(ServersLabel.ServerAdded(first = firstServer))
+                        finishSignIn(savedServer, firstServer)
                     }.onFailure {
                         AppLog.warning(
                             category = "server.auth",
@@ -1402,7 +1428,11 @@ class ServersStoreFactory(
                         val protocolChosen = form.protocolChosen || parsed.https != null
                         val portChosen = form.portChosen || parsed.port != null
                         val resolvedHttps =
-                            parsed.https ?: if (protocolChosen) form.https else !isLanServerHost(parsed.host)
+                            parsed.https ?: when {
+                                protocolChosen -> form.https
+                                portImpliesHttps(parsed.port) -> true
+                                else -> !isLanServerHost(parsed.host)
+                            }
                         val explicitAbsoluteUrl = "://" in msg.v
                         copy(
                             form =
@@ -1439,7 +1469,14 @@ class ServersStoreFactory(
                 }
                 is Msg.Port ->
                     copy(
-                        form = form.copy(port = msg.v, error = null, portChosen = true),
+                        form =
+                            form.copy(
+                                port = msg.v,
+                                error = null,
+                                portChosen = true,
+                                // An unpicked protocol follows the port as it follows the host.
+                                https = form.https || (!form.protocolChosen && portImpliesHttps(msg.v.trim())),
+                            ),
                         connectionEdited = true,
                     )
                 is Msg.BasePath ->
