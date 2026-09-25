@@ -43,6 +43,7 @@ import com.yfuse.core.designsystem.ActionToast
 import com.yfuse.core.designsystem.AnimatedColorContent
 import com.yfuse.core.designsystem.ArtworkAccent
 import com.yfuse.core.designsystem.ArtworkPageTheme
+import com.yfuse.core.designsystem.ConfirmDialog
 import com.yfuse.core.designsystem.DialogPresence
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
@@ -72,6 +73,7 @@ import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.network.currentPlaybackNetworkClass
 import com.yfuse.core.network.toUserMessage
 import com.yfuse.core.sync.WatchInvite
+import com.yfuse.core.sync.WatchTogetherState
 import com.yfuse.core.sync.watchKey
 import com.yfuse.core.util.rememberShareHandler
 import com.yfuse.feature.player.PlaybackSelection
@@ -128,6 +130,25 @@ internal fun shouldApplyPlaybackSelection(
         }
     }
 }
+
+/** What 一起看 on the detail page does, given the room this device is already in. */
+internal enum class WatchRoomAction { Create, Share, ConfirmReplace }
+
+/**
+ * Creating a room leaves the current one first, so tapping 一起看 while in a room for this title
+ * used to rebuild it under a new code, leaving everyone who had joined behind the old one. A room
+ * for this title is shared again instead, one for another title is only left once the person
+ * agrees, and a room whose title is not known yet is shared rather than left.
+ */
+internal fun watchRoomAction(
+    state: WatchTogetherState,
+    mediaKey: String,
+): WatchRoomAction =
+    when {
+        state.roomCode == null -> WatchRoomAction.Create
+        state.mediaKey.isNullOrBlank() || state.mediaKey == mediaKey -> WatchRoomAction.Share
+        else -> WatchRoomAction.ConfirmReplace
+    }
 
 /** The selected visual target puts the glass summary over the lower third of the hero. */
 @Composable
@@ -308,6 +329,7 @@ fun DetailScreen(component: DetailComponent) {
     val watchEndpoint by watchPreferences.endpoint.collectAsState()
     val share = rememberShareHandler()
     var shareSheetOpen by remember { mutableStateOf(false) }
+    var replaceRoomConfirmOpen by remember { mutableStateOf(false) }
     var moreSheetOpen by remember { mutableStateOf(false) }
     var metadataEditorOpen by remember { mutableStateOf(false) }
     var downloadSheetOpen by remember { mutableStateOf(false) }
@@ -927,11 +949,15 @@ fun DetailScreen(component: DetailComponent) {
                         // handoff so the host can share the room before entering the player.
                         onWatchTogether = {
                             moreSheetOpen = false
-                            watchTogether.createRoom(
-                                endpoint = watchEndpoint,
-                                mediaKey = detail.providerIds.watchKey(detail.id),
-                            )
-                            shareSheetOpen = true
+                            val mediaKey = detail.providerIds.watchKey(detail.id)
+                            when (watchRoomAction(watchState, mediaKey)) {
+                                WatchRoomAction.Share -> shareSheetOpen = true
+                                WatchRoomAction.ConfirmReplace -> replaceRoomConfirmOpen = true
+                                WatchRoomAction.Create -> {
+                                    watchTogether.createRoom(endpoint = watchEndpoint, mediaKey = mediaKey)
+                                    shareSheetOpen = true
+                                }
+                            }
                         },
                         onDismiss = { moreSheetOpen = false },
                     )
@@ -1118,6 +1144,30 @@ fun DetailScreen(component: DetailComponent) {
                         onDismiss = {
                             component.store.accept(DetailIntent.CloseProgressManager)
                         },
+                    )
+                }
+
+                if (replaceRoomConfirmOpen && detail != null) {
+                    ConfirmDialog(
+                        title = "离开当前房间，为这部影片新建房间？",
+                        message =
+                            if (watchState.isHost) {
+                                "其他成员会留在原房间，房主身份稍后交给其中一人；新房间要重新发送邀请。"
+                            } else {
+                                "你会离开正在同步的房间，之后仍可以用房间码重新加入。"
+                            },
+                        confirmLabel = "新建房间",
+                        dismissLabel = "留在房间",
+                        destructive = true,
+                        onConfirm = {
+                            replaceRoomConfirmOpen = false
+                            watchTogether.createRoom(
+                                endpoint = watchEndpoint,
+                                mediaKey = detail.providerIds.watchKey(detail.id),
+                            )
+                            shareSheetOpen = true
+                        },
+                        onDismiss = { replaceRoomConfirmOpen = false },
                     )
                 }
 

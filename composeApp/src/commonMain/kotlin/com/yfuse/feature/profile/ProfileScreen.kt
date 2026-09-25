@@ -1071,7 +1071,8 @@ fun ProfileScreen(component: ProfileComponent) {
                     onDismiss = { sheet = null },
                 )
 
-            Sheet.WatchTogether ->
+            Sheet.WatchTogether -> {
+                var confirmLeaveRoom by remember { mutableStateOf(false) }
                 WatchJoinDialog(
                     connected = watchState.connected,
                     connecting = watchState.connecting,
@@ -1080,12 +1081,32 @@ fun ProfileScreen(component: ProfileComponent) {
                     error = watchState.error ?: watchState.syncWarning,
                     onJoin = { code -> watchTogether.joinRoom(watchEndpoint, code, mediaKey = "") },
                     onEnter = component.onEnterWatchRoom,
-                    onLeave = {
-                        watchTogether.leave()
-                        sheet = null
-                    },
+                    onLeave = { confirmLeaveRoom = true },
                     onDismiss = { sheet = null },
                 )
+                // Leaving cannot be taken back from here, and a host leaves a room others are in:
+                // the relay keeps it for them and hands the host role to one of them shortly after.
+                if (confirmLeaveRoom) {
+                    ConfirmDialog(
+                        title = "退出一起看房间？",
+                        message =
+                            if (watchState.isHost) {
+                                "其他成员会留在房间里，房主身份稍后交给其中一人。你之后要用房间码重新加入。"
+                            } else {
+                                "退出后不再同步播放，之后仍可以用房间码重新加入。"
+                            },
+                        confirmLabel = "退出房间",
+                        dismissLabel = "留在房间",
+                        destructive = true,
+                        onConfirm = {
+                            confirmLeaveRoom = false
+                            watchTogether.leave()
+                            sheet = null
+                        },
+                        onDismiss = { confirmLeaveRoom = false },
+                    )
+                }
+            }
 
             Sheet.WatchProfile ->
                 WatchProfileDialog(
