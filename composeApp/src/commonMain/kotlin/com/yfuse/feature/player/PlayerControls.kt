@@ -773,7 +773,8 @@ internal fun PlayerControls(
     }
     // A locked phone keeps the player: the edge swipe the lock is there to survive used to close it
     // outright. A television has no such swipe, and its Back unlocks through [closeTopRemoteLayer].
-    PlatformBackHandler(enabled = locked && remoteChrome == null, onBack = ::refuseWhileLocked)
+    // A failure takes the lock's place on screen, and Back is not held for a lock nobody can see.
+    PlatformBackHandler(enabled = locked && state.error == null && remoteChrome == null, onBack = ::refuseWhileLocked)
 
     Box(
         modifier
