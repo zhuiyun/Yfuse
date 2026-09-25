@@ -974,7 +974,7 @@ private fun AccordionCalendarEntry(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                entry.episode.airTime?.let { airTime ->
+                airTimeLabel(entry.episode)?.let { airTime ->
                     Text(
                         airTime,
                         style = AppTypography.caption.medium,
@@ -1947,7 +1947,8 @@ private fun coalesceCalendarEntries(entries: List<CalendarEntry>): List<Calendar
                     },
             )
         }.sortedWith(
-            compareBy<CalendarDisplayEntry> { it.entry.episode.airTime ?: "99:99" }
+            // By the time each row shows, not the published one: a Seoul 20:00 is 19:00 here.
+            compareBy<CalendarDisplayEntry> { localAirMinutes(it.entry.episode) }
                 .thenBy { it.entry.episode.showTitle },
         )
 
@@ -2028,11 +2029,7 @@ private fun broadcastStateLabel(entry: CalendarEntry): String {
             },
         )
         episode.scheduleConfidence?.let { add("可信度 $it") }
-        episode.releaseAtBeijing
-            ?.takeIf { episode.origin == com.yfuse.core.model.ShowOrigin.Foreign && it.length >= 16 }
-            ?.substring(11, 16)
-            ?.let { add("北京时间 $it") }
-            ?: episode.airTime?.let(::add)
+        broadcastTimeLabel(episode)?.let(::add)
         addAll(episode.platforms.take(2))
         tier?.let(::add)
         add(state)

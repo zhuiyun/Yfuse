@@ -234,6 +234,9 @@ class CalendarReminderWorker(
                             followed.reminderMode == CalendarReminderMode.BeforeAndAtBroadcast &&
                             delta in 1L..beforeWindow
                         ) {
+                            // The alarm fires by the converted instant, so the text reads the
+                            // same clock: a 21:00 New York episode is announced for 09:00 here.
+                            val localTime = localAirTimeAt(at, sample.airDate)?.time ?: time
                             notifyOnce(
                                 settings,
                                 "before.${followed.tmdbId}.${sample.airDate}.$time." +
@@ -241,7 +244,7 @@ class CalendarReminderWorker(
                                         "${it.episode.seasonNumber}e${it.episode.episodeNumber}"
                                     },
                                 "${followed.title} 即将更新",
-                                "${sameSlot.joinToString("、") { it.episode.episodeLabel }} · $time",
+                                "${sameSlot.joinToString("、") { it.episode.episodeLabel }} · $localTime",
                                 followed = followed,
                             )
                         }
