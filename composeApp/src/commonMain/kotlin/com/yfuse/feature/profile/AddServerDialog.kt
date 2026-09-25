@@ -20,6 +20,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.autofill.ContentType
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -89,6 +90,13 @@ fun AddServerDialog(
     val openedForm = remember(state.editingServerId) { form }
     val holdsInput = form.hasInputSince(openedForm)
     var confirmDiscard by remember { mutableStateOf(false) }
+    // One rule for the button and for the keyboard's 完成, so the keyboard cannot send a form the
+    // button would refuse.
+    val canSubmit =
+        (form.canSubmit || (editing && !state.connectionEdited)) &&
+            endpointValidation.allowed &&
+            (!editing || form.serverName.isNotBlank())
+    val submit = { if (canSubmit && !form.submitting) sendIntent(ServersIntent.Submit) }
 
     GlassDialog(
         onDismiss = onDismiss,
@@ -407,6 +415,7 @@ fun AddServerDialog(
                         enabled = !form.submitting,
                         password = true,
                         divider = false,
+                        onSubmit = submit,
                     ) { sendIntent(ServersIntent.PasswordChanged(it)) }
                 } else {
                     ServerFormInput(
@@ -415,6 +424,7 @@ fun AddServerDialog(
                         placeholder = "输入用户名",
                         enabled = !form.submitting,
                         divider = true,
+                        autofillType = ContentType.Username,
                     ) { sendIntent(ServersIntent.UsernameChanged(it)) }
                     ServerFormInput(
                         label = "密码",
@@ -423,6 +433,8 @@ fun AddServerDialog(
                         enabled = !form.submitting,
                         password = true,
                         divider = true,
+                        autofillType = ContentType.Password,
+                        onSubmit = submit,
                     ) { sendIntent(ServersIntent.PasswordChanged(it)) }
                     // The only reachable add-server UI, now that the full-page 添加服务器
                     // (`ServersScreen`) is gone — Quick Connect used to live there and nowhere
@@ -510,10 +522,7 @@ fun AddServerDialog(
             onClick = { sendIntent(ServersIntent.Submit) },
             modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
             tone = OverlayButtonTone.Primary,
-            enabled =
-                (form.canSubmit || (editing && !state.connectionEdited)) &&
-                    endpointValidation.allowed &&
-                    (!editing || form.serverName.isNotBlank()),
+            enabled = canSubmit,
             loading = form.submitting,
         )
 
