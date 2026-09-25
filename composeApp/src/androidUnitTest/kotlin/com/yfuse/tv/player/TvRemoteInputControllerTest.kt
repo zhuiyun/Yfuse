@@ -108,9 +108,68 @@ class TvRemoteInputControllerTest {
         assertEquals(1, harness.next)
     }
 
+    @Test
+    fun before_the_controls_attach_navigation_ok_and_back_are_left_to_ordinary_dispatch() {
+        // The preparation screen: nothing publishes a layer or collects commands there.
+        val harness = Harness(attached = false)
+
+        assertFalse(harness.keyDown(KeyEvent.KEYCODE_DPAD_DOWN, timeMs = 1_000L))
+        assertFalse(harness.keyUp(KeyEvent.KEYCODE_DPAD_DOWN, timeMs = 1_010L))
+        assertFalse(harness.keyDown(KeyEvent.KEYCODE_DPAD_RIGHT, timeMs = 1_020L))
+        assertFalse(harness.keyUp(KeyEvent.KEYCODE_DPAD_RIGHT, timeMs = 1_030L))
+        assertFalse(harness.keyDown(KeyEvent.KEYCODE_DPAD_CENTER, timeMs = 1_040L))
+        assertFalse(harness.keyUp(KeyEvent.KEYCODE_DPAD_CENTER, timeMs = 1_050L))
+        assertFalse(harness.keyDown(KeyEvent.KEYCODE_BACK, timeMs = 1_060L))
+        assertFalse(harness.keyUp(KeyEvent.KEYCODE_BACK, timeMs = 1_070L))
+
+        // An arrow used to raise chrome nobody drew, and OK and Back then fed that ghost.
+        assertEquals(TvPlayerChromeLayer.Hidden, harness.chrome.state.value.layer)
+        assertEquals(0, harness.toggles)
+        assertTrue(harness.seeks.isEmpty())
+    }
+
+    @Test
+    fun transport_keys_work_before_the_controls_attach_without_raising_chrome() {
+        val harness = Harness(attached = false)
+
+        assertTrue(harness.keyDown(KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, timeMs = 1_000L))
+        assertTrue(harness.keyUp(KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, timeMs = 1_010L))
+        assertEquals(1, harness.toggles)
+        assertEquals(TvPlayerChromeLayer.Hidden, harness.chrome.state.value.layer)
+
+        // Still nothing to dismiss, so Back keeps reaching the Activity.
+        assertFalse(harness.keyDown(KeyEvent.KEYCODE_BACK, timeMs = 1_020L))
+    }
+
+    @Test
+    fun attached_controls_keep_the_mapping_and_detaching_hands_the_keys_back() {
+        val harness = Harness(attached = false)
+        harness.chrome.publishUiState(
+            layer = TvPlayerChromeLayer.Hidden,
+            panel = null,
+            controlsHaveFocus = false,
+        )
+
+        assertTrue(harness.keyDown(KeyEvent.KEYCODE_DPAD_CENTER, timeMs = 1_000L))
+        assertTrue(harness.keyUp(KeyEvent.KEYCODE_DPAD_CENTER, timeMs = 1_010L))
+        assertEquals(1, harness.toggles)
+        assertEquals(TvPlayerChromeLayer.Controls, harness.chrome.state.value.layer)
+        assertTrue(harness.keyDown(KeyEvent.KEYCODE_BACK, timeMs = 1_020L))
+        assertTrue(harness.keyUp(KeyEvent.KEYCODE_BACK, timeMs = 1_030L))
+
+        // Picture-in-picture takes the controls out of composition.
+        harness.chrome.detach()
+        assertFalse(harness.keyDown(KeyEvent.KEYCODE_BACK, timeMs = 1_040L))
+        assertFalse(harness.keyDown(KeyEvent.KEYCODE_DPAD_CENTER, timeMs = 1_050L))
+        assertFalse(harness.keyDown(KeyEvent.KEYCODE_DPAD_UP, timeMs = 1_060L))
+        assertEquals(1, harness.toggles)
+        assertEquals(TvPlayerChromeLayer.Hidden, harness.chrome.state.value.layer)
+    }
+
     private class Harness(
         private var positionMs: Long = 30_000L,
         private var durationMs: Long = 120_000L,
+        attached: Boolean = true,
     ) {
         val chrome = TvPlayerChromeController()
         val seeks = mutableListOf<Long>()
@@ -139,6 +198,17 @@ class TvRemoteInputControllerTest {
                     ),
                 nowMs = { clockMs },
             )
+
+        init {
+            // What PlayerControls does on its first frame; the preparation screen never does.
+            if (attached) {
+                chrome.publishUiState(
+                    layer = TvPlayerChromeLayer.Hidden,
+                    panel = null,
+                    controlsHaveFocus = false,
+                )
+            }
+        }
 
         fun keyDown(
             keyCode: Int,

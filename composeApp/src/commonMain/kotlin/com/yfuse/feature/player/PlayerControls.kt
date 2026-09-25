@@ -512,6 +512,11 @@ internal fun PlayerControls(
             controlsHaveFocus = controlsHaveFocus,
         )
     }
+    // Leaving composition (picture-in-picture) hands the remote back to ordinary dispatch: a stale
+    // "controls are up" would otherwise swallow OK and Back with nothing collecting the commands.
+    DisposableEffect(remoteChrome) {
+        onDispose { remoteChrome?.detach() }
+    }
 
     LaunchedEffect(
         visible,

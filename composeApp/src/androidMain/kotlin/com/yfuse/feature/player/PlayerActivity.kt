@@ -489,6 +489,9 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun showPendingPlayer(pending: PendingPlayerLaunch) {
+        // No player controls exist on this screen. A remote's D-pad, OK and Back belong to its
+        // 重试 / 返回 and the Activity's back until PlayerControls publishes its first layer.
+        tvChromeController.detach()
         val preferences = runCatching { GlobalContext.get().get<ThemePreferences>() }.getOrNull()
         setContent {
             val state by pending.store.states.collectAsState(pending.store.state)

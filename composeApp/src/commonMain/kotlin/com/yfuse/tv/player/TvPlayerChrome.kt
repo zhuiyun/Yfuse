@@ -38,6 +38,14 @@ data class TvPlayerChromeState(
     val seeking: Boolean = false,
     val seekTargetMs: Long? = null,
     val interactionRevision: Long = 0L,
+    /**
+     * True while a control surface is composed, publishing its layer and collecting commands.
+     *
+     * The preparation screen before playback has none, and neither do the player's first frames.
+     * Until the controls publish, [layer] would only be a guess that nothing answers, so D-pad, OK
+     * and Back must stay ordinary focus input rather than steer chrome that is not there.
+     */
+    val attached: Boolean = false,
 ) {
     val visible: Boolean get() = layer != TvPlayerChromeLayer.Hidden
     val hasDismissibleLayer: Boolean get() = visible
@@ -73,4 +81,7 @@ interface TvPlayerChromeBridge {
         panel: TvPlayerChromePanel?,
         controlsHaveFocus: Boolean,
     )
+
+    /** The control surface left composition; remote keys fall back to ordinary dispatch until it returns. */
+    fun detach()
 }

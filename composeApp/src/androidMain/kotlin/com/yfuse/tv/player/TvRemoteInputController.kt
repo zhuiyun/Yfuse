@@ -81,6 +81,11 @@ internal class TvRemoteInputController(
             consumedDownKeys += keyCode
             return true
         }
+        // Nothing above the video answers chrome commands yet: the preparation screen, or the
+        // player's first frames before its controls publish a layer. That screen's 重试 and 返回
+        // are ordinary focusable buttons and Back is the Activity's own, so these keys stay theirs.
+        // Transport keys below still work, since they need no chrome.
+        if (!chrome.state.value.attached && physicalKey.isFocusNavigation()) return false
 
         return when (physicalKey) {
             RemotePhysicalKey.DirectionLeft,
@@ -290,6 +295,19 @@ private fun playbackPhysicalKey(keyCode: Int): RemotePhysicalKey? =
             -> RemotePhysicalKey.PlayPause
             else -> null
         }
+
+/** The keys ordinary Compose focus dispatch and the Activity's own Back already understand. */
+private fun RemotePhysicalKey.isFocusNavigation(): Boolean =
+    when (this) {
+        RemotePhysicalKey.DirectionLeft,
+        RemotePhysicalKey.DirectionRight,
+        RemotePhysicalKey.DirectionUp,
+        RemotePhysicalKey.DirectionDown,
+        RemotePhysicalKey.Activate,
+        RemotePhysicalKey.Back,
+        -> true
+        else -> false
+    }
 
 private fun directionForSeekKey(key: RemotePhysicalKey): Int =
     when (key) {
