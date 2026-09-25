@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyGridScope
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
@@ -32,6 +33,7 @@ import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.solidGlass
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.TmdbItem
+import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.network.TmdbImages
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
@@ -67,6 +69,92 @@ internal fun TmdbRowPage(
     onOpen: (TmdbItem) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    HomeRowPageFrame(title = title, caption = "TMDB · ${items.size} 部", onDismiss = onDismiss) {
+        motionItems(items, key = { "${it.mediaType}:${it.id}" }) { item ->
+            CaptionedPoster(
+                url = TmdbImages.poster(item.posterPath),
+                fallbackUrls =
+                    listOfNotNull(
+                        TmdbImages.media(item.posterPath),
+                        TmdbImages.poster(item.posterPath, "original"),
+                        TmdbImages.media(item.posterPath, "original"),
+                        TmdbImages.backdrop(item.backdropPath, "w780"),
+                        TmdbImages.media(item.backdropPath, "w780"),
+                    ),
+                title = item.title,
+                rating = item.rating,
+                year =
+                    "TMDB · " +
+                        if (showReleaseDate) {
+                            item.releaseDate?.let { "上映 $it" } ?: "上映日期待定"
+                        } else {
+                            item.year ?: "年份未知"
+                        },
+                // The same title can sit in two shelves at once, and this page is
+                // opened from one of them; a shared element would compete with the
+                // shelf poster still mounted underneath.
+                onClick = { onOpen(item) },
+                modifier = Modifier.fillMaxWidth(),
+                posterModifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f),
+            )
+        }
+    }
+}
+
+/**
+ * 全部 for a shelf read from the media servers — 继续观看, 下一集, 我的收藏.
+ *
+ * Their 全部 used to switch to the 库 tab, which reads the default server alone where these
+ * shelves gather every server's, so the page it opened held fewer titles than the shelf. This is
+ * the shelf itself, every entry the home page holds, and a long press offers what it does there.
+ */
+@Composable
+internal fun LibraryRowPage(
+    title: String,
+    caption: String,
+    entries: List<HomeResumeEntry>,
+    onOpen: (HomeResumeEntry) -> Unit,
+    onQuickActions: (HomeResumeEntry) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    HomeRowPageFrame(title = title, caption = caption, onDismiss = onDismiss) {
+        motionItems(entries, key = { "${it.server.id}:${it.item.id}" }) { entry ->
+            val item = entry.item
+            CaptionedPoster(
+                url =
+                    EmbyImages.poster(
+                        entry.server.baseUrl,
+                        item,
+                        accessToken = entry.server.accessToken,
+                    ),
+                title = item.title,
+                rating = item.communityRating,
+                progress = item.playedPercentage?.let { (it / 100.0).toFloat() },
+                // An episode's line names the episode; a film's or a show's gives its year.
+                year =
+                    listOfNotNull(
+                        item.subtitle,
+                        entry.server.serverName.takeIf(String::isNotBlank),
+                    ).joinToString(" · "),
+                // No shared element, for the reason the TMDB page has none: the shelf's own
+                // card is still mounted underneath.
+                onClick = { onOpen(entry) },
+                onLongClick = { onQuickActions(entry) },
+                modifier = Modifier.fillMaxWidth(),
+                posterModifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f),
+            )
+        }
+    }
+}
+
+/** What both 全部 pages share: the back key, the title and its count over a poster grid. */
+@Composable
+private fun HomeRowPageFrame(
+    title: String,
+    caption: String,
+    onDismiss: () -> Unit,
+    content: LazyGridScope.() -> Unit,
+) {
     val palette = LocalPalette.current
 
     Box(Modifier.fillMaxSize().background(palette.background)) {
@@ -95,7 +183,7 @@ internal fun TmdbRowPage(
                     Text(title, style = AppTypography.section.strong, color = palette.text)
                     Spacer(Modifier.height(2.dp))
                     Text(
-                        "TMDB · ${items.size} 部",
+                        caption,
                         style = AppTypography.caption.regular,
                         color = palette.sub2,
                     )
@@ -113,36 +201,8 @@ internal fun TmdbRowPage(
                     ),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
-                motionItems(items, key = { "${it.mediaType}:${it.id}" }) { item ->
-                    CaptionedPoster(
-                        url = TmdbImages.poster(item.posterPath),
-                        fallbackUrls =
-                            listOfNotNull(
-                                TmdbImages.media(item.posterPath),
-                                TmdbImages.poster(item.posterPath, "original"),
-                                TmdbImages.media(item.posterPath, "original"),
-                                TmdbImages.backdrop(item.backdropPath, "w780"),
-                                TmdbImages.media(item.backdropPath, "w780"),
-                            ),
-                        title = item.title,
-                        rating = item.rating,
-                        year =
-                            "TMDB · " +
-                                if (showReleaseDate) {
-                                    item.releaseDate?.let { "上映 $it" } ?: "上映日期待定"
-                                } else {
-                                    item.year ?: "年份未知"
-                                },
-                        // The same title can sit in two shelves at once, and this page is
-                        // opened from one of them; a shared element would compete with the
-                        // shelf poster still mounted underneath.
-                        onClick = { onOpen(item) },
-                        modifier = Modifier.fillMaxWidth(),
-                        posterModifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f),
-                    )
-                }
-            }
+                content = content,
+            )
         }
     }
 }
