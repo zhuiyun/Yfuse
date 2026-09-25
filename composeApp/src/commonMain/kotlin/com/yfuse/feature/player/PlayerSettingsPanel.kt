@@ -1167,7 +1167,7 @@ internal fun SettingsPanel(
                                 line,
                                 style = AppTypography.caption.medium,
                                 color = Color.White.copy(alpha = 0.55f),
-                                modifier = Modifier.padding(vertical = 10.dp).liveStatus(),
+                                modifier = Modifier.padding(vertical = Dimens.space.sm).liveStatus(),
                             )
                         }
                         castDevices.forEach { (id, name) ->
