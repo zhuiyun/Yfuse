@@ -11,17 +11,23 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.autofill.ContentType
 import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.contentType
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
@@ -33,7 +39,9 @@ import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.LocalAccentColors
+import com.yfuse.core.designsystem.LocalOverlayEntrance
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.awaitOverlayEntered
 import com.yfuse.core.designsystem.formDivider
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.pressable
@@ -79,6 +87,9 @@ internal fun ServerFormRow(
  * next to the field rather than a permanently-obscured value with no way to check it, and
  * every field advances focus to the next one on IME "next" so a five-field form does not
  * need the keyboard dismissed and reopened between each.
+ *
+ * A password field also gets a password keyboard with autocorrect off: on a plain text keyboard
+ * the IME suggested, corrected, and could learn the server's password or Plex token as a word.
  */
 @Composable
 internal fun ServerFormInput(
@@ -89,12 +100,28 @@ internal fun ServerFormInput(
     placeholder: String? = null,
     password: Boolean = false,
     keyboardType: KeyboardType = KeyboardType.Text,
+    /** What a password manager may fill in here; a password keyboard already implies a password. */
+    autofillType: ContentType? = null,
+    /** The keyboard's 完成 on this field sends the form, as the button would, instead of only closing. */
+    onSubmit: (() -> Unit)? = null,
+    /** Takes focus once the dialog has arrived — the password of a server to sign in to again. */
+    autoFocus: Boolean = false,
     onValueChange: (String) -> Unit,
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
     val focusManager = LocalFocusManager.current
     var revealPassword by rememberSaveable { mutableStateOf(false) }
+    val focusRequester = remember { FocusRequester() }
+    if (autoFocus) {
+        val entrance = LocalOverlayEntrance.current
+        LaunchedEffect(Unit) {
+            // Once the dialog is in: a keyboard raised during its entrance resizes the panel while
+            // it is still moving, and the two animate against each other.
+            awaitOverlayEntered(entrance)
+            runCatching { focusRequester.requestFocus() }
+        }
+    }
     ServerFormRow(label = label, divider = divider) {
         Box(contentAlignment = Alignment.CenterStart) {
             if (value.isEmpty() && placeholder != null) {
@@ -116,18 +143,26 @@ internal fun ServerFormInput(
                         },
                     keyboardOptions =
                         KeyboardOptions(
-                            keyboardType = keyboardType,
+                            autoCorrectEnabled = if (password) false else null,
+                            keyboardType = if (password) secretKeyboardType(keyboardType) else keyboardType,
                             imeAction = if (password) ImeAction.Done else ImeAction.Next,
                         ),
                     keyboardActions =
                         KeyboardActions(
                             onNext = { focusManager.moveFocus(FocusDirection.Down) },
-                            onDone = { focusManager.clearFocus() },
+                            onDone = {
+                                focusManager.clearFocus()
+                                onSubmit?.invoke()
+                            },
                         ),
                     modifier =
                         Modifier
                             .weight(1f)
-                            .semantics { contentDescription = label },
+                            .focusRequester(focusRequester)
+                            .semantics {
+                                contentDescription = label
+                                if (autofillType != null) contentType = autofillType
+                            },
                 )
                 if (password) {
                     Text(
@@ -147,6 +182,10 @@ internal fun ServerFormInput(
         }
     }
 }
+
+/** The keyboard for a secret: one that neither suggests nor learns what is typed — a PIN stays numeric. */
+private fun secretKeyboardType(requested: KeyboardType): KeyboardType =
+    if (requested == KeyboardType.Number) KeyboardType.NumberPassword else KeyboardType.Password
 
 /**
  * Protocol/provider segment — a `RadioButton`-role pill inside a [androidx.compose.foundation.selection.selectableGroup].

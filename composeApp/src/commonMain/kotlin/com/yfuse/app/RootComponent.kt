@@ -12,6 +12,7 @@ import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.TmdbRepository
 import com.yfuse.core.designsystem.LaunchWaveGate
 import com.yfuse.core.designsystem.TabReselection
+import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.StartupTab
 import com.yfuse.core.sync.ServerSyncManager
 import com.yfuse.core.sync.WatchInvite
@@ -48,26 +49,29 @@ class RootComponent(
 ) : ComponentContext by componentContext {
     enum class Tab { Home, Browse, Servers, Search, Profile }
 
-    // Where a cold start lands. [StartupTab.Automatic] keeps the rule this used to hard-code:
-    // someone who has already connected a server opens the app to watch what is on it, while
-    // 首页's TMDB recommendations are the right first screen only until there is a library to
-    // show — at which point they double as the prompt to go and add one. The other values are
-    // the user overriding that guess; see [StartupTab].
+    // Where a cold start lands. [StartupTab.Automatic]: someone who has already connected a
+    // server opens the app to watch what is on it, and someone who has not opens it on 服务器,
+    // where the first one is added — 首页 used to be that first screen and had no way to add
+    // one. The other values are the user overriding that guess; see [StartupTab].
     //
     // A restored process is not a cold start. Every tab's own stack comes back through its
     // serializer, so without the saved tab the shell reopened on the startup tab while the page
     // the user had actually been on — and its scroll position — sat stranded in another one.
     private val savedTab = restoredTab(stateKeeper.consume(ACTIVE_TAB_STATE_KEY, String.serializer()))
     private val restoredLaunch = savedTab != null
-    private val _activeTab =
-        MutableValue(
-            savedTab
-                ?: startupTab(
-                    themePreferences.startupTab.value,
-                    registry.data.value.servers
-                        .isNotEmpty(),
-                ),
+
+    /**
+     * The tab this session starts from, and so the root of the top-level back stack: back from
+     * any other tab comes here, and back from here leaves the app. The root used to be 首页
+     * whatever the start, so the first back from a cold start on 库 went to a page never opened.
+     */
+    val startTab: Tab =
+        startupTab(
+            themePreferences.startupTab.value,
+            registry.data.value.servers
+                .isNotEmpty(),
         )
+    private val _activeTab = MutableValue(savedTab ?: startTab)
     val activeTab: Value<Tab> = _activeTab
 
     init {
@@ -114,6 +118,8 @@ class RootComponent(
             repo = repo,
             registry = registry,
             dependencies = dependencies,
+            onAddServer = ::openAddServer,
+            onReauthenticate = ::signInAgain,
         )
 
     /** 服务器: the saved servers as a grid. */
@@ -245,6 +251,18 @@ class RootComponent(
     fun openDownloads() {
         selectTab(Tab.Profile)
         profile.openDownloads()
+    }
+
+    /** 库 with nothing to show: over to 服务器, with its add form already open. */
+    private fun openAddServer() {
+        selectTab(Tab.Servers)
+        servers.openAddServer()
+    }
+
+    /** 库's server refused its saved session: over to 服务器, on that server's own sign-in form. */
+    private fun signInAgain(server: SavedServer) {
+        selectTab(Tab.Servers)
+        servers.reauthenticate(server)
     }
 
     private fun openSearch() {
@@ -385,5 +403,5 @@ internal fun startupTab(
         StartupTab.Library -> RootComponent.Tab.Browse
         StartupTab.Servers -> RootComponent.Tab.Servers
         StartupTab.Automatic ->
-            if (hasServers) RootComponent.Tab.Browse else RootComponent.Tab.Home
+            if (hasServers) RootComponent.Tab.Browse else RootComponent.Tab.Servers
     }

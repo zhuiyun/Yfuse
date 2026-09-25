@@ -8,7 +8,9 @@ import com.arkivanov.mvikotlin.main.store.DefaultStoreFactory
 import com.russhwolf.settings.MapSettings
 import com.yfuse.core.data.AuthedServer
 import com.yfuse.core.data.ServerRegistry
+import com.yfuse.core.model.MediaServerKind
 import com.yfuse.core.model.SavedServer
+import com.yfuse.core.personal.PersonalLibraryRepository
 import com.yfuse.core.security.TestSecureStore
 import com.yfuse.feature.authRoutes
 import com.yfuse.feature.testRegistry
@@ -73,10 +75,11 @@ class ServersStoreTest {
 
             store.labels.test {
                 store.accept(ServersIntent.Submit)
-                assertEquals(ServersLabel.ServerAdded, awaitItem())
+                assertEquals(ServersLabel.ServerAdded(first = true), awaitItem())
                 cancelAndConsumeRemainingEvents()
             }
 
+            assertEquals("已连接「zhuiyun」", store.state.notice)
             assertEquals(1, registry.data.value.servers.size)
             assertEquals(
                 "zhuiyun",
@@ -110,10 +113,11 @@ class ServersStoreTest {
 
             store.labels.test {
                 store.accept(ServersIntent.Submit)
-                assertEquals(ServersLabel.ServerAdded, awaitItem())
+                assertEquals(ServersLabel.ServerAdded(first = true), awaitItem())
                 cancelAndConsumeRemainingEvents()
             }
 
+            assertEquals("已连接「客厅影院」", store.state.notice)
             assertEquals(
                 "客厅影院",
                 registry.data.value.servers
@@ -152,6 +156,30 @@ class ServersStoreTest {
             assertEquals("existing-token", renamed?.accessToken)
             assertEquals(false, store.state.dialogVisible)
             assertEquals(null, store.state.editingServerId)
+            assertEquals("已更新「家庭影院」", store.state.notice)
+            store.dispose()
+        }
+
+    @Test
+    fun a_server_added_beside_others_is_not_the_first() =
+        runTest {
+            val registry = testRegistry()
+            registry.addOrUpdate(
+                SavedServer("id1", "http://h", "N", "u", "user", "tok", localCleartextConfirmed = true),
+            )
+            val store = store(registry) { req -> authRoutes(req) }
+            store.states.first { it.servers.isNotEmpty() }
+            store.accept(ServersIntent.HostChanged("https://media.example.com"))
+            store.accept(ServersIntent.UsernameChanged("zhuiyun"))
+            store.accept(ServersIntent.PasswordChanged("123456"))
+
+            store.labels.test {
+                store.accept(ServersIntent.Submit)
+                assertEquals(ServersLabel.ServerAdded(first = false), awaitItem())
+                cancelAndConsumeRemainingEvents()
+            }
+
+            assertEquals(2, registry.data.value.servers.size)
             store.dispose()
         }
 
@@ -199,9 +227,11 @@ class ServersStoreTest {
 
             store.labels.test {
                 store.accept(ServersIntent.Submit)
-                assertEquals(ServersLabel.ServerAdded, awaitItem())
+                assertEquals(ServersLabel.ServerAdded(first = false), awaitItem())
                 cancelAndConsumeRemainingEvents()
             }
+
+            assertEquals("已更新「家庭影院」", store.state.notice)
 
             val updated =
                 registry.data.value.servers
@@ -216,6 +246,122 @@ class ServersStoreTest {
             assertNull(settings.getStringOrNull(oldCacheKey))
             assertEquals(other, registry.serverById(other.id))
             assertEquals(updated.id, registry.data.value.defaultServerId)
+            store.dispose()
+        }
+
+    @Test
+    fun signing_in_again_authenticates_even_with_the_password_left_blank() =
+        runTest {
+            val registry = testRegistry()
+            val existing =
+                SavedServer(
+                    id = SavedServer.idOf("http://host:8096", "u1"),
+                    baseUrl = "http://host:8096",
+                    serverName = "家庭影院",
+                    userId = "u1",
+                    userName = "zhuiyun",
+                    accessToken = "refused-token",
+                    localCleartextConfirmed = true,
+                )
+            registry.addOrUpdate(existing)
+            var signIns = 0
+            val store =
+                store(registry) { request ->
+                    if (request.url.encodedPath.endsWith("AuthenticateByName")) signIns++
+                    authRoutes(
+                        request,
+                        authBody = """{"AccessToken":"fresh-token","User":{"Id":"u1","Name":"zhuiyun"}}""",
+                    )
+                }
+            store.states.first { it.servers.isNotEmpty() }
+
+            store.accept(ServersIntent.EditServer(existing, reauthenticate = true))
+            assertTrue(store.state.reauthenticating)
+            store.labels.test {
+                store.accept(ServersIntent.Submit)
+                assertEquals(ServersLabel.ServerAdded(first = false), awaitItem())
+                cancelAndConsumeRemainingEvents()
+            }
+
+            assertEquals(1, signIns)
+            assertEquals("fresh-token", registry.serverById(existing.id)?.accessToken)
+            assertEquals("已重新登录「家庭影院」", store.state.notice)
+            assertFalse(store.state.reauthenticating)
+            store.dispose()
+        }
+
+    /** A registry whose active profile is a child's, holding the one server it was given. */
+    private suspend fun childRegistry(server: SavedServer): ServerRegistry {
+        val settings = MapSettings()
+        val personal = PersonalLibraryRepository(settings)
+        val registry = ServerRegistry(settings, TestSecureStore(), personal = personal)
+        registry.addOrUpdate(server)
+        personal.setGuardianPin("583921".toCharArray()).getOrThrow()
+        personal.saveProfile(name = "孩子", child = true, serverIds = setOf(server.id)).getOrThrow()
+        val child =
+            personal.state.value.profiles
+                .last()
+                .id
+        personal.switchProfile(child).getOrThrow()
+        return registry
+    }
+
+    private val kidServer = SavedServer("kid", "https://media.example", "影院", "kid", "儿童", "token")
+
+    @Test
+    fun a_child_profile_removing_a_server_is_refused_instead_of_crashing() =
+        runTest {
+            val registry = childRegistry(kidServer)
+            val store = store(registry) { error("a refused removal must not make a network request") }
+            store.states.first { it.servers.isNotEmpty() }
+
+            store.accept(ServersIntent.Remove(kidServer.id))
+
+            assertEquals(
+                listOf(kidServer.id),
+                registry.data.value.servers
+                    .map { it.id },
+            )
+            assertEquals("请先使用家长 PIN 切换到成人资料", store.state.notice)
+            store.dispose()
+        }
+
+    @Test
+    fun a_child_profile_renaming_a_server_is_refused_instead_of_crashing() =
+        runTest {
+            val registry = childRegistry(kidServer)
+            val store = store(registry) { error("a rename must not make a network request") }
+            store.states.first { it.servers.isNotEmpty() }
+            store.accept(ServersIntent.EditServer(kidServer))
+            store.accept(ServersIntent.ServerNameChanged("客厅"))
+
+            store.accept(ServersIntent.Submit)
+
+            assertEquals("影院", registry.serverById(kidServer.id)?.serverName)
+            assertEquals("请先使用家长 PIN 切换到成人资料", store.state.form.error)
+            assertTrue(store.state.dialogVisible)
+            store.dispose()
+        }
+
+    @Test
+    fun a_child_profile_adding_a_server_is_refused_instead_of_crashing() =
+        runTest {
+            val registry = childRegistry(kidServer)
+            val store = store(registry) { req -> authRoutes(req) }
+            store.accept(ServersIntent.OpenAddDialog)
+            store.accept(ServersIntent.HostChanged("https://other.example"))
+            store.accept(ServersIntent.UsernameChanged("zhuiyun"))
+            store.accept(ServersIntent.PasswordChanged("123456"))
+
+            store.accept(ServersIntent.Submit)
+
+            val refused = store.states.first { it.form.error != null }
+            assertEquals("请先使用家长 PIN 切换到成人资料", refused.form.error)
+            assertEquals(
+                listOf(kidServer.id),
+                registry.data.value.servers
+                    .map { it.id },
+            )
             store.dispose()
         }
 
@@ -347,6 +493,67 @@ class ServersStoreTest {
             assertEquals("9443", store.state.form.port)
             assertEquals("/emby", store.state.form.basePath)
             assertEquals("https://media.example.com:9443/emby", store.state.form.url)
+            store.dispose()
+        }
+
+    @Test
+    fun a_lan_address_defaults_to_http_on_8096() =
+        runTest {
+            val store = store(testRegistry()) { authRoutes(it) }
+
+            store.accept(ServersIntent.HostChanged("192.168.1.8"))
+
+            assertFalse(store.state.form.https)
+            assertEquals("8096", store.state.form.port)
+            assertEquals("http://192.168.1.8:8096", store.state.form.url)
+            store.dispose()
+        }
+
+    @Test
+    fun a_lan_address_with_its_port_still_gets_http() =
+        runTest {
+            val store = store(testRegistry()) { authRoutes(it) }
+
+            store.accept(ServersIntent.HostChanged("nas.local:8096"))
+
+            assertEquals("http://nas.local:8096", store.state.form.url)
+            store.dispose()
+        }
+
+    @Test
+    fun a_public_host_after_a_lan_one_goes_back_to_https() =
+        runTest {
+            val store = store(testRegistry()) { authRoutes(it) }
+            store.accept(ServersIntent.HostChanged("192.168.1.8"))
+
+            store.accept(ServersIntent.HostChanged("media.example.com"))
+
+            assertEquals("https://media.example.com:443", store.state.form.url)
+            store.dispose()
+        }
+
+    @Test
+    fun a_picked_protocol_and_port_are_kept_for_a_lan_address() =
+        runTest {
+            val store = store(testRegistry()) { authRoutes(it) }
+            store.accept(ServersIntent.ProtocolChanged(https = true))
+            store.accept(ServersIntent.PortChanged("8920"))
+
+            store.accept(ServersIntent.HostChanged("192.168.1.8"))
+
+            assertEquals("https://192.168.1.8:8920", store.state.form.url)
+            store.dispose()
+        }
+
+    @Test
+    fun plex_on_a_lan_address_gets_http_and_keeps_its_own_port() =
+        runTest {
+            val store = store(testRegistry()) { authRoutes(it) }
+            store.accept(ServersIntent.ProviderChanged(MediaServerKind.Plex))
+
+            store.accept(ServersIntent.HostChanged("192.168.1.8"))
+
+            assertEquals("http://192.168.1.8:32400", store.state.form.url)
             store.dispose()
         }
 

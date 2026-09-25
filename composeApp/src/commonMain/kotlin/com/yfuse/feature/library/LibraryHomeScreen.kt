@@ -60,6 +60,7 @@ import androidx.compose.ui.unit.dp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.app.floatingNavigationContentInset
 import com.yfuse.core.data.FAVORITES_COLLECTION_ID
+import com.yfuse.core.data.ServerHealthStatus
 import com.yfuse.core.data.WATCH_LATER_COLLECTION_ID
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
@@ -239,6 +240,26 @@ private fun utcDate(epochMs: Long): String {
 @Composable
 fun LibraryHomeScreen(component: LibraryHomeComponent) {
     val state by component.store.states.collectAsState(component.store.state)
+    val access by component.access.collectAsState()
+    val serverHealth = component.serverHealth.collectAsState()
+    val currentServerId = state.currentServer?.id
+    // Derived, so a probe of some other server does not recompose the page.
+    val sessionRefused by remember(currentServerId) {
+        derivedStateOf {
+            currentServerId != null &&
+                serverHealth.value[currentServerId]?.status == ServerHealthStatus.AuthRequired
+        }
+    }
+    // A refused session fails every request the page makes: what it needs is a new sign-in, not
+    // another try. A child profile cannot sign in again, so retrying is all it is offered.
+    val signInServer = state.currentServer?.takeIf { sessionRefused && access.canManageServers }
+    val recover = {
+        if (signInServer != null) {
+            component.onReauthenticate(signInServer)
+        } else {
+            component.store.accept(LibraryIntent.Retry)
+        }
+    }
     val libraryCarousel by component.themePreferences.libraryCarousel.collectAsState()
     val store = component.store
     val baseUrl = state.currentServer?.baseUrl.orEmpty()
@@ -359,14 +380,20 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                 if (showSidePreview) LivingPosterDefaults.TRAILING_PEEK else 0.dp
             StatusBarIconStyle(darkIcons = (!libraryCarousel || slide == null || lightPageReached) && !palette.isDark)
             when {
+                state.currentServer == null && access.canManageServers ->
+                    PageHint(
+                        "还没有可用的服务器，添加一台就能在这里浏览媒体库",
+                        Modifier.align(Alignment.Center),
+                        actionLabel = "添加服务器",
+                        onAction = component.onAddServer,
+                    )
+
                 state.currentServer == null ->
                     PageHint(
-                        "当前资料没有可用服务器，请到「服务器」添加或由家长关联",
+                        "当前资料没有可用服务器，请由家长关联",
                         Modifier.align(Alignment.Center),
-                        // No "跳到添加服务器" entry point reaches this screen without threading a
-                        // new callback through LibraryComponent/root navigation (out of this
-                        // package's scope); refresh at least recovers a profile/server change
-                        // made elsewhere without a full app restart.
+                        // A child profile cannot add one itself; a refresh picks up a server a
+                        // parent has linked since, without a restart.
                         actionLabel = "重试",
                         onAction = { store.accept(LibraryIntent.Retry) },
                     )
@@ -374,8 +401,9 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                 state.error != null && state.content.isEmpty ->
                     ErrorState(
                         message = state.error!!,
-                        onRetry = { store.accept(LibraryIntent.Retry) },
+                        onRetry = recover,
                         modifier = Modifier.align(Alignment.Center),
+                        retryLabel = if (signInServer != null) "重新登录" else "重试",
                     )
 
                 else ->
@@ -621,7 +649,8 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                             nowEpochMs = freshnessNowEpochMs,
                                             error = state.error,
                                             loading = state.loading,
-                                            onRetry = { store.accept(LibraryIntent.Retry) },
+                                            signIn = signInServer != null,
+                                            onRetry = recover,
                                         )
                                     }
                                 }
@@ -726,6 +755,8 @@ private fun LibraryFreshnessBanner(
     nowEpochMs: Long,
     error: String?,
     loading: Boolean,
+    /** The server refused its session, and [onRetry] signs in again instead of reloading. */
+    signIn: Boolean,
     onRetry: () -> Unit,
 ) {
     val palette = LocalPalette.current
@@ -760,7 +791,7 @@ private fun LibraryFreshnessBanner(
         }
         if (error != null && !loading) {
             Text(
-                text = "重试",
+                text = if (signIn) "重新登录" else "重试",
                 style = AppTypography.body.strong,
                 color = accent.accent,
                 textAlign = TextAlign.Center,
@@ -769,7 +800,7 @@ private fun LibraryFreshnessBanner(
                         .align(Alignment.End)
                         .pressable(
                             role = Role.Button,
-                            onClickLabel = "重新加载媒体库",
+                            onClickLabel = if (signIn) "重新登录服务器" else "重新加载媒体库",
                             onClick = onRetry,
                         ).touchTarget()
                         .padding(horizontal = 10.dp),
@@ -1277,7 +1308,8 @@ private fun PlaybackHistory(
     onItemClick: (MediaItem) -> Unit,
 ) {
     Column {
-        SectionHeader("播放记录")
+        // SectionHeader has no side inset of its own; this lines it up with the rail's padding below.
+        SectionHeader("播放记录", Modifier.padding(horizontal = Dimens.pageHorizontal))
         LazyRow(
             contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -1343,7 +1375,12 @@ private fun CategorySection(
     onItemClick: (MediaItem) -> Unit,
 ) {
     Column {
-        SectionHeader(row.title, actionLabel = "全部", onAction = onSeeAll)
+        SectionHeader(
+            row.title,
+            Modifier.padding(horizontal = Dimens.pageHorizontal),
+            actionLabel = "全部",
+            onAction = onSeeAll,
+        )
         if (row.loadFailed) {
             Text(
                 text = "暂时无法加载，点击“全部”查看或下拉重试",

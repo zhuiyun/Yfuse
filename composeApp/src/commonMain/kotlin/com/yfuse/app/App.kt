@@ -12,6 +12,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
@@ -64,6 +65,7 @@ import com.yfuse.app.RootComponent.Tab
 import com.yfuse.core.account.AccountState
 import com.yfuse.core.account.canUseWatchTogether
 import com.yfuse.core.data.WatchTogetherPreferences
+import com.yfuse.core.designsystem.ActionToast
 import com.yfuse.core.designsystem.AppBackdrop
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppTypography
@@ -112,6 +114,7 @@ import com.yfuse.feature.profile.ProfileTabComponent
 import com.yfuse.feature.profile.ProfileTabScreen
 import com.yfuse.feature.search.SearchComponent
 import com.yfuse.feature.search.SearchScreen
+import com.yfuse.feature.servers.ServersTabComponent
 import com.yfuse.feature.servers.ServersTabScreen
 import com.yfuse.feature.watch.InviteResolution
 import com.yfuse.feature.watch.WatchInviteSheet
@@ -356,8 +359,8 @@ fun App(root: RootComponent) {
                             // equal-level root motion; nested stacks own their push/pop gestures.
                             CompositionLocalProvider(LocalToastBottomInset provides toastFloor) {
                                 OfficialNavDisplay(
-                                    backStack = topLevelBackStack(active),
-                                    onBack = { root.selectTab(Tab.Home) },
+                                    backStack = topLevelBackStack(active, root.startTab),
+                                    onBack = { root.selectTab(root.startTab) },
                                     contentKey = { "tab:${it.name}" },
                                     modifier = Modifier.fillMaxSize(),
                                     motion = rootMotion,
@@ -377,6 +380,7 @@ fun App(root: RootComponent) {
                                         }
                                     }
                                 }
+                                ServerNoticeToast(root.servers)
                             }
                         }
 
@@ -554,8 +558,25 @@ fun App(root: RootComponent) {
     }
 }
 
-internal fun topLevelBackStack(active: Tab): List<Tab> =
-    if (active == Tab.Home) listOf(Tab.Home) else listOf(Tab.Home, active)
+/**
+ * The tab the session started on, then the one showing when that is another: back from any other
+ * tab returns to the start, and on the start itself back is the system's and leaves the app.
+ */
+internal fun topLevelBackStack(
+    active: Tab,
+    start: Tab,
+): List<Tab> = if (active == start) listOf(start) else listOf(start, active)
+
+/**
+ * 服务器's notices — a save, an edit the registry refused — shown by the shell rather than by
+ * that tab, so they stay up whichever tab the app is on by the time they arrive. Its own scope,
+ * so a notice recomposes the toast and not the navigation host beside it.
+ */
+@Composable
+private fun BoxScope.ServerNoticeToast(servers: ServersTabComponent) {
+    val notice by servers.notice.collectAsState()
+    ActionToast(message = notice, onDismiss = servers::dismissNotice)
+}
 
 /** The glyph box inside a tab cell, and the glyph inside it — see [LiquidGlassTabIcon]. */
 private val DockIconBox = 34.dp

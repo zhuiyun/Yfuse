@@ -20,6 +20,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.autofill.ContentType
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -40,6 +41,7 @@ import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.OverlayButton
 import com.yfuse.core.designsystem.OverlayButtonTone
 import com.yfuse.core.designsystem.OverlayHeader
+import com.yfuse.core.designsystem.liveStatus
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.MediaServerKind
@@ -89,6 +91,13 @@ fun AddServerDialog(
     val openedForm = remember(state.editingServerId) { form }
     val holdsInput = form.hasInputSince(openedForm)
     var confirmDiscard by remember { mutableStateOf(false) }
+    // One rule for the button and for the keyboard's 完成, so the keyboard cannot send a form the
+    // button would refuse.
+    val canSubmit =
+        (form.canSubmit || (editing && !state.connectionEdited)) &&
+            endpointValidation.allowed &&
+            (!editing || form.serverName.isNotBlank())
+    val submit = { if (canSubmit && !form.submitting) sendIntent(ServersIntent.Submit) }
 
     GlassDialog(
         onDismiss = onDismiss,
@@ -102,12 +111,17 @@ fun AddServerDialog(
         },
     ) {
         OverlayHeader(
-            title = if (editing) "编辑服务器" else "添加服务器",
+            title =
+                when {
+                    state.reauthenticating -> "重新登录"
+                    editing -> "编辑服务器"
+                    else -> "添加服务器"
+                },
             subtitle =
-                if (editing) {
-                    "名称可直接修改；连接信息变更后需重新登录"
-                } else {
-                    "连接 Emby、Jellyfin 或 Plex 服务器"
+                when {
+                    state.reauthenticating -> "保存的登录已失效，重新登录后即可继续浏览"
+                    editing -> "名称可直接修改；连接信息变更后需重新登录"
+                    else -> "连接 Emby、Jellyfin 或 Plex 服务器"
                 },
             onClose = onDismiss,
         )
@@ -230,13 +244,6 @@ fun AddServerDialog(
                         }
                     }
                 }
-                ServerFormInput(
-                    label = "显示名称",
-                    value = form.serverName,
-                    placeholder = if (editing) "输入服务器名称" else "留空使用服务器名称",
-                    enabled = !form.submitting,
-                    divider = true,
-                ) { sendIntent(ServersIntent.ServerNameChanged(it)) }
                 ServerFormRow(label = "协议", divider = true, labelBottomPadding = 6.dp) {
                     Row(
                         modifier = Modifier.selectableGroup(),
@@ -263,8 +270,17 @@ fun AddServerDialog(
                     value = form.port,
                     enabled = !form.submitting,
                     keyboardType = KeyboardType.Number,
-                    divider = false,
+                    divider = true,
                 ) { sendIntent(ServersIntent.PortChanged(it)) }
+                // Last rather than first: it is optional, and it used to stand between the user
+                // and the address, which is what actually connects.
+                ServerFormInput(
+                    label = "显示名称",
+                    value = form.serverName,
+                    placeholder = if (editing) "输入服务器名称" else "留空使用服务器名称",
+                    enabled = !form.submitting,
+                    divider = false,
+                ) { sendIntent(ServersIntent.ServerNameChanged(it)) }
             }
             Spacer(Modifier.height(4.dp))
             FieldLabel("账号")
@@ -405,6 +421,7 @@ fun AddServerDialog(
                         enabled = !form.submitting,
                         password = true,
                         divider = false,
+                        onSubmit = submit,
                     ) { sendIntent(ServersIntent.PasswordChanged(it)) }
                 } else {
                     ServerFormInput(
@@ -413,14 +430,23 @@ fun AddServerDialog(
                         placeholder = "输入用户名",
                         enabled = !form.submitting,
                         divider = true,
+                        autofillType = ContentType.Username,
                     ) { sendIntent(ServersIntent.UsernameChanged(it)) }
                     ServerFormInput(
                         label = "密码",
                         value = form.password,
-                        placeholder = if (editing) "仅修改名称时无需填写" else "留空表示无密码",
+                        placeholder =
+                            when {
+                                state.reauthenticating -> "输入密码重新登录"
+                                editing -> "仅修改名称时无需填写"
+                                else -> "留空表示无密码"
+                            },
                         enabled = !form.submitting,
                         password = true,
                         divider = true,
+                        autofillType = ContentType.Password,
+                        onSubmit = submit,
+                        autoFocus = state.reauthenticating,
                     ) { sendIntent(ServersIntent.PasswordChanged(it)) }
                     // The only reachable add-server UI, now that the full-page 添加服务器
                     // (`ServersScreen`) is gone — Quick Connect used to live there and nowhere
@@ -499,19 +525,23 @@ fun AddServerDialog(
                 form.error,
                 style = AppTypography.caption.medium,
                 color = palette.error,
-                modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+                // Read out as it appears: with TalkBack on, the spinner stopping was all that said
+                // the connection had failed.
+                modifier = Modifier.fillMaxWidth().padding(top = 10.dp).liveStatus(assertive = true),
             )
         }
 
         OverlayButton(
-            label = if (editing) "保存修改" else "连接到服务器",
+            label =
+                when {
+                    state.reauthenticating -> "重新登录"
+                    editing -> "保存修改"
+                    else -> "连接到服务器"
+                },
             onClick = { sendIntent(ServersIntent.Submit) },
             modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
             tone = OverlayButtonTone.Primary,
-            enabled =
-                (form.canSubmit || (editing && !state.connectionEdited)) &&
-                    endpointValidation.allowed &&
-                    (!editing || form.serverName.isNotBlank()),
+            enabled = canSubmit,
             loading = form.submitting,
         )
 

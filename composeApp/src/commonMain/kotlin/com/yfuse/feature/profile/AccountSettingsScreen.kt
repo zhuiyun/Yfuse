@@ -76,14 +76,17 @@ import com.yfuse.core.designsystem.YfButtonTone
 import com.yfuse.core.designsystem.YfFormField
 import com.yfuse.core.designsystem.YfInlineLinkButton
 import com.yfuse.core.designsystem.liquidGlass
+import com.yfuse.core.designsystem.liveStatus
 import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberDisclosureProgress
 import com.yfuse.core.designsystem.touchTarget
+import com.yfuse.core.personal.PersonalLibraryRepository
 import com.yfuse.core.util.rememberShareHandler
 import kotlinx.coroutines.launch
+import org.koin.core.context.GlobalContext
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
 
@@ -253,7 +256,13 @@ private fun SignedOutAccountCard(account: AccountRepository) {
         }
         error?.let {
             Spacer(Modifier.height(9.dp))
-            Text(it, style = AppTypography.caption.medium, color = palette.error)
+            Text(
+                it,
+                style = AppTypography.caption.medium,
+                color = palette.error,
+                // A failed sign-in or sign-up stops what the person was doing: say it at once.
+                modifier = Modifier.liveStatus(assertive = true),
+            )
         }
         Spacer(Modifier.height(18.dp))
         YfButton(
@@ -339,6 +348,7 @@ private fun SignedInAccountCard(
     var issuedInvite by remember { mutableStateOf<IssuedInviteCode?>(null) }
     var inviteBusy by remember { mutableStateOf(false) }
     val share = rememberShareHandler()
+    val personal = remember { GlobalContext.get().get<PersonalLibraryRepository>() }
 
     LaunchedEffect(user.nickname, user.avatarId) {
         nickname = user.nickname
@@ -605,7 +615,9 @@ private fun SignedInAccountCard(
                 loading = downloading,
             )
             OverlayButton(
-                label = "清空服务器",
+                // What it clears is the cloud copy, not a server. Four characters like its
+                // neighbours: a third of the row cuts a six-character label off on most phones.
+                label = "清空云端",
                 onClick = { confirmClearRemote = true },
                 modifier = Modifier.weight(1f),
                 tone = OverlayButtonTone.Destructive,
@@ -626,14 +638,20 @@ private fun SignedInAccountCard(
             loading = busy,
             dense = true,
             onClick = {
-                busy = true
-                // Posted from the press rather than from the continuation: signing out replaces
-                // this card with the signed-out one, and the scope that ran the call goes with
-                // it. The repository clears the session locally either way.
-                onNotice("已退出 Yfuse 账号")
-                scope.launch {
-                    account.logout()
-                    busy = false
+                if (!personal.policy.value.canManageServers) {
+                    // The repository refuses a child profile's sign-out, and says nothing: the
+                    // notice below would have confirmed a sign-out that never happened.
+                    onNotice("儿童资料不能退出 Yfuse 账号，请用家长 PIN 切换到成人资料")
+                } else {
+                    busy = true
+                    // Posted from the press rather than from the continuation: signing out replaces
+                    // this card with the signed-out one, and the scope that ran the call goes with
+                    // it. The repository clears the session locally either way.
+                    onNotice("已退出 Yfuse 账号")
+                    scope.launch {
+                        account.logout()
+                        busy = false
+                    }
                 }
             },
         )
@@ -689,7 +707,7 @@ private fun SignedInAccountCard(
         // typography and radii, in the middle of a glass app. Same question, same two ways
         // out, in the one overlay material everything else uses.
         ConfirmDialog(
-            title = "清空服务器数据？",
+            title = "清空云端数据？",
             message = "只删除这个账号的云端同步密文；账号、昵称头像和本机数据都会保留。",
             confirmLabel = "确认清空",
             destructive = true,
@@ -989,7 +1007,7 @@ private fun AccountHeader(onBack: () -> Unit) {
     ) {
         SettingsBackButton(onBack)
         Column(Modifier.padding(start = 10.dp)) {
-            Text("账户与同步", style = AppTypography.section.strong, color = palette.text)
+            Text("账号与同步", style = AppTypography.section.strong, color = palette.text)
             Text("IP HTTPS · 敏感数据加密同步", style = AppTypography.caption.regular, color = palette.sub2)
         }
     }

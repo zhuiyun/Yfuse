@@ -31,7 +31,10 @@ data class LoginForm(
     val kind: MediaServerKind = MediaServerKind.Emby,
     /** Optional on first login; prefilled with the saved display name while editing. */
     val serverName: String = "",
-    /** The prototype defaults the protocol segment to HTTPS. */
+    /**
+     * HTTPS on 443 until the address says otherwise: a LAN host moves an untouched protocol to
+     * HTTP and an untouched port to 8096 — see [protocolChosen] and [isLanServerHost].
+     */
     val https: Boolean = true,
     val host: String = "",
     val port: String = "443",
@@ -42,6 +45,14 @@ data class LoginForm(
     val httpRiskAccepted: Boolean = false,
     val submitting: Boolean = false,
     val error: String? = null,
+    /**
+     * Whether the person has picked the protocol — tapped a segment, or wrote a scheme into the
+     * address. Until then it follows the host: the usual first server is a LAN address, where
+     * Emby and Jellyfin answer plain HTTP, and the HTTPS guess made that first connection fail.
+     */
+    val protocolChosen: Boolean = false,
+    /** Whether the person has picked the port — typed one, here or in the address. */
+    val portChosen: Boolean = false,
 ) {
     val url: String
         get() {
@@ -84,10 +95,13 @@ data class LoginForm(
 /**
  * Whether the form holds anything entered since it [opened] — typed, picked, or filled in from a
  * discovered server — that closing it would throw away. [LoginForm.submitting] and
- * [LoginForm.error] are the form's progress, not its content.
+ * [LoginForm.error] are the form's progress, not its content, and the two `…Chosen` flags are
+ * bookkeeping about fields that are compared themselves.
  */
-internal fun LoginForm.hasInputSince(opened: LoginForm): Boolean =
-    copy(submitting = false, error = null) != opened.copy(submitting = false, error = null)
+internal fun LoginForm.hasInputSince(opened: LoginForm): Boolean = contentOnly() != opened.contentOnly()
+
+private fun LoginForm.contentOnly(): LoginForm =
+    copy(submitting = false, error = null, protocolChosen = false, portChosen = false)
 
 internal data class ParsedServerAddress(
     val https: Boolean?,
@@ -97,6 +111,24 @@ internal data class ParsedServerAddress(
 )
 
 internal fun defaultServerPort(https: Boolean): String = if (https) "443" else "8096"
+
+/**
+ * A host that is almost certainly on the user's own network: a private IPv4 address (10/8,
+ * 172.16/12, 192.168/16), loopback, `localhost`, or an mDNS `.local` name. Emby and Jellyfin
+ * answer those on plain HTTP, port 8096; HTTPS there needs a certificate few home servers have.
+ *
+ * Narrower than `isLocalServiceHost`, which also takes any single-label name: a domain being
+ * typed passes through one ("media" before ".example.com"), and the protocol would flip with
+ * every keystroke. An IPv4 address only counts once all four parts are there.
+ */
+internal fun isLanServerHost(host: String): Boolean {
+    val name = host.trim().trimEnd('.').lowercase()
+    if (name == "localhost" || name.endsWith(".local")) return true
+    val parts = name.split('.').map { part -> part.takeIf { it.all(Char::isDigit) }?.toIntOrNull() }
+    if (parts.size != 4 || parts.any { it == null || it > 255 }) return false
+    val (first, second) = parts.filterNotNull()
+    return first == 10 || first == 127 || (first == 172 && second in 16..31) || (first == 192 && second == 168)
+}
 
 /**
  * Accepts `host`, `host:port`, and complete HTTP(S) URLs with an optional base path.
@@ -282,7 +314,16 @@ data class ServersState(
      *  id is preserved so [ServersStore] can replace it on submit (the user may change the
      *  host or account, which would otherwise create a new entry). */
     val editingServerId: String? = null,
-    /** One-shot confirmation for a save the form closed on; cleared by [ServersIntent.DismissNotice]. */
+    /**
+     * The edit was opened to sign in again, after the server stopped accepting the saved
+     * session: the password field takes focus, and saving signs in even with the password left
+     * blank rather than taking the rename-only shortcut that would keep the refused session.
+     */
+    val reauthenticating: Boolean = false,
+    /**
+     * One-shot notice — 「已连接…」 for a save the form closed on, or why the registry refused an
+     * edit; cleared by [ServersIntent.DismissNotice].
+     */
     val notice: String? = null,
 )
 
@@ -292,9 +333,11 @@ sealed interface ServersIntent {
     data object DismissDialog : ServersIntent
 
     /** Open the dialog in edit mode, prefilled from the saved server. Renaming is local;
-     *  changing the host or account still requires re-authentication. */
+     *  changing the host or account still requires re-authentication. [reauthenticate] opens
+     *  it to sign in again; see [ServersState.reauthenticating]. */
     data class EditServer(
         val server: SavedServer,
+        val reauthenticate: Boolean = false,
     ) : ServersIntent
 
     data class ServerNameChanged(
@@ -360,6 +403,14 @@ sealed interface ServersIntent {
     /** The confirmation toast finished or was swiped away. */
     data object DismissNotice : ServersIntent
 
+    /**
+     * A result reached outside this store — an edit the tab made on the registry directly — to be
+     * shown the way the store's own notices are.
+     */
+    data class ShowNotice(
+        val message: String,
+    ) : ServersIntent
+
     data object LocalNetworkPermissionDenied : ServersIntent
 
     data class SelectDiscovered(
@@ -380,8 +431,13 @@ sealed interface ServersIntent {
 }
 
 sealed interface ServersLabel {
-    /** A server was just added/logged in; the shell may jump to the library tab. */
-    data object ServerAdded : ServersLabel
+    /**
+     * A server was just added or signed in to again. [first] is set when the registry had no
+     * server before it — the one a first run was waiting for — and the tab then moves on to 库.
+     */
+    data class ServerAdded(
+        val first: Boolean,
+    ) : ServersLabel
 }
 
 private sealed interface Action {
@@ -403,6 +459,7 @@ private sealed interface Msg {
 
     data class EditOpen(
         val server: SavedServer,
+        val reauthenticate: Boolean,
     ) : Msg
 
     data class ServerName(
@@ -455,7 +512,10 @@ private sealed interface Msg {
 
     data object Submitting : Msg
 
-    data object SubmitDone : Msg
+    /** The form's save went through; [serverName] is what the confirmation calls the server. */
+    data class SubmitDone(
+        val serverName: String,
+    ) : Msg
 
     data class Notice(
         val value: String?,
@@ -571,9 +631,10 @@ class ServersStoreFactory(
                     dispatch(Msg.DialogClose)
                 }
                 ServersIntent.DismissNotice -> dispatch(Msg.Notice(null))
+                is ServersIntent.ShowNotice -> dispatch(Msg.Notice(intent.message))
                 is ServersIntent.EditServer -> {
                     cancelDialogJobs()
-                    dispatch(Msg.EditOpen(intent.server))
+                    dispatch(Msg.EditOpen(intent.server, intent.reauthenticate))
                 }
                 is ServersIntent.ServerNameChanged -> dispatch(Msg.ServerName(intent.value))
                 is ServersIntent.ProviderChanged -> {
@@ -624,10 +685,31 @@ class ServersStoreFactory(
                 is ServersIntent.SelectDiscovered -> selectDiscovered(intent.server)
                 is ServersIntent.SelectPublicUser ->
                     dispatch(Msg.Username(intent.name))
-                is ServersIntent.SelectDefault -> registry.setDefault(intent.id)
-                is ServersIntent.Remove -> registry.remove(intent.id)
+                is ServersIntent.SelectDefault ->
+                    writeRegistry { registry.setDefault(intent.id) }
+                        .onFailure { dispatch(Msg.Notice(it.registryEditMessage())) }
+                is ServersIntent.Remove ->
+                    writeRegistry { registry.remove(intent.id) }
+                        .onFailure { dispatch(Msg.Notice(it.registryEditMessage())) }
             }
         }
+
+        /**
+         * Runs one write to the registry and hands back what went wrong instead of throwing it.
+         *
+         * The registry refuses every change from a child profile by throwing. Unguarded, that
+         * throw left through the tap (移除) or the login coroutine (添加, 编辑) that asked for the
+         * change and took the app down; each caller now reports it through the channel it has.
+         */
+        private fun <T> writeRegistry(write: () -> T): Result<T> =
+            runCatching(write).onFailure {
+                AppLog.warning(
+                    category = "server.registry",
+                    event = "edit_refused",
+                    message = "Saved server edit was refused",
+                    throwable = it,
+                )
+            }
 
         private fun scan() {
             scanJob?.cancel()
@@ -885,12 +967,18 @@ class ServersStoreFactory(
                                 authenticated.toSavedServer(
                                     serverName = requestedName.takeIf(String::isNotBlank) ?: existing?.serverName,
                                 )
+                            val firstServer = editingId == null && state().servers.isEmpty()
                             val saved =
-                                if (editingId == null) {
-                                    registry.addOrUpdate(savedServer)
-                                    true
-                                } else {
-                                    registry.replace(editingId, savedServer)
+                                writeRegistry {
+                                    if (editingId == null) {
+                                        registry.addOrUpdate(savedServer)
+                                        true
+                                    } else {
+                                        registry.replace(editingId, savedServer)
+                                    }
+                                }.getOrElse {
+                                    dispatch(Msg.PlexAccount(PlexAccountUiState.Error(it.registryEditMessage())))
+                                    return@onSuccess
                                 }
                             if (!saved) {
                                 dispatch(Msg.PlexAccount(PlexAccountUiState.Error("原服务器已不存在，请重新添加")))
@@ -904,8 +992,8 @@ class ServersStoreFactory(
                             )
                             onAuthenticated(savedServer.id)
                             cancelDialogJobs()
-                            dispatch(Msg.SubmitDone)
-                            publish(ServersLabel.ServerAdded)
+                            dispatch(Msg.SubmitDone(savedServer.serverName))
+                            publish(ServersLabel.ServerAdded(first = firstServer))
                         }.onFailure {
                             if (requestId == plexAccountRequestId) {
                                 dispatch(
@@ -1058,12 +1146,18 @@ class ServersStoreFactory(
                     serverName = requestedName.takeIf { it.isNotBlank() } ?: existing?.serverName,
                     localCleartextConfirmed = state().form.httpRiskAccepted,
                 )
+            val firstServer = editingId == null && state().servers.isEmpty()
             val saved =
-                if (editingId == null) {
-                    registry.addOrUpdate(savedServer)
-                    true
-                } else {
-                    registry.replace(editingId, savedServer)
+                writeRegistry {
+                    if (editingId == null) {
+                        registry.addOrUpdate(savedServer)
+                        true
+                    } else {
+                        registry.replace(editingId, savedServer)
+                    }
+                }.getOrElse {
+                    dispatch(Msg.QuickConnect(QuickConnectUiState.Error(it.registryEditMessage())))
+                    return
                 }
             if (!saved) {
                 dispatch(Msg.QuickConnect(QuickConnectUiState.Error("原服务器已不存在，请重新添加")))
@@ -1077,8 +1171,8 @@ class ServersStoreFactory(
             )
             onAuthenticated(savedServer.id)
             cancelDialogJobs()
-            dispatch(Msg.SubmitDone)
-            publish(ServersLabel.ServerAdded)
+            dispatch(Msg.SubmitDone(savedServer.serverName))
+            publish(ServersLabel.ServerAdded(first = firstServer))
         }
 
         private fun submit() {
@@ -1100,17 +1194,24 @@ class ServersStoreFactory(
 
             // A display-name-only edit is local metadata. Keep the token, server id and
             // default selection intact instead of asking the user to enter their password.
+            // Not when signing in again: the kept token is the one the server refused.
             if (
                 existing != null &&
                 form.password.isBlank() &&
-                !state().connectionEdited
+                !state().connectionEdited &&
+                !state().reauthenticating
             ) {
-                if (!registry.rename(existing.id, requestedName)) {
+                val renamed =
+                    writeRegistry { registry.rename(existing.id, requestedName) }.getOrElse {
+                        dispatch(Msg.SubmitError(it.registryEditMessage()))
+                        return
+                    }
+                if (!renamed) {
                     dispatch(Msg.SubmitError("服务器已不存在，请重新打开编辑页面"))
                     return
                 }
                 cancelDialogJobs()
-                dispatch(Msg.SubmitDone)
+                dispatch(Msg.SubmitDone(requestedName))
                 return
             }
             dispatch(Msg.Submitting)
@@ -1129,12 +1230,18 @@ class ServersStoreFactory(
                                         ?: existing?.serverName,
                                 localCleartextConfirmed = form.httpRiskAccepted,
                             )
+                        val firstServer = editingId == null && state().servers.isEmpty()
                         val saved =
-                            if (editingId == null) {
-                                registry.addOrUpdate(savedServer)
-                                true
-                            } else {
-                                registry.replace(editingId, savedServer)
+                            writeRegistry {
+                                if (editingId == null) {
+                                    registry.addOrUpdate(savedServer)
+                                    true
+                                } else {
+                                    registry.replace(editingId, savedServer)
+                                }
+                            }.getOrElse {
+                                dispatch(Msg.SubmitError(it.registryEditMessage()))
+                                return@onSuccess
                             }
                         if (!saved) {
                             dispatch(Msg.SubmitError("原服务器已不存在，请重新添加"))
@@ -1148,8 +1255,8 @@ class ServersStoreFactory(
                         )
                         onAuthenticated(savedServer.id)
                         cancelDialogJobs()
-                        dispatch(Msg.SubmitDone)
-                        publish(ServersLabel.ServerAdded)
+                        dispatch(Msg.SubmitDone(savedServer.serverName))
+                        publish(ServersLabel.ServerAdded(first = firstServer))
                     }.onFailure {
                         AppLog.warning(
                             category = "server.auth",
@@ -1183,6 +1290,7 @@ class ServersStoreFactory(
                         plexAccount = PlexAccountUiState.Idle,
                         plexHomePin = "",
                         connectionEdited = false,
+                        reauthenticating = false,
                     )
                 Msg.DialogClose ->
                     copy(
@@ -1196,6 +1304,7 @@ class ServersStoreFactory(
                         plexAccount = PlexAccountUiState.Idle,
                         plexHomePin = "",
                         connectionEdited = false,
+                        reauthenticating = false,
                     )
                 is Msg.EditOpen -> {
                     // Reuse the add dialog in-place by prefilling the form from the saved
@@ -1218,6 +1327,7 @@ class ServersStoreFactory(
                         plexAccount = PlexAccountUiState.Idle,
                         plexHomePin = "",
                         connectionEdited = false,
+                        reauthenticating = msg.reauthenticate,
                         form =
                             LoginForm(
                                 kind = msg.server.kind,
@@ -1229,6 +1339,9 @@ class ServersStoreFactory(
                                 username = msg.server.userName,
                                 password = "",
                                 httpRiskAccepted = msg.server.localCleartextConfirmed,
+                                // What the server was saved with was chosen; a new host keeps it.
+                                protocolChosen = true,
+                                portChosen = true,
                             ),
                     )
                 }
@@ -1270,6 +1383,9 @@ class ServersStoreFactory(
                                     },
                                 httpRiskAccepted = false,
                                 error = null,
+                                // The port was just reset to the protocol's own, so it follows again.
+                                protocolChosen = true,
+                                portChosen = false,
                             ),
                         connectionEdited = true,
                     )
@@ -1281,7 +1397,12 @@ class ServersStoreFactory(
                             connectionEdited = true,
                         )
                     } else {
-                        val resolvedHttps = parsed.https ?: form.https
+                        // A scheme or port written into the address is as much a choice as the
+                        // segment or the port field; whatever is still unchosen follows the host.
+                        val protocolChosen = form.protocolChosen || parsed.https != null
+                        val portChosen = form.portChosen || parsed.port != null
+                        val resolvedHttps =
+                            parsed.https ?: if (protocolChosen) form.https else !isLanServerHost(parsed.host)
                         val explicitAbsoluteUrl = "://" in msg.v
                         copy(
                             form =
@@ -1290,10 +1411,11 @@ class ServersStoreFactory(
                                     host = parsed.host,
                                     port =
                                         parsed.port
-                                            ?: if (parsed.https != null) {
-                                                defaultServerPort(resolvedHttps)
-                                            } else {
-                                                form.port
+                                            ?: when {
+                                                parsed.https != null -> defaultServerPort(resolvedHttps)
+                                                // Plex keeps its own 32400 on either protocol.
+                                                portChosen || form.kind == MediaServerKind.Plex -> form.port
+                                                else -> defaultServerPort(resolvedHttps)
                                             },
                                     basePath =
                                         if (explicitAbsoluteUrl || parsed.basePath.isNotEmpty()) {
@@ -1308,6 +1430,8 @@ class ServersStoreFactory(
                                             form.httpRiskAccepted
                                         },
                                     error = null,
+                                    protocolChosen = protocolChosen,
+                                    portChosen = portChosen,
                                 ),
                             connectionEdited = true,
                         )
@@ -1315,7 +1439,7 @@ class ServersStoreFactory(
                 }
                 is Msg.Port ->
                     copy(
-                        form = form.copy(port = msg.v, error = null),
+                        form = form.copy(port = msg.v, error = null, portChosen = true),
                         connectionEdited = true,
                     )
                 is Msg.BasePath ->
@@ -1337,13 +1461,19 @@ class ServersStoreFactory(
                 is Msg.PlexAccount -> copy(plexAccount = msg.state)
                 is Msg.PlexHomePin -> copy(plexHomePin = msg.value)
                 Msg.Submitting -> copy(form = form.copy(submitting = true, error = null))
-                Msg.SubmitDone ->
+                is Msg.SubmitDone ->
                     copy(
                         dialogVisible = false,
                         form = LoginForm(),
                         // Read before the copy clears it: an edit and a first login close the
-                        // same form and are otherwise indistinguishable afterwards.
-                        notice = if (editingServerId != null) "服务器已更新" else "服务器已添加",
+                        // same form and are otherwise indistinguishable afterwards. The name says
+                        // which server it was, which a bare 「已添加」 does not once there are several.
+                        notice =
+                            when {
+                                editingServerId == null -> "已连接「${msg.serverName}」"
+                                reauthenticating -> "已重新登录「${msg.serverName}」"
+                                else -> "已更新「${msg.serverName}」"
+                            },
                         editingServerId = null,
                         scanning = false,
                         discovered = emptyList(),
@@ -1352,6 +1482,7 @@ class ServersStoreFactory(
                         plexAccount = PlexAccountUiState.Idle,
                         plexHomePin = "",
                         connectionEdited = false,
+                        reauthenticating = false,
                     )
                 is Msg.SubmitError -> copy(form = form.copy(submitting = false, error = msg.m))
                 Msg.ScanStarted -> copy(scanning = true, discovered = emptyList(), scanError = null)
@@ -1376,3 +1507,9 @@ private fun sanitizeServerName(value: String): String =
         .replace('\n', ' ')
         .trim()
         .take(60)
+
+/**
+ * What to tell the user when the registry refused an edit. Its refusals are written for them —
+ * a child profile's 「请先使用家长 PIN 切换到成人资料」 above all — so the wording is kept.
+ */
+internal fun Throwable.registryEditMessage(): String = message?.takeIf(String::isNotBlank) ?: "操作没有完成，请重试"

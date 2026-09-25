@@ -4,6 +4,8 @@ import com.arkivanov.decompose.ComponentContext
 import com.arkivanov.essenty.lifecycle.doOnDestroy
 import com.arkivanov.essenty.lifecycle.doOnPause
 import com.arkivanov.mvikotlin.core.store.StoreFactory
+import com.arkivanov.mvikotlin.extensions.coroutines.labels
+import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.app.AppDependencies
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.LibraryCache
@@ -12,15 +14,20 @@ import com.yfuse.core.data.ServerHealthMonitor
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.ServerStatsStore
 import com.yfuse.core.data.ThemePreferences
+import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.ServerLayout
 import com.yfuse.core.model.ServerRoute
+import com.yfuse.core.personal.PersonalAccessPolicy
+import com.yfuse.core.personal.PersonalLibraryRepository
 import com.yfuse.core.util.componentScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -60,6 +67,34 @@ class ServersTabComponent(
     val health: ServerHealthMonitor = dependencies.serverHealthMonitor
     val activity: ServerActivityStore = dependencies.serverActivity
     val stats: ServerStatsStore = dependencies.serverStats
+
+    private val personal by lazy {
+        org.koin.core.context.GlobalContext
+            .get()
+            .get<PersonalLibraryRepository>()
+    }
+
+    /**
+     * Who is browsing. A child profile may pick among the servers it was given but not change
+     * them — the registry refuses every such edit — so the tab offers none; see
+     * [PersonalAccessPolicy.canManageServers].
+     */
+    val access: StateFlow<PersonalAccessPolicy> get() = personal.policy
+
+    /** Arriving from 库's empty page: the add form, open — unless this profile cannot add one. */
+    fun openAddServer() {
+        if (personal.policy.value.canManageServers) store.accept(ServersIntent.OpenAddDialog)
+    }
+
+    /**
+     * [server] stopped accepting its saved session: its own form, prefilled, to sign in again.
+     * A child profile cannot replace the session, so it gets nothing to fill in.
+     */
+    fun reauthenticate(server: SavedServer) {
+        if (personal.policy.value.canManageServers) {
+            store.accept(ServersIntent.EditServer(server, reauthenticate = true))
+        }
+    }
 
     /** Grid or list; see [ServerLayout]. */
     val layout: StateFlow<ServerLayout> = themePreferences.serverLayout
@@ -105,6 +140,17 @@ class ServersTabComponent(
         refreshState
             .map { it.refreshing }
             .stateIn(scope, SharingStarted.Eagerly, false)
+
+    /**
+     * What the store has to say once its form or menu has closed — a save, or an edit the
+     * registry refused. The shell shows it, so it stays up whichever tab the app is on by then.
+     */
+    val notice: StateFlow<String?> =
+        store.states
+            .map { it.notice }
+            .stateIn(scope, SharingStarted.Eagerly, null)
+
+    fun dismissNotice() = store.accept(ServersIntent.DismissNotice)
 
     private fun currentServer(id: String): SavedServer? =
         registry.data.value.servers
@@ -224,13 +270,30 @@ class ServersTabComponent(
     private suspend fun refreshStats(serverIds: List<String>): Map<String, Result<Unit>> =
         refreshCurrentServerStats(serverIds, ::currentServer, repo::itemCounts, stats::record)
 
+    /**
+     * Runs one registry edit made from this tab. The registry refuses a child profile's edits by
+     * throwing, and the throw used to leave through the tap that asked and take the app down; it
+     * is the tab's notice instead.
+     */
+    private fun <T> editRegistry(edit: () -> T): T? =
+        runCatching(edit)
+            .onFailure {
+                AppLog.warning(
+                    category = "server.registry",
+                    event = "edit_refused",
+                    message = "Saved server edit was refused",
+                    throwable = it,
+                )
+                store.accept(ServersIntent.ShowNotice(it.registryEditMessage()))
+            }.getOrNull()
+
     /** Saves an edited route list, then re-probes so the new addresses report immediately. */
     fun setRoutes(
         serverId: String,
         routes: List<ServerRoute>,
         localCleartextConfirmed: Boolean = false,
     ) {
-        if (!registry.setRoutes(serverId, routes, localCleartextConfirmed)) return
+        if (editRegistry { registry.setRoutes(serverId, routes, localCleartextConfirmed) } != true) return
         registry.serverById(serverId)?.let { updated ->
             scope.launch { health.refresh(updated) }
         }
@@ -252,7 +315,7 @@ class ServersTabComponent(
         emoji: String?,
         tint: Long?,
     ) {
-        registry.setIcon(serverId, emoji, tint)
+        editRegistry { registry.setIcon(serverId, emoji, tint) }
     }
 
     /**
@@ -263,6 +326,11 @@ class ServersTabComponent(
     fun removeServer(id: String) {
         managementController.closeIfServer(id)
         store.accept(ServersIntent.Remove(id))
+        // A refused removal (a child profile's) leaves the server, and so its cache, in place.
+        val refused =
+            registry.data.value.servers
+                .any { it.id == id }
+        if (refused) return
         libraryCache.clear(id)
         val remaining =
             registry.data.value.servers
@@ -272,6 +340,11 @@ class ServersTabComponent(
     }
 
     init {
+        // The first server is what a first run was waiting for: move on to what is on it. Later
+        // ones stay here, beside the servers the user is managing.
+        store.labels
+            .onEach { label -> if (label is ServersLabel.ServerAdded && label.first) onOpenLibrary() }
+            .launchIn(scope)
         lifecycle.doOnPause { refreshController.suppressFeedback() }
         lifecycle.doOnDestroy { store.dispose() }
     }
