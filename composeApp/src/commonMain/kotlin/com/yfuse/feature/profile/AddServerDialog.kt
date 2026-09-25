@@ -230,13 +230,6 @@ fun AddServerDialog(
                         }
                     }
                 }
-                ServerFormInput(
-                    label = "显示名称",
-                    value = form.serverName,
-                    placeholder = if (editing) "输入服务器名称" else "留空使用服务器名称",
-                    enabled = !form.submitting,
-                    divider = true,
-                ) { sendIntent(ServersIntent.ServerNameChanged(it)) }
                 ServerFormRow(label = "协议", divider = true, labelBottomPadding = 6.dp) {
                     Row(
                         modifier = Modifier.selectableGroup(),
@@ -263,8 +256,17 @@ fun AddServerDialog(
                     value = form.port,
                     enabled = !form.submitting,
                     keyboardType = KeyboardType.Number,
-                    divider = false,
+                    divider = true,
                 ) { sendIntent(ServersIntent.PortChanged(it)) }
+                // Last rather than first: it is optional, and it used to stand between the user
+                // and the address, which is what actually connects.
+                ServerFormInput(
+                    label = "显示名称",
+                    value = form.serverName,
+                    placeholder = if (editing) "输入服务器名称" else "留空使用服务器名称",
+                    enabled = !form.submitting,
+                    divider = false,
+                ) { sendIntent(ServersIntent.ServerNameChanged(it)) }
             }
             Spacer(Modifier.height(4.dp))
             FieldLabel("账号")
