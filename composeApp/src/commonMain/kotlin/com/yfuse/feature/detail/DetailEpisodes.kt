@@ -69,6 +69,7 @@ import com.yfuse.core.designsystem.backdropBlur
 import com.yfuse.core.designsystem.contentHandoff
 import com.yfuse.core.designsystem.disclosureRotation
 import com.yfuse.core.designsystem.liquidGlass
+import com.yfuse.core.designsystem.liveStatus
 import com.yfuse.core.designsystem.motionItemsIndexed
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberDisclosureProgress
@@ -164,47 +165,70 @@ private fun EpisodeHeader(
             Text(seasonLabel, style = AppTypography.section.strong, color = palette.text)
         }
         // Both open the episodes on show, which are the last season's until the new ones land.
+        // With none on show there is nothing to list or to mark.
+        if (availableEpisodeCount > 0) {
+            EpisodeHeaderActions(
+                accent = accent,
+                availableEpisodeCount = availableEpisodeCount,
+                seasonLoading = seasonLoading,
+                staleAlpha = staleAlpha,
+                onManageProgress = onManageProgress,
+                onSeeAll = onSeeAll,
+            )
+        }
+    }
+}
+
+@Composable
+private fun EpisodeHeaderActions(
+    accent: Color,
+    availableEpisodeCount: Int,
+    seasonLoading: Boolean,
+    staleAlpha: State<Float>,
+    onManageProgress: () -> Unit,
+    onSeeAll: () -> Unit,
+) {
+    val palette = LocalPalette.current
+    Row(
+        Modifier.graphicsLayer { alpha = staleAlpha.value },
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        // This count comes from Emby, not the official production total.
         Row(
-            Modifier.graphicsLayer { alpha = staleAlpha.value },
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            Modifier
+                .pressable(enabled = !seasonLoading, onClick = onSeeAll)
+                .touchTarget(),
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // This count comes from Emby, not the official production total.
-            Row(
-                Modifier
-                    .pressable(enabled = !seasonLoading, onClick = onSeeAll)
-                    .touchTarget(),
-                horizontalArrangement = Arrangement.spacedBy(3.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    "已入库 $availableEpisodeCount 集",
-                    style = AppTypography.caption.strong,
-                    color = palette.body,
-                )
-                Icon(
-                    AppIcons.ChevronRight,
-                    contentDescription = "查看全部剧集",
-                    tint = palette.sub2,
-                    modifier = Modifier.size(12.dp),
-                )
-            }
-            Row(
-                Modifier
-                    .pressable(enabled = !seasonLoading, onClickLabel = "管理观看进度", onClick = onManageProgress)
-                    .touchTarget()
-                    .padding(horizontal = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    AppIcons.Check,
-                    contentDescription = null,
-                    tint = accent,
-                    modifier = Modifier.size(11.dp),
-                )
-                Text("管理进度", style = AppTypography.caption.strong, color = accent)
-            }
+            Text(
+                "已入库 $availableEpisodeCount 集",
+                style = AppTypography.caption.strong,
+                color = palette.body,
+            )
+            Icon(
+                AppIcons.ChevronRight,
+                contentDescription = "查看全部剧集",
+                tint = palette.sub2,
+                modifier = Modifier.size(12.dp),
+            )
+        }
+        Row(
+            Modifier
+                .pressable(enabled = !seasonLoading, onClickLabel = "管理观看进度", onClick = onManageProgress)
+                .touchTarget()
+                .padding(horizontal = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                AppIcons.Check,
+                contentDescription = null,
+                tint = accent,
+                modifier = Modifier.size(11.dp),
+            )
+            Text("管理进度", style = AppTypography.caption.strong, color = accent)
         }
     }
 }
@@ -481,6 +505,22 @@ internal fun EpisodeSection(
             onManageProgress = onManageProgress,
             modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),
         )
+        if (episodes.isEmpty()) {
+            // The header stays for a season with nothing in the library: its season picker is the
+            // only way back to one that has episodes. Said once it is known, not while it loads.
+            if (!seasonLoading) {
+                Text(
+                    "本季暂无已入库剧集",
+                    style = AppTypography.body.regular,
+                    color = LocalPalette.current.sub,
+                    modifier =
+                        Modifier
+                            .padding(horizontal = Dimens.pageHorizontal)
+                            .liveStatus(),
+                )
+            }
+            return@Column
+        }
         BoxWithConstraints(Modifier.fillMaxWidth()) {
             val density = LocalDensity.current
             val centeredOffset =

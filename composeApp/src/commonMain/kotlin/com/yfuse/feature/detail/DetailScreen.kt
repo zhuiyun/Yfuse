@@ -688,8 +688,9 @@ fun DetailScreen(component: DetailComponent) {
 
                                 // Episodes are the next decision after reading the synopsis. Keeping the
                                 // rail here avoids making a series viewer cross file metadata, artwork and
-                                // external links before they can choose what to watch.
-                                if (state.episodes.isNotEmpty()) {
+                                // external links before they can choose what to watch. A season with none
+                                // keeps the section while there are other seasons to pick.
+                                if (state.episodes.isNotEmpty() || state.seasons.size > 1) {
                                     motionItem(key = "episodes") {
                                         EpisodeSection(
                                             baseUrl = playBaseUrl,
