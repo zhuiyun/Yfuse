@@ -4,6 +4,7 @@ import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.arkivanov.mvikotlin.main.store.DefaultStoreFactory
 import com.russhwolf.settings.MapSettings
 import com.yfuse.core.data.PlaybackPreferences
+import com.yfuse.core.data.SmartPlaylist
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.SavedServer
 import com.yfuse.feature.json
@@ -23,6 +24,8 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class SearchStoreTest {
@@ -410,6 +413,147 @@ class SearchStoreTest {
                 store.state,
             )
             store.dispose()
+        }
+
+    @Test
+    fun a_new_word_leaves_the_smart_playlist_and_every_filter_it_brought() =
+        runTest {
+            val searched = mutableListOf<Pair<String, String?>>()
+            val store =
+                SearchStoreFactory(DefaultStoreFactory(), recordingRepo(searched), twoServers()).create()
+            try {
+                store.accept(SearchIntent.ApplyPlaylist(narrowPlaylist()))
+                advanceUntilIdle()
+                assertEquals("未看科幻", store.state.playlistName)
+                assertEquals(7, store.state.filterCount)
+                searched.clear()
+
+                store.accept(SearchIntent.QueryChanged("沙丘"))
+
+                assertNull(store.state.playlistName)
+                assertEquals(0, store.state.filterCount)
+                store.accept(SearchIntent.Submit)
+                advanceUntilIdle()
+                // Both servers again, and neither is asked for the playlist's watch state.
+                assertEquals(setOf("one" to null, "two" to null), searched.toSet())
+            } finally {
+                store.dispose()
+            }
+        }
+
+    @Test
+    fun clearing_the_search_drops_the_smart_playlist_filters() =
+        runTest {
+            val store =
+                SearchStoreFactory(DefaultStoreFactory(), recordingRepo(mutableListOf()), twoServers()).create()
+            try {
+                store.accept(SearchIntent.ApplyPlaylist(narrowPlaylist(query = "沙丘")))
+                advanceUntilIdle()
+
+                store.accept(SearchIntent.Clear)
+
+                assertNull(store.state.playlistName)
+                assertEquals(0, store.state.filterCount)
+                assertEquals("", store.state.query)
+                assertFalse(store.state.hasSearched)
+            } finally {
+                store.dispose()
+            }
+        }
+
+    @Test
+    fun exiting_a_playlist_searches_its_words_everywhere_without_its_filters() =
+        runTest {
+            val searched = mutableListOf<Pair<String, String?>>()
+            val store =
+                SearchStoreFactory(DefaultStoreFactory(), recordingRepo(searched), twoServers()).create()
+            try {
+                store.accept(SearchIntent.ApplyPlaylist(narrowPlaylist(query = "沙丘")))
+                advanceUntilIdle()
+                searched.clear()
+
+                store.accept(SearchIntent.ExitPlaylist)
+                advanceUntilIdle()
+
+                assertNull(store.state.playlistName)
+                assertEquals(0, store.state.filterCount)
+                assertEquals("沙丘", store.state.searchedQuery)
+                assertEquals(setOf("one" to null, "two" to null), searched.toSet())
+            } finally {
+                store.dispose()
+            }
+        }
+
+    @Test
+    fun exiting_a_playlist_without_words_returns_to_the_start_page() =
+        runTest {
+            val store =
+                SearchStoreFactory(DefaultStoreFactory(), recordingRepo(mutableListOf()), twoServers()).create()
+            try {
+                store.accept(SearchIntent.ApplyPlaylist(narrowPlaylist()))
+                advanceUntilIdle()
+                assertTrue(store.state.hasSearched)
+
+                store.accept(SearchIntent.ExitPlaylist)
+                advanceUntilIdle()
+
+                assertFalse(store.state.hasSearched)
+                assertEquals(0, store.state.filterCount)
+                assertTrue(store.state.groups.isEmpty())
+            } finally {
+                store.dispose()
+            }
+        }
+
+    @Test
+    fun a_playlist_whose_server_was_removed_stops_blocking_the_next_search() =
+        runTest {
+            val store =
+                SearchStoreFactory(DefaultStoreFactory(), recordingRepo(mutableListOf()), twoServers()).create()
+            try {
+                store.accept(SearchIntent.ApplyPlaylist(SmartPlaylist("旧片单", serverId = "gone")))
+                advanceUntilIdle()
+                // Servers exist; what is missing is the one the playlist named.
+                assertTrue("片单" in store.state.error.orEmpty())
+
+                store.accept(SearchIntent.QueryChanged("沙丘"))
+                store.accept(SearchIntent.Submit)
+                advanceUntilIdle()
+
+                assertNull(store.state.error)
+                assertEquals(listOf("a", "b"), store.state.groups.map { it.serverId })
+            } finally {
+                store.dispose()
+            }
+        }
+
+    private fun twoServers() =
+        testRegistry().apply {
+            addOrUpdate(SavedServer("a", "http://one", "甲", "u", "u", "tok"))
+            addOrUpdate(SavedServer("b", "http://two", "乙", "u", "u", "tok"))
+        }
+
+    /** Every filter a saved rule can carry, so a leftover one shows in [SearchState.filterCount]. */
+    private fun narrowPlaylist(query: String = "") =
+        SmartPlaylist(
+            name = "未看科幻",
+            query = query,
+            serverId = "a",
+            libraryId = "lib",
+            type = "Movie",
+            year = 2020,
+            genre = "科幻",
+            watchStatus = "Unplayed",
+            sort = "Rating",
+        )
+
+    /** Answers every call with nothing, recording the host and watch filter of each title search. */
+    private fun recordingRepo(searched: MutableList<Pair<String, String?>>) =
+        testRepo(dispatcher) { request ->
+            if (request.url.encodedPath.endsWith("/Items")) {
+                searched += request.url.host to request.url.parameters["IsPlayed"]
+            }
+            json("""{"Items":[]}""")
         }
 
     private fun mediaItem(

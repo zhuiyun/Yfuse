@@ -218,6 +218,14 @@ private fun SearchHomeScreen(
                     Spacer(Modifier.height(8.dp))
                 }
             }
+            state.playlistName?.let { name ->
+                motionItem(key = "search-playlist-banner") {
+                    PlaylistBanner(
+                        name = name,
+                        onExit = { store.accept(SearchIntent.ExitPlaylist) },
+                    )
+                }
+            }
             state.person?.let { person ->
                 motionItem(key = "search-person-banner") {
                     PersonBanner(
@@ -600,6 +608,43 @@ private fun PersonBanner(
             style = AppTypography.caption.strong,
             color = accent.accent,
             modifier = Modifier.pressable(onClick = onClear).touchTarget(),
+        )
+    }
+}
+
+/**
+ * Which smart playlist the results come from. Its saved server, library and watch-state
+ * filters have no control on this page, so this is where they are named and dropped.
+ */
+@Composable
+private fun PlaylistBanner(
+    name: String,
+    onExit: () -> Unit,
+) {
+    val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = Dimens.pageHorizontal)
+            .glass(AppShapes.chip, palette.card2, palette.border)
+            .padding(horizontal = Dimens.space.lg, vertical = Dimens.space.sm),
+        horizontalArrangement = Arrangement.spacedBy(Dimens.space.md),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            "智能片单 · $name",
+            style = AppTypography.body.strong,
+            color = palette.text,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            "退出片单",
+            style = AppTypography.caption.strong,
+            color = accent.accent,
+            modifier = Modifier.pressable(onClick = onExit).touchTarget(),
         )
     }
 }
