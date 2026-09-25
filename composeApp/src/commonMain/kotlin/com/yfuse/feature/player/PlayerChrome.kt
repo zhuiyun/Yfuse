@@ -32,6 +32,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -571,6 +572,67 @@ internal fun SkipPill(
                 ).noRippleClickable(onClick = onClick)
                 .padding(horizontal = 18.dp, vertical = 10.dp),
     )
+}
+
+/**
+ * The standing sign of a cast session: where the picture went, what it is doing there, and the
+ * way back.
+ *
+ * Casting leaves this screen on a still frame, and once the controls faded that read as a frozen
+ * player — the one place that said otherwise was a row inside the 投屏 panel. The body opens that
+ * panel; 断开 ends the session and hands playback back to this device.
+ */
+@Composable
+internal fun CastSessionPill(
+    status: String,
+    onOpen: () -> Unit,
+    onDisconnect: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier.glass(
+            shape = AppShapes.pill,
+            fill = Color.Black.copy(alpha = 0.56f),
+            border = Color.White.copy(alpha = 0.24f),
+        ),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Row(
+            Modifier
+                .pressable(onClickLabel = "投屏设置", onClick = onOpen)
+                .touchTarget()
+                .padding(start = 16.dp, end = 12.dp, top = 8.dp, bottom = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(AppIcons.Cast, "投屏", tint = Color.White, modifier = Modifier.size(14.dp))
+            Text(
+                status,
+                style = AppTypography.caption.medium,
+                color = Color.White.copy(alpha = 0.92f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                // A dropped receiver or a failed command changes this line while nobody is looking.
+                modifier = Modifier.widthIn(max = 160.dp).liveStatus(),
+            )
+        }
+        Box(
+            Modifier
+                .width(1.dp)
+                .height(16.dp)
+                .background(Color.White.copy(alpha = 0.24f)),
+        )
+        Text(
+            "断开",
+            style = AppTypography.caption.strong,
+            color = Color.White,
+            modifier =
+                Modifier
+                    .pressable(onClickLabel = "断开投屏", onClick = onDisconnect)
+                    .touchTarget()
+                    .padding(start = 12.dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
+        )
+    }
 }
 
 /** "3 秒后跳过片头 · 点击取消" — the label says what will happen and how to stop it. */

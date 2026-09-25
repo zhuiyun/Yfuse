@@ -3561,6 +3561,8 @@ internal fun PlayerRoot(
                         castState.activeDevice?.let {
                             "${it.name} · ${castState.status.label}"
                         },
+                    // Connecting or live; an unexpected drop hands back to this device on its own.
+                    castActive = castState.activeDevice != null && castState.termination == null,
                     castPositionSource = {
                         liveCastState.value.activeDevice?.let {
                             if (!liveCastState.value.positionConfirmed) {

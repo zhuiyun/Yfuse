@@ -218,6 +218,8 @@ internal fun PlayerControls(
     castDiscovering: Boolean = false,
     castError: String? = null,
     castStatus: String? = null,
+    /** A session is connecting or live on a receiver; [castStatus] then names it and its state. */
+    castActive: Boolean = false,
     castPosition: String? = null,
     castPositionSource: (() -> String?)? = null,
     castCapabilities: String? = null,
@@ -1014,6 +1016,7 @@ internal fun PlayerControls(
                         onOpenCast = { openSettingsPanel(SettingsPanelKind.Cast) },
                         onOpenMore = { openSettingsPanel(SettingsPanelKind.More) },
                         ambientLight = ambientLight,
+                        castActive = castActive,
                         watchConnected = watch.connected,
                         unreadChat =
                             watch.chatMessages.lastOrNull()?.id?.let { latest ->
@@ -1517,6 +1520,29 @@ internal fun PlayerControls(
                                     border = Color.White.copy(alpha = 0.24f),
                                 ).noRippleClickable(::openWatchChat)
                                 .padding(horizontal = 14.dp, vertical = 7.dp),
+                    )
+                }
+
+                // Standing, like the paused key: the picture is on another screen whether or not the
+                // controls are up. It rides below the title bar while that is shown.
+                val lastCastStatus = remember { arrayOf("") }
+                castStatus?.let { lastCastStatus[0] = it }
+                ChromeVisibility(
+                    visible = castActive && castStatus != null,
+                    edge = ChromeEdge.Top,
+                    modifier =
+                        Modifier
+                            .align(Alignment.TopStart)
+                            .playerHintOffset(hintProgress, 56.dp)
+                            .padding(start = 22.dp, top = 18.dp),
+                ) {
+                    CastSessionPill(
+                        status = lastCastStatus[0],
+                        onOpen = { openSettingsPanel(SettingsPanelKind.Cast) },
+                        onDisconnect = {
+                            poke()
+                            onStopCast()
+                        },
                     )
                 }
 

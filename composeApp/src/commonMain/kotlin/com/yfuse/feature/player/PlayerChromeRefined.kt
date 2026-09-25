@@ -138,6 +138,8 @@ internal fun RefinedTopBar(
     modifier: Modifier = Modifier,
     /** 氛围光, read only inside the scrim's draw node; null keeps the plain black scrim. */
     ambientLight: State<AmbientLight>? = null,
+    /** A cast session is live: the key takes the same lit treatment as 弹幕 when it is on. */
+    castActive: Boolean = false,
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     Row(
@@ -275,10 +277,11 @@ internal fun RefinedTopBar(
                 )
             }
             CircleControl(
-                AppIcons.Cast,
-                "投屏",
-                28.dp,
-                12.dp,
+                icon = AppIcons.Cast,
+                description = if (castActive) "投屏，已连接" else "投屏",
+                size = 28.dp,
+                iconSize = 12.dp,
+                active = castActive,
                 onClick = onOpenCast,
             )
             CircleControl(

@@ -27,6 +27,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
@@ -53,10 +54,12 @@ import com.yfuse.core.designsystem.DarkPalette
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.glass
+import com.yfuse.core.designsystem.liveStatus
 import com.yfuse.core.designsystem.motionAwareAnimateContentSize
 import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.rememberAccentColorsForSurface
 import com.yfuse.core.handoff.HandoffController
+import kotlinx.coroutines.delay
 import org.koin.core.context.GlobalContext
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
@@ -1096,16 +1099,41 @@ internal fun SettingsPanel(
                         val remotePosition by remember(castPositionSource, castPosition) {
                             derivedStateOf { castPositionSource?.invoke() ?: castPosition }
                         }
+                        // Opened with nothing found yet, the first scan starts here instead of
+                        // waiting behind 重新扫描. Until the manager reports it running, an empty
+                        // list still means "searching" rather than "nothing found".
+                        var scanStarting by remember { mutableStateOf(false) }
+                        LaunchedEffect(Unit) {
+                            if (castDevices.isEmpty() && !castDiscovering) {
+                                scanStarting = true
+                                onDiscoverCast()
+                                // A scan that never starts (a permission prompt left unanswered)
+                                // must not leave the page saying it is searching.
+                                delay(CAST_SCAN_START_GRACE_MS)
+                                scanStarting = false
+                            }
+                        }
+                        LaunchedEffect(castDiscovering) {
+                            if (castDiscovering) scanStarting = false
+                        }
                         GroupLabel("局域网投屏设备")
                         castStatus?.let { DiagnosticRow("状态", it) }
                         remotePosition?.let { DiagnosticRow("远端进度", it) }
                         castCapabilities?.let { DiagnosticRow("远端能力", it) }
-                        if (castDiscovering) {
+                        // A failed scan reports itself through [castError] below; this line only
+                        // speaks for a list that is empty without one.
+                        val emptyState =
+                            when {
+                                castDiscovering || scanStarting -> "正在搜索投屏设备…"
+                                castDevices.isEmpty() && castError == null -> "未发现设备，请确认电视与手机连接同一局域网"
+                                else -> null
+                            }
+                        emptyState?.let { line ->
                             Text(
-                                "正在发现 DLNA 设备…",
+                                line,
                                 style = AppTypography.caption.medium,
                                 color = Color.White.copy(alpha = 0.55f),
-                                modifier = Modifier.padding(vertical = 10.dp),
+                                modifier = Modifier.padding(vertical = 10.dp).liveStatus(),
                             )
                         }
                         castDevices.forEach { (id, name) ->
@@ -1119,7 +1147,7 @@ internal fun SettingsPanel(
                                 castError,
                                 style = AppTypography.caption.medium,
                                 color = DarkPalette.error,
-                                modifier = Modifier.padding(vertical = 8.dp),
+                                modifier = Modifier.padding(vertical = 8.dp).liveStatus(),
                             )
                         }
                         OptionRow("重新扫描", false, onClick = onDiscoverCast)
@@ -1247,6 +1275,9 @@ private fun AdvancedPageHost(
         }
     }
 }
+
+/** Long enough for the manager to report a scan it has started; see the 投屏 page. */
+private const val CAST_SCAN_START_GRACE_MS = 2_000L
 
 private fun AnimatedContentTransitionScope<*>.settingsKindTransform(reduceMotion: Boolean): ContentTransform {
     val duration = if (reduceMotion) 0 else Motion.STATE_HANDOFF
