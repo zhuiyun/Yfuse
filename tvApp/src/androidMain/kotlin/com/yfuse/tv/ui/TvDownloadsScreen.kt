@@ -51,6 +51,7 @@ internal fun TvDownloadsPage(
     var filter by remember { mutableStateOf(DownloadFilter.All) }
     var expandedId by remember { mutableStateOf<String?>(null) }
     var offlineToPlay by remember { mutableStateOf<OfflineMedia?>(null) }
+    var pendingRemoval by remember { mutableStateOf<OfflineMedia?>(null) }
     var status by remember { mutableStateOf<String?>(null) }
 
     val shown = remember(items, filter) { filterAndSortDownloads(items, filter, DownloadSort.Updated) }
@@ -169,18 +170,8 @@ internal fun TvDownloadsPage(
                                 stableId = "downloads:remove:${media.id}",
                                 focusScope = focusScope,
                                 focusMemory = focusMemory,
-                                onClick = {
-                                    // The row goes with its buttons; hand focus to the row beside it
-                                    // first — below, else above — or back to the filters.
-                                    val index = shown.indexOfFirst { it.id == media.id }
-                                    val moved =
-                                        listOfNotNull(shown.getOrNull(index + 1), shown.getOrNull(index - 1))
-                                            .any { focusMemory.requestFocus(focusScope, "downloads:item:${it.id}") }
-                                    if (!moved) runCatching { firstRowRequester.requestFocus() }
-                                    manager.remove(media.id)
-                                    expandedId = null
-                                    status = "已删除《${media.title}》的离线文件"
-                                },
+                                // A file that took an evening to fetch went at one press of OK.
+                                onClick = { pendingRemoval = media },
                                 navigationRequester = navigationRequester,
                             )
                         }
@@ -407,6 +398,39 @@ internal fun TvDownloadsPage(
                 }
             }
         }
+    }
+
+    pendingRemoval?.let { requested ->
+        // The live entry, so a download that finishes while this is open is described as it now is.
+        val media = items.firstOrNull { it.id == requested.id } ?: requested
+        TvConfirmDialog(
+            title = "删除离线内容？",
+            message =
+                when {
+                    media.playable ->
+                        "《${media.title}》占用的 ${formatBytes(media.totalBytes)} 会从这台电视上删除，之后要离线观看需重新下载。"
+                    media.downloadedBytes > 0L ->
+                        "《${media.title}》的下载会停止，已下载的 ${formatBytes(media.downloadedBytes)} 一并删除。"
+                    else -> "《${media.title}》会移出下载队列。"
+                },
+            confirmLabel = "删除",
+            focusScope = "downloads-remove",
+            focusMemory = focusMemory,
+            onConfirm = {
+                pendingRemoval = null
+                // The row goes with its buttons; hand focus to the row beside it first — below,
+                // else above — or back to the filters.
+                val index = shown.indexOfFirst { it.id == media.id }
+                val moved =
+                    listOfNotNull(shown.getOrNull(index + 1), shown.getOrNull(index - 1))
+                        .any { focusMemory.requestFocus(focusScope, "downloads:item:${it.id}") }
+                if (!moved) runCatching { firstRowRequester.requestFocus() }
+                manager.remove(media.id)
+                expandedId = null
+                status = "已删除《${media.title}》的离线文件"
+            },
+            onDismiss = { pendingRemoval = null },
+        )
     }
 
     offlineToPlay?.takeIf { it.playable && component.personal.canAccessServer(it.serverId) }?.let { offline ->
