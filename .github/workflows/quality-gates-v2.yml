@@ -142,28 +142,38 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Every check names what it found: a bare grep failing under `set -e` ended this step
+          # with exit code 1 and nothing else, run after run.
+          fail() { echo "::error::$*"; exit 1; }
           apk="composeApp/build/outputs/apk/release/composeApp-release.apk"
-          test -s "$apk"
+          test -s "$apk" || fail "Release APK is missing or empty: $apk"
           android_sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
           build_tools="$(find "$android_sdk/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          echo "Using build tools $build_tools"
           "$build_tools/apksigner" verify --verbose "$apk"
           "$build_tools/zipalign" -c -v 4 "$apk"
           badging="$("$build_tools/aapt" dump badging "$apk")"
+          package_line="$(grep -m 1 '^package:' <<<"$badging" || true)"
           version_code="$(sed -n 's/^VERSION_CODE=//p' version.properties | tail -n 1 | tr -d '\r')"
           version_name="$(sed -n 's/^VERSION_NAME=//p' version.properties | tail -n 1 | tr -d '\r')"
-          grep -Fq "package: name='com.yfuse'" <<<"$badging"
-          # Backups would carry Emby tokens; the manifest must keep them off for good.
+          grep -Fq "package: name='com.yfuse'" <<<"$package_line" || fail "Unexpected package: ${package_line:-none}"
+          # Backups would carry Emby tokens; the manifest must keep them off for good. aapt prints a
+          # false boolean as `(type 0x12)0x0`; an aapt2-style dump prints `=false`.
           manifest_tree="$("$build_tools/aapt" dump xmltree "$apk" AndroidManifest.xml)"
-          grep -Eq 'android:allowBackup\(0x0101002a\)=\(type 0x12\)0x0' <<<"$manifest_tree"
-          grep -Fq "versionCode='$version_code'" <<<"$badging"
-          grep -Fq "versionName='$version_name'" <<<"$badging"
+          allow_backup="$(grep -F 'android:allowBackup(0x0101002a)' <<<"$manifest_tree" || true)"
+          grep -Eq '\(type 0x12\)0x0([^0-9a-fx]|$)|=false([^a-z]|$)' <<<"$allow_backup" ||
+            fail "android:allowBackup is not false in the packaged manifest: ${allow_backup:-attribute absent}"
+          grep -Fq "versionCode='$version_code'" <<<"$package_line" ||
+            fail "APK versionCode differs from version.properties ($version_code): $package_line"
+          grep -Fq "versionName='$version_name'" <<<"$package_line" ||
+            fail "APK versionName differs from version.properties ($version_name): $package_line"
           unzip -Z1 "$apk" > build/apk-entries.txt
-          grep -Fxq 'lib/arm64-v8a/libavcodec.so' build/apk-entries.txt
-          grep -Fxq 'lib/arm64-v8a/libavformat.so' build/apk-entries.txt
-          grep -Fxq 'lib/arm64-v8a/libmpv.so' build/apk-entries.txt
-          grep -Fxq 'lib/arm64-v8a/libmdk.so' build/apk-entries.txt
+          for library in libavcodec.so libavformat.so libmpv.so libmdk.so; do
+            grep -Fxq "lib/arm64-v8a/$library" build/apk-entries.txt || fail "lib/arm64-v8a/$library is missing from the APK"
+          done
           apk_size="$(stat -c '%s' "$apk")"
-          (( apk_size <= APK_SIZE_BUDGET_BYTES ))
+          echo "APK size: $apk_size bytes (budget $APK_SIZE_BUDGET_BYTES)"
+          (( apk_size <= APK_SIZE_BUDGET_BYTES )) || fail "APK is $apk_size bytes, over the $APK_SIZE_BUDGET_BYTES byte budget"
       - name: Check patch whitespace
         shell: bash
         env:

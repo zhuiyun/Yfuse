@@ -10,10 +10,11 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[2]
-WORKFLOWS = (
-    "publish-android.yml", "sign-android-branch.yml", "repackage-android-signed.yml",
-    "ycore-audio-repair.yml", "subtitle-regex-hotfix.yml", "tv-release.yml",
-)
+# Production publishing first. The signed artifact-only workflows that followed it (branch signing,
+# repackaging, the two hotfixes and the TV release) are gone, so the tests over WORKFLOWS[1:] have
+# nothing to run until one returns; test_every_workflow_with_the_key_step_is_listed keeps this in step.
+WORKFLOWS = ("publish-android.yml",)
+KEY_STEP = "Configure verified update-manifest public key"
 
 
 class UpdateManifestKeyTest(unittest.TestCase):
@@ -43,7 +44,7 @@ class UpdateManifestKeyTest(unittest.TestCase):
         return script
 
     def run_step(self, name, *, private="", configured="", pinned=""):
-        step, script = self.workflow_step(name, "Configure verified update-manifest public key")
+        step, script = self.workflow_step(name, KEY_STEP)
         self.assertIn("secrets.UPDATE_MANIFEST_SIGNING_KEY", step)
         self.assertIn("vars.YFUSE_UPDATE_MANIFEST_PUBLIC_KEY", step)
         with tempfile.TemporaryDirectory(prefix="yfuse-update-key-") as directory:
@@ -133,13 +134,22 @@ class UpdateManifestKeyTest(unittest.TestCase):
                 self.assertNotIn("signature", json.loads(actual))
 
     def test_changed_workflow_shell_steps_are_syntactically_valid(self):
-        steps = [(name, "Configure verified update-manifest public key") for name in WORKFLOWS]
+        steps = [(name, KEY_STEP) for name in WORKFLOWS]
         steps.append((WORKFLOWS[0], "Create update package"))
         for name, step_name in steps:
             with self.subTest(workflow=name, step=step_name):
                 _, script = self.workflow_step(name, step_name)
                 result = subprocess.run(["bash", "-n"], input=script, capture_output=True, text=True)
                 self.assertEqual(0, result.returncode, result.stderr)
+
+    def test_every_workflow_with_the_key_step_is_listed(self):
+        # A retired workflow left in WORKFLOWS failed this whole suite for weeks, and a new signed
+        # workflow left out of it would never be exercised.
+        marker = "      - name: " + KEY_STEP + "\n"
+        with_step = sorted(
+            path.name for path in (ROOT / ".github" / "workflows").glob("*.yml") if marker in path.read_text()
+        )
+        self.assertEqual(sorted(WORKFLOWS), with_step)
 
 
 if __name__ == "__main__":
