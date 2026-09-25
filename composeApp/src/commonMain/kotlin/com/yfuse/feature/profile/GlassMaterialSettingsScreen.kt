@@ -52,7 +52,6 @@ import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OverlayButton
-import com.yfuse.core.designsystem.Semantic
 import com.yfuse.core.designsystem.SettingSegmentControl
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.supportsBackdropBlur
@@ -171,7 +170,7 @@ internal fun GlassMaterialSettingsScreen(
                     "正文对比度约 ${(contrast * 10).roundToInt() / 10f}:1（按纯色页面估算），低于 4.5:1。" +
                         "提高不透明度、加深背景遮罩或更换文字颜色会更清晰。",
                     style = AppTypography.caption.regular,
-                    color = Semantic.Warning,
+                    color = palette.warning,
                 )
             }
         }

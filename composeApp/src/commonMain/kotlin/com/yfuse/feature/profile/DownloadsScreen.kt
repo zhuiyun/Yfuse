@@ -799,8 +799,8 @@ private fun DownloadTaskRow(
                     style = AppTypography.caption.medium,
                     color =
                         when {
-                            item.status == DownloadStatus.Failed -> Semantic.Error
-                            item.nextRetryAt > 0L -> Semantic.Warning
+                            item.status == DownloadStatus.Failed -> palette.error
+                            item.nextRetryAt > 0L -> palette.warning
                             else -> palette.sub2
                         },
                     maxLines = 2,

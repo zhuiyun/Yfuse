@@ -1098,7 +1098,7 @@ private fun ServerCard(
                 Text(
                     connectionLabel(health),
                     style = AppTypography.caption.medium,
-                    color = if (status == ServerHealthStatus.Unknown) palette.sub2 else statusColor,
+                    color = if (status == ServerHealthStatus.Unknown) palette.sub2 else palette.statusText(statusColor),
                     maxLines = 1,
                 )
                 Spacer(Modifier.weight(1f))
@@ -1125,7 +1125,7 @@ private fun ServerCard(
                 Text(
                     latencyLabel(health),
                     style = AppTypography.caption.medium,
-                    color = latencySeverityColor(latencySeverity),
+                    color = palette.statusText(latencySeverityColor(latencySeverity)),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
