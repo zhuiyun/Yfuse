@@ -23,7 +23,9 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -46,6 +48,7 @@ import com.yfuse.feature.servers.QuickConnectUiState
 import com.yfuse.feature.servers.ServersIntent
 import com.yfuse.feature.servers.ServersState
 import com.yfuse.feature.servers.ServersTabComponent
+import com.yfuse.feature.servers.hasInputSince
 import com.yfuse.feature.servers.rememberServerConnectionIntent
 import com.yfuse.tv.focus.FocusCandidate
 import com.yfuse.tv.focus.requestFocusWhenAttached
@@ -301,10 +304,20 @@ private fun TvServerDialog(
     DisposableEffect(focusMemory) {
         onDispose { focusMemory.requestLastForRoute("servers") }
     }
+    // What the form held when it opened: empty to add a server, its saved details to edit one.
+    val openedForm = remember(state.editingServerId) { state.form }
+    val holdsInput = state.form.hasInputSince(openedForm)
+    var confirmDiscard by remember { mutableStateOf(false) }
     GlassDialog(
         onDismiss = { sendIntent(ServersIntent.DismissDialog) },
         maxWidth = 920.dp,
         contentPadding = 28.dp,
+        // One Back too many used to throw away an address, an account and a password typed in on a
+        // remote, the slowest keyboard there is. Once anything is entered, closing asks first.
+        confirmDismiss = {
+            if (holdsInput) confirmDiscard = true
+            !holdsInput
+        },
     ) {
         val dismiss = overlayDismiss { sendIntent(ServersIntent.DismissDialog) }
         Column(
@@ -478,6 +491,26 @@ private fun TvServerDialog(
                     primary = state.form.canSubmit,
                 )
             }
+        }
+        if (confirmDiscard) {
+            TvConfirmDialog(
+                title = "放弃已填写的内容？",
+                message =
+                    if (state.editingServerId == null) {
+                        "已填写的服务器信息还没有保存。"
+                    } else {
+                        "对这台服务器的修改还没有保存。"
+                    },
+                confirmLabel = "放弃",
+                dismissLabel = "继续编辑",
+                focusScope = "server-dialog:discard",
+                focusMemory = focusMemory,
+                onConfirm = {
+                    confirmDiscard = false
+                    sendIntent(ServersIntent.DismissDialog)
+                },
+                onDismiss = { confirmDiscard = false },
+            )
         }
     }
 }

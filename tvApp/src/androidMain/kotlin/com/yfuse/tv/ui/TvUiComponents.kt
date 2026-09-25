@@ -89,8 +89,12 @@ import androidx.compose.ui.unit.offset
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.request.crossfade
+import com.yfuse.core.designsystem.Dimens
+import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.Motion
+import com.yfuse.core.designsystem.overlayAction
+import com.yfuse.core.designsystem.overlayDismiss
 import com.yfuse.tv.focus.FocusAnchor
 import com.yfuse.tv.focus.FocusCandidate
 import com.yfuse.tv.focus.FocusContext
@@ -101,6 +105,8 @@ import com.yfuse.tv.focus.FocusTargetId
 import com.yfuse.tv.focus.InMemoryFocusRepository
 import com.yfuse.tv.focus.RemoteIntent
 import com.yfuse.tv.focus.TvFocusRequesterRegistry
+import com.yfuse.tv.focus.requestFocusWhenAttached
+import com.yfuse.tv.focus.tvFocusScope
 import com.yfuse.tv.focus.tvFocusTarget
 import com.yfuse.tv.focus.tvRemoteKeyHandler
 
@@ -971,6 +977,60 @@ internal fun TvEmptyState(
                 navigationRequester = navigationRequester,
                 returnToNavigationOnLeft = true,
             )
+        }
+    }
+}
+
+/**
+ * A remote-sized 「确定吗？」 before a step that loses something: typed-in details, an offline file.
+ *
+ * The design system's ConfirmDialog is set in phone type and leaves focus unplaced, so a remote would
+ * first have to find its buttons. Focus starts on [dismissLabel]: the press that raised this is
+ * easily repeated out of habit, and a repeat must not confirm.
+ */
+@Composable
+internal fun TvConfirmDialog(
+    title: String,
+    message: String,
+    confirmLabel: String,
+    focusScope: String,
+    focusMemory: TvUiFocusMemory,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+    dismissLabel: String = "取消",
+) {
+    val dismissRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) { dismissRequester.requestFocusWhenAttached() }
+    GlassDialog(onDismiss = onDismiss, maxWidth = 640.dp, contentPadding = Dimens.space.xxl) {
+        // Both buttons let the panel finish leaving before the owner acts, as Back already does.
+        val confirm = overlayAction(onConfirm)
+        val dismiss = overlayDismiss(onDismiss)
+        Column(
+            Modifier.fillMaxWidth().tvFocusScope(trapFocus = true),
+            verticalArrangement = Arrangement.spacedBy(Dimens.space.md),
+        ) {
+            Text(title, color = TvOnSurface, fontSize = TvType.section, fontWeight = FontWeight.ExtraBold)
+            Text(message, color = TvOnSurfaceMuted, fontSize = TvType.body)
+            Row(
+                Modifier.fillMaxWidth().padding(top = Dimens.space.sm),
+                horizontalArrangement = Arrangement.spacedBy(Dimens.space.md, Alignment.End),
+            ) {
+                TvActionButton(
+                    label = dismissLabel,
+                    stableId = "$focusScope:dismiss",
+                    focusScope = focusScope,
+                    focusMemory = focusMemory,
+                    onClick = dismiss,
+                    focusRequester = dismissRequester,
+                )
+                TvActionButton(
+                    label = confirmLabel,
+                    stableId = "$focusScope:confirm",
+                    focusScope = focusScope,
+                    focusMemory = focusMemory,
+                    onClick = confirm,
+                )
+            }
         }
     }
 }
