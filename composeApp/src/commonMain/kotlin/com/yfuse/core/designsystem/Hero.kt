@@ -431,13 +431,21 @@ internal fun heroPageFadeMaskStops(): Array<Pair<Float, Color>> =
  * `offset` cannot do this job inside a lazy list: it moves the drawing but leaves the
  * measured height behind, so the lift reappears as dead page hanging off the end of the
  * list. This shrinks the slot instead.
+ *
+ * The lifted content is drawn in a layer of its own, sized to the content. Without one it
+ * is recorded into the lazy item's layer, which is only as tall as the slot — and a lift as
+ * large as the content leaves a 0px slot. Android draws text through `Layout.draw`, which
+ * asks the recording canvas for its clip and draws no line at all when that clip is empty.
+ * That is how the detail page lost its 片名, 年份, 评分 and 类型 once 1.0.85 moved 收藏 and
+ * 稍后看 off the play key and its sheet's slot shrank from 36dp to nothing, while 播放, whose
+ * rounded clip already gave it a layer, stayed.
  */
 fun Modifier.liftOverHero(lift: Dp): Modifier =
     layout { measurable, constraints ->
         val liftPx = lift.roundToPx()
         val placeable = measurable.measure(constraints)
         layout(placeable.width, (placeable.height - liftPx).coerceAtLeast(0)) {
-            placeable.place(0, -liftPx)
+            placeable.placeWithLayer(0, -liftPx)
         }
     }
 
