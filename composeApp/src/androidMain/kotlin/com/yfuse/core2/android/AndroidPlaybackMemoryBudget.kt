@@ -164,6 +164,14 @@ internal object AndroidPlaybackMemoryBudget {
     @Volatile var allowsSpeculativeWork: Boolean = true
         private set
 
+    /**
+     * The Java heap a pressure check judges. Tests that count origin reads through the playback
+     * proxy pin it: judged from the busy test JVM's own heap, pressure could drop a startup slice
+     * between validating a range and reading it, and on those runs the read went back to the origin.
+     */
+    @Volatile
+    internal var heapSample: () -> PlaybackHeapSample = ::runtimeHeapSample
+
     fun initialize(context: Context) {
         val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
         val heap = minOf(Runtime.getRuntime().maxMemory(), (manager?.memoryClass ?: 256).toLong() * MIB)
@@ -186,10 +194,8 @@ internal object AndroidPlaybackMemoryBudget {
     /** Also sampled by active I/O; modern Android does not deliver all legacy trim levels. */
     @Synchronized
     fun refreshPressure() {
-        val runtime = Runtime.getRuntime()
-        val used = runtime.totalMemory() - runtime.freeMemory()
-        allowsSpeculativeWork =
-            pressurePolicy.allowsSpeculation(background, runtime.maxMemory() - used, runtime.maxMemory())
+        val heap = heapSample()
+        allowsSpeculativeWork = pressurePolicy.allowsSpeculation(background, heap.freeBytes, heap.maximumBytes)
         pool.setPressure(!allowsSpeculativeWork)
     }
 
@@ -205,6 +211,17 @@ internal object AndroidPlaybackMemoryBudget {
         allowsSpeculativeWork = false
         pool.setPressure(true)
     }
+}
+
+internal class PlaybackHeapSample(
+    val freeBytes: Long,
+    val maximumBytes: Long,
+)
+
+private fun runtimeHeapSample(): PlaybackHeapSample {
+    val runtime = Runtime.getRuntime()
+    val used = runtime.totalMemory() - runtime.freeMemory()
+    return PlaybackHeapSample(freeBytes = runtime.maxMemory() - used, maximumBytes = runtime.maxMemory())
 }
 
 private const val MIB = 1024L * 1024L

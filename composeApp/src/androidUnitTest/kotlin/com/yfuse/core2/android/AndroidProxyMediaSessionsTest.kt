@@ -21,6 +21,8 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import kotlin.test.AfterTest
+import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -29,6 +31,26 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class AndroidProxyMediaSessionsTest {
+    private val runtimeHeap = AndroidPlaybackMemoryBudget.heapSample
+
+    // These tests count origin reads, which assumes the startup slice a range validated survives
+    // to serve that range. Judged from this JVM's own heap, memory pressure can drop it first and
+    // send the read back to the origin, so the count depended on the run: both origin-count
+    // assertions here have failed on CI while passing on other runs of the same code.
+    @BeforeTest
+    fun pinHeapWithoutPressure() {
+        AndroidPlaybackMemoryBudget.heapSample = {
+            PlaybackHeapSample(freeBytes = AMPLE_HEAP, maximumBytes = AMPLE_HEAP)
+        }
+        AndroidPlaybackMemoryBudget.refreshPressure()
+    }
+
+    @AfterTest
+    fun restoreRuntimeHeap() {
+        AndroidPlaybackMemoryBudget.heapSample = runtimeHeap
+        AndroidPlaybackMemoryBudget.refreshPressure()
+    }
+
     @Test
     fun sequential_and_concurrent_proxy_ranges_share_one_initial_origin_read() {
         val origin = Origin(ByteArray(4096) { it.toByte() }, "\"first\"")
@@ -564,3 +586,6 @@ class AndroidProxyMediaSessionsTest {
 }
 
 private val CACHE_ID = YCacheIdentity("scope", "movie", "first")
+
+/** Far more free heap than any pressure threshold asks for. */
+private const val AMPLE_HEAP = 1L shl 30
