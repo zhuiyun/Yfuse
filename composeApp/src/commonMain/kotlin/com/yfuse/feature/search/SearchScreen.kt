@@ -60,6 +60,7 @@ import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.Brand
+import com.yfuse.core.designsystem.ConfirmDialog
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.DisclosureContent
 import com.yfuse.core.designsystem.ErrorState
@@ -1123,6 +1124,8 @@ private fun RecentSearches(
 ) {
     val palette = LocalPalette.current
     var editing by remember { mutableStateOf(false) }
+    // 清空 sits one chip away from 编辑 and wipes every term at once, with no way back.
+    var confirmClear by remember { mutableStateOf(false) }
     // History emptied while the row was in edit mode has nothing left to edit.
     LaunchedEffect(canEdit) { if (!canEdit) editing = false }
     Column(Modifier.padding(horizontal = Dimens.pageHorizontal)) {
@@ -1139,9 +1142,22 @@ private fun RecentSearches(
                         accent = editing,
                         onClick = { editing = !editing },
                     )
-                    HistoryAction(label = "清空", accent = false, onClick = onClearAll)
+                    HistoryAction(label = "清空", accent = false, onClick = { confirmClear = true })
                 }
             }
+        }
+        if (confirmClear) {
+            ConfirmDialog(
+                title = "清空搜索记录？",
+                message = "将删除全部 ${terms.size} 条搜索记录，删除后不能恢复。",
+                confirmLabel = "确认清空",
+                destructive = true,
+                onConfirm = {
+                    confirmClear = false
+                    onClearAll()
+                },
+                onDismiss = { confirmClear = false },
+            )
         }
         FlowRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
