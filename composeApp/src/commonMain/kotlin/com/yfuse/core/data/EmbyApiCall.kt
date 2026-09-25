@@ -4,6 +4,8 @@ import com.yfuse.core.logging.AppLog
 import com.yfuse.core.network.EmbyError
 import com.yfuse.core.network.EmbyErrorException
 import com.yfuse.core.util.isUiThread
+import io.ktor.client.network.sockets.ConnectTimeoutException
+import io.ktor.client.plugins.HttpRequestTimeoutException
 import io.ktor.client.plugins.ResponseException
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpHeaders
@@ -12,6 +14,11 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.io.IOException
+import java.net.ConnectException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
+import javax.net.ssl.SSLHandshakeException
+import javax.net.ssl.SSLPeerUnverifiedException
 
 /**
  * One path segment of an Emby-compatible route.
@@ -123,9 +130,41 @@ private suspend fun Throwable.toEmbyError(): EmbyError =
                 else -> EmbyError.Unknown("HTTP ${response.status.value}")
             }
 
-        is IOException -> EmbyError.Network
+        is IOException -> transportError()
         else -> EmbyError.Unknown(message ?: "无法解析服务器响应")
     }
+
+/**
+ * Names the transport failure when the engine reported one the user can act on, so the message
+ * can point at the address, the port or the certificate instead of only at the network.
+ *
+ * Engines wrap some of these, so a few causes are inspected. Timeouts come first: Ktor's connect
+ * timeout is itself a [ConnectException] on the JVM. A TLS read error on an established
+ * connection is an SSLException too, so only a failed handshake or peer check counts as a
+ * certificate problem. And an offline device reports "network unreachable" through the same
+ * [ConnectException] a closed port does, so only a refusal the OS named as one is called refused.
+ */
+private fun IOException.transportError(): EmbyError.Unreachable =
+    generateSequence<Throwable>(this) { it.cause }
+        .take(8)
+        .firstNotNullOfOrNull { cause ->
+            when (cause) {
+                is HttpRequestTimeoutException,
+                is ConnectTimeoutException,
+                is SocketTimeoutException,
+                -> EmbyError.Timeout
+                is SSLHandshakeException,
+                is SSLPeerUnverifiedException,
+                -> EmbyError.Certificate
+                is UnknownHostException -> EmbyError.HostNotFound
+                is ConnectException -> EmbyError.ConnectionRefused.takeIf { cause.reportsRefusal() }
+                else -> null
+            }
+        } ?: EmbyError.Network
+
+// Android spells the errno ("ECONNREFUSED (Connection refused)"); the JVM only the text.
+private fun Throwable.reportsRefusal(): Boolean =
+    message.orEmpty().let { "ECONNREFUSED" in it || it.contains("Connection refused", ignoreCase = true) }
 
 private suspend fun ResponseException.forbiddenError(): EmbyError {
     val serverHeader = response.headers[HttpHeaders.Server].orEmpty()

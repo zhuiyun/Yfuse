@@ -221,7 +221,7 @@ internal sealed interface DetailMsg {
 
 internal fun Throwable.isTransientSourceFailure(): Boolean =
     when (val error = (this as? EmbyErrorException)?.error) {
-        EmbyError.Network -> true
+        is EmbyError.Unreachable -> true
         is EmbyError.Server -> error.code in 500..599
         else -> false
     }

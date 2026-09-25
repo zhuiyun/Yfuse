@@ -220,6 +220,13 @@ data class Palette(
     val errorContainer: Color,
     /** Content drawn on [errorContainer]. */
     val onErrorContainer: Color,
+    /**
+     * Accessible text for a healthy or finished state (在线、已入库) on [background] and the
+     * translucent surfaces. [Semantic.Success] stays the colour of the dot and the fill.
+     */
+    val success: Color,
+    /** Accessible text for a degraded or retrying state; [Semantic.Warning] stays the dot and fill. */
+    val warning: Color,
     /** Primary content glass. */
     val card: Color,
     /** `--pg-card2` */
@@ -275,7 +282,22 @@ data class Palette(
     /** The navigation lens's two pearl ends, blended through the accent. */
     val pearlRose: Color,
     val pearlBlue: Color,
-)
+) {
+    /**
+     * The ink for a label beside a [Semantic] status dot.
+     *
+     * The [Semantic] colours are picked to read as dots and fills; as text they fell to 1.5–4:1
+     * on the light theme's glass. Offline is plain secondary text: it needs no hue to be read.
+     */
+    fun statusText(fill: Color): Color =
+        when (fill) {
+            Semantic.Success -> success
+            Semantic.Warning -> warning
+            Semantic.Error -> error
+            Semantic.Offline -> sub
+            else -> fill
+        }
+}
 
 /**
  * What each translucent fill becomes when the user asks for 减弱透明度. Opaque, so nothing
@@ -327,6 +349,10 @@ val LightPalette =
         onError = Color.White,
         errorContainer = Color(0xFFF9E3E0),
         onErrorContainer = Color(0xFF410E0B),
+        // 5.3:1 on the page and 5.6:1 on `card`. As text, Semantic.Success and Semantic.Warning
+        // were 2.4:1 and 2.6:1 on the page.
+        success = Color(0xFF1F743A),
+        warning = Color(0xFF94570F),
         card = Color.White.copy(alpha = 0.62f),
         card2 = Color.White.copy(alpha = 0.46f),
         card3 = Color.White.copy(alpha = 0.72f),
@@ -385,6 +411,9 @@ val DarkPalette =
         onError = Color(0xFF31111D),
         errorContainer = Color(0xFF35171A),
         onErrorContainer = Color(0xFFFFDAD6),
+        // The same tone as `error`: above 11:1 on the page and 10:1 on `card`.
+        success = Color(0xFF8ED8A0),
+        warning = Color(0xFFFFB870),
         card = Color(0xFF182235).copy(alpha = 0.62f),
         card2 = Color(0xFF111A2A).copy(alpha = 0.48f),
         card3 = Color(0xFF202D43).copy(alpha = 0.70f),

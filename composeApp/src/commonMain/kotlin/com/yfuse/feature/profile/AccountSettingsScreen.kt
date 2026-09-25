@@ -58,7 +58,6 @@ import com.yfuse.core.designsystem.ActionToast
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
-import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.ConfirmDialog
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.DisclosureContent
@@ -1082,7 +1081,7 @@ private fun AccountStatusBadge(
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
-    val color = if (active) Brand.Online else accent.accent
+    val color = if (active) palette.success else accent.accent
     Text(
         text = label,
         modifier =

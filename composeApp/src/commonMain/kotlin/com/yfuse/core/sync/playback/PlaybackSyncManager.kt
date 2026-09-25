@@ -836,7 +836,7 @@ internal fun playbackServerApplyFailurePolicy(error: Throwable?): PlaybackServer
         EmbyError.NotFound -> PlaybackServerApplyFailurePolicy.DropTarget
         // A timeout, a dropped connection or a 5xx says nothing about this item: the next task
         // for the same server would fail the same way.
-        EmbyError.Network,
+        is EmbyError.Unreachable,
         is EmbyError.Server,
         -> PlaybackServerApplyFailurePolicy.BackOffServer
         else -> PlaybackServerApplyFailurePolicy.Retry

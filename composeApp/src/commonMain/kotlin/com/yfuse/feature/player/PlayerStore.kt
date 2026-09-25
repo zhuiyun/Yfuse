@@ -1683,7 +1683,7 @@ internal const val PLAYER_QUEUE_LOAD_TIMEOUT_MS = 30_000L
 
 internal fun Throwable.isPlaybackFailoverEligible(): Boolean =
     when (val error = (this as? EmbyErrorException)?.error) {
-        EmbyError.Network -> true
+        is EmbyError.Unreachable -> true
         is EmbyError.Server -> error.code in 500..599
         else -> false
     }

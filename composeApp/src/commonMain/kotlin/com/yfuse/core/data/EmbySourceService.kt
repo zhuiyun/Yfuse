@@ -83,7 +83,7 @@ private fun Throwable.isTransientSourceDiscoveryFailure(): Boolean {
         when (current) {
             is EmbyErrorException ->
                 when (val error = current.error) {
-                    EmbyError.Network -> return true
+                    is EmbyError.Unreachable -> return true
                     is EmbyError.Server -> return isRetryableServerStatus(error.code)
                     else -> return false
                 }

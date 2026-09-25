@@ -61,7 +61,6 @@ import com.yfuse.core.data.missingCount
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
-import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.DisclosureContent
 import com.yfuse.core.designsystem.ErrorState
@@ -1957,8 +1956,8 @@ private fun StatusBadge(entry: CalendarEntry) {
             when (status) {
                 LibraryStatus.Unaired -> "未播出" to palette.sub2
                 LibraryStatus.Missing -> "待入库" to palette.error
-                LibraryStatus.Available -> "已入库" to Brand.Online
-                LibraryStatus.InProgress -> "观看中" to Brand.Online
+                LibraryStatus.Available -> "已入库" to palette.success
+                LibraryStatus.InProgress -> "观看中" to palette.success
                 LibraryStatus.Watched -> "已观看" to palette.sub2
                 LibraryStatus.Unknown ->
                     when (entry.dataIssue) {
