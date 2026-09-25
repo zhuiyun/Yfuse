@@ -137,7 +137,7 @@ class SearchStoreTest {
             store.accept(SearchIntent.Submit)
 
             val state = store.states.first { it.hasSearched && it.error != null }
-            assertTrue(state.error!!.contains("添加服务器"))
+            assertTrue(state.error!!.contains("到「服务器」添加"))
             assertTrue(state.items.isEmpty())
             store.dispose()
         }

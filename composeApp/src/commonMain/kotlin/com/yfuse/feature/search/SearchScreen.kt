@@ -808,7 +808,7 @@ private fun SearchCoverageNotice(
                 }
                 if (unavailable.isNotEmpty()) {
                     Text(
-                        "前往「我的」检查登录",
+                        "前往「服务器」检查登录",
                         style = AppTypography.caption.strong,
                         color = accent.accent,
                         modifier =

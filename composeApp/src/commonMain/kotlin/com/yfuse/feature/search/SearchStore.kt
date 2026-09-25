@@ -587,7 +587,7 @@ class SearchStoreFactory(
             val allServers = registry.data.value.servers
             val servers = state().serverId?.let { selected -> allServers.filter { it.id == selected } } ?: allServers
             if (servers.isEmpty()) {
-                dispatch(SearchMsg.Failed(query, "还没有可用的服务器，请先到「我的」添加服务器"))
+                dispatch(SearchMsg.Failed(query, "还没有可用的服务器，请先到「服务器」添加"))
                 return
             }
             val snapshot = state()
