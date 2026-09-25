@@ -31,7 +31,10 @@ data class LoginForm(
     val kind: MediaServerKind = MediaServerKind.Emby,
     /** Optional on first login; prefilled with the saved display name while editing. */
     val serverName: String = "",
-    /** The prototype defaults the protocol segment to HTTPS. */
+    /**
+     * HTTPS on 443 until the address says otherwise: a LAN host moves an untouched protocol to
+     * HTTP and an untouched port to 8096 — see [protocolChosen] and [isLanServerHost].
+     */
     val https: Boolean = true,
     val host: String = "",
     val port: String = "443",
@@ -42,6 +45,14 @@ data class LoginForm(
     val httpRiskAccepted: Boolean = false,
     val submitting: Boolean = false,
     val error: String? = null,
+    /**
+     * Whether the person has picked the protocol — tapped a segment, or wrote a scheme into the
+     * address. Until then it follows the host: the usual first server is a LAN address, where
+     * Emby and Jellyfin answer plain HTTP, and the HTTPS guess made that first connection fail.
+     */
+    val protocolChosen: Boolean = false,
+    /** Whether the person has picked the port — typed one, here or in the address. */
+    val portChosen: Boolean = false,
 ) {
     val url: String
         get() {
@@ -84,10 +95,13 @@ data class LoginForm(
 /**
  * Whether the form holds anything entered since it [opened] — typed, picked, or filled in from a
  * discovered server — that closing it would throw away. [LoginForm.submitting] and
- * [LoginForm.error] are the form's progress, not its content.
+ * [LoginForm.error] are the form's progress, not its content, and the two `…Chosen` flags are
+ * bookkeeping about fields that are compared themselves.
  */
-internal fun LoginForm.hasInputSince(opened: LoginForm): Boolean =
-    copy(submitting = false, error = null) != opened.copy(submitting = false, error = null)
+internal fun LoginForm.hasInputSince(opened: LoginForm): Boolean = contentOnly() != opened.contentOnly()
+
+private fun LoginForm.contentOnly(): LoginForm =
+    copy(submitting = false, error = null, protocolChosen = false, portChosen = false)
 
 internal data class ParsedServerAddress(
     val https: Boolean?,
@@ -97,6 +111,24 @@ internal data class ParsedServerAddress(
 )
 
 internal fun defaultServerPort(https: Boolean): String = if (https) "443" else "8096"
+
+/**
+ * A host that is almost certainly on the user's own network: a private IPv4 address (10/8,
+ * 172.16/12, 192.168/16), loopback, `localhost`, or an mDNS `.local` name. Emby and Jellyfin
+ * answer those on plain HTTP, port 8096; HTTPS there needs a certificate few home servers have.
+ *
+ * Narrower than `isLocalServiceHost`, which also takes any single-label name: a domain being
+ * typed passes through one ("media" before ".example.com"), and the protocol would flip with
+ * every keystroke. An IPv4 address only counts once all four parts are there.
+ */
+internal fun isLanServerHost(host: String): Boolean {
+    val name = host.trim().trimEnd('.').lowercase()
+    if (name == "localhost" || name.endsWith(".local")) return true
+    val parts = name.split('.').map { part -> part.takeIf { it.all(Char::isDigit) }?.toIntOrNull() }
+    if (parts.size != 4 || parts.any { it == null || it > 255 }) return false
+    val (first, second) = parts.filterNotNull()
+    return first == 10 || first == 127 || (first == 172 && second in 16..31) || (first == 192 && second == 168)
+}
 
 /**
  * Accepts `host`, `host:port`, and complete HTTP(S) URLs with an optional base path.
@@ -1293,6 +1325,9 @@ class ServersStoreFactory(
                                 username = msg.server.userName,
                                 password = "",
                                 httpRiskAccepted = msg.server.localCleartextConfirmed,
+                                // What the server was saved with was chosen; a new host keeps it.
+                                protocolChosen = true,
+                                portChosen = true,
                             ),
                     )
                 }
@@ -1334,6 +1369,9 @@ class ServersStoreFactory(
                                     },
                                 httpRiskAccepted = false,
                                 error = null,
+                                // The port was just reset to the protocol's own, so it follows again.
+                                protocolChosen = true,
+                                portChosen = false,
                             ),
                         connectionEdited = true,
                     )
@@ -1345,7 +1383,12 @@ class ServersStoreFactory(
                             connectionEdited = true,
                         )
                     } else {
-                        val resolvedHttps = parsed.https ?: form.https
+                        // A scheme or port written into the address is as much a choice as the
+                        // segment or the port field; whatever is still unchosen follows the host.
+                        val protocolChosen = form.protocolChosen || parsed.https != null
+                        val portChosen = form.portChosen || parsed.port != null
+                        val resolvedHttps =
+                            parsed.https ?: if (protocolChosen) form.https else !isLanServerHost(parsed.host)
                         val explicitAbsoluteUrl = "://" in msg.v
                         copy(
                             form =
@@ -1354,10 +1397,11 @@ class ServersStoreFactory(
                                     host = parsed.host,
                                     port =
                                         parsed.port
-                                            ?: if (parsed.https != null) {
-                                                defaultServerPort(resolvedHttps)
-                                            } else {
-                                                form.port
+                                            ?: when {
+                                                parsed.https != null -> defaultServerPort(resolvedHttps)
+                                                // Plex keeps its own 32400 on either protocol.
+                                                portChosen || form.kind == MediaServerKind.Plex -> form.port
+                                                else -> defaultServerPort(resolvedHttps)
                                             },
                                     basePath =
                                         if (explicitAbsoluteUrl || parsed.basePath.isNotEmpty()) {
@@ -1372,6 +1416,8 @@ class ServersStoreFactory(
                                             form.httpRiskAccepted
                                         },
                                     error = null,
+                                    protocolChosen = protocolChosen,
+                                    portChosen = portChosen,
                                 ),
                             connectionEdited = true,
                         )
@@ -1379,7 +1425,7 @@ class ServersStoreFactory(
                 }
                 is Msg.Port ->
                     copy(
-                        form = form.copy(port = msg.v, error = null),
+                        form = form.copy(port = msg.v, error = null, portChosen = true),
                         connectionEdited = true,
                     )
                 is Msg.BasePath ->

@@ -8,6 +8,7 @@ import com.arkivanov.mvikotlin.main.store.DefaultStoreFactory
 import com.russhwolf.settings.MapSettings
 import com.yfuse.core.data.AuthedServer
 import com.yfuse.core.data.ServerRegistry
+import com.yfuse.core.model.MediaServerKind
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.personal.PersonalLibraryRepository
 import com.yfuse.core.security.TestSecureStore
@@ -451,6 +452,67 @@ class ServersStoreTest {
             assertEquals("9443", store.state.form.port)
             assertEquals("/emby", store.state.form.basePath)
             assertEquals("https://media.example.com:9443/emby", store.state.form.url)
+            store.dispose()
+        }
+
+    @Test
+    fun a_lan_address_defaults_to_http_on_8096() =
+        runTest {
+            val store = store(testRegistry()) { authRoutes(it) }
+
+            store.accept(ServersIntent.HostChanged("192.168.1.8"))
+
+            assertFalse(store.state.form.https)
+            assertEquals("8096", store.state.form.port)
+            assertEquals("http://192.168.1.8:8096", store.state.form.url)
+            store.dispose()
+        }
+
+    @Test
+    fun a_lan_address_with_its_port_still_gets_http() =
+        runTest {
+            val store = store(testRegistry()) { authRoutes(it) }
+
+            store.accept(ServersIntent.HostChanged("nas.local:8096"))
+
+            assertEquals("http://nas.local:8096", store.state.form.url)
+            store.dispose()
+        }
+
+    @Test
+    fun a_public_host_after_a_lan_one_goes_back_to_https() =
+        runTest {
+            val store = store(testRegistry()) { authRoutes(it) }
+            store.accept(ServersIntent.HostChanged("192.168.1.8"))
+
+            store.accept(ServersIntent.HostChanged("media.example.com"))
+
+            assertEquals("https://media.example.com:443", store.state.form.url)
+            store.dispose()
+        }
+
+    @Test
+    fun a_picked_protocol_and_port_are_kept_for_a_lan_address() =
+        runTest {
+            val store = store(testRegistry()) { authRoutes(it) }
+            store.accept(ServersIntent.ProtocolChanged(https = true))
+            store.accept(ServersIntent.PortChanged("8920"))
+
+            store.accept(ServersIntent.HostChanged("192.168.1.8"))
+
+            assertEquals("https://192.168.1.8:8920", store.state.form.url)
+            store.dispose()
+        }
+
+    @Test
+    fun plex_on_a_lan_address_gets_http_and_keeps_its_own_port() =
+        runTest {
+            val store = store(testRegistry()) { authRoutes(it) }
+            store.accept(ServersIntent.ProviderChanged(MediaServerKind.Plex))
+
+            store.accept(ServersIntent.HostChanged("192.168.1.8"))
+
+            assertEquals("http://192.168.1.8:32400", store.state.form.url)
             store.dispose()
         }
 
