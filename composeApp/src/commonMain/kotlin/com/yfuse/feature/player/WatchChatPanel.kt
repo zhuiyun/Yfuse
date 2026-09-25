@@ -146,7 +146,7 @@ internal fun WatchChatPanel(
     }
 
     // Same drawer as 设置 and 搜索弹幕 — see [PlayerSidePanel].
-    PlayerSidePanel(onDismiss = onDismiss, modifier = modifier, dim = true) {
+    PlayerSidePanel(onDismiss = onDismiss, modifier = modifier, dim = true, paneTitle = "房间聊天") {
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,

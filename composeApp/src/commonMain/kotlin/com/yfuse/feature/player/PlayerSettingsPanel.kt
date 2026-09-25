@@ -180,7 +180,11 @@ internal fun SettingsPanel(
     if (problemOpen) PlaybackProblemDialog(playback) { problemOpen = false }
     val discNavigationRevision by ActiveDiscNavigation.revision.collectAsState()
 
-    PlayerPopupPanel(onDismiss = onDismiss, modifier = modifier) {
+    PlayerPopupPanel(
+        onDismiss = onDismiss,
+        modifier = modifier,
+        paneTitle = settingsPanelTitle(kind, trackPanelMode),
+    ) {
         // Two transitions, because this shell has two axes of change: one popup kind hands
         // over to another, and 更多 goes a level deeper and comes back. The travel is resolved
         // to pixels up here because a transition spec is not a composable and cannot read
@@ -1188,6 +1192,19 @@ internal fun SettingsPanel(
     }
 }
 
+/** The name of the key that opened the popup, which is what a screen reader announces it as. */
+private fun settingsPanelTitle(
+    kind: SettingsPanelKind,
+    trackMode: TrackPanelMode,
+): String =
+    when (kind) {
+        SettingsPanelKind.Tracks -> if (trackMode == TrackPanelMode.Subtitle) "字幕" else "音轨"
+        SettingsPanelKind.Danmaku -> "弹幕"
+        SettingsPanelKind.Cast -> "投屏"
+        SettingsPanelKind.Skip -> "标记片头片尾"
+        SettingsPanelKind.More -> "更多"
+    }
+
 /** Keeps the source Activity mounted while the user chooses a receiver. */
 @Composable
 private fun PlayerDeviceHandoffPanel(inWatchRoom: Boolean) {
@@ -1688,6 +1705,7 @@ internal fun SourcePickerPopup(
         onDismiss = onDismiss,
         modifier = modifier,
         compact = true,
+        paneTitle = "播放服务器",
     ) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 1.dp),
@@ -1761,6 +1779,7 @@ internal fun SpeedPickerPopup(
         onDismiss = onDismiss,
         modifier = modifier,
         compact = true,
+        paneTitle = "播放速度",
     ) {
         CompactChoiceGrid(
             options = speeds.map(::speedLabel),
