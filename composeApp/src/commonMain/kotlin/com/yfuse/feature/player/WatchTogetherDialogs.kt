@@ -90,6 +90,7 @@ internal fun WatchTogetherDialog(
 ) {
     var roomDraft by remember { mutableStateOf("") }
     var kickCandidate by remember { mutableStateOf<WatchParticipant?>(null) }
+    var leaveConfirmOpen by remember { mutableStateOf(false) }
     val normalizedRoom = WatchInvite.normalizeCode(roomDraft)
     val palette = LocalPalette.current
     val accent = rememberAccentColorsForSurface(dark = true)
@@ -369,7 +370,7 @@ internal fun WatchTogetherDialog(
             }
             OverlayButton(
                 label = "退出房间",
-                onClick = onLeave,
+                onClick = { leaveConfirmOpen = true },
                 modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
                 tone = OverlayButtonTone.Destructive,
             )
@@ -415,6 +416,29 @@ internal fun WatchTogetherDialog(
                 kickCandidate = null
             },
             onDismiss = { kickCandidate = null },
+            destructive = true,
+        )
+    }
+
+    // A host leaving changes the room for everyone in it, so the message says what the server does:
+    // it holds a departed host's place for a 20-second reconnect window, then hands the room to
+    // whoever is still in it, and sweeps an empty room a few minutes later.
+    if (leaveConfirmOpen) {
+        ConfirmDialog(
+            liquidButtons = false,
+            title = "退出房间",
+            message =
+                if (isHost) {
+                    "你是房主。退出后约 20 秒，房主会转交给房间里的其他成员；房间里没有其他人时，几分钟后房间会关闭。"
+                } else {
+                    "退出后将不再与房间同步播放，之后仍可用房间码重新加入。"
+                },
+            confirmLabel = "退出房间",
+            onConfirm = {
+                onLeave()
+                leaveConfirmOpen = false
+            },
+            onDismiss = { leaveConfirmOpen = false },
             destructive = true,
         )
     }

@@ -63,6 +63,7 @@ import com.yfuse.core.designsystem.LightEffect
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalHaptics
 import com.yfuse.core.designsystem.Motion
+import com.yfuse.core.designsystem.PlatformBackHandler
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.lightOnChange
 import com.yfuse.core.designsystem.rememberScreenReaderActive
@@ -84,6 +85,12 @@ private const val DOUBLE_TAP_BURST_WINDOW_MS = 900L
 private const val AUTO_HIDE_MS = 5_000L
 private const val CHAT_PREVIEW_MS = 4_000L
 private const val GESTURE_HUD_MS = 1_600L
+
+/** How long the lock and 长按解锁 stay on the picture after locking or after a touch on it. */
+private const val LOCKED_CONTROLS_MS = 3_000L
+
+/** How long 跳过片头 / 跳过片尾 stays up on its own once playback enters the segment. */
+private const val MANUAL_SKIP_STANDALONE_MS = 6_000L
 
 /**
  * How long the volume slider stays up after the last press or drag.
@@ -116,11 +123,41 @@ internal fun trackLabel(
         else -> tracks.firstOrNull { it.id == id }?.label ?: "已切换"
     }
 
+/**
+ * True once the current item has finished and stands on its last frame.
+ *
+ * [PlaybackState.ended] says so for most engines. ExoPlayer told to stop at the end of a queue item
+ * — 自动播放下一集 off, 取消 on the next-up card, 睡眠定时's 本集结束 — does not end it: it pauses on
+ * the final frame with the next item still queued, and resuming runs straight into that one. To
+ * whoever is watching, that pause is the end of the episode, not a pause in the middle of it.
+ */
+internal fun playbackStoppedAtItemEnd(state: PlaybackState): Boolean =
+    state.error == null &&
+        (
+            state.ended ||
+                (
+                    state.hasNext &&
+                        !state.playing &&
+                        !state.buffering &&
+                        state.durationMs > 0L &&
+                        state.remainingMs <= ITEM_END_SLACK_MS
+                )
+        )
+
+/** A queue item parked this close to its end has, for the viewer, ended. */
+private const val ITEM_END_SLACK_MS = 1_000L
+
+/**
+ * The manual 跳过片头 / 跳过片尾 pill: up on its own for the first seconds after playback enters the
+ * segment ([segmentJustEntered]) whatever the controls are doing, and with the controls after that.
+ * Never while an automatic skip counts down; that pill speaks for the segment then.
+ */
 internal fun shouldShowManualSkipPill(
     segmentLabel: String?,
     countdownSeconds: Int?,
     controlsVisible: Boolean,
-): Boolean = controlsVisible && countdownSeconds == null && segmentLabel != null
+    segmentJustEntered: Boolean,
+): Boolean = segmentLabel != null && countdownSeconds == null && (controlsVisible || segmentJustEntered)
 
 /**
  * 长按快进/快退 — how fast the playhead runs while a press is held down.
@@ -169,6 +206,8 @@ internal fun PlayerControls(
     onNextItem: () -> Boolean,
     /** 取消 on the next-up card: the engine must not advance on its own either. */
     onDismissNextUp: () -> Unit = {},
+    /** 自动播放下一集, as the engine was built with it: off, nothing counts down to the next item. */
+    autoNext: Boolean = true,
     onRefreshEpisodes: () -> Unit,
     onSelectAudio: (String) -> Unit,
     audioControls: AudioControlState = AudioControlState(),
@@ -217,6 +256,8 @@ internal fun PlayerControls(
     castDiscovering: Boolean = false,
     castError: String? = null,
     castStatus: String? = null,
+    /** A session is connecting or live on a receiver; [castStatus] then names it and its state. */
+    castActive: Boolean = false,
     castPosition: String? = null,
     castPositionSource: (() -> String?)? = null,
     castCapabilities: String? = null,
@@ -251,6 +292,8 @@ internal fun PlayerControls(
     onAmbientChromeVisibleChange: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier,
     systemGestureTopPx: Float = 0f,
+    /** Bumped by the owner to bring the controls up, as a tap on the picture would. */
+    wakeRequests: Int = 0,
 ) {
     val currentSystemGestureTop by rememberUpdatedState(systemGestureTopPx)
     val state by rememberPlayerControlSnapshot(playback)
@@ -268,6 +311,12 @@ internal fun PlayerControls(
     }
     val hintProgress = rememberPlayerHintProgress(visible)
     var locked by remember { mutableStateOf(false) }
+    // The lock's own chrome — the circle and 长按解锁 — comes up for a moment after locking and after
+    // each touch on the picture, then leaves it alone. [lockedRevealRevision] restarts that moment.
+    var lockedControlsVisible by remember { mutableStateOf(false) }
+    var lockedRevealRevision by remember { mutableIntStateOf(0) }
+    // Someone has tried to act through the lock: the circle says how to undo it until it fades.
+    var lockedExplained by remember { mutableStateOf(false) }
     var settingsPanelKind by remember { mutableStateOf<SettingsPanelKind?>(null) }
     var trackPanelMode by remember { mutableStateOf(TrackPanelMode.Subtitle) }
     var quickPopup by remember { mutableStateOf<QuickPopup?>(null) }
@@ -371,6 +420,18 @@ internal fun PlayerControls(
     fun poke() {
         interactions++
         visible = true
+    }
+
+    fun revealLock(explain: Boolean) {
+        if (explain) lockedExplained = true
+        lockedRevealRevision++
+    }
+
+    // A double tap, a hold, a tap on 长按解锁 or the back gesture while locked: refused out loud,
+    // and the way out shown instead of the thing asked for.
+    fun refuseWhileLocked() {
+        haptics.play(HapticSignal.Reject)
+        revealLock(explain = true)
     }
 
     fun openWatchChat() {
@@ -703,6 +764,52 @@ internal fun PlayerControls(
         delay(timeout)
         volumeSliderVisible = false
     }
+    LaunchedEffect(wakeRequests) {
+        if (wakeRequests > 0) poke()
+    }
+    // A segment's skip offer is only good while playback is inside it, and making the viewer summon
+    // the controls first spent a good part of that. Entering one raises the pill on its own for a
+    // few seconds; after that it comes and goes with the controls like every other key.
+    var skipSegmentJustEntered by remember { mutableStateOf(false) }
+    LaunchedEffect(skip.segmentLabel, state.currentIndex, accessibilityManager) {
+        skipSegmentJustEntered = skip.segmentLabel != null
+        if (!skipSegmentJustEntered) return@LaunchedEffect
+        val timeout =
+            accessibilityManager?.calculateRecommendedTimeoutMillis(
+                originalTimeoutMillis = MANUAL_SKIP_STANDALONE_MS,
+                containsIcons = false,
+                containsText = true,
+                containsControls = true,
+            ) ?: MANUAL_SKIP_STANDALONE_MS
+        if (timeout == Long.MAX_VALUE) return@LaunchedEffect
+        delay(timeout)
+        skipSegmentJustEntered = false
+    }
+    LaunchedEffect(locked, lockedRevealRevision, interactions, screenReaderActive, accessibilityManager) {
+        if (!locked) {
+            lockedControlsVisible = false
+            lockedExplained = false
+            return@LaunchedEffect
+        }
+        lockedControlsVisible = true
+        // A spoken cursor cannot find a pill that has faded, so under a screen reader it stays.
+        if (screenReaderActive) return@LaunchedEffect
+        val timeout =
+            accessibilityManager?.calculateRecommendedTimeoutMillis(
+                originalTimeoutMillis = LOCKED_CONTROLS_MS,
+                containsIcons = true,
+                containsText = true,
+                containsControls = true,
+            ) ?: LOCKED_CONTROLS_MS
+        if (timeout == Long.MAX_VALUE) return@LaunchedEffect
+        delay(timeout)
+        lockedControlsVisible = false
+        lockedExplained = false
+    }
+    // A locked phone keeps the player: the edge swipe the lock is there to survive used to close it
+    // outright. A television has no such swipe, and its Back unlocks through [closeTopRemoteLayer].
+    // A failure takes the lock's place on screen, and Back is not held for a lock nobody can see.
+    PlatformBackHandler(enabled = locked && state.error == null && remoteChrome == null, onBack = ::refuseWhileLocked)
 
     Box(
         modifier
@@ -763,6 +870,7 @@ internal fun PlayerControls(
                         },
                         onTap = {
                             when {
+                                locked -> revealLock(explain = false)
                                 watchChatOpen -> watchChatOpen = false
                                 danmakuSendOpen -> danmakuSendOpen = false
                                 danmakuSearchOpen -> danmakuSearchOpen = false
@@ -774,6 +882,12 @@ internal fun PlayerControls(
                             }
                         },
                         onDoubleTap = { offset ->
+                            // The lock's own catcher takes the touch before it gets here; this is the
+                            // floor under it, so no path through the lock can seek or pause.
+                            if (locked) {
+                                refuseWhileLocked()
+                                return@detectTapGestures
+                            }
                             if (!allowsPlayerDrag(offset.y, currentSystemGestureTop)) return@detectTapGestures
                             if (latestWatchLocked) {
                                 gestureHud = "房主控制播放"
@@ -813,6 +927,10 @@ internal fun PlayerControls(
                             poke()
                         },
                         onLongPress = { offset ->
+                            if (locked) {
+                                refuseWhileLocked()
+                                return@detectTapGestures
+                            }
                             if (!allowsPlayerDrag(offset.y, currentSystemGestureTop)) return@detectTapGestures
                             // Thirds, exactly as the double tap divides the picture: left
                             // rewinds, right fast-forwards, and the middle — where the double
@@ -928,12 +1046,24 @@ internal fun PlayerControls(
             modifier = Modifier.fillMaxSize(),
             coversScreen = true,
         ) {
-            LockedOverlay(onUnlock = {
-                if (locked) {
-                    locked = false
-                    poke()
-                }
-            })
+            LockedOverlay(
+                controlsVisible = lockedControlsVisible,
+                message =
+                    when {
+                        !lockedExplained -> "屏幕已锁定"
+                        screenReaderActive -> "屏幕已锁定，请先解锁"
+                        else -> "屏幕已锁定，长按解锁"
+                    },
+                screenReaderActive = screenReaderActive,
+                onReveal = { revealLock(explain = false) },
+                onRefuse = ::refuseWhileLocked,
+                onUnlock = {
+                    if (locked) {
+                        locked = false
+                        poke()
+                    }
+                },
+            )
         }
         ChromeVisibility(
             visible = !locked && errorMessage == null,
@@ -980,6 +1110,7 @@ internal fun PlayerControls(
                         onOpenCast = { openSettingsPanel(SettingsPanelKind.Cast) },
                         onOpenMore = { openSettingsPanel(SettingsPanelKind.More) },
                         ambientLight = ambientLight,
+                        castActive = castActive,
                         watchConnected = watch.connected,
                         unreadChat =
                             watch.chatMessages.lastOrNull()?.id?.let { latest ->
@@ -1109,7 +1240,13 @@ internal fun PlayerControls(
                 }
                 val lastSkipLabel = remember { arrayOf("") }
                 skip.segmentLabel?.let { lastSkipLabel[0] = it }
-                val manualSkip = shouldShowManualSkipPill(skip.segmentLabel, skip.countdownSeconds, visible)
+                val manualSkip =
+                    shouldShowManualSkipPill(
+                        segmentLabel = skip.segmentLabel,
+                        countdownSeconds = skip.countdownSeconds,
+                        controlsVisible = visible,
+                        segmentJustEntered = skipSegmentJustEntered,
+                    )
                 ChromeVisibility(
                     visible = manualSkip,
                     edge = ChromeEdge.Bottom,
@@ -1495,6 +1632,33 @@ internal fun PlayerControls(
                     )
                 }
 
+                // Standing, like the paused key: the picture is on another screen whether or not the
+                // controls are up. It rides below the title bar while that is shown.
+                val lastCastStatus = remember { arrayOf("") }
+                castStatus?.let { lastCastStatus[0] = it }
+                ChromeVisibility(
+                    visible = castActive && castStatus != null,
+                    edge = ChromeEdge.Top,
+                    modifier =
+                        Modifier
+                            .align(Alignment.TopStart)
+                            .playerHintOffset(hintProgress, 56.dp)
+                            .padding(start = 22.dp, top = 18.dp),
+                ) {
+                    CastSessionPill(
+                        status = lastCastStatus[0],
+                        onOpen = { openSettingsPanel(SettingsPanelKind.Cast) },
+                        onDisconnect = {
+                            poke()
+                            onStopCast()
+                        },
+                    )
+                }
+
+                val stoppedAtItemEnd by remember(playback) {
+                    derivedStateOf { playbackStoppedAtItemEnd(playback.value) }
+                }
+
                 /**
                  * Paused, with one tap back into playback.
                  *
@@ -1505,8 +1669,8 @@ internal fun PlayerControls(
                  *
                  * Not while buffering: `playing` is false throughout startup and every seek, and a
                  * resume button over a frame that is already coming back is a lie. Not once the item
-                 * has ended either — 下一集 owns that moment, and "paused" would be the wrong word
-                 * for it.
+                 * has ended or stopped at its end either — the ending's keys below own that moment,
+                 * and "paused" would be the wrong word for it.
                  *
                  * A guest whose room is driven by its host still needs to be told the film is paused,
                  * so the key is drawn for them too — dimmed and inert, since the tap would only be
@@ -1519,7 +1683,8 @@ internal fun PlayerControls(
                     !state.playing &&
                         !state.buffering &&
                         !state.ended &&
-                        state.error == null
+                        state.error == null &&
+                        !stoppedAtItemEnd
                 ChromeVisibility(
                     visible = showPausedKey,
                     modifier = Modifier.align(Alignment.Center),
@@ -1543,34 +1708,55 @@ internal fun PlayerControls(
                 }
 
                 /**
-                 * The end of the last episode, where nothing used to be.
+                 * The end of an item that did not roll on into the next one, where nothing used to be.
                  *
-                 * 下一集 owns the end of everything else, and this is the case it does not cover:
-                 * a film, or the last entry in a series. The picture stops on its final frame with
-                 * no controls, nothing saying the film is over rather than stalled, and no way
-                 * back that does not start with a tap to summon the chrome. Two keys at the same
-                 * size and in the same place as 继续播放, because it is the same question — what
-                 * happens if I touch this — asked one moment later.
+                 * A film, the last entry in a series, or an episode that stopped at its end because
+                 * 自动播放下一集 is off (or 取消 or the sleep timer said so). The picture stops on its
+                 * final frame with no controls, nothing saying the episode is over rather than
+                 * stalled, and no way on that does not start with a tap to summon the chrome. Keys at
+                 * the same size and in the same place as 继续播放, because it is the same question —
+                 * what happens if I touch this — asked one moment later; 下一集 leads when there is one.
                  */
-                val showEndedKeys = state.ended && !state.hasNext && state.error == null
+                val showEndedKeys = stoppedAtItemEnd
                 ChromeVisibility(
                     visible = showEndedKeys,
                     modifier = Modifier.align(Alignment.Center),
                 ) {
                     Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+                        if (state.hasNext) {
+                            CircleControl(
+                                icon = AppIcons.Next,
+                                description = "下一集",
+                                size = CenterKeySize,
+                                iconSize = CenterKeyIconSize,
+                                enabled = !watchLocked,
+                                filled = true,
+                                onClick = {
+                                    poke()
+                                    onNextItem()
+                                },
+                            )
+                        }
                         CircleControl(
                             icon = AppIcons.Refresh,
                             description = "重播",
                             size = CenterKeySize,
                             iconSize = CenterKeyIconSize,
                             enabled = !watchLocked,
-                            filled = true,
-                            // Back to the first frame, and playing again: the engine reports the
-                            // ended item as paused, so the seek alone would leave it standing on
-                            // frame one.
+                            filled = !state.hasNext,
                             onClick = {
-                                latestOnSeek(0L)
-                                if (!playback.value.playing) onPlayPause()
+                                if (playback.value.ended) {
+                                    // Back to the first frame, and playing again: the engine reports
+                                    // the ended item as paused, so the seek alone would leave it
+                                    // standing on frame one.
+                                    latestOnSeek(0L)
+                                    if (!playback.value.playing) onPlayPause()
+                                } else {
+                                    // Parked on the last frame instead of ended: resuming would run
+                                    // into the next item before the seek landed, so the item is
+                                    // started again from the top.
+                                    onSelectItem(state.currentIndex)
+                                }
                                 poke()
                             },
                         )
@@ -1664,6 +1850,7 @@ internal fun PlayerControls(
                         onDismissNextUp()
                     },
                     modifier = Modifier.align(Alignment.BottomEnd).padding(end = 22.dp, bottom = 96.dp),
+                    autoAdvance = autoNext,
                 )
             }
         }

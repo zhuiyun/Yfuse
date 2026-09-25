@@ -26,6 +26,8 @@ internal fun PlayerNextUpOverlay(
     onPlayNow: () -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier,
+    /** 自动播放下一集. Off, the card is a plain 下一集 key rather than a countdown to cancel. */
+    autoAdvance: Boolean = true,
 ) {
     val showNextUp by remember(playback, dismissed) {
         derivedStateOf {
@@ -45,6 +47,7 @@ internal fun PlayerNextUpOverlay(
             playback = playback,
             episodes = episodes,
             active = showNextUp,
+            autoAdvance = autoAdvance,
             onPlayNow = onPlayNow,
             onDismiss = onDismiss,
         )
@@ -63,6 +66,7 @@ private fun NextUpContent(
     playback: State<PlaybackState>,
     episodes: List<EpisodeCard>,
     active: Boolean,
+    autoAdvance: Boolean,
     onPlayNow: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -89,17 +93,25 @@ private fun NextUpContent(
         remember(playback) {
             { if (latestActive && playback.value.currentIndex == latestIndex) latestOnDismiss() }
         }
-    NextUpCard(
-        title = episodes.getOrNull(currentIndex + 1)?.title.orEmpty(),
-        remainingMs = (state.durationMs - state.positionMs).coerceIn(0L, NEXT_UP_WINDOW_MS),
-        // Identity only — remembered so the ring is not handed a new key on every tick.
-        playbackKey =
-            remember(currentIndex, episodes) {
-                currentIndex to episodes.getOrNull(currentIndex)?.watchKey
-            },
-        advancing = active && state.playing && !state.buffering && !state.ended && state.error == null,
-        speed = state.speed,
-        onPlayNow = playNow,
-        onDismiss = dismiss,
-    )
+    val title = episodes.getOrNull(currentIndex + 1)?.title.orEmpty()
+    val remainingMs = (state.durationMs - state.positionMs).coerceIn(0L, NEXT_UP_WINDOW_MS)
+    val countdown = nextUpCountdownLabel(autoAdvance, remainingMs, state.speed)
+    if (countdown == null) {
+        NextUpKey(title = title, onPlayNow = playNow)
+    } else {
+        NextUpCard(
+            title = title,
+            remainingMs = remainingMs,
+            countdown = countdown,
+            // Identity only — remembered so the ring is not handed a new key on every tick.
+            playbackKey =
+                remember(currentIndex, episodes) {
+                    currentIndex to episodes.getOrNull(currentIndex)?.watchKey
+                },
+            advancing = active && state.playing && !state.buffering && !state.ended && state.error == null,
+            speed = state.speed,
+            onPlayNow = playNow,
+            onDismiss = dismiss,
+        )
+    }
 }

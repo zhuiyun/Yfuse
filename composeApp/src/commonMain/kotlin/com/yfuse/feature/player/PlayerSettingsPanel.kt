@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -27,6 +28,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
@@ -38,9 +40,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yfuse.core.data.Anime4KMode
@@ -50,14 +55,22 @@ import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.DarkPalette
+import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.glass
+import com.yfuse.core.designsystem.liveStatus
 import com.yfuse.core.designsystem.motionAwareAnimateContentSize
+import com.yfuse.core.designsystem.motionAwareScrollTo
 import com.yfuse.core.designsystem.overlayAction
+import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberAccentColorsForSurface
+import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.handoff.HandoffController
+import kotlinx.coroutines.delay
 import org.koin.core.context.GlobalContext
+import kotlin.math.abs
+import kotlin.math.roundToInt
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
 
@@ -167,7 +180,11 @@ internal fun SettingsPanel(
     if (problemOpen) PlaybackProblemDialog(playback) { problemOpen = false }
     val discNavigationRevision by ActiveDiscNavigation.revision.collectAsState()
 
-    PlayerPopupPanel(onDismiss = onDismiss, modifier = modifier) {
+    PlayerPopupPanel(
+        onDismiss = onDismiss,
+        modifier = modifier,
+        paneTitle = settingsPanelTitle(kind, trackPanelMode),
+    ) {
         // Two transitions, because this shell has two axes of change: one popup kind hands
         // over to another, and 更多 goes a level deeper and comes back. The travel is resolved
         // to pixels up here because a transition spec is not a composable and cannot read
@@ -178,10 +195,11 @@ internal fun SettingsPanel(
         val popTravelPx = with(density) { Motion.popOffset.roundToPx() }
         // The list takes whatever height the drawer has left instead of the old fixed
         // 210dp window, which scrolled a short slot inside a mostly empty screen.
+        val panelScroll = rememberScrollState()
         Column(
             Modifier
                 .weight(1f, fill = false)
-                .verticalScroll(rememberScrollState()),
+                .verticalScroll(panelScroll),
         ) {
             SettingsKindHost(kind = kind, reduceMotion = reduceMotion) { currentKind ->
                 when (currentKind) {
@@ -198,52 +216,43 @@ internal fun SettingsPanel(
                             trackPanelMode == TrackPanelMode.Subtitle &&
                             state.subtitleTracks.isNotEmpty()
                         ) {
-                            if (subtitleControls.secondarySupported) {
-                                GroupLabel("双字幕方案 · 主上副下")
-                                DualSubtitleLanguagePair.entries.forEach { pair ->
-                                    OptionRow(
-                                        pair.label,
-                                        selected = false,
-                                        onClick = { subtitleActions.onLanguagePair(pair) },
-                                    )
+                            // 主字幕 leads: it is what the panel is opened for, and it used to sit
+                            // below the dual-subtitle presets, the swap and the preview — past the
+                            // first screen of a popup that is at most 308dp tall. Then 副字幕 and
+                            // the dual layouts, then offsets and style, then 第三方字幕 last.
+                            //
+                            // Where the selected track sits, taken once per opening: in a long list
+                            // it is otherwise below the fold, and it is the one row worth seeing.
+                            var selectedSubtitleSpan by remember(trackPanelMode) { mutableStateOf<IntRange?>(null) }
+                            LaunchedEffect(selectedSubtitleSpan) {
+                                val span = selectedSubtitleSpan ?: return@LaunchedEffect
+                                val viewport = panelScroll.viewportSize
+                                if (viewport > 0 && span.last > viewport) {
+                                    val height = span.last - span.first
+                                    panelScroll.motionAwareScrollTo(span.first - (viewport - height) / 2, reduceMotion)
                                 }
-                                if (
-                                    subtitleControls.secondaryTrackId != null &&
-                                    state.subtitleTracks.any { it.selected }
-                                ) {
-                                    OptionRow("互换主副字幕", selected = false, onClick = subtitleActions.onSwap)
-                                }
-                                if (subtitleControls.independentScaleAvailable) {
-                                    GroupLabel("副字幕字号")
-                                    listOf(0.8f, 1f, 1.2f, 1.5f).forEach { scale ->
-                                        OptionRow(
-                                            "${(scale * 100).toInt()}%",
-                                            subtitleControls.secondaryScale == scale,
-                                            onClick = { subtitleActions.onSecondaryScale(scale) },
-                                        )
-                                    }
-                                }
-                                Column(
-                                    Modifier.fillMaxWidth().padding(vertical = 12.dp),
-                                    horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
-                                ) {
-                                    Text("主字幕预览", color = Color.White, fontSize = (18 * subtitleControls.scale).sp)
-                                    Spacer(Modifier.size(4.dp))
-                                    Text(
-                                        "Secondary subtitle",
-                                        color = Color.White,
-                                        fontSize = (18 * subtitleControls.secondaryScale).sp,
-                                    )
-                                }
-                                GroupLabel("主字幕")
                             }
+                            GroupLabel("主字幕")
                             OptionRow(
                                 "关闭",
                                 state.subtitleTracks.none { it.selected },
                                 onClick = { onSelectSubtitle(EngineTrack.OFF) },
                             )
                             state.subtitleTracks.forEach { track ->
-                                OptionRow(track.label, track.selected, onClick = { onSelectSubtitle(track.id) })
+                                OptionRow(
+                                    track.label,
+                                    track.selected,
+                                    onClick = { onSelectSubtitle(track.id) },
+                                    modifier =
+                                        if (track.selected && selectedSubtitleSpan == null) {
+                                            Modifier.onGloballyPositioned { coordinates ->
+                                                val top = coordinates.positionInParent().y.roundToInt()
+                                                selectedSubtitleSpan = top..(top + coordinates.size.height)
+                                            }
+                                        } else {
+                                            Modifier
+                                        },
+                                )
                             }
                             GroupLabel("副字幕")
                             subtitleControls.dualLayoutNote?.let { UnsupportedSubtitleControl(it) }
@@ -260,6 +269,20 @@ internal fun SettingsPanel(
                                         onClick = { subtitleActions.onSecondaryTrack(track.id) },
                                     )
                                 }
+                                GroupLabel("双字幕方案 · 主上副下")
+                                DualSubtitleLanguagePair.entries.forEach { pair ->
+                                    OptionRow(
+                                        pair.label,
+                                        selected = false,
+                                        onClick = { subtitleActions.onLanguagePair(pair) },
+                                    )
+                                }
+                                if (
+                                    subtitleControls.secondaryTrackId != null &&
+                                    state.subtitleTracks.any { it.selected }
+                                ) {
+                                    OptionRow("互换主副字幕", selected = false, onClick = subtitleActions.onSwap)
+                                }
                             } else {
                                 Text(
                                     subtitleControls.secondaryUnavailableReason
@@ -268,24 +291,35 @@ internal fun SettingsPanel(
                                     color = Color.White.copy(alpha = 0.68f),
                                 )
                             }
+                            if (subtitleControls.offsetAvailable) {
+                                OffsetStepper(
+                                    label = "字幕时间偏移",
+                                    valueMs = subtitleControls.offsetMs,
+                                    fineStepMs = SUBTITLE_OFFSET_FINE_STEP_MS,
+                                    coarseStepMs = SUBTITLE_OFFSET_COARSE_STEP_MS,
+                                    limitMs = SUBTITLE_OFFSET_LIMIT_MS,
+                                    stepLabel = ::subtitleOffsetStepLabel,
+                                    valueLabel = ::subtitleOffsetLabel,
+                                    onChange = subtitleActions.onOffset,
+                                )
+                            } else {
+                                GroupLabel("字幕时间偏移")
+                                UnsupportedSubtitleControl(subtitleControls.unavailableReason)
+                            }
                             if (
                                 subtitleControls.secondaryOffsetAvailable &&
                                 subtitleControls.secondaryTrackId != null
                             ) {
-                                GroupLabel("副字幕时间偏移")
-                                listOf(-5000L, -2000L, -1000L, 0L, 1000L, 2000L, 5000L).forEach { offset ->
-                                    val label =
-                                        when {
-                                            offset < 0L -> "提前 ${-offset / 1000} 秒"
-                                            offset > 0L -> "延后 ${offset / 1000} 秒"
-                                            else -> "同步"
-                                        }
-                                    OptionRow(
-                                        label,
-                                        subtitleControls.secondaryOffsetMs == offset,
-                                        onClick = { subtitleActions.onSecondaryOffset(offset) },
-                                    )
-                                }
+                                OffsetStepper(
+                                    label = "副字幕时间偏移",
+                                    valueMs = subtitleControls.secondaryOffsetMs,
+                                    fineStepMs = SUBTITLE_OFFSET_FINE_STEP_MS,
+                                    coarseStepMs = SUBTITLE_OFFSET_COARSE_STEP_MS,
+                                    limitMs = SUBTITLE_OFFSET_LIMIT_MS,
+                                    stepLabel = ::subtitleOffsetStepLabel,
+                                    valueLabel = ::subtitleOffsetLabel,
+                                    onChange = subtitleActions.onSecondaryOffset,
+                                )
                             }
                             GroupLabel("字幕样式")
                             if (
@@ -318,24 +352,6 @@ internal fun SettingsPanel(
                             } else {
                                 UnsupportedSubtitleControl(subtitleControls.unavailableReason)
                             }
-                            GroupLabel("字幕时间偏移")
-                            if (subtitleControls.offsetAvailable) {
-                                listOf(-5_000L, -2_000L, 0L, 2_000L, 5_000L).forEach { offset ->
-                                    val label =
-                                        when {
-                                            offset < 0L -> "提前 ${-offset / 1000} 秒"
-                                            offset > 0L -> "延后 ${offset / 1000} 秒"
-                                            else -> "同步"
-                                        }
-                                    OptionRow(
-                                        label,
-                                        subtitleControls.offsetMs == offset,
-                                        onClick = { subtitleActions.onOffset(offset) },
-                                    )
-                                }
-                            } else {
-                                UnsupportedSubtitleControl(subtitleControls.unavailableReason)
-                            }
                             GroupLabel("字幕大小")
                             if (subtitleControls.scaleAvailable) {
                                 listOf(0.8f to "小", 1f to "标准", 1.25f to "大", 1.5f to "特大")
@@ -348,6 +364,30 @@ internal fun SettingsPanel(
                                     }
                             } else {
                                 UnsupportedSubtitleControl(subtitleControls.unavailableReason)
+                            }
+                            if (subtitleControls.secondarySupported) {
+                                if (subtitleControls.independentScaleAvailable) {
+                                    GroupLabel("副字幕字号")
+                                    listOf(0.8f, 1f, 1.2f, 1.5f).forEach { scale ->
+                                        OptionRow(
+                                            "${(scale * 100).toInt()}%",
+                                            subtitleControls.secondaryScale == scale,
+                                            onClick = { subtitleActions.onSecondaryScale(scale) },
+                                        )
+                                    }
+                                }
+                                Column(
+                                    Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                                    horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
+                                ) {
+                                    Text("主字幕预览", color = Color.White, fontSize = (18 * subtitleControls.scale).sp)
+                                    Spacer(Modifier.size(4.dp))
+                                    Text(
+                                        "Secondary subtitle",
+                                        color = Color.White,
+                                        fontSize = (18 * subtitleControls.secondaryScale).sp,
+                                    )
+                                }
                             }
                             GroupLabel("HDR 字幕亮度")
                             if (subtitleControls.brightnessAvailable) {
@@ -502,19 +542,16 @@ internal fun SettingsPanel(
                                         onClick = audioActions.onAutoSync,
                                     )
                                 }
-                                listOf(-2_000L, -500L, 0L, 500L, 2_000L).forEach { delay ->
-                                    val label =
-                                        when {
-                                            delay < 0L -> "提前 ${-delay} 毫秒"
-                                            delay > 0L -> "延后 $delay 毫秒"
-                                            else -> "同步"
-                                        }
-                                    OptionRow(
-                                        label,
-                                        audioControls.delayMs == delay,
-                                        onClick = { audioActions.onDelay(delay) },
-                                    )
-                                }
+                                OffsetStepper(
+                                    label = "手动调整",
+                                    valueMs = audioControls.delayMs,
+                                    fineStepMs = AUDIO_DELAY_FINE_STEP_MS,
+                                    coarseStepMs = AUDIO_DELAY_COARSE_STEP_MS,
+                                    limitMs = AUDIO_DELAY_LIMIT_MS,
+                                    stepLabel = ::audioDelayStepLabel,
+                                    valueLabel = ::audioDelayLabel,
+                                    onChange = audioActions.onDelay,
+                                )
                             } else {
                                 Text(
                                     audioControls.unavailableReason ?: "当前播放模式不支持音频延迟。",
@@ -1096,16 +1133,41 @@ internal fun SettingsPanel(
                         val remotePosition by remember(castPositionSource, castPosition) {
                             derivedStateOf { castPositionSource?.invoke() ?: castPosition }
                         }
+                        // Opened with nothing found yet, the first scan starts here instead of
+                        // waiting behind 重新扫描. Until the manager reports it running, an empty
+                        // list still means "searching" rather than "nothing found".
+                        var scanStarting by remember { mutableStateOf(false) }
+                        LaunchedEffect(Unit) {
+                            if (castDevices.isEmpty() && !castDiscovering) {
+                                scanStarting = true
+                                onDiscoverCast()
+                                // A scan that never starts (a permission prompt left unanswered)
+                                // must not leave the page saying it is searching.
+                                delay(CAST_SCAN_START_GRACE_MS)
+                                scanStarting = false
+                            }
+                        }
+                        LaunchedEffect(castDiscovering) {
+                            if (castDiscovering) scanStarting = false
+                        }
                         GroupLabel("局域网投屏设备")
                         castStatus?.let { DiagnosticRow("状态", it) }
                         remotePosition?.let { DiagnosticRow("远端进度", it) }
                         castCapabilities?.let { DiagnosticRow("远端能力", it) }
-                        if (castDiscovering) {
+                        // A failed scan reports itself through [castError] below; this line only
+                        // speaks for a list that is empty without one.
+                        val emptyState =
+                            when {
+                                castDiscovering || scanStarting -> "正在搜索投屏设备…"
+                                castDevices.isEmpty() && castError == null -> "未发现设备，请确认电视与手机连接同一局域网"
+                                else -> null
+                            }
+                        emptyState?.let { line ->
                             Text(
-                                "正在发现 DLNA 设备…",
+                                line,
                                 style = AppTypography.caption.medium,
                                 color = Color.White.copy(alpha = 0.55f),
-                                modifier = Modifier.padding(vertical = 10.dp),
+                                modifier = Modifier.padding(vertical = Dimens.space.sm).liveStatus(),
                             )
                         }
                         castDevices.forEach { (id, name) ->
@@ -1119,7 +1181,7 @@ internal fun SettingsPanel(
                                 castError,
                                 style = AppTypography.caption.medium,
                                 color = DarkPalette.error,
-                                modifier = Modifier.padding(vertical = 8.dp),
+                                modifier = Modifier.padding(vertical = 8.dp).liveStatus(),
                             )
                         }
                         OptionRow("重新扫描", false, onClick = onDiscoverCast)
@@ -1129,6 +1191,19 @@ internal fun SettingsPanel(
         }
     }
 }
+
+/** The name of the key that opened the popup, which is what a screen reader announces it as. */
+private fun settingsPanelTitle(
+    kind: SettingsPanelKind,
+    trackMode: TrackPanelMode,
+): String =
+    when (kind) {
+        SettingsPanelKind.Tracks -> if (trackMode == TrackPanelMode.Subtitle) "字幕" else "音轨"
+        SettingsPanelKind.Danmaku -> "弹幕"
+        SettingsPanelKind.Cast -> "投屏"
+        SettingsPanelKind.Skip -> "标记片头片尾"
+        SettingsPanelKind.More -> "更多"
+    }
 
 /** Keeps the source Activity mounted while the user chooses a receiver. */
 @Composable
@@ -1248,6 +1323,9 @@ private fun AdvancedPageHost(
     }
 }
 
+/** Long enough for the manager to report a scan it has started; see the 投屏 page. */
+private const val CAST_SCAN_START_GRACE_MS = 2_000L
+
 private fun AnimatedContentTransitionScope<*>.settingsKindTransform(reduceMotion: Boolean): ContentTransform {
     val duration = if (reduceMotion) 0 else Motion.STATE_HANDOFF
     val crossfade =
@@ -1306,6 +1384,137 @@ private fun UnsupportedSubtitleControl(reason: String?) {
         color = Color.White.copy(alpha = 0.68f),
     )
 }
+
+/**
+ * An offset nudged in steps instead of picked from presets: a coarse and a fine step either side
+ * of the current value, and 复位 back to zero. The presets it replaced moved whole seconds at a
+ * time, which cannot land a subtitle that is 0.4 s out or a Bluetooth delay of 150 ms.
+ *
+ * [onChange] is handed the new absolute value: every offset action behind a stepper stores what it
+ * is given rather than adding it to what it had.
+ */
+@Composable
+private fun OffsetStepper(
+    label: String,
+    valueMs: Long,
+    fineStepMs: Long,
+    coarseStepMs: Long,
+    limitMs: Long,
+    stepLabel: (Long) -> String,
+    valueLabel: (Long) -> String,
+    onChange: (Long) -> Unit,
+) {
+    val accent = rememberAccentColorsForSurface(dark = true)
+    val adjusted = valueMs != 0L
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        GroupLabel(label)
+        Text(
+            "复位",
+            style = AppTypography.caption.strong,
+            color = if (adjusted) accent.accent else Color.White.copy(alpha = 0.34f),
+            modifier =
+                Modifier
+                    .pressable(enabled = adjusted, onClickLabel = "复位为同步", onClick = { onChange(0L) })
+                    .touchTarget()
+                    .padding(horizontal = Dimens.space.sm, vertical = Dimens.space.xs),
+        )
+    }
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(Dimens.space.sm),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        listOf(-coarseStepMs, -fineStepMs).forEach { step ->
+            OffsetStep(stepLabel(step)) { onChange(steppedOffsetMs(valueMs, step, limitMs)) }
+        }
+        Text(
+            valueLabel(valueMs),
+            style = AppTypography.caption.strong,
+            color = if (adjusted) accent.accent else Color.White.copy(alpha = 0.86f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
+            // Said after each press, so a step is answered with where it landed.
+            modifier = Modifier.weight(1.6f).liveStatus(),
+        )
+        listOf(fineStepMs, coarseStepMs).forEach { step ->
+            OffsetStep(stepLabel(step)) { onChange(steppedOffsetMs(valueMs, step, limitMs)) }
+        }
+    }
+}
+
+@Composable
+private fun RowScope.OffsetStep(
+    label: String,
+    onClick: () -> Unit,
+) {
+    Text(
+        label,
+        style = AppTypography.caption.medium,
+        color = Color.White.copy(alpha = 0.86f),
+        maxLines = 1,
+        textAlign = TextAlign.Center,
+        modifier =
+            Modifier
+                .weight(1f)
+                .playerChoiceFeedback(selected = false, shape = AppShapes.pill, onClick = onClick)
+                .padding(vertical = Dimens.space.sm),
+    )
+}
+
+/** One press of an offset stepper: the new absolute value, held inside what every engine accepts. */
+internal fun steppedOffsetMs(
+    currentMs: Long,
+    stepMs: Long,
+    limitMs: Long,
+): Long = (currentMs + stepMs).coerceIn(-limitMs, limitMs)
+
+/** Seconds as the steppers move them — 1_500 → 1.5, 2_000 → 2, 250 → 0.25 — without the sign. */
+internal fun offsetSecondsLabel(offsetMs: Long): String {
+    val magnitude = abs(offsetMs)
+    val fraction = (magnitude % 1_000L).toString().padStart(3, '0').trimEnd('0')
+    return if (fraction.isEmpty()) "${magnitude / 1_000L}" else "${magnitude / 1_000L}.$fraction"
+}
+
+internal fun subtitleOffsetLabel(offsetMs: Long): String =
+    when {
+        offsetMs < 0L -> "提前 ${offsetSecondsLabel(offsetMs)} 秒"
+        offsetMs > 0L -> "延后 ${offsetSecondsLabel(offsetMs)} 秒"
+        else -> "同步"
+    }
+
+internal fun subtitleOffsetStepLabel(stepMs: Long): String = "${stepSign(stepMs)}${offsetSecondsLabel(stepMs)} 秒"
+
+internal fun audioDelayLabel(delayMs: Long): String =
+    when {
+        delayMs < 0L -> "提前 ${-delayMs} 毫秒"
+        delayMs > 0L -> "延后 $delayMs 毫秒"
+        else -> "同步"
+    }
+
+/** Bare figures: the unit is on the value between the steps, and the steps have to fit beside it. */
+internal fun audioDelayStepLabel(stepMs: Long): String = "${stepSign(stepMs)}${abs(stepMs)}"
+
+/** A minus sign rather than a hyphen: the steps are signed numbers. */
+private fun stepSign(stepMs: Long): String = if (stepMs < 0L) "−" else "+"
+
+private const val SUBTITLE_OFFSET_FINE_STEP_MS = 100L
+
+private const val SUBTITLE_OFFSET_COARSE_STEP_MS = 500L
+
+/** The secondary track refuses anything past a minute either way; the primary keeps to the same range. */
+private const val SUBTITLE_OFFSET_LIMIT_MS = 60_000L
+
+private const val AUDIO_DELAY_FINE_STEP_MS = 50L
+
+private const val AUDIO_DELAY_COARSE_STEP_MS = 200L
+
+/** The range 自动校准 works within — see [calibratedAudioDelayMs]. */
+private const val AUDIO_DELAY_LIMIT_MS = 2_000L
 
 @Composable
 private fun SkipTimeField(
@@ -1496,6 +1705,7 @@ internal fun SourcePickerPopup(
         onDismiss = onDismiss,
         modifier = modifier,
         compact = true,
+        paneTitle = "播放服务器",
     ) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 1.dp),
@@ -1569,6 +1779,7 @@ internal fun SpeedPickerPopup(
         onDismiss = onDismiss,
         modifier = modifier,
         compact = true,
+        paneTitle = "播放速度",
     ) {
         CompactChoiceGrid(
             options = speeds.map(::speedLabel),

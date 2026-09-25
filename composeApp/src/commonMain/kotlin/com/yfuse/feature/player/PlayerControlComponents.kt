@@ -104,10 +104,11 @@ internal fun OptionRow(
     actionLabel: String? = null,
     onAction: () -> Unit = {},
     detailLabel: String? = null,
+    modifier: Modifier = Modifier,
 ) {
     val accent = rememberAccentColorsForSurface(dark = true)
     Row(
-        Modifier
+        modifier
             .fillMaxWidth()
             .playerChoiceFeedback(selected = selected, onClick = onClick)
             .padding(horizontal = 11.dp, vertical = 9.dp),

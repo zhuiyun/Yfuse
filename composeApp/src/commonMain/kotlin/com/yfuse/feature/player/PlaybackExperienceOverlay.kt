@@ -154,11 +154,17 @@ internal fun PlaybackContinuityOverlay(
     }
 }
 
-/** Covers a long-paused HDR/static frame so an unattended OLED does not keep burning it in. */
+/**
+ * Covers a long-paused HDR/static frame so an unattended OLED does not keep burning it in.
+ *
+ * A tap only takes the cover away and brings the controls back ([onDismiss]); it does not play.
+ * Whoever comes back to a paused film five minutes on may have come back to pick up the phone,
+ * not to have the film start without them.
+ */
 @Composable
 internal fun OledPauseProtectionOverlay(
     visible: Boolean,
-    onResume: () -> Unit,
+    onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
@@ -174,13 +180,13 @@ internal fun OledPauseProtectionOverlay(
                 .background(Color.Black.copy(alpha = 0.96f))
                 .pressable(
                     haptic = HapticSignal.Confirm,
-                    onClickLabel = "继续播放",
-                    onClick = onResume,
+                    onClickLabel = "关闭屏幕保护",
+                    onClick = onDismiss,
                 ),
             contentAlignment = Alignment.Center,
         ) {
             Text(
-                "已进入屏幕保护 · 点击继续",
+                "已进入屏幕保护 · 点击唤醒",
                 style = AppTypography.body.medium,
                 color = Color.White.copy(alpha = 0.78f),
             )

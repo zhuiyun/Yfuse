@@ -32,6 +32,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -66,6 +67,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.setProgress
@@ -84,6 +86,7 @@ import com.yfuse.core.designsystem.PlayerTokens
 import com.yfuse.core.designsystem.PressFeedback
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.lightFeedback
+import com.yfuse.core.designsystem.liveStatus
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberAccentColorsForSurface
 import com.yfuse.core.designsystem.rememberDelayedBusy
@@ -124,7 +127,14 @@ internal fun PlaybackErrorOverlay(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Text("播放遇到问题", style = AppTypography.section.strong, color = Color.White)
+            // Spoken at once and marked as a heading: the failure has stopped what the person was
+            // doing, and the explanation and the ways out below are found from here.
+            Text(
+                "播放遇到问题",
+                style = AppTypography.section.strong,
+                color = Color.White,
+                modifier = Modifier.liveStatus(assertive = true).semantics { heading() },
+            )
             Text(
                 message,
                 style = AppTypography.body.regular,
@@ -549,9 +559,10 @@ internal fun VolumeSlider(
 /**
  * The pill offering to move the playhead past a 片头 / 片尾.
  *
- * Deliberately outside the show/hide of the rest of the controls: the offer is only good
- * for as long as playback is inside the segment, and making the user summon the controls
- * first would spend a chunk of that window.
+ * Not tied to the rest of the controls at first: the offer is only good for as long as playback
+ * is inside the segment, and making the user summon the controls first would spend a chunk of
+ * that window. It comes up on its own as playback enters the segment, and only after those first
+ * seconds does it follow the controls' show/hide — see [shouldShowManualSkipPill].
  */
 @Composable
 internal fun SkipPill(
@@ -572,6 +583,67 @@ internal fun SkipPill(
                 ).noRippleClickable(onClick = onClick)
                 .padding(horizontal = 18.dp, vertical = 10.dp),
     )
+}
+
+/**
+ * The standing sign of a cast session: where the picture went, what it is doing there, and the
+ * way back.
+ *
+ * Casting leaves this screen on a still frame, and once the controls faded that read as a frozen
+ * player — the one place that said otherwise was a row inside the 投屏 panel. The body opens that
+ * panel; 断开 ends the session and hands playback back to this device.
+ */
+@Composable
+internal fun CastSessionPill(
+    status: String,
+    onOpen: () -> Unit,
+    onDisconnect: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier.glass(
+            shape = AppShapes.pill,
+            fill = Color.Black.copy(alpha = 0.56f),
+            border = Color.White.copy(alpha = 0.24f),
+        ),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Row(
+            Modifier
+                .pressable(onClickLabel = "投屏设置", onClick = onOpen)
+                .touchTarget()
+                .padding(start = 16.dp, end = 12.dp, top = 8.dp, bottom = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(AppIcons.Cast, "投屏", tint = Color.White, modifier = Modifier.size(14.dp))
+            Text(
+                status,
+                style = AppTypography.caption.medium,
+                color = Color.White.copy(alpha = 0.92f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                // A dropped receiver or a failed command changes this line while nobody is looking.
+                modifier = Modifier.widthIn(max = 160.dp).liveStatus(),
+            )
+        }
+        Box(
+            Modifier
+                .width(1.dp)
+                .height(16.dp)
+                .background(Color.White.copy(alpha = 0.24f)),
+        )
+        Text(
+            "断开",
+            style = AppTypography.caption.strong,
+            color = Color.White,
+            modifier =
+                Modifier
+                    .pressable(onClickLabel = "断开投屏", onClick = onDisconnect)
+                    .touchTarget()
+                    .padding(start = 12.dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
+        )
+    }
 }
 
 /**
@@ -809,45 +881,87 @@ private val ControlTouchPadding = 7.dp
 
 /**
  * Lock screen — a 52px circle over `屏幕已锁定` at `gap:14px`, with the
- * `解锁` pill at `right:22px; bottom:40px`.
+ * `长按解锁` pill at `right:22px; bottom:40px`.
+ *
+ * The lock refuses the whole picture, not only the drag. A catcher under the lock's own chrome
+ * takes every touch before the gesture layer beneath it can read one as a double tap or a hold: a
+ * tap brings the circle and the pill back for a moment ([controlsVisible]), a double tap or a hold
+ * is refused ([onRefuse]). Unlocking takes a long press, so the pocket or the child the lock is
+ * there for cannot undo it with a stray tap — except under a screen reader, whose double tap is
+ * the only press it has.
  */
 @Composable
-internal fun LockedOverlay(onUnlock: () -> Unit) {
+internal fun LockedOverlay(
+    controlsVisible: Boolean,
+    message: String,
+    screenReaderActive: Boolean,
+    onReveal: () -> Unit,
+    onRefuse: () -> Unit,
+    onUnlock: () -> Unit,
+) {
+    val latestReveal by rememberUpdatedState(onReveal)
+    val latestRefuse by rememberUpdatedState(onRefuse)
     Box(Modifier.fillMaxSize()) {
-        Column(
-            Modifier.align(Alignment.Center),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            Box(
-                Modifier
-                    .size(52.dp)
-                    .glass(
-                        shape = CircleShape,
-                        fill = Color.White.copy(alpha = 0.09f),
-                        border = Color.White.copy(alpha = 0.24f),
-                    ),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(AppIcons.Lock, null, tint = Color.White, modifier = Modifier.size(20.dp))
-            }
-            Text("屏幕已锁定", style = AppTypography.body.medium, color = Color.White.copy(alpha = 0.57f))
-        }
-
-        Text(
-            "解锁",
-            style = AppTypography.body.medium,
-            color = Color.White,
-            modifier =
-                Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(end = 22.dp, bottom = 40.dp)
-                    .glass(
-                        shape = AppShapes.pill,
-                        fill = Color.White.copy(alpha = 0.10f),
-                        border = Color.White.copy(alpha = 0.28f),
-                    ).noRippleClickable(onUnlock)
-                    .padding(horizontal = 18.dp, vertical = 9.dp),
+        Box(
+            Modifier
+                .fillMaxSize()
+                .pointerInput(Unit) {
+                    detectTapGestures(
+                        onDoubleTap = { latestRefuse() },
+                        onLongPress = { latestRefuse() },
+                        onTap = { latestReveal() },
+                    )
+                },
         )
+        ChromeVisibility(visible = controlsVisible, modifier = Modifier.align(Alignment.Center)) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                Box(
+                    Modifier
+                        .size(52.dp)
+                        .glass(
+                            shape = CircleShape,
+                            fill = Color.White.copy(alpha = 0.09f),
+                            border = Color.White.copy(alpha = 0.24f),
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(AppIcons.Lock, null, tint = Color.White, modifier = Modifier.size(20.dp))
+                }
+                Text(
+                    message,
+                    style = AppTypography.body.medium,
+                    color = Color.White.copy(alpha = 0.57f),
+                    modifier = Modifier.liveStatus(),
+                )
+            }
+        }
+        ChromeVisibility(
+            visible = controlsVisible,
+            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 22.dp, bottom = 40.dp),
+        ) {
+            Text(
+                if (screenReaderActive) "解锁" else "长按解锁",
+                style = AppTypography.body.medium,
+                color = Color.White,
+                modifier =
+                    Modifier
+                        .glass(
+                            shape = AppShapes.pill,
+                            fill = Color.White.copy(alpha = 0.10f),
+                            border = Color.White.copy(alpha = 0.28f),
+                        ).pressable(
+                            onClickLabel = "解锁".takeIf { screenReaderActive },
+                            onLongClick = onUnlock,
+                            onLongClickLabel = "解锁",
+                            // A tap is the stray touch the lock is there to survive, so it only
+                            // says how to unlock — unless it is a screen reader's double tap.
+                            onClick = if (screenReaderActive) onUnlock else onRefuse,
+                        ).touchTarget()
+                        .padding(horizontal = 18.dp, vertical = 9.dp),
+            )
+        }
     }
 }

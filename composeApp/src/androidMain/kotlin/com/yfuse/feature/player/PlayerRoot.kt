@@ -1111,6 +1111,8 @@ internal fun PlayerRoot(
                     },
             )
         var oledPauseProtectionActive by remember { mutableStateOf(false) }
+        // Taking the screensaver away brings the controls back with it; see OledPauseProtectionOverlay.
+        var controlsWakeRequests by remember { mutableIntStateOf(0) }
         LaunchedEffect(
             state.currentIndex,
             state.playing,
@@ -3007,6 +3009,7 @@ internal fun PlayerRoot(
                         }
                     },
                     onDismissNextUp = { nextUpDismissedItemId = activeItems.getOrNull(state.currentIndex)?.id },
+                    autoNext = autoNext,
                     onNextItem = {
                         sourceSwitchCoordinator.invalidate()
                         val next = state.currentIndex + 1
@@ -3561,6 +3564,8 @@ internal fun PlayerRoot(
                         castState.activeDevice?.let {
                             "${it.name} · ${castState.status.label}"
                         },
+                    // Connecting or live; an unexpected drop hands back to this device on its own.
+                    castActive = castState.activeDevice != null && castState.termination == null,
                     castPositionSource = {
                         liveCastState.value.activeDevice?.let {
                             if (!liveCastState.value.positionConfirmed) {
@@ -3696,6 +3701,7 @@ internal fun PlayerRoot(
                             onReactionFinished = watchTogether::clearReaction,
                         ),
                     remoteChrome = remoteChrome,
+                    wakeRequests = controlsWakeRequests,
                     // Held back while a transition carries the picture in, and gone first on the way out.
                     modifier = Modifier.graphicsLayer { alpha = transition?.chromeAlpha() ?: 1f },
                 )
@@ -3716,9 +3722,9 @@ internal fun PlayerRoot(
             // screensaver for 画中画 fades out instead of vanishing between two frames.
             OledPauseProtectionOverlay(
                 visible = oledPauseProtectionActive && !inPictureInPicture,
-                onResume = {
+                onDismiss = {
                     oledPauseProtectionActive = false
-                    playbackGate.play()
+                    controlsWakeRequests++
                 },
                 modifier = Modifier.fillMaxSize(),
             )

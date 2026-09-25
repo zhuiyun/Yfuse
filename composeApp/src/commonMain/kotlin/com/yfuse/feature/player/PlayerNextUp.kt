@@ -1,6 +1,7 @@
 package com.yfuse.feature.player
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -25,6 +27,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.PlayerTokens
@@ -55,6 +58,25 @@ internal fun nextUpSecondsLeft(
 }
 
 /**
+ * What the next-up key says about its countdown, or null when there is none to speak of: with
+ * 自动播放下一集 off nothing starts on its own, so neither a draining ring nor 即将自动播放 has
+ * anything true to say, and the card becomes a plain 下一集 key ([NextUpKey]).
+ *
+ * Coarse on purpose: TalkBack reads a state change on the key it rests on, and a figure that
+ * changed every second was read every second. The ring still counts the seconds down.
+ */
+internal fun nextUpCountdownLabel(
+    autoAdvance: Boolean,
+    remainingMs: Long,
+    speed: Float,
+): String? =
+    when {
+        !autoAdvance -> null
+        nextUpSecondsLeft(remainingMs, speed) > NEXT_UP_SOON_SECONDS -> "即将自动播放"
+        else -> "马上自动播放"
+    }
+
+/**
  * 片尾自动连播 — the countdown the spec drew and nobody built.
  *
  * [PlayerTokens.nextUpFill], `nextUpRing`, `nextUpRingTrack` and `nextUpCore` were all
@@ -67,6 +89,8 @@ internal fun nextUpSecondsLeft(
 internal fun NextUpCard(
     title: String,
     remainingMs: Long,
+    /** From [nextUpCountdownLabel]; this card only exists while there is a countdown. */
+    countdown: String,
     playbackKey: Any,
     advancing: Boolean,
     speed: Float,
@@ -116,10 +140,6 @@ internal fun NextUpCard(
                     .touchTarget()
                     .padding(horizontal = 8.dp, vertical = 4.dp),
         )
-        val secondsLeft = nextUpSecondsLeft(remainingMs, speed)
-        // Coarse on purpose: TalkBack reads a state change on the key it rests on, and a figure
-        // that changed every second was read every second. The ring still counts them down.
-        val countdown = if (secondsLeft > NEXT_UP_SOON_SECONDS) "即将自动播放" else "马上自动播放"
         Box(
             Modifier
                 .semantics { stateDescription = countdown }
@@ -164,6 +184,63 @@ internal fun NextUpCard(
                 contentDescription = "立即播放下一集",
                 tint = Color.White,
                 modifier = Modifier.size(13.dp),
+            )
+        }
+    }
+}
+
+/**
+ * 下一集 with 自动播放下一集 off: the same card in the same corner, as one key instead of a
+ * countdown. Nothing is going to start on its own, so there is no ring to drain, no 即将自动播放
+ * and no 取消 — only the way on, for whoever wants it before the credits have run out.
+ */
+@Composable
+internal fun NextUpKey(
+    title: String,
+    onPlayNow: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier
+            .pressable(
+                haptic = HapticSignal.Confirm,
+                focusShape = GlassShapes.card,
+                onClickLabel = "播放下一集",
+                onClick = onPlayNow,
+            ).shadow(Shadows.tabBar, GlassShapes.card)
+            .glass(
+                shape = GlassShapes.card,
+                fill = PlayerTokens.nextUpFill,
+                border = PlayerTokens.hairline,
+            ).padding(horizontal = Dimens.space.lg, vertical = Dimens.space.md),
+        horizontalArrangement = Arrangement.spacedBy(Dimens.space.md),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(horizontalAlignment = Alignment.Start) {
+            Text("下一集", style = AppTypography.caption.strong, color = PlayerTokens.footerText)
+            if (title.isNotBlank()) {
+                Spacer(Modifier.height(Dimens.space.xs))
+                Text(
+                    title,
+                    style = AppTypography.body.strong,
+                    color = Color.White,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.widthIn(max = 190.dp),
+                )
+            }
+        }
+        Box(
+            Modifier
+                .size(38.dp)
+                .background(PlayerTokens.nextUpCore, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                AppIcons.Next,
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier.size(14.dp),
             )
         }
     }

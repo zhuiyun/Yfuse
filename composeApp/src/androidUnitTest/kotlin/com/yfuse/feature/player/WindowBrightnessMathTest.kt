@@ -1,0 +1,23 @@
+package com.yfuse.feature.player
+
+import kotlin.test.Test
+import kotlin.test.assertEquals
+
+class WindowBrightnessMathTest {
+    @Test
+    fun systemSettingBecomesTheStartingWindowLevel() {
+        assertEquals(1f, windowBrightnessForSystemSetting(255))
+        assertEquals(51f / 255f, windowBrightnessForSystemSetting(51))
+    }
+
+    @Test
+    fun startingLevelStaysInsideTheRangeADragCanReach() {
+        assertEquals(0.02f, windowBrightnessForSystemSetting(0))
+        assertEquals(1f, windowBrightnessForSystemSetting(1_023))
+    }
+
+    @Test
+    fun unreadableSettingKeepsTheMidpoint() {
+        assertEquals(0.5f, windowBrightnessForSystemSetting(null))
+    }
+}
