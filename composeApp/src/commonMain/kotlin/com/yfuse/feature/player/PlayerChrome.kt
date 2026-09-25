@@ -267,6 +267,8 @@ internal fun TransportRow(
     onSeekBackward: () -> Unit,
     onSeekForward: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Applied to the play/pause key alone: where a remote's focus lands when the controls come up. */
+    playKeyModifier: Modifier = Modifier,
 ) {
     // The same wait as the status chip's, so a seek's short stall shows nothing in either place.
     val bufferingIndicatorVisible =
@@ -340,7 +342,7 @@ internal fun TransportRow(
                         if (state.buffering) settledPlaying = !pause
                         onPlayPause()
                     },
-                    modifier = Modifier.semantics { if (bufferingIndicatorVisible) stateDescription = "缓冲中" },
+                    modifier = playKeyModifier.semantics { if (bufferingIndicatorVisible) stateDescription = "缓冲中" },
                 )
             }
             // Drawn over the key but never hit: a tap on the ring is a tap on the key. Qualified,
@@ -572,14 +574,18 @@ internal fun SkipPill(
     )
 }
 
-/** "3 秒后跳过片头 · 点击取消" — the label says what will happen and how to stop it. */
+/**
+ * "3 秒后跳过片头 · 点击取消" — the label says what will happen and how to stop it. With [remote] it
+ * names the remote's way instead: OK over the picture cancels (see TvRemoteInputController).
+ */
 internal fun skipCountdownLabel(
     skipSegmentLabel: String?,
     seconds: Int,
+    remote: Boolean = false,
 ): String {
     // 跳过片头 -> 片头. The type's own label is the only place this wording lives.
     val what = skipSegmentLabel?.removePrefix("跳过").orEmpty()
-    return "$seconds 秒后跳过$what · 点击取消"
+    return "$seconds 秒后跳过$what · ${if (remote) "按确定键取消" else "点击取消"}"
 }
 
 /** The same countdown as a screen reader hears it: once, and without the seconds that tick. */

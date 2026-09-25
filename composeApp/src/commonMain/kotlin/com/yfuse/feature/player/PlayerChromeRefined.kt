@@ -325,6 +325,8 @@ internal fun RefinedBottomBar(
     modifier: Modifier = Modifier,
     /** 氛围光; the scrim reads it per frame, the seek accent follows its mean. Null keeps both plain. */
     ambientLight: State<AmbientLight>? = null,
+    /** See [TransportRow]: where a remote's focus lands when the controls come up. */
+    playKeyModifier: Modifier = Modifier,
 ) {
     // A new timeline sample arrives twice a second, and this function is called with it. Only
     // this frame stops here: everything below takes the holder and reads it from a draw or a
@@ -363,6 +365,7 @@ internal fun RefinedBottomBar(
         artworkIdentity = stableArtworkIdentity,
         modifier = modifier,
         ambientLight = ambientLight,
+        playKeyModifier = playKeyModifier,
     )
 }
 
@@ -396,6 +399,7 @@ private fun RefinedBottomBarContent(
     artworkIdentity: Any?,
     modifier: Modifier = Modifier,
     ambientLight: State<AmbientLight>? = null,
+    playKeyModifier: Modifier = Modifier,
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     // Where the finger left the thumb. Read from derived state only, never from composition:
@@ -610,6 +614,7 @@ private fun RefinedBottomBarContent(
                     val target = latest.positionMs + REFINED_SEEK_STEP_MS
                     onSeek(if (latest.durationMs > 0L) target.coerceAtMost(latest.durationMs) else target)
                 },
+                playKeyModifier = playKeyModifier,
             )
 
             Row(
@@ -942,7 +947,10 @@ internal fun StandardSeekBar(
             animationSpec = Motion.pressSpec(pressed = dragging, reduceMotion = reduceMotion),
             label = "artwork-seek-interaction",
         )
-    val keyStep = (5_000f / durationMs.coerceAtLeast(1L)).coerceIn(0.01f, 0.1f)
+    // The same ten seconds as the ±10 keys beside the bar and a remote's arrows over hidden chrome.
+    // It used to be at least 1% of the film: 72 seconds a press on two hours. The floor now only
+    // matters past a day of footage; the ceiling keeps a short clip to ten presses end to end.
+    val keyStep = (REFINED_SEEK_STEP_MS.toFloat() / durationMs.coerceAtLeast(1L)).coerceIn(0.0001f, 0.1f)
     val commit: (Float) -> Boolean = { target ->
         if (!enabled) {
             false
@@ -992,9 +1000,12 @@ internal fun StandardSeekBar(
                 if (enabled) setProgress { commit(it) } else disabled()
             }.onKeyEvent { event ->
                 if (!enabled || event.type != KeyEventType.KeyDown) return@onKeyEvent false
+                // Left and right only. Up and down seeking too made the bar a trap on a remote:
+                // every trip between the title and the buttons passes through it, and "down" to
+                // the play key rewound the film instead of moving focus.
                 when (event.key) {
-                    Key.DirectionLeft, Key.DirectionDown -> commit(shownFraction.value - keyStep)
-                    Key.DirectionRight, Key.DirectionUp -> commit(shownFraction.value + keyStep)
+                    Key.DirectionLeft -> commit(shownFraction.value - keyStep)
+                    Key.DirectionRight -> commit(shownFraction.value + keyStep)
                     else -> false
                 }
             }.onFocusChanged { focused = it.isFocused }

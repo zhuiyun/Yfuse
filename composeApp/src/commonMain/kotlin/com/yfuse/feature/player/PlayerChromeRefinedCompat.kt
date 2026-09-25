@@ -39,6 +39,7 @@ internal fun RefinedBottomBar(
     onOpenDanmaku: () -> Unit,
     modifier: Modifier = Modifier,
     ambientLight: State<AmbientLight>? = null,
+    playKeyModifier: Modifier = Modifier,
 ) {
     RefinedBottomBar(
         state = state,
@@ -66,5 +67,6 @@ internal fun RefinedBottomBar(
         artworkIdentity = state.currentIndex,
         modifier = modifier,
         ambientLight = ambientLight,
+        playKeyModifier = playKeyModifier,
     )
 }

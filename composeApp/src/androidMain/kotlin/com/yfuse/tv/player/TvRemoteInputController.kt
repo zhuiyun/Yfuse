@@ -81,6 +81,11 @@ internal class TvRemoteInputController(
             consumedDownKeys += keyCode
             return true
         }
+        // Nothing above the video answers chrome commands yet: the preparation screen, or the
+        // player's first frames before its controls publish a layer. That screen's 重试 and 返回
+        // are ordinary focusable buttons and Back is the Activity's own, so these keys stay theirs.
+        // Transport keys below still work, since they need no chrome.
+        if (!chrome.state.value.attached && physicalKey.isFocusNavigation()) return false
 
         return when (physicalKey) {
             RemotePhysicalKey.DirectionLeft,
@@ -109,7 +114,12 @@ internal class TvRemoteInputController(
 
             RemotePhysicalKey.Activate -> {
                 val state = chrome.state.value
-                if (state.layer == TvPlayerChromeLayer.Hidden || !state.controlsHaveFocus) {
+                if (state.layer == TvPlayerChromeLayer.Hidden && state.skipPrompt) {
+                    // The pill is the one thing on screen OK can mean, and reaching it through the
+                    // controls spends the very segment it offers to skip. The chrome stays down.
+                    if (repeatCount == 0) chrome.activateSkipPrompt()
+                    consumeDown(keyCode)
+                } else if (state.layer == TvPlayerChromeLayer.Hidden || !state.controlsHaveFocus) {
                     if (repeatCount == 0) {
                         chrome.showControls()
                         playback.togglePlayPause()
@@ -290,6 +300,19 @@ private fun playbackPhysicalKey(keyCode: Int): RemotePhysicalKey? =
             -> RemotePhysicalKey.PlayPause
             else -> null
         }
+
+/** The keys ordinary Compose focus dispatch and the Activity's own Back already understand. */
+private fun RemotePhysicalKey.isFocusNavigation(): Boolean =
+    when (this) {
+        RemotePhysicalKey.DirectionLeft,
+        RemotePhysicalKey.DirectionRight,
+        RemotePhysicalKey.DirectionUp,
+        RemotePhysicalKey.DirectionDown,
+        RemotePhysicalKey.Activate,
+        RemotePhysicalKey.Back,
+        -> true
+        else -> false
+    }
 
 private fun directionForSeekKey(key: RemotePhysicalKey): Int =
     when (key) {

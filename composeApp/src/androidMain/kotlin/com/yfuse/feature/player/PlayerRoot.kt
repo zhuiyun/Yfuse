@@ -3488,14 +3488,14 @@ internal fun PlayerRoot(
                     brightness = { brightnessLevel.value },
                     onBrightness = { setBrightness(it) },
                     engineOptions =
-                        PlaybackEngineSelection.selectable.map { selection ->
+                        packagedEngineStrategies().map { selection ->
                             val label =
                                 selection.lockedEngine?.let { "本视频使用 ${it.label}" }
                                     ?: "本视频跟随 YCore 智能策略"
                             label to (selection == sessionEngineSelection)
                         },
                     onSelectEngine = { index ->
-                        PlaybackEngineSelection.selectable.getOrNull(index)?.let { selection ->
+                        packagedEngineStrategies().getOrNull(index)?.let { selection ->
                             selectEngineStrategy(selection)
                             Toast
                                 .makeText(context, "仅覆盖当前视频；全局播放策略未更改", Toast.LENGTH_SHORT)
@@ -3749,6 +3749,14 @@ private fun transitionAspectRatio(
     } else {
         null
     }
+
+/**
+ * The per-video engine choices this package can honour, for the settings panel and the error
+ * layer's alternatives alike. A native-only package, such as the television build, plays through
+ * YCore whatever is locked: offering Exo or mpv only reloaded the same path to fail the same way.
+ */
+private fun packagedEngineStrategies(): List<PlaybackEngineSelection> =
+    PlaybackEngineSelection.selectable.filter { !BuildConfig.YFUSE_NATIVE_ONLY_RUNTIME || it.lockedEngine == null }
 
 private const val HDR_DEFAULT_SUBTITLE_BRIGHTNESS = 0.78f
 private const val OLED_PAUSE_PROTECTION_DELAY_MS = 5L * 60L * 1_000L

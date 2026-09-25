@@ -20,8 +20,10 @@ internal class TvPlayerChromeController : TvPlayerChromeBridge {
     fun showControls() {
         mutableState.update {
             it.copy(
+                // Optimistic, so the next key of a burst already finds the chrome up. Without an
+                // attached surface nothing would ever publish the real layer back over the guess.
                 layer =
-                    if (it.layer == TvPlayerChromeLayer.Hidden) {
+                    if (it.attached && it.layer == TvPlayerChromeLayer.Hidden) {
                         TvPlayerChromeLayer.Controls
                     } else {
                         it.layer
@@ -59,6 +61,11 @@ internal class TvPlayerChromeController : TvPlayerChromeBridge {
         emit(TvPlayerChromeCommandType.OpenInfo)
     }
 
+    fun activateSkipPrompt() {
+        mutableState.update { it.copy(interactionRevision = it.interactionRevision + 1) }
+        emit(TvPlayerChromeCommandType.ActivateSkipPrompt)
+    }
+
     fun updateSeekPreview(positionMs: Long) {
         mutableState.update {
             it.copy(
@@ -89,6 +96,27 @@ internal class TvPlayerChromeController : TvPlayerChromeBridge {
                 layer = layer,
                 panel = panel,
                 controlsHaveFocus = controlsHaveFocus,
+                attached = true,
+            )
+        }
+    }
+
+    override fun publishSkipPrompt(visible: Boolean) {
+        mutableState.update { it.copy(skipPrompt = visible) }
+    }
+
+    /**
+     * Back to "no control surface": the preparation screen, or the controls leaving composition.
+     * The remote's own seek preview is left alone; it ends with the key's release.
+     */
+    override fun detach() {
+        mutableState.update {
+            it.copy(
+                layer = TvPlayerChromeLayer.Hidden,
+                panel = null,
+                controlsHaveFocus = false,
+                attached = false,
+                skipPrompt = false,
             )
         }
     }
