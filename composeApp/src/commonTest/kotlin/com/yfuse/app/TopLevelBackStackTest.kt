@@ -8,15 +8,16 @@ import kotlin.test.assertNull
 
 class TopLevelBackStackTest {
     @Test
-    fun home_is_the_only_system_exit_root() {
-        assertEquals(listOf(Tab.Home), topLevelBackStack(Tab.Home))
+    fun the_start_tab_is_the_only_system_exit_root() {
+        Tab.entries.forEach { start -> assertEquals(listOf(start), topLevelBackStack(start, start)) }
     }
 
     @Test
-    fun every_other_root_previews_home() {
-        assertEquals(listOf(Tab.Home, Tab.Browse), topLevelBackStack(Tab.Browse))
-        assertEquals(listOf(Tab.Home, Tab.Search), topLevelBackStack(Tab.Search))
-        assertEquals(listOf(Tab.Home, Tab.Profile), topLevelBackStack(Tab.Profile))
+    fun every_other_root_previews_the_start_tab() {
+        assertEquals(listOf(Tab.Home, Tab.Browse), topLevelBackStack(Tab.Browse, start = Tab.Home))
+        assertEquals(listOf(Tab.Browse, Tab.Home), topLevelBackStack(Tab.Home, start = Tab.Browse))
+        assertEquals(listOf(Tab.Browse, Tab.Search), topLevelBackStack(Tab.Search, start = Tab.Browse))
+        assertEquals(listOf(Tab.Servers, Tab.Profile), topLevelBackStack(Tab.Profile, start = Tab.Servers))
     }
 
     @Test

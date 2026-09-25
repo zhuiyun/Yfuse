@@ -59,15 +59,19 @@ class RootComponent(
     // the user had actually been on — and its scroll position — sat stranded in another one.
     private val savedTab = restoredTab(stateKeeper.consume(ACTIVE_TAB_STATE_KEY, String.serializer()))
     private val restoredLaunch = savedTab != null
-    private val _activeTab =
-        MutableValue(
-            savedTab
-                ?: startupTab(
-                    themePreferences.startupTab.value,
-                    registry.data.value.servers
-                        .isNotEmpty(),
-                ),
+
+    /**
+     * The tab this session starts from, and so the root of the top-level back stack: back from
+     * any other tab comes here, and back from here leaves the app. The root used to be 首页
+     * whatever the start, so the first back from a cold start on 库 went to a page never opened.
+     */
+    val startTab: Tab =
+        startupTab(
+            themePreferences.startupTab.value,
+            registry.data.value.servers
+                .isNotEmpty(),
         )
+    private val _activeTab = MutableValue(savedTab ?: startTab)
     val activeTab: Value<Tab> = _activeTab
 
     init {

@@ -359,8 +359,8 @@ fun App(root: RootComponent) {
                             // equal-level root motion; nested stacks own their push/pop gestures.
                             CompositionLocalProvider(LocalToastBottomInset provides toastFloor) {
                                 OfficialNavDisplay(
-                                    backStack = topLevelBackStack(active),
-                                    onBack = { root.selectTab(Tab.Home) },
+                                    backStack = topLevelBackStack(active, root.startTab),
+                                    onBack = { root.selectTab(root.startTab) },
                                     contentKey = { "tab:${it.name}" },
                                     modifier = Modifier.fillMaxSize(),
                                     motion = rootMotion,
@@ -558,8 +558,14 @@ fun App(root: RootComponent) {
     }
 }
 
-internal fun topLevelBackStack(active: Tab): List<Tab> =
-    if (active == Tab.Home) listOf(Tab.Home) else listOf(Tab.Home, active)
+/**
+ * The tab the session started on, then the one showing when that is another: back from any other
+ * tab returns to the start, and on the start itself back is the system's and leaves the app.
+ */
+internal fun topLevelBackStack(
+    active: Tab,
+    start: Tab,
+): List<Tab> = if (active == start) listOf(start) else listOf(start, active)
 
 /**
  * 服务器's notices — a save, an edit the registry refused — shown by the shell rather than by
