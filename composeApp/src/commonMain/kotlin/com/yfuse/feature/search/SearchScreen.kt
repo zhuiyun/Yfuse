@@ -407,6 +407,8 @@ internal fun SearchField(
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
     val shape = AppShapes.pill
+    val keyboard = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
     Row(
         Modifier
             .fillMaxWidth()
@@ -435,7 +437,15 @@ internal fun SearchField(
                 textStyle = AppTypography.body.regular.copy(color = palette.text),
                 cursorBrush = SolidColor(accent.accent),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = { onSubmit() }),
+                keyboardActions =
+                    KeyboardActions(
+                        onSearch = {
+                            onSubmit()
+                            // The results land under the keyboard; pressing search means read them.
+                            focusManager.clearFocus(force = true)
+                            keyboard?.hide()
+                        },
+                    ),
                 modifier =
                     Modifier
                         .fillMaxWidth()
