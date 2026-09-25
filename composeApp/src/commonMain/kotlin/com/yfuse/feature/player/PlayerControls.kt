@@ -60,6 +60,7 @@ import com.yfuse.core.designsystem.LightEffect
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalHaptics
 import com.yfuse.core.designsystem.Motion
+import com.yfuse.core.designsystem.PlatformBackHandler
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.lightOnChange
 import com.yfuse.core.designsystem.rememberScreenReaderActive
@@ -81,6 +82,9 @@ private const val DOUBLE_TAP_BURST_WINDOW_MS = 900L
 private const val AUTO_HIDE_MS = 5_000L
 private const val CHAT_PREVIEW_MS = 4_000L
 private const val GESTURE_HUD_MS = 1_600L
+
+/** How long the lock and 长按解锁 stay on the picture after locking or after a touch on it. */
+private const val LOCKED_CONTROLS_MS = 3_000L
 
 /**
  * How long the volume slider stays up after the last press or drag.
@@ -265,6 +269,12 @@ internal fun PlayerControls(
     }
     val hintProgress = rememberPlayerHintProgress(visible)
     var locked by remember { mutableStateOf(false) }
+    // The lock's own chrome — the circle and 长按解锁 — comes up for a moment after locking and after
+    // each touch on the picture, then leaves it alone. [lockedRevealRevision] restarts that moment.
+    var lockedControlsVisible by remember { mutableStateOf(false) }
+    var lockedRevealRevision by remember { mutableIntStateOf(0) }
+    // Someone has tried to act through the lock: the circle says how to undo it until it fades.
+    var lockedExplained by remember { mutableStateOf(false) }
     var settingsPanelKind by remember { mutableStateOf<SettingsPanelKind?>(null) }
     var trackPanelMode by remember { mutableStateOf(TrackPanelMode.Subtitle) }
     var quickPopup by remember { mutableStateOf<QuickPopup?>(null) }
@@ -368,6 +378,18 @@ internal fun PlayerControls(
     fun poke() {
         interactions++
         visible = true
+    }
+
+    fun revealLock(explain: Boolean) {
+        if (explain) lockedExplained = true
+        lockedRevealRevision++
+    }
+
+    // A double tap, a hold, a tap on 长按解锁 or the back gesture while locked: refused out loud,
+    // and the way out shown instead of the thing asked for.
+    fun refuseWhileLocked() {
+        haptics.play(HapticSignal.Reject)
+        revealLock(explain = true)
     }
 
     fun openWatchChat() {
@@ -668,6 +690,30 @@ internal fun PlayerControls(
         delay(timeout)
         volumeSliderVisible = false
     }
+    LaunchedEffect(locked, lockedRevealRevision, interactions, screenReaderActive, accessibilityManager) {
+        if (!locked) {
+            lockedControlsVisible = false
+            lockedExplained = false
+            return@LaunchedEffect
+        }
+        lockedControlsVisible = true
+        // A spoken cursor cannot find a pill that has faded, so under a screen reader it stays.
+        if (screenReaderActive) return@LaunchedEffect
+        val timeout =
+            accessibilityManager?.calculateRecommendedTimeoutMillis(
+                originalTimeoutMillis = LOCKED_CONTROLS_MS,
+                containsIcons = true,
+                containsText = true,
+                containsControls = true,
+            ) ?: LOCKED_CONTROLS_MS
+        if (timeout == Long.MAX_VALUE) return@LaunchedEffect
+        delay(timeout)
+        lockedControlsVisible = false
+        lockedExplained = false
+    }
+    // A locked phone keeps the player: the edge swipe the lock is there to survive used to close it
+    // outright. A television has no such swipe, and its Back unlocks through [closeTopRemoteLayer].
+    PlatformBackHandler(enabled = locked && remoteChrome == null, onBack = ::refuseWhileLocked)
 
     Box(
         modifier
@@ -728,6 +774,7 @@ internal fun PlayerControls(
                         },
                         onTap = {
                             when {
+                                locked -> revealLock(explain = false)
                                 watchChatOpen -> watchChatOpen = false
                                 danmakuSendOpen -> danmakuSendOpen = false
                                 danmakuSearchOpen -> danmakuSearchOpen = false
@@ -739,6 +786,12 @@ internal fun PlayerControls(
                             }
                         },
                         onDoubleTap = { offset ->
+                            // The lock's own catcher takes the touch before it gets here; this is the
+                            // floor under it, so no path through the lock can seek or pause.
+                            if (locked) {
+                                refuseWhileLocked()
+                                return@detectTapGestures
+                            }
                             if (!allowsPlayerDrag(offset.y, currentSystemGestureTop)) return@detectTapGestures
                             if (latestWatchLocked) {
                                 gestureHud = "房主控制播放"
@@ -778,6 +831,10 @@ internal fun PlayerControls(
                             poke()
                         },
                         onLongPress = { offset ->
+                            if (locked) {
+                                refuseWhileLocked()
+                                return@detectTapGestures
+                            }
                             if (!allowsPlayerDrag(offset.y, currentSystemGestureTop)) return@detectTapGestures
                             // Thirds, exactly as the double tap divides the picture: left
                             // rewinds, right fast-forwards, and the middle — where the double
@@ -893,12 +950,24 @@ internal fun PlayerControls(
             modifier = Modifier.fillMaxSize(),
             coversScreen = true,
         ) {
-            LockedOverlay(onUnlock = {
-                if (locked) {
-                    locked = false
-                    poke()
-                }
-            })
+            LockedOverlay(
+                controlsVisible = lockedControlsVisible,
+                message =
+                    when {
+                        !lockedExplained -> "屏幕已锁定"
+                        screenReaderActive -> "屏幕已锁定，请先解锁"
+                        else -> "屏幕已锁定，长按解锁"
+                    },
+                screenReaderActive = screenReaderActive,
+                onReveal = { revealLock(explain = false) },
+                onRefuse = ::refuseWhileLocked,
+                onUnlock = {
+                    if (locked) {
+                        locked = false
+                        poke()
+                    }
+                },
+            )
         }
         ChromeVisibility(
             visible = !locked && errorMessage == null,
