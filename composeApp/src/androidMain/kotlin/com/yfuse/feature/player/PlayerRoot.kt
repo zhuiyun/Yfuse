@@ -224,6 +224,7 @@ internal fun PlayerRoot(
     val configuredEngineSelection by playbackPreferences.engineSelection.collectAsState()
     val core2TrialEnabled by playbackPreferences.core2TrialEnabled.collectAsState()
     val core2NativeOnlyEnabled by playbackPreferences.core2NativeOnlyEnabled.collectAsState()
+    val gestureSettings by playbackPreferences.gestureSettings.collectAsState()
     var core2DisabledForSession by remember { mutableStateOf(false) }
     var sessionEngineSelection by remember {
         mutableStateOf(configuredEngineSelection)
@@ -334,6 +335,11 @@ internal fun PlayerRoot(
     var secondarySubtitleRestore by remember { mutableStateOf<TrackRestorePreference?>(null) }
     var secondarySubtitleTrackId by remember { mutableStateOf<String?>(null) }
     var restoreSubtitlesOff by remember { mutableStateOf(false) }
+    // 没听清: a subtitle shown for a replay. Kept out of the restore state above, series memory and
+    // the preferences alike; while it runs, the track restore stands aside.
+    var subtitlePeek by remember { mutableStateOf<SubtitlePeek?>(null) }
+    // 片尾接管: the controls decide when the credits take the picture into its corner; the surface follows.
+    var creditsTakeover by remember { mutableStateOf(false) }
     var scaleMode by remember { mutableStateOf(VideoScaleMode.Fit) }
     var subtitleControls by remember { mutableStateOf(SubtitleControlState()) }
     var audioControls by remember { mutableStateOf(AudioControlState()) }
@@ -1811,8 +1817,12 @@ internal fun PlayerRoot(
             } else if (!sameItem) {
                 audioRestore = null
             }
+            // What 没听清 is showing is the moment's: the handover carries the choice it set aside, and
+            // the new session restores that one with nothing standing in its way.
+            val peek = subtitlePeek
+            subtitlePeek = null
             if (snapshot.subtitleTracks.isNotEmpty()) {
-                val selectedSubtitle = snapshot.subtitleTracks.firstOrNull { it.selected }
+                val selectedSubtitle = viewerSubtitleChoice(snapshot.subtitleTracks, peek)
                 subtitleRestore = selectedSubtitle?.let(snapshot.subtitleTracks::restorePreferenceFor)
                 restoreSubtitlesOff = selectedSubtitle == null
             } else if (!sameItem) {
@@ -2419,6 +2429,7 @@ internal fun PlayerRoot(
                     selectEngineStrategy(PlaybackEngineSelection.LockMpv)
                 }
             },
+            subtitlePeekActive = subtitlePeek != null,
         )
 
         LaunchedEffect(engine, state.playing, state.buffering) {
@@ -2762,6 +2773,12 @@ internal fun PlayerRoot(
                     ambient.onContainerSize(coordinates.size)
                 },
         ) {
+            // 片尾接管: whichever engine draws, its surface moves the same way; the controls decide when.
+            val pictureModifier =
+                Modifier.fillMaxSize().creditsTakeoverPicture(
+                    active = creditsTakeover && !inPictureInPicture,
+                    immediate = inPictureInPicture,
+                )
             when (engine) {
                 is YPlayerVideoEngineAdapter ->
                     Core2Surface(
@@ -2785,7 +2802,7 @@ internal fun PlayerRoot(
                         subtitleBrightness = presentationSubtitleControls.brightness,
                         subtitlePosition = presentationSubtitleControls.position,
                         subtitleAppearance = presentationSubtitleControls.appearance,
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = pictureModifier,
                         visible = !inPictureInPicture,
                         ambientSampler = ambient.sampler,
                         ambientLayer = ambientLayer,
@@ -2793,14 +2810,14 @@ internal fun PlayerRoot(
                 is MdkVideoEngine ->
                     MdkSurface(
                         engine,
-                        Modifier.fillMaxSize(),
+                        pictureModifier,
                         ambientSampler = ambient.sampler,
                         ambientLayer = ambientLayer,
                     )
                 is MpvVideoEngine ->
                     MpvSurface(
                         engine,
-                        Modifier.fillMaxSize(),
+                        pictureModifier,
                         ambientSampler = ambient.sampler,
                         ambientLayer = ambientLayer,
                         subtitlesInsidePicture = ambient.enabled,
@@ -2815,7 +2832,7 @@ internal fun PlayerRoot(
                         subtitleBrightness = presentationSubtitleControls.brightness,
                         subtitlePosition = presentationSubtitleControls.position,
                         subtitleAppearance = presentationSubtitleControls.appearance,
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = pictureModifier,
                         ambientSampler = ambient.sampler,
                         ambientLayer = ambientLayer,
                     )
@@ -3012,6 +3029,7 @@ internal fun PlayerRoot(
                         }
                     },
                     onDismissNextUp = { nextUpDismissedItemId = activeItems.getOrNull(state.currentIndex)?.id },
+                    onCreditsTakeover = { creditsTakeover = it },
                     onNextItem = {
                         sourceSwitchCoordinator.invalidate()
                         val next = state.currentIndex + 1
@@ -3107,6 +3125,8 @@ internal fun PlayerRoot(
                             },
                         ),
                     onSelectSubtitle = { id ->
+                        // An explicit pick ends any 没听清 replay subtitle; the pick is what stays.
+                        subtitlePeek = null
                         val track = state.subtitleTracks.firstOrNull { it.id == id }
                         if (castState.hasActiveSession) {
                             // The receiver applies it; the memory and the restore state are ours,
@@ -3188,6 +3208,23 @@ internal fun PlayerRoot(
                                 }
                             }
                             player.selectTrack(YTrackType.Subtitle, id)
+                        }
+                    },
+                    // 没听清: straight to the engine and nowhere else — no series memory, no preference
+                    // and no restore state, which is what the handover and the next item read.
+                    onPeekSubtitle = { peek ->
+                        if (!castState.hasActiveSession) {
+                            subtitlePeek = peek
+                            player.selectTrack(YTrackType.Subtitle, peek.trackId)
+                        }
+                    },
+                    onEndSubtitlePeek = { restoreTrackId ->
+                        // A handover since the peek began has already carried the viewer's choice
+                        // across; the old engine's track ids mean nothing to the new one.
+                        val peeking = subtitlePeek != null
+                        subtitlePeek = null
+                        if (peeking && restoreTrackId != null && !castState.hasActiveSession) {
+                            player.selectTrack(YTrackType.Subtitle, restoreTrackId)
                         }
                     },
                     subtitleControls =
@@ -3455,6 +3492,7 @@ internal fun PlayerRoot(
                         playbackGate.setSpeed(newSpeed)
                         rememberSeriesPlayback { remembered -> remembered.copy(speed = newSpeed) }
                     },
+                    gestures = gestureSettings,
                     onSpeedBoost = { boost ->
                         if (boost != null) {
                             if (speedBoost == null) {
@@ -3493,6 +3531,18 @@ internal fun PlayerRoot(
                             remembered.copy(aspectMode = scaleMode.name)
                         }
                         Toast.makeText(context, "画面：${scaleMode.label}", Toast.LENGTH_SHORT).show()
+                    },
+                    // 捏合填充 and F: the same state and series memory as the 画面 button, set to a mode
+                    // rather than cycled. The controls' HUD says which, so no toast.
+                    onSetFill = { fill ->
+                        val mode = if (fill) VideoScaleMode.Fill else VideoScaleMode.Fit
+                        if (scaleMode != mode) {
+                            scaleMode = mode
+                            backendExtensions.setVideoScaleMode(mode)
+                            rememberSeriesPlayback { remembered ->
+                                remembered.copy(aspectMode = mode.name)
+                            }
+                        }
                     },
                     trickplay = currentTrickplay,
                     // Readers, not values: read here, every step of a volume or brightness drag
@@ -3719,6 +3769,7 @@ internal fun PlayerRoot(
                             onReactionFinished = watchTogether::clearReaction,
                         ),
                     remoteChrome = remoteChrome,
+                    hardwareKeyboard = hardwareKeyboardAttached(),
                     // Held back while a transition carries the picture in, and gone first on the way out.
                     modifier = Modifier.graphicsLayer { alpha = transition?.chromeAlpha() ?: 1f },
                 )
