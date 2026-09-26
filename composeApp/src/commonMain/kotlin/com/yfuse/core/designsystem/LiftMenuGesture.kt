@@ -111,9 +111,10 @@ fun Modifier.liftable(
     fun lift(finger: Offset?): LiftSession? {
         val self = own.coordinates?.takeIf { it.isAttached } ?: return null
         val art = latestAnchor?.coordinates?.takeIf { it.isAttached } ?: self
+        val built = latestMenu()
         val session =
             host.lift(
-                menu = latestMenu(),
+                menu = built,
                 source = art.boundsInRoot(),
                 finger = finger,
                 onOpen = latestOpen,
@@ -123,7 +124,8 @@ fun Modifier.liftable(
                 },
             )
         current[0] = session
-        lifted = true
+        // A poster hands itself over to the card; a button keeps its place beside its menu.
+        lifted = !built.anchored
         latestHaptics.play(HapticSignal.LongPress)
         tips?.markUsed(Tips.LIFT)
         return session

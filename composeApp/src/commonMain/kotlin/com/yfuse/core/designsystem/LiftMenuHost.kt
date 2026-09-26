@@ -74,6 +74,9 @@ private const val LIFT_SOLID_SCRIM_ALPHA = 0.82f
 /** Heavier than the dock's glass: the page behind a lifted poster is context, not content. */
 private val LiftBlurRadius = 18.dp
 
+/** A button's menu leaves the page readable around it: a light dim, no blur. */
+private const val LIFT_ANCHORED_SCRIM_ALPHA = 0.28f
+
 /** The menu panel leads its rows by a beat; the rows follow one after another. */
 private const val LIFT_PANEL_DELAY_MS = 40
 private const val LIFT_ROW_DELAY_MS = 70
@@ -183,16 +186,27 @@ private fun LiftLayer(
                         bottom = origin.y + height - insetBottom - margin,
                     )
                 val cardWidth = minOf(with(density) { LiftCardMaxWidth.toPx() }, bounds.width).coerceAtLeast(0f)
-                placeLift(
-                    source = session.source,
-                    bounds = bounds,
-                    card = Size(cardWidth, cardWidth * LIFT_CARD_ASPECT),
-                    menuWidth = cardWidth,
-                    menuHeight =
-                        liftMenuContentHeight(menu.sections.map { it.size }, rowHeight, separatorHeight, menuPadding),
-                    gap = with(density) { LiftGap.toPx() },
-                    rowHeight = rowHeight,
-                )
+                val menuHeight =
+                    liftMenuContentHeight(menu.sections.map { it.size }, rowHeight, separatorHeight, menuPadding)
+                if (menu.anchored) {
+                    placeAnchoredMenu(
+                        source = session.source,
+                        bounds = bounds,
+                        menuWidth = with(density) { LiftAnchoredMenuWidth.toPx() },
+                        menuHeight = menuHeight,
+                        gap = with(density) { LiftGap.toPx() },
+                    )
+                } else {
+                    placeLift(
+                        source = session.source,
+                        bounds = bounds,
+                        card = Size(cardWidth, cardWidth * LIFT_CARD_ASPECT),
+                        menuWidth = cardWidth,
+                        menuHeight = menuHeight,
+                        gap = with(density) { LiftGap.toPx() },
+                        rowHeight = rowHeight,
+                    )
+                }
             }
         SideEffect {
             session.placement = placement
@@ -203,7 +217,13 @@ private fun LiftLayer(
 
         // The blur rides the same fade as the dimming, so a settling poster brings the page back
         // into focus as it lands rather than the whole blur switching off in one frame.
-        val blurred = backdrop?.active == true
+        val blurred = backdrop?.active == true && !menu.anchored
+        val scrimAlpha =
+            when {
+                menu.anchored -> LIFT_ANCHORED_SCRIM_ALPHA
+                blurred -> LIFT_SCRIM_ALPHA
+                else -> LIFT_SOLID_SCRIM_ALPHA
+            }
         Box(
             Modifier
                 .fillMaxSize()
@@ -215,17 +235,20 @@ private fun LiftLayer(
                     } else {
                         Modifier
                     },
-                ).background(palette.scrim.copy(alpha = if (blurred) LIFT_SCRIM_ALPHA else LIFT_SOLID_SCRIM_ALPHA))
+                ).background(palette.scrim.copy(alpha = scrimAlpha))
                 .pointerInput(session) { detectTapGestures { session.dismiss() } },
         )
 
-        LiftCard(
-            session = session,
-            fraction = { lift.value },
-            presence = { presence.value },
-            target = placement.card,
-            origin = { origin },
-        )
+        // An anchored menu's card is the button itself, which never left the page.
+        if (!menu.anchored) {
+            LiftCard(
+                session = session,
+                fraction = { lift.value },
+                presence = { presence.value },
+                target = placement.card,
+                origin = { origin },
+            )
+        }
 
         val menuRect = placement.menu
         Column(

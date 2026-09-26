@@ -37,6 +37,11 @@ class LiftMenu(
     val progressLabel: String? = null,
     /** Releasing on the card, or tapping it: open the title. Null when there is nothing to open. */
     val onOpen: (() -> Unit)? = null,
+    /**
+     * A button's menu rather than a poster's: no card, the menu pinned beside what was pressed,
+     * which stays in place. Letting go back on the button does what tapping it does ([onOpen]).
+     */
+    val anchored: Boolean = false,
     /** Rows in groups; a hairline separates one group from the next. Empty groups are dropped. */
     sections: List<List<ItemAction>>,
 ) {
@@ -56,6 +61,7 @@ class LiftMenu(
                 progress = progress,
                 progressLabel = progressLabel,
                 onOpen = onOpen,
+                anchored = anchored,
                 sections = sections,
             )
         }
@@ -158,6 +164,37 @@ internal fun placeLift(
             menuScrolls = menuShown < menuHeight,
         )
     }
+}
+
+/** An anchored menu is as wide as its longest rows need, not as wide as a preview card. */
+internal val LiftAnchoredMenuWidth = 248.dp
+
+/**
+ * An [LiftMenu.anchored] menu: under the button when it fits there, otherwise above it, lined
+ * up with the button's outer edge — a button on the right half opens leftwards. The button
+ * itself is the placement's card, so letting go back on it counts as tapping it. Scrolls when
+ * neither side has the room.
+ */
+internal fun placeAnchoredMenu(
+    source: Rect,
+    bounds: Rect,
+    menuWidth: Float,
+    menuHeight: Float,
+    gap: Float,
+): LiftPlacement {
+    val width = minOf(menuWidth, bounds.width).coerceAtLeast(0f)
+    val below = (bounds.bottom - source.bottom - gap).coerceAtLeast(0f)
+    val above = (source.top - gap - bounds.top).coerceAtLeast(0f)
+    val downward = menuHeight <= below || below >= above
+    val shown = minOf(menuHeight, if (downward) below else above)
+    val top = if (downward) source.bottom + gap else source.top - gap - shown
+    val preferred = if (source.center.x > bounds.center.x) source.right - width else source.left
+    val left = clampStart(preferred, bounds.left, bounds.right - width)
+    return LiftPlacement(
+        card = source,
+        menu = Rect(left, top, left + width, top + shown),
+        menuScrolls = shown < menuHeight,
+    )
 }
 
 /** [value] kept between [low] and [high]; [low] wins when the range is empty. Never throws. */

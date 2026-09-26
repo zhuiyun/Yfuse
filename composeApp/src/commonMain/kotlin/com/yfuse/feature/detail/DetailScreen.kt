@@ -811,6 +811,39 @@ fun DetailScreen(component: DetailComponent) {
                         onBack = component.onBack,
                         onPlay = playerArtworkOnClick(sharedHeroKey) { component.store.accept(DetailIntent.Play) },
                         onMore = { moreSheetOpen = true },
+                        moreMenu =
+                            detail?.let { shown ->
+                                {
+                                    detailMoreLiftMenu(
+                                        title = shown.title,
+                                        played = shown.played,
+                                        favoriteAvailable =
+                                            state.playServer
+                                                ?.kind
+                                                ?.capabilities()
+                                                ?.favorites != false,
+                                        favorite = shown.isFavorite,
+                                        watchLater = state.watchLater,
+                                        onTogglePlayed = { component.store.accept(DetailIntent.TogglePlayed) },
+                                        onToggleFavorite = { component.store.accept(DetailIntent.ToggleFavorite) },
+                                        onToggleWatchLater = { component.store.accept(DetailIntent.ToggleWatchLater) },
+                                        onDownload = { downloadSheetOpen = true },
+                                        onWatchTogether =
+                                            if (watchAvailable && watchState.roomCode == null) {
+                                                {
+                                                    watchTogether.createRoom(
+                                                        endpoint = watchEndpoint,
+                                                        mediaKey = shown.providerIds.watchKey(shown.id),
+                                                    )
+                                                    shareSheetOpen = true
+                                                }
+                                            } else {
+                                                null
+                                            },
+                                        onAllActions = { moreSheetOpen = true },
+                                    )
+                                }
+                            },
                     )
                 }
 

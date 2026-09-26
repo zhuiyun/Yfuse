@@ -63,6 +63,7 @@ import com.yfuse.core.designsystem.DolbyBadge
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.HeroInk
 import com.yfuse.core.designsystem.InlineLoadingContent
+import com.yfuse.core.designsystem.LiftMenu
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.MediaSharedElementKey
@@ -73,6 +74,7 @@ import com.yfuse.core.designsystem.cssLinearGradient
 import com.yfuse.core.designsystem.fadeIntoPage
 import com.yfuse.core.designsystem.heroTopScrim
 import com.yfuse.core.designsystem.isSharedMediaArtworkActive
+import com.yfuse.core.designsystem.liftable
 import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.playerArtworkSource
 import com.yfuse.core.designsystem.pressable
@@ -315,6 +317,8 @@ internal fun DetailTopBar(
     onBack: () -> Unit,
     onPlay: () -> Unit,
     onMore: () -> Unit,
+    /** What holding 更多 lifts for the finger to slide through; null keeps it a plain button. */
+    moreMenu: (() -> LiftMenu)? = null,
 ) {
     val palette = LocalPalette.current
     val playBody = primaryActionColor(accent)
@@ -406,6 +410,7 @@ internal fun DetailTopBar(
                     progress = progress,
                     surfaceColor = surfaceColor,
                     onClick = onMore,
+                    liftMenu = moreMenu,
                 )
             }
         }
@@ -420,11 +425,13 @@ private fun DetailTopBarIcon(
     progress: State<Float>,
     surfaceColor: Color,
     onClick: () -> Unit,
+    liftMenu: (() -> LiftMenu)? = null,
 ) {
     val palette = LocalPalette.current
     val painter = rememberVectorPainter(icon)
     Canvas(
         Modifier
+            .liftable(menu = liftMenu, onOpen = onClick)
             .pressable(onClick = onClick)
             .touchTarget()
             .size(38.dp)

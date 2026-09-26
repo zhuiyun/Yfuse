@@ -238,6 +238,45 @@ class LiftMenuTest {
     }
 
     @Test
+    fun anAnchoredMenuHangsUnderItsButtonAndOpensAwayFromTheNearEdge() {
+        val window = Rect(16f, 40f, 376f, 800f)
+        // 更多 at the top right: under the button, right edges lined up.
+        val more = Rect(320f, 50f, 358f, 88f)
+        val placed = placeAnchoredMenu(more, window, menuWidth = 248f, menuHeight = 300f, gap = 10f)
+        assertEquals(Rect(110f, 98f, 358f, 398f), placed.menu)
+        assertSame(more, placed.card)
+        assertFalse(placed.menuScrolls)
+        // A button on the left opens rightwards.
+        val left = placeAnchoredMenu(Rect(20f, 50f, 58f, 88f), window, 248f, 300f, 10f)
+        assertEquals(20f, left.menu.left, 0.01f)
+    }
+
+    @Test
+    fun anAnchoredMenuWithNoRoomBelowGoesAboveAndScrollsOnlyWhenNeitherSideFits() {
+        val window = Rect(0f, 0f, 400f, 800f)
+        val low = Rect(300f, 700f, 340f, 740f)
+        val above = placeAnchoredMenu(low, window, menuWidth = 248f, menuHeight = 300f, gap = 10f)
+        assertEquals(390f, above.menu.top, 0.01f)
+        assertEquals(690f, above.menu.bottom, 0.01f)
+        assertFalse(above.menuScrolls)
+        val middle = Rect(300f, 380f, 340f, 420f)
+        val squeezed = placeAnchoredMenu(middle, window, menuWidth = 248f, menuHeight = 600f, gap = 10f)
+        assertTrue(squeezed.menuScrolls)
+        assertEquals(430f, squeezed.menu.top, 0.01f)
+        assertEquals(800f, squeezed.menu.bottom, 0.01f)
+    }
+
+    @Test
+    fun lettingGoBackOnAnAnchoredButtonDoesWhatTappingItDoes() {
+        val recorder = Recorder()
+        val lift = session(recorder, finger = Offset(339f, 69f))
+        lift.placement = placeAnchoredMenu(Rect(320f, 50f, 358f, 88f), Rect(0f, 0f, 400f, 800f), 248f, 200f, 10f)
+        lift.steer(Offset(330f, 80f), slop = 8f)
+        lift.release()
+        assertEquals(listOf("open"), recorder.events)
+    }
+
+    @Test
     fun theCardsWordsArriveOnlyOverTheLastStretchOfTheLift() {
         assertEquals(0f, liftTextAlpha(0f), 0.001f)
         assertEquals(0f, liftTextAlpha(0.55f), 0.001f)

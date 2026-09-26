@@ -34,7 +34,6 @@ import com.yfuse.core.designsystem.liftable
 import com.yfuse.core.designsystem.motionItemsIndexed
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.sharedMediaOnClick
-import com.yfuse.core.designsystem.withArtwork
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.feature.library.favoriteLiftAction
