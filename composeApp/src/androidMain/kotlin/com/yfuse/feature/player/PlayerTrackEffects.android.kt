@@ -29,6 +29,12 @@ internal fun PlayerTrackEffects(
     onSecondarySubtitleTrackChanged: (String?) -> Unit,
     onPendingSubtitleLanguageApplied: () -> Unit,
     onRequestMpv: () -> Unit,
+    /**
+     * 没听清 is showing a subtitle for a replay. The primary restore below stands aside until it is
+     * over — it would otherwise put the viewer's choice straight back over the temporary one — and
+     * runs again the moment it ends.
+     */
+    subtitlePeekActive: Boolean = false,
 ) {
     // Keyed on the item too: an engine that resets speed when it loads the next file would
     // otherwise play it at 1x, since the requested speed itself had not changed.
@@ -46,8 +52,9 @@ internal fun PlayerTrackEffects(
         state.subtitleTracks,
         subtitleRestore,
         restoreSubtitlesOff,
+        subtitlePeekActive,
     ) {
-        if (currentItemId != handoverItemId || state.subtitleTracks.isEmpty()) {
+        if (subtitlePeekActive || currentItemId != handoverItemId || state.subtitleTracks.isEmpty()) {
             return@LaunchedEffect
         }
         if (restoreSubtitlesOff) {

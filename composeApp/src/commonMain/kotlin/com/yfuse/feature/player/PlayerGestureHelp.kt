@@ -63,6 +63,7 @@ internal fun PlayerGestureHelpOverlay(
             title = "辅助操作",
             rows =
                 listOf(
+                    "长按后退 10 秒" to "没听清：倒回 10 秒并临时打开字幕，播回原处后恢复",
                     "键盘方向键" to "聚焦进度条或音量滑杆后逐级调节",
                     "返回键" to "先关闭当前面板，再退出播放器",
                 ),

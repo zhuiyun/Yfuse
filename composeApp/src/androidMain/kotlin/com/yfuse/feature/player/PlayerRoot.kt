@@ -335,6 +335,9 @@ internal fun PlayerRoot(
     var secondarySubtitleRestore by remember { mutableStateOf<TrackRestorePreference?>(null) }
     var secondarySubtitleTrackId by remember { mutableStateOf<String?>(null) }
     var restoreSubtitlesOff by remember { mutableStateOf(false) }
+    // 没听清: a subtitle shown for a replay. Kept out of the restore state above, series memory and
+    // the preferences alike; while it runs, the track restore stands aside.
+    var subtitlePeek by remember { mutableStateOf<SubtitlePeek?>(null) }
     var scaleMode by remember { mutableStateOf(VideoScaleMode.Fit) }
     var subtitleControls by remember { mutableStateOf(SubtitleControlState()) }
     var audioControls by remember { mutableStateOf(AudioControlState()) }
@@ -1812,8 +1815,12 @@ internal fun PlayerRoot(
             } else if (!sameItem) {
                 audioRestore = null
             }
+            // What 没听清 is showing is the moment's: the handover carries the choice it set aside, and
+            // the new session restores that one with nothing standing in its way.
+            val peek = subtitlePeek
+            subtitlePeek = null
             if (snapshot.subtitleTracks.isNotEmpty()) {
-                val selectedSubtitle = snapshot.subtitleTracks.firstOrNull { it.selected }
+                val selectedSubtitle = viewerSubtitleChoice(snapshot.subtitleTracks, peek)
                 subtitleRestore = selectedSubtitle?.let(snapshot.subtitleTracks::restorePreferenceFor)
                 restoreSubtitlesOff = selectedSubtitle == null
             } else if (!sameItem) {
@@ -2420,6 +2427,7 @@ internal fun PlayerRoot(
                     selectEngineStrategy(PlaybackEngineSelection.LockMpv)
                 }
             },
+            subtitlePeekActive = subtitlePeek != null,
         )
 
         LaunchedEffect(engine, state.playing, state.buffering) {
@@ -3108,6 +3116,8 @@ internal fun PlayerRoot(
                             },
                         ),
                     onSelectSubtitle = { id ->
+                        // An explicit pick ends any 没听清 replay subtitle; the pick is what stays.
+                        subtitlePeek = null
                         val track = state.subtitleTracks.firstOrNull { it.id == id }
                         if (castState.hasActiveSession) {
                             // The receiver applies it; the memory and the restore state are ours,
@@ -3189,6 +3199,23 @@ internal fun PlayerRoot(
                                 }
                             }
                             player.selectTrack(YTrackType.Subtitle, id)
+                        }
+                    },
+                    // 没听清: straight to the engine and nowhere else — no series memory, no preference
+                    // and no restore state, which is what the handover and the next item read.
+                    onPeekSubtitle = { peek ->
+                        if (!castState.hasActiveSession) {
+                            subtitlePeek = peek
+                            player.selectTrack(YTrackType.Subtitle, peek.trackId)
+                        }
+                    },
+                    onEndSubtitlePeek = { restoreTrackId ->
+                        // A handover since the peek began has already carried the viewer's choice
+                        // across; the old engine's track ids mean nothing to the new one.
+                        val peeking = subtitlePeek != null
+                        subtitlePeek = null
+                        if (peeking && restoreTrackId != null && !castState.hasActiveSession) {
+                            player.selectTrack(YTrackType.Subtitle, restoreTrackId)
                         }
                     },
                     subtitleControls =

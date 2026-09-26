@@ -267,6 +267,8 @@ internal fun TransportRow(
     onSeekBackward: () -> Unit,
     onSeekForward: () -> Unit,
     modifier: Modifier = Modifier,
+    /** 没听清: a held ⟲10 rewinds and brings subtitles up for the replay; null leaves it a plain key. */
+    onSeekBackwardLongPress: (() -> Unit)? = null,
 ) {
     // The same wait as the status chip's, so a seek's short stall shows nothing in either place.
     val bufferingIndicatorVisible =
@@ -298,6 +300,8 @@ internal fun TransportRow(
             TransportIconSize,
             enabled = !locked && state.seekable,
             onClick = onSeekBackward,
+            onLongClick = onSeekBackwardLongPress,
+            onLongClickLabel = onSeekBackwardLongPress?.let { "没听清：倒回 10 秒并临时打开字幕" },
         )
         // Buffering never takes the key away: a stalled film can still be paused, and a spoken
         // cursor resting on the key does not lose it. The stall is a ring round the key instead.
@@ -748,6 +752,10 @@ internal fun CircleControl(
     modifier: Modifier = Modifier,
     /** Applied to the visible ring rather than the touch target, for callers that need its bounds. */
     ringModifier: Modifier = Modifier,
+    /** A second action behind a held press; [pressable] gives it the long-press tick. */
+    onLongClick: (() -> Unit)? = null,
+    /** What a screen reader calls [onLongClick]. */
+    onLongClickLabel: String? = null,
 ) {
     val interactions = remember { MutableInteractionSource() }
     // The ring is what you see; the touch target is bigger than the ring. Sizing them
@@ -767,6 +775,8 @@ internal fun CircleControl(
                             focusShape = CircleShape,
                             // The ring paints its own pressed colour ([softSelectionSurface] below).
                             stateLayer = false,
+                            onLongClick = onLongClick,
+                            onLongClickLabel = onLongClickLabel,
                             onClick = onClick,
                         ).touchTarget()
                 } else {

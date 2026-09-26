@@ -176,6 +176,13 @@ internal fun PlayerControls(
     audioControls: AudioControlState = AudioControlState(),
     audioActions: AudioControlActions = AudioControlActions(),
     onSelectSubtitle: (String) -> Unit,
+    /**
+     * 没听清: show [SubtitlePeek.trackId] on the engine for the replay. Temporary by contract — the
+     * caller keeps it out of series memory, preferences and its own restore state.
+     */
+    onPeekSubtitle: (SubtitlePeek) -> Unit = {},
+    /** 没听清 is over: put the given track back ([EngineTrack.OFF] included), or with null touch nothing. */
+    onEndSubtitlePeek: (String?) -> Unit = {},
     subtitleControls: SubtitleControlState = SubtitleControlState(),
     subtitleActions: SubtitleControlActions = SubtitleControlActions(),
     bookmarks: PlaybackBookmarkPanelState = PlaybackBookmarkPanelState(),
@@ -444,6 +451,39 @@ internal fun PlayerControls(
         latestOnSpeedBoost(null)
     }
 
+    // 没听清: the subtitle a held ⟲10 brought up for the replay, until the line has been heard.
+    var subtitlePeek by remember { mutableStateOf<SubtitlePeek?>(null) }
+    val latestOnEndSubtitlePeek by rememberUpdatedState(onEndSubtitlePeek)
+
+    fun endSubtitlePeek(restoreTrackId: String?) {
+        if (subtitlePeek == null) return
+        subtitlePeek = null
+        latestOnEndSubtitlePeek(restoreTrackId)
+    }
+
+    fun rewindMissedLine() {
+        // The key is dimmed for a guest already; the rewind would be the room's, not theirs.
+        if (latestWatchLocked) {
+            gestureHud = "房主控制播放"
+            return
+        }
+        val live = playback.value
+        val plan =
+            missedLineRewind(
+                positionMs = live.positionMs,
+                subtitleTracks = live.subtitleTracks,
+                audioTracks = live.audioTracks,
+                secondarySubtitleTrackId = live.secondarySubtitleTrackId ?: subtitleControls.secondaryTrackId,
+                running = subtitlePeek,
+                subtitlesAllowed = castingDeviceId == null,
+            )
+        latestOnSeek(plan.targetMs)
+        plan.peek?.takeIf { subtitlePeek == null }?.let(onPeekSubtitle)
+        subtitlePeek = plan.peek
+        gestureHud = plan.message
+        poke()
+    }
+
     fun openWatchChat() {
         settingsPanelKind = null
         quickPopup = null
@@ -706,6 +746,14 @@ internal fun PlayerControls(
     DisposableEffect(Unit) {
         onDispose { endSpeedBoost() }
     }
+    SubtitlePeekEffect(
+        peek = subtitlePeek,
+        playback = playback,
+        onUpdate = { if (subtitlePeek != null) subtitlePeek = it },
+        onEnd = { endSubtitlePeek(it) },
+    )
+    // The next item and a cast bring their own subtitles: the replay's is dropped, not put back.
+    LaunchedEffect(state.currentIndex, castingDeviceId) { endSubtitlePeek(null) }
     // Runs for as long as the press is held; cancelled by the release setting the
     // direction back to 0. Re-stamping the HUD every tick also keeps the 850ms
     // auto-clear above from taking it away mid-hold.
@@ -1202,6 +1250,7 @@ internal fun PlayerControls(
                             onOpenDanmaku = { openSettingsPanel(SettingsPanelKind.Danmaku) },
                             ambientLight = ambientLight,
                             danmakuHeat = danmakuHeat,
+                            onSeekBackwardLongPress = { rewindMissedLine() },
                         )
                     }
                 }
@@ -1302,6 +1351,8 @@ internal fun PlayerControls(
                             // anything had happened — and the picture behind it rarely says so
                             // within the second. The HUD the gestures already use answers it.
                             onSelectSubtitle = { id ->
+                                // A pick is the viewer's own: 没听清 steps aside without putting anything back.
+                                endSubtitlePeek(null)
                                 onSelectSubtitle(id)
                                 gestureHud = "字幕 · ${trackLabel(state.subtitleTracks, id)}"
                                 settingsPanelKind = null

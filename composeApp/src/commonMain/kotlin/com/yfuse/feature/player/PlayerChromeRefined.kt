@@ -332,6 +332,8 @@ internal fun RefinedBottomBar(
     ambientLight: State<AmbientLight>? = null,
     /** 弹幕热度, read while the rail draws; null draws no curve. */
     danmakuHeat: () -> DanmakuHeat? = { null },
+    /** 没听清 behind a held ⟲10; null keeps the key a plain rewind. */
+    onSeekBackwardLongPress: (() -> Unit)? = null,
 ) {
     // A new timeline sample arrives twice a second, and this function is called with it. Only
     // this frame stops here: everything below takes the holder and reads it from a draw or a
@@ -371,6 +373,7 @@ internal fun RefinedBottomBar(
         modifier = modifier,
         ambientLight = ambientLight,
         danmakuHeat = danmakuHeat,
+        onSeekBackwardLongPress = onSeekBackwardLongPress,
     )
 }
 
@@ -405,6 +408,7 @@ private fun RefinedBottomBarContent(
     modifier: Modifier = Modifier,
     ambientLight: State<AmbientLight>? = null,
     danmakuHeat: () -> DanmakuHeat? = { null },
+    onSeekBackwardLongPress: (() -> Unit)? = null,
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     // Where the finger left the thumb. Read from derived state only, never from composition:
@@ -689,6 +693,7 @@ private fun RefinedBottomBarContent(
                     val target = latest.positionMs + REFINED_SEEK_STEP_MS
                     onSeek(if (latest.durationMs > 0L) target.coerceAtMost(latest.durationMs) else target)
                 },
+                onSeekBackwardLongPress = onSeekBackwardLongPress,
             )
 
             Row(
