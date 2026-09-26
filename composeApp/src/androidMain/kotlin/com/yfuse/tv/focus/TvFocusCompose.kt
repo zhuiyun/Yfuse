@@ -190,29 +190,67 @@ fun TvFocusScopeEffect(
  * Maps Android TV, Google TV, keyboard, and gamepad keys to semantic intents.
  *
  * A handled key-down is remembered so its matching key-up is consumed too, preventing an
- * underlying clickable from firing a second activation.
+ * underlying clickable from firing a second activation. A long press is 确定 held for
+ * [REMOTE_LONG_PRESS_MILLIS], timed by [RemoteLongPressClock] rather than the platform's flag.
  */
 @Composable
 fun Modifier.tvRemoteKeyHandler(onIntent: (RemoteIntent) -> Boolean): Modifier {
     val latestHandler = rememberUpdatedState(onIntent)
     val consumedDownKeys = remember { mutableSetOf<Int>() }
+    val longPressClock = remember { RemoteLongPressClock() }
     return onPreviewKeyEvent { composeEvent ->
         val event = composeEvent.nativeKeyEvent
+        val longPress =
+            when (event.action) {
+                KeyEvent.ACTION_DOWN -> longPressClock.onDown(event.keyCode, event.repeatCount, event.eventTime)
+                KeyEvent.ACTION_UP -> {
+                    longPressClock.onUp(event.keyCode)
+                    false
+                }
+                else -> false
+            }
         if (event.action == KeyEvent.ACTION_UP && consumedDownKeys.remove(event.keyCode)) {
             return@onPreviewKeyEvent true
+        }
+        // A fresh press is a new gesture. A long press that opened a panel handed focus away
+        // before its release, which went to the panel; still remembered here, it swallowed the
+        // next press's release and the card's next click did nothing.
+        if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+            consumedDownKeys.remove(event.keyCode)
         }
         val intent =
             AndroidRemoteKeyMapper.intent(
                 keyCode = event.keyCode,
                 action = event.action,
                 repeatCount = event.repeatCount,
-                isLongPress = event.isLongPress,
+                isLongPress = longPress,
             ) ?: return@onPreviewKeyEvent false
         val consumed = latestHandler.value(intent)
         if (consumed && event.action == KeyEvent.ACTION_DOWN) {
             consumedDownKeys += event.keyCode
         }
         consumed
+    }
+}
+
+/**
+ * For a panel opened by holding 确定: the rest of that hold — its repeats and its release — stops
+ * here instead of reaching the row that has just taken focus. See [RemoteHoldCarryOver].
+ */
+@Composable
+fun Modifier.tvIgnoreOpeningHold(): Modifier {
+    val carryOver = remember { RemoteHoldCarryOver() }
+    return onPreviewKeyEvent { composeEvent ->
+        val event = composeEvent.nativeKeyEvent
+        val activate = AndroidRemoteKeyMapper.physicalKey(event.keyCode) == RemotePhysicalKey.Activate
+        val phase = event.action == KeyEvent.ACTION_DOWN || event.action == KeyEvent.ACTION_UP
+        activate &&
+            phase &&
+            carryOver.swallow(
+                keyCode = event.keyCode,
+                down = event.action == KeyEvent.ACTION_DOWN,
+                repeatCount = event.repeatCount,
+            )
     }
 }
 
