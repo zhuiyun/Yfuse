@@ -232,6 +232,8 @@ internal fun PlayerControls(
     onStopCast: () -> Unit = {},
     danmaku: DanmakuPanelState = DanmakuPanelState(),
     danmakuActions: DanmakuPanelActions = DanmakuPanelActions(),
+    /** 弹幕热度 of the matched comments, read while the rail draws; null when nothing is matched. */
+    danmakuHeat: () -> DanmakuHeat? = { null },
     // The server this file is on. Null when there is only ever one server to be on.
     sourceLabel: String? = null,
     // Resolved copies of the current item on other servers.
@@ -1187,6 +1189,7 @@ internal fun PlayerControls(
                             danmakuEnabled = danmaku.enabled,
                             onOpenDanmaku = { openSettingsPanel(SettingsPanelKind.Danmaku) },
                             ambientLight = ambientLight,
+                            danmakuHeat = danmakuHeat,
                         )
                     }
                 }

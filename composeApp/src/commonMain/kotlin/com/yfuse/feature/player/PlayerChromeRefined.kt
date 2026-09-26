@@ -330,6 +330,8 @@ internal fun RefinedBottomBar(
     modifier: Modifier = Modifier,
     /** 氛围光; the scrim reads it per frame, the seek accent follows its mean. Null keeps both plain. */
     ambientLight: State<AmbientLight>? = null,
+    /** 弹幕热度, read while the rail draws; null draws no curve. */
+    danmakuHeat: () -> DanmakuHeat? = { null },
 ) {
     // A new timeline sample arrives twice a second, and this function is called with it. Only
     // this frame stops here: everything below takes the holder and reads it from a draw or a
@@ -368,6 +370,7 @@ internal fun RefinedBottomBar(
         artworkIdentity = stableArtworkIdentity,
         modifier = modifier,
         ambientLight = ambientLight,
+        danmakuHeat = danmakuHeat,
     )
 }
 
@@ -401,6 +404,7 @@ private fun RefinedBottomBarContent(
     artworkIdentity: Any?,
     modifier: Modifier = Modifier,
     ambientLight: State<AmbientLight>? = null,
+    danmakuHeat: () -> DanmakuHeat? = { null },
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     // Where the finger left the thumb. Read from derived state only, never from composition:
@@ -624,6 +628,7 @@ private fun RefinedBottomBarContent(
                     showTimeBubble = trickplay == null,
                     trickplay = trickplay,
                     scrub = scrubUi,
+                    heat = danmakuHeat,
                     onScrubTo = {
                         scrubbed.value = it
                         if (pendingSeek != null) pendingSeek = null
@@ -974,6 +979,8 @@ internal fun StandardSeekBar(
     trickplay: TrickplayStoryboard? = null,
     /** Where the drag publishes its tier and lift, for a preview drawn outside the bar. */
     scrub: SeekScrubUi? = null,
+    /** 弹幕热度, read while drawing; null draws no curve. */
+    heat: () -> DanmakuHeat? = { null },
 ) {
     val haptics = LocalHaptics.current
     val tips = LocalTips.current
@@ -1223,6 +1230,16 @@ internal fun StandardSeekBar(
             },
         contentAlignment = Alignment.CenterStart,
     ) {
+        // 弹幕热度: a thin line over the rail where the comments crowd, under everything else on
+        // it. The bar is only composed while the controls are up, and so is this.
+        Box(
+            Modifier
+                .align(Alignment.TopStart)
+                .padding(top = SeekHeatTop)
+                .fillMaxWidth()
+                .height(SeekHeatHeight)
+                .danmakuHeatCurve(heat = heat, durationMs = durationMs, emphasis = { interaction.value }),
+        )
         // Both rails keep fixed geometry; progress invalidates paint, not child measurement.
         val buffered = remember(durationMs) { Animatable(0f) }
         val moving = !reduceMotion && LocalRouteVisible.current
@@ -1472,6 +1489,10 @@ private inline fun forEachRailPart(
 
 /** The opening between two chapters on the rail: wide enough to read, too narrow to aim at. */
 private val SeekChapterGap = 2.dp
+
+/** The heat curve's strip: from just under the bar's top edge down to just above the rail. */
+private val SeekHeatTop = 4.dp
+private val SeekHeatHeight = 14.dp
 
 private val SeekTimeBubbleWidth = 60.dp
 private val SeekTierPillWidth = 80.dp
