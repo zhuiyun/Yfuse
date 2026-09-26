@@ -157,6 +157,7 @@ import com.yfuse.core.model.MediaContainerKind
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.network.EmbyImages
+import com.yfuse.core.util.rememberPosterCardSharer
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.yfuse.core.designsystem.ThemeIcon as Icon
@@ -240,6 +241,7 @@ private fun utcDate(epochMs: Long): String {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LibraryHomeScreen(component: LibraryHomeComponent) {
+    val sharer = rememberPosterCardSharer()
     val state by component.store.states.collectAsState(component.store.state)
     val libraryCarousel by component.themePreferences.libraryCarousel.collectAsState()
     val store = component.store
@@ -671,6 +673,13 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                         onPlay = { component.onPlayItem(item.id) },
                                         onFavorite = { favorite ->
                                             store.accept(LibraryIntent.ToggleFavorite(item.id, item.title, favorite))
+                                        },
+                                        onShare = {
+                                            sharer.sharePosterCard(
+                                                item.posterShareCard(
+                                                    EmbyImages.poster(baseUrl, item, accessToken = accessToken),
+                                                ),
+                                            )
                                         },
                                     )
                                 }

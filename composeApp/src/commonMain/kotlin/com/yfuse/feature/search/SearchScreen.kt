@@ -110,11 +110,15 @@ import com.yfuse.core.designsystem.skeletonSweep
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.network.EmbyImages
+import com.yfuse.core.util.PosterCardSharer
+import com.yfuse.core.util.rememberPosterCardSharer
 import com.yfuse.feature.detail.DetailScreen
 import com.yfuse.feature.library.favoriteLiftAction
 import com.yfuse.feature.library.liftRemainingLabel
 import com.yfuse.feature.library.mediaItemLiftMenu
 import com.yfuse.feature.library.playedLiftAction
+import com.yfuse.feature.library.posterShareCard
+import com.yfuse.feature.library.shareLiftAction
 import com.yfuse.feature.player.PlayerScreen
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
@@ -166,6 +170,7 @@ private fun SearchHomeScreen(
     var showPeople by remember { mutableStateOf(false) }
     var compactResults by remember { mutableStateOf(true) }
     var filtersOpen by remember { mutableStateOf(false) }
+    val sharer = rememberPosterCardSharer()
     val state by component.store.states.collectAsState(component.store.state)
     val actionMessage by component.flags.message.collectAsState()
     val palette = LocalPalette.current
@@ -352,7 +357,13 @@ private fun SearchHomeScreen(
                                     component.onOpenItem(recommended.serverId, recommended.item.id)
                                 },
                                 liftMenu = {
-                                    searchLiftMenu(component, recommended.serverId, recommended.item, group.copies)
+                                    searchLiftMenu(
+                                        component,
+                                        recommended.serverId,
+                                        recommended.item,
+                                        group.copies,
+                                        sharer,
+                                    )
                                 },
                                 modifier =
                                     Modifier
@@ -375,7 +386,7 @@ private fun SearchHomeScreen(
                                 onOpenItem = {
                                     component.onOpenItem(group.serverId, it)
                                 },
-                                liftMenu = { item -> searchLiftMenu(component, group.serverId, item) },
+                                liftMenu = { item -> searchLiftMenu(component, group.serverId, item, sharer = sharer) },
                                 onLoadMore = {
                                     store.accept(SearchIntent.LoadMore(group.serverId))
                                 },
@@ -448,6 +459,7 @@ private fun searchLiftMenu(
     serverId: String,
     listed: MediaItem,
     copies: List<CrossServerMediaHit> = emptyList(),
+    sharer: PosterCardSharer? = null,
 ): LiftMenu {
     val item = component.flags.current(serverId, listed)
     val resumeTicks = item.resumePositionTicks?.takeIf { it > 0L && !item.played }
@@ -485,9 +497,20 @@ private fun searchLiftMenu(
                 } else {
                     emptyList()
                 },
-                listOf(
+                listOfNotNull(
                     playedLiftAction(item.played) { component.flags.setPlayed(serverId, listed, it) },
                     favoriteLiftAction(item.isFavorite) { component.flags.setFavorite(serverId, listed, it) },
+                    sharer?.let { share ->
+                        shareLiftAction {
+                            val poster =
+                                EmbyImages.poster(
+                                    component.serverBaseUrl(serverId),
+                                    item,
+                                    accessToken = component.serverAccessToken(serverId),
+                                )
+                            share.sharePosterCard(item.posterShareCard(poster))
+                        }
+                    },
                 ),
                 copies.takeIf { it.size > 1 }.orEmpty().map { copy ->
                     ItemAction(

@@ -101,6 +101,8 @@ internal fun DetailMoreActionsDialog(
     onEditMetadata: () -> Unit,
     onWatchTogether: () -> Unit,
     onDismiss: () -> Unit,
+    /** 分享 as a poster card; null where sharing is unavailable. */
+    onShare: (() -> Unit)? = null,
 ) {
     val candidates =
         remember(artworkUrls) {
@@ -134,6 +136,16 @@ internal fun DetailMoreActionsDialog(
                     onClick = onTogglePlayed,
                 ),
             )
+            if (onShare != null) {
+                add(
+                    DetailQuickAction(
+                        icon = AppIcons.Share,
+                        label = "分享",
+                        color = DecorativeTints.plum,
+                        onClick = onShare,
+                    ),
+                )
+            }
         }
 
     GlassDialog(

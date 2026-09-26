@@ -40,6 +40,7 @@ import com.yfuse.feature.library.favoriteLiftAction
 import com.yfuse.feature.library.liftRemainingLabel
 import com.yfuse.feature.library.mediaItemLiftMenu
 import com.yfuse.feature.library.playedLiftAction
+import com.yfuse.feature.library.shareLiftAction
 import com.yfuse.core.designsystem.ThemeText as Text
 
 @Composable
@@ -122,6 +123,7 @@ internal fun DetailComponent.relatedLiftMenu(
     serverId: String,
     listed: MediaItem,
     backdropUrl: String?,
+    onShare: (() -> Unit)? = null,
 ): LiftMenu {
     val item = relatedFlags.current(serverId, listed)
     val resumeTicks = item.resumePositionTicks?.takeIf { it > 0L && !item.played }
@@ -152,9 +154,10 @@ internal fun DetailComponent.relatedLiftMenu(
                         },
                     )
                 },
-                listOf(
+                listOfNotNull(
                     playedLiftAction(item.played) { relatedFlags.setPlayed(serverId, listed, it) },
                     favoriteLiftAction(item.isFavorite) { relatedFlags.setFavorite(serverId, listed, it) },
+                    onShare?.let(::shareLiftAction),
                 ),
             ),
     )

@@ -3,8 +3,12 @@ package com.yfuse.feature.detail
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.ItemAction
 import com.yfuse.core.designsystem.LiftMenu
+import com.yfuse.core.model.MediaDetail
+import com.yfuse.core.network.EmbyImages
+import com.yfuse.core.util.PosterShareCard
 import com.yfuse.feature.library.favoriteLiftAction
 import com.yfuse.feature.library.playedLiftAction
+import com.yfuse.feature.library.shareLiftAction
 
 /**
  * What a finger held on 详情's 更多 can slide to: the actions people reach for without reading
@@ -25,6 +29,7 @@ internal fun detailMoreLiftMenu(
     onDownload: () -> Unit,
     onWatchTogether: (() -> Unit)?,
     onAllActions: () -> Unit,
+    onShare: (() -> Unit)? = null,
 ): LiftMenu =
     LiftMenu(
         title = title,
@@ -46,7 +51,26 @@ internal fun detailMoreLiftMenu(
                     onWatchTogether?.let {
                         ItemAction(label = "一起看…", icon = AppIcons.Chat, onSelect = it)
                     },
+                    onShare?.let(::shareLiftAction),
                 ),
                 listOf(ItemAction(label = "全部操作…", icon = AppIcons.More, onSelect = onAllActions)),
             ),
+    )
+
+/** [posterShareCard] with the poster this page already shows. */
+internal fun MediaDetail.shareCardAt(
+    baseUrl: String,
+    accessToken: String,
+): PosterShareCard = posterShareCard(EmbyImages.poster(baseUrl, this, accessToken = accessToken))
+
+/** 详情's title as a share card; the poster is read on this device only, to paint it. */
+internal fun MediaDetail.posterShareCard(posterUrl: String?): PosterShareCard =
+    PosterShareCard(
+        title = title,
+        year = year,
+        rating = communityRating,
+        posterUrl = posterUrl,
+        tmdbId = providerIds.entries.firstOrNull { it.key.equals("Tmdb", ignoreCase = true) }?.value,
+        mediaType = type,
+        doubanId = providerIds.entries.firstOrNull { it.key.equals("Douban", ignoreCase = true) }?.value,
     )

@@ -74,7 +74,9 @@ import com.yfuse.core.network.currentPlaybackNetworkClass
 import com.yfuse.core.network.toUserMessage
 import com.yfuse.core.sync.WatchInvite
 import com.yfuse.core.sync.watchKey
+import com.yfuse.core.util.rememberPosterCardSharer
 import com.yfuse.core.util.rememberShareHandler
+import com.yfuse.feature.library.posterShareCard
 import com.yfuse.feature.player.PlaybackSelection
 import com.yfuse.feature.player.PlaybackSelectionState
 import com.yfuse.feature.watch.WatchInviteShareSheet
@@ -312,6 +314,7 @@ fun DetailScreen(component: DetailComponent) {
     var moreSheetOpen by remember { mutableStateOf(false) }
     var metadataEditorOpen by remember { mutableStateOf(false) }
     var downloadSheetOpen by remember { mutableStateOf(false) }
+    val sharer = rememberPosterCardSharer()
     // The episode rows' 浮起菜单, swipes and 长按拖选, and what of the season is downloaded.
     val episodeRowActions = rememberEpisodeRowActions(component, state.playServer?.id)
     var organizationSheetOpen by remember { mutableStateOf(false) }
@@ -775,6 +778,17 @@ fun DetailScreen(component: DetailComponent) {
                                                                     item,
                                                                     accessToken = accessToken,
                                                                 ),
+                                                            onShare = {
+                                                                sharer.sharePosterCard(
+                                                                    item.posterShareCard(
+                                                                        EmbyImages.poster(
+                                                                            baseUrl,
+                                                                            item,
+                                                                            accessToken = accessToken,
+                                                                        ),
+                                                                    ),
+                                                                )
+                                                            },
                                                         )
                                                     }
                                                 },
@@ -844,6 +858,7 @@ fun DetailScreen(component: DetailComponent) {
                                                 null
                                             },
                                         onAllActions = { moreSheetOpen = true },
+                                        onShare = { sharer.sharePosterCard(shown.shareCardAt(baseUrl, accessToken)) },
                                     )
                                 }
                             },
@@ -958,6 +973,10 @@ fun DetailScreen(component: DetailComponent) {
                             shareSheetOpen = true
                         },
                         onDismiss = { moreSheetOpen = false },
+                        onShare = {
+                            moreSheetOpen = false
+                            sharer.sharePosterCard(detail.shareCardAt(baseUrl, accessToken))
+                        },
                     )
                 }
 

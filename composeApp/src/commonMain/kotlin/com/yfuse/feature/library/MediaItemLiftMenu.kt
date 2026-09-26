@@ -6,6 +6,7 @@ import com.yfuse.core.designsystem.LiftMenu
 import com.yfuse.core.designsystem.heroDurationLabel
 import com.yfuse.core.designsystem.mediaRatingLabel
 import com.yfuse.core.model.MediaItem
+import com.yfuse.core.util.PosterShareCard
 
 /** Emby counts time in 100ns ticks. */
 private const val TICKS_PER_SECOND = 10_000_000L
@@ -102,6 +103,7 @@ internal fun libraryHomeLiftMenu(
     onOpen: () -> Unit,
     onPlay: () -> Unit,
     onFavorite: (Boolean) -> Unit,
+    onShare: (() -> Unit)? = null,
 ): LiftMenu {
     val resumable = (item.resumePositionTicks ?: 0L) > 0L && !item.played
     return mediaItemLiftMenu(
@@ -119,7 +121,7 @@ internal fun libraryHomeLiftMenu(
                         onSelect = onPlay,
                     ),
                 ),
-                listOf(favoriteLiftAction(item.isFavorite, onFavorite)),
+                listOfNotNull(favoriteLiftAction(item.isFavorite, onFavorite), onShare?.let(::shareLiftAction)),
             ),
     )
 }
@@ -141,3 +143,19 @@ internal fun flagChangeMessage(
         played == true -> "已标记为已看"
         else -> "已标记为未看"
     }
+
+/** 分享…: the title as a poster card with its public TMDB page; nothing of the server leaves. */
+internal fun shareLiftAction(onShare: () -> Unit): ItemAction =
+    ItemAction(label = "分享…", icon = AppIcons.Share, onSelect = onShare)
+
+/** The share card for a library title. [posterUrl] is only read on this device to paint it. */
+internal fun MediaItem.posterShareCard(posterUrl: String?): PosterShareCard =
+    PosterShareCard(
+        title = title,
+        year = year,
+        rating = communityRating,
+        posterUrl = posterUrl,
+        tmdbId = providerIds.entries.firstOrNull { it.key.equals("Tmdb", ignoreCase = true) }?.value,
+        mediaType = type,
+        doubanId = providerIds.entries.firstOrNull { it.key.equals("Douban", ignoreCase = true) }?.value,
+    )

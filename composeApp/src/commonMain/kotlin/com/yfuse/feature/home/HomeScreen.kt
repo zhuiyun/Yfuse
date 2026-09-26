@@ -150,6 +150,7 @@ import com.yfuse.core.model.showsReleaseDate
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.network.TmdbImages
 import com.yfuse.core.util.currentHourOfDay
+import com.yfuse.core.util.rememberPosterCardSharer
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import com.yfuse.core.designsystem.ThemeIcon as Icon
@@ -315,6 +316,7 @@ internal fun HomeContentBody(
             .hasPinnedSmartPlaylists()
     val palette = LocalPalette.current
     val themeAccent = LocalAccentColors.current.accent
+    val sharer = rememberPosterCardSharer()
     var expandedRow by remember { mutableStateOf<TmdbRow?>(null) }
     val liftMenu = LocalLiftMenu.current
 
@@ -514,7 +516,13 @@ internal fun HomeContentBody(
                                             items = state.resume,
                                             onSeeAll = onOpenLibrary,
                                             onClick = { onIntent(HomeIntent.OpenResume(it)) },
-                                            liftMenu = { it.homeLiftMenu(onIntent, inResume = true) },
+                                            liftMenu = { entry ->
+                                                entry.homeLiftMenu(
+                                                    onIntent,
+                                                    inResume = true,
+                                                    onShare = { sharer.sharePosterCard(entry.shareCard()) },
+                                                )
+                                            },
                                         )
                                     }
                                 }
@@ -528,7 +536,12 @@ internal fun HomeContentBody(
                                             items = state.favorites,
                                             onSeeAll = onOpenLibrary,
                                             onClick = { onIntent(HomeIntent.OpenResume(it)) },
-                                            liftMenu = { it.homeLiftMenu(onIntent) },
+                                            liftMenu = { entry ->
+                                                entry.homeLiftMenu(
+                                                    onIntent,
+                                                    onShare = { sharer.sharePosterCard(entry.shareCard()) },
+                                                )
+                                            },
                                         )
                                     }
                                 }
@@ -592,7 +605,12 @@ internal fun HomeContentBody(
                                                 // showed none of what the chip had just offered.
                                                 onSeeAll = { expandedRow = row },
                                                 onClick = { onIntent(HomeIntent.Open(it)) },
-                                                liftMenu = { it.homeLiftMenu(onIntent) },
+                                                liftMenu = { pick ->
+                                                    pick.homeLiftMenu(
+                                                        onShare = { sharer.sharePosterCard(pick.shareCard()) },
+                                                        onIntent = onIntent,
+                                                    )
+                                                },
                                             )
                                         }
                                     }
@@ -645,7 +663,7 @@ internal fun HomeContentBody(
                 },
                 // Anything that leaves for another page closes this one on the way, as a tap does.
                 liftMenu = { item ->
-                    item.homeLiftMenu { intent ->
+                    item.homeLiftMenu(onShare = { sharer.sharePosterCard(item.shareCard()) }) { intent ->
                         onIntent(intent)
                         if (intent !is HomeIntent.Favorite) expandedRow = null
                     }

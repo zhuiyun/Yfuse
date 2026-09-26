@@ -583,6 +583,26 @@ object AppIcons {
             curveTo(13f, 20.5f, 13.8f, 20.1f, 14.3f, 19.2f)
         }.build()
 
+    /** 分享 — an arrow leaving an open tray, the platform's share glyph. */
+    val Share =
+        strokeVector("share") {
+            moveTo(12f, 3.8f)
+            verticalLineTo(14.2f)
+            moveTo(8.4f, 7.4f)
+            lineTo(12f, 3.8f)
+            lineTo(15.6f, 7.4f)
+            moveTo(8.4f, 10.4f)
+            horizontalLineTo(6.8f)
+            arcToRelative(1.9f, 1.9f, 0f, isMoreThanHalf = false, isPositiveArc = false, -1.9f, 1.9f)
+            verticalLineTo(18.3f)
+            arcToRelative(1.9f, 1.9f, 0f, isMoreThanHalf = false, isPositiveArc = false, 1.9f, 1.9f)
+            horizontalLineTo(17.2f)
+            arcToRelative(1.9f, 1.9f, 0f, isMoreThanHalf = false, isPositiveArc = false, 1.9f, -1.9f)
+            verticalLineTo(12.3f)
+            arcToRelative(1.9f, 1.9f, 0f, isMoreThanHalf = false, isPositiveArc = false, -1.9f, -1.9f)
+            horizontalLineTo(15.6f)
+        }.build()
+
     val Download =
         strokeVector("download") {
             moveTo(12f, 4.4f)
