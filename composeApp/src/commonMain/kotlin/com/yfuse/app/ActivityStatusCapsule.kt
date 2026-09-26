@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -20,16 +21,20 @@ import com.yfuse.core.cast.CastPlaybackStatus
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
+import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OverlayActionRow
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.liveStatus
+import com.yfuse.core.designsystem.motionAwareAnimateContentSize
 import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.touchTarget
+import com.yfuse.core.offline.DownloadStatus
 import com.yfuse.core.offline.summarizeDownloads
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -79,7 +84,29 @@ internal fun ActivityStatusCapsule(
     val watch by roomSummary.collectAsState(RoomCapsuleState())
     val casting = castState.hasActiveSession || castState.status == CastPlaybackStatus.Connecting
     val room = watch.roomCode != null || watch.connecting || watch.reconnecting
-    val shown = visible && (summary.visible || casting || room)
+    // 状态胶囊瞬间展开: a result — a download done, a cast ended — held for a moment, then the
+    // capsule folds back to whatever is still going on, or leaves.
+    var flash by remember { mutableStateOf<String?>(null) }
+    val lastStatuses = remember { mutableMapOf<String, DownloadStatus>() }
+    LaunchedEffect(items) {
+        completedDownloadFlash(lastStatuses.toMap(), items)?.let { flash = it }
+        lastStatuses.clear()
+        items.forEach { lastStatuses[it.id] = it.status }
+    }
+    val lastCast = remember { arrayOfNulls<String>(1) }
+    val wasCasting = remember { booleanArrayOf(false) }
+    if (casting) castState.deviceName?.let { lastCast[0] = it }
+    LaunchedEffect(casting) {
+        if (wasCasting[0] && !casting) flash = castEndedFlash(lastCast[0])
+        wasCasting[0] = casting
+    }
+    LaunchedEffect(flash) {
+        if (flash != null) {
+            delay(CAPSULE_FLASH_MS)
+            flash = null
+        }
+    }
+    val shown = visible && (summary.visible || casting || room || flash != null)
     var expanded by remember { mutableStateOf(false) }
     var operationError by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
@@ -100,7 +127,12 @@ internal fun ActivityStatusCapsule(
             if (summary.visible) summary.title else null,
         )
     var lastLabel by remember { mutableStateOf("") }
-    if (labels.isNotEmpty()) lastLabel = labels.joinToString("  ·  ")
+    val flashing = flash
+    if (flashing != null) {
+        lastLabel = flashing
+    } else if (labels.isNotEmpty()) {
+        lastLabel = labels.joinToString("  ·  ")
+    }
     AnimatedVisibility(visible = shown, modifier = modifier, enter = enter, exit = exit, label = "activityCapsule") {
         Column(
             Modifier
@@ -112,14 +144,15 @@ internal fun ActivityStatusCapsule(
                     fill = palette.glassStrong,
                     border = palette.border,
                     over = palette.background,
-                ).padding(horizontal = 18.dp, vertical = 10.dp),
+                ).motionAwareAnimateContentSize()
+                .padding(horizontal = 18.dp, vertical = 10.dp),
         ) {
             // Stable wording — 「一起看 · 重连中」, 「下载任务 · 3 项」 — so it is read out when it
             // changes; the ticking percentage lives in the dialog, not here.
             Text(
                 lastLabel,
                 style = AppTypography.caption.strong,
-                color = palette.text,
+                color = if (flashing != null) LocalAccentColors.current.accent else palette.text,
                 maxLines = 2,
                 modifier = Modifier.liveStatus(),
             )
