@@ -774,7 +774,7 @@ androidMain 与 tvApp 本轮没有真编译。按以下几类交叉核对，没�
 按本报告的条目，在分支 `claude/ui-interaction-design-review-tu151k` 上做了修复，基线是 c051d021（1.0.86）。
 工作按区域分成 7 条线并行，逐条审阅后合并。
 
-- 本机没有 Android SDK，无法编译，也没有跑过测试。编译、ktlint 和 TV 单测由 CI 的 TV 质量门验证，结果见本节末尾；`commonTest` 只在完整质量门里跑。
+- 本机没有 Android SDK，无法在本地编译或运行测试。编译、ktlint 和 TV 单测由 CI 的 TV 质量门验证，已经通过，见本节末尾；`commonTest` 只在完整质量门里跑，还没有跑过。
 - 没有打包，没有改 `version.properties` 和 `release-notes.txt`。发版说明草稿见本节后部，打包时再写入。
 
 ### 已修复
@@ -892,7 +892,15 @@ androidMain 与 tvApp 本轮没有真编译。按以下几类交叉核对，没�
   - 服务器：Plex 重新登录按钮无反应、重新登录后仍显示需重新登录、局域网 HTTPS 端口被改成 HTTP。
   - 播放器：投屏失败后残留胶囊、屏保唤醒后不再计时、厂商亮度刻度、画中画亮度。
   - 详情：剧集和单集页认不出自己的一起看房间、标记整部剧后播放键不重新解析。
-- **CI**：TV 质量门（编译全部生产代码、ktlint、`tvShared:testAndroidHostTest`、debug 与 release 构建）正在运行，结果待补。`commonTest` 只在完整质量门里跑，本分支还没有跑过。
+- **CI**：
+  - **TV 质量门，run 198，测的是 72cb72c7（已含全部代码改动），通过**。覆盖的内容：
+    - 编译全部生产代码（composeApp commonMain / androidMain 与 tvApp）；
+    - `tvApp` / `tvShared` 的 ktlint；
+    - `tvShared:testAndroidHostTest`，含新增的遥控器与控制层测试；
+    - debug 与 release（R8）构建；
+    - 打包后的 TV 合约检查。
+  - 此前的 run 197（测 e5aa50b4）在 debug 构建的 D8 合并阶段内存不足：Gradle 进程堆为 2 GB，同时在跑 R8 和 lint。随后进程挂起，直到 60 分钟超时被取消。在它之前，编译和 TV 单测都已完成。换到最新提交重跑后没有复现。如果以后再遇到，可以考虑调高 `org.gradle.jvmargs`。
+  - **还没跑过的**：`composeApp/src/commonTest` 里新增和修改的单测（ServersStoreTest、SearchStoreTest、AiringLocalTimeTest、DetailTrackChoiceTest、WatchRoomActionTest 等）只由完整质量门（`quality-gates-v2`，经 `phoneShared:testAndroidHostTest`）执行。这个工作流只在 PR 和 master 推送时触发，本分支还没有跑过。合并前需要开 PR 跑一遍，或者在本地用 Gradle 跑一遍。
 
 ## 附录：术语表建议
 
