@@ -67,6 +67,7 @@ import com.yfuse.core.sync.WatchTogetherClient
 import com.yfuse.core.sync.playback.PlaybackSyncManager
 import com.yfuse.core.sync.playback.PlaybackSyncStore
 import com.yfuse.core.util.platformName
+import com.yfuse.feature.library.LibraryGridColumnsPreferences
 import com.yfuse.feature.player.PlaybackReportingCoordinator
 import com.yfuse.feature.search.SearchRequests
 import com.yfuse.feature.servers.EmbyQuickConnectGateway
@@ -119,6 +120,7 @@ fun appModule(
     }
     single { ThemePreferences(get()) }
     single { TipsPreferences(get()) }
+    single { LibraryGridColumnsPreferences(get()) }
     single { HomeShelfPreferences(get()) }
     single { PlaybackPreferences(get()) }
     single { PlaybackFailoverRequest() }

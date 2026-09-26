@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -19,17 +20,21 @@ import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
@@ -39,6 +44,7 @@ import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.CaptionedPoster
+import com.yfuse.core.designsystem.ContextualTip
 import com.yfuse.core.designsystem.DialogPresence
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
@@ -47,7 +53,10 @@ import com.yfuse.core.designsystem.ItemAction
 import com.yfuse.core.designsystem.LiftMenu
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
+import com.yfuse.core.designsystem.LocalLiftMenu
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.LocalTips
+import com.yfuse.core.designsystem.MediaSharedElementKey
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.MotionSwap
 import com.yfuse.core.designsystem.OrbProgress
@@ -58,11 +67,14 @@ import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.OverlayOptionRow
 import com.yfuse.core.designsystem.OverlayOptionSpacing
 import com.yfuse.core.designsystem.PageHint
+import com.yfuse.core.designsystem.Poster
 import com.yfuse.core.designsystem.SKELETON_PHASE_STEP_MS
 import com.yfuse.core.designsystem.SkeletonHandoff
 import com.yfuse.core.designsystem.SkeletonPosterTile
 import com.yfuse.core.designsystem.StatusBarIconStyle
+import com.yfuse.core.designsystem.Tips
 import com.yfuse.core.designsystem.YfChip
+import com.yfuse.core.designsystem.calmMotion
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.motionAwareScrollToItem
 import com.yfuse.core.designsystem.motionItem
@@ -70,6 +82,7 @@ import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberDelayedBusy
+import com.yfuse.core.designsystem.rememberScreenReaderActive
 import com.yfuse.core.designsystem.skeletonSweep
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.designsystem.waitingPulse
@@ -78,6 +91,9 @@ import com.yfuse.core.model.LibrarySort
 import com.yfuse.core.model.MediaContainerKind
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.network.EmbyImages
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.koin.core.context.GlobalContext
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
 
@@ -89,6 +105,18 @@ import com.yfuse.core.designsystem.ThemeText as Text
  * posters instead of stretching three of them across it.
  */
 private val PosterMinWidth = 96.dp
+
+/** The gap between two columns. */
+private val GridSpacing = 10.dp
+
+/** A caption's height before one has been measured: title, year and the space around them. */
+private val CaptionEstimate = 44.dp
+
+/** Fewer posters than this are a screen or two; an index would only be in the way. */
+private const val INDEX_MIN_ITEMS = 30
+
+/** Posters are 2:3. */
+private const val POSTER_RATIO = 2f / 3f
 
 /**
  * How many tiles from the end the grid asks for the next page — roughly six rows at the
@@ -125,6 +153,47 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
     val gridState = component.gridState
     val bottomContentInset = systemNavigationContentInset()
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val scope = rememberCoroutineScope()
+    val pixels = LocalDensity.current
+    val still = reduceMotion || calmMotion()
+    val screenReader = rememberScreenReaderActive()
+    val liftMenu = LocalLiftMenu.current
+    val tips = LocalTips.current
+
+    // 捏合换密度: how many posters a row holds, remembered per library.
+    val columnStore =
+        remember { runCatching { GlobalContext.get().getOrNull<LibraryGridColumnsPreferences>() }.getOrNull() }
+    val gridDensity =
+        remember(gridState, component.densityKey) {
+            GridDensityState(gridState, scope, columnStore?.columns(component.densityKey))
+        }
+    SideEffect {
+        gridDensity.still = still
+        with(pixels) {
+            gridDensity.spacingPx = GridSpacing.toPx()
+            gridDensity.minTilePx = PosterMinWidth.toPx()
+            if (gridDensity.captionPx <= 0f) gridDensity.captionPx = CaptionEstimate.toPx()
+        }
+        gridDensity.onSettled = { settled, pinched ->
+            columnStore?.setColumns(component.densityKey, settled)
+            if (pinched) tips?.markUsed(Tips.PINCH_GRID)
+        }
+    }
+    val titles = gridDensity.columns?.let(::gridShowsTitles) ?: true
+
+    // 快速滚动索引: one stop per letter, year, month or score, labelled off the main thread —
+    // the pinyin lookup is a collator walk per title.
+    var indexSections by remember { mutableStateOf(emptyList<GridIndexSection>()) }
+    LaunchedEffect(state.items, state.sort, state.directoryKind, state.sortable) {
+        val items = state.items
+        val sort = state.sort
+        indexSections =
+            if (state.directoryKind != null || !state.sortable) {
+                emptyList()
+            } else {
+                withContext(Dispatchers.Default) { gridIndexSections(items.map { gridIndexLabel(sort, it) }) }
+            }
+    }
 
     // A new sort or filter keeps the old page on screen until the new one lands, so the grid
     // never blanks. On a slow server that read as a tap that had missed: the control that asked
@@ -217,6 +286,7 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                         color = palette.sub2,
                     )
                 }
+                if (state.loadedCount > 0) GridDensityButtons(gridDensity)
                 if (state.sortable) {
                     Row(
                         Modifier
@@ -322,56 +392,79 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                         )
 
                     else -> {
-                        LazyVerticalGrid(
-                            columns = GridCells.Adaptive(PosterMinWidth),
-                            state = gridState,
-                            contentPadding =
-                                PaddingValues(
-                                    start = Dimens.pageHorizontal,
-                                    end = Dimens.pageHorizontal,
-                                    bottom = bottomContentInset,
-                                ),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp),
-                            modifier = Modifier.fillMaxSize().graphicsLayer { alpha = gridAlpha.value },
+                        Box(
+                            Modifier
+                                .fillMaxSize()
+                                .onSizeChanged { size ->
+                                    gridDensity.availableWidth =
+                                        size.width - 2f * with(pixels) { Dimens.pageHorizontal.toPx() }
+                                }.gridPinch(gridDensity) {
+                                    !refiltering && !screenReader && liftMenu?.isOpen != true
+                                },
                         ) {
-                            if (state.directoryKind != null) {
-                                motionItems(
-                                    items = state.containers,
-                                    key = { "${it.serverId}-${it.kind}-${it.id}" },
-                                ) { container ->
-                                    CaptionedPoster(
-                                        url =
+                            LazyVerticalGrid(
+                                columns =
+                                    gridDensity.columns?.let { GridCells.Fixed(it) }
+                                        ?: GridCells.Adaptive(PosterMinWidth),
+                                state = gridState,
+                                contentPadding =
+                                    PaddingValues(
+                                        start = Dimens.pageHorizontal,
+                                        end = Dimens.pageHorizontal,
+                                        bottom = bottomContentInset,
+                                    ),
+                                horizontalArrangement = Arrangement.spacedBy(GridSpacing),
+                                verticalArrangement = Arrangement.spacedBy(12.dp),
+                                modifier =
+                                    Modifier.fillMaxSize().graphicsLayer {
+                                        alpha = gridAlpha.value
+                                        // A pinch draws the laid-out grid at the size in between two counts.
+                                        val scale = gridDensity.scale()
+                                        scaleX = scale
+                                        scaleY = scale
+                                        transformOrigin = gridDensity.transformOrigin(size.width, size.height)
+                                    },
+                            ) {
+                                if (state.directoryKind != null) {
+                                    motionItems(
+                                        items = state.containers,
+                                        key = { "${it.serverId}-${it.kind}-${it.id}" },
+                                    ) { container ->
+                                        val url =
                                             EmbyImages.primary(
                                                 baseUrl = baseUrl,
                                                 itemId = container.id,
                                                 tag = container.posterTag,
                                                 maxHeight = 450,
                                                 accessToken = accessToken,
-                                            ),
-                                        title = container.title,
-                                        year = container.itemCount?.let { "$it 项" },
-                                        progress = null,
-                                        onClick = { component.onOpenContainer(container) },
-                                        modifier = Modifier,
-                                    )
-                                }
-                            } else {
-                                motionItems(state.items, key = { it.id }) { item ->
-                                    Box(
-                                        // Appended pages fade in where they land rather than
-                                        // appearing mid-scroll, and a sort change cross-dissolves
-                                        // instead of swapping the grid between two frames.
-                                        modifier = Modifier,
-                                    ) {
-                                        PosterCard(
-                                            baseUrl = baseUrl,
-                                            accessToken = accessToken,
-                                            serverId = component.serverId,
-                                            item = item,
-                                            showProgress = false,
-                                            onClick = { component.onOpenItem(item.id) },
-                                            liftMenu = {
+                                            )
+                                        if (titles) {
+                                            CaptionedPoster(
+                                                url = url,
+                                                title = container.title,
+                                                year = container.itemCount?.let { "$it 项" },
+                                                progress = null,
+                                                onClick = { component.onOpenContainer(container) },
+                                                modifier = Modifier,
+                                            )
+                                        } else {
+                                            Poster(
+                                                url = url,
+                                                contentDescription = container.title,
+                                                onClick = { component.onOpenContainer(container) },
+                                                modifier = Modifier.fillMaxWidth().aspectRatio(POSTER_RATIO),
+                                            )
+                                        }
+                                    }
+                                } else {
+                                    motionItems(state.items, key = { it.id }) { item ->
+                                        Box(
+                                            // Appended pages fade in where they land rather than
+                                            // appearing mid-scroll, and a sort change cross-dissolves
+                                            // instead of swapping the grid between two frames.
+                                            modifier = Modifier,
+                                        ) {
+                                            val lift = {
                                                 gridLiftMenu(
                                                     item = item,
                                                     backdropUrl =
@@ -380,84 +473,128 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                                                     onOpen = { component.onOpenItem(item.id) },
                                                     onIntent = component.store::accept,
                                                 )
-                                            },
-                                        )
-                                        if (state.containerKind != null) {
-                                            Box(
-                                                Modifier
-                                                    .align(Alignment.TopEnd)
-                                                    .padding(3.dp)
-                                                    .pressable(
-                                                        onClickLabel =
-                                                            "从${if (
-                                                                state.containerKind ==
-                                                                MediaContainerKind.Playlist
-                                                            ) {
-                                                                "播放列表"
-                                                            } else {
-                                                                "合集"
-                                                            }}移除${item.title}",
-                                                        onClick = {
-                                                            component.store.accept(
-                                                                GridIntent.RequestRemove(
-                                                                    item.id,
-                                                                ),
-                                                            )
-                                                        },
-                                                    ).touchTarget(),
-                                                contentAlignment = Alignment.Center,
-                                            ) {
+                                            }
+                                            if (titles) {
+                                                PosterCard(
+                                                    baseUrl = baseUrl,
+                                                    accessToken = accessToken,
+                                                    serverId = component.serverId,
+                                                    item = item,
+                                                    showProgress = false,
+                                                    onClick = { component.onOpenItem(item.id) },
+                                                    liftMenu = lift,
+                                                )
+                                            } else {
+                                                // Five across: the poster alone, its title left to the
+                                                // screen reader and the lifted card.
+                                                Poster(
+                                                    url = EmbyImages.poster(baseUrl, item, accessToken = accessToken),
+                                                    contentDescription = item.title,
+                                                    onClick = { component.onOpenItem(item.id) },
+                                                    liftMenu = lift,
+                                                    sharedTransitionKey =
+                                                        MediaSharedElementKey(
+                                                            component.serverId,
+                                                            item.id,
+                                                        ),
+                                                    modifier = Modifier.fillMaxWidth().aspectRatio(POSTER_RATIO),
+                                                )
+                                            }
+                                            if (state.containerKind != null) {
                                                 Box(
                                                     Modifier
-                                                        .size(30.dp)
-                                                        .glass(
-                                                            shape = AppShapes.chip,
-                                                            fill = palette.background.copy(alpha = 0.82f),
-                                                            border = palette.border,
-                                                        ),
+                                                        .align(Alignment.TopEnd)
+                                                        .padding(3.dp)
+                                                        .pressable(
+                                                            onClickLabel =
+                                                                "从${if (
+                                                                    state.containerKind ==
+                                                                    MediaContainerKind.Playlist
+                                                                ) {
+                                                                    "播放列表"
+                                                                } else {
+                                                                    "合集"
+                                                                }}移除${item.title}",
+                                                            onClick = {
+                                                                component.store.accept(
+                                                                    GridIntent.RequestRemove(
+                                                                        item.id,
+                                                                    ),
+                                                                )
+                                                            },
+                                                        ).touchTarget(),
                                                     contentAlignment = Alignment.Center,
                                                 ) {
-                                                    Icon(
-                                                        AppIcons.Close,
-                                                        contentDescription = null,
-                                                        tint = palette.text,
-                                                        modifier = Modifier.size(12.dp),
-                                                    )
+                                                    Box(
+                                                        Modifier
+                                                            .size(30.dp)
+                                                            .glass(
+                                                                shape = AppShapes.chip,
+                                                                fill = palette.background.copy(alpha = 0.82f),
+                                                                border = palette.border,
+                                                            ),
+                                                        contentAlignment = Alignment.Center,
+                                                    ) {
+                                                        Icon(
+                                                            AppIcons.Close,
+                                                            contentDescription = null,
+                                                            tint = palette.text,
+                                                            modifier = Modifier.size(12.dp),
+                                                        )
+                                                    }
                                                 }
                                             }
                                         }
                                     }
                                 }
-                            }
-                            if (state.loadingMore || state.loadMoreError != null) {
-                                motionItem(
-                                    key = "grid-footer",
-                                    span = { GridItemSpan(maxLineSpan) },
-                                ) {
-                                    GridFooter(
-                                        error = state.loadMoreError,
-                                        onRetry = { component.store.accept(GridIntent.LoadMore) },
-                                    )
+                                if (state.loadingMore || state.loadMoreError != null) {
+                                    motionItem(
+                                        key = "grid-footer",
+                                        span = { GridItemSpan(maxLineSpan) },
+                                    ) {
+                                        GridFooter(
+                                            error = state.loadMoreError,
+                                            onRetry = { component.store.accept(GridIntent.LoadMore) },
+                                        )
+                                    }
                                 }
                             }
-                        }
-                        if (refiltering) {
-                            // The old page only bridges the wait: a title tapped on it may not be
-                            // in what the new criteria bring back.
-                            Box(
-                                Modifier.matchParentSize().pointerInput(Unit) {
-                                    awaitPointerEventScope {
-                                        while (true) {
-                                            awaitPointerEvent().changes.forEach { it.consume() }
+                            if (refiltering) {
+                                // The old page only bridges the wait: a title tapped on it may not be
+                                // in what the new criteria bring back.
+                                Box(
+                                    Modifier.matchParentSize().pointerInput(Unit) {
+                                        awaitPointerEventScope {
+                                            while (true) {
+                                                awaitPointerEvent().changes.forEach { it.consume() }
+                                            }
                                         }
-                                    }
-                                },
-                            )
+                                    },
+                                )
+                            }
+                            if (indexSections.size >= 2 &&
+                                state.loadedCount >= INDEX_MIN_ITEMS &&
+                                !screenReader &&
+                                !gridDensity.zooming
+                            ) {
+                                GridIndexStrip(
+                                    sections = indexSections,
+                                    onJump = { gridState.requestScrollToItem(it) },
+                                    modifier = Modifier.padding(top = 8.dp, bottom = bottomContentInset),
+                                )
+                            }
                         }
                     }
                 }
             }
         }
+
+        ContextualTip(
+            id = Tips.PINCH_GRID,
+            text = "双指捏合可以调整每行海报数",
+            active = state.loadedCount > 0 && !gridDensity.zooming && !screenReader,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = bottomContentInset + 16.dp),
+        )
 
         // 排序 was a Material [DropdownMenu] hung off the chip — the last anchored menu in the
         // app, and the one shape the overlay system exists to replace. Centred like every
