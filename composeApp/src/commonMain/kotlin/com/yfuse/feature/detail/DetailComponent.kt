@@ -126,6 +126,12 @@ class DetailComponent(
                     DetailIntent.TogglePlayed -> mirrorManualPlayed(delegateStore.state)
                     is DetailIntent.ApplyEpisodeProgress ->
                         mirrorEpisodeProgress(delegateStore.state, intent.action)
+                    // The same durable path, for episodes named rather than selected.
+                    is DetailIntent.MarkEpisodes ->
+                        mirrorEpisodeProgress(
+                            delegateStore.state.copy(progressSelection = intent.episodeIds),
+                            if (intent.played) EpisodeProgressAction.MarkWatched else EpisodeProgressAction.Reset,
+                        )
                     else -> Unit
                 }
                 delegateStore.accept(intent)
