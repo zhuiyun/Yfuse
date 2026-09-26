@@ -32,13 +32,18 @@ import kotlin.test.assertTrue
 
 class AndroidProxyMediaSessionsTest {
     private val runtimeHeap = AndroidPlaybackMemoryBudget.heapSample
+    private val runtimePool = AndroidPlaybackMemoryBudget.pool
 
     // These tests count origin reads, which assumes the startup slice a range validated survives
     // to serve that range. Judged from this JVM's own heap, memory pressure can drop it first and
     // send the read back to the origin, so the count depended on the run: both origin-count
-    // assertions here have failed on CI while passing on other runs of the same code.
+    // assertions here have failed on CI while passing on other runs of the same code. So can a
+    // small share of the process-wide pool, which also holds every lease and reservation earlier
+    // tests left open: below twice the block size the slice is dropped too. Each test gets a fresh
+    // pool as well as an ample heap.
     @BeforeTest
     fun pinHeapWithoutPressure() {
+        AndroidPlaybackMemoryBudget.pool = PlaybackMemoryPool(TEST_POOL_BYTES)
         AndroidPlaybackMemoryBudget.heapSample = {
             PlaybackHeapSample(freeBytes = AMPLE_HEAP, maximumBytes = AMPLE_HEAP)
         }
@@ -47,6 +52,7 @@ class AndroidProxyMediaSessionsTest {
 
     @AfterTest
     fun restoreRuntimeHeap() {
+        AndroidPlaybackMemoryBudget.pool = runtimePool
         AndroidPlaybackMemoryBudget.heapSample = runtimeHeap
         AndroidPlaybackMemoryBudget.refreshPressure()
     }
@@ -589,3 +595,6 @@ private val CACHE_ID = YCacheIdentity("scope", "movie", "first")
 
 /** Far more free heap than any pressure threshold asks for. */
 private const val AMPLE_HEAP = 1L shl 30
+
+/** The production ceiling; every transport lease these tests open gets well over twice its block size. */
+private const val TEST_POOL_BYTES = 96L * 1024L * 1024L
