@@ -787,6 +787,7 @@ class EmbyRepository(
             source = source ?: previous.source,
             versions = versions.ifEmpty { previous.versions },
             playbackSegments = playbackSegments.ifEmpty { previous.playbackSegments },
+            playbackChapters = playbackChapters.ifEmpty { previous.playbackChapters },
             trickplay = trickplay ?: previous.trickplay,
             runtimeTicks = runtimeTicks ?: previous.runtimeTicks,
         )

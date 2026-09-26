@@ -29,6 +29,8 @@ data class Episode(
     /** `2026-07-30`, when the server knows it. Shown beside the runtime in the full list. */
     val premiereDate: String? = null,
     val playbackSegments: List<PlaybackSegment> = emptyList(),
+    /** The file's named chapters, which divide the player's progress bar. */
+    val playbackChapters: List<PlaybackChapter> = emptyList(),
     val providerIds: Map<String, String> = emptyMap(),
     /** Present only when the caller explicitly asks the episode list for MediaSources. */
     val versions: List<MediaVersion> = emptyList(),

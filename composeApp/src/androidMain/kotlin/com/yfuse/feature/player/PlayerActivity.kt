@@ -1395,6 +1395,7 @@ class PlayerActivity : ComponentActivity() {
                         existing[episode.id]?.copy(
                             title = title,
                             playbackSegments = episode.playbackSegments,
+                            chapters = episode.playbackChapters.ifEmpty { existing[episode.id]?.chapters.orEmpty() },
                             seasonNumber = episode.seasonNumber,
                             episodeNumber = episode.indexNumber,
                             seriesId = seriesId,
@@ -1450,6 +1451,7 @@ class PlayerActivity : ComponentActivity() {
                                 title = title,
                                 serverId = server.id,
                                 playbackSegments = episode.playbackSegments,
+                                chapters = episode.playbackChapters,
                                 seasonNumber = episode.seasonNumber,
                                 episodeNumber = episode.indexNumber,
                                 seriesId = seriesId,

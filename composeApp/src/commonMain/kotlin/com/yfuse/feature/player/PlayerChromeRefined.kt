@@ -22,7 +22,6 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -57,6 +56,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawOutline
@@ -65,6 +66,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
@@ -94,8 +96,10 @@ import com.yfuse.core.designsystem.LightEffect
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalHaptics
 import com.yfuse.core.designsystem.LocalRouteVisible
+import com.yfuse.core.designsystem.LocalTips
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.PlayerTokens
+import com.yfuse.core.designsystem.Tips
 import com.yfuse.core.designsystem.ambientSeekAccent
 import com.yfuse.core.designsystem.cssLinearGradient
 import com.yfuse.core.designsystem.glass
@@ -110,6 +114,7 @@ import com.yfuse.core.designsystem.touchTarget
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.abs
+import kotlin.math.min
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
 
@@ -325,6 +330,8 @@ internal fun RefinedBottomBar(
     modifier: Modifier = Modifier,
     /** 氛围光; the scrim reads it per frame, the seek accent follows its mean. Null keeps both plain. */
     ambientLight: State<AmbientLight>? = null,
+    /** 弹幕热度, read while the rail draws; null draws no curve. */
+    danmakuHeat: () -> DanmakuHeat? = { null },
 ) {
     // A new timeline sample arrives twice a second, and this function is called with it. Only
     // this frame stops here: everything below takes the holder and reads it from a draw or a
@@ -363,6 +370,7 @@ internal fun RefinedBottomBar(
         artworkIdentity = stableArtworkIdentity,
         modifier = modifier,
         ambientLight = ambientLight,
+        danmakuHeat = danmakuHeat,
     )
 }
 
@@ -396,6 +404,7 @@ private fun RefinedBottomBarContent(
     artworkIdentity: Any?,
     modifier: Modifier = Modifier,
     ambientLight: State<AmbientLight>? = null,
+    danmakuHeat: () -> DanmakuHeat? = { null },
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     // Where the finger left the thumb. Read from derived state only, never from composition:
@@ -407,6 +416,8 @@ private fun RefinedBottomBarContent(
     var cancelledFrom by remember { mutableStateOf<Float?>(null) }
     val releasing = remember { mutableStateOf<Float?>(null) }
     val scrubbing = remember { derivedStateOf { scrubbed.value != null } }
+    // How finely the bar is being dragged and how far up the finger is, for the preview to follow.
+    val scrubUi = remember { SeekScrubUi() }
     val shownFraction =
         remember {
             derivedStateOf {
@@ -494,6 +505,14 @@ private fun RefinedBottomBarContent(
             }
             Column(Modifier.weight(1f)) {
                 val preview = trickplay
+                val chapters = remember(progressMarkers) { progressMarkers.chapterMarkers() }
+                val filmstripFrames =
+                    remember(preview, durationMs) {
+                        preview
+                            ?.takeIf { durationMs > 0L }
+                            ?.let { SeekFilmstripFrames(it, durationMs) }
+                            ?.takeIf { it.count > 1 }
+                    }
                 AnimatedVisibility(
                     visible = scrubbing.value && preview != null,
                     enter =
@@ -502,7 +521,8 @@ private fun RefinedBottomBarContent(
                         } else {
                             fadeIn(tween(Motion.QUICK, easing = Motion.Curve)) +
                                 scaleIn(Motion.settle(), initialScale = 0.92f) +
-                                expandVertically(Motion.settle(), expandFrom = Alignment.Bottom)
+                                // Unclipped: the card rises with the finger, out of the room it opened.
+                                expandVertically(Motion.settle(), expandFrom = Alignment.Bottom, clip = false)
                         },
                     exit =
                         if (reduceMotion) {
@@ -513,39 +533,87 @@ private fun RefinedBottomBarContent(
                                 shrinkVertically(
                                     tween(Motion.QUICK, easing = Motion.Curve),
                                     shrinkTowards = Alignment.Bottom,
+                                    clip = false,
                                 )
                         },
                 ) {
                     if (preview != null) {
-                        val previewHeight =
-                            (
-                                RefinedTrickplayPreviewWidth.value * preview.height /
-                                    preview.width.coerceAtLeast(1)
-                            ).dp + 30.dp
+                        val previewHeight = trickplayPreviewHeight(preview, chapterLine = chapters.isNotEmpty())
                         BoxWithConstraints(
                             Modifier
                                 .fillMaxWidth()
                                 .height(previewHeight + 8.dp),
                         ) {
                             // The still follows the finger, so the card is placed rather than
-                            // laid out again on every sample of it.
+                            // laid out again on every sample of it: sideways with the thumb, and up
+                            // with the finger, which would otherwise cover it in the finer tiers.
                             val trackWidthPx = constraints.maxWidth
-                            TrickplayPreview(
-                                storyboard = preview,
-                                positionMs = shownPositionMs(),
-                                modifier =
-                                    Modifier
-                                        .offset {
-                                            val cardPx = RefinedTrickplayPreviewWidth.roundToPx()
-                                            IntOffset(
-                                                x =
-                                                    (trackWidthPx * shownFraction.value - cardPx / 2f)
-                                                        .toInt()
-                                                        .coerceIn(0, (trackWidthPx - cardPx).coerceAtLeast(0)),
-                                                y = 0,
-                                            )
-                                        }.lightOnAppear(enabled = !reduceMotion),
-                            )
+                            val previewPositionMs = shownPositionMs()
+                            val tier = scrubUi.tier
+                            androidx.compose.animation.AnimatedVisibility(
+                                visible = tier != SeekScrubTier.Filmstrip,
+                                enter = fadeIn(Motion.tween(Motion.QUICK)),
+                                exit = fadeOut(Motion.tween(Motion.QUICK)),
+                            ) {
+                                TrickplayPreview(
+                                    storyboard = preview,
+                                    positionMs = previewPositionMs,
+                                    chapter = chapterNameAt(chapters, previewPositionMs),
+                                    chapterLine = chapters.isNotEmpty(),
+                                    timeSuffix = SEEK_FINE_LABEL.takeIf { tier == SeekScrubTier.Fine },
+                                    modifier =
+                                        Modifier
+                                            .offset {
+                                                val cardPx = RefinedTrickplayPreviewWidth.roundToPx()
+                                                IntOffset(
+                                                    x =
+                                                        (trackWidthPx * shownFraction.value - cardPx / 2f)
+                                                            .toInt()
+                                                            .coerceIn(0, (trackWidthPx - cardPx).coerceAtLeast(0)),
+                                                    y = -scrubUi.previewLiftPx(SeekPreviewMaxLift.toPx()),
+                                                )
+                                            }.lightOnAppear(enabled = !reduceMotion),
+                                )
+                            }
+                            // 胶片条 takes the card's place once the finger is high enough, centred
+                            // on the thumb and stepping a frame at a time under it.
+                            if (filmstripFrames != null) {
+                                val slots =
+                                    with(LocalDensity.current) {
+                                        filmstripSlots(
+                                            availablePx = trackWidthPx.toFloat(),
+                                            framePx = SeekFilmstripFrameWidth.toPx(),
+                                            gapPx = SeekFilmstripGap.toPx(),
+                                            paddingPx = SeekFilmstripPadding.toPx(),
+                                        )
+                                    }
+                                androidx.compose.animation.AnimatedVisibility(
+                                    visible = tier == SeekScrubTier.Filmstrip,
+                                    enter = fadeIn(Motion.tween(Motion.QUICK)),
+                                    exit = fadeOut(Motion.tween(Motion.QUICK)),
+                                    modifier = Modifier.align(Alignment.BottomStart),
+                                ) {
+                                    SeekFilmstrip(
+                                        storyboard = preview,
+                                        frames = filmstripFrames,
+                                        selected = scrubUi.frame,
+                                        slots = slots,
+                                        modifier =
+                                            Modifier.offset {
+                                                val stripPx = filmstripWidth(slots).roundToPx()
+                                                IntOffset(
+                                                    x =
+                                                        (trackWidthPx * shownFraction.value - stripPx / 2f)
+                                                            .toInt()
+                                                            .coerceIn(0, (trackWidthPx - stripPx).coerceAtLeast(0)),
+                                                    y =
+                                                        -scrubUi.previewLiftPx(SeekPreviewMaxLift.toPx()) -
+                                                            SeekFilmstripRise.roundToPx(),
+                                                )
+                                            },
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -558,6 +626,9 @@ private fun RefinedBottomBarContent(
                     accent = progressAccent,
                     enabled = !seekLocked && durationMs > 0L,
                     showTimeBubble = trickplay == null,
+                    trickplay = trickplay,
+                    scrub = scrubUi,
+                    heat = danmakuHeat,
                     onScrubTo = {
                         scrubbed.value = it
                         if (pendingSeek != null) pendingSeek = null
@@ -586,6 +657,14 @@ private fun RefinedBottomBarContent(
             }
             Box(Modifier.height(44.dp), contentAlignment = Alignment.Center) {
                 RefinedTimeText { durationMs.coerceAtLeast(0L) / 1_000L }
+                // 结束于 sits over the duration it is counted from, clear of the rail beside it and
+                // of the keys below; while a drag looks ahead it says when that point would end.
+                PlaybackEndsAt(
+                    positionMs = shownPositionMs,
+                    durationMs = durationMs,
+                    speed = speed,
+                    modifier = Modifier.align(Alignment.TopCenter).offset(y = (-6).dp),
+                )
             }
         }
 
@@ -893,8 +972,18 @@ internal fun StandardSeekBar(
     enabled: Boolean = true,
     /** Without a trickplay preview, the scrubbed time rides above the thumb instead. */
     showTimeBubble: Boolean = false,
+    /**
+     * The storyboard behind the filmstrip tier and Shift + arrow frame steps. Without one, moving
+     * up off the rail stops at fine.
+     */
+    trickplay: TrickplayStoryboard? = null,
+    /** Where the drag publishes its tier and lift, for a preview drawn outside the bar. */
+    scrub: SeekScrubUi? = null,
+    /** 弹幕热度, read while drawing; null draws no curve. */
+    heat: () -> DanmakuHeat? = { null },
 ) {
     val haptics = LocalHaptics.current
+    val tips = LocalTips.current
     val light = rememberLightFeedback(enabled)
     val currentLight by rememberUpdatedState(light)
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
@@ -913,6 +1002,45 @@ internal fun StandardSeekBar(
                 (marker.positionMs.toFloat() / durationMs.coerceAtLeast(1L)).coerceIn(0f, 1f)
             }
         }
+    // 章节: where the rail is cut, and which part the finger is in while it drags.
+    val chapters = remember(progressMarkers) { progressMarkers.chapterMarkers() }
+    val chapterStarts =
+        remember(chapters, durationMs) {
+            chapters.map { (it.positionMs.toFloat() / durationMs.coerceAtLeast(1L)).coerceIn(0f, 1f) }
+        }
+    val chapterCuts = remember(chapters, durationMs) { chapterBoundaryFractions(chapters, durationMs) }
+    var dragChapter by remember { mutableIntStateOf(-1) }
+    // 精细与胶片条: how far up off the rail the finger has gone decides how finely it moves.
+    val density = LocalDensity.current
+    val scrubGesture =
+        remember(density) {
+            with(density) {
+                SeekScrubGesture(
+                    fineLiftPx = SeekFineLift.toPx(),
+                    filmstripLiftPx = SeekFilmstripLift.toPx(),
+                    hysteresisPx = SeekTierHysteresis.toPx(),
+                    frameStepPx = SeekFilmstripStep.toPx(),
+                )
+            }
+        }
+    val ownScrubUi = remember { SeekScrubUi() }
+    val scrubUi = scrub ?: ownScrubUi
+    val filmstripFrames =
+        remember(trickplay, durationMs) {
+            trickplay
+                ?.takeIf { durationMs > 0L }
+                ?.let { SeekFilmstripFrames(it, durationMs) }
+                ?.takeIf { it.count > 1 }
+        }
+    // Read by the drag handlers, which outlive the composition that started them: markers,
+    // chapters and the storyboard can all arrive while a finger is already down.
+    val latestMarkers by rememberUpdatedState(progressMarkers)
+    val latestMarkerFractions by rememberUpdatedState(markerFractions)
+    val latestChapters by rememberUpdatedState(chapters)
+    val latestChapterStarts by rememberUpdatedState(chapterStarts)
+    val latestDurationMs by rememberUpdatedState(durationMs)
+    val latestFrames by rememberUpdatedState(filmstripFrames)
+    val latestScrubUi by rememberUpdatedState(scrubUi)
     val latestOnScrubTo by rememberUpdatedState(onScrubTo)
     val latestOnCommit by rememberUpdatedState(onCommit)
     val latestOnCancel by rememberUpdatedState(onCancel)
@@ -924,6 +1052,7 @@ internal fun StandardSeekBar(
         if (!enabled && dragging) {
             dragging = false
             snappedMarkerIndex = null
+            scrubUi.reset()
             latestOnCancel()
         }
     }
@@ -953,23 +1082,46 @@ internal fun StandardSeekBar(
         }
     }
 
-    fun magneticTarget(rawFraction: Float): MagneticSeekTarget =
+    /** The magnet, its reach scaled by [reach]: in fine, 14 dp of finger is 3.5 dp of rail. */
+    fun magneticTarget(
+        rawFraction: Float,
+        reach: Float = 1f,
+    ): MagneticSeekTarget =
         magneticSeekTarget(
             rawFraction = rawFraction,
-            markerFractions = markerFractions,
-            thresholdFraction =
-                (magnetRadiusPx / widthPx.coerceAtLeast(1)).coerceAtMost(0.04f),
+            markerFractions = latestMarkerFractions,
+            thresholdFraction = seekMagnetFraction(magnetRadiusPx, widthPx.toFloat(), latestChapterStarts) * reach,
         )
 
-    fun updateDrag(rawFraction: Float) {
+    fun chapterAt(fraction: Float): Int = chapterIndexAt(latestChapters, scrubPositionMs(fraction, latestDurationMs))
+
+    fun updateDrag(
+        rawFraction: Float,
+        tier: SeekScrubTier = SeekScrubTier.Normal,
+    ) {
         val direction = ((rawFraction - previousDragFraction) * widthPx / directionDistancePx).coerceIn(-1f, 1f)
         dragDirection = dragDirection * 0.65f + direction * 0.35f
         previousDragFraction = rawFraction
-        val target = magneticTarget(rawFraction)
-        if (target.markerIndex != null && target.markerIndex != snappedMarkerIndex) {
+        // The filmstrip's frames are its own marks; the magnet would only pull off them.
+        val target =
+            when (tier) {
+                SeekScrubTier.Filmstrip -> MagneticSeekTarget(rawFraction.coerceIn(0f, 1f), null)
+                SeekScrubTier.Fine -> magneticTarget(rawFraction, SEEK_FINE_SPEED)
+                SeekScrubTier.Normal -> magneticTarget(rawFraction)
+            }
+        // A chapter start answers with the chapter tick below rather than a second, heavier snap.
+        val snappedChapter = target.markerIndex?.let { latestMarkers.getOrNull(it)?.chapter } == true
+        if (target.markerIndex != null && target.markerIndex != snappedMarkerIndex && !snappedChapter) {
             haptics.play(HapticSignal.Select)
         }
         snappedMarkerIndex = target.markerIndex
+        // Passing into another chapter is a mark passing under the finger, like a gear or a frame;
+        // in the filmstrip every frame already ticks.
+        val chapter = chapterAt(target.fraction)
+        if (chapter != dragChapter) {
+            dragChapter = chapter
+            if (tier != SeekScrubTier.Filmstrip) haptics.play(HapticSignal.Tick)
+        }
         dragFraction = target.fraction
         latestOnScrubTo(target.fraction)
         currentLight.emit(LightEffect.Trail, fractionX = target.fraction)
@@ -992,10 +1144,19 @@ internal fun StandardSeekBar(
                 if (enabled) setProgress { commit(it) } else disabled()
             }.onKeyEvent { event ->
                 if (!enabled || event.type != KeyEventType.KeyDown) return@onKeyEvent false
-                when (event.key) {
-                    Key.DirectionLeft, Key.DirectionDown -> commit(shownFraction.value - keyStep)
-                    Key.DirectionRight, Key.DirectionUp -> commit(shownFraction.value + keyStep)
-                    else -> false
+                val direction =
+                    when (event.key) {
+                        Key.DirectionLeft, Key.DirectionDown -> -1
+                        Key.DirectionRight, Key.DirectionUp -> 1
+                        else -> return@onKeyEvent false
+                    }
+                val frames = filmstripFrames
+                // Shift walks the storyboard a frame at a time, as the filmstrip does under a finger.
+                if (event.isShiftPressed && frames != null) {
+                    val targetMs = filmstripStepTargetMs(frames, latestPositionMs(), direction)
+                    commit((targetMs.toDouble() / durationMs.coerceAtLeast(1L)).toFloat())
+                } else {
+                    commit(shownFraction.value + direction * keyStep)
                 }
             }.onFocusChanged { focused = it.isFocused }
             .focusable(enabled)
@@ -1011,19 +1172,24 @@ internal fun StandardSeekBar(
                             }
                         }
                     }.pointerInput(enabled) {
-                        detectHorizontalDragGestures(
-                            onDragStart = { offset ->
+                        detectSeekScrubGestures(
+                            onDragStart = { down, start ->
                                 val width = size.width.toFloat().coerceAtLeast(1f)
+                                val startFraction = scrubGesture.begin(start.x, down.y, width)
                                 dragDirection = 0f
-                                previousDragFraction = (offset.x / width).coerceIn(0f, 1f)
+                                previousDragFraction = startFraction
                                 dragging = true
                                 snappedMarkerIndex = null
+                                latestScrubUi.reset()
+                                // The chapter the drag starts in is where it is, not a crossing.
+                                dragChapter = chapterAt(magneticTarget(startFraction).fraction)
                                 haptics.play(HapticSignal.Select)
-                                updateDrag((offset.x / width).coerceIn(0f, 1f))
+                                updateDrag(startFraction)
                             },
                             onDragEnd = {
                                 dragging = false
                                 snappedMarkerIndex = null
+                                latestScrubUi.reset()
                                 haptics.play(HapticSignal.Confirm)
                                 latestOnCommit(dragFraction)
                                 currentLight.emit(LightEffect.Converge, fractionX = dragFraction)
@@ -1031,18 +1197,49 @@ internal fun StandardSeekBar(
                             onDragCancel = {
                                 dragging = false
                                 snappedMarkerIndex = null
+                                latestScrubUi.reset()
                                 latestOnCancel()
                                 currentLight.clear()
                             },
-                        ) { change, _ ->
-                            change.consume()
+                        ) { change ->
                             val width = size.width.toFloat().coerceAtLeast(1f)
-                            updateDrag((change.position.x / width).coerceIn(0f, 1f))
+                            val before = scrubGesture.tier
+                            val frameBefore = scrubGesture.frame
+                            val raw =
+                                scrubGesture.move(
+                                    x = change.position.x,
+                                    y = change.position.y,
+                                    width = width,
+                                    shown = dragFraction,
+                                    frames = latestFrames,
+                                )
+                            val tier = scrubGesture.tier
+                            if (tier != before) {
+                                seekScrubTierHaptic(before, tier)?.let(haptics::play)
+                                // Reaching a finer tier is what the tip teaches; once found, it is not taught.
+                                if (tier > before) tips?.markUsed(Tips.FINE_SCRUB)
+                            } else if (tier == SeekScrubTier.Filmstrip && scrubGesture.frame != frameBefore) {
+                                haptics.play(HapticSignal.Tick)
+                            }
+                            latestScrubUi.tier = tier
+                            latestScrubUi.liftPx = scrubGesture.liftPx
+                            latestScrubUi.frame = scrubGesture.frame
+                            updateDrag(raw, tier)
                         }
                     }
             },
         contentAlignment = Alignment.CenterStart,
     ) {
+        // 弹幕热度: a thin line over the rail where the comments crowd, under everything else on
+        // it. The bar is only composed while the controls are up, and so is this.
+        Box(
+            Modifier
+                .align(Alignment.TopStart)
+                .padding(top = SeekHeatTop)
+                .fillMaxWidth()
+                .height(SeekHeatHeight)
+                .danmakuHeatCurve(heat = heat, durationMs = durationMs, emphasis = { interaction.value }),
+        )
         // Both rails keep fixed geometry; progress invalidates paint, not child measurement.
         val buffered = remember(durationMs) { Animatable(0f) }
         val moving = !reduceMotion && LocalRouteVisible.current
@@ -1074,25 +1271,37 @@ internal fun StandardSeekBar(
                     val color = accent()
                     val played = shownFraction.value
                     val playedWidth = size.width * played
-                    drawRect(Color.White.copy(alpha = 0.16f))
-                    drawRect(
-                        lerp(color, Color.Gray, 0.62f).copy(alpha = 0.50f),
-                        size =
-                            androidx.compose.ui.geometry.Size(
-                                size.width * buffered.value.coerceIn(played, 1f),
-                                size.height,
-                            ),
-                    )
-                    if (playedWidth > 0f) {
-                        drawRect(
-                            Brush.horizontalGradient(
-                                listOf(lerp(color, Color.Black, 0.14f), lerp(color, Color.White, 0.24f)),
-                                endX = playedWidth,
-                            ),
-                            size =
-                                androidx.compose.ui.geometry
-                                    .Size(playedWidth, size.height),
+                    val bufferedWidth = size.width * buffered.value.coerceIn(played, 1f)
+                    val bufferColor = lerp(color, Color.Gray, 0.62f).copy(alpha = 0.50f)
+                    // One brush across every part, so the played gradient runs on through the cuts.
+                    val playedBrush =
+                        Brush.horizontalGradient(
+                            listOf(lerp(color, Color.Black, 0.14f), lerp(color, Color.White, 0.24f)),
+                            endX = playedWidth.coerceAtLeast(1f),
                         )
+                    // Without chapters this is one part from end to end: the rail as it always was.
+                    forEachRailPart(size.width, chapterCuts, SeekChapterGap.toPx()) { left, right ->
+                        drawRect(
+                            Color.White.copy(alpha = 0.16f),
+                            topLeft = Offset(left, 0f),
+                            size = Size(right - left, size.height),
+                        )
+                        val bufferedRight = min(right, bufferedWidth)
+                        if (bufferedRight > left) {
+                            drawRect(
+                                bufferColor,
+                                topLeft = Offset(left, 0f),
+                                size = Size(bufferedRight - left, size.height),
+                            )
+                        }
+                        val playedRight = min(right, playedWidth)
+                        if (playedRight > left) {
+                            drawRect(
+                                playedBrush,
+                                topLeft = Offset(left, 0f),
+                                size = Size(playedRight - left, size.height),
+                            )
+                        }
                     }
                 },
         )
@@ -1114,7 +1323,9 @@ internal fun StandardSeekBar(
         }
 
         // The same list the magnet snaps to, rather than a second copy of the same arithmetic.
+        // Chapter starts are cuts in the rail, drawn above, rather than ticks on it.
         progressMarkers.forEachIndexed { index, marker ->
+            if (marker.chapter) return@forEachIndexed
             val markerFraction = markerFractions.getOrElse(index) { 0f }
             Box(
                 Modifier
@@ -1208,7 +1419,8 @@ internal fun StandardSeekBar(
                                 (widthPx * shownFraction.value - bubblePx / 2f)
                                     .toInt()
                                     .coerceIn(0, (widthPx - bubblePx).coerceAtLeast(0)),
-                            y = -SeekTimeBubbleRise.roundToPx(),
+                            // Up with the finger, which would otherwise sit on it in the finer tiers.
+                            y = -SeekTimeBubbleRise.roundToPx() - scrubUi.previewLiftPx(SeekPreviewMaxLift.toPx()),
                         )
                     }.graphicsLayer {
                         alpha = interaction.value
@@ -1223,11 +1435,68 @@ internal fun StandardSeekBar(
                 val bubbleLabel by remember { derivedStateOf { formatTime(latestPositionMs()) } }
                 Text(bubbleLabel, style = AppTypography.caption.medium, color = Color.White)
             }
+            // 精细, said over the time it is fine-tuning for as long as the tier lasts. With a
+            // storyboard the preview card says it instead, beside its own time.
+            androidx.compose.animation.AnimatedVisibility(
+                visible = scrubUi.tier == SeekScrubTier.Fine,
+                enter = fadeIn(Motion.tween(Motion.QUICK)),
+                exit = fadeOut(Motion.tween(Motion.QUICK)),
+            ) {
+                Box(
+                    Modifier
+                        .width(SeekTierPillWidth)
+                        .height(SeekTimeBubbleHeight)
+                        .offset {
+                            val pillPx = SeekTierPillWidth.roundToPx()
+                            IntOffset(
+                                x =
+                                    (widthPx * shownFraction.value - pillPx / 2f)
+                                        .toInt()
+                                        .coerceIn(0, (widthPx - pillPx).coerceAtLeast(0)),
+                                y =
+                                    -(SeekTimeBubbleRise + SeekTimeBubbleHeight + SeekTierPillGap).roundToPx() -
+                                        scrubUi.previewLiftPx(SeekPreviewMaxLift.toPx()),
+                            )
+                        }.background(Color.Black.copy(alpha = 0.58f), AppShapes.pill)
+                        .border(1.dp, Color.White.copy(alpha = 0.20f), AppShapes.pill),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text("精细 · $SEEK_FINE_LABEL", style = AppTypography.caption.medium, color = Color.White)
+                }
+            }
         }
     }
 }
 
+/**
+ * Calls [part] for each stretch of a [width]-wide rail between the chapter [cuts] (sorted
+ * fractions), leaving [gap] pixels open at every cut. No cuts is a single part, end to end.
+ */
+private inline fun forEachRailPart(
+    width: Float,
+    cuts: List<Float>,
+    gap: Float,
+    part: (left: Float, right: Float) -> Unit,
+) {
+    var left = 0f
+    for (cut in cuts) {
+        val at = width * cut
+        if (at - gap / 2f > left) part(left, at - gap / 2f)
+        left = at + gap / 2f
+    }
+    if (width > left) part(left, width)
+}
+
+/** The opening between two chapters on the rail: wide enough to read, too narrow to aim at. */
+private val SeekChapterGap = 2.dp
+
+/** The heat curve's strip: from just under the bar's top edge down to just above the rail. */
+private val SeekHeatTop = 4.dp
+private val SeekHeatHeight = 14.dp
+
 private val SeekTimeBubbleWidth = 60.dp
+private val SeekTierPillWidth = 80.dp
+private val SeekTierPillGap = 4.dp
 private val SeekTimeBubbleHeight = 22.dp
 private val SeekTimeBubbleRise = 26.dp
 
@@ -1275,5 +1544,8 @@ internal fun magneticSeekTarget(
 }
 
 private val RefinedTrickplayPreviewWidth = 160.dp
+
+/** The filmstrip sits as high over the rail as the card's own bottom edge. */
+private val SeekFilmstripRise = 8.dp
 private val SeekMarkerMagnetRadius = 14.dp
 private const val REFINED_SEEK_STEP_MS = 10_000L

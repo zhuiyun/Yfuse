@@ -3632,6 +3632,7 @@ internal fun PlayerRoot(
                     },
                     danmaku = danmaku.panelState,
                     danmakuActions = danmaku.actions,
+                    danmakuHeat = danmaku.heat,
                     // Only worth naming when there is more than one server to be on. On a
                     // single-server install it is a constant, and a constant on a line meant
                     // for live facts is noise.
@@ -3662,6 +3663,7 @@ internal fun PlayerRoot(
                     onSelectVersion = { versionId -> selectVersion(versionId) },
                     skip = skip.state,
                     skipActions = skip.actions,
+                    chapters = currentItem?.chapters.orEmpty(),
                     watch =
                         WatchRoomState(
                             available = watchAvailable,

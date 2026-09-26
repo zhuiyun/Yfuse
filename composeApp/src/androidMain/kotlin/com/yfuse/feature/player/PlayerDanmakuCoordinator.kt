@@ -8,6 +8,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import com.yfuse.core.data.DanmakuBinding
 import com.yfuse.core.data.DanmakuComment
@@ -38,6 +39,11 @@ internal data class PlayerDanmakuController(
     val opacity: DanmakuOpacity,
     val panelState: DanmakuPanelState,
     val actions: DanmakuPanelActions,
+    /**
+     * 弹幕热度 of the comments on screen, for the curve over the progress bar: a reader, so the rail
+     * picks it up while drawing, and null until a match has loaded.
+     */
+    val heat: () -> DanmakuHeat? = { null },
 )
 
 @Composable
@@ -151,6 +157,12 @@ internal fun rememberPlayerDanmakuController(
         remember(comments, mergeDuplicates, blockedWords) {
             DanmakuFilter.apply(comments, mergeDuplicates, blockedWords)
         }
+    // Counted from what is shown — blocked words left out, a merged line counting for all it
+    // stands for — once per load rather than per frame; the reader stays one instance, so the
+    // controls it is handed to never see a new parameter when a match arrives.
+    val heat = remember(visibleComments) { danmakuHeatOf(visibleComments) }
+    val latestHeat = rememberUpdatedState(heat)
+    val heatReader = remember { { latestHeat.value } }
     val actions =
         DanmakuPanelActions(
             onToggle = { preferences.setEnabled(!enabled) },
@@ -304,6 +316,7 @@ internal fun rememberPlayerDanmakuController(
         fontSize = font,
         speed = speed,
         opacity = opacity,
+        heat = heatReader,
         panelState =
             DanmakuPanelState(
                 sources = sources,
