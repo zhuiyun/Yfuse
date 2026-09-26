@@ -3760,6 +3760,7 @@ internal fun PlayerRoot(
                             onReactionFinished = watchTogether::clearReaction,
                         ),
                     remoteChrome = remoteChrome,
+                    hardwareKeyboard = hardwareKeyboardAttached(),
                     // Held back while a transition carries the picture in, and gone first on the way out.
                     modifier = Modifier.graphicsLayer { alpha = transition?.chromeAlpha() ?: 1f },
                 )

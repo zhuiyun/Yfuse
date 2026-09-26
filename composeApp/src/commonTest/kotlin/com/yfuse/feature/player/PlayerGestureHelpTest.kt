@@ -32,4 +32,11 @@ class PlayerGestureHelpTest {
         assertTrue(rows.row("左半屏上下滑")!!.startsWith("调节音量"))
         assertTrue(rows.row("右半屏上下滑")!!.startsWith("调节亮度"))
     }
+
+    @Test
+    fun keyboard_rows_share_the_double_tap_step() {
+        val rows = keyboardHelpRows(PlayerGestureSettings(doubleTapSeekSeconds = 15))
+        assertEquals("快退 / 快进 15 秒，与双击步长相同", rows.row("J / L"))
+        assertEquals("播放或暂停", rows.row("空格 / K"))
+    }
 }

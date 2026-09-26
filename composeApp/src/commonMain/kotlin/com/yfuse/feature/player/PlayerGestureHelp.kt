@@ -41,6 +41,17 @@ internal fun pictureGestureHelpRows(gestures: PlayerGestureSettings): List<Pair<
     }
 }
 
+/** 键盘快捷键, for a tablet or Chromebook with a keyboard; J / L share the double-tap step. */
+internal fun keyboardHelpRows(gestures: PlayerGestureSettings): List<Pair<String, String>> =
+    listOf(
+        "空格 / K" to "播放或暂停",
+        "J / L" to "快退 / 快进 ${gestures.doubleTapSeekMs / 1_000L} 秒，与双击步长相同",
+        "← / →" to "快退 / 快进 5 秒；焦点在进度条上时按进度条的步长",
+        "F" to "在适应和裁剪填满之间切换",
+        "M" to "静音，再按一次恢复音量",
+        ", / ." to "暂停时按缩略图逐格前后查看",
+    )
+
 /** A permanent, accessible explanation of the picture-level gestures and their alternatives. */
 @Composable
 internal fun PlayerGestureHelpOverlay(
@@ -68,6 +79,10 @@ internal fun PlayerGestureHelpOverlay(
                     "键盘方向键" to "聚焦进度条或音量滑杆后逐级调节",
                     "返回键" to "先关闭当前面板，再退出播放器",
                 ),
+        )
+        GestureHelpSection(
+            title = "键盘快捷键",
+            rows = keyboardHelpRows(gestures),
         )
     }
 }

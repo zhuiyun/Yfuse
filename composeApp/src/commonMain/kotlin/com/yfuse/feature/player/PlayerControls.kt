@@ -38,9 +38,11 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalAccessibilityManager
 import androidx.compose.ui.platform.LocalDensity
@@ -266,6 +268,11 @@ internal fun PlayerControls(
     watch: WatchRoomState = WatchRoomState(),
     watchActions: WatchRoomActions = WatchRoomActions(),
     remoteChrome: TvPlayerChromeBridge? = null,
+    /**
+     * A hardware keyboard is attached: 键盘快捷键 answer. Ignored with [remoteChrome], because TV keeps
+     * its remote controller, which sees every key before the window does.
+     */
+    hardwareKeyboard: Boolean = false,
     /** 氛围光 for the scrims and seek accent; null while the light is off. */
     ambientLight: State<AmbientLight>? = null,
     ambientLightEnabled: Boolean = true,
@@ -304,7 +311,16 @@ internal fun PlayerControls(
     var danmakuSearchOpen by remember { mutableStateOf(false) }
     var danmakuSendOpen by remember { mutableStateOf(false) }
     var gestureHud by remember { mutableStateOf<String?>(null) }
-    var controlsHaveFocus by remember { mutableStateOf(false) }
+    // 键盘快捷键 on a phone, tablet or Chromebook; TV's remote has its own controller.
+    val keyboardShortcuts = hardwareKeyboard && remoteChrome == null
+    val keyboardAnchor = remember { FocusRequester() }
+    val keyboard = remember { PlayerKeyboardShortcuts() }
+    var keyboardAnchorFocused by remember { mutableStateOf(false) }
+    // Focus anywhere in the player, against focus on a control: the keyboard anchor holding it is
+    // nobody moving through the controls, and must not keep them up.
+    var focusInside by remember { mutableStateOf(false) }
+    val anchorFocused = keyboardShortcuts && keyboardAnchorFocused
+    val controlsHaveFocus = focusInside && !anchorFocused
     // -1 while a held press is rewinding, +1 while it is fast-forwarding, 0 when no press
     // is held. [holdSeekTarget] is the newest position proposed to the playback coordinator.
     var holdSeekDirection by remember { mutableIntStateOf(0) }
@@ -488,6 +504,52 @@ internal fun PlayerControls(
         poke()
     }
 
+    /** The player as a key press finds it; read at the press, never kept. */
+    fun keyContext(): PlayerKeyContext {
+        val live = playback.value
+        val frames =
+            trickplay
+                ?.takeIf { live.durationMs > 0L }
+                ?.let { SeekFilmstripFrames(it, live.durationMs) }
+                ?.takeIf { it.count > 1 }
+        return PlayerKeyContext(
+            watchGuest = latestWatchLocked,
+            playing = live.playing,
+            positionMs = live.positionMs,
+            durationMs = live.durationMs,
+            stepMs = latestGestures.doubleTapSeekMs,
+            previousFrameMs = frames?.let { filmstripStepTargetMs(it, live.positionMs, -1) },
+            nextFrameMs = frames?.let { filmstripStepTargetMs(it, live.positionMs, 1) },
+        )
+    }
+
+    /** 键盘快捷键, done: the same callbacks the gestures use, and the same HUD to say so. */
+    fun performKeyAction(action: PlayerKeyAction) {
+        when (action) {
+            PlayerKeyAction.TogglePlay -> {
+                gestureHud = if (playback.value.playing) "暂停" else "播放"
+                latestOnPlayPause()
+            }
+            is PlayerKeyAction.Seek -> {
+                latestOnSeek(action.targetMs)
+                gestureHud = action.message
+            }
+            PlayerKeyAction.ToggleFill -> {
+                val fill = !latestFilled
+                latestOnSetFill(fill)
+                gestureHud = pinchFillMessage(fill)
+            }
+            PlayerKeyAction.ToggleMute -> {
+                val mute = muteToggle(latestVolume(), keyboard.mutedFrom)
+                keyboard.mutedFrom = mute.restoreTo
+                latestOnVolume(mute.volume)
+                gestureHud = mute.message
+            }
+            is PlayerKeyAction.Say -> gestureHud = action.message
+            PlayerKeyAction.Pass -> Unit
+        }
+    }
+
     fun openWatchChat() {
         settingsPanelKind = null
         quickPopup = null
@@ -629,6 +691,13 @@ internal fun PlayerControls(
             panel = remotePanel,
             controlsHaveFocus = controlsHaveFocus,
         )
+    }
+    // With a keyboard and nothing in the player focused — its usual state — the anchor takes focus so
+    // the shortcuts have somewhere to land. Anything that asks gets it back: Tab, a panel, a field.
+    LaunchedEffect(keyboardShortcuts, focusInside, remotePanel) {
+        if (keyboardShortcuts && !focusInside && remotePanel == null) {
+            runCatching { keyboardAnchor.requestFocus() }
+        }
     }
 
     LaunchedEffect(
@@ -813,9 +882,24 @@ internal fun PlayerControls(
     Box(
         modifier
             .fillMaxSize()
-            .onFocusChanged { controlsHaveFocus = it.hasFocus }
+            .onKeyEvent { event ->
+                // Bubbled up from whatever has focus, so a text field or the seek bar answers first.
+                keyboardShortcuts &&
+                    !locked &&
+                    remotePanel == null &&
+                    state.error == null &&
+                    keyboard.handle(
+                        event = event,
+                        anchorFocused = anchorFocused,
+                        context = { keyContext() },
+                        perform = { performKeyAction(it) },
+                    )
+            }.onFocusChanged { focusInside = it.hasFocus }
             .focusGroup(),
     ) {
+        if (keyboardShortcuts) {
+            PlayerKeyboardAnchor(keyboardAnchor) { keyboardAnchorFocused = it }
+        }
         if (watch.connected) {
             WatchChatDanmakuOverlay(
                 roomCode = watch.roomCode,
