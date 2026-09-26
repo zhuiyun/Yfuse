@@ -28,6 +28,7 @@ import com.yfuse.core.network.toUserMessage
 import com.yfuse.core.sync.ServerSyncManager
 import com.yfuse.core.util.currentIsoDate
 import com.yfuse.core.util.pickForDay
+import com.yfuse.feature.library.flagChangeMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -500,7 +501,7 @@ class HomeStoreFactory(
                     }
                 result
                     .onSuccess {
-                        dispatch(Msg.ActionMessage(entryFlagMessage(favorite = favorite, played = played)))
+                        dispatch(Msg.ActionMessage(flagChangeMessage(favorite = favorite, played = played)))
                         loadResume(registry.data.value.servers, force = true)
                     }.onFailure {
                         AppLog.warning(
@@ -510,7 +511,14 @@ class HomeStoreFactory(
                             throwable = it,
                             attributes = mapOf("serverId" to server.id),
                         )
-                        dispatch(Msg.ActionMessage(it.toUserMessage("操作失败")))
+                        // Through the sync manager the write stays queued and the change stands.
+                        val message =
+                            if (syncManager != null) {
+                                flagChangeMessage(favorite = favorite, played = played, queued = true)
+                            } else {
+                                it.toUserMessage("操作失败")
+                            }
+                        dispatch(Msg.ActionMessage(message))
                     }
             }
         }
@@ -828,15 +836,3 @@ class HomeStoreFactory(
             }
     }
 }
-
-/** What the toast says once a 浮起菜单 flag has been written. */
-internal fun entryFlagMessage(
-    favorite: Boolean?,
-    played: Boolean?,
-): String =
-    when {
-        favorite == true -> "已加入收藏"
-        favorite == false -> "已取消收藏"
-        played == true -> "已标记为已看"
-        else -> "已标记为未看"
-    }

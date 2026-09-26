@@ -101,4 +101,13 @@ class MediaItemLiftMenuTest {
             libraryHomeLiftMenu(item(), null, {}, {}, {}).actions.first().label,
         )
     }
+
+    @Test
+    fun theToastSaysWhatChangedOrThatItIsWaitingToSync() {
+        assertEquals("已加入收藏", flagChangeMessage(favorite = true, played = null))
+        assertEquals("已取消收藏", flagChangeMessage(favorite = false, played = null))
+        assertEquals("已标记为已看", flagChangeMessage(favorite = null, played = true))
+        assertEquals("已标记为未看", flagChangeMessage(favorite = null, played = false))
+        assertEquals("服务器暂不可用，已排队同步", flagChangeMessage(favorite = true, played = null, queued = true))
+    }
 }

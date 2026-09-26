@@ -1,6 +1,7 @@
 package com.yfuse.feature.search
 
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.runtime.mutableStateMapOf
 import com.arkivanov.decompose.ComponentContext
 import com.arkivanov.decompose.DelicateDecomposeApi
 import com.arkivanov.decompose.router.stack.ChildStack
@@ -17,10 +18,18 @@ import com.yfuse.app.AppDependencies
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.SearchHistory
 import com.yfuse.core.data.ServerRegistry
+import com.yfuse.core.model.MediaItem
 import com.yfuse.core.navigation.SingleFlightNavigationGuard
+import com.yfuse.core.sync.UserStateWriter
+import com.yfuse.core.util.componentScope
 import com.yfuse.feature.detail.DetailComponent
+import com.yfuse.feature.library.flagChangeMessage
 import com.yfuse.feature.player.PlayerComponent
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 
 /** Search tab navigation: query/results -> detail -> player. */
@@ -171,6 +180,9 @@ class SearchComponent(
                         onOpenItem = { serverId, itemId ->
                             navigation.pushToFront(Config.Detail(serverId, itemId))
                         },
+                        onPlayItem = { serverId, itemId, ticks ->
+                            openPlayer(Config.Player(serverId, itemId, ticks))
+                        },
                     ),
                 )
             is Config.Detail ->
@@ -223,9 +235,71 @@ class SearchHomeComponent(
     dependencies: AppDependencies,
     val onOpenServerSettings: () -> Unit,
     val onOpenItem: (serverId: String, itemId: String) -> Unit,
+    /** 浮起菜单's 播放: straight to the player from where the title was left, or from [startTicks]. */
+    val onPlayItem: (serverId: String, itemId: String, startTicks: Long) -> Unit = { _, _, _ -> },
 ) : ComponentContext by componentContext {
     /** Search remains composed logically while detail covers it; retain its real viewport. */
     internal val listState = LazyListState()
+
+    private val scope = componentScope(lifecycle)
+    private val userState: UserStateWriter = dependencies.serverSyncManager
+
+    /**
+     * Flags written from a result's 浮起菜单, keyed by server and item. A search result is a snapshot;
+     * without these the menu would keep offering 收藏 for a title that has just been favourited.
+     */
+    private val flagOverrides = mutableStateMapOf<String, MediaItem>()
+
+    private val _actionMessage = MutableStateFlow<String?>(null)
+    val actionMessage: StateFlow<String?> = _actionMessage.asStateFlow()
+
+    /** [item] with any flag changed here since the search ran. */
+    fun current(
+        serverId: String,
+        item: MediaItem,
+    ): MediaItem = flagOverrides["$serverId:${item.id}"] ?: item
+
+    fun setFavorite(
+        serverId: String,
+        item: MediaItem,
+        favorite: Boolean,
+    ) = writeFlag(serverId, item, favorite = favorite)
+
+    fun setPlayed(
+        serverId: String,
+        item: MediaItem,
+        played: Boolean,
+    ) = writeFlag(serverId, item, played = played)
+
+    fun dismissMessage() {
+        _actionMessage.value = null
+    }
+
+    private fun writeFlag(
+        serverId: String,
+        item: MediaItem,
+        favorite: Boolean? = null,
+        played: Boolean? = null,
+    ) {
+        val server = registry.serverById(serverId) ?: return
+        val before = current(serverId, item)
+        // Shown at once and kept: a write the server turns down stays queued in the sync manager,
+        // so the new value is still the one that will reach it.
+        flagOverrides["$serverId:${item.id}"] =
+            before.copy(
+                isFavorite = favorite ?: before.isFavorite,
+                played = played ?: before.played,
+            )
+        scope.launch {
+            val result =
+                if (favorite != null) {
+                    userState.setFavorite(server, item.id, item.title, favorite)
+                } else {
+                    userState.setPlayed(server, item.id, item.title, played ?: return@launch)
+                }
+            _actionMessage.value = flagChangeMessage(favorite = favorite, played = played, queued = result.isFailure)
+        }
+    }
 
     fun serverBaseUrl(serverId: String): String = registry.serverById(serverId)?.baseUrl.orEmpty()
 

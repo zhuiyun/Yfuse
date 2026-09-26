@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
@@ -47,6 +48,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
@@ -56,6 +58,8 @@ import androidx.compose.ui.unit.dp
 import com.arkivanov.decompose.extensions.compose.subscribeAsState
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.app.floatingNavigationContentInset
+import com.yfuse.core.data.CrossServerMediaHit
+import com.yfuse.core.designsystem.ActionToast
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
@@ -64,6 +68,10 @@ import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.DisclosureContent
 import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.FallbackImage
+import com.yfuse.core.designsystem.GlassDialog
+import com.yfuse.core.designsystem.ItemAction
+import com.yfuse.core.designsystem.LiftAnchor
+import com.yfuse.core.designsystem.LiftMenu
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
@@ -73,6 +81,10 @@ import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.OfficialNavDisplay
 import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.OrbProgressDefaults
+import com.yfuse.core.designsystem.OverlayActionRow
+import com.yfuse.core.designsystem.OverlayHeader
+import com.yfuse.core.designsystem.OverlayOptionRow
+import com.yfuse.core.designsystem.OverlayOptionSpacing
 import com.yfuse.core.designsystem.PageHint
 import com.yfuse.core.designsystem.Poster
 import com.yfuse.core.designsystem.SKELETON_PHASE_STEP_MS
@@ -82,6 +94,8 @@ import com.yfuse.core.designsystem.SkeletonBlock
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.YfChip
 import com.yfuse.core.designsystem.glass
+import com.yfuse.core.designsystem.liftAnchor
+import com.yfuse.core.designsystem.liftable
 import com.yfuse.core.designsystem.mediaLazyItemKey
 import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.motionItems
@@ -90,12 +104,18 @@ import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberDisclosureProgress
 import com.yfuse.core.designsystem.searchFieldArrival
 import com.yfuse.core.designsystem.shadow
+import com.yfuse.core.designsystem.sharedMediaOnClick
 import com.yfuse.core.designsystem.skeletonFill
 import com.yfuse.core.designsystem.skeletonSweep
 import com.yfuse.core.designsystem.touchTarget
+import com.yfuse.core.designsystem.withArtwork
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.feature.detail.DetailScreen
+import com.yfuse.feature.library.favoriteLiftAction
+import com.yfuse.feature.library.liftRemainingLabel
+import com.yfuse.feature.library.mediaItemLiftMenu
+import com.yfuse.feature.library.playedLiftAction
 import com.yfuse.feature.player.PlayerScreen
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
@@ -146,7 +166,9 @@ private fun SearchHomeScreen(
 ) {
     var showPeople by remember { mutableStateOf(false) }
     var compactResults by remember { mutableStateOf(true) }
+    var filtersOpen by remember { mutableStateOf(false) }
     val state by component.store.states.collectAsState(component.store.state)
+    val actionMessage by component.actionMessage.collectAsState()
     val palette = LocalPalette.current
     val store = component.store
     val fieldFocusRequester = remember { FocusRequester() }
@@ -238,9 +260,18 @@ private fun SearchHomeScreen(
                         Modifier.padding(horizontal = Dimens.pageHorizontal).then(resultHandoff.item(key = "heading")),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        com.yfuse.feature.library.LibraryAction(
-                            if (compactResults) "显示简介" else "紧凑结果",
-                        ) { compactResults = !compactResults }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            com.yfuse.feature.library.LibraryAction(
+                                if (compactResults) "显示简介" else "紧凑结果",
+                            ) { compactResults = !compactResults }
+                            // The store has filtered by server, library, year, genre, watched state
+                            // and sort all along; only 类型 ever reached the screen.
+                            val filters = state.filterCount - if (state.type != SearchType.All) 1 else 0
+                            com.yfuse.feature.library.LibraryAction(
+                                if (filters > 0) "筛选 · $filters" else "筛选",
+                                selected = filters > 0,
+                            ) { filtersOpen = true }
+                        }
                         ResultsHeading(
                             count = visibleResultCount,
                             types = availableTypes,
@@ -311,6 +342,9 @@ private fun SearchHomeScreen(
                                 onClick = {
                                     component.onOpenItem(recommended.serverId, recommended.item.id)
                                 },
+                                liftMenu = {
+                                    searchLiftMenu(component, recommended.serverId, recommended.item, group.copies)
+                                },
                                 modifier =
                                     Modifier
                                         .fillMaxWidth()
@@ -332,6 +366,7 @@ private fun SearchHomeScreen(
                                 onOpenItem = {
                                     component.onOpenItem(group.serverId, it)
                                 },
+                                liftMenu = { item -> searchLiftMenu(component, group.serverId, item) },
                                 onLoadMore = {
                                     store.accept(SearchIntent.LoadMore(group.serverId))
                                 },
@@ -378,7 +413,219 @@ private fun SearchHomeScreen(
                 }
             }
         }
+
+        ActionToast(
+            message = actionMessage,
+            onDismiss = component::dismissMessage,
+        )
     }
+
+    if (filtersOpen) {
+        SearchFilterSheet(
+            state = state,
+            onIntent = store::accept,
+            onDismiss = { filtersOpen = false },
+        )
+    }
+}
+
+/**
+ * 浮起菜单 on a search result. Search results are snapshots, so the flags come through the
+ * component, which remembers what was changed here since the search ran. A title found on more
+ * than one server lists each copy, so holding and sliding opens the one wanted.
+ */
+private fun searchLiftMenu(
+    component: SearchHomeComponent,
+    serverId: String,
+    listed: MediaItem,
+    copies: List<CrossServerMediaHit> = emptyList(),
+): LiftMenu {
+    val item = component.current(serverId, listed)
+    val resumeTicks = item.resumePositionTicks?.takeIf { it > 0L && !item.played }
+    // A series resolves its episode in 详情, which the card opens; it gets no play row here.
+    val playable = item.type != "Series"
+    return mediaItemLiftMenu(
+        item = item,
+        backdropUrl =
+            EmbyImages.backdrop(
+                component.serverBaseUrl(serverId),
+                item,
+                accessToken = component.serverAccessToken(serverId),
+            ),
+        onOpen = { component.onOpenItem(serverId, item.id) },
+        actions =
+            listOf(
+                if (playable) {
+                    listOfNotNull(
+                        ItemAction(
+                            label = if (resumeTicks != null) "继续播放" else "播放",
+                            icon = AppIcons.Play,
+                            detail = item.liftRemainingLabel(),
+                            leavesPage = true,
+                            onSelect = { component.onPlayItem(serverId, item.id, resumeTicks ?: 0L) },
+                        ),
+                        resumeTicks?.let {
+                            ItemAction(
+                                label = "从头播放",
+                                icon = AppIcons.Refresh,
+                                leavesPage = true,
+                                onSelect = { component.onPlayItem(serverId, item.id, 0L) },
+                            )
+                        },
+                    )
+                } else {
+                    emptyList()
+                },
+                listOf(
+                    playedLiftAction(item.played) { component.setPlayed(serverId, listed, it) },
+                    favoriteLiftAction(item.isFavorite) { component.setFavorite(serverId, listed, it) },
+                ),
+                copies.takeIf { it.size > 1 }.orEmpty().map { copy ->
+                    ItemAction(
+                        label = "在 ${copy.serverName} 打开",
+                        icon = AppIcons.Server,
+                        leavesPage = true,
+                        onSelect = { component.onOpenItem(copy.serverId, copy.item.id) },
+                    )
+                },
+            ),
+    )
+}
+
+/**
+ * 筛选 — every filter the store already understands. Choices apply at once and the sheet stays
+ * up, so several can be set in one visit; 清除筛选 resets them all.
+ */
+@Composable
+private fun SearchFilterSheet(
+    state: SearchState,
+    onIntent: (SearchIntent) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    GlassDialog(onDismiss = onDismiss) {
+        OverlayHeader(title = "筛选", onClose = onDismiss)
+        if (state.serverOptions.size > 1) {
+            SearchFilterLabel("服务器")
+            Column(verticalArrangement = Arrangement.spacedBy(OverlayOptionSpacing)) {
+                OverlayOptionRow(
+                    label = "全部服务器",
+                    selected = state.serverId == null,
+                    onClick = { onIntent(SearchIntent.SetServer(null)) },
+                )
+                state.serverOptions.forEach { option ->
+                    OverlayOptionRow(
+                        label = option.label,
+                        selected = state.serverId == option.id,
+                        onClick = { onIntent(SearchIntent.SetServer(option.id)) },
+                    )
+                }
+            }
+        }
+        if (state.libraryOptions.isNotEmpty()) {
+            SearchFilterLabel("媒体库")
+            SearchFilterChips {
+                SearchFilterChoice(
+                    label = "全部",
+                    selected = state.libraryId == null,
+                    onClick = { onIntent(SearchIntent.SetLibrary(null)) },
+                )
+                state.libraryOptions.forEach { option ->
+                    SearchFilterChoice(
+                        label = option.label,
+                        selected = state.libraryId == option.id,
+                        onClick = { onIntent(SearchIntent.SetLibrary(option.id)) },
+                    )
+                }
+            }
+        }
+        SearchFilterLabel("观看状态")
+        SearchFilterChips {
+            SearchWatchStatus.entries.forEach { status ->
+                SearchFilterChoice(
+                    label = status.label,
+                    selected = state.watchStatus == status,
+                    onClick = { onIntent(SearchIntent.SetWatchStatus(status)) },
+                )
+            }
+        }
+        SearchFilterLabel("排序")
+        SearchFilterChips {
+            SearchSort.entries.forEach { sort ->
+                SearchFilterChoice(
+                    label = sort.label,
+                    selected = state.sort == sort,
+                    onClick = { onIntent(SearchIntent.SetSort(sort)) },
+                )
+            }
+        }
+        SearchFilterLabel("年份")
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            item {
+                SearchFilterChoice(
+                    label = "不限",
+                    selected = state.year == null,
+                    onClick = { onIntent(SearchIntent.SetYear(null)) },
+                )
+            }
+            items(state.yearOptions) { year ->
+                SearchFilterChoice(
+                    label = year.toString(),
+                    selected = state.year == year,
+                    onClick = { onIntent(SearchIntent.SetYear(year)) },
+                )
+            }
+        }
+        if (state.genreOptions.isNotEmpty()) {
+            SearchFilterLabel("风格")
+            SearchFilterChips {
+                SearchFilterChoice(
+                    label = "全部",
+                    selected = state.genre == null,
+                    onClick = { onIntent(SearchIntent.SetGenre(null)) },
+                )
+                state.genreOptions.forEach { genre ->
+                    SearchFilterChoice(
+                        label = genre,
+                        selected = state.genre == genre,
+                        onClick = { onIntent(SearchIntent.SetGenre(genre)) },
+                    )
+                }
+            }
+        }
+        if (state.filterCount > 0) {
+            Spacer(Modifier.height(12.dp))
+            OverlayActionRow(label = "清除筛选", onClick = { onIntent(SearchIntent.ClearFilters) })
+        }
+    }
+}
+
+@Composable
+private fun SearchFilterLabel(text: String) {
+    Text(
+        text,
+        style = AppTypography.caption.strong,
+        color = LocalPalette.current.sub2,
+        modifier = Modifier.padding(top = 14.dp, bottom = 8.dp),
+    )
+}
+
+/** Each group picks one value, so a chip is announced as a choice among its neighbours. */
+@Composable
+private fun SearchFilterChoice(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    YfChip(label = label, selected = selected, onClick = onClick, role = Role.RadioButton)
+}
+
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun SearchFilterChips(content: @Composable () -> Unit) {
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) { content() }
 }
 
 /**
@@ -611,6 +858,7 @@ private fun ServerGroup(
     baseUrl: String,
     accessToken: String,
     onOpenItem: (String) -> Unit,
+    liftMenu: (MediaItem) -> LiftMenu,
     onLoadMore: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -671,6 +919,7 @@ private fun ServerGroup(
                         serverId = group.serverId,
                         item = item,
                         onClick = { onOpenItem(item.id) },
+                        liftMenu = { liftMenu(item) },
                         modifier = Modifier.width(SearchResultCardWidth),
                     )
                 }
@@ -683,6 +932,7 @@ private fun ServerGroup(
                     serverId = group.serverId,
                     item = item,
                     onClick = { onOpenItem(item.id) },
+                    liftMenu = { liftMenu(item) },
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
@@ -927,19 +1177,30 @@ private fun ResultRow(
     sourceSummary: String? = null,
     compact: Boolean = false,
     onClick: () -> Unit,
+    liftMenu: (() -> LiftMenu)? = null,
     modifier: Modifier = Modifier,
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
+    val sharedKey = MediaSharedElementKey(serverId, item.id)
+    // The poster below carries the shared-element key, but the row's click never registered it,
+    // so the artwork was the one poster in the app that did not grow into 详情.
+    val open = sharedMediaOnClick(sharedKey, onClick)
+    val artwork = remember { LiftAnchor() }
+    val posterUrl = EmbyImages.poster(baseUrl, item, maxHeight = 360, accessToken = accessToken)
     Row(
         modifier
-            .pressable(onClick = onClick)
+            .liftable(
+                menu = liftMenu?.let { build -> { build().withArtwork(listOfNotNull(posterUrl)) } },
+                anchor = artwork,
+                onOpen = open,
+            ).pressable(onClick = open)
             .glass(AppShapes.card)
             .padding(8.dp),
         horizontalArrangement = Arrangement.spacedBy(11.dp),
     ) {
         Poster(
-            url = EmbyImages.poster(baseUrl, item, maxHeight = 360, accessToken = accessToken),
+            url = posterUrl,
             rating = item.communityRating,
             // Results are grouped per server, and the same server added under two
             // accounts is two groups holding the same item ids. A shared-element key
@@ -947,10 +1208,11 @@ private fun ResultRow(
             // it belongs to is part of the key.
             modifier =
                 Modifier
+                    .liftAnchor(artwork)
                     .width(
                         if (compact) 52.dp else SearchPosterWidth,
                     ).height(if (compact) 78.dp else SearchPosterHeight),
-            sharedTransitionKey = MediaSharedElementKey(serverId, item.id),
+            sharedTransitionKey = sharedKey,
         )
         Column(
             Modifier

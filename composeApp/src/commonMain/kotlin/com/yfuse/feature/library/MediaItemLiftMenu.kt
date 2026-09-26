@@ -123,3 +123,21 @@ internal fun libraryHomeLiftMenu(
             ),
     )
 }
+
+/**
+ * What the toast says once a 浮起菜单 flag has been written — the same words on every screen.
+ * [queued] when the server turned the write down: the sync manager keeps it and tries again, so
+ * the change stands and the toast says it is waiting rather than that it failed.
+ */
+internal fun flagChangeMessage(
+    favorite: Boolean?,
+    played: Boolean?,
+    queued: Boolean = false,
+): String =
+    when {
+        queued -> "服务器暂不可用，已排队同步"
+        favorite == true -> "已加入收藏"
+        favorite == false -> "已取消收藏"
+        played == true -> "已标记为已看"
+        else -> "已标记为未看"
+    }
