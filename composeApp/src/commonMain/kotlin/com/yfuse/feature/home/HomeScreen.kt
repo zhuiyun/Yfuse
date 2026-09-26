@@ -106,6 +106,7 @@ import com.yfuse.core.designsystem.SkeletonRail
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.Tips
 import com.yfuse.core.designsystem.ToastAction
+import com.yfuse.core.designsystem.ZoomBackAnchor
 import com.yfuse.core.designsystem.arrivalSweep
 import com.yfuse.core.designsystem.carouselArtworkMotion
 import com.yfuse.core.designsystem.carouselCaptionEntry
@@ -142,6 +143,7 @@ import com.yfuse.core.designsystem.rememberRetainedArtworkPageColor
 import com.yfuse.core.designsystem.rememberScrolledPastHero
 import com.yfuse.core.designsystem.skeletonSweep
 import com.yfuse.core.designsystem.touchTarget
+import com.yfuse.core.designsystem.zoomBackAnchor
 import com.yfuse.core.model.CalendarEntry
 import com.yfuse.core.model.LibraryStatus
 import com.yfuse.core.model.TmdbItem
@@ -318,6 +320,12 @@ internal fun HomeContentBody(
     val themeAccent = LocalAccentColors.current.accent
     val sharer = rememberPosterCardSharer()
     var expandedRow by remember { mutableStateOf<TmdbRow?>(null) }
+    // Each TMDB shelf is where its 查看全部 page is pulled back into; the page keeps its shelf while
+    // it leaves, so the anchor is held apart from [expandedRow].
+    val shelfAnchors = remember { mutableMapOf<String, ZoomBackAnchor>() }
+    var expandedSource by remember { mutableStateOf<ZoomBackAnchor?>(null) }
+
+    fun shelfAnchor(title: String): ZoomBackAnchor = shelfAnchors.getOrPut(title) { ZoomBackAnchor() }
     val liftMenu = LocalLiftMenu.current
 
     val pullState = rememberPullToRefreshState()
@@ -595,23 +603,28 @@ internal fun HomeContentBody(
                                     ?.takeIf { it.items.isNotEmpty() }
                                     ?.let { row ->
                                         motionItem(key = "tmdb-${row.title}") {
-                                            Recommended(
-                                                title = row.title,
-                                                items = row.items,
-                                                arrival = refreshArrival,
-                                                showReleaseDate = row.showsReleaseDate,
-                                                // Opens this shelf, not the 库 tab. These come from TMDB and
-                                                // most are not in the library at all, so the old destination
-                                                // showed none of what the chip had just offered.
-                                                onSeeAll = { expandedRow = row },
-                                                onClick = { onIntent(HomeIntent.Open(it)) },
-                                                liftMenu = { pick ->
-                                                    pick.homeLiftMenu(
-                                                        onShare = { sharer.sharePosterCard(pick.shareCard()) },
-                                                        onIntent = onIntent,
-                                                    )
-                                                },
-                                            )
+                                            Box(Modifier.zoomBackAnchor(shelfAnchor(row.title))) {
+                                                Recommended(
+                                                    title = row.title,
+                                                    items = row.items,
+                                                    arrival = refreshArrival,
+                                                    showReleaseDate = row.showsReleaseDate,
+                                                    // Opens this shelf, not the 库 tab. These come from TMDB and
+                                                    // most are not in the library at all, so the old destination
+                                                    // showed none of what the chip had just offered.
+                                                    onSeeAll = {
+                                                        expandedSource = shelfAnchor(row.title)
+                                                        expandedRow = row
+                                                    },
+                                                    onClick = { onIntent(HomeIntent.Open(it)) },
+                                                    liftMenu = { pick ->
+                                                        pick.homeLiftMenu(
+                                                            onShare = { sharer.sharePosterCard(pick.shareCard()) },
+                                                            onIntent = onIntent,
+                                                        )
+                                                    },
+                                                )
+                                            }
                                         }
                                     }
                             }
@@ -652,7 +665,7 @@ internal fun HomeContentBody(
 
         // Pushed and popped like a route rather than cut in and out; the reel above holds still
         // while it is up (see HomeHeroCarousel's `held`).
-        OverlayPage(value = expandedRow, onBack = { expandedRow = null }) { row ->
+        OverlayPage(value = expandedRow, onBack = { expandedRow = null }, source = expandedSource) { row ->
             TmdbRowPage(
                 title = row.title,
                 items = row.items,
