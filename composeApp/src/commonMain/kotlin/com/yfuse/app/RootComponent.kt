@@ -247,7 +247,8 @@ class RootComponent(
         profile.openDownloads()
     }
 
-    private fun openSearch() {
+    /** The search tab with its field focused — also where the launcher's 搜索 shortcut lands. */
+    internal fun openSearch() {
         selectTab(Tab.Search)
         search.requestFocus()
     }
