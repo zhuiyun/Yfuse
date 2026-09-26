@@ -19,6 +19,7 @@ import com.yfuse.core.data.DanmakuPreferences
 import com.yfuse.core.data.DanmakuRepository
 import com.yfuse.core.data.DiagnosticPreferences
 import com.yfuse.core.data.EmbyRepository
+import com.yfuse.core.data.HomeShelfPreferences
 import com.yfuse.core.data.LibraryCache
 import com.yfuse.core.data.NoOpCalendarLocalStore
 import com.yfuse.core.data.OfficialAiringScheduleCatalog
@@ -118,6 +119,7 @@ fun appModule(
     }
     single { ThemePreferences(get()) }
     single { TipsPreferences(get()) }
+    single { HomeShelfPreferences(get()) }
     single { PlaybackPreferences(get()) }
     single { PlaybackFailoverRequest() }
     single { PlaybackEventOutbox(get()) }

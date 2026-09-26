@@ -5,6 +5,7 @@ import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -30,6 +31,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
@@ -48,13 +50,16 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.app.floatingNavigationContentInset
+import com.yfuse.core.data.HomeShelfLayout
 import com.yfuse.core.designsystem.ActionToast
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
@@ -69,6 +74,7 @@ import com.yfuse.core.designsystem.ContextualTip
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.FallbackImage
+import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.HeroActionDock
 import com.yfuse.core.designsystem.HeroPageFade
 import com.yfuse.core.designsystem.HeroPageIndicator
@@ -80,6 +86,7 @@ import com.yfuse.core.designsystem.LivingPosterAmbient
 import com.yfuse.core.designsystem.LivingPosterDefaults
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
+import com.yfuse.core.designsystem.LocalHaptics
 import com.yfuse.core.designsystem.LocalLiftMenu
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.LocalRouteVisible
@@ -143,6 +150,7 @@ import com.yfuse.core.model.showsReleaseDate
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.network.TmdbImages
 import com.yfuse.core.util.currentHourOfDay
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
@@ -241,21 +249,41 @@ private fun HomeContent(
         if (routeVisible) hasBeenVisible = true
     }
 
-    HomeContentBody(
-        state = state,
-        calendarState = calendarState,
-        listState = listState,
-        heroPageColor = heroPageColor,
-        heroPageSampled = heroPageSampled,
-        onHeroAccent = onHeroAccent,
-        onHeroPageColor = onHeroPageColor,
-        onIntent = component.store::accept,
-        onRefreshCalendar = { component.refreshCalendar(forceRefresh = true) },
-        onOpenProfile = component.onOpenProfile,
-        onOpenCalendar = component.onOpenCalendar,
-        onOpenLibrary = component.onOpenLibrary,
-        onOpenCalendarEntry = component::openCalendarEntry,
-    )
+    val shelves = component.shelves
+    val shelfLayout by remember(shelves) { shelves?.layout ?: MutableStateFlow(HomeShelfLayout()) }.collectAsState()
+    var editingShelves by remember { mutableStateOf(false) }
+    // Remembered: a static local that changed identity each pass would recompose the whole page.
+    val editShelves = remember { { editingShelves = true } }
+    CompositionLocalProvider(LocalHomeShelfEdit provides editShelves.takeIf { shelves != null }) {
+        HomeContentBody(
+            state = state,
+            calendarState = calendarState,
+            listState = listState,
+            heroPageColor = heroPageColor,
+            heroPageSampled = heroPageSampled,
+            onHeroAccent = onHeroAccent,
+            onHeroPageColor = onHeroPageColor,
+            onIntent = component.store::accept,
+            onRefreshCalendar = { component.refreshCalendar(forceRefresh = true) },
+            onOpenProfile = component.onOpenProfile,
+            onOpenCalendar = component.onOpenCalendar,
+            onOpenLibrary = component.onOpenLibrary,
+            onOpenCalendarEntry = component::openCalendarEntry,
+            shelfLayout = shelfLayout,
+            onEditShelves = editShelves.takeIf { shelves != null },
+        )
+    }
+    if (editingShelves && shelves != null) {
+        val ids = homeShelfLayoutIds(state)
+        HomeShelfEditorSheet(
+            options = shelfLayout.arranged(ids).map { HomeShelfOption(it, homeShelfTitle(it)) },
+            hidden = shelfLayout.hidden,
+            onMove = { id, to -> shelves.update(shelfLayout.moved(ids, id, to)) },
+            onToggle = { id, visible -> shelves.update(shelfLayout.withVisible(id, visible)) },
+            onReset = shelves::reset,
+            onDismiss = { editingShelves = false },
+        )
+    }
 }
 
 /** Shared production rendering; benchmark builds supply bounded local data through the same UI. */
@@ -276,6 +304,10 @@ internal fun HomeContentBody(
     onOpenCalendarEntry: (CalendarEntry) -> Unit,
     /** False until a slide's artwork has been sampled: there is no page colour to paint yet. */
     heroPageSampled: Boolean = true,
+    /** The order and visibility 编辑首页 gave the shelves. */
+    shelfLayout: HomeShelfLayout = HomeShelfLayout(),
+    /** Opens 编辑首页; null where the page cannot be edited. */
+    onEditShelves: (() -> Unit)? = null,
 ) {
     val calendarItems = remember(calendarState.days, state) { homeCalendarPreviews(calendarState.days, state) }
     val showSmartPlaylists =
@@ -472,82 +504,105 @@ internal fun HomeContentBody(
                         }
                     }
 
-                    if (state.resume.isNotEmpty()) {
-                        motionItem(key = "continue-watching") {
-                            ContinueWatching(
-                                items = state.resume,
-                                onSeeAll = onOpenLibrary,
-                                onClick = { onIntent(HomeIntent.OpenResume(it)) },
-                                liftMenu = { it.homeLiftMenu(onIntent, inResume = true) },
-                            )
-                        }
-                    }
-
-                    if (state.favorites.isNotEmpty()) {
-                        motionItem(key = "favorites") {
-                            LibraryMediaShelf(
-                                title = "我的收藏",
-                                items = state.favorites,
-                                onSeeAll = onOpenLibrary,
-                                onClick = { onIntent(HomeIntent.OpenResume(it)) },
-                                liftMenu = { it.homeLiftMenu(onIntent) },
-                            )
-                        }
-                    }
-
-                    when {
-                        calendarItems.isNotEmpty() -> {
-                            motionItem(key = "airing-calendar-preview") {
-                                HomeCalendarShelf(
-                                    items = calendarItems,
-                                    onSeeAll = onOpenCalendar,
-                                    onClick = { onOpenCalendarEntry(it.entry) },
-                                    liftMenu = { preview ->
-                                        preview.homeLiftMenu(
-                                            onOpen = { onOpenCalendarEntry(preview.entry) },
-                                            onOpenCalendar = onOpenCalendar,
+                    // In the order 编辑首页 left them, without the ones it hid.
+                    homeShelfLayoutIds(state).let(shelfLayout::visible).forEach { shelf ->
+                        when (shelf) {
+                            HOME_SHELF_CONTINUE -> {
+                                if (state.resume.isNotEmpty()) {
+                                    motionItem(key = "continue-watching") {
+                                        ContinueWatching(
+                                            items = state.resume,
+                                            onSeeAll = onOpenLibrary,
+                                            onClick = { onIntent(HomeIntent.OpenResume(it)) },
+                                            liftMenu = { it.homeLiftMenu(onIntent, inResume = true) },
                                         )
-                                    },
-                                )
+                                    }
+                                }
                             }
-                        }
 
-                        calendarState.loading -> {
-                            motionItem(key = "airing-calendar-loading") {
-                                SkeletonRail(
-                                    modifier = Modifier.skeletonSweep().padding(horizontal = Dimens.pageHorizontal),
-                                    count = 3,
-                                )
+                            HOME_SHELF_FAVORITES -> {
+                                if (state.favorites.isNotEmpty()) {
+                                    motionItem(key = "favorites") {
+                                        LibraryMediaShelf(
+                                            title = "我的收藏",
+                                            items = state.favorites,
+                                            onSeeAll = onOpenLibrary,
+                                            onClick = { onIntent(HomeIntent.OpenResume(it)) },
+                                            liftMenu = { it.homeLiftMenu(onIntent) },
+                                        )
+                                    }
+                                }
                             }
-                        }
 
-                        calendarState.error != null && !recommendationsFailed -> {
-                            motionItem(key = "airing-calendar-error") {
-                                ErrorState(
-                                    message = calendarState.error!!,
-                                    onRetry = onRefreshCalendar,
-                                    modifier = Modifier.fillMaxWidth(),
-                                )
+                            HOME_SHELF_CALENDAR -> {
+                                when {
+                                    calendarItems.isNotEmpty() -> {
+                                        motionItem(key = "airing-calendar-preview") {
+                                            HomeCalendarShelf(
+                                                items = calendarItems,
+                                                onSeeAll = onOpenCalendar,
+                                                onClick = { onOpenCalendarEntry(it.entry) },
+                                                liftMenu = { preview ->
+                                                    preview.homeLiftMenu(
+                                                        onOpen = { onOpenCalendarEntry(preview.entry) },
+                                                        onOpenCalendar = onOpenCalendar,
+                                                    )
+                                                },
+                                            )
+                                        }
+                                    }
+
+                                    calendarState.loading -> {
+                                        motionItem(key = "airing-calendar-loading") {
+                                            SkeletonRail(
+                                                modifier =
+                                                    Modifier
+                                                        .skeletonSweep()
+                                                        .padding(horizontal = Dimens.pageHorizontal),
+                                                count = 3,
+                                            )
+                                        }
+                                    }
+
+                                    calendarState.error != null && !recommendationsFailed -> {
+                                        motionItem(key = "airing-calendar-error") {
+                                            ErrorState(
+                                                message = calendarState.error!!,
+                                                onRetry = onRefreshCalendar,
+                                                modifier = Modifier.fillMaxWidth(),
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            else -> {
+                                state.content.rows
+                                    .firstOrNull { homeShelfId(it) == shelf }
+                                    ?.takeIf { it.items.isNotEmpty() }
+                                    ?.let { row ->
+                                        motionItem(key = "tmdb-${row.title}") {
+                                            Recommended(
+                                                title = row.title,
+                                                items = row.items,
+                                                arrival = refreshArrival,
+                                                showReleaseDate = row.showsReleaseDate,
+                                                // Opens this shelf, not the 库 tab. These come from TMDB and
+                                                // most are not in the library at all, so the old destination
+                                                // showed none of what the chip had just offered.
+                                                onSeeAll = { expandedRow = row },
+                                                onClick = { onIntent(HomeIntent.Open(it)) },
+                                                liftMenu = { it.homeLiftMenu(onIntent) },
+                                            )
+                                        }
+                                    }
                             }
                         }
                     }
 
-                    state.content.rows.forEach { row ->
-                        if (row.items.isNotEmpty()) {
-                            motionItem(key = "tmdb-${row.title}") {
-                                Recommended(
-                                    title = row.title,
-                                    items = row.items,
-                                    arrival = refreshArrival,
-                                    showReleaseDate = row.showsReleaseDate,
-                                    // Opens this shelf, not the 库 tab. These come from TMDB and
-                                    // most are not in the library at all, so the old destination
-                                    // showed none of what the chip had just offered.
-                                    onSeeAll = { expandedRow = row },
-                                    onClick = { onIntent(HomeIntent.Open(it)) },
-                                    liftMenu = { it.homeLiftMenu(onIntent) },
-                                )
-                            }
+                    if (onEditShelves != null) {
+                        motionItem(key = "home-edit-shelves") {
+                            EditShelvesFooter(onClick = onEditShelves)
                         }
                     }
                 }
@@ -1336,12 +1391,37 @@ private fun HomeShelfHeader(
     onSeeAllLabel: String? = null,
 ) {
     val palette = LocalPalette.current
+    val editShelves = LocalHomeShelfEdit.current
+    val haptics = LocalHaptics.current
     Row(
         Modifier.fillMaxWidth().padding(horizontal = Dimens.pageHorizontal).padding(bottom = 12.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            // Holding a shelf's name is how its order is changed, as on a home screen.
+            modifier =
+                if (editShelves == null) {
+                    Modifier
+                } else {
+                    Modifier
+                        .pointerInput(editShelves) {
+                            detectTapGestures(
+                                onLongPress = {
+                                    haptics.play(HapticSignal.LongPress)
+                                    editShelves()
+                                },
+                            )
+                        }.semantics {
+                            onLongClick(label = "编辑首页") {
+                                editShelves()
+                                true
+                            }
+                        }
+                },
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Text(title, style = AppTypography.section.strong, color = palette.text)
             HomeSourceBadge(source)
         }
@@ -1361,6 +1441,43 @@ private fun HomeShelfHeader(
                 modifier = Modifier.size(11.dp),
             )
         }
+    }
+}
+
+internal const val HOME_SHELF_CONTINUE = "continue"
+internal const val HOME_SHELF_FAVORITES = "favorites"
+internal const val HOME_SHELF_CALENDAR = "calendar"
+private const val HOME_SHELF_TMDB_PREFIX = "tmdb:"
+
+internal fun homeShelfId(row: TmdbRow): String = HOME_SHELF_TMDB_PREFIX + row.title
+
+/** Every shelf 首页 can show, in its own order, whether or not it has anything today. */
+internal fun homeShelfLayoutIds(state: HomeState): List<String> =
+    listOf(HOME_SHELF_CONTINUE, HOME_SHELF_FAVORITES, HOME_SHELF_CALENDAR) + state.content.rows.map(::homeShelfId)
+
+/** What 编辑首页 calls a shelf. */
+internal fun homeShelfTitle(id: String): String =
+    when (id) {
+        HOME_SHELF_CONTINUE -> "继续观看"
+        HOME_SHELF_FAVORITES -> "我的收藏"
+        HOME_SHELF_CALENDAR -> "追剧日历"
+        else -> id.removePrefix(HOME_SHELF_TMDB_PREFIX)
+    }
+
+/** The page's last line: the way into 编辑首页 for anyone who has not found the long press. */
+@Composable
+private fun EditShelvesFooter(onClick: () -> Unit) {
+    Box(Modifier.fillMaxWidth().padding(top = 8.dp), contentAlignment = Alignment.Center) {
+        Text(
+            "编辑首页",
+            style = AppTypography.caption.strong,
+            color = LocalPalette.current.sub2,
+            modifier =
+                Modifier
+                    .pressable(onClickLabel = "调整首页货架的顺序和显示", onClick = onClick)
+                    .touchTarget()
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+        )
     }
 }
 

@@ -7,6 +7,7 @@ import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.arkivanov.mvikotlin.extensions.coroutines.labels
 import com.yfuse.core.data.AiringCalendarRepository
 import com.yfuse.core.data.EmbyRepository
+import com.yfuse.core.data.HomeShelfPreferences
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.TmdbHomeCache
 import com.yfuse.core.data.TmdbRepository
@@ -68,6 +69,9 @@ class HomeComponent(
     internal val listState = LazyListState()
 
     private val playbackSync = runCatching { GlobalContext.get().get<PlaybackSyncManager>() }.getOrNull()
+
+    /** The order and visibility of 首页's shelves; null without the app's graph (previews, tests). */
+    val shelves: HomeShelfPreferences? = runCatching { GlobalContext.get().get<HomeShelfPreferences>() }.getOrNull()
 
     val store =
         HomeStoreFactory(
