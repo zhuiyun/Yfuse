@@ -1123,6 +1123,10 @@ fun DetailScreen(component: DetailComponent) {
                             )
                         },
                         onDismiss = { allEpisodesOpen = false },
+                        seasons = state.seasons.map { it.id to it.name },
+                        selectedSeasonId = state.selectedSeasonId,
+                        listedSeasonId = listedSeasonId,
+                        onSelectSeason = { component.store.accept(DetailIntent.SelectSeason(it)) },
                     )
                 }
 
