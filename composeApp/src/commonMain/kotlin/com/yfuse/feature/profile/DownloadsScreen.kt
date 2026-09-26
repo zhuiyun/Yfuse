@@ -27,8 +27,11 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -55,8 +58,10 @@ import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.Brand
+import com.yfuse.core.designsystem.ContextualTip
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
+import com.yfuse.core.designsystem.ItemAction
 import com.yfuse.core.designsystem.LightEffect
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
@@ -69,8 +74,12 @@ import com.yfuse.core.designsystem.SettingRow
 import com.yfuse.core.designsystem.SettingTint
 import com.yfuse.core.designsystem.SettingsCard
 import com.yfuse.core.designsystem.SettingsDivider
+import com.yfuse.core.designsystem.SwipeActionsRow
 import com.yfuse.core.designsystem.SwitchRow
 import com.yfuse.core.designsystem.TabBarInset
+import com.yfuse.core.designsystem.Tips
+import com.yfuse.core.designsystem.ToastAction
+import com.yfuse.core.designsystem.UndoWindow
 import com.yfuse.core.designsystem.YfChip
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.lightOnChange
@@ -114,6 +123,33 @@ enum class DownloadSort(
     Name("名称"),
     Size("大小"),
 }
+
+/** What a right swipe does to a transfer: 暂停 what moves or waits, 继续 what is paused, 重试 what failed. */
+internal enum class DownloadSwipe(
+    val label: String,
+) {
+    Pause("暂停"),
+    Resume("继续"),
+    Retry("重试"),
+}
+
+/** Null for a finished download: there is nothing left to pause or resume. */
+internal fun downloadSwipe(status: DownloadStatus): DownloadSwipe? =
+    when (status) {
+        DownloadStatus.Queued, DownloadStatus.WaitingForWifi, DownloadStatus.Downloading -> DownloadSwipe.Pause
+        DownloadStatus.Paused -> DownloadSwipe.Resume
+        DownloadStatus.Failed -> DownloadSwipe.Retry
+        DownloadStatus.Completed -> null
+    }
+
+/**
+ * 删除下载, 先做，给 5 秒撤销: the rows named here leave the list at once, their files only when the
+ * toast has gone. A download can be tens of gigabytes; the delete used to be one tap with no way back.
+ */
+private class DownloadRemoval(
+    val ids: Set<String>,
+    val message: String,
+)
 
 internal fun filterAndSortDownloads(
     items: List<OfflineMedia>,
@@ -160,7 +196,18 @@ internal fun DownloadsScreen(
         }
     val access by personal.policy.collectAsState()
     val allItems by manager.items.collectAsState()
-    val items = remember(allItems, access) { allItems.filter { access.allowsServer(it.serverId) } }
+    // The delete waiting on its toast (see [UndoWindow]), and the same change as state: its rows
+    // are hidden from the list — and from every count — while it waits.
+    val removals = remember { UndoWindow<DownloadRemoval>() }
+    var removal by remember { mutableStateOf<DownloadRemoval?>(null) }
+    // A fresh toast for every delete: two deletes can read alike, and a toast only re-posts on a
+    // new message.
+    var removalToast by remember { mutableIntStateOf(0) }
+    val hidden = removal?.ids.orEmpty()
+    val items =
+        remember(allItems, access, hidden) {
+            allItems.filter { access.allowsServer(it.serverId) && it.id !in hidden }
+        }
     val wifiOnly by manager.wifiOnly.collectAsState()
     val policy by manager.policy.collectAsState()
     val autoDownloadRuleCount by manager.autoDownloadRuleCount.collectAsState()
@@ -174,13 +221,44 @@ internal fun DownloadsScreen(
     var filter by remember { mutableStateOf(DownloadFilter.All) }
     var sort by remember { mutableStateOf(DownloadSort.Updated) }
     var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
-    var notice by remember { mutableStateOf<String?>(null) }
+
+    fun commit(change: DownloadRemoval) = manager.removeMany(change.ids.toList())
+
+    // Every delete on this page — a swipe, the row's ×, the batch bar — goes through here.
+    fun remove(
+        ids: Set<String>,
+        message: String,
+    ) {
+        if (ids.isEmpty()) return
+        val change = DownloadRemoval(ids, message)
+        removals.hold(change)?.let(::commit)
+        removal = change
+        removalToast++
+        selected = selected - ids
+    }
+
+    fun undoRemoval(change: DownloadRemoval) {
+        if (removals.undo { it === change } != null) removal = null
+    }
+
+    // The toast left — timed out, swiped away, the app sent to the background: the files go now.
+    fun settleRemoval() {
+        removals.release()?.let(::commit)
+        removal = null
+    }
+    // Leaving the page is the toast leaving too; nothing may stay held behind a closed page.
+    DisposableEffect(removals) {
+        onDispose { removals.release()?.let(::commit) }
+    }
 
     val shown =
         remember(items, filter, sort) {
             filterAndSortDownloads(items, filter, sort)
         }
     val selectedItems = items.filter { it.id in selected }
+
+    fun removeSelected() = remove(selectedItems.mapTo(linkedSetOf()) { it.id }, "已删除 ${selectedItems.size} 项下载")
+
     val summary = remember(items) { summarizeOfflineQueue(items) }
     val canPauseAll = summary.active > 0
     val canResumeAll = summary.paused > 0 || summary.failed > 0
@@ -558,11 +636,7 @@ internal fun DownloadsScreen(
                                 BatchAction("继续/重试", Modifier.fillMaxWidth()) {
                                     manager.resumeMany(selectedItems.map(OfflineMedia::id))
                                 }
-                                BatchAction("删除", Modifier.fillMaxWidth(), danger = true) {
-                                    notice = "已删除 ${selectedItems.size} 项下载"
-                                    manager.removeMany(selectedItems.map(OfflineMedia::id))
-                                    selected = emptySet()
-                                }
+                                BatchAction("删除", Modifier.fillMaxWidth(), danger = true, onClick = ::removeSelected)
                             }
                         } else {
                             Row(
@@ -575,11 +649,7 @@ internal fun DownloadsScreen(
                                 BatchAction("继续/重试", Modifier.weight(1f)) {
                                     manager.resumeMany(selectedItems.map(OfflineMedia::id))
                                 }
-                                BatchAction("删除", Modifier.weight(1f), danger = true) {
-                                    notice = "已删除 ${selectedItems.size} 项下载"
-                                    manager.removeMany(selectedItems.map(OfflineMedia::id))
-                                    selected = emptySet()
-                                }
+                                BatchAction("删除", Modifier.weight(1f), danger = true, onClick = ::removeSelected)
                             }
                         }
                     }
@@ -616,33 +686,71 @@ internal fun DownloadsScreen(
                 }
             } else {
                 motionItems(shown, key = { it.id }, contentType = { "download-task" }) { item ->
-                    DownloadTaskRow(
-                        item = item,
-                        selected = item.id in selected,
-                        selectionMode = selected.isNotEmpty(),
-                        onToggleSelected = {
-                            selected = if (item.id in selected) selected - item.id else selected + item.id
-                        },
-                        onPlay = { onPlay(item) },
-                        onPause = { manager.pause(item.id) },
-                        onResume = { manager.resume(item.id) },
-                        onRemove = {
-                            manager.remove(item.id)
-                            selected = selected - item.id
-                        },
+                    val removeItem = { remove(setOf(item.id), "已删除「${item.title}」") }
+                    // Right: the transfer's own next step. Left: 删除, undoable like the × beside it.
+                    // Selecting is its own mode, and a row being ticked does not also swipe.
+                    SwipeActionsRow(
                         modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),
-                    )
+                        leading =
+                            downloadSwipe(item.status)?.let { swipe ->
+                                ItemAction(
+                                    label = swipe.label,
+                                    icon = if (swipe == DownloadSwipe.Pause) AppIcons.Pause else AppIcons.Play,
+                                    id = "download.${swipe.name}",
+                                ) {
+                                    when (swipe) {
+                                        DownloadSwipe.Pause -> manager.pause(item.id)
+                                        DownloadSwipe.Resume, DownloadSwipe.Retry -> manager.resume(item.id)
+                                    }
+                                }
+                            },
+                        trailing =
+                            ItemAction(
+                                label = "删除",
+                                icon = AppIcons.Close,
+                                destructive = true,
+                                undoable = true,
+                                id = "download.remove",
+                                onSelect = removeItem,
+                            ),
+                        enabled = selected.isEmpty(),
+                    ) { actions ->
+                        DownloadTaskRow(
+                            item = item,
+                            selected = item.id in selected,
+                            selectionMode = selected.isNotEmpty(),
+                            onToggleSelected = {
+                                selected = if (item.id in selected) selected - item.id else selected + item.id
+                            },
+                            onPlay = { onPlay(item) },
+                            onPause = { manager.pause(item.id) },
+                            onResume = { manager.resume(item.id) },
+                            onRemove = removeItem,
+                            modifier = actions,
+                        )
+                    }
                 }
             }
         }
 
-        // The batch bar is gone the moment the rows it acted on are, so the page would
-        // otherwise answer a delete of twelve files with nothing at all. The offline manager
-        // publishes no completion of its own, so the confirmation is posted where the call is.
-        ActionToast(
-            message = notice,
-            onDismiss = { notice = null },
+        // Once there are rows to swipe; the first swipe retires it.
+        ContextualTip(
+            id = Tips.SWIPE_ROW,
+            text = "左滑可删除下载，右滑可暂停或继续",
+            active = shown.isNotEmpty() && selected.isEmpty(),
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = TabBarInset),
         )
+
+        // The rows a delete took are gone at once, so the page would otherwise answer a delete of
+        // twelve files with nothing at all; the toast says what went and holds it back for 撤销.
+        key(removalToast) {
+            val pending = removal
+            ActionToast(
+                message = pending?.message,
+                onDismiss = ::settleRemoval,
+                action = pending?.let { change -> ToastAction("撤销") { undoRemoval(change) } },
+            )
+        }
     }
 }
 
