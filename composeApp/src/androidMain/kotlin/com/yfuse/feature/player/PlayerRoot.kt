@@ -224,6 +224,7 @@ internal fun PlayerRoot(
     val configuredEngineSelection by playbackPreferences.engineSelection.collectAsState()
     val core2TrialEnabled by playbackPreferences.core2TrialEnabled.collectAsState()
     val core2NativeOnlyEnabled by playbackPreferences.core2NativeOnlyEnabled.collectAsState()
+    val gestureSettings by playbackPreferences.gestureSettings.collectAsState()
     var core2DisabledForSession by remember { mutableStateOf(false) }
     var sessionEngineSelection by remember {
         mutableStateOf(configuredEngineSelection)
@@ -3455,6 +3456,7 @@ internal fun PlayerRoot(
                         playbackGate.setSpeed(newSpeed)
                         rememberSeriesPlayback { remembered -> remembered.copy(speed = newSpeed) }
                     },
+                    gestures = gestureSettings,
                     onSpeedBoost = { boost ->
                         if (boost != null) {
                             if (speedBoost == null) {

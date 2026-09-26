@@ -12,15 +12,40 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.yfuse.core.data.PlayerGestureSettings
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.ThemeText as Text
 
+/**
+ * 画面手势's rows, true to the current 手势 settings: the step a double tap takes, whether the
+ * middle holds a speed at all, and which side of the picture adjusts what.
+ */
+internal fun pictureGestureHelpRows(gestures: PlayerGestureSettings): List<Pair<String, String>> {
+    val brightness = "调节亮度；也可使用系统亮度设置"
+    val volume = "调节音量；也可使用音量键或音量滑杆"
+    return buildList {
+        add("单击画面" to "显示或隐藏控制层")
+        add("双击左侧 / 右侧" to "快退 / 快进 ${gestures.doubleTapSeekMs / 1_000L} 秒；也可拖动进度条")
+        add("双击中间" to "播放或暂停；也可使用底部播放按钮")
+        add("长按左侧 / 右侧" to "连续快退 / 快进；松手确认位置")
+        if (gestures.centerHoldSpeedBoost) {
+            add("长按中间" to "临时 2 倍速，左右滑动切换 1.5× / 2× / 3×，松手恢复；也可使用播放速度按钮")
+        }
+        add("横向滑动" to "预览并定位；也可使用可调进度条")
+        add("左半屏上下滑" to if (gestures.swapBrightnessVolume) volume else brightness)
+        add("右半屏上下滑" to if (gestures.swapBrightnessVolume) brightness else volume)
+    }
+}
+
 /** A permanent, accessible explanation of the picture-level gestures and their alternatives. */
 @Composable
-internal fun PlayerGestureHelpOverlay(onDismiss: () -> Unit) {
+internal fun PlayerGestureHelpOverlay(
+    onDismiss: () -> Unit,
+    gestures: PlayerGestureSettings = PlayerGestureSettings(),
+) {
     GlassDialog(
         onDismiss = onDismiss,
         modifier = Modifier.semantics { paneTitle = "播放器手势说明" },
@@ -32,17 +57,7 @@ internal fun PlayerGestureHelpOverlay(onDismiss: () -> Unit) {
         )
         GestureHelpSection(
             title = "画面手势",
-            rows =
-                listOf(
-                    "单击画面" to "显示或隐藏控制层",
-                    "双击左侧 / 右侧" to "快退 / 快进 10 秒；也可拖动进度条",
-                    "双击中间" to "播放或暂停；也可使用底部播放按钮",
-                    "长按左侧 / 右侧" to "连续快退 / 快进；松手确认位置",
-                    "长按中间" to "临时 2 倍速，左右滑动切换 1.5× / 2× / 3×，松手恢复；也可使用播放速度按钮",
-                    "横向滑动" to "预览并定位；也可使用可调进度条",
-                    "左半屏上下滑" to "调节亮度；也可使用系统亮度设置",
-                    "右半屏上下滑" to "调节音量；也可使用音量键或音量滑杆",
-                ),
+            rows = pictureGestureHelpRows(gestures),
         )
         GestureHelpSection(
             title = "辅助操作",

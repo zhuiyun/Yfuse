@@ -50,6 +50,7 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.yfuse.core.data.PlayerGestureSettings
 import com.yfuse.core.designsystem.AmbientLight
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
@@ -82,7 +83,6 @@ import com.yfuse.core.designsystem.ThemeText as Text
 
 /** Controls fade out after this long without interaction, while playing. */
 private const val MAX_ERROR_ALTERNATIVES = 3
-private const val DOUBLE_TAP_SEEK_MS = 10_000L
 private const val DOUBLE_TAP_BURST_WINDOW_MS = 900L
 private const val AUTO_HIDE_MS = 5_000L
 private const val CHAT_PREVIEW_MS = 4_000L
@@ -188,6 +188,8 @@ internal fun PlayerControls(
      * Temporary by contract — the caller must not remember it as the series' speed.
      */
     onSpeedBoost: (Float?) -> Unit = {},
+    /** 手势 from 播放设置: the double-tap step, whether the middle holds a speed, which side is which. */
+    gestures: PlayerGestureSettings = PlayerGestureSettings(),
     sleepTimer: SleepTimerState = SleepTimerState(),
     sleepTimerActions: SleepTimerActions = SleepTimerActions(),
     onToggleFill: () -> Unit,
@@ -348,6 +350,7 @@ internal fun PlayerControls(
     val latestWatchConnected by rememberUpdatedState(watch.connected)
     val latestCasting by rememberUpdatedState(castingDeviceId != null)
     val latestOnSpeedBoost by rememberUpdatedState(onSpeedBoost)
+    val latestGestures by rememberUpdatedState(gestures)
     val remoteChromeState = remoteChrome?.state?.collectAsState()?.value
     LaunchedEffect(remoteChromeState?.seekTargetMs, remoteChromeState?.seeking) {
         val target = remoteChromeState?.seekTargetMs ?: return@LaunchedEffect
@@ -840,19 +843,20 @@ internal fun PlayerControls(
                                 // Taps in quick succession on the same side add up, and the
                                 // HUD reports the running total rather than "10 秒" each time.
                                 fun burstSeek(direction: Int) {
+                                    // 双击步长, as 播放设置 last left it.
+                                    val step = latestGestures.doubleTapSeekMs
                                     val continuing =
                                         seekBurstDirection == direction &&
                                             seekBurstMark?.let {
                                                 it.elapsedNow().inWholeMilliseconds < DOUBLE_TAP_BURST_WINDOW_MS
                                             } == true
-                                    seekBurstMs =
-                                        if (continuing) seekBurstMs + DOUBLE_TAP_SEEK_MS else DOUBLE_TAP_SEEK_MS
+                                    seekBurstMs = if (continuing) seekBurstMs + step else step
                                     seekPulsePosition = offset
                                     seekPulseRevision++
                                     seekBurstDirection = direction
                                     seekBurstMark = TimeSource.Monotonic.markNow()
                                     latestOnSeek(
-                                        (latestPosition + direction * DOUBLE_TAP_SEEK_MS)
+                                        (latestPosition + direction * step)
                                             .coerceIn(0L, latestDuration),
                                     )
                                     val verb = if (direction < 0) "快退" else "快进"
@@ -885,7 +889,14 @@ internal fun PlayerControls(
                                     offset.x > size.width * 2f / 3f -> 1
                                     else -> 0
                                 }
-                            if (direction == 0 && startSpeedBoost(offset.x)) return@detectTapGestures
+                            // 中间长按 · 关闭 in 播放设置 leaves the held middle to do nothing, as it once did.
+                            if (
+                                direction == 0 &&
+                                latestGestures.centerHoldSpeedBoost &&
+                                startSpeedBoost(offset.x)
+                            ) {
+                                return@detectTapGestures
+                            }
                             when {
                                 direction == 0 -> Unit
                                 latestWatchLocked -> {
@@ -971,7 +982,8 @@ internal fun PlayerControls(
                         } else {
                             pictureScrubMs = null
                             val delta = -totalY / size.height
-                            if (startX < size.width / 2f) {
+                            // 亮度与音量左右互换 flips which half answers with which.
+                            if ((startX < size.width / 2f) != latestGestures.swapBrightnessVolume) {
                                 val target = (brightnessAtDragStart + delta).coerceIn(0.02f, 1f)
                                 latestOnBrightness(target)
                                 gestureHud = "亮度 ${(target * 100).toInt()}%"
@@ -1420,7 +1432,7 @@ internal fun PlayerControls(
                 }
 
                 if (gestureHelpOpen) {
-                    PlayerGestureHelpOverlay(onDismiss = { gestureHelpOpen = false })
+                    PlayerGestureHelpOverlay(onDismiss = { gestureHelpOpen = false }, gestures = gestures)
                 }
 
                 if (watchDialogOpen) {
@@ -1695,7 +1707,12 @@ internal fun PlayerControls(
                 ContextualTip(
                     id = Tips.PLAYER_CENTER_HOLD,
                     text = "长按画面中间可以临时加速，按住左右滑动换挡",
-                    active = visible && state.durationMs > 0L && !watch.connected && castingDeviceId == null,
+                    active =
+                        visible &&
+                            gestures.centerHoldSpeedBoost &&
+                            state.durationMs > 0L &&
+                            !watch.connected &&
+                            castingDeviceId == null,
                     modifier = Modifier.align(Alignment.TopCenter).padding(top = 88.dp),
                 )
                 ContextualTip(

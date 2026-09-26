@@ -289,6 +289,32 @@ class PlaybackPreferences(
         settings.putBoolean(KEY_AMBIENT_LIGHT, enabled)
     }
 
+    /** 手势 in the player's 播放设置; a missing key reads as what the player did before it existed. */
+    private val _gestureSettings =
+        MutableStateFlow(
+            PlayerGestureSettings(
+                doubleTapSeekSeconds =
+                    normalizedDoubleTapSeekSeconds(
+                        settings.getInt(
+                            KEY_DOUBLE_TAP_SEEK_SECONDS,
+                            PlayerGestureSettings.DEFAULT_DOUBLE_TAP_SEEK_SECONDS,
+                        ),
+                    ),
+                centerHoldSpeedBoost = settings.getBoolean(KEY_CENTER_HOLD_SPEED_BOOST, true),
+                swapBrightnessVolume = settings.getBoolean(KEY_SWAP_BRIGHTNESS_VOLUME, false),
+            ),
+        )
+    val gestureSettings: StateFlow<PlayerGestureSettings> = _gestureSettings.asStateFlow()
+
+    fun setGestureSettings(gestures: PlayerGestureSettings) {
+        val normalized =
+            gestures.copy(doubleTapSeekSeconds = normalizedDoubleTapSeekSeconds(gestures.doubleTapSeekSeconds))
+        _gestureSettings.value = normalized
+        settings.putInt(KEY_DOUBLE_TAP_SEEK_SECONDS, normalized.doubleTapSeekSeconds)
+        settings.putBoolean(KEY_CENTER_HOLD_SPEED_BOOST, normalized.centerHoldSpeedBoost)
+        settings.putBoolean(KEY_SWAP_BRIGHTNESS_VOLUME, normalized.swapBrightnessVolume)
+    }
+
     private val _core2TrialEnabled =
         MutableStateFlow(settings.getBoolean(KEY_CORE2_TRIAL_ENABLED, true))
     val core2TrialEnabled: StateFlow<Boolean> = _core2TrialEnabled.asStateFlow()
@@ -645,6 +671,9 @@ class PlaybackPreferences(
         const val KEY_ENGINE_SELECTION = "player.ycore.engineSelection"
         const val KEY_CORE2_TRIAL_ENABLED = "player.ycore2.trialEnabled"
         const val KEY_AMBIENT_LIGHT = "player.ambientLight"
+        const val KEY_DOUBLE_TAP_SEEK_SECONDS = "player.gesture.doubleTapSeekSeconds"
+        const val KEY_CENTER_HOLD_SPEED_BOOST = "player.gesture.centerHoldSpeedBoost"
+        const val KEY_SWAP_BRIGHTNESS_VOLUME = "player.gesture.swapBrightnessVolume"
         const val KEY_CORE2_NATIVE_ONLY_ENABLED = "player.ycore2.nativeOnlyEnabled"
         const val KEY_PLAYBACK_FAILURES = "player.ycore.failures.v1"
         const val KEY_PLAYBACK_PERFORMANCE = "player.ycore.performance.v1"
