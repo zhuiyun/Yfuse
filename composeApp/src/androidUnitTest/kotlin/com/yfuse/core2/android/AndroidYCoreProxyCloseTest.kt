@@ -171,7 +171,7 @@ class AndroidYCoreProxyCloseTest {
                 val closed = runCatching { client.getInputStream().read() == -1 }.getOrDefault(true)
                 assertTrue(closed)
             }
-            assertTrue(runCatching { Socket(uri.host, uri.port).close() }.isFailure)
+            assertTrue(refusesConnections(uri), "A closed proxy must stop accepting connections")
         }
     }
 
@@ -241,6 +241,19 @@ class AndroidYCoreProxyCloseTest {
             assertEquals(200, cancelled.get())
         } finally {
             executor.shutdownNow()
+        }
+    }
+
+    // ServerSocket.close() cannot tear a listener down while another thread is blocked in its
+    // accept(): that call holds the socket open, and the kernel keeps completing handshakes until
+    // the accept thread wakes up and lets go. So refusal can trail close() by a moment, and on a
+    // busy runner a connection made straight after it still got in.
+    private fun refusesConnections(uri: URI): Boolean {
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5L)
+        while (true) {
+            if (runCatching { Socket(uri.host, uri.port).close() }.isFailure) return true
+            if (System.nanoTime() >= deadline) return false
+            Thread.sleep(10L)
         }
     }
 
