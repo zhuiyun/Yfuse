@@ -42,7 +42,9 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalAccessibilityManager
 import androidx.compose.ui.platform.LocalDensity
@@ -699,6 +701,25 @@ internal fun PlayerControls(
             runCatching { keyboardAnchor.requestFocus() }
         }
     }
+    // 暂停信息层: three seconds into a settled pause with the chrome away. Put away by a touch or a
+    // key, it stays away until the pause is disturbed and settles again.
+    var pauseInfoShown by remember { mutableStateOf(false) }
+    val pauseInfoReady =
+        pauseInfoEligible(
+            playing = state.playing,
+            buffering = state.buffering,
+            ended = state.ended,
+            failed = state.error != null,
+            controlsVisible = visible,
+            overlayOpen = remotePanel != null,
+            locked = locked,
+        )
+    LaunchedEffect(pauseInfoReady) {
+        pauseInfoShown = false
+        if (!pauseInfoReady) return@LaunchedEffect
+        delay(PAUSE_INFO_DELAY_MS)
+        pauseInfoShown = true
+    }
 
     LaunchedEffect(
         visible,
@@ -883,6 +904,11 @@ internal fun PlayerControls(
         modifier
             .fillMaxSize()
             .onKeyEvent { event ->
+                if (pauseInfoShown) {
+                    // 暂停信息层 goes on any key, and a player key does nothing else on that press.
+                    if (event.type == KeyEventType.KeyDown) pauseInfoShown = false
+                    return@onKeyEvent event.playerKey(anchorFocused) != null
+                }
                 // Bubbled up from whatever has focus, so a text field or the seek bar answers first.
                 keyboardShortcuts &&
                     !locked &&
@@ -1798,6 +1824,14 @@ internal fun PlayerControls(
                         !state.buffering &&
                         !state.ended &&
                         state.error == null
+                // Beneath the 继续播放 key, so that key still resumes; any other touch only puts it away.
+                PauseInfoLayer(
+                    shown = pauseInfoShown,
+                    playback = playback,
+                    chapters = chapters,
+                    onDismiss = { pauseInfoShown = false },
+                    modifier = Modifier.align(Alignment.CenterStart).padding(start = 28.dp),
+                )
                 ChromeVisibility(
                     visible = showPausedKey,
                     modifier = Modifier.align(Alignment.Center),
