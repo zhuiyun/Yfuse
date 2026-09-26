@@ -321,6 +321,8 @@ internal fun PlayerControls(
     // A finger on the progress rail. Held still over a preview it sends no samples, and the timer
     // used to hide the bar out from under it — cancelling the drag it was about to commit.
     var scrubbing by remember { mutableStateOf(false) }
+    // 精细定位 is taught once the rail has been dragged, while the controls are still up to read it.
+    var fineScrubTipArmed by remember { mutableStateOf(false) }
     val latestPosition by remember(playback) { derivedStateOf { playback.value.positionMs } }
     val latestDuration by rememberUpdatedState(state.durationMs)
     val latestVolume by rememberUpdatedState(volume)
@@ -1113,6 +1115,7 @@ internal fun PlayerControls(
                             },
                             onScrub = {
                                 scrubbing = true
+                                fineScrubTipArmed = true
                                 interactions++
                             },
                             onScrubEnd = {
@@ -1655,6 +1658,12 @@ internal fun PlayerControls(
                     id = Tips.PLAYER_CENTER_HOLD,
                     text = "长按画面中间可以临时加速，按住左右滑动换挡",
                     active = visible && state.durationMs > 0L && !watch.connected && castingDeviceId == null,
+                    modifier = Modifier.align(Alignment.TopCenter).padding(top = 88.dp),
+                )
+                ContextualTip(
+                    id = Tips.FINE_SCRUB,
+                    text = "拖动进度条时手指上移可以精细定位",
+                    active = fineScrubTipArmed && visible && !watchLocked,
                     modifier = Modifier.align(Alignment.TopCenter).padding(top = 88.dp),
                 )
 
