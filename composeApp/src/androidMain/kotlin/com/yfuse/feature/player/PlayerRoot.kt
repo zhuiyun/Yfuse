@@ -3523,6 +3523,18 @@ internal fun PlayerRoot(
                         }
                         Toast.makeText(context, "画面：${scaleMode.label}", Toast.LENGTH_SHORT).show()
                     },
+                    // 捏合填充 and F: the same state and series memory as the 画面 button, set to a mode
+                    // rather than cycled. The controls' HUD says which, so no toast.
+                    onSetFill = { fill ->
+                        val mode = if (fill) VideoScaleMode.Fill else VideoScaleMode.Fit
+                        if (scaleMode != mode) {
+                            scaleMode = mode
+                            backendExtensions.setVideoScaleMode(mode)
+                            rememberSeriesPlayback { remembered ->
+                                remembered.copy(aspectMode = mode.name)
+                            }
+                        }
+                    },
                     trickplay = currentTrickplay,
                     // Readers, not values: read here, every step of a volume or brightness drag
                     // recomposed the whole control surface.

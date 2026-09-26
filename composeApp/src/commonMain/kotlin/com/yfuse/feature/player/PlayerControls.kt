@@ -200,6 +200,8 @@ internal fun PlayerControls(
     sleepTimer: SleepTimerState = SleepTimerState(),
     sleepTimerActions: SleepTimerActions = SleepTimerActions(),
     onToggleFill: () -> Unit,
+    /** 捏合填充 and the F key: 裁剪填满 (true) or 适应 (false), remembered for the series like the button. */
+    onSetFill: (Boolean) -> Unit = {},
     trickplay: TrickplayStoryboard? = null,
     /*
      * System volume, 0f..1f, and its setter — read by the right-edge drag gesture and by the
@@ -358,6 +360,8 @@ internal fun PlayerControls(
     val latestCasting by rememberUpdatedState(castingDeviceId != null)
     val latestOnSpeedBoost by rememberUpdatedState(onSpeedBoost)
     val latestGestures by rememberUpdatedState(gestures)
+    val latestFilled by rememberUpdatedState(filled)
+    val latestOnSetFill by rememberUpdatedState(onSetFill)
     val remoteChromeState = remoteChrome?.state?.collectAsState()?.value
     LaunchedEffect(remoteChromeState?.seekTargetMs, remoteChromeState?.seeking) {
         val target = remoteChromeState?.seekTargetMs ?: return@LaunchedEffect
@@ -1082,6 +1086,26 @@ internal fun PlayerControls(
                             }
                         }
                     }
+                }.pointerInput(Unit) {
+                    // 捏合填充. Last on the picture on purpose: the main pass reaches it before the
+                    // detectors above, so the changes it consumes are what cancel their gestures.
+                    detectPinchFill(
+                        canPinch = { origin -> !locked && allowsPlayerDrag(origin.y, currentSystemGestureTop) },
+                        filled = { latestFilled },
+                        onSecondFinger = {
+                            // The second finger takes over: a hold stops where it got to, and a
+                            // scrub's preview goes with the drag it belonged to.
+                            holdSeekDirection = 0
+                            endSpeedBoost()
+                            pictureScrubMs = null
+                            gestureHud = null
+                        },
+                        onFill = { fill ->
+                            latestOnSetFill(fill)
+                            gestureHud = pinchFillMessage(fill)
+                            haptics.play(HapticSignal.Threshold)
+                        },
+                    )
                 },
         )
 
