@@ -43,6 +43,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalAccessibilityManager
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
@@ -130,17 +131,16 @@ internal fun shouldShowManualSkipPill(
  * Holding used to jump to 2× playback, which is a different thing than it looks like:
  * the picture keeps playing and the finger has to stay down to keep it there, so
  * skipping a minute of credits meant holding for thirty seconds and watching them. A
- * held press now runs along the timeline instead, at [HOLD_SEEK_STEP_MS] per
- * [HOLD_SEEK_TICK_MS] — 10× to start, [HOLD_SEEK_FAST_STEP_MS] (30×) once the press has
- * lasted [HOLD_SEEK_RAMP_MS]. This keeps short holds precise while still allowing a long
- * hold to cross an episode.
+ * held press now runs along the timeline instead, one step of its gear per
+ * [HOLD_SEEK_TICK_MS] — 10× to start, 30× once the press has lasted [HOLD_SEEK_RAMP_MS]
+ * without the finger shifting gear itself. A sideways slide shifts between standing still,
+ * 10×, 30× and 60× ([holdScanGearFor]). This keeps short holds precise while still allowing
+ * a long hold to cross an episode.
  *
  * The control proposes a seek every 300ms while held. The player-level latest-wins reducer merges
  * bursts before they reach a local engine or Cast receiver, while the HUD remains immediate.
  */
 private const val HOLD_SEEK_TICK_MS = 300L
-private const val HOLD_SEEK_STEP_MS = 3_000L
-private const val HOLD_SEEK_FAST_STEP_MS = 9_000L
 private const val HOLD_SEEK_RAMP_MS = 3_000L
 
 /**
@@ -301,6 +301,9 @@ internal fun PlayerControls(
     var seekBurstMs by remember { mutableLongStateOf(0L) }
     var seekBurstMark by remember { mutableStateOf<TimeSource.Monotonic.ValueTimeMark?>(null) }
     var holdSeekTarget by remember { mutableLongStateOf(0L) }
+    // 长按扫描换挡: the held side's gear, followed by the pointer observer and the ticking loop.
+    val holdScan = remember { HoldScanGears() }
+    val holdScanStepPx = with(LocalDensity.current) { HoldScanGearStep.toPx() }
     // 长按中间: the gear while the middle third is held, null otherwise, and where the hold began.
     var speedBoostGear by remember { mutableStateOf<Int?>(null) }
     var speedBoostOriginX by remember { mutableFloatStateOf(0f) }
@@ -705,12 +708,18 @@ internal fun PlayerControls(
         var heldMs = 0L
         while (isActive) {
             val span = latestDuration.coerceAtLeast(1L)
-            val step = if (heldMs < HOLD_SEEK_RAMP_MS) HOLD_SEEK_STEP_MS else HOLD_SEEK_FAST_STEP_MS
-            holdSeekTarget = (holdSeekTarget + direction * step).coerceIn(0L, span)
-            // Proposed seek while held; PlayerRoot merges closely-spaced commands latest-wins.
-            latestOnSeek(holdSeekTarget)
-            gestureHud = "${if (direction < 0) "快退" else "快进"} " +
-                "${holdSeekTarget.asClock()} / ${span.asClock()}"
+            // A finger that has not slid gets the ramp holds always had: three seconds at 10×, then 30×.
+            if (heldMs >= HOLD_SEEK_RAMP_MS && holdScan.ramp(direction, holdScanStepPx)) {
+                haptics.play(HapticSignal.Tick)
+            }
+            val step = holdScanStepMs(holdScan.gear, HOLD_SEEK_TICK_MS)
+            // Standing still proposes nothing new: the last seek stands, and letting go lands there.
+            if (step > 0L) {
+                holdSeekTarget = (holdSeekTarget + direction * step).coerceIn(0L, span)
+                // Proposed seek while held; PlayerRoot merges closely-spaced commands latest-wins.
+                latestOnSeek(holdSeekTarget)
+            }
+            gestureHud = holdScanLabel(direction, holdScan.gear, holdSeekTarget, span)
             delay(HOLD_SEEK_TICK_MS)
             heldMs += HOLD_SEEK_TICK_MS
         }
@@ -882,6 +891,7 @@ internal fun PlayerControls(
                                 latestDuration <= 0L -> Unit
                                 else -> {
                                     holdSeekTarget = latestPosition
+                                    holdScan.start(offset.x)
                                     holdSeekDirection = direction
                                     // A hold that has taken hold — the same signal a long
                                     // press gets everywhere else in the app.
@@ -929,7 +939,7 @@ internal fun PlayerControls(
                         change.consume()
                         // A finger that drifts while held is still holding, not scrubbing:
                         // the hold owns the timeline until it lets go, and a slide during
-                        // 长按中间 changes gear below instead.
+                        // either hold changes gear below instead.
                         if (holdSeekDirection != 0 || speedBoostGear != null) return@detectPlayerDragGestures
                         totalX += amount.x
                         totalY += amount.y
@@ -962,14 +972,30 @@ internal fun PlayerControls(
                         }
                     }
                 }.pointerInput(Unit) {
-                    // 长按中间's sideways slide between gears. Neither detector above can follow
-                    // it: once a long press has fired, the tap detector consumes every move until
-                    // release, and the drag detector abandons a gesture on the first consumed
-                    // move it sees before its slop. This one only watches, and only while a
-                    // boost is held — it consumes nothing and decides nothing else.
+                    // The sideways slide between gears, for 长按中间 and for 长按扫描 alike. Neither
+                    // detector above can follow it: once a long press has fired, the tap detector
+                    // consumes every move until release, and the drag detector abandons a gesture
+                    // on the first consumed move it sees before its slop. This one only watches,
+                    // and only while a hold is on — it consumes nothing and decides nothing else.
                     awaitPointerEventScope {
                         while (true) {
                             val event = awaitPointerEvent()
+                            val scanDirection = holdSeekDirection
+                            if (scanDirection != 0) {
+                                val finger = event.changes.firstOrNull { it.pressed } ?: continue
+                                if (holdScan.follow(finger.position.x, scanDirection, HoldScanGearStep.toPx())) {
+                                    haptics.play(HapticSignal.Tick)
+                                    // Said now rather than on the next tick, which may be 300 ms off.
+                                    gestureHud =
+                                        holdScanLabel(
+                                            scanDirection,
+                                            holdScan.gear,
+                                            holdSeekTarget,
+                                            latestDuration.coerceAtLeast(1L),
+                                        )
+                                }
+                                continue
+                            }
                             val gear = speedBoostGear ?: continue
                             val finger = event.changes.firstOrNull { it.pressed } ?: continue
                             val next =
