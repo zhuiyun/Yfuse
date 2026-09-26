@@ -10,6 +10,9 @@ import com.yfuse.watch.protocol.HandoffStatus
 import com.yfuse.watch.protocol.HandoffTransition
 import java.util.Base64
 
+/** A sealed 正在播放 card is a title and a position; anything longer is not one. */
+private const val MAX_NOW_PLAYING_CHARS = 1_600
+
 /** Ephemeral, bounded rendezvous. A server restart expires transfers instead of replaying them. */
 internal class HandoffStore(
     private val now: () -> Long = System::currentTimeMillis,
@@ -35,11 +38,32 @@ internal class HandoffStore(
         cleanup()
         checkInput(heartbeat.name.isNotBlank() && heartbeat.name.length <= 80 && heartbeat.platform.length in 1..32)
         checkInput(heartbeat.name.none(Char::isISOControl) && heartbeat.platform.none(Char::isISOControl))
+        heartbeat.nowPlaying?.let { playing ->
+            validateEnvelope(playing)
+            // Sixty-four devices' worth must still fit an inbox beside its transfers.
+            checkInput(playing.ciphertext.length <= MAX_NOW_PLAYING_CHARS)
+        }
+        heartbeat.pull?.let { pull ->
+            checkInput(pull.id.matches(Regex("[A-Za-z0-9-]{16,80}")))
+            checkInput(
+                pull.sourceSessionId.length in 1..128 &&
+                    pull.sourceSessionId.none(Char::isISOControl) &&
+                    pull.sourceSessionId != account.sessionId,
+            )
+        }
         if (account.sessionId !in devices && devices.size >= 4096) busy()
         devices[account.sessionId] =
             Presence(
                 account.userId,
-                HandoffDevice(account.sessionId, heartbeat.name, heartbeat.platform, now(), heartbeat.canReceive),
+                HandoffDevice(
+                    account.sessionId,
+                    heartbeat.name,
+                    heartbeat.platform,
+                    now(),
+                    heartbeat.canReceive,
+                    heartbeat.nowPlaying,
+                    heartbeat.pull,
+                ),
             )
         return inbox(account)
     }

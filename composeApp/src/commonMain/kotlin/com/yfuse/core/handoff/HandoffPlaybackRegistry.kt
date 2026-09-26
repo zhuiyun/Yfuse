@@ -141,6 +141,9 @@ class HandoffPlaybackRegistry : HandoffPlaybackBridge {
 
     override fun snapshot() = source?.snapshot()
 
+    override fun nowPlaying(): HandoffMedia? =
+        activePlayback.value?.takeIf { it.ready && it.playing && !it.failed }?.let { snapshot() }
+
     override suspend fun pauseAndSnapshot(): HandoffMedia? {
         val current = source ?: return null
         pausedSource = current

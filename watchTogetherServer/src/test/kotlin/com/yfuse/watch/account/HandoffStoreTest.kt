@@ -3,6 +3,7 @@ package com.yfuse.watch.account
 import com.yfuse.watch.protocol.HandoffEnvelope
 import com.yfuse.watch.protocol.HandoffHeartbeat
 import com.yfuse.watch.protocol.HandoffOffer
+import com.yfuse.watch.protocol.HandoffPull
 import com.yfuse.watch.protocol.HandoffStatus
 import com.yfuse.watch.protocol.HandoffTransition
 import kotlinx.serialization.encodeToString
@@ -10,6 +11,7 @@ import java.util.Base64
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class HandoffStoreTest {
@@ -161,6 +163,41 @@ class HandoffStoreTest {
         assertEquals(8, inbox.requests.size)
         assertEquals(active, inbox.requests.first())
         assertTrue(apiJson.encodeToString(inbox).toByteArray(Charsets.UTF_8).size < AccountLimits.MAX_RESPONSE_BYTES)
+    }
+
+    @Test
+    fun nowPlayingAndPullsReachTheAccountsOtherDevicesOnly() {
+        val playing = HandoffEnvelope(encode(12), encode(600))
+        store.heartbeat(source, HandoffHeartbeat("客厅电视", "Android TV", false, nowPlaying = playing))
+        store.heartbeat(target, HandoffHeartbeat("Phone", "Android", true, pull = HandoffPull(source.sessionId, id)))
+        online(stranger)
+        val television = store.inbox(target).devices.single()
+        val phone = store.inbox(source).devices.single()
+        assertEquals(playing, television.nowPlaying)
+        assertEquals(HandoffPull(source.sessionId, id), phone.pull)
+        assertTrue(store.inbox(stranger).devices.isEmpty())
+        // A heartbeat without them — an idle player, or a build that predates them — clears both.
+        online(source)
+        online(target)
+        val idleTelevision = store.inbox(target).devices.single()
+        val idlePhone = store.inbox(source).devices.single()
+        assertNull(idleTelevision.nowPlaying)
+        assertNull(idlePhone.pull)
+    }
+
+    @Test
+    fun oversizeNowPlayingAndMalformedPullsAreRejected() {
+        assertFailsWith<AccountServiceException> {
+            store.heartbeat(
+                source,
+                HandoffHeartbeat("TV", "Android TV", false, nowPlaying = HandoffEnvelope(encode(12), encode(1_600))),
+            )
+        }
+        for (pull in listOf(HandoffPull(source.sessionId, "short"), HandoffPull(target.sessionId, id))) {
+            assertFailsWith<AccountServiceException> {
+                store.heartbeat(target, HandoffHeartbeat("Phone", "Android", true, pull = pull))
+            }
+        }
     }
 
     private fun online(account: AuthenticatedAccount) =
