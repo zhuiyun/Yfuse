@@ -397,6 +397,7 @@ fun BaseItemDto.toMediaItem(): MediaItem {
         isFavorite = UserData?.IsFavorite == true,
         played = UserData?.Played == true,
         playlistItemId = PlaylistItemId,
+        dateCreated = DateCreated?.take(10)?.takeIf { it.length == 10 },
     )
 }
 
