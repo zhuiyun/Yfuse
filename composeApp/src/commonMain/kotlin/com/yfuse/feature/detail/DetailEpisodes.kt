@@ -28,7 +28,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.State
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -52,12 +54,16 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.arkivanov.mvikotlin.core.store.Store
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.BackOverlay
 import com.yfuse.core.designsystem.BackdropState
 import com.yfuse.core.designsystem.Dimens
+import com.yfuse.core.designsystem.ItemAction
+import com.yfuse.core.designsystem.LiftAnchor
+import com.yfuse.core.designsystem.LiftMenu
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.LocalRouteVisible
@@ -68,6 +74,9 @@ import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.backdropBlur
 import com.yfuse.core.designsystem.contentHandoff
 import com.yfuse.core.designsystem.disclosureRotation
+import com.yfuse.core.designsystem.heroDurationLabel
+import com.yfuse.core.designsystem.liftAnchor
+import com.yfuse.core.designsystem.liftable
 import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.motionItemsIndexed
 import com.yfuse.core.designsystem.pressable
@@ -79,6 +88,12 @@ import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.designsystem.waitingPulse
 import com.yfuse.core.model.Episode
 import com.yfuse.core.network.EmbyImages
+import com.yfuse.core.offline.DownloadStatus
+import com.yfuse.core.offline.OfflineDownloadSelection
+import com.yfuse.core.offline.OfflineMedia
+import com.yfuse.core.offline.OfflineMediaManager
+import com.yfuse.core.offline.buildOfflineDownloadRequests
+import com.yfuse.feature.library.playedLiftAction
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
 
@@ -439,6 +454,8 @@ internal fun EpisodeSection(
     onManageProgress: () -> Unit,
     onPlayEpisode: (Episode) -> Unit,
     onSeeAll: () -> Unit,
+    /** The 浮起菜单's actions and each episode's download; null leaves the cards with their tap alone. */
+    rowActions: EpisodeRowActions? = null,
 ) {
     val listState = rememberLazyListState()
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
@@ -536,6 +553,26 @@ internal fun EpisodeSection(
                         selected = episode.id == selectedEpisodeId,
                         enabled = !seasonLoading,
                         onPlay = { onPlayEpisode(episode) },
+                        download = rowActions?.downloads?.get(episode.id),
+                        // A press held on a card lifts it into the 单集 menu (5.1). The rail scrolls
+                        // sideways, so the card has no swipe of its own; 从这里开始多选 opens the
+                        // 管理进度 sheet, whose rows swipe and sweep.
+                        liftMenu =
+                            rowActions?.takeIf { !seasonLoading }?.let { actions ->
+                                {
+                                    episodeLiftMenu(
+                                        episode = episode,
+                                        episodes = episodes,
+                                        artworkUrl = episodeStillUrl(baseUrl, accessToken, episode),
+                                        downloaded = actions.downloads.containsKey(episode.id),
+                                        onOpen = { onPlayEpisode(episode) },
+                                        onPlay = { actions.play(episode, onPlayEpisode) },
+                                        onMark = actions::mark,
+                                        onDownload = { actions.download(listOf(episode)) },
+                                        onSelectFrom = { actions.startSelection(episode) },
+                                    )
+                                }
+                            },
                     )
                 }
             }
@@ -553,11 +590,15 @@ private fun EpisodeCard(
     selected: Boolean,
     enabled: Boolean,
     onPlay: () -> Unit,
+    /** This episode's offline copy, finished or on its way. */
+    download: OfflineMedia? = null,
+    liftMenu: (() -> LiftMenu)? = null,
 ) {
     val palette = LocalPalette.current
     val stateColors = detailStateColors(accent, palette.background, palette.isDark)
     val selectedHighlight = Color.White
     val watching = (episode.playedPercentage ?: 0.0) > 0.0
+    val still = remember { LiftAnchor() }
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val selectedScale by
         animateFloatAsState(
@@ -572,7 +613,8 @@ private fun EpisodeCard(
                 scaleX = selectedScale
                 scaleY = selectedScale
                 transformOrigin = TransformOrigin(0.5f, 1f)
-            }.pressable(enabled = enabled, onClick = onPlay)
+            }.liftable(menu = liftMenu, anchor = still)
+            .pressable(enabled = enabled, onClick = onPlay)
             .solidGlass(
                 shape = AppShapes.card,
                 fill =
@@ -593,16 +635,9 @@ private fun EpisodeCard(
             ).padding(8.dp),
         verticalArrangement = Arrangement.spacedBy(7.dp),
     ) {
-        Box(Modifier.fillMaxWidth().height(108.dp)) {
+        Box(Modifier.fillMaxWidth().height(108.dp).liftAnchor(still)) {
             Poster(
-                url =
-                    EmbyImages.primary(
-                        baseUrl,
-                        episode.id,
-                        episode.primaryTag,
-                        maxHeight = 240,
-                        accessToken = accessToken,
-                    ),
+                url = episodeStillUrl(baseUrl, accessToken, episode),
                 fallbackUrls = listOfNotNull(seriesPosterUrl),
                 shape = AppShapes.thumb,
                 progress = episode.playedPercentage?.let { (it / 100.0).toFloat() },
@@ -646,6 +681,10 @@ private fun EpisodeCard(
                     val runtime = episode.runtimeMinutes?.let { "$it 分钟" }
                     if ((selected || watching) && runtime != null) append(" · ")
                     if (runtime != null) append(runtime)
+                    episodeDownloadLabel(download?.status)?.let { label ->
+                        if (isNotEmpty()) append(" · ")
+                        append(label)
+                    }
                 },
                 style = AppTypography.caption.medium,
                 color =
@@ -660,5 +699,207 @@ private fun EpisodeCard(
         }
     }
 }
+
+/** The episode's own still, as the rail and the 管理进度 sheet draw it. */
+internal fun episodeStillUrl(
+    baseUrl: String,
+    accessToken: String,
+    episode: Episode,
+): String? = EmbyImages.primary(baseUrl, episode.id, episode.primaryTag, maxHeight = 240, accessToken = accessToken)
+
+/**
+ * What an episode can have done to it beyond the tap that picks it: 标记已看 from a swipe or the
+ * 浮起菜单, 下载 and 删除下载, 从这里开始多选 and the sweep of 长按拖选. Built from the detail page's
+ * store and the offline manager, so the rail and the 管理进度 sheet offer the same things.
+ */
+@Stable
+internal class EpisodeRowActions(
+    private val store: Store<DetailIntent, DetailState, DetailLabel>,
+    private val offline: OfflineMediaManager,
+    /** The listed season's episodes on this device or on their way, by item id. */
+    val downloads: Map<String, OfflineMedia>,
+) {
+    fun mark(
+        episodeIds: Set<String>,
+        played: Boolean,
+    ) {
+        store.accept(DetailIntent.MarkEpisodes(episodeIds, played))
+    }
+
+    /** 播放: [select] is the rail's own tap, which picks the episode; it then plays once resolved. */
+    fun play(
+        episode: Episode,
+        select: (Episode) -> Unit,
+    ) {
+        // Tapping the episode already picked plays it; any other is picked first, and 播放 waits.
+        val picked = store.state.selectedEpisodeId == episode.id
+        select(episode)
+        if (!picked) store.accept(DetailIntent.Play)
+    }
+
+    /** 从这里开始多选: the sheet opens with [episode] already selected, to sweep on from. */
+    fun startSelection(episode: Episode) {
+        store.accept(DetailIntent.OpenProgressManager)
+        store.accept(DetailIntent.ToggleProgressEpisode(episode.id))
+    }
+
+    /** Makes the sheet's selection [episodeIds] — what a 长按拖选 sweep hands over — a toggle per change. */
+    fun select(episodeIds: Set<String>) {
+        val current = store.state.progressSelection
+        ((current - episodeIds) + (episodeIds - current)).forEach {
+            store.accept(DetailIntent.ToggleProgressEpisode(it))
+        }
+    }
+
+    /**
+     * 下载 with nothing asked: each episode's first file in 原画, as the 下载 sheet would start it.
+     * The sheet is still where versions, subtitles and a whole season are chosen.
+     */
+    fun download(episodes: List<Episode>) {
+        val state = store.state
+        val server = state.playServer ?: return
+        val requests =
+            episodes
+                .filter { it.id !in downloads }
+                .flatMap { episode ->
+                    buildOfflineDownloadRequests(
+                        serverId = server.id,
+                        currentItemId = episode.id,
+                        currentTitle = episode.name,
+                        currentRuntimeMinutes = episode.runtimeMinutes,
+                        currentVersions = episode.versions,
+                        seasonEpisodes = state.episodes,
+                        selection = OfflineDownloadSelection(),
+                        currentSeriesId = state.playTarget?.seriesId,
+                        currentSeasonId = episode.seasonId,
+                    )
+                }
+        if (requests.isNotEmpty()) offline.enqueueAll(requests)
+    }
+
+    fun removeDownload(download: OfflineMedia) {
+        offline.remove(download.id)
+    }
+}
+
+/** [EpisodeRowActions] for the detail page, with the downloads of [serverId], the server playing the season. */
+@Composable
+internal fun rememberEpisodeRowActions(
+    component: DetailComponent,
+    serverId: String?,
+): EpisodeRowActions {
+    val offline = component.dependencies.offlineMediaManager
+    val items by offline.items.collectAsState()
+    return remember(component, items, serverId) {
+        EpisodeRowActions(
+            store = component.store,
+            offline = offline,
+            downloads = items.filter { it.serverId == serverId }.associateBy { it.itemId },
+        )
+    }
+}
+
+/**
+ * The 浮起菜单 for one episode (5.1 单集): 播放 │ 标记为已看 or 未看, 标记此前全部已看 │ 下载,
+ * 从这里开始多选. A row with nothing to do is left out — nothing unwatched before the episode, a
+ * copy already downloaded.
+ */
+internal fun episodeLiftMenu(
+    episode: Episode,
+    episodes: List<Episode>,
+    artworkUrl: String?,
+    downloaded: Boolean,
+    onOpen: () -> Unit,
+    onPlay: () -> Unit,
+    onMark: (Set<String>, Boolean) -> Unit,
+    onDownload: () -> Unit,
+    onSelectFrom: () -> Unit,
+): LiftMenu {
+    val earlier = unwatchedBefore(episodes, episode.id)
+    return LiftMenu(
+        title = listOfNotNull(episode.indexNumber?.let { "第${it}集" }, episode.name).joinToString(" · "),
+        meta = episodeLiftMeta(episode),
+        artworkUrls = listOfNotNull(artworkUrl),
+        backdropUrls = listOfNotNull(artworkUrl),
+        progress = episodeLiftProgress(episode),
+        progressLabel = if (episode.played) "已看完" else null,
+        onOpen = onOpen,
+        sections =
+            listOf(
+                listOf(
+                    ItemAction(
+                        label = "播放",
+                        icon = AppIcons.Play,
+                        leavesPage = true,
+                        id = "episode.play",
+                        onSelect = onPlay,
+                    ),
+                ),
+                listOfNotNull(
+                    playedLiftAction(episode.played) { played -> onMark(setOf(episode.id), played) },
+                    earlier.takeIf { it.isNotEmpty() }?.let { ids ->
+                        ItemAction(
+                            label = "标记此前全部已看",
+                            icon = AppIcons.EpisodeList,
+                            detail = "${ids.size} 集",
+                            id = "episode.markEarlier",
+                        ) { onMark(ids, true) }
+                    },
+                ),
+                listOfNotNull(
+                    if (downloaded) {
+                        null
+                    } else {
+                        ItemAction(
+                            label = "下载",
+                            icon = AppIcons.Download,
+                            id = "episode.download",
+                            onSelect = onDownload,
+                        )
+                    },
+                    ItemAction(
+                        label = "从这里开始多选",
+                        icon = AppIcons.Edit,
+                        leavesPage = true,
+                        id = "episode.selectFrom",
+                        onSelect = onSelectFrom,
+                    ),
+                ),
+            ),
+    )
+}
+
+/** "45分钟 · 2026-07-30": what the card knows besides the title. */
+private fun episodeLiftMeta(episode: Episode): String? =
+    listOfNotNull(heroDurationLabel(episode.runtimeMinutes), episode.premiereDate)
+        .joinToString(" · ")
+        .ifBlank { null }
+
+/** Watched is a full bar; part-watched its share; unstarted draws none. */
+private fun episodeLiftProgress(episode: Episode): Float? {
+    if (episode.played) return 1f
+    val percent = episode.playedPercentage?.takeIf { it > 0.0 } ?: return null
+    return (percent / 100.0).toFloat().coerceIn(0f, 1f)
+}
+
+/** 标记此前全部已看: the unwatched episodes listed before [episodeId]; none when it is first or not listed. */
+internal fun unwatchedBefore(
+    episodes: List<Episode>,
+    episodeId: String,
+): Set<String> {
+    val index = episodes.indexOfFirst { it.id == episodeId }
+    if (index <= 0) return emptySet()
+    return episodes.subList(0, index).filter { !it.played }.mapTo(linkedSetOf()) { it.id }
+}
+
+/** How far an episode's offline copy has got, in a word or two; null when there is none. */
+internal fun episodeDownloadLabel(status: DownloadStatus?): String? =
+    when (status) {
+        null -> null
+        DownloadStatus.Completed -> "已下载"
+        DownloadStatus.Failed -> "下载失败"
+        DownloadStatus.Paused -> "下载已暂停"
+        DownloadStatus.Queued, DownloadStatus.WaitingForWifi, DownloadStatus.Downloading -> "下载中"
+    }
 
 /** 主演 — `gap:14px`; 52px round avatars with `500 10px Manrope` names 6px below. */

@@ -311,6 +311,8 @@ fun DetailScreen(component: DetailComponent) {
     var moreSheetOpen by remember { mutableStateOf(false) }
     var metadataEditorOpen by remember { mutableStateOf(false) }
     var downloadSheetOpen by remember { mutableStateOf(false) }
+    // The episode rows' 浮起菜单, swipes and 长按拖选, and what of the season is downloaded.
+    val episodeRowActions = rememberEpisodeRowActions(component, state.playServer?.id)
     var organizationSheetOpen by remember { mutableStateOf(false) }
     var sourceListOpen by remember { mutableStateOf(false) }
     var allEpisodesOpen by remember { mutableStateOf(false) }
@@ -660,6 +662,7 @@ fun DetailScreen(component: DetailComponent) {
                                                 )
                                             },
                                             onSeeAll = { allEpisodesOpen = true },
+                                            rowActions = episodeRowActions,
                                         )
                                     }
                                 }
@@ -1090,6 +1093,7 @@ fun DetailScreen(component: DetailComponent) {
                         onDismiss = {
                             component.store.accept(DetailIntent.CloseProgressManager)
                         },
+                        rowActions = episodeRowActions,
                     )
                 }
 
