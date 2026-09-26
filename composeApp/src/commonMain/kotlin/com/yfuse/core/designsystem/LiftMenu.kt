@@ -295,6 +295,9 @@ internal class LiftSession(
     private var steering = false
     private var pending: (() -> Unit)? = null
 
+    /** Replaced by another lift before it finished; its finger may still be down, but it runs nothing. */
+    private var abandoned = false
+
     private val sectionSizes = menu.sections.map { it.size }
 
     /**
@@ -306,7 +309,7 @@ internal class LiftSession(
         finger: Offset,
         slop: Float,
     ): Boolean {
-        if (!holding || exit != LiftExit.None) return false
+        if (abandoned || !holding || exit != LiftExit.None) return false
         if (!steering) {
             val start = origin ?: finger
             if ((finger - start).getDistance() <= slop) return false
@@ -321,7 +324,7 @@ internal class LiftSession(
 
     /** The lifting finger came up: run what it was over, or stay up to be tapped. */
     fun release() {
-        if (!holding) return
+        if (!holding || abandoned) return
         holding = false
         when (val target = hot) {
             LiftHit.Card -> open()
@@ -338,7 +341,7 @@ internal class LiftSession(
     }
 
     fun select(action: LiftMenuAction) {
-        if (exit != LiftExit.None) return
+        if (abandoned || exit != LiftExit.None) return
         val index = menu.actions.indexOf(action)
         if (index >= 0) hot = LiftHit.Row(index)
         if (action.leavesPage) {
@@ -352,7 +355,7 @@ internal class LiftSession(
 
     fun open() {
         val open = onOpenTitle ?: return dismiss()
-        if (exit != LiftExit.None) return
+        if (abandoned || exit != LiftExit.None) return
         hot = LiftHit.Card
         exit = LiftExit.FadeAway
         open()
@@ -379,6 +382,8 @@ internal class LiftSession(
 
     /** Another poster was lifted before this one finished leaving. */
     fun abandon() {
+        abandoned = true
+        holding = false
         pending = null
         onSettled()
         onFinished(this)

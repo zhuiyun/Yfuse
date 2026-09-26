@@ -213,6 +213,20 @@ class LiftMenuTest {
     }
 
     @Test
+    fun aLiftReplacedByAnotherRunsNothingWhenItsFingerComesUp() {
+        val recorder = Recorder()
+        val lift = session(recorder)
+        lift.steer(Offset(100f, 208f + 6f + 10f), slop = 8f)
+        lift.abandon()
+        assertEquals(listOf("settled", "finished"), recorder.events)
+        lift.release()
+        lift.select(lift.menu.actions[0])
+        lift.open()
+        assertEquals(listOf("settled", "finished"), recorder.events)
+        assertEquals(LiftExit.None, lift.exit)
+    }
+
+    @Test
     fun emptyGroupsAreDroppedAndThePosterFillsInMissingArtwork() {
         val menu = LiftMenu(title = "雾港", sections = listOf(emptyList(), listOf(LiftMenuAction("播放") {})))
         assertEquals(1, menu.sections.size)

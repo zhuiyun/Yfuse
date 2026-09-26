@@ -347,7 +347,7 @@ P1 的修法：锁定层加一个吞掉触摸的全屏捕获层，只放行“�
 
 ### 12.3 验证
 
-- JVM 单元测试：`PlayerSpeedBoostTest`（10 项：档位、滞回、标签、拒绝顺序），`LiftMenuTest`（16 项：摆放、命中、会话状态机、文字淡入），`MediaItemLiftMenuTest`（6 项：卡片文案、进度、时钟、操作行）。本地用独立的 Kotlin 2.4.20 编译器加 Compose 的 geometry / unit 包跑通，共 32 项全部通过。
+- JVM 单元测试：`PlayerSpeedBoostTest`（10 项：档位、滞回、标签、拒绝顺序），`LiftMenuTest`（17 项：摆放、命中、会话状态机、被替换的浮起不再执行、文字淡入），`MediaItemLiftMenuTest`（6 项：卡片文案、进度、时钟、操作行）。本地用独立的 Kotlin 2.4.20 编译器加 Compose 的 geometry / unit 包跑通，共 33 项全部通过。
 - ktlint 1.3.1 按 `phoneShared` 基线检查全部改动文件，无新增问题。
 - 按 `verifyDesignSystemUsage` 的规则逐条复刻检查，无违规。
 - 整体编译依赖 Google Maven，本地环境无法访问，通过 GitHub Actions 的 Android TV 质量门编译（它编译同一套 `commonMain` 和 `androidMain`）。
