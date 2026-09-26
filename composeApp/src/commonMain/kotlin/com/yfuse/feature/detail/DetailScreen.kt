@@ -54,6 +54,7 @@ import com.yfuse.core.designsystem.OverlayPage
 import com.yfuse.core.designsystem.SkeletonHandoff
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.WindowWidthTier
+import com.yfuse.core.designsystem.ZoomBackAnchor
 import com.yfuse.core.designsystem.backdropSource
 import com.yfuse.core.designsystem.liftOverHero
 import com.yfuse.core.designsystem.lightOnAppear
@@ -65,6 +66,7 @@ import com.yfuse.core.designsystem.rememberArtworkPageColor
 import com.yfuse.core.designsystem.rememberBackdropState
 import com.yfuse.core.designsystem.rememberRetainedArtworkPageColor
 import com.yfuse.core.designsystem.windowWidthTier
+import com.yfuse.core.designsystem.zoomBackAnchor
 import com.yfuse.core.model.CalendarDay
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.ServerSource
@@ -320,6 +322,8 @@ fun DetailScreen(component: DetailComponent) {
     var organizationSheetOpen by remember { mutableStateOf(false) }
     var sourceListOpen by remember { mutableStateOf(false) }
     var allEpisodesOpen by remember { mutableStateOf(false) }
+    // The rail 全部剧集 opens out of, and folds back into when that page is pulled down.
+    val allEpisodesSource = remember { ZoomBackAnchor() }
     var airingCalendarOpen by remember { mutableStateOf(false) }
     var airingCalendarReload by remember { mutableStateOf(0) }
     var airingCalendarLoading by remember(detail?.id) { mutableStateOf(false) }
@@ -632,42 +636,44 @@ fun DetailScreen(component: DetailComponent) {
                                 // external links before they can choose what to watch.
                                 if (state.episodes.isNotEmpty()) {
                                     motionItem(key = "episodes") {
-                                        EpisodeSection(
-                                            baseUrl = playBaseUrl,
-                                            accessToken = playAccessToken,
-                                            episodes = state.episodes,
-                                            seriesPosterUrl = heroUrls.getOrNull(1),
-                                            selectedEpisodeId = state.selectedEpisodeId,
-                                            accent = detailAccent,
-                                            seasonLabel =
-                                                state.seasons
-                                                    .firstOrNull { it.id == state.selectedSeasonId }
-                                                    ?.name
-                                                    ?: "剧集",
-                                            availableEpisodeCount = state.episodes.size,
-                                            seasonCount = state.seasons.size,
-                                            seasonLoading = listedSeasonId != state.selectedSeasonId,
-                                            listedSeasonId = listedSeasonId,
-                                            pickerOpen = seasonPickerOpen,
-                                            onTogglePicker = { seasonPickerOpen = !seasonPickerOpen },
-                                            onPickerAnchor = { seasonPickerAnchor.bounds = it },
-                                            onManageProgress = {
-                                                component.store.accept(DetailIntent.OpenProgressManager)
-                                            },
-                                            onPlayEpisode = { episode ->
-                                                com.yfuse.core.designsystem.PlayerArtworkOrigins.begin(
-                                                    sharedHeroKey,
-                                                )
-                                                component.store.accept(
-                                                    DetailIntent.SelectEpisode(
-                                                        episode.id,
-                                                        episode.resumePositionTicks ?: 0L,
-                                                    ),
-                                                )
-                                            },
-                                            onSeeAll = { allEpisodesOpen = true },
-                                            rowActions = episodeRowActions,
-                                        )
+                                        Box(Modifier.zoomBackAnchor(allEpisodesSource)) {
+                                            EpisodeSection(
+                                                baseUrl = playBaseUrl,
+                                                accessToken = playAccessToken,
+                                                episodes = state.episodes,
+                                                seriesPosterUrl = heroUrls.getOrNull(1),
+                                                selectedEpisodeId = state.selectedEpisodeId,
+                                                accent = detailAccent,
+                                                seasonLabel =
+                                                    state.seasons
+                                                        .firstOrNull { it.id == state.selectedSeasonId }
+                                                        ?.name
+                                                        ?: "剧集",
+                                                availableEpisodeCount = state.episodes.size,
+                                                seasonCount = state.seasons.size,
+                                                seasonLoading = listedSeasonId != state.selectedSeasonId,
+                                                listedSeasonId = listedSeasonId,
+                                                pickerOpen = seasonPickerOpen,
+                                                onTogglePicker = { seasonPickerOpen = !seasonPickerOpen },
+                                                onPickerAnchor = { seasonPickerAnchor.bounds = it },
+                                                onManageProgress = {
+                                                    component.store.accept(DetailIntent.OpenProgressManager)
+                                                },
+                                                onPlayEpisode = { episode ->
+                                                    com.yfuse.core.designsystem.PlayerArtworkOrigins.begin(
+                                                        sharedHeroKey,
+                                                    )
+                                                    component.store.accept(
+                                                        DetailIntent.SelectEpisode(
+                                                            episode.id,
+                                                            episode.resumePositionTicks ?: 0L,
+                                                        ),
+                                                    )
+                                                },
+                                                onSeeAll = { allEpisodesOpen = true },
+                                                rowActions = episodeRowActions,
+                                            )
+                                        }
                                     }
                                 }
 
@@ -1107,6 +1113,7 @@ fun DetailScreen(component: DetailComponent) {
                 OverlayPage(
                     value = detail?.takeIf { allEpisodesOpen },
                     onBack = { allEpisodesOpen = false },
+                    source = allEpisodesSource,
                 ) { shown ->
                     SeasonEpisodesPage(
                         seasonLabel =
@@ -1135,6 +1142,10 @@ fun DetailScreen(component: DetailComponent) {
                             )
                         },
                         onDismiss = { allEpisodesOpen = false },
+                        seasons = state.seasons.map { it.id to it.name },
+                        selectedSeasonId = state.selectedSeasonId,
+                        listedSeasonId = listedSeasonId,
+                        onSelectSeason = { component.store.accept(DetailIntent.SelectSeason(it)) },
                     )
                 }
 

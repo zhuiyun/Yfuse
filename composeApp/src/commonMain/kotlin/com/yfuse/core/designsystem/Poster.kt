@@ -260,6 +260,8 @@ fun Poster(
                 if (!reduceMotion && sharedTransitionKey != null) {
                     sharedController?.begin(sharedTransitionKey)
                 }
+                // No morph under 减弱动态效果, but 跟手返回 still goes back into this poster.
+                if (reduceMotion && sharedTransitionKey != null) sharedController?.noteOrigin(sharedTransitionKey)
                 click()
             }
         }
@@ -468,6 +470,8 @@ fun CaptionedPoster(
                 if (!reduceMotion && sharedTransitionKey != null) {
                     sharedController?.begin(sharedTransitionKey)
                 }
+                // No morph under 减弱动态效果, but 跟手返回 still goes back into this poster.
+                if (reduceMotion && sharedTransitionKey != null) sharedController?.noteOrigin(sharedTransitionKey)
                 click()
             }
         }
