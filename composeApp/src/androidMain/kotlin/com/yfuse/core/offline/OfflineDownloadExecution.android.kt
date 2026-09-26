@@ -50,7 +50,8 @@ private fun offlineDownloadNotification(
     total: Long,
 ): Notification {
     val manager = runCatching { GlobalContext.get().get<OfflineMediaManager>() }.getOrNull()
-    val summary = manager?.items?.value?.let(::summarizeDownloads)
+    val items = manager?.items?.value
+    val summary = items?.let(::summarizeDownloads)
     val contentIntent =
         PendingIntent.getActivity(
             context,
@@ -60,6 +61,9 @@ private fun offlineDownloadNotification(
                 .putExtra(DownloadNotificationActions.EXTRA_OPEN_DOWNLOADS, true),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
+    if (Build.VERSION.SDK_INT >= 36 && items != null) {
+        downloadLiveUpdate(context, OFFLINE_NOTIFICATION_CHANNEL_ID, items, contentIntent)?.let { return it }
+    }
     val progress =
         if (summary != null) {
             summary.percent
@@ -100,6 +104,17 @@ private fun offlineDownloadNotification(
     return builder.build()
 }
 
+/**
+ * Set by 停止 on the live update: the queue stays paused in 下载, without a notification asking
+ * for it to be resumed. The next download that runs clears it.
+ */
+@Volatile
+private var offlineAttentionSilenced = false
+
+internal fun silenceOfflineAttention() {
+    offlineAttentionSilenced = true
+}
+
 /** A separate non-foreground notification survives a paused or failed worker. */
 internal fun updateOfflineAttentionNotification(context: Context) {
     val summary =
@@ -109,7 +124,8 @@ internal fun updateOfflineAttentionNotification(context: Context) {
             .items.value
             .let(::summarizeDownloads)
     val notifications = context.getSystemService(NotificationManager::class.java)
-    if (summary.active > 0 || !summary.visible) {
+    if (summary.active > 0) offlineAttentionSilenced = false
+    if (summary.active > 0 || !summary.visible || offlineAttentionSilenced) {
         notifications.cancel(OFFLINE_ATTENTION_NOTIFICATION_ID)
     } else {
         ensureOfflineNotificationChannel(context)
