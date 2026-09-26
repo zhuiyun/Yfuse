@@ -812,6 +812,12 @@ object Motion {
             spring(dampingRatio = 0.92f, stiffness = stiffness)
         }
 
+    /**
+     * 跟手返回: a page flying back into the poster it came from, or springing back to full screen
+     * when let go short. Barely under-damped, so the card lands without a bounce.
+     */
+    fun <T> zoomBack(): SpringSpec<T> = spring(dampingRatio = 0.86f, stiffness = 380f)
+
     /** 推进（详情 / 类型 / 下载）— 右侧 30px 滑入 + 淡入. */
     const val PUSH = EMPHASIZED
     val pushOffset = 30.dp
