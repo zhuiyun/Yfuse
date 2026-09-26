@@ -48,6 +48,15 @@ class ChapterProgressMarkersTest {
     }
 
     @Test
+    fun previewsAwayFromTheRailReadTheSameNameFromTheChapterList() {
+        assertEquals("序幕", fileChapterNameAt(chapters, 599_999L))
+        assertEquals("灯塔", fileChapterNameAt(chapters, 600_000L))
+        assertEquals("回声", fileChapterNameAt(chapters, 3_600_000L))
+        assertNull(fileChapterNameAt(listOf(PlaybackChapter(120_000L, "正片")), 60_000L))
+        assertNull(fileChapterNameAt(emptyList(), 60_000L))
+    }
+
+    @Test
     fun beforeTheFirstChapterThereIsNoName() {
         val markers = chapterMarkersOf(listOf(PlaybackChapter(120_000L, "正片")))
 

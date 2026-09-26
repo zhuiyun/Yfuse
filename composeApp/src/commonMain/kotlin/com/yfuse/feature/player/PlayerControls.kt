@@ -303,6 +303,8 @@ internal fun PlayerControls(
     var holdSeekTarget by remember { mutableLongStateOf(0L) }
     // 长按扫描换挡: the held side's gear, followed by the pointer observer and the ticking loop.
     val holdScan = remember { HoldScanGears() }
+    // Where a sideways swipe across the picture would land, for the card over the HUD; null otherwise.
+    var pictureScrubMs by remember { mutableStateOf<Long?>(null) }
     val holdScanStepPx = with(LocalDensity.current) { HoldScanGearStep.toPx() }
     // 长按中间: the gear while the middle third is held, null otherwise, and where the hold began.
     var speedBoostGear by remember { mutableStateOf<Int?>(null) }
@@ -916,11 +918,13 @@ internal fun PlayerControls(
                             startX = offset.x
                             totalX = 0f
                             totalY = 0f
+                            pictureScrubMs = null
                             seekTarget = latestPosition
                             volumeAtDragStart = latestVolume()
                             brightnessAtDragStart = latestBrightness()
                         },
                         onDragEnd = {
+                            pictureScrubMs = null
                             // 长按中间 ends in its own release, with the chrome left hidden.
                             if (speedBoostGear == null) {
                                 if (
@@ -934,7 +938,10 @@ internal fun PlayerControls(
                                 poke()
                             }
                         },
-                        onDragCancel = { gestureHud = null },
+                        onDragCancel = {
+                            gestureHud = null
+                            pictureScrubMs = null
+                        },
                     ) { change, amount ->
                         change.consume()
                         // A finger that drifts while held is still holding, not scrubbing:
@@ -958,7 +965,9 @@ internal fun PlayerControls(
                             val delta = seekTarget - latestPosition
                             val sign = if (delta < 0L) "-" else "+"
                             gestureHud = "$sign${abs(delta).asClock()} · ${seekTarget.asClock()} / ${span.asClock()}"
+                            pictureScrubMs = seekTarget
                         } else {
+                            pictureScrubMs = null
                             val delta = -totalY / size.height
                             if (startX < size.width / 2f) {
                                 val target = (brightnessAtDragStart + delta).coerceIn(0.02f, 1f)
@@ -1698,6 +1707,14 @@ internal fun PlayerControls(
                 SpeedBoostPill(
                     gear = speedBoostGear,
                     modifier = Modifier.align(Alignment.TopCenter).padding(top = 28.dp),
+                )
+
+                // 全程缩略图: the frame a swipe across the picture, or a held side, has got to.
+                PictureScrubPreview(
+                    storyboard = trickplay,
+                    positionMs = { if (holdSeekDirection != 0) holdSeekTarget else pictureScrubMs },
+                    chapters = chapters,
+                    modifier = Modifier.align(Alignment.Center),
                 )
 
                 // Suppressed while the resume button occupies the same spot: the double tap that

@@ -1,5 +1,6 @@
 package com.yfuse.feature.player
 
+import com.yfuse.core.model.PlaybackChapter
 import kotlin.math.min
 
 /**
@@ -27,6 +28,12 @@ internal fun chapterNameAt(
     chapters: List<PlaybackProgressMarker>,
     positionMs: Long,
 ): String? = chapters.getOrNull(chapterIndexAt(chapters, positionMs))?.label
+
+/** [chapterNameAt] straight from the file's chapter list, for previews away from the rail. */
+internal fun fileChapterNameAt(
+    chapters: List<PlaybackChapter>,
+    positionMs: Long,
+): String? = chapters.lastOrNull { it.startMs <= positionMs }?.name
 
 /**
  * Where the rail is cut between chapters, as fractions of it. A chapter starting at the very
