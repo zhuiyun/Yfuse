@@ -242,6 +242,8 @@ data class OfflineEnqueueResult(
     val skipped: Int,
     /** 仅 Wi-Fi 下载 is on and this device is not on Wi-Fi, so nothing starts yet. */
     val waitingForWifi: Boolean,
+    /** Already downloaded as the chosen version: kept as they are, not counted in [queued]. */
+    val alreadyDownloaded: Int = 0,
 )
 
 /**
@@ -252,9 +254,16 @@ internal fun offlineEnqueueMessage(
     result: OfflineEnqueueResult,
     episode: Boolean,
 ): String {
-    if (result.queued == 0) return "没有加入下载：其他集里没有与所选版本相符的文件"
+    if (result.queued == 0) {
+        return when {
+            result.alreadyDownloaded > 1 -> "所选的 ${result.alreadyDownloaded} 集都已下载"
+            result.alreadyDownloaded == 1 -> "已经下载过了"
+            else -> "没有加入下载：其他集里没有与所选版本相符的文件"
+        }
+    }
     return buildString {
         append(if (episode) "已加入 ${result.queued} 集下载" else "已加入下载")
+        if (result.alreadyDownloaded > 0) append("，${result.alreadyDownloaded} 集已下载过")
         if (result.skipped > 0) append("，${result.skipped} 集没有相符的版本，已跳过")
         if (result.waitingForWifi) append(" · 连上 Wi-Fi 后开始")
     }

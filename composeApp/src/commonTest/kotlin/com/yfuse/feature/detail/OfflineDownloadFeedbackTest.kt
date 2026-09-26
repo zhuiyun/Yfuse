@@ -26,10 +26,18 @@ class OfflineDownloadFeedbackTest {
         assertEquals("没有加入下载：其他集里没有与所选版本相符的文件", notice(queued = 0, skipped = 3, episode = true))
     }
 
+    @Test
+    fun episodes_already_on_the_device_are_not_counted_as_queued() {
+        assertEquals("已加入 4 集下载，8 集已下载过", notice(queued = 4, alreadyDownloaded = 8, episode = true))
+        assertEquals("所选的 12 集都已下载", notice(queued = 0, alreadyDownloaded = 12, episode = true))
+        assertEquals("已经下载过了", notice(queued = 0, alreadyDownloaded = 1, episode = false))
+    }
+
     private fun notice(
         queued: Int,
         skipped: Int = 0,
         waitingForWifi: Boolean = false,
+        alreadyDownloaded: Int = 0,
         episode: Boolean,
-    ) = offlineEnqueueMessage(OfflineEnqueueResult(queued, skipped, waitingForWifi), episode)
+    ) = offlineEnqueueMessage(OfflineEnqueueResult(queued, skipped, waitingForWifi, alreadyDownloaded), episode)
 }

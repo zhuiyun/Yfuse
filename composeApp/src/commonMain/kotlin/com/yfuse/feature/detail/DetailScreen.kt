@@ -67,6 +67,7 @@ import com.yfuse.core.designsystem.rememberBackdropState
 import com.yfuse.core.designsystem.rememberRetainedArtworkPageColor
 import com.yfuse.core.designsystem.windowWidthTier
 import com.yfuse.core.model.CalendarDay
+import com.yfuse.core.model.MediaDetail
 import com.yfuse.core.model.ServerSource
 import com.yfuse.core.model.capabilities
 import com.yfuse.core.network.EmbyImages
@@ -74,7 +75,9 @@ import com.yfuse.core.network.currentPlaybackNetworkClass
 import com.yfuse.core.network.toUserMessage
 import com.yfuse.core.sync.WatchInvite
 import com.yfuse.core.sync.WatchTogetherState
+import com.yfuse.core.sync.parseEpisodeWatchKey
 import com.yfuse.core.sync.watchKey
+import com.yfuse.core.sync.watchMatchKeys
 import com.yfuse.core.util.rememberShareHandler
 import com.yfuse.feature.player.PlaybackSelection
 import com.yfuse.feature.player.PlaybackSelectionState
@@ -139,15 +142,36 @@ internal enum class WatchRoomAction { Create, Share, ConfirmReplace }
  * used to rebuild it under a new code, leaving everyone who had joined behind the old one. A room
  * for this title is shared again instead, one for another title is only left once the person
  * agrees, and a room whose title is not known yet is shared rather than left.
+ *
+ * [titleKeys] are all the names the page's title answers to ([detailWatchKeys]): the room names
+ * what the host's library calls it, and once playing a show it names the episode, `tmdb:1399/s1e1`,
+ * where the show's page is `tmdb:1399`. One exact key made every show's own room look foreign.
  */
 internal fun watchRoomAction(
     state: WatchTogetherState,
-    mediaKey: String,
-): WatchRoomAction =
-    when {
+    titleKeys: Collection<String>,
+): WatchRoomAction {
+    val roomKey = state.mediaKey?.takeIf(String::isNotBlank)
+    return when {
         state.roomCode == null -> WatchRoomAction.Create
-        state.mediaKey.isNullOrBlank() || state.mediaKey == mediaKey -> WatchRoomAction.Share
+        roomKey == null || roomKey in titleKeys -> WatchRoomAction.Share
+        parseEpisodeWatchKey(roomKey)?.seriesKey?.let { it in titleKeys } == true -> WatchRoomAction.Share
         else -> WatchRoomAction.ConfirmReplace
+    }
+}
+
+/**
+ * Every name [detail] answers to in a room: its own provider ids and server id, and on an episode
+ * page its show's — the server id always, the TMDB id once the show is followed ([seriesTmdbId]).
+ */
+internal fun detailWatchKeys(
+    detail: MediaDetail,
+    seriesTmdbId: String?,
+): Set<String> =
+    buildSet {
+        addAll(watchMatchKeys(ownProviderIds = detail.providerIds, fallbackId = detail.id))
+        seriesTmdbId?.let { add("tmdb:$it") }
+        detail.seriesId?.let { add("emby:$it") }
     }
 
 /** The selected visual target puts the glass summary over the lower third of the hero. */
@@ -916,7 +940,7 @@ fun DetailScreen(component: DetailComponent) {
                         // 继续分享邀请 only for a room this title can be shared into; any other room is
                         // left, after asking, for a new one.
                         watchActive =
-                            watchRoomAction(watchState, detail.providerIds.watchKey(detail.id)) ==
+                            watchRoomAction(watchState, detailWatchKeys(detail, seriesTmdbId)) ==
                                 WatchRoomAction.Share,
                         serverFavoriteAvailable = serverFavoriteAvailable,
                         serverFavorite = detail.isFavorite,
@@ -983,7 +1007,7 @@ fun DetailScreen(component: DetailComponent) {
                         onWatchTogether = {
                             moreSheetOpen = false
                             val mediaKey = detail.providerIds.watchKey(detail.id)
-                            when (watchRoomAction(watchState, mediaKey)) {
+                            when (watchRoomAction(watchState, detailWatchKeys(detail, seriesTmdbId))) {
                                 WatchRoomAction.Share -> shareSheetOpen = true
                                 WatchRoomAction.ConfirmReplace -> replaceRoomConfirmOpen = true
                                 WatchRoomAction.Create -> {
@@ -1200,7 +1224,7 @@ fun DetailScreen(component: DetailComponent) {
 
                 if (replaceRoomConfirmOpen && detail != null) {
                     ConfirmDialog(
-                        title = "离开当前房间，为这部影片新建房间？",
+                        title = "离开当前房间，为《${detail.title}》新建房间？",
                         message =
                             if (watchState.isHost) {
                                 "其他成员会留在原房间，房主身份稍后交给其中一人；新房间要重新发送邀请。"

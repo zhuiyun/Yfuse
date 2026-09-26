@@ -40,4 +40,17 @@ class ExternalLinksTest {
             externalLinks(episode, type = "Episode"),
         )
     }
+
+    @Test
+    fun a_collection_opens_its_tmdb_collection_and_a_season_no_page_of_the_wrong_kind() {
+        assertEquals(
+            listOf("TMDB" to "https://www.themoviedb.org/collection/2344"),
+            externalLinks(mapOf("Tmdb" to "2344", "Tvdb" to "77"), type = "BoxSet"),
+        )
+        // A season's TMDB id is not its show's, and TheTVDB's season pages are not dereferred here.
+        assertEquals(
+            listOf("IMDb" to "https://www.imdb.com/title/tt1234567/"),
+            externalLinks(mapOf("Tmdb" to "3624", "Tvdb" to "364731", "Imdb" to "tt1234567"), type = "Season"),
+        )
+    }
 }

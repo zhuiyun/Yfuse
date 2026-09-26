@@ -29,6 +29,6 @@ class DetailStatusTest {
                 personalWanted = true,
             )
 
-        assertEquals(listOf("已收藏", "已看完", "想看"), statuses.map { it.label })
+        assertEquals(listOf("服务器收藏", "已看完", "想看"), statuses.map { it.label })
     }
 }

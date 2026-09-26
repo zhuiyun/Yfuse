@@ -574,7 +574,8 @@ internal fun TitleBlock(
 internal enum class DetailStatus(
     val label: String,
 ) {
-    Favorite("已收藏"),
+    // Beside 个人收藏, a bare 已收藏 did not say whose list it was.
+    Favorite("服务器收藏"),
     WatchLater("稍后观看"),
     Played("已看完"),
     PersonalFavorite("个人收藏"),

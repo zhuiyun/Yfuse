@@ -1534,6 +1534,9 @@ internal class DetailExecutor(
                 // The server marks every episode with the series. A queued write still reaches
                 // it as shown, so the episodes follow either way, as the batch editor's do.
                 dispatch(DetailMsg.SeriesProgressChanged(server.id, detail.id, target, message))
+                // Which episode 播放 opens moves with the marks, so the server's next-up is asked
+                // again. Only once written: until then it still answers as before.
+                if (written) refreshPlayTarget()
             } else {
                 dispatch(DetailMsg.ActionMessage(message))
             }
@@ -1618,7 +1621,16 @@ internal class DetailExecutor(
                     message = message,
                 ),
             )
+            if (queued == 0) refreshPlayTarget()
         }
+    }
+
+    /** 播放's episode again, from the page's own server, as the page first resolved it. */
+    private fun refreshPlayTarget() {
+        val page = state()
+        val server = page.server ?: return
+        val detail = page.detail ?: return
+        loadPlaybackSelection(server, detail)
     }
 
     private fun isVisibleSource(

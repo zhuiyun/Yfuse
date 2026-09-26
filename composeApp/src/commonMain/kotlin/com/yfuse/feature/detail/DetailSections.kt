@@ -212,10 +212,12 @@ internal fun externalLinks(
             .firstOrNull { it.key.equals(name, ignoreCase = true) }
             ?.value
             ?.takeIf { it.isNotBlank() }
-    val episode = type.equals("Episode", ignoreCase = true)
+    // Unknown (null) keeps the film and show pages it always had. A season's own id is not its
+    // show's, and TMDB files seasons under the show, so a season gets no TMDB page of its own.
+    val kind = type?.lowercase()
     val tmdb =
-        when {
-            episode ->
+        when (kind) {
+            "episode" ->
                 seriesTmdbId?.takeIf { it.isNotBlank() }?.let { show ->
                     if (seasonNumber != null && episodeNumber != null) {
                         "https://www.themoviedb.org/tv/$show/season/$seasonNumber/episode/$episodeNumber"
@@ -223,19 +225,23 @@ internal fun externalLinks(
                         "https://www.themoviedb.org/tv/$show"
                     }
                 }
-            type.equals("Series", ignoreCase = true) -> id("Tmdb")?.let { "https://www.themoviedb.org/tv/$it" }
-            else -> id("Tmdb")?.let { "https://www.themoviedb.org/movie/$it" }
+            "series" -> id("Tmdb")?.let { "https://www.themoviedb.org/tv/$it" }
+            "boxset" -> id("Tmdb")?.let { "https://www.themoviedb.org/collection/$it" }
+            "movie", "video", "trailer", null -> id("Tmdb")?.let { "https://www.themoviedb.org/movie/$it" }
+            else -> null
         }
     val tvdbKind =
-        when {
-            episode -> "episode"
-            type.equals("Movie", ignoreCase = true) -> "movie"
-            else -> "series"
+        when (kind) {
+            "episode" -> "episode"
+            "movie" -> "movie"
+            "series", null -> "series"
+            else -> null
         }
     return buildList {
         tmdb?.let { add("TMDB" to it) }
         id("Imdb")?.let { add("IMDb" to "https://www.imdb.com/title/$it/") }
-        id("Tvdb")?.let { add("TheTVDB" to "https://thetvdb.com/dereferrer/$tvdbKind/$it") }
+        val tvdb = id("Tvdb")
+        if (tvdbKind != null && tvdb != null) add("TheTVDB" to "https://thetvdb.com/dereferrer/$tvdbKind/$tvdb")
     }
 }
 
