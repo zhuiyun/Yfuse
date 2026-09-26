@@ -494,10 +494,7 @@ internal class AndroidTransportMediaDataSource(
                 if (knownSize >= 0L && knownSize != contentLength) representationChanged()
                 knownSize = contentLength
             }
-            val completeBlock =
-                loaded.offsetInBlock == 0 &&
-                    (loaded.bytes.size == blockSize || blockIndex * blockSize + loaded.bytes.size == knownSize)
-            if (completeBlock) {
+            if (isCompleteBlock(blockIndex, loaded)) {
                 cache(blockIndex, loaded.bytes)
                 if (loaded.bytes.isNotEmpty() && !loaded.fromDiskCache) {
                     diskCache?.let { persistent ->
@@ -525,6 +522,14 @@ internal class AndroidTransportMediaDataSource(
             onBlockingReadStateChanged?.invoke(false)
         }
     }
+
+    /** From the start of block [blockIndex] to the end of its stride, or to the end of the media. */
+    private fun isCompleteBlock(
+        blockIndex: Long,
+        loaded: YLoadedTransportBlock,
+    ): Boolean =
+        loaded.offsetInBlock == 0 &&
+            (loaded.bytes.size == blockSize || blockIndex * blockSize + loaded.bytes.size == knownSize)
 
     /**
      * Records where the first blocking reads land, so a startup profile can be read from the log.
@@ -1024,7 +1029,12 @@ internal class AndroidTransportMediaDataSource(
                 shouldPrefetchTransportBlock(tail, blockSize, knownSize) &&
                     !blocks.containsKey(tail)
             }?.let(desired::add)
-        startupSlice?.first?.takeIf { !blocks.containsKey(it) }?.let(desired::add)
+        // A slice that already holds its whole block, as the startup range of a file no larger than
+        // that range does, leaves nothing for a prefetch to fill: it would only request the same bytes.
+        startupSlice
+            ?.takeIf { (index, slice) -> !blocks.containsKey(index) && !isCompleteBlock(index, slice) }
+            ?.first
+            ?.let(desired::add)
         // Shrinking concurrency under pressure must not discard nearly downloaded forward
         // blocks; that turns a temporary shortage into another download of the same bytes.
         prefetchedBlocks.forEach { (index, pending) ->

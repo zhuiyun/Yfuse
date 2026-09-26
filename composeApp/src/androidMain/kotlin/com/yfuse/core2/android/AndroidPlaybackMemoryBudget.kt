@@ -156,7 +156,13 @@ internal class PlaybackMemoryPressurePolicy(
 }
 
 internal object AndroidPlaybackMemoryBudget {
-    @Volatile private var pool = PlaybackMemoryPool(playbackMemoryBudgetBytes(Runtime.getRuntime().maxMemory(), false))
+    /**
+     * The pool every lease and reservation is drawn from. Tests that count origin reads through
+     * the playback proxy swap in a fresh one: in a test JVM this pool also holds whatever earlier
+     * tests left open, and a transport lease's share of it decides whether a startup slice survives.
+     */
+    @Volatile
+    internal var pool = PlaybackMemoryPool(playbackMemoryBudgetBytes(Runtime.getRuntime().maxMemory(), false))
     private val pressurePolicy = PlaybackMemoryPressurePolicy()
 
     @Volatile private var background = false

@@ -32,13 +32,18 @@ import kotlin.test.assertTrue
 
 class AndroidProxyMediaSessionsTest {
     private val runtimeHeap = AndroidPlaybackMemoryBudget.heapSample
+    private val runtimePool = AndroidPlaybackMemoryBudget.pool
 
     // These tests count origin reads, which assumes the startup slice a range validated survives
     // to serve that range. Judged from this JVM's own heap, memory pressure can drop it first and
     // send the read back to the origin, so the count depended on the run: both origin-count
-    // assertions here have failed on CI while passing on other runs of the same code.
+    // assertions here have failed on CI while passing on other runs of the same code. So can a
+    // small share of the process-wide pool, which also holds every lease and reservation earlier
+    // tests left open: below twice the block size the slice is dropped too. Each test gets a fresh
+    // pool as well as an ample heap.
     @BeforeTest
     fun pinHeapWithoutPressure() {
+        AndroidPlaybackMemoryBudget.pool = PlaybackMemoryPool(TEST_POOL_BYTES)
         AndroidPlaybackMemoryBudget.heapSample = {
             PlaybackHeapSample(freeBytes = AMPLE_HEAP, maximumBytes = AMPLE_HEAP)
         }
@@ -47,6 +52,7 @@ class AndroidProxyMediaSessionsTest {
 
     @AfterTest
     fun restoreRuntimeHeap() {
+        AndroidPlaybackMemoryBudget.pool = runtimePool
         AndroidPlaybackMemoryBudget.heapSample = runtimeHeap
         AndroidPlaybackMemoryBudget.refreshPressure()
     }
@@ -81,6 +87,38 @@ class AndroidProxyMediaSessionsTest {
                 release.countDown()
                 workers.shutdownNow()
             }
+        }
+    }
+
+    // The file above fits in one startup range, which leaves a prefetch of its block nothing to fetch.
+    // One used to be queued with every read anyway, and whether it reached the origin before the
+    // proxy closed the reader decided that test's count. This reader stays open to give it time.
+    @Test
+    fun a_startup_range_holding_the_whole_media_is_not_requested_again() {
+        val origin = Origin(ByteArray(4096) { it.toByte() }, "\"first\"")
+        val session = AndroidMediaRepresentationSession()
+        val source =
+            AndroidTransportMediaDataSource(
+                uri = "https://media.test/movie.mkv",
+                protocol = YSourceProtocol.Https,
+                headers = emptyMap(),
+                createTransport = origin::transport,
+                memoryLeaseOverride =
+                    PlaybackMemoryPool(TEST_POOL_BYTES).acquire(PlaybackBufferKind.Transport, TEST_POOL_BYTES),
+                allowsSpeculativeWork = { true },
+                refreshMemoryPressure = {},
+                representationSession = session,
+            )
+        try {
+            assertEquals(4096L, source.size)
+            val bytes = ByteArray(8)
+            assertEquals(8, source.readAt(512, bytes, 0, 8))
+            assertContentEquals(origin.bytes.copyOfRange(512, 520), bytes)
+            assertFalse(origin.followingReadStarted.await(300, TimeUnit.MILLISECONDS))
+            assertEquals(1, origin.requests.size, "The startup range already holds every byte of this media")
+        } finally {
+            source.close()
+            session.close()
         }
     }
 
@@ -589,3 +627,6 @@ private val CACHE_ID = YCacheIdentity("scope", "movie", "first")
 
 /** Far more free heap than any pressure threshold asks for. */
 private const val AMPLE_HEAP = 1L shl 30
+
+/** The production ceiling; every transport lease these tests open gets well over twice its block size. */
+private const val TEST_POOL_BYTES = 96L * 1024L * 1024L
