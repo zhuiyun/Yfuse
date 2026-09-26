@@ -313,9 +313,9 @@ fun App(root: RootComponent) {
         // is a sibling drawn after it, which is the arrangement that keeps the bar out of
         // its own backdrop — see [backdropSource].
         val backdrop = rememberBackdropState()
-        // Whether anything is sampling [backdrop]. The dock is its only consumer, and it is
-        // composed exactly while it is visible or still animating out — so a pushed page, which
-        // owns the whole screen and may capture a backdrop of its own, is not also recorded here.
+        // Whether anything is sampling [backdrop]: the dock, composed exactly while it is visible or
+        // still animating out, and a lifted poster's blur. A pushed page, which owns the whole screen
+        // and may capture a backdrop of its own, is otherwise not also recorded here.
         // Written from the dock's effect and read only inside the capture's draw.
         val dockOnScreen = remember { mutableStateOf(false) }
         // 浮起菜单: every content poster lifts into this one host, drawn over the dock below.
@@ -347,7 +347,7 @@ fun App(root: RootComponent) {
                         Box(
                             Modifier
                                 .fillMaxSize()
-                                .backdropSource(backdrop, record = { dockOnScreen.value }),
+                                .backdropSource(backdrop, record = { dockOnScreen.value || liftMenu.isOpen }),
                         ) {
                             val previousRootTab = remember { arrayOf(active) }
                             val rootMotion = remember(active) { rootTabMotion(previousRootTab[0], active) }
@@ -474,7 +474,7 @@ fun App(root: RootComponent) {
 
                         // Above the page, the dock and the capsule, so a lifted poster dims all of
                         // them; below the dialog windows, which a menu row may open.
-                        LiftMenuHost(liftMenu)
+                        LiftMenuHost(liftMenu, backdrop = backdrop)
 
                         // A room survives the process: the client keeps the capabilities the
                         // server granted, so a restart can offer to go back instead of making

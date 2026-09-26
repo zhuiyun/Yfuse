@@ -42,6 +42,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.geometry.lerp
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.layout
@@ -61,11 +62,17 @@ import kotlin.math.roundToInt
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
 
-/**
- * How far the page dims under a lifted poster. Nothing behind the menu is blurred, so the
- * dimming does the work of pushing the page back on its own.
- */
+/** How far the page dims under a lifted poster, on top of the blur. */
 private const val LIFT_SCRIM_ALPHA = 0.56f
+
+/**
+ * With 降低透明度, or where nothing can be blurred: the dimming has to push the page back on its
+ * own, and a plain dark plate reads better than a page half showing through.
+ */
+private const val LIFT_SOLID_SCRIM_ALPHA = 0.82f
+
+/** Heavier than the dock's glass: the page behind a lifted poster is context, not content. */
+private val LiftBlurRadius = 18.dp
 
 /** The menu panel leads its rows by a beat; the rows follow one after another. */
 private const val LIFT_PANEL_DELAY_MS = 40
@@ -79,17 +86,27 @@ private val LiftRowTravel = 6.dp
 private const val LIFT_HOT_ALPHA = 0.08f
 
 /**
- * Draws the lifted poster, when there is one: the dimmed page, the preview card, and the menu.
- * Placed once at the root of the app, above the tab bar and below the dialog windows.
+ * Draws the lifted poster, when there is one: the blurred and dimmed page, the preview card,
+ * and the menu. Placed once at the root of the app, above the tab bar and below the dialog
+ * windows.
+ *
+ * @param backdrop the page's capture, the one the dock samples. Its source must be recording
+ *   while [LiftMenuState.isOpen]; without it the page is only dimmed.
  */
 @Composable
-fun LiftMenuHost(state: LiftMenuState) {
+fun LiftMenuHost(
+    state: LiftMenuState,
+    backdrop: BackdropState? = null,
+) {
     val session = state.session ?: return
-    key(session) { LiftLayer(session) }
+    key(session) { LiftLayer(session, backdrop) }
 }
 
 @Composable
-private fun LiftLayer(session: LiftSession) {
+private fun LiftLayer(
+    session: LiftSession,
+    backdrop: BackdropState?,
+) {
     val menu = session.menu
     val density = LocalDensity.current
     val palette = LocalPalette.current
@@ -184,12 +201,21 @@ private fun LiftLayer(session: LiftSession) {
             session.padding = menuPadding
         }
 
+        // The blur rides the same fade as the dimming, so a settling poster brings the page back
+        // into focus as it lands rather than the whole blur switching off in one frame.
+        val blurred = backdrop?.active == true
         Box(
             Modifier
                 .fillMaxSize()
                 .onPlaced { origin = it.positionInRoot() }
                 .graphicsLayer { alpha = presence.value * lift.value.coerceIn(0f, 1f) }
-                .background(palette.scrim.copy(alpha = LIFT_SCRIM_ALPHA))
+                .then(
+                    if (backdrop != null && blurred) {
+                        Modifier.backdropBlur(backdrop, RectangleShape, radius = LiftBlurRadius, saturation = 1f)
+                    } else {
+                        Modifier
+                    },
+                ).background(palette.scrim.copy(alpha = if (blurred) LIFT_SCRIM_ALPHA else LIFT_SOLID_SCRIM_ALPHA))
                 .pointerInput(session) { detectTapGestures { session.dismiss() } },
         )
 
