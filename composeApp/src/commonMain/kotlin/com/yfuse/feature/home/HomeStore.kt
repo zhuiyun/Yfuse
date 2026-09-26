@@ -163,6 +163,27 @@ sealed interface HomeIntent {
     data class OpenResume(
         val entry: HomeResumeEntry,
     ) : HomeIntent
+
+    /**
+     * 浮起菜单 on a library card: play it from where it was left, or from the start. A series
+     * starts at its next episode either way — the player resolves that, not this store.
+     */
+    data class PlayEntry(
+        val entry: HomeResumeEntry,
+        val fromStart: Boolean = false,
+    ) : HomeIntent
+
+    /** 浮起菜单: 收藏 or 取消收藏 a library title without opening it. */
+    data class SetEntryFavorite(
+        val entry: HomeResumeEntry,
+        val favorite: Boolean,
+    ) : HomeIntent
+
+    /** 浮起菜单: 标记为已看 or 未看. The shelves reload afterwards: a watched title leaves 继续观看. */
+    data class SetEntryPlayed(
+        val entry: HomeResumeEntry,
+        val played: Boolean,
+    ) : HomeIntent
 }
 
 sealed interface HomeLabel {
@@ -180,6 +201,8 @@ sealed interface HomeLabel {
         val serverId: String,
         val itemId: String,
         val isSeries: Boolean = false,
+        /** Where to start; 0 plays from the beginning. Ignored for a series, which resolves its episode. */
+        val startPositionTicks: Long = 0L,
     ) : HomeLabel
 }
 
@@ -436,6 +459,59 @@ class HomeStoreFactory(
                     publish(
                         HomeLabel.OpenEmbyItem(intent.entry.server.id, intent.entry.item.id),
                     )
+                is HomeIntent.PlayEntry -> {
+                    val item = intent.entry.item
+                    publish(
+                        HomeLabel.PlayEmbyItem(
+                            serverId = intent.entry.server.id,
+                            itemId = item.id,
+                            isSeries = item.type == "Series",
+                            startPositionTicks = if (intent.fromStart) 0L else item.resumePositionTicks ?: 0L,
+                        ),
+                    )
+                }
+                is HomeIntent.SetEntryFavorite -> writeEntryFlag(intent.entry, favorite = intent.favorite)
+                is HomeIntent.SetEntryPlayed -> writeEntryFlag(intent.entry, played = intent.played)
+            }
+        }
+
+        /**
+         * One flag on one library title, from a 浮起菜单. Reported in the page's own toast, and the
+         * library shelves are read again so the poster shows the change: a title marked watched
+         * leaves 继续观看, one un-favourited leaves 我的收藏.
+         */
+        private fun writeEntryFlag(
+            entry: HomeResumeEntry,
+            favorite: Boolean? = null,
+            played: Boolean? = null,
+        ) {
+            val server = entry.server
+            val item = entry.item
+            scope.launch {
+                val result =
+                    when {
+                        favorite != null ->
+                            syncManager?.setFavorite(server, item.id, item.title, favorite)
+                                ?: emby.setFavorite(server, item.id, favorite)
+                        played != null ->
+                            syncManager?.setPlayed(server, item.id, item.title, played)
+                                ?: emby.setPlayed(server, item.id, played)
+                        else -> return@launch
+                    }
+                result
+                    .onSuccess {
+                        dispatch(Msg.ActionMessage(entryFlagMessage(favorite = favorite, played = played)))
+                        loadResume(registry.data.value.servers, force = true)
+                    }.onFailure {
+                        AppLog.warning(
+                            category = "feature.home",
+                            event = "entry_flag_failed",
+                            message = "Home lift-menu flag write failed",
+                            throwable = it,
+                            attributes = mapOf("serverId" to server.id),
+                        )
+                        dispatch(Msg.ActionMessage(it.toUserMessage("操作失败")))
+                    }
             }
         }
 
@@ -752,3 +828,15 @@ class HomeStoreFactory(
             }
     }
 }
+
+/** What the toast says once a 浮起菜单 flag has been written. */
+internal fun entryFlagMessage(
+    favorite: Boolean?,
+    played: Boolean?,
+): String =
+    when {
+        favorite == true -> "已加入收藏"
+        favorite == false -> "已取消收藏"
+        played == true -> "已标记为已看"
+        else -> "已标记为未看"
+    }

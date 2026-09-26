@@ -43,6 +43,8 @@ import com.yfuse.core.designsystem.DialogPresence
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.GlassDialog
+import com.yfuse.core.designsystem.LiftMenu
+import com.yfuse.core.designsystem.LiftMenuAction
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
@@ -50,7 +52,6 @@ import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.MotionSwap
 import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.OrbProgressDefaults
-import com.yfuse.core.designsystem.OverlayActionRow
 import com.yfuse.core.designsystem.OverlayButtonRow
 import com.yfuse.core.designsystem.OverlayButtonTone
 import com.yfuse.core.designsystem.OverlayHeader
@@ -121,7 +122,6 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
     val palette = LocalPalette.current
     StatusBarIconStyle(darkIcons = !palette.isDark)
     var sortOpen by remember { mutableStateOf(false) }
-    var quickActionsItem by remember { mutableStateOf<MediaItem?>(null) }
     val gridState = component.gridState
     val bottomContentInset = systemNavigationContentInset()
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
@@ -371,7 +371,16 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                                             item = item,
                                             showProgress = false,
                                             onClick = { component.onOpenItem(item.id) },
-                                            onLongClick = { quickActionsItem = item },
+                                            liftMenu = {
+                                                gridLiftMenu(
+                                                    item = item,
+                                                    backdropUrl =
+                                                        EmbyImages.backdrop(baseUrl, item, accessToken = accessToken),
+                                                    containerKind = state.containerKind,
+                                                    onOpen = { component.onOpenItem(item.id) },
+                                                    onIntent = component.store::accept,
+                                                )
+                                            },
                                         )
                                         if (state.containerKind != null) {
                                             Box(
@@ -453,54 +462,6 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
         // 排序 was a Material [DropdownMenu] hung off the chip — the last anchored menu in the
         // app, and the one shape the overlay system exists to replace. Centred like every
         // other overlay outside the player now; see [com.yfuse.core.designsystem.GlassDialog].
-        // A long press on a poster: the handful of things people do to a title without opening
-        // it. Every action is optimistic; the sync manager owns the write from here. Each choice
-        // lets the sheet leave the way it came before it takes effect.
-        quickActionsItem?.let { item ->
-            GlassDialog(onDismiss = { quickActionsItem = null }) {
-                OverlayHeader(title = item.title, onClose = { quickActionsItem = null })
-                Column(verticalArrangement = Arrangement.spacedBy(OverlayOptionSpacing)) {
-                    OverlayActionRow(
-                        label = "查看详情",
-                        onClick =
-                            overlayAction {
-                                quickActionsItem = null
-                                component.onOpenItem(item.id)
-                            },
-                    )
-                    OverlayOptionRow(
-                        label = if (item.isFavorite) "取消收藏" else "收藏",
-                        selected = item.isFavorite,
-                        onClick =
-                            overlayAction {
-                                quickActionsItem = null
-                                component.store.accept(GridIntent.SetFavorite(item.id, !item.isFavorite))
-                            },
-                    )
-                    OverlayOptionRow(
-                        label = if (item.played) "标记为未看" else "标记为已看",
-                        selected = item.played,
-                        onClick =
-                            overlayAction {
-                                quickActionsItem = null
-                                component.store.accept(GridIntent.SetPlayed(item.id, !item.played))
-                            },
-                    )
-                    if (state.containerKind != null) {
-                        OverlayActionRow(
-                            label =
-                                if (state.containerKind == MediaContainerKind.Playlist) "从播放列表移除" else "从合集移除",
-                            onClick =
-                                overlayAction {
-                                    quickActionsItem = null
-                                    component.store.accept(GridIntent.RequestRemove(item.id))
-                                },
-                        )
-                    }
-                }
-            }
-        }
-
         if (sortOpen) {
             GlassDialog(onDismiss = { sortOpen = false }) {
                 OverlayHeader(title = "排序", onClose = { sortOpen = false })
@@ -800,3 +761,37 @@ private fun EmptyGridHint(
         else -> PageHint("暂无内容", modifier = modifier, actionLabel = "返回", onAction = onBack)
     }
 }
+
+/**
+ * 浮起菜单 on a grid poster. What the old long-press sheet offered, less its 查看详情 — the card
+ * is that now: the two flags, and removal when the grid is a playlist or a collection.
+ */
+private fun gridLiftMenu(
+    item: MediaItem,
+    backdropUrl: String?,
+    containerKind: MediaContainerKind?,
+    onOpen: () -> Unit,
+    onIntent: (GridIntent) -> Unit,
+): LiftMenu =
+    mediaItemLiftMenu(
+        item = item,
+        backdropUrl = backdropUrl,
+        onOpen = onOpen,
+        actions =
+            listOf(
+                listOf(
+                    favoriteLiftAction(item.isFavorite) { onIntent(GridIntent.SetFavorite(item.id, it)) },
+                    playedLiftAction(item.played) { onIntent(GridIntent.SetPlayed(item.id, it)) },
+                ),
+                listOfNotNull(
+                    containerKind?.let { kind ->
+                        LiftMenuAction(
+                            label = if (kind == MediaContainerKind.Playlist) "从播放列表移除" else "从合集移除",
+                            icon = AppIcons.Close,
+                            destructive = true,
+                            onSelect = { onIntent(GridIntent.RequestRemove(item.id)) },
+                        )
+                    },
+                ),
+            ),
+    )

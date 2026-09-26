@@ -25,6 +25,7 @@ import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.CaptionedPoster
 import com.yfuse.core.designsystem.Dimens
+import com.yfuse.core.designsystem.LiftMenu
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.TabBarInset
 import com.yfuse.core.designsystem.motionItems
@@ -66,6 +67,8 @@ internal fun TmdbRowPage(
     showReleaseDate: Boolean,
     onOpen: (TmdbItem) -> Unit,
     onDismiss: () -> Unit,
+    /** The same 浮起菜单 the shelf's posters have; this page is that shelf, all of it. */
+    liftMenu: ((TmdbItem) -> LiftMenu)? = null,
 ) {
     val palette = LocalPalette.current
 
@@ -138,6 +141,7 @@ internal fun TmdbRowPage(
                         // opened from one of them; a shared element would compete with the
                         // shelf poster still mounted underneath.
                         onClick = { onOpen(item) },
+                        liftMenu = liftMenu?.let { build -> { build(item) } },
                         modifier = Modifier.fillMaxWidth(),
                         posterModifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f),
                     )

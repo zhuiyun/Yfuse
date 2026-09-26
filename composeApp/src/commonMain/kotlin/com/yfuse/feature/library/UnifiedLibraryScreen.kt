@@ -29,9 +29,11 @@ import com.yfuse.app.floatingNavigationContentInset
 import com.yfuse.core.data.CrossServerMediaGroup
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
+import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.GlassDialog
+import com.yfuse.core.designsystem.LiftMenuAction
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OrbProgress
@@ -43,6 +45,7 @@ import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.LibrarySort
+import com.yfuse.core.network.EmbyImages
 import kotlinx.coroutines.launch
 import com.yfuse.core.designsystem.ThemeText as Text
 
@@ -155,7 +158,32 @@ fun UnifiedLibraryScreen(
                             item = hit.item,
                             showProgress = true,
                             onClick = { onOpenItem(server.id, hit.item.id) },
-                            onLongClick = { sources = group },
+                            // The long press used to open the 片源 sheet; the lift lists the same
+                            // copies, so holding and sliding to a server opens its copy in one move.
+                            liftMenu = {
+                                mediaItemLiftMenu(
+                                    item = hit.item,
+                                    backdropUrl =
+                                        EmbyImages.backdrop(server.baseUrl, hit.item, accessToken = server.accessToken),
+                                    onOpen = { onOpenItem(server.id, hit.item.id) },
+                                    actions =
+                                        listOf(
+                                            group.copies.map { copy ->
+                                                LiftMenuAction(
+                                                    label = "在 ${copy.serverName} 打开",
+                                                    icon = AppIcons.Server,
+                                                    detail = if (copy == group.recommended) "推荐" else null,
+                                                    leavesPage = true,
+                                                    onSelect = {
+                                                        if (registry.serverById(copy.serverId) != null) {
+                                                            onOpenItem(copy.serverId, copy.item.id)
+                                                        }
+                                                    },
+                                                )
+                                            },
+                                        ),
+                                )
+                            },
                         )
                         LibraryAction("${group.copies.size} 个片源 · 选择") { sources = group }
                     }

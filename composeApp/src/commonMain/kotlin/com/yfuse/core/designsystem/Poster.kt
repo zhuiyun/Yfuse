@@ -243,6 +243,12 @@ fun Poster(
     contentDescription: String? = title,
     onClick: (() -> Unit)? = null,
     onLongClick: (() -> Unit)? = null,
+    /**
+     * The 浮起菜单 a long press lifts this poster into; see [liftable]. Takes the long press
+     * over from [onLongClick], which is then ignored. The menu's card starts from this poster's
+     * own artwork when it names none.
+     */
+    liftMenu: (() -> LiftMenu)? = null,
     sharedTransitionKey: MediaSharedElementKey? = null,
     overlay: @Composable BoxScope.() -> Unit = {},
 ) {
@@ -270,9 +276,12 @@ fun Poster(
                 listOf(placeholder, placeholder.copy(alpha = (placeholder.alpha * PLACEHOLDER_FALL).coerceAtMost(1f))),
             )
         }
+    val lift = liftMenu?.let { build -> { build().withArtwork(candidates) } }
     Box(
         modifier
             .dialogPosterSource()
+            // Outside the press, so the lift can take the stream over from the click; see [liftable].
+            .liftable(menu = lift, onOpen = resolvedOnClick)
             .let {
                 // 触摸反馈全应用统一走 [pressable]：压缩 0.97、无涟漪、跟随
                 // 「减弱动态效果」。这里原来是裸 clickable，也就是 Material 涟漪，
@@ -284,12 +293,13 @@ fun Poster(
                 // 用户唯一会盯着看的图像内容。Outside the clip, so the whole card leans: inside
                 // it the artwork turned within a frame that stayed put and showed the
                 // placeholder along every edge.
+                val longClick = onLongClick.takeIf { lift == null }
                 when {
-                    resolvedOnClick != null || onLongClick != null ->
+                    resolvedOnClick != null || longClick != null ->
                         it.pressable(
                             tilt = true,
                             focusShape = shape,
-                            onLongClick = onLongClick,
+                            onLongClick = longClick,
                             onClick = { resolvedOnClick?.invoke() },
                         )
                     else -> it
@@ -445,6 +455,8 @@ fun CaptionedPoster(
     progress: Float? = null,
     onClick: (() -> Unit)? = null,
     onLongClick: (() -> Unit)? = null,
+    /** As on [Poster]: the whole tile takes the press, and the artwork is what lifts. */
+    liftMenu: (() -> LiftMenu)? = null,
     sharedTransitionKey: MediaSharedElementKey? = null,
 ) {
     val palette = LocalPalette.current
@@ -459,12 +471,21 @@ fun CaptionedPoster(
                 click()
             }
         }
+    val lift =
+        liftMenu?.let { build ->
+            {
+                val urls = (listOfNotNull(url, fallbackUrl) + fallbackUrls).filter { it.isNotBlank() }.distinct()
+                build().withArtwork(urls)
+            }
+        }
+    val artwork = remember { LiftAnchor() }
+    val longClick = onLongClick.takeIf { lift == null }
     Column(
         // The press lands on the whole tile, caption included — scaling only the artwork
         // and leaving the title behind reads as the image slipping out from under it.
-        modifier.let { base ->
-            if (resolvedOnClick != null || onLongClick != null) {
-                base.pressable(onLongClick = onLongClick, onClick = { resolvedOnClick?.invoke() })
+        modifier.liftable(menu = lift, anchor = artwork, onOpen = resolvedOnClick).let { base ->
+            if (resolvedOnClick != null || longClick != null) {
+                base.pressable(onLongClick = longClick, onClick = { resolvedOnClick?.invoke() })
             } else {
                 base
             }
@@ -477,7 +498,7 @@ fun CaptionedPoster(
             rating = rating,
             progress = progress,
             contentDescription = title,
-            modifier = posterModifier,
+            modifier = posterModifier.liftAnchor(artwork.takeIf { lift != null }),
             sharedTransitionKey = sharedTransitionKey,
         )
         Spacer(Modifier.height(7.dp))

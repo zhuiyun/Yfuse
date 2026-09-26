@@ -44,7 +44,8 @@ class HomeComponent(
     syncManager: ServerSyncManager,
     private val calendarRepository: AiringCalendarRepository,
     private val onOpenEmbyItem: (String, String) -> Unit,
-    private val onPlayEmbyItem: (String, String, Boolean) -> Unit,
+    /** Server, item, whether it is a series, and where to start in ticks (0 for the beginning). */
+    private val onPlayEmbyItem: (String, String, Boolean, Long) -> Unit,
     private val onOpenTmdbItem: (TmdbItem, String?) -> Unit,
     val onOpenSearch: () -> Unit,
     val onOpenLibrary: () -> Unit,
@@ -87,7 +88,8 @@ class HomeComponent(
                 when (label) {
                     is HomeLabel.OpenEmbyItem -> onOpenEmbyItem(label.serverId, label.itemId)
                     is HomeLabel.OpenTmdbItem -> onOpenTmdbItem(label.item, label.embyItemId)
-                    is HomeLabel.PlayEmbyItem -> onPlayEmbyItem(label.serverId, label.itemId, label.isSeries)
+                    is HomeLabel.PlayEmbyItem ->
+                        onPlayEmbyItem(label.serverId, label.itemId, label.isSeries, label.startPositionTicks)
                 }
             }.launchIn(scope)
         lifecycle.doOnDestroy(store::dispose)

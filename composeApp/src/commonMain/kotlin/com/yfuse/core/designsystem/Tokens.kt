@@ -757,6 +757,12 @@ object Motion {
     /** Right-edge drawers remain interruptible while opening, settling, or cancelling back. */
     fun <T> drawer(): SpringSpec<T> = spring(dampingRatio = 0.86f, stiffness = Spring.StiffnessMediumLow)
 
+    /**
+     * 浮起菜单: a poster lifting into its preview card, and settling back into the grid. A touch
+     * under-damped, so the card arrives with some weight instead of a bounce.
+     */
+    fun <T> lift(): SpringSpec<T> = spring(dampingRatio = 0.8f, stiffness = 380f)
+
     /** Something turning on — a favourite, a follow: one dip, one small rebound, rest. */
     fun <T> burst(): SpringSpec<T> = spring(dampingRatio = 0.5f, stiffness = Spring.StiffnessMediumLow)
 

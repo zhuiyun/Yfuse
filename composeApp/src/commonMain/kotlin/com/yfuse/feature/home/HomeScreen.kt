@@ -68,16 +68,18 @@ import com.yfuse.core.designsystem.CloudPlayerLogo
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.FallbackImage
-import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.HeroActionDock
 import com.yfuse.core.designsystem.HeroPageFade
 import com.yfuse.core.designsystem.HeroPageIndicator
 import com.yfuse.core.designsystem.HeroTextShadow
+import com.yfuse.core.designsystem.LiftMenu
+import com.yfuse.core.designsystem.LiftMenuAction
 import com.yfuse.core.designsystem.LightEffect
 import com.yfuse.core.designsystem.LivingPosterAmbient
 import com.yfuse.core.designsystem.LivingPosterDefaults
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
+import com.yfuse.core.designsystem.LocalLiftMenu
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.MediaSharedElementKey
@@ -85,9 +87,6 @@ import com.yfuse.core.designsystem.MediaSizing
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.OrbProgressDefaults
-import com.yfuse.core.designsystem.OverlayActionRow
-import com.yfuse.core.designsystem.OverlayHeader
-import com.yfuse.core.designsystem.OverlayOptionSpacing
 import com.yfuse.core.designsystem.OverlayPage
 import com.yfuse.core.designsystem.Poster
 import com.yfuse.core.designsystem.PrimaryGradient
@@ -118,7 +117,6 @@ import com.yfuse.core.designsystem.loopingCarouselTargetPage
 import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.motionItemsIndexed
-import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.playerArtworkOnClick
 import com.yfuse.core.designsystem.playerArtworkSource
 import com.yfuse.core.designsystem.pressable
@@ -283,7 +281,7 @@ internal fun HomeContentBody(
     val palette = LocalPalette.current
     val themeAccent = LocalAccentColors.current.accent
     var expandedRow by remember { mutableStateOf<TmdbRow?>(null) }
-    var quickActions by remember { mutableStateOf<HomeQuickActions?>(null) }
+    val liftMenu = LocalLiftMenu.current
 
     val pullState = rememberPullToRefreshState()
     RefreshThresholdHaptics(pullState, refreshing = state.refreshing)
@@ -381,7 +379,7 @@ internal fun HomeContentBody(
                                 height = heroHeight,
                                 showSidePreview = showSidePreview,
                                 visible = heroCarouselVisible,
-                                held = quickActions != null || expandedRow != null,
+                                held = liftMenu?.isOpen == true || expandedRow != null,
                                 refreshing = state.refreshing,
                                 onRefresh = refreshPage,
                                 onOpenProfile = onOpenProfile,
@@ -477,7 +475,7 @@ internal fun HomeContentBody(
                                 items = state.resume,
                                 onSeeAll = onOpenLibrary,
                                 onClick = { onIntent(HomeIntent.OpenResume(it)) },
-                                onQuickActions = { quickActions = it.homeQuickActions(onIntent) },
+                                liftMenu = { it.homeLiftMenu(onIntent) },
                             )
                         }
                     }
@@ -489,7 +487,7 @@ internal fun HomeContentBody(
                                 items = state.favorites,
                                 onSeeAll = onOpenLibrary,
                                 onClick = { onIntent(HomeIntent.OpenResume(it)) },
-                                onQuickActions = { quickActions = it.homeQuickActions(onIntent) },
+                                liftMenu = { it.homeLiftMenu(onIntent) },
                             )
                         }
                     }
@@ -501,17 +499,11 @@ internal fun HomeContentBody(
                                     items = calendarItems,
                                     onSeeAll = onOpenCalendar,
                                     onClick = { onOpenCalendarEntry(it.entry) },
-                                    onQuickActions = { preview ->
-                                        quickActions =
-                                            HomeQuickActions(
-                                                title = preview.entry.episode.showTitle,
-                                                actions =
-                                                    listOf(
-                                                        HomeQuickAction("查看详情") {
-                                                            onOpenCalendarEntry(preview.entry)
-                                                        },
-                                                    ),
-                                            )
+                                    liftMenu = { preview ->
+                                        preview.homeLiftMenu(
+                                            onOpen = { onOpenCalendarEntry(preview.entry) },
+                                            onOpenCalendar = onOpenCalendar,
+                                        )
                                     },
                                 )
                             }
@@ -550,21 +542,7 @@ internal fun HomeContentBody(
                                     // showed none of what the chip had just offered.
                                     onSeeAll = { expandedRow = row },
                                     onClick = { onIntent(HomeIntent.Open(it)) },
-                                    onQuickActions = { item ->
-                                        quickActions =
-                                            HomeQuickActions(
-                                                title = item.title,
-                                                actions =
-                                                    listOf(
-                                                        HomeQuickAction("查看详情") {
-                                                            onIntent(HomeIntent.Open(item))
-                                                        },
-                                                        HomeQuickAction("加入收藏") {
-                                                            onIntent(HomeIntent.Favorite(item))
-                                                        },
-                                                    ),
-                                            )
-                                    },
+                                    liftMenu = { it.homeLiftMenu(onIntent) },
                                 )
                             }
                         }
@@ -584,10 +562,6 @@ internal fun HomeContentBody(
             OrbProgress(modifier = Modifier.align(Alignment.Center), size = OrbProgressDefaults.Page)
         }
 
-        quickActions?.let { sheet ->
-            HomeQuickActionsSheet(sheet = sheet, onDismiss = { quickActions = null })
-        }
-
         // Pushed and popped like a route rather than cut in and out; the reel above holds still
         // while it is up (see HomeHeroCarousel's `held`).
         OverlayPage(value = expandedRow, onBack = { expandedRow = null }) { row ->
@@ -598,6 +572,13 @@ internal fun HomeContentBody(
                 onOpen = {
                     onIntent(HomeIntent.Open(it))
                     expandedRow = null
+                },
+                // Anything that leaves for another page closes this one on the way, as a tap does.
+                liftMenu = { item ->
+                    item.homeLiftMenu { intent ->
+                        onIntent(intent)
+                        if (intent !is HomeIntent.Favorite) expandedRow = null
+                    }
                 },
                 onDismiss = { expandedRow = null },
             )
@@ -1177,64 +1158,13 @@ private fun HomeSourceBadge(source: String) {
     )
 }
 
-/**
- * What a long press on a 首页 poster offers.
- *
- * 媒体库 has answered this gesture since its grid was written — hold a poster and the handful
- * of things people do to a title without opening it appear. The rails here show the same
- * posters and answered nothing, so the gesture was learned in one place and silently absent in
- * the other. The rows differ by rail because 首页's store does: a shelf built from the media
- * library can only be opened from here, while a TMDB pick can also be resolved and favourited.
- */
-private data class HomeQuickAction(
-    val label: String,
-    val onSelect: () -> Unit,
-)
-
-private data class HomeQuickActions(
-    val title: String,
-    val actions: List<HomeQuickAction>,
-)
-
-/** Library-backed shelves: 首页's store can open a title, but it owns none of its flags. */
-private fun HomeResumeEntry.homeQuickActions(onIntent: (HomeIntent) -> Unit): HomeQuickActions {
-    val entry = this
-    return HomeQuickActions(
-        title = entry.item.title,
-        actions = listOf(HomeQuickAction("查看详情") { onIntent(HomeIntent.OpenResume(entry)) }),
-    )
-}
-
-@Composable
-private fun HomeQuickActionsSheet(
-    sheet: HomeQuickActions,
-    onDismiss: () -> Unit,
-) {
-    GlassDialog(onDismiss = onDismiss) {
-        OverlayHeader(title = sheet.title, onClose = onDismiss)
-        Column(verticalArrangement = Arrangement.spacedBy(OverlayOptionSpacing)) {
-            sheet.actions.forEach { action ->
-                OverlayActionRow(
-                    label = action.label,
-                    // The sheet leaves the way it came before the action takes over the page.
-                    onClick =
-                        overlayAction {
-                            onDismiss()
-                            action.onSelect()
-                        },
-                )
-            }
-        }
-    }
-}
-
 /** 继续观看 — Forward-style still, exact resume position and progress at first glance. */
 @Composable
 private fun ContinueWatching(
     items: List<HomeResumeEntry>,
     onSeeAll: () -> Unit,
     onClick: (HomeResumeEntry) -> Unit,
-    onQuickActions: (HomeResumeEntry) -> Unit,
+    liftMenu: (HomeResumeEntry) -> LiftMenu,
 ) {
     Column {
         HomeShelfHeader(title = "继续观看", source = "Emby", onSeeAll = onSeeAll)
@@ -1246,7 +1176,7 @@ private fun ContinueWatching(
                 ContinueWatchingCard(
                     entry = entry,
                     onClick = { onClick(entry) },
-                    onLongClick = { onQuickActions(entry) },
+                    liftMenu = { liftMenu(entry) },
                 )
             }
         }
@@ -1257,7 +1187,7 @@ private fun ContinueWatching(
 private fun ContinueWatchingCard(
     entry: HomeResumeEntry,
     onClick: () -> Unit,
-    onLongClick: () -> Unit,
+    liftMenu: () -> LiftMenu,
 ) {
     val palette = LocalPalette.current
     val item = entry.item
@@ -1280,7 +1210,7 @@ private fun ContinueWatchingCard(
             progress = item.playedPercentage?.let { (it / 100.0).toFloat() },
             contentDescription = "继续观看 ${item.title}${item.subtitle?.let { "，$it" }.orEmpty()}",
             onClick = onClick,
-            onLongClick = onLongClick,
+            liftMenu = liftMenu,
             sharedTransitionKey = MediaSharedElementKey(entry.server.id, item.id),
             modifier = Modifier.fillMaxWidth().height(MediaSizing.landscapeCardHeight),
         ) {
@@ -1344,7 +1274,7 @@ private fun LibraryMediaShelf(
     items: List<HomeResumeEntry>,
     onSeeAll: () -> Unit,
     onClick: (HomeResumeEntry) -> Unit,
-    onQuickActions: (HomeResumeEntry) -> Unit,
+    liftMenu: (HomeResumeEntry) -> LiftMenu,
 ) {
     Column {
         HomeShelfHeader(title = title, source = "媒体库", onSeeAll = onSeeAll)
@@ -1369,7 +1299,7 @@ private fun LibraryMediaShelf(
                             entry.server.serverName.takeIf(String::isNotBlank),
                         ).joinToString(" · "),
                     onClick = { onClick(entry) },
-                    onLongClick = { onQuickActions(entry) },
+                    liftMenu = { liftMenu(entry) },
                     modifier = Modifier.width(MediaSizing.posterRailWidth),
                     posterModifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f),
                 )
@@ -1424,6 +1354,29 @@ private data class HomeCalendarPreview(
     val episodeLabel: String,
     val priorityLabel: String,
 )
+
+/** 浮起菜单 on a 追剧日历 card: the show, or the calendar it was picked from. */
+private fun HomeCalendarPreview.homeLiftMenu(
+    onOpen: () -> Unit,
+    onOpenCalendar: () -> Unit,
+): LiftMenu =
+    LiftMenu(
+        title = entry.episode.showTitle,
+        meta = "$priorityLabel · $episodeLabel",
+        onOpen = onOpen,
+        sections =
+            listOf(
+                listOf(
+                    LiftMenuAction(label = "查看详情", icon = AppIcons.Info, leavesPage = true, onSelect = onOpen),
+                    LiftMenuAction(
+                        label = "打开追剧日历",
+                        icon = AppIcons.WatchCalendar,
+                        leavesPage = true,
+                        onSelect = onOpenCalendar,
+                    ),
+                ),
+            ),
+    )
 
 /** User-owned calendar rows, ordered ahead of discovery: watching, favourites, then next-up. */
 private fun homeCalendarPreviews(
@@ -1533,7 +1486,7 @@ private fun HomeCalendarShelf(
     items: List<HomeCalendarPreview>,
     onSeeAll: () -> Unit,
     onClick: (HomeCalendarPreview) -> Unit,
-    onQuickActions: (HomeCalendarPreview) -> Unit,
+    liftMenu: (HomeCalendarPreview) -> LiftMenu,
 ) {
     Column {
         HomeShelfHeader(title = "追剧日历", source = "日历", onSeeAll = onSeeAll, onSeeAllLabel = "打开追剧中心")
@@ -1564,7 +1517,7 @@ private fun HomeCalendarShelf(
                     title = entry.episode.showTitle,
                     year = "${preview.priorityLabel} · ${preview.episodeLabel}",
                     onClick = { onClick(preview) },
-                    onLongClick = { onQuickActions(preview) },
+                    liftMenu = { liftMenu(preview) },
                     modifier = Modifier.width(MediaSizing.posterRailWidth),
                     posterModifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f),
                 )
@@ -1592,7 +1545,7 @@ private fun Recommended(
     showReleaseDate: Boolean,
     onSeeAll: () -> Unit,
     onClick: (TmdbItem) -> Unit,
-    onQuickActions: (TmdbItem) -> Unit,
+    liftMenu: (TmdbItem) -> LiftMenu,
 ) {
     Column {
         HomeShelfHeader(title = title, source = "TMDB", onSeeAll = onSeeAll)
@@ -1630,7 +1583,7 @@ private fun Recommended(
                     // shelf posters use the route fade instead of competing for
                     // one shared element (which made the duplicate turn blank).
                     onClick = { onClick(item) },
-                    onLongClick = { onQuickActions(item) },
+                    liftMenu = { liftMenu(item) },
                     modifier = Modifier.width(MediaSizing.posterRailWidth).then(arrival.item(index)),
                     posterModifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f),
                 )

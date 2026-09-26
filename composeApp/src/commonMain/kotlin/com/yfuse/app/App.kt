@@ -71,8 +71,11 @@ import com.yfuse.core.designsystem.BackdropState
 import com.yfuse.core.designsystem.ConfirmDialog
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.HapticSignal
+import com.yfuse.core.designsystem.LiftMenuHost
+import com.yfuse.core.designsystem.LiftMenuState
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
+import com.yfuse.core.designsystem.LocalLiftMenu
 import com.yfuse.core.designsystem.LocalOverlayVisibility
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.LocalPulseSweepEnabled
@@ -314,9 +317,12 @@ fun App(root: RootComponent) {
         // owns the whole screen and may capture a backdrop of its own, is not also recorded here.
         // Written from the dock's effect and read only inside the capture's draw.
         val dockOnScreen = remember { mutableStateOf(false) }
+        // 浮起菜单: every content poster lifts into this one host, drawn over the dock below.
+        val liftMenu = remember { LiftMenuState() }
         CompositionLocalProvider(
             LocalPulseSweepEnabled provides pulseSweep,
             LocalTabReselected provides root.tabReselected,
+            LocalLiftMenu provides liftMenu,
         ) {
             SkeletonPulseProvider {
                 AppBackdrop(
@@ -462,6 +468,10 @@ fun App(root: RootComponent) {
                             enter = dockEnterTransition,
                             exit = dockExitTransition,
                         )
+
+                        // Above the page, the dock and the capsule, so a lifted poster dims all of
+                        // them; below the dialog windows, which a menu row may open.
+                        LiftMenuHost(liftMenu)
 
                         // A room survives the process: the client keeps the capabilities the
                         // server granted, so a restart can offer to go back instead of making
