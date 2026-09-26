@@ -807,7 +807,18 @@ private val ControlTouchPadding = 7.dp
  */
 @Composable
 internal fun LockedOverlay(onUnlock: () -> Unit) {
-    Box(Modifier.fillMaxSize()) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            // 锁定 means the picture answers nothing but 解锁. This layer takes every touch the
+            // button above it did not, before the picture's own gestures can see it; the gesture
+            // handlers also check the lock, in case anything ever sits between the two.
+            .pointerInput(Unit) {
+                awaitPointerEventScope {
+                    while (true) awaitPointerEvent().changes.forEach { it.consume() }
+                }
+            },
+    ) {
         Column(
             Modifier.align(Alignment.Center),
             horizontalAlignment = Alignment.CenterHorizontally,

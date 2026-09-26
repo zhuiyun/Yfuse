@@ -1,8 +1,8 @@
 package com.yfuse.feature.library
 
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.ItemAction
 import com.yfuse.core.designsystem.LiftMenu
-import com.yfuse.core.designsystem.LiftMenuAction
 import com.yfuse.core.designsystem.heroDurationLabel
 import com.yfuse.core.designsystem.mediaRatingLabel
 import com.yfuse.core.model.MediaItem
@@ -19,7 +19,7 @@ internal fun mediaItemLiftMenu(
     item: MediaItem,
     backdropUrl: String?,
     onOpen: () -> Unit,
-    actions: List<List<LiftMenuAction>>,
+    actions: List<List<ItemAction>>,
 ): LiftMenu =
     LiftMenu(
         title = item.title,
@@ -74,8 +74,8 @@ internal fun liftClock(totalSeconds: Long): String {
 internal fun favoriteLiftAction(
     favorite: Boolean,
     onSet: (Boolean) -> Unit,
-): LiftMenuAction =
-    LiftMenuAction(
+): ItemAction =
+    ItemAction(
         label = if (favorite) "取消收藏" else "收藏",
         icon = if (favorite) AppIcons.HeartFilled else AppIcons.Heart,
         onSelect = { onSet(!favorite) },
@@ -85,8 +85,8 @@ internal fun favoriteLiftAction(
 internal fun playedLiftAction(
     played: Boolean,
     onSet: (Boolean) -> Unit,
-): LiftMenuAction =
-    LiftMenuAction(
+): ItemAction =
+    ItemAction(
         label = if (played) "标记为未看" else "标记为已看",
         icon = if (played) AppIcons.Eye else AppIcons.Check,
         onSelect = { onSet(!played) },
@@ -111,7 +111,7 @@ internal fun libraryHomeLiftMenu(
         actions =
             listOf(
                 listOf(
-                    LiftMenuAction(
+                    ItemAction(
                         label = if (resumable) "继续播放" else "播放",
                         icon = AppIcons.Play,
                         detail = item.liftRemainingLabel(),

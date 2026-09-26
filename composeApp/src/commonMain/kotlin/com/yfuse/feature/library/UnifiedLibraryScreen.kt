@@ -33,7 +33,7 @@ import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.GlassDialog
-import com.yfuse.core.designsystem.LiftMenuAction
+import com.yfuse.core.designsystem.ItemAction
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OrbProgress
@@ -169,7 +169,7 @@ fun UnifiedLibraryScreen(
                                     actions =
                                         listOf(
                                             group.copies.map { copy ->
-                                                LiftMenuAction(
+                                                ItemAction(
                                                     label = "在 ${copy.serverName} 打开",
                                                     icon = AppIcons.Server,
                                                     detail = if (copy == group.recommended) "推荐" else null,

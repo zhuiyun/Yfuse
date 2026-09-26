@@ -27,7 +27,6 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onPlaced
-import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.semantics
@@ -91,6 +90,7 @@ fun Modifier.liftable(
     val host = LocalLiftMenu.current
     if (menu == null || host == null) return this
     val haptics = LocalHaptics.current
+    val tips = LocalTips.current
     val still = LocalAccessibilityOptions.current.reduceMotion || calmMotion()
     // The detector below lives as long as the host; it reads the newest of each of these.
     val latestMenu by rememberUpdatedState(menu)
@@ -125,6 +125,7 @@ fun Modifier.liftable(
         current[0] = session
         lifted = true
         latestHaptics.play(HapticSignal.LongPress)
+        tips?.markUsed(Tips.LIFT)
         return session
     }
 
@@ -137,13 +138,7 @@ fun Modifier.liftable(
             asked && lift(finger = null) != null
         }.semantics {
             onLongClick(label = "更多操作") { lift(finger = null) != null }
-            customActions =
-                latestMenu().actions.map { action ->
-                    CustomAccessibilityAction(action.label) {
-                        action.onSelect()
-                        true
-                    }
-                }
+            customActions = latestMenu().actions.accessibilityActions()
         }.pointerInput(host) {
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false)

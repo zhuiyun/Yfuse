@@ -9,7 +9,6 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 
 /**
@@ -21,21 +20,9 @@ import androidx.compose.ui.unit.dp
  * menu up to be tapped. It replaces the per-screen quick-action dialogs, which asked for a
  * press, a lift, a second press and a close for every one of these actions.
  *
- * A row either leaves the page — it opens something, and the lift fades so the next screen can
- * arrive — or changes the title in place, in which case the card settles back into the poster
- * first and the change lands where the person is looking. [leavesPage] says which.
+ * The rows are [ItemAction]s — the same ones a screen reader finds on the poster, the television
+ * shows in its long-press panel and 详情's 更多 offers to a held finger.
  */
-@Immutable
-class LiftMenuAction(
-    val label: String,
-    val icon: ImageVector? = null,
-    /** A short second line: "剩余 42 分钟". */
-    val detail: String? = null,
-    val destructive: Boolean = false,
-    val leavesPage: Boolean = false,
-    val onSelect: () -> Unit,
-)
-
 @Immutable
 class LiftMenu(
     val title: String,
@@ -51,10 +38,10 @@ class LiftMenu(
     /** Releasing on the card, or tapping it: open the title. Null when there is nothing to open. */
     val onOpen: (() -> Unit)? = null,
     /** Rows in groups; a hairline separates one group from the next. Empty groups are dropped. */
-    sections: List<List<LiftMenuAction>>,
+    sections: List<List<ItemAction>>,
 ) {
-    val sections: List<List<LiftMenuAction>> = sections.filter { it.isNotEmpty() }
-    val actions: List<LiftMenuAction> = this.sections.flatten()
+    val sections: List<List<ItemAction>> = sections.filter { it.isNotEmpty() }
+    val actions: List<ItemAction> = this.sections.flatten()
 
     /** This menu, starting from [urls] when it names no artwork of its own — the poster fills it in. */
     internal fun withArtwork(urls: List<String>): LiftMenu =
@@ -340,7 +327,7 @@ internal class LiftSession(
         hot = LiftHit.None
     }
 
-    fun select(action: LiftMenuAction) {
+    fun select(action: ItemAction) {
         if (abandoned || exit != LiftExit.None) return
         val index = menu.actions.indexOf(action)
         if (index >= 0) hot = LiftHit.Row(index)

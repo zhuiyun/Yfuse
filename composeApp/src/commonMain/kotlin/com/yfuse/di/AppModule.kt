@@ -35,6 +35,7 @@ import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.ServerStatsStore
 import com.yfuse.core.data.SkipSegmentPreferences
 import com.yfuse.core.data.ThemePreferences
+import com.yfuse.core.data.TipsPreferences
 import com.yfuse.core.data.TmdbHomeCache
 import com.yfuse.core.data.TmdbRepository
 import com.yfuse.core.data.UserAgentPreferences
@@ -116,6 +117,7 @@ fun appModule(
         )
     }
     single { ThemePreferences(get()) }
+    single { TipsPreferences(get()) }
     single { PlaybackPreferences(get()) }
     single { PlaybackFailoverRequest() }
     single { PlaybackEventOutbox(get()) }

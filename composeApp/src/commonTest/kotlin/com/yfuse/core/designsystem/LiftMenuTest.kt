@@ -113,8 +113,8 @@ class LiftMenuTest {
                 sections =
                     listOf(
                         listOf(
-                            LiftMenuAction("播放", leavesPage = true) { recorder.events += "play" },
-                            LiftMenuAction("收藏", leavesPage = leaves) { recorder.events += "favorite" },
+                            ItemAction("播放", leavesPage = true) { recorder.events += "play" },
+                            ItemAction("收藏", leavesPage = leaves) { recorder.events += "favorite" },
                         ),
                         emptyList(),
                     ),
@@ -228,7 +228,7 @@ class LiftMenuTest {
 
     @Test
     fun emptyGroupsAreDroppedAndThePosterFillsInMissingArtwork() {
-        val menu = LiftMenu(title = "雾港", sections = listOf(emptyList(), listOf(LiftMenuAction("播放") {})))
+        val menu = LiftMenu(title = "雾港", sections = listOf(emptyList(), listOf(ItemAction("播放") {})))
         assertEquals(1, menu.sections.size)
         assertEquals(1, menu.actions.size)
         val filled = menu.withArtwork(listOf("poster"))

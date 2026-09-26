@@ -1,8 +1,8 @@
 package com.yfuse.feature.home
 
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.ItemAction
 import com.yfuse.core.designsystem.LiftMenu
-import com.yfuse.core.designsystem.LiftMenuAction
 import com.yfuse.core.designsystem.mediaRatingLabel
 import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.network.EmbyImages
@@ -30,7 +30,7 @@ internal fun HomeResumeEntry.homeLiftMenu(onIntent: (HomeIntent) -> Unit): LiftM
         actions =
             listOf(
                 listOfNotNull(
-                    LiftMenuAction(
+                    ItemAction(
                         label = if (resumable) "继续播放" else "播放",
                         icon = AppIcons.Play,
                         detail = if (resumable) item.liftRemainingLabel() else null,
@@ -38,7 +38,7 @@ internal fun HomeResumeEntry.homeLiftMenu(onIntent: (HomeIntent) -> Unit): LiftM
                         onSelect = { onIntent(HomeIntent.PlayEntry(entry)) },
                     ),
                     if (resumable) {
-                        LiftMenuAction(
+                        ItemAction(
                             label = "从头播放",
                             icon = AppIcons.Refresh,
                             leavesPage = true,
@@ -80,13 +80,13 @@ internal fun TmdbItem.homeLiftMenu(onIntent: (HomeIntent) -> Unit): LiftMenu {
         sections =
             listOf(
                 listOf(
-                    LiftMenuAction(
+                    ItemAction(
                         label = "播放",
                         icon = AppIcons.Play,
                         leavesPage = true,
                         onSelect = { onIntent(HomeIntent.Play(item)) },
                     ),
-                    LiftMenuAction(
+                    ItemAction(
                         label = "加入收藏",
                         icon = AppIcons.Heart,
                         onSelect = { onIntent(HomeIntent.Favorite(item)) },

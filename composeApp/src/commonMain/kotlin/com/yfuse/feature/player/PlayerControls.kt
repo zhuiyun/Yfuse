@@ -54,13 +54,16 @@ import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.BackOverlay
+import com.yfuse.core.designsystem.ContextualTip
 import com.yfuse.core.designsystem.DarkPalette
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LightEffect
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalHaptics
+import com.yfuse.core.designsystem.LocalTips
 import com.yfuse.core.designsystem.Motion
+import com.yfuse.core.designsystem.Tips
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.lightOnChange
 import com.yfuse.core.designsystem.rememberScreenReaderActive
@@ -303,6 +306,7 @@ internal fun PlayerControls(
     // confirmed scrub and a refused one, played identically. [HapticSignal.Reject] existed
     // for exactly the locked case and had never been called from anywhere.
     val haptics = LocalHaptics.current
+    val tips = LocalTips.current
     // Read once for the whole surface: several transitions below have to collapse together.
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val accessibilityManager = LocalAccessibilityManager.current
@@ -414,6 +418,7 @@ internal fun PlayerControls(
         visible = false
         gestureHud = null
         haptics.play(HapticSignal.Confirm)
+        tips?.markUsed(Tips.PLAYER_CENTER_HOLD)
         return true
     }
 
@@ -1640,6 +1645,14 @@ internal fun PlayerControls(
                         )
                     }
                 }
+
+                // Taught once, while the controls are up over something that can play faster.
+                ContextualTip(
+                    id = Tips.PLAYER_CENTER_HOLD,
+                    text = "长按画面中间可以临时加速，按住左右滑动换挡",
+                    active = visible && state.durationMs > 0L && !watch.connected && castingDeviceId == null,
+                    modifier = Modifier.align(Alignment.TopCenter).padding(top = 88.dp),
+                )
 
                 // Where the title bar sits — it has stepped aside for the hold — and clear of the
                 // subtitles at the bottom and the gesture HUD in the middle.

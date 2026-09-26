@@ -65,6 +65,7 @@ import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.CaptionedPoster
 import com.yfuse.core.designsystem.CarouselAutoAdvance
 import com.yfuse.core.designsystem.CloudPlayerLogo
+import com.yfuse.core.designsystem.ContextualTip
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.FallbackImage
@@ -72,8 +73,8 @@ import com.yfuse.core.designsystem.HeroActionDock
 import com.yfuse.core.designsystem.HeroPageFade
 import com.yfuse.core.designsystem.HeroPageIndicator
 import com.yfuse.core.designsystem.HeroTextShadow
+import com.yfuse.core.designsystem.ItemAction
 import com.yfuse.core.designsystem.LiftMenu
-import com.yfuse.core.designsystem.LiftMenuAction
 import com.yfuse.core.designsystem.LightEffect
 import com.yfuse.core.designsystem.LivingPosterAmbient
 import com.yfuse.core.designsystem.LivingPosterDefaults
@@ -96,6 +97,7 @@ import com.yfuse.core.designsystem.ScrollToTopOnReselect
 import com.yfuse.core.designsystem.SkeletonArrivalScope
 import com.yfuse.core.designsystem.SkeletonRail
 import com.yfuse.core.designsystem.StatusBarIconStyle
+import com.yfuse.core.designsystem.Tips
 import com.yfuse.core.designsystem.arrivalSweep
 import com.yfuse.core.designsystem.carouselArtworkMotion
 import com.yfuse.core.designsystem.carouselCaptionEntry
@@ -556,6 +558,14 @@ internal fun HomeContentBody(
         ActionToast(
             message = state.actionMessage,
             onDismiss = { onIntent(HomeIntent.DismissMessage) },
+        )
+
+        // Once there are posters to hold. Retires on its own the first time one is lifted.
+        ContextualTip(
+            id = Tips.LIFT,
+            text = "按住海报可以浮起菜单，滑到选项松手即可",
+            active = state.resume.isNotEmpty() || state.content.rows.any { it.items.isNotEmpty() },
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = bottomContentInset + 8.dp),
         )
 
         if (state.resolving) {
@@ -1367,8 +1377,8 @@ private fun HomeCalendarPreview.homeLiftMenu(
         sections =
             listOf(
                 listOf(
-                    LiftMenuAction(label = "查看详情", icon = AppIcons.Info, leavesPage = true, onSelect = onOpen),
-                    LiftMenuAction(
+                    ItemAction(label = "查看详情", icon = AppIcons.Info, leavesPage = true, onSelect = onOpen),
+                    ItemAction(
                         label = "打开追剧日历",
                         icon = AppIcons.WatchCalendar,
                         leavesPage = true,

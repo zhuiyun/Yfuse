@@ -37,12 +37,47 @@ enum class HapticSignal {
     /** A long press opened something — a poster's quick actions, a server card's menu. */
     LongPress,
 
+    /** A drag fell back below the point where releasing would commit — the undo of [Threshold]. */
+    ThresholdRelease,
+
     /**
-     * A finger sliding across a scale passed its next mark: a row of the 浮起菜单, a speed gear.
-     * Lighter than [Select], because it repeats as fast as the finger moves.
+     * A finger sliding across a scale passed its next mark: a row of the 浮起菜单, a speed gear,
+     * a chapter, a filmstrip frame. Lighter than [Select], because it repeats as fast as the
+     * finger moves; played at most once every [HAPTIC_TICK_INTERVAL_MS].
      */
     Tick,
+
+    /** The same, for marks that pass faster than a finger can count: a fast-scroll index. */
+    FrequentTick,
+
+    /** A press turned into a drag: a selection sweep starting, a row about to be dragged. */
+    DragStart,
+
+    /** A switch turned on. */
+    ToggleOn,
+
+    /** A switch turned off. */
+    ToggleOff,
 }
+
+/**
+ * Repeating marks — [HapticSignal.Tick] and [HapticSignal.FrequentTick] — play at most once in
+ * this many milliseconds. A fast slide crosses several marks per frame, and a motor asked to
+ * start again before it has stopped only buzzes.
+ */
+const val HAPTIC_TICK_INTERVAL_MS = 50L
+
+/** Whether [signal] repeats as a finger moves, and so is subject to [HAPTIC_TICK_INTERVAL_MS]. */
+fun HapticSignal.repeats(): Boolean = this == HapticSignal.Tick || this == HapticSignal.FrequentTick
+
+/**
+ * Whether a repeating [signal] should play, [sinceLastMs] after the last repeating one did.
+ * One-off signals always play: a confirm is never swallowed because a tick just went.
+ */
+fun hapticAllowed(
+    signal: HapticSignal,
+    sinceLastMs: Long,
+): Boolean = !signal.repeats() || sinceLastMs >= HAPTIC_TICK_INTERVAL_MS
 
 interface Haptics {
     fun play(signal: HapticSignal)

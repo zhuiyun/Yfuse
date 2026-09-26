@@ -43,8 +43,8 @@ import com.yfuse.core.designsystem.DialogPresence
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.GlassDialog
+import com.yfuse.core.designsystem.ItemAction
 import com.yfuse.core.designsystem.LiftMenu
-import com.yfuse.core.designsystem.LiftMenuAction
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
@@ -785,7 +785,7 @@ private fun gridLiftMenu(
                 ),
                 listOfNotNull(
                     containerKind?.let { kind ->
-                        LiftMenuAction(
+                        ItemAction(
                             label = if (kind == MediaContainerKind.Playlist) "从播放列表移除" else "从合集移除",
                             icon = AppIcons.Close,
                             destructive = true,

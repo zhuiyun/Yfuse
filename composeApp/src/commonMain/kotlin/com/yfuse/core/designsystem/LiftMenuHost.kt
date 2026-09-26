@@ -376,7 +376,7 @@ private fun LiftCard(
 
 @Composable
 private fun LiftRow(
-    action: LiftMenuAction,
+    action: ItemAction,
     highlighted: Boolean,
     appear: () -> Float,
     onClick: () -> Unit,

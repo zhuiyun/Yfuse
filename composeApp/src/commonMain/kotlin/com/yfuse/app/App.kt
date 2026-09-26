@@ -82,6 +82,7 @@ import com.yfuse.core.designsystem.LocalPulseSweepEnabled
 import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.LocalTabIdentity
 import com.yfuse.core.designsystem.LocalTabReselected
+import com.yfuse.core.designsystem.LocalTips
 import com.yfuse.core.designsystem.LocalToastBottomInset
 import com.yfuse.core.designsystem.MinTouchTarget
 import com.yfuse.core.designsystem.Motion
@@ -319,10 +320,12 @@ fun App(root: RootComponent) {
         val dockOnScreen = remember { mutableStateOf(false) }
         // 浮起菜单: every content poster lifts into this one host, drawn over the dock below.
         val liftMenu = remember { LiftMenuState() }
+        val tips = rememberAppTips()
         CompositionLocalProvider(
             LocalPulseSweepEnabled provides pulseSweep,
             LocalTabReselected provides root.tabReselected,
             LocalLiftMenu provides liftMenu,
+            LocalTips provides tips,
         ) {
             SkeletonPulseProvider {
                 AppBackdrop(
