@@ -102,6 +102,21 @@ internal class SourceSelectionCoordinator(
     }
 }
 
+/**
+ * What [DetailIntent.MarkEpisodes] says when it is done: nothing for a single episode, whose row
+ * already shows it; a count for several; and what is still waiting on the server, if anything.
+ */
+internal fun episodesMarkedMessage(
+    count: Int,
+    played: Boolean,
+    queued: Int,
+): String? =
+    when {
+        queued > 0 -> "已更新 $count 集，$queued 项将在服务器恢复后同步"
+        count > 1 -> if (played) "已将 $count 集标记为已看" else "已将 $count 集标记为未看"
+        else -> null
+    }
+
 internal data class SeriesCatalog(
     val seasons: List<Season>,
     val selectedSeasonId: String?,

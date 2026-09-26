@@ -113,6 +113,15 @@ sealed interface DetailIntent {
         val action: EpisodeProgressAction,
     ) : DetailIntent
 
+    /**
+     * 标记已看 / 未看 for the episodes named rather than the 管理进度 selection — a swiped row, the
+     * 浮起菜单's 标记此前全部已看. The selection, and the sheet if it is open, stay as they are.
+     */
+    data class MarkEpisodes(
+        val episodeIds: Set<String>,
+        val played: Boolean,
+    ) : DetailIntent
+
     data object ToggleWatchLater : DetailIntent
 
     data object LoadOrganizationContainers : DetailIntent

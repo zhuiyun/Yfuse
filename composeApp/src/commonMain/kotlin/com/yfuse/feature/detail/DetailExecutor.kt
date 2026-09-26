@@ -150,6 +150,7 @@ internal class DetailExecutor(
             is DetailIntent.ToggleProgressEpisode -> toggleProgressEpisode(intent.episodeId)
             is DetailIntent.SelectProgressEpisodes -> selectProgressEpisodes(intent.preset)
             is DetailIntent.ApplyEpisodeProgress -> applyEpisodeProgress(intent.action)
+            is DetailIntent.MarkEpisodes -> markEpisodes(intent.episodeIds, intent.played)
             DetailIntent.ToggleWatchLater -> toggleWatchLater()
             DetailIntent.LoadOrganizationContainers -> loadOrganizationContainers()
             is DetailIntent.AddToOrganizationContainer ->
@@ -1614,6 +1615,38 @@ internal class DetailExecutor(
                     message = message,
                 ),
             )
+        }
+    }
+
+    /**
+     * The one-episode path next to [applyEpisodeProgress]: optimistic, as 收藏 is, so a swiped row
+     * changes under the finger; the sync manager queues whatever the server does not take now.
+     */
+    private fun markEpisodes(
+        episodeIds: Set<String>,
+        played: Boolean,
+    ) {
+        val current = state()
+        val server = current.playServer ?: current.server ?: return
+        val targets = current.episodes.filter { it.id in episodeIds }
+        if (targets.isEmpty()) return
+        dispatch(DetailMsg.EpisodesPlayedChanged(targets.mapTo(linkedSetOf()) { it.id }, played))
+        scope.launch {
+            val permits = Semaphore(BATCH_PROGRESS_CONCURRENCY)
+            val counters = Mutex()
+            var queued = 0
+            coroutineScope {
+                targets.forEach { episode ->
+                    launch {
+                        val failed =
+                            permits.withPermit {
+                                syncManager.setPlayed(server, episode.id, episode.name, played).isFailure
+                            }
+                        if (failed) counters.withLock { queued++ }
+                    }
+                }
+            }
+            episodesMarkedMessage(targets.size, played, queued)?.let { dispatch(DetailMsg.ActionMessage(it)) }
         }
     }
 

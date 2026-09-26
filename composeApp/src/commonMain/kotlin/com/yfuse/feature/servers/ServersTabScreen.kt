@@ -31,13 +31,17 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -77,10 +81,12 @@ import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassLift
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.InlineLoadingContent
+import com.yfuse.core.designsystem.ItemAction
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.LocalRouteVisible
+import com.yfuse.core.designsystem.LocalToastBottomInset
 import com.yfuse.core.designsystem.MinTouchTarget
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.OrbProgress
@@ -100,6 +106,9 @@ import com.yfuse.core.designsystem.ServerIconTints
 import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.SkeletonHandoff
 import com.yfuse.core.designsystem.StatusBarIconStyle
+import com.yfuse.core.designsystem.SwipeActionsRow
+import com.yfuse.core.designsystem.ToastAction
+import com.yfuse.core.designsystem.UndoWindow
 import com.yfuse.core.designsystem.YfFormField
 import com.yfuse.core.designsystem.flatGlass
 import com.yfuse.core.designsystem.glass
@@ -1755,7 +1764,39 @@ private fun ServerRoutesDialog(
     onDismiss: () -> Unit,
 ) {
     val palette = LocalPalette.current
-    val routes = server.effectiveRoutes
+    // 删除线路, 先做，给 5 秒撤销 (see [UndoWindow]): the route leaves the list at once and the server
+    // only when its toast has gone, and it is taken out of whatever the routes are by then.
+    val removals = remember(server.id) { UndoWindow<ServerRoute>() }
+    var removing by remember(server.id) { mutableStateOf<ServerRoute?>(null) }
+    // A fresh toast for every removal: two routes can share a name.
+    var removalToast by remember(server.id) { mutableIntStateOf(0) }
+    val latestServer by rememberUpdatedState(server)
+    val latestSave by rememberUpdatedState(onSave)
+
+    fun commitRemoval(route: ServerRoute) {
+        latestSave(latestServer.effectiveRoutes.filterNot { it.id == route.id }, false)
+    }
+
+    fun removeRoute(route: ServerRoute) {
+        removals.hold(route)?.let(::commitRemoval)
+        removing = route
+        removalToast++
+    }
+
+    fun undoRemoval(route: ServerRoute) {
+        if (removals.undo { it.id == route.id } != null) removing = null
+    }
+
+    // The toast left — timed out, swiped away, the app sent to the background: the route goes now.
+    fun settleRemoval() {
+        removals.release()?.let(::commitRemoval)
+        removing = null
+    }
+    // Closing the sheet is the toast leaving too.
+    DisposableEffect(removals) {
+        onDispose { removals.release()?.let(::commitRemoval) }
+    }
+    val routes = server.effectiveRoutes.filterNot { it.id == removing?.id }
     var draftName by remember(server.id) { mutableStateOf("") }
     var draftUrl by remember(server.id) { mutableStateOf("") }
     var error by remember(server.id) { mutableStateOf<String?>(null) }
@@ -1769,14 +1810,48 @@ private fun ServerRoutesDialog(
         )
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             routes.forEach { route ->
-                ServerRouteRow(
-                    route = route,
-                    health = health?.route(route.id),
-                    isActive = route.id == server.activeRoute.id,
-                    isPrimary = route.id == ServerRoute.PRIMARY_ID,
-                    onActivate = { onActivate(route.id) },
-                    onRemove = { onSave(routes.filterNot { it.id == route.id }, false) },
-                )
+                key(route.id) {
+                    val isPrimary = route.id == ServerRoute.PRIMARY_ID
+                    // The primary cannot be removed, so it has nothing to swipe to.
+                    SwipeActionsRow(
+                        trailing =
+                            if (isPrimary) {
+                                null
+                            } else {
+                                ItemAction(
+                                    label = "删除",
+                                    icon = AppIcons.Close,
+                                    destructive = true,
+                                    undoable = true,
+                                    id = "route.remove",
+                                ) { removeRoute(route) }
+                            },
+                        shape = AppShapes.chip,
+                    ) { actions ->
+                        ServerRouteRow(
+                            route = route,
+                            health = health?.route(route.id),
+                            isActive = route.id == server.activeRoute.id,
+                            isPrimary = isPrimary,
+                            onActivate = { onActivate(route.id) },
+                            onRemove = { removeRoute(route) },
+                            modifier = actions,
+                        )
+                    }
+                }
+            }
+        }
+        // Inside the sheet, under the rows: the sheet is its own window, over anything on the page.
+        Box(Modifier.fillMaxWidth()) {
+            CompositionLocalProvider(LocalToastBottomInset provides 0.dp) {
+                key(removalToast) {
+                    val pending = removing
+                    ActionToast(
+                        message = pending?.let { "已删除线路「${it.name}」" },
+                        onDismiss = ::settleRemoval,
+                        action = pending?.let { route -> ToastAction("撤销") { undoRemoval(route) } },
+                    )
+                }
             }
         }
 
@@ -1839,6 +1914,9 @@ private fun ServerRoutesDialog(
                                 ?: "请填写以 http:// 或 https:// 开头的完整地址"
                         routes.any { it.url == url } -> error = "这个地址已经在列表里了"
                         else -> {
+                            // Something new sends a waiting removal on its way: [routes] already
+                            // leaves that route out, so this one save carries both changes.
+                            if (removals.release() != null) removing = null
                             onSave(
                                 routes +
                                     ServerRoute(
@@ -1871,6 +1949,8 @@ private fun ServerRouteRow(
     isPrimary: Boolean,
     onActivate: () -> Unit,
     onRemove: () -> Unit,
+    /** Applied first, on the node that carries the row's click: its swipe's custom actions go here. */
+    modifier: Modifier = Modifier,
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
@@ -1883,7 +1963,7 @@ private fun ServerRouteRow(
             else -> Semantic.Offline
         }
     Row(
-        Modifier
+        modifier
             .fillMaxWidth()
             .pressable(
                 haptic = HapticSignal.Select,
