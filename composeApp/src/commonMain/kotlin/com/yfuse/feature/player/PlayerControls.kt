@@ -175,6 +175,8 @@ internal fun PlayerControls(
     onNextItem: () -> Boolean,
     /** 取消 on the next-up card: the engine must not advance on its own either. */
     onDismissNextUp: () -> Unit = {},
+    /** 片尾接管: true while the credits have the picture in its corner; the caller shrinks the surface. */
+    onCreditsTakeover: (Boolean) -> Unit = {},
     onRefreshEpisodes: () -> Unit,
     onSelectAudio: (String) -> Unit,
     audioControls: AudioControlState = AudioControlState(),
@@ -701,25 +703,6 @@ internal fun PlayerControls(
             runCatching { keyboardAnchor.requestFocus() }
         }
     }
-    // 暂停信息层: three seconds into a settled pause with the chrome away. Put away by a touch or a
-    // key, it stays away until the pause is disturbed and settles again.
-    var pauseInfoShown by remember { mutableStateOf(false) }
-    val pauseInfoReady =
-        pauseInfoEligible(
-            playing = state.playing,
-            buffering = state.buffering,
-            ended = state.ended,
-            failed = state.error != null,
-            controlsVisible = visible,
-            overlayOpen = remotePanel != null,
-            locked = locked,
-        )
-    LaunchedEffect(pauseInfoReady) {
-        pauseInfoShown = false
-        if (!pauseInfoReady) return@LaunchedEffect
-        delay(PAUSE_INFO_DELAY_MS)
-        pauseInfoShown = true
-    }
 
     LaunchedEffect(
         visible,
@@ -898,6 +881,48 @@ internal fun PlayerControls(
         if (timeout == Long.MAX_VALUE) return@LaunchedEffect
         delay(timeout)
         volumeSliderVisible = false
+    }
+
+    // 片尾接管下一集: the credits draw the picture into a corner with the next episode beside it.
+    // Not the guest's to take, not a cast's, not under the lock or an automatic skip's countdown.
+    var creditsTakeoverDismissed by remember(state.currentIndex) { mutableStateOf(false) }
+    val creditsPhase by rememberCreditsTakeoverPhase(
+        playback = playback,
+        credits = skip.credits,
+        blocked =
+            creditsTakeoverDismissed ||
+                nextUpDismissed ||
+                watchLocked ||
+                castingDeviceId != null ||
+                locked ||
+                skip.countdownSeconds != null ||
+                holdSeekDirection != 0,
+    )
+    val creditsTakeover = creditsPhase != CreditsTakeoverPhase.Off
+    val latestOnCreditsTakeover by rememberUpdatedState(onCreditsTakeover)
+    LaunchedEffect(creditsTakeover) { latestOnCreditsTakeover(creditsTakeover) }
+    DisposableEffect(Unit) {
+        onDispose { latestOnCreditsTakeover(false) }
+    }
+
+    // 暂停信息层: three seconds into a settled pause with the chrome away. Put away by a touch or a
+    // key, it stays away until the pause is disturbed and settles again.
+    var pauseInfoShown by remember { mutableStateOf(false) }
+    val pauseInfoReady =
+        pauseInfoEligible(
+            playing = state.playing,
+            buffering = state.buffering,
+            ended = state.ended,
+            failed = state.error != null,
+            controlsVisible = visible,
+            overlayOpen = remotePanel != null || creditsTakeover,
+            locked = locked,
+        )
+    LaunchedEffect(pauseInfoReady) {
+        pauseInfoShown = false
+        if (!pauseInfoReady) return@LaunchedEffect
+        delay(PAUSE_INFO_DELAY_MS)
+        pauseInfoShown = true
     }
 
     Box(
@@ -1418,7 +1443,9 @@ internal fun PlayerControls(
                 }
                 val lastSkipLabel = remember { arrayOf("") }
                 skip.segmentLabel?.let { lastSkipLabel[0] = it }
-                val manualSkip = shouldShowManualSkipPill(skip.segmentLabel, skip.countdownSeconds, visible)
+                // The takeover's card offers the next episode from the same corner; one offer at a time.
+                val manualSkip =
+                    shouldShowManualSkipPill(skip.segmentLabel, skip.countdownSeconds, visible) && !creditsTakeover
                 ChromeVisibility(
                     visible = manualSkip,
                     edge = ChromeEdge.Bottom,
@@ -1993,6 +2020,26 @@ internal fun PlayerControls(
                             onVolume(target)
                         },
                         modifier = Modifier,
+                    )
+                }
+
+                // Where the ordinary card appears, which takes over from this one for the last seconds.
+                ChromeVisibility(
+                    visible = creditsPhase == CreditsTakeoverPhase.Card,
+                    edge = ChromeEdge.End,
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(end = 22.dp, bottom = 96.dp),
+                ) {
+                    CreditsTakeoverCard(
+                        title = episodes.getOrNull(state.currentIndex + 1)?.title.orEmpty(),
+                        // The picture comes back and the credits play on; the ordinary card still
+                        // counts down at the very end.
+                        onWatchCredits = { creditsTakeoverDismissed = true },
+                        onPlayNext = {
+                            if (creditsPhase == CreditsTakeoverPhase.Card) {
+                                poke()
+                                onNextItem()
+                            }
+                        },
                     )
                 }
 

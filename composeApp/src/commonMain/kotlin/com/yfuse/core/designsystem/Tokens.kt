@@ -812,6 +812,13 @@ object Motion {
             spring(dampingRatio = 0.92f, stiffness = stiffness)
         }
 
+    /**
+     * 片尾接管: the whole picture drawing back into its corner as the credits start, and growing
+     * back for 看完片尾. Softer than a control's spring — a screen's worth of picture is moving — and
+     * without a bounce, which on a film reads as the video glitching.
+     */
+    fun <T> creditsTakeover(): SpringSpec<T> = spring(dampingRatio = 0.9f, stiffness = Spring.StiffnessLow)
+
     /** 推进（详情 / 类型 / 下载）— 右侧 30px 滑入 + 淡入. */
     const val PUSH = EMPHASIZED
     val pushOffset = 30.dp

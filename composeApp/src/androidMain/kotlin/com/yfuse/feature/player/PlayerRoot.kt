@@ -338,6 +338,8 @@ internal fun PlayerRoot(
     // 没听清: a subtitle shown for a replay. Kept out of the restore state above, series memory and
     // the preferences alike; while it runs, the track restore stands aside.
     var subtitlePeek by remember { mutableStateOf<SubtitlePeek?>(null) }
+    // 片尾接管: the controls decide when the credits take the picture into its corner; the surface follows.
+    var creditsTakeover by remember { mutableStateOf(false) }
     var scaleMode by remember { mutableStateOf(VideoScaleMode.Fit) }
     var subtitleControls by remember { mutableStateOf(SubtitleControlState()) }
     var audioControls by remember { mutableStateOf(AudioControlState()) }
@@ -2771,6 +2773,12 @@ internal fun PlayerRoot(
                     ambient.onContainerSize(coordinates.size)
                 },
         ) {
+            // 片尾接管: whichever engine draws, its surface moves the same way; the controls decide when.
+            val pictureModifier =
+                Modifier.fillMaxSize().creditsTakeoverPicture(
+                    active = creditsTakeover && !inPictureInPicture,
+                    immediate = inPictureInPicture,
+                )
             when (engine) {
                 is YPlayerVideoEngineAdapter ->
                     Core2Surface(
@@ -2794,7 +2802,7 @@ internal fun PlayerRoot(
                         subtitleBrightness = presentationSubtitleControls.brightness,
                         subtitlePosition = presentationSubtitleControls.position,
                         subtitleAppearance = presentationSubtitleControls.appearance,
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = pictureModifier,
                         visible = !inPictureInPicture,
                         ambientSampler = ambient.sampler,
                         ambientLayer = ambientLayer,
@@ -2802,14 +2810,14 @@ internal fun PlayerRoot(
                 is MdkVideoEngine ->
                     MdkSurface(
                         engine,
-                        Modifier.fillMaxSize(),
+                        pictureModifier,
                         ambientSampler = ambient.sampler,
                         ambientLayer = ambientLayer,
                     )
                 is MpvVideoEngine ->
                     MpvSurface(
                         engine,
-                        Modifier.fillMaxSize(),
+                        pictureModifier,
                         ambientSampler = ambient.sampler,
                         ambientLayer = ambientLayer,
                         subtitlesInsidePicture = ambient.enabled,
@@ -2824,7 +2832,7 @@ internal fun PlayerRoot(
                         subtitleBrightness = presentationSubtitleControls.brightness,
                         subtitlePosition = presentationSubtitleControls.position,
                         subtitleAppearance = presentationSubtitleControls.appearance,
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = pictureModifier,
                         ambientSampler = ambient.sampler,
                         ambientLayer = ambientLayer,
                     )
@@ -3021,6 +3029,7 @@ internal fun PlayerRoot(
                         }
                     },
                     onDismissNextUp = { nextUpDismissedItemId = activeItems.getOrNull(state.currentIndex)?.id },
+                    onCreditsTakeover = { creditsTakeover = it },
                     onNextItem = {
                         sourceSwitchCoordinator.invalidate()
                         val next = state.currentIndex + 1
