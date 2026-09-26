@@ -148,6 +148,9 @@ class HandoffVaultCipher(
 interface HandoffPlaybackBridge {
     fun snapshot(): HandoffMedia?
 
+    /** What is actually playing here right now — not paused, not loading — for 在此继续 elsewhere. */
+    fun nowPlaying(): HandoffMedia? = null
+
     suspend fun prepare(media: HandoffMedia): Boolean
 
     suspend fun pauseAndSnapshot(): HandoffMedia?

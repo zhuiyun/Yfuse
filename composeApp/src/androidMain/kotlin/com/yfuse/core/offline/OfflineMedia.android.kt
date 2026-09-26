@@ -775,7 +775,9 @@ internal class AndroidOfflineMediaManager(
         commands.execute {
             check(_indexStatus.value == OfflineIndexStatus.Ready)
             when (action) {
-                DownloadNotificationActions.ACTION_PAUSE -> pauseAllNow()
+                DownloadNotificationActions.ACTION_PAUSE,
+                DownloadNotificationActions.ACTION_STOP,
+                -> pauseAllNow()
                 DownloadNotificationActions.ACTION_RESUME -> resumeAllNow()
                 else -> error("Unknown download notification action")
             }
