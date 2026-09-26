@@ -94,6 +94,9 @@ fun TvApp(component: RootComponent) {
     val glassStyle by component.themePreferences.glassStyle.collectAsState()
     val loadingAnimation by component.themePreferences.loadingAnimation.collectAsState()
     val glassMaterials by component.themePreferences.glassMaterials.collectAsState()
+    // 动效主题 is the phone's setting as much as the television's: 静息 asked for calm motion and
+    // the TV kept running 经典 whatever was chosen.
+    val motionTheme by component.themePreferences.motionTheme.collectAsState()
 
     // Always dark. The shell paints [TvBackground] whatever the phone's 界面模式 says, and that
     // shared preference used to hand the four shared dialogs and the unified library light
@@ -108,6 +111,7 @@ fun TvApp(component: RootComponent) {
         particleLight = ParticleLight.Off,
         loadingAnimation = loadingAnimation,
         glassMaterials = glassMaterials,
+        motionTheme = motionTheme,
     ) {
         // Dialog panels stay opaque, like every other plate on the television (see TvTokens):
         // with no page backdrop to sample, the shared dialog paints its solid body instead of
