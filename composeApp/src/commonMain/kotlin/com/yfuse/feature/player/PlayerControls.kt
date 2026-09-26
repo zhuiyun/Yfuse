@@ -67,6 +67,7 @@ import com.yfuse.core.designsystem.Tips
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.lightOnChange
 import com.yfuse.core.designsystem.rememberScreenReaderActive
+import com.yfuse.core.model.PlaybackChapter
 import com.yfuse.tv.player.TvPlayerChromeBridge
 import com.yfuse.tv.player.TvPlayerChromeCommandType
 import com.yfuse.tv.player.TvPlayerChromeLayer
@@ -247,6 +248,8 @@ internal fun PlayerControls(
     onSelectVersion: (String) -> Unit = {},
     skip: SkipSegmentState = SkipSegmentState(),
     skipActions: SkipSegmentActions = SkipSegmentActions(),
+    /** The file's named chapters: the progress bar is divided at them and the preview names them. */
+    chapters: List<PlaybackChapter> = emptyList(),
     watch: WatchRoomState = WatchRoomState(),
     watchActions: WatchRoomActions = WatchRoomActions(),
     remoteChrome: TvPlayerChromeBridge? = null,
@@ -1123,8 +1126,9 @@ internal fun PlayerControls(
                                     skip.introEndSeconds,
                                     skip.creditsLeadSeconds,
                                     state.durationMs,
+                                    chapters,
                                 ) {
-                                    playbackProgressMarkers(skip, state.durationMs)
+                                    playbackProgressMarkers(skip, state.durationMs, chapters.asProgressChapters())
                                 },
                             hasEpisodes = state.itemCount > 1,
                             onOpenEpisodes = {

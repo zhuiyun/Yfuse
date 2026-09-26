@@ -97,6 +97,8 @@ data class MediaDetail(
     val providerIds: Map<String, String> = emptyMap(),
     /** Intro and credits markers supplied by Emby chapter metadata. */
     val playbackSegments: List<PlaybackSegment> = emptyList(),
+    /** The file's named chapters, which divide the player's progress bar. */
+    val playbackChapters: List<PlaybackChapter> = emptyList(),
     val trickplay: TrickplayInfo? = null,
     /** Exact Emby runtime retained so the player can paint its duration before the decoder reports it. */
     val runtimeTicks: Long? = null,

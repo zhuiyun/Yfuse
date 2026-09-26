@@ -6,6 +6,7 @@ import com.yfuse.core.model.MediaDetail
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.MediaVersion
 import com.yfuse.core.model.Person
+import com.yfuse.core.model.PlaybackChapter
 import com.yfuse.core.model.PlaybackSegment
 import com.yfuse.core.model.PlaybackSegmentType
 import com.yfuse.core.model.Season
@@ -271,6 +272,8 @@ data class RemoteSubtitleInfoDto(
 data class ChapterDto(
     val StartPositionTicks: Long = 0L,
     val MarkerType: String? = null,
+    /** The chapter's title as the container carries it; Emby and Jellyfin both send it. */
+    val Name: String? = null,
 )
 
 @Serializable
@@ -447,6 +450,7 @@ fun BaseItemDto.toMediaDetail(): MediaDetail {
         played = UserData?.Played == true,
         providerIds = ProviderIds.orEmpty(),
         playbackSegments = playbackSegments(),
+        playbackChapters = playbackChapters(),
         trickplay = bestTrickplay(),
         runtimeTicks = RunTimeTicks?.takeIf { it > 0L },
     )
@@ -652,6 +656,7 @@ fun BaseItemDto.toEpisode() =
         // Emby sends a full timestamp; the date is the part that means anything here.
         premiereDate = PremiereDate?.take(10)?.takeIf { it.length == 10 },
         playbackSegments = playbackSegments(),
+        playbackChapters = playbackChapters(),
         providerIds = ProviderIds.orEmpty(),
         versions =
             MediaSources.orEmpty().mapIndexed { index, source ->
@@ -710,3 +715,40 @@ fun BaseItemDto.playbackSegments(): List<PlaybackSegment> {
         }
     return listOfNotNull(intro, credits)
 }
+
+/**
+ * The file's ordinary chapters, for dividing the progress bar: the ones its container named.
+ *
+ * Emby marks its skip points as chapters too — `IntroStart`, `IntroEnd`, `CreditsStart` — and
+ * those are [playbackSegments]' business, so only an unmarked chapter (Jellyfin) or one marked
+ * `Chapter` (Emby) counts. A name that only counts — "Chapter 3", "第 3 章", "00:12:00", which
+ * muxers and servers write when the file had none — says nothing its position does not, and is
+ * left out with the unnamed ones, as is a chapter at or past the end of the runtime. Two
+ * chapters at one position keep the first.
+ */
+fun BaseItemDto.playbackChapters(): List<PlaybackChapter> {
+    val runtimeMs = RunTimeTicks?.takeIf { it > 0L }?.div(10_000L)
+    return Chapters
+        .orEmpty()
+        .asSequence()
+        .filter { chapter ->
+            val type = chapter.MarkerType?.trim().orEmpty()
+            type.isEmpty() || type.equals("Chapter", ignoreCase = true)
+        }.mapNotNull { chapter ->
+            val name = chapter.Name?.trim()?.takeIf { it.isNotEmpty() && !isCountingChapterName(it) }
+            val startMs = (chapter.StartPositionTicks / 10_000L).coerceAtLeast(0L)
+            if (name == null || (runtimeMs != null && startMs >= runtimeMs)) null else PlaybackChapter(startMs, name)
+        }.sortedBy(PlaybackChapter::startMs)
+        .distinctBy(PlaybackChapter::startMs)
+        .toList()
+}
+
+/** "Chapter 3", "Ch. 12", "第 3 章", "チャプター 2", a bare number or a timestamp: a name that only counts. */
+internal fun isCountingChapterName(name: String): Boolean = COUNTING_CHAPTER_NAME.matches(name.trim())
+
+private val COUNTING_CHAPTER_NAME =
+    Regex(
+        "(?:(?:chapter|chap|ch|kapitel|chapitre|cap[ií]tulo|capitolo|глава|章节|章節|チャプター|챕터)" +
+            "\\.?\\s*#?\\s*\\d+)|(?:第\\s*\\d+\\s*[章节節话話幕])|[\\d\\s.:,-]+",
+        RegexOption.IGNORE_CASE,
+    )

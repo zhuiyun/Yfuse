@@ -593,6 +593,15 @@ internal fun TrickplayPreview(
     storyboard: TrickplayStoryboard,
     positionMs: Long,
     modifier: Modifier = Modifier,
+    /** The chapter [positionMs] is in, read under the time. */
+    chapter: String? = null,
+    /**
+     * Keeps the chapter line even where [chapter] is null — before a file's first chapter — so a
+     * card sliding across chapters never changes height under the finger.
+     */
+    chapterLine: Boolean = chapter != null,
+    /** Said after the time, for the scrub's current precision: "¼ 速". */
+    timeSuffix: String? = null,
 ) {
     val frame = storyboard.frameAt(positionMs)
     val previewHeight =
@@ -600,7 +609,7 @@ internal fun TrickplayPreview(
     Box(
         modifier
             .width(TrickplayPreviewWidth)
-            .height(previewHeight + 30.dp),
+            .height(trickplayPreviewHeight(storyboard, chapterLine)),
     ) {
         Box(
             modifier =
@@ -636,14 +645,36 @@ internal fun TrickplayPreview(
                 )
             }
             Text(
-                formatTime(positionMs),
+                timeSuffix?.let { "${formatTime(positionMs)} · $it" } ?: formatTime(positionMs),
                 style = AppTypography.caption.strong,
                 color = Color.White,
                 modifier = Modifier.padding(top = 4.dp, bottom = 1.dp),
             )
+            if (chapterLine) {
+                Text(
+                    chapter.orEmpty(),
+                    style = AppTypography.caption.regular,
+                    color = Color.White.copy(alpha = 0.72f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(horizontal = 4.dp).padding(bottom = 1.dp),
+                )
+            }
         }
     }
 }
+
+/** How tall [TrickplayPreview] is for [storyboard], with or without its chapter line. */
+internal fun trickplayPreviewHeight(
+    storyboard: TrickplayStoryboard,
+    chapterLine: Boolean,
+): Dp =
+    (TrickplayPreviewWidth.value * storyboard.height / storyboard.width.coerceAtLeast(1)).dp +
+        30.dp +
+        if (chapterLine) TrickplayChapterLineHeight else 0.dp
+
+/** Room for one caption line of chapter name under the card's time. */
+private val TrickplayChapterLineHeight = 18.dp
 
 /**
  * A quiet glass rail in normal playback. Scrubbing enlarges the liquid thumb and reveals a
@@ -653,6 +684,11 @@ internal data class PlaybackProgressMarker(
     val positionMs: Long,
     val label: String? = null,
     val emphasized: Boolean = false,
+    /**
+     * A chapter start rather than a skip boundary: the rail is cut here instead of ticked, and
+     * the preview card names the chapter the playhead is in.
+     */
+    val chapter: Boolean = false,
 )
 
 /** Converts the player's real skip boundaries into the semantic nodes shown on the rail. */

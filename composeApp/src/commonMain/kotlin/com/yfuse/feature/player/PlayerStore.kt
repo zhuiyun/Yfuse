@@ -18,6 +18,7 @@ import com.yfuse.core.logging.AppLog
 import com.yfuse.core.logging.playbackDiagnosticTrace
 import com.yfuse.core.model.Episode
 import com.yfuse.core.model.MediaVersion
+import com.yfuse.core.model.PlaybackChapter
 import com.yfuse.core.model.PlaybackMethod
 import com.yfuse.core.model.PlaybackSegment
 import com.yfuse.core.network.EmbyError
@@ -425,6 +426,8 @@ data class PlayerMediaItem(
     val fallbackTranscodeUrl: String = transcodeUrl,
     val serverId: String? = null,
     val playbackSegments: List<PlaybackSegment> = emptyList(),
+    /** Named chapters of the file, which divide the progress bar; see `playbackChapters()`. */
+    val chapters: List<PlaybackChapter> = emptyList(),
     val seasonNumber: Int? = null,
     val episodeNumber: Int? = null,
     /**
@@ -1026,6 +1029,7 @@ class PlayerStoreFactory(
                         progress: Float? = null,
                         caption: String? = null,
                         runtimeTicks: Long? = null,
+                        chapters: List<PlaybackChapter> = emptyList(),
                     ): PlayerMediaItem {
                         val effectiveVersions =
                             if (id == effectiveItemId && negotiatedVersions.isNotEmpty()) {
@@ -1108,6 +1112,7 @@ class PlayerStoreFactory(
                                 },
                             serverId = server.id,
                             playbackSegments = playbackSegments,
+                            chapters = chapters,
                             seasonNumber = seasonNumber,
                             episodeNumber = episodeNumber,
                             seriesId = seriesId,
@@ -1291,6 +1296,7 @@ class PlayerStoreFactory(
                             seriesName = detail?.seriesName,
                             versions = detail?.versions.orEmpty(),
                             runtimeTicks = detail?.runtimeTicks,
+                            chapters = detail?.playbackChapters.orEmpty(),
                         )
                     dispatch(PlayerMsg.Ready(listOf(currentItem), 0, startMs))
                     recordStage("current_item_ready", currentItem.id, server.id, currentItem.playSessionId)
@@ -1392,6 +1398,12 @@ class PlayerStoreFactory(
                                                     detail.runtimeTicks ?: ep.runtimeTicks
                                                 } else {
                                                     ep.runtimeTicks
+                                                },
+                                            chapters =
+                                                if (ep.id == effectiveItemId) {
+                                                    detail.playbackChapters.ifEmpty { ep.playbackChapters }
+                                                } else {
+                                                    ep.playbackChapters
                                                 },
                                         )
                                     }
@@ -1577,6 +1589,7 @@ class PlayerStoreFactory(
                 fallbackTranscodeUrl = playable.fallbackTranscodeUrl,
                 serverId = serverId,
                 playbackSegments = detail.playbackSegments,
+                chapters = detail.playbackChapters,
                 seasonNumber = detail.seasonNumber,
                 episodeNumber = detail.episodeNumber,
                 seriesId = detail.seriesId,
@@ -1696,6 +1709,7 @@ internal fun PlayerMediaItem.withQueueMetadata(metadata: PlayerMediaItem): Playe
         mediaType = metadata.mediaType.ifBlank { mediaType },
         year = metadata.year ?: year,
         playbackSegments = metadata.playbackSegments,
+        chapters = metadata.chapters.ifEmpty { chapters },
         seasonNumber = metadata.seasonNumber ?: seasonNumber,
         episodeNumber = metadata.episodeNumber ?: episodeNumber,
         seriesId = metadata.seriesId ?: seriesId,

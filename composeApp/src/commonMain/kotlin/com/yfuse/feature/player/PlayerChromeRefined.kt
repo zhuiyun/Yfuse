@@ -57,6 +57,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawOutline
@@ -110,6 +112,7 @@ import com.yfuse.core.designsystem.touchTarget
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.abs
+import kotlin.math.min
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
 
@@ -494,6 +497,7 @@ private fun RefinedBottomBarContent(
             }
             Column(Modifier.weight(1f)) {
                 val preview = trickplay
+                val chapters = remember(progressMarkers) { progressMarkers.chapterMarkers() }
                 AnimatedVisibility(
                     visible = scrubbing.value && preview != null,
                     enter =
@@ -517,11 +521,7 @@ private fun RefinedBottomBarContent(
                         },
                 ) {
                     if (preview != null) {
-                        val previewHeight =
-                            (
-                                RefinedTrickplayPreviewWidth.value * preview.height /
-                                    preview.width.coerceAtLeast(1)
-                            ).dp + 30.dp
+                        val previewHeight = trickplayPreviewHeight(preview, chapterLine = chapters.isNotEmpty())
                         BoxWithConstraints(
                             Modifier
                                 .fillMaxWidth()
@@ -530,9 +530,12 @@ private fun RefinedBottomBarContent(
                             // The still follows the finger, so the card is placed rather than
                             // laid out again on every sample of it.
                             val trackWidthPx = constraints.maxWidth
+                            val previewPositionMs = shownPositionMs()
                             TrickplayPreview(
                                 storyboard = preview,
-                                positionMs = shownPositionMs(),
+                                positionMs = previewPositionMs,
+                                chapter = chapterNameAt(chapters, previewPositionMs),
+                                chapterLine = chapters.isNotEmpty(),
                                 modifier =
                                     Modifier
                                         .offset {
@@ -913,6 +916,14 @@ internal fun StandardSeekBar(
                 (marker.positionMs.toFloat() / durationMs.coerceAtLeast(1L)).coerceIn(0f, 1f)
             }
         }
+    // 章节: where the rail is cut, and which part the finger is in while it drags.
+    val chapters = remember(progressMarkers) { progressMarkers.chapterMarkers() }
+    val chapterStarts =
+        remember(chapters, durationMs) {
+            chapters.map { (it.positionMs.toFloat() / durationMs.coerceAtLeast(1L)).coerceIn(0f, 1f) }
+        }
+    val chapterCuts = remember(chapters, durationMs) { chapterBoundaryFractions(chapters, durationMs) }
+    var dragChapter by remember { mutableIntStateOf(-1) }
     val latestOnScrubTo by rememberUpdatedState(onScrubTo)
     val latestOnCommit by rememberUpdatedState(onCommit)
     val latestOnCancel by rememberUpdatedState(onCancel)
@@ -957,19 +968,28 @@ internal fun StandardSeekBar(
         magneticSeekTarget(
             rawFraction = rawFraction,
             markerFractions = markerFractions,
-            thresholdFraction =
-                (magnetRadiusPx / widthPx.coerceAtLeast(1)).coerceAtMost(0.04f),
+            thresholdFraction = seekMagnetFraction(magnetRadiusPx, widthPx.toFloat(), chapterStarts),
         )
+
+    fun chapterAt(fraction: Float): Int = chapterIndexAt(chapters, scrubPositionMs(fraction, durationMs))
 
     fun updateDrag(rawFraction: Float) {
         val direction = ((rawFraction - previousDragFraction) * widthPx / directionDistancePx).coerceIn(-1f, 1f)
         dragDirection = dragDirection * 0.65f + direction * 0.35f
         previousDragFraction = rawFraction
         val target = magneticTarget(rawFraction)
-        if (target.markerIndex != null && target.markerIndex != snappedMarkerIndex) {
+        // A chapter start answers with the chapter tick below rather than a second, heavier snap.
+        val snappedChapter = target.markerIndex?.let { progressMarkers.getOrNull(it)?.chapter } == true
+        if (target.markerIndex != null && target.markerIndex != snappedMarkerIndex && !snappedChapter) {
             haptics.play(HapticSignal.Select)
         }
         snappedMarkerIndex = target.markerIndex
+        // Passing into another chapter is a mark passing under the finger, like a gear or a frame.
+        val chapter = chapterAt(target.fraction)
+        if (chapter != dragChapter) {
+            dragChapter = chapter
+            haptics.play(HapticSignal.Tick)
+        }
         dragFraction = target.fraction
         latestOnScrubTo(target.fraction)
         currentLight.emit(LightEffect.Trail, fractionX = target.fraction)
@@ -1018,6 +1038,8 @@ internal fun StandardSeekBar(
                                 previousDragFraction = (offset.x / width).coerceIn(0f, 1f)
                                 dragging = true
                                 snappedMarkerIndex = null
+                                // The chapter the drag starts in is where it is, not a crossing.
+                                dragChapter = chapterAt(magneticTarget((offset.x / width).coerceIn(0f, 1f)).fraction)
                                 haptics.play(HapticSignal.Select)
                                 updateDrag((offset.x / width).coerceIn(0f, 1f))
                             },
@@ -1074,25 +1096,37 @@ internal fun StandardSeekBar(
                     val color = accent()
                     val played = shownFraction.value
                     val playedWidth = size.width * played
-                    drawRect(Color.White.copy(alpha = 0.16f))
-                    drawRect(
-                        lerp(color, Color.Gray, 0.62f).copy(alpha = 0.50f),
-                        size =
-                            androidx.compose.ui.geometry.Size(
-                                size.width * buffered.value.coerceIn(played, 1f),
-                                size.height,
-                            ),
-                    )
-                    if (playedWidth > 0f) {
-                        drawRect(
-                            Brush.horizontalGradient(
-                                listOf(lerp(color, Color.Black, 0.14f), lerp(color, Color.White, 0.24f)),
-                                endX = playedWidth,
-                            ),
-                            size =
-                                androidx.compose.ui.geometry
-                                    .Size(playedWidth, size.height),
+                    val bufferedWidth = size.width * buffered.value.coerceIn(played, 1f)
+                    val bufferColor = lerp(color, Color.Gray, 0.62f).copy(alpha = 0.50f)
+                    // One brush across every part, so the played gradient runs on through the cuts.
+                    val playedBrush =
+                        Brush.horizontalGradient(
+                            listOf(lerp(color, Color.Black, 0.14f), lerp(color, Color.White, 0.24f)),
+                            endX = playedWidth.coerceAtLeast(1f),
                         )
+                    // Without chapters this is one part from end to end: the rail as it always was.
+                    forEachRailPart(size.width, chapterCuts, SeekChapterGap.toPx()) { left, right ->
+                        drawRect(
+                            Color.White.copy(alpha = 0.16f),
+                            topLeft = Offset(left, 0f),
+                            size = Size(right - left, size.height),
+                        )
+                        val bufferedRight = min(right, bufferedWidth)
+                        if (bufferedRight > left) {
+                            drawRect(
+                                bufferColor,
+                                topLeft = Offset(left, 0f),
+                                size = Size(bufferedRight - left, size.height),
+                            )
+                        }
+                        val playedRight = min(right, playedWidth)
+                        if (playedRight > left) {
+                            drawRect(
+                                playedBrush,
+                                topLeft = Offset(left, 0f),
+                                size = Size(playedRight - left, size.height),
+                            )
+                        }
                     }
                 },
         )
@@ -1114,7 +1148,9 @@ internal fun StandardSeekBar(
         }
 
         // The same list the magnet snaps to, rather than a second copy of the same arithmetic.
+        // Chapter starts are cuts in the rail, drawn above, rather than ticks on it.
         progressMarkers.forEachIndexed { index, marker ->
+            if (marker.chapter) return@forEachIndexed
             val markerFraction = markerFractions.getOrElse(index) { 0f }
             Box(
                 Modifier
@@ -1226,6 +1262,28 @@ internal fun StandardSeekBar(
         }
     }
 }
+
+/**
+ * Calls [part] for each stretch of a [width]-wide rail between the chapter [cuts] (sorted
+ * fractions), leaving [gap] pixels open at every cut. No cuts is a single part, end to end.
+ */
+private inline fun forEachRailPart(
+    width: Float,
+    cuts: List<Float>,
+    gap: Float,
+    part: (left: Float, right: Float) -> Unit,
+) {
+    var left = 0f
+    for (cut in cuts) {
+        val at = width * cut
+        if (at - gap / 2f > left) part(left, at - gap / 2f)
+        left = at + gap / 2f
+    }
+    if (width > left) part(left, width)
+}
+
+/** The opening between two chapters on the rail: wide enough to read, too narrow to aim at. */
+private val SeekChapterGap = 2.dp
 
 private val SeekTimeBubbleWidth = 60.dp
 private val SeekTimeBubbleHeight = 22.dp

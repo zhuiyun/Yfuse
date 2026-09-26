@@ -3662,6 +3662,7 @@ internal fun PlayerRoot(
                     onSelectVersion = { versionId -> selectVersion(versionId) },
                     skip = skip.state,
                     skipActions = skip.actions,
+                    chapters = currentItem?.chapters.orEmpty(),
                     watch =
                         WatchRoomState(
                             available = watchAvailable,
