@@ -91,6 +91,7 @@ import com.yfuse.core.designsystem.MediaSharedElementKey
 import com.yfuse.core.designsystem.MediaSizing
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.MotionSwap
+import com.yfuse.core.designsystem.OverlayActionRow
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.PageHint
 import com.yfuse.core.designsystem.RefreshIndicator
@@ -728,6 +729,10 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                         store.accept(LibraryIntent.SelectServer(it))
                         serverMenuOpen = false
                     },
+                    onOpenUnified = {
+                        serverMenuOpen = false
+                        component.onOpenUnified()
+                    },
                     onDismiss = { serverMenuOpen = false },
                 )
             }
@@ -1025,6 +1030,7 @@ private fun ServerSheet(
     servers: List<SavedServer>,
     currentId: String?,
     onSelect: (String) -> Unit,
+    onOpenUnified: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val palette = LocalPalette.current
@@ -1119,6 +1125,16 @@ private fun ServerSheet(
                     }
                 }
             }
+        }
+        // 全部服务器 had a route and a screen but nothing that led to it. It belongs beside the
+        // servers it merges, and only once there is more than one.
+        if (servers.size > 1) {
+            Spacer(Modifier.height(12.dp))
+            OverlayActionRow(
+                label = "浏览全部服务器",
+                description = "把 ${servers.size} 个服务器的媒体库合在一起，同一部只列一次",
+                onClick = overlayAction(onOpenUnified),
+            )
         }
     }
 }

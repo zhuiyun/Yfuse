@@ -289,6 +289,16 @@ private fun SearchHomeScreen(
                         }
                     }
                 }
+                // ＋ 保存筛选 needs the query and filters to save, and they only exist here: 首页 and
+                // 媒体库 list the pinned 智能片单 but could never make one.
+                if (state.error == null) {
+                    motionItem(key = "search-smart-playlists") {
+                        SmartPlaylistShelf(
+                            state = state,
+                            onApply = { store.accept(SearchIntent.ApplyPlaylist(it)) },
+                        )
+                    }
+                }
                 when {
                     state.error != null ->
                         motionItem(key = "search-results-error") {
