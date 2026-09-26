@@ -29,6 +29,7 @@ import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -178,6 +179,11 @@ internal fun PlayerControls(
     remoteSubtitles: RemoteSubtitlePanelState = RemoteSubtitlePanelState(),
     remoteSubtitleActions: RemoteSubtitleActions = RemoteSubtitleActions(),
     onSpeed: (Float) -> Unit,
+    /**
+     * 长按中间: the speed to play at while the middle third is held, or null once it is let go.
+     * Temporary by contract — the caller must not remember it as the series' speed.
+     */
+    onSpeedBoost: (Float?) -> Unit = {},
     sleepTimer: SleepTimerState = SleepTimerState(),
     sleepTimerActions: SleepTimerActions = SleepTimerActions(),
     onToggleFill: () -> Unit,
@@ -289,6 +295,9 @@ internal fun PlayerControls(
     var seekBurstMs by remember { mutableLongStateOf(0L) }
     var seekBurstMark by remember { mutableStateOf<TimeSource.Monotonic.ValueTimeMark?>(null) }
     var holdSeekTarget by remember { mutableLongStateOf(0L) }
+    // 长按中间: the gear while the middle third is held, null otherwise, and where the hold began.
+    var speedBoostGear by remember { mutableStateOf<Int?>(null) }
+    var speedBoostOriginX by remember { mutableFloatStateOf(0f) }
     // The app's own vocabulary, not Compose's two-constant one. These two call sites were
     // the last `HapticFeedbackType.LongPress` standing in for something it is not — a
     // confirmed scrub and a refused one, played identically. [HapticSignal.Reject] existed
@@ -319,6 +328,10 @@ internal fun PlayerControls(
     // are per-viewer, not shared.
     val watchLocked = watch.locked
     val latestWatchLocked by rememberUpdatedState(watchLocked)
+    // Read by the long-lived gesture detector, which would otherwise keep its first frame's values.
+    val latestWatchConnected by rememberUpdatedState(watch.connected)
+    val latestCasting by rememberUpdatedState(castingDeviceId != null)
+    val latestOnSpeedBoost by rememberUpdatedState(onSpeedBoost)
     val remoteChromeState = remoteChrome?.state?.collectAsState()?.value
     LaunchedEffect(remoteChromeState?.seekTargetMs, remoteChromeState?.seeking) {
         val target = remoteChromeState?.seekTargetMs ?: return@LaunchedEffect
@@ -368,6 +381,47 @@ internal fun PlayerControls(
     fun poke() {
         interactions++
         visible = true
+    }
+
+    /** Starts 长按中间 at 2×; false when it may not, having said why where there is a reason. */
+    fun startSpeedBoost(originX: Float): Boolean {
+        val refusal =
+            speedBoostRefusal(
+                panelOpen =
+                    watchChatOpen ||
+                        danmakuSendOpen ||
+                        danmakuSearchOpen ||
+                        quickPopup != null ||
+                        settingsPanelKind != null ||
+                        drawerOpen,
+                watchGuest = latestWatchLocked,
+                watchRoom = latestWatchConnected,
+                casting = latestCasting,
+                durationMs = latestDuration,
+                finished = state.ended || state.error != null,
+            )
+        if (refusal != null) {
+            refusal.message?.let { message ->
+                gestureHud = message
+                haptics.play(HapticSignal.Reject)
+            }
+            return false
+        }
+        speedBoostOriginX = originX
+        speedBoostGear = SPEED_BOOST_DEFAULT_GEAR
+        latestOnSpeedBoost(SPEED_BOOST_GEARS[SPEED_BOOST_DEFAULT_GEAR])
+        // The point of holding is to watch: the chrome steps aside and only the pill stays up.
+        visible = false
+        gestureHud = null
+        haptics.play(HapticSignal.Confirm)
+        return true
+    }
+
+    /** Lets go of 长按中间; nothing to do when no boost is held. */
+    fun endSpeedBoost() {
+        if (speedBoostGear == null) return
+        speedBoostGear = null
+        latestOnSpeedBoost(null)
     }
 
     fun openWatchChat() {
@@ -623,6 +677,15 @@ internal fun PlayerControls(
             chatPreviewVisible = false
         }
     }
+    // A room or a cast that begins while the middle is held owns the rate from then on.
+    LaunchedEffect(watch.connected, castingDeviceId) {
+        if (watch.connected || castingDeviceId != null) endSpeedBoost()
+    }
+    // Leaving the player mid-hold, or into 画中画, lets go too: the release that ends the boost
+    // would otherwise never arrive.
+    DisposableEffect(Unit) {
+        onDispose { endSpeedBoost() }
+    }
     // Runs for as long as the press is held; cancelled by the release setting the
     // direction back to 0. Re-stamping the HUD every tick also keeps the 850ms
     // auto-clear above from taking it away mid-hold.
@@ -725,6 +788,9 @@ internal fun PlayerControls(
                                 holdSeekDirection = 0
                                 poke()
                             }
+                            // 长按中间 goes back to how it found things, and leaves the chrome
+                            // hidden: the hold was for watching.
+                            endSpeedBoost()
                         },
                         onTap = {
                             when {
@@ -739,6 +805,10 @@ internal fun PlayerControls(
                             }
                         },
                         onDoubleTap = { offset ->
+                            // 锁定控制 leaves the picture nothing to answer but 解锁. The drags always
+                            // checked it; the double tap and the hold did not, so a locked screen
+                            // still sought and paused under a pocketed hand.
+                            if (locked) return@detectTapGestures
                             if (!allowsPlayerDrag(offset.y, currentSystemGestureTop)) return@detectTapGestures
                             if (latestWatchLocked) {
                                 gestureHud = "房主控制播放"
@@ -778,18 +848,21 @@ internal fun PlayerControls(
                             poke()
                         },
                         onLongPress = { offset ->
+                            if (locked) return@detectTapGestures
                             if (!allowsPlayerDrag(offset.y, currentSystemGestureTop)) return@detectTapGestures
                             // Thirds, exactly as the double tap divides the picture: left
                             // rewinds, right fast-forwards, and the middle — where the double
-                            // tap plays and pauses rather than seeking — holds nothing. The
-                            // hold used to split the frame in halves, so the same spot on the
-                            // picture meant 播放 to one gesture and 快进 to the other.
+                            // tap plays and pauses rather than seeking — plays faster for as
+                            // long as it is held. The hold used to split the frame in halves,
+                            // so the same spot on the picture meant 播放 to one gesture and 快进
+                            // to the other.
                             val direction =
                                 when {
                                     offset.x < size.width / 3f -> -1
                                     offset.x > size.width * 2f / 3f -> 1
                                     else -> 0
                                 }
+                            if (direction == 0 && startSpeedBoost(offset.x)) return@detectTapGestures
                             when {
                                 direction == 0 -> Unit
                                 latestWatchLocked -> {
@@ -828,22 +901,26 @@ internal fun PlayerControls(
                             brightnessAtDragStart = latestBrightness()
                         },
                         onDragEnd = {
-                            if (
-                                holdSeekDirection == 0 &&
-                                abs(totalX) > abs(totalY) &&
-                                latestDuration > 0 &&
-                                !latestWatchLocked
-                            ) {
-                                latestOnSeek(seekTarget)
+                            // 长按中间 ends in its own release, with the chrome left hidden.
+                            if (speedBoostGear == null) {
+                                if (
+                                    holdSeekDirection == 0 &&
+                                    abs(totalX) > abs(totalY) &&
+                                    latestDuration > 0 &&
+                                    !latestWatchLocked
+                                ) {
+                                    latestOnSeek(seekTarget)
+                                }
+                                poke()
                             }
-                            poke()
                         },
                         onDragCancel = { gestureHud = null },
                     ) { change, amount ->
                         change.consume()
                         // A finger that drifts while held is still holding, not scrubbing:
-                        // the hold owns the timeline until it lets go.
-                        if (holdSeekDirection != 0) return@detectPlayerDragGestures
+                        // the hold owns the timeline until it lets go, and a slide during
+                        // 长按中间 changes gear below instead.
+                        if (holdSeekDirection != 0 || speedBoostGear != null) return@detectPlayerDragGestures
                         totalX += amount.x
                         totalY += amount.y
                         if (abs(totalX) > abs(totalY)) {
@@ -871,6 +948,30 @@ internal fun PlayerControls(
                                 val target = (volumeAtDragStart + delta).coerceIn(0f, 1f)
                                 latestOnVolume(target)
                                 gestureHud = "音量 ${(target * 100).toInt()}%"
+                            }
+                        }
+                    }
+                }.pointerInput(Unit) {
+                    // 长按中间's sideways slide between gears. Neither detector above can follow
+                    // it: once a long press has fired, the tap detector consumes every move until
+                    // release, and the drag detector abandons a gesture on the first consumed
+                    // move it sees before its slop. This one only watches, and only while a
+                    // boost is held — it consumes nothing and decides nothing else.
+                    awaitPointerEventScope {
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val gear = speedBoostGear ?: continue
+                            val finger = event.changes.firstOrNull { it.pressed } ?: continue
+                            val next =
+                                speedBoostGearFor(
+                                    dragX = finger.position.x - speedBoostOriginX,
+                                    stepPx = SpeedBoostGearStep.toPx(),
+                                    current = gear,
+                                )
+                            if (next != gear) {
+                                speedBoostGear = next
+                                latestOnSpeedBoost(SPEED_BOOST_GEARS[next])
+                                haptics.play(HapticSignal.Tick)
                             }
                         }
                     }
@@ -1539,6 +1640,13 @@ internal fun PlayerControls(
                         )
                     }
                 }
+
+                // Where the title bar sits — it has stepped aside for the hold — and clear of the
+                // subtitles at the bottom and the gesture HUD in the middle.
+                SpeedBoostPill(
+                    gear = speedBoostGear,
+                    modifier = Modifier.align(Alignment.TopCenter).padding(top = 28.dp),
+                )
 
                 // Suppressed while the resume button occupies the same spot: the double tap that
                 // pauses would otherwise stack "暂停" directly on top of it.

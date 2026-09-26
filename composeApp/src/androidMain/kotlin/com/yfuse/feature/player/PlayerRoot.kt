@@ -323,6 +323,11 @@ internal fun PlayerRoot(
     val sourceSwitchCoordinator = remember { PlaybackSourceSwitchCoordinator() }
     val latestQueueRevision by rememberUpdatedState(queueRevision)
     var requestedPlaybackSpeed by remember { mutableFloatStateOf(1f) }
+    // 长按中间: the rate while the middle of the picture is held, over the chosen one. Only the
+    // engine sees it — never the room, the series memory or the preference — and a hold that
+    // began from a pause puts the pause back when it lets go.
+    var speedBoost by remember { mutableStateOf<Float?>(null) }
+    var speedBoostResumedPlayback by remember { mutableStateOf(false) }
     var handoverItemId by remember { mutableStateOf<String?>(null) }
     var audioRestore by remember { mutableStateOf<TrackRestorePreference?>(null) }
     var subtitleRestore by remember { mutableStateOf<TrackRestorePreference?>(null) }
@@ -2387,7 +2392,7 @@ internal fun PlayerRoot(
             state = state,
             currentItemId = currentItem?.id,
             handoverItemId = handoverItemId,
-            requestedSpeed = requestedPlaybackSpeed,
+            requestedSpeed = speedBoost ?: requestedPlaybackSpeed,
             audioRestore = audioRestore,
             subtitleRestore = subtitleRestore,
             secondarySubtitleRestore = secondarySubtitleRestore,
@@ -3449,6 +3454,22 @@ internal fun PlayerRoot(
                         requestedPlaybackSpeed = newSpeed
                         playbackGate.setSpeed(newSpeed)
                         rememberSeriesPlayback { remembered -> remembered.copy(speed = newSpeed) }
+                    },
+                    onSpeedBoost = { boost ->
+                        if (boost != null) {
+                            if (speedBoost == null) {
+                                // Judged on the play intent, not on frames: a stream that is
+                                // buffering towards playback is not paused.
+                                speedBoostResumedPlayback = !player.playbackRequested && playbackGate.play()
+                            }
+                            speedBoost = boost
+                        } else if (speedBoost != null) {
+                            speedBoost = null
+                            if (speedBoostResumedPlayback && player.playbackRequested && !playbackGate.locked) {
+                                playbackGate.pause()
+                            }
+                            speedBoostResumedPlayback = false
+                        }
                     },
                     sleepTimer = SleepTimerState(sleepTimerOption),
                     sleepTimerActions =

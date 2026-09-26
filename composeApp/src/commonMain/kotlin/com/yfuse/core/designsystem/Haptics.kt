@@ -36,6 +36,12 @@ enum class HapticSignal {
 
     /** A long press opened something — a poster's quick actions, a server card's menu. */
     LongPress,
+
+    /**
+     * A finger sliding across a scale passed its next mark: a row of the 浮起菜单, a speed gear.
+     * Lighter than [Select], because it repeats as fast as the finger moves.
+     */
+    Tick,
 }
 
 interface Haptics {

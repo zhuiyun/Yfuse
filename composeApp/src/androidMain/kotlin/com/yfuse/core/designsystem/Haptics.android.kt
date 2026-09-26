@@ -46,6 +46,13 @@ private class ViewHaptics(
                         else -> HapticFeedbackConstants.CLOCK_TICK
                     }
                 HapticSignal.LongPress -> HapticFeedbackConstants.LONG_PRESS
+                HapticSignal.Tick ->
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                        // Made for a drag stepping across segments; lighter than a selection.
+                        HapticFeedbackConstants.SEGMENT_TICK
+                    } else {
+                        HapticFeedbackConstants.CLOCK_TICK
+                    }
             }
         view.performHapticFeedback(constant)
     }
