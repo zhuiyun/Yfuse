@@ -15,6 +15,7 @@ import com.yfuse.core.model.CalendarEntry
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.sync.ServerSyncManager
+import com.yfuse.core.sync.playback.PlaybackSyncManager
 import com.yfuse.core.util.componentScope
 import com.yfuse.feature.calendar.loadCalendarWithDeadline
 import kotlinx.coroutines.Job
@@ -32,6 +33,7 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import org.koin.core.context.GlobalContext
 import kotlin.coroutines.coroutineContext
 
 class HomeComponent(
@@ -65,6 +67,8 @@ class HomeComponent(
     // restoring an index after recomposition briefly painted the hero and caused a flash.
     internal val listState = LazyListState()
 
+    private val playbackSync = runCatching { GlobalContext.get().get<PlaybackSyncManager>() }.getOrNull()
+
     val store =
         HomeStoreFactory(
             storeFactory = storeFactory,
@@ -73,6 +77,12 @@ class HomeComponent(
             registry = registry,
             cache = cache,
             syncManager = syncManager,
+            forgetResume =
+                if (playbackSync == null) {
+                    null
+                } else {
+                    { serverId, itemId -> playbackSync.forgetResume(serverId, itemId) }
+                },
         ).create()
 
     init {

@@ -226,6 +226,20 @@ class PlaybackSyncManager(
         scheduleCloudSync(immediate = true)
     }
 
+    /**
+     * 从继续观看移除. The shelf is every local record with a position, so the title leaves it by
+     * starting over — a new generation, as [markRestarted] makes, so a late report from the last
+     * viewing cannot put it back. False when this device has no record of the item.
+     */
+    fun forgetResume(
+        serverId: String,
+        serverItemId: String,
+    ): Boolean {
+        val state = store.stateForServerItem(serverId, serverItemId) ?: return false
+        markRestarted(state.mediaKey, state.aliases, serverId, serverItemId)
+        return true
+    }
+
     fun markWatched(
         mediaKey: String,
         aliases: List<String> = emptyList(),

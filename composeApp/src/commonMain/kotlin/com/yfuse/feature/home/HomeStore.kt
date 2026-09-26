@@ -14,6 +14,7 @@ import com.yfuse.core.data.TmdbRecommendationException
 import com.yfuse.core.data.TmdbRecommendationFailure
 import com.yfuse.core.data.TmdbRepository
 import com.yfuse.core.data.WATCH_LATER_COLLECTION_ID
+import com.yfuse.core.designsystem.UndoWindow
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.HomeContent
 import com.yfuse.core.model.MediaItem
@@ -80,6 +81,8 @@ data class HomeState(
     /** A recommendation refresh was incomplete or failed; server library state is independent. */
     val recommendationNotice: String? = null,
     val actionMessage: String? = null,
+    /** Set while [actionMessage] offers 撤销 for a 继续观看 removal: the [HomeResumeEntry.key] it restores. */
+    val resumeUndoKey: String? = null,
 ) {
     /**
      * 今日精选 — one title out of [TmdbHome.featured], chosen by the date.
@@ -127,7 +130,23 @@ data class HomeState(
 data class HomeResumeEntry(
     val item: MediaItem,
     val server: SavedServer,
-)
+) {
+    /** One title on one server, whatever its progress says at the moment. */
+    val key: String get() = "${server.id}:${item.id}"
+}
+
+/**
+ * [entry] back where it was on 继续观看 after a 撤销, or last when the shelf has since grown
+ * shorter. A reload in between may already have brought it back, and it is not listed twice.
+ */
+internal fun List<HomeResumeEntry>.restoring(
+    entry: HomeResumeEntry,
+    index: Int,
+): List<HomeResumeEntry> {
+    val rest = filterNot { it.key == entry.key }
+    val at = index.coerceIn(0, rest.size)
+    return rest.take(at) + entry + rest.drop(at)
+}
 
 data class HomeLibraryContent(
     val content: HomeContent,
@@ -184,6 +203,24 @@ sealed interface HomeIntent {
     data class SetEntryPlayed(
         val entry: HomeResumeEntry,
         val played: Boolean,
+    ) : HomeIntent
+
+    /** 浮起菜单: 稍后看, the same server list 详情 adds to. */
+    data class AddEntryToWatchLater(
+        val entry: HomeResumeEntry,
+    ) : HomeIntent
+
+    /**
+     * 浮起菜单: 从继续观看移除. The card goes at once and the toast offers 撤销; the title only
+     * starts over once that toast has gone (see [com.yfuse.core.designsystem.UndoWindow]).
+     */
+    data class RemoveFromResume(
+        val entry: HomeResumeEntry,
+    ) : HomeIntent
+
+    /** The removal toast's 撤销, for the entry with this [HomeResumeEntry.key]. */
+    data class UndoRemoveFromResume(
+        val key: String,
     ) : HomeIntent
 }
 
@@ -259,7 +296,22 @@ private sealed interface Msg {
     data class ActionMessage(
         val value: String?,
     ) : Msg
+
+    data class ResumeRemoved(
+        val entry: HomeResumeEntry,
+    ) : Msg
+
+    data class ResumeRestored(
+        val entry: HomeResumeEntry,
+        val index: Int,
+    ) : Msg
 }
+
+/** A 继续观看 card taken off the shelf and waiting out its 撤销: where it was, to put it back there. */
+private class ResumeRemoval(
+    val entry: HomeResumeEntry,
+    val index: Int,
+)
 
 private const val RECOMMENDATIONS_UNAVAILABLE_MESSAGE =
     "影视推荐服务暂时不可用，请稍后重试"
@@ -381,6 +433,11 @@ class HomeStoreFactory(
     private val cache: TmdbHomeCache,
     private val syncManager: ServerSyncManager? = null,
     private val cacheDispatcher: CoroutineDispatcher = Dispatchers.Default,
+    /**
+     * Starts a title over on this device, which is what takes it off 继续观看 — the shelf is
+     * built from local progress. Null where there is no local store, and the row is not offered.
+     */
+    private val forgetResume: ((serverId: String, itemId: String) -> Unit)? = null,
 ) {
     fun create(): Store<HomeIntent, HomeState, HomeLabel> =
         storeFactory.create(
@@ -416,6 +473,7 @@ class HomeStoreFactory(
         private var resumeJob: Job? = null
         private var nextUpJob: Job? = null
         private var lastLibraryRevisit: kotlin.time.TimeMark? = null
+        private val resumeRemovals = UndoWindow<ResumeRemoval>()
 
         /** Shared by both home rows so startup cannot fan out once per server twice. */
         private val homeRequestPermits = Semaphore(3)
@@ -452,7 +510,10 @@ class HomeStoreFactory(
                     loadResume(registry.data.value.servers, force = true)
                     loadNextUp(registry.data.value.servers)
                 }
-                HomeIntent.DismissMessage -> dispatch(Msg.ActionMessage(null))
+                HomeIntent.DismissMessage -> {
+                    dispatch(Msg.ActionMessage(null))
+                    resumeRemovals.release()?.let(::commitResumeRemoval)
+                }
                 is HomeIntent.Open -> resolve(intent.item, play = false)
                 is HomeIntent.Play -> resolve(intent.item, play = true)
                 is HomeIntent.Favorite -> favorite(intent.item)
@@ -473,6 +534,42 @@ class HomeStoreFactory(
                 }
                 is HomeIntent.SetEntryFavorite -> writeEntryFlag(intent.entry, favorite = intent.favorite)
                 is HomeIntent.SetEntryPlayed -> writeEntryFlag(intent.entry, played = intent.played)
+                is HomeIntent.AddEntryToWatchLater -> addToWatchLater(intent.entry)
+                is HomeIntent.RemoveFromResume -> removeFromResume(intent.entry)
+                is HomeIntent.UndoRemoveFromResume ->
+                    resumeRemovals
+                        .undo { it.entry.key == intent.key }
+                        ?.let { dispatch(Msg.ResumeRestored(it.entry, it.index)) }
+            }
+        }
+
+        private fun removeFromResume(entry: HomeResumeEntry) {
+            if (forgetResume == null) return
+            val index = state().resume.indexOfFirst { it.key == entry.key }
+            if (index < 0) return
+            resumeRemovals.hold(ResumeRemoval(entry, index))?.let(::commitResumeRemoval)
+            dispatch(Msg.ResumeRemoved(entry))
+        }
+
+        private fun commitResumeRemoval(removal: ResumeRemoval) {
+            forgetResume?.invoke(removal.entry.server.id, removal.entry.item.id)
+        }
+
+        private fun addToWatchLater(entry: HomeResumeEntry) {
+            scope.launch {
+                emby
+                    .addToWatchLater(entry.server, entry.item.id)
+                    .onSuccess { dispatch(Msg.ActionMessage("已加入稍后观看")) }
+                    .onFailure {
+                        AppLog.warning(
+                            category = "feature.home",
+                            event = "watch_later_failed",
+                            message = "Home lift-menu watch-later write failed",
+                            throwable = it,
+                            attributes = mapOf("serverId" to entry.server.id),
+                        )
+                        dispatch(Msg.ActionMessage(it.toUserMessage("加入稍后观看失败")))
+                    }
             }
         }
 
@@ -633,10 +730,15 @@ class HomeStoreFactory(
                                     .filterNotNull()
                             }
                         if (ownsResumeLoad(generation, connection)) {
+                            // A card waiting out its 撤销 has not started over yet, so the server's
+                            // list still has it; it stays off the shelf until the toast decides.
+                            val held = resumeRemovals.current?.entry?.key
                             dispatch(
                                 Msg.ResumeLoaded(
                                     snapshots.flatMap { snapshot ->
-                                        snapshot.content.resume.map { HomeResumeEntry(it, snapshot.server) }
+                                        snapshot.content.resume
+                                            .map { HomeResumeEntry(it, snapshot.server) }
+                                            .filterNot { it.key == held }
                                     },
                                 ),
                             )
@@ -832,7 +934,19 @@ class HomeStoreFactory(
                         )
                     }
                 is Msg.Resolving -> copy(resolving = msg.value)
-                is Msg.ActionMessage -> copy(actionMessage = msg.value)
+                is Msg.ActionMessage -> copy(actionMessage = msg.value, resumeUndoKey = null)
+                is Msg.ResumeRemoved ->
+                    copy(
+                        resume = resume.filterNot { it.key == msg.entry.key },
+                        actionMessage = "已从继续观看移除「${msg.entry.item.title}」",
+                        resumeUndoKey = msg.entry.key,
+                    )
+                is Msg.ResumeRestored ->
+                    copy(
+                        resume = resume.restoring(msg.entry, msg.index),
+                        actionMessage = null,
+                        resumeUndoKey = null,
+                    )
             }
     }
 }

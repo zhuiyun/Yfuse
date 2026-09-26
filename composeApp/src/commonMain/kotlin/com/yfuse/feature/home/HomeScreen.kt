@@ -98,6 +98,7 @@ import com.yfuse.core.designsystem.SkeletonArrivalScope
 import com.yfuse.core.designsystem.SkeletonRail
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.Tips
+import com.yfuse.core.designsystem.ToastAction
 import com.yfuse.core.designsystem.arrivalSweep
 import com.yfuse.core.designsystem.carouselArtworkMotion
 import com.yfuse.core.designsystem.carouselCaptionEntry
@@ -477,7 +478,7 @@ internal fun HomeContentBody(
                                 items = state.resume,
                                 onSeeAll = onOpenLibrary,
                                 onClick = { onIntent(HomeIntent.OpenResume(it)) },
-                                liftMenu = { it.homeLiftMenu(onIntent) },
+                                liftMenu = { it.homeLiftMenu(onIntent, inResume = true) },
                             )
                         }
                     }
@@ -558,6 +559,10 @@ internal fun HomeContentBody(
         ActionToast(
             message = state.actionMessage,
             onDismiss = { onIntent(HomeIntent.DismissMessage) },
+            action =
+                state.resumeUndoKey?.let { key ->
+                    ToastAction("撤销") { onIntent(HomeIntent.UndoRemoveFromResume(key)) }
+                },
         )
 
         // Once there are posters to hold. Retires on its own the first time one is lifted.

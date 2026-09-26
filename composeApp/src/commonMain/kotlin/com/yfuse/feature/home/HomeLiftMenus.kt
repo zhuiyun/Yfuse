@@ -17,8 +17,13 @@ import com.yfuse.feature.library.playedLiftAction
  * the same thing the tap already did — because 首页's store could open a library title and
  * nothing else. It can now play one from where it was left, or from the start, and write the
  * two flags people change without opening a title.
+ *
+ * [inResume] for a card on 继续观看 itself, which can also be taken off that shelf.
  */
-internal fun HomeResumeEntry.homeLiftMenu(onIntent: (HomeIntent) -> Unit): LiftMenu {
+internal fun HomeResumeEntry.homeLiftMenu(
+    onIntent: (HomeIntent) -> Unit,
+    inResume: Boolean = false,
+): LiftMenu {
     val entry = this
     val item = entry.item
     // A series resolves its own next episode; only a single title has a place to go back to.
@@ -48,9 +53,27 @@ internal fun HomeResumeEntry.homeLiftMenu(onIntent: (HomeIntent) -> Unit): LiftM
                         null
                     },
                 ),
-                listOf(
+                listOfNotNull(
                     playedLiftAction(item.played) { onIntent(HomeIntent.SetEntryPlayed(entry, it)) },
+                    if (inResume) {
+                        ItemAction(
+                            label = "从继续观看移除",
+                            icon = AppIcons.Close,
+                            destructive = true,
+                            undoable = true,
+                            onSelect = { onIntent(HomeIntent.RemoveFromResume(entry)) },
+                        )
+                    } else {
+                        null
+                    },
+                ),
+                listOf(
                     favoriteLiftAction(item.isFavorite) { onIntent(HomeIntent.SetEntryFavorite(entry, it)) },
+                    ItemAction(
+                        label = "稍后看",
+                        icon = AppIcons.Bookmark,
+                        onSelect = { onIntent(HomeIntent.AddEntryToWatchLater(entry)) },
+                    ),
                 ),
             ),
     )
