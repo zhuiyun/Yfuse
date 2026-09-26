@@ -90,6 +90,38 @@ class AndroidProxyMediaSessionsTest {
         }
     }
 
+    // The file above fits in one startup range, which leaves a prefetch of its block nothing to fetch.
+    // One used to be queued with every read anyway, and whether it reached the origin before the
+    // proxy closed the reader decided that test's count. This reader stays open to give it time.
+    @Test
+    fun a_startup_range_holding_the_whole_media_is_not_requested_again() {
+        val origin = Origin(ByteArray(4096) { it.toByte() }, "\"first\"")
+        val session = AndroidMediaRepresentationSession()
+        val source =
+            AndroidTransportMediaDataSource(
+                uri = "https://media.test/movie.mkv",
+                protocol = YSourceProtocol.Https,
+                headers = emptyMap(),
+                createTransport = origin::transport,
+                memoryLeaseOverride =
+                    PlaybackMemoryPool(TEST_POOL_BYTES).acquire(PlaybackBufferKind.Transport, TEST_POOL_BYTES),
+                allowsSpeculativeWork = { true },
+                refreshMemoryPressure = {},
+                representationSession = session,
+            )
+        try {
+            assertEquals(4096L, source.size)
+            val bytes = ByteArray(8)
+            assertEquals(8, source.readAt(512, bytes, 0, 8))
+            assertContentEquals(origin.bytes.copyOfRange(512, 520), bytes)
+            assertFalse(origin.followingReadStarted.await(300, TimeUnit.MILLISECONDS))
+            assertEquals(1, origin.requests.size, "The startup range already holds every byte of this media")
+        } finally {
+            source.close()
+            session.close()
+        }
+    }
+
     @Test
     fun proxy_media_identity_isolates_authorization_and_media_versions() {
         val origin = Origin(ByteArray(4096) { it.toByte() }, "\"first\"")
