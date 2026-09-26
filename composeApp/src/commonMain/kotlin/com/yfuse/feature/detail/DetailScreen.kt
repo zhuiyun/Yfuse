@@ -66,6 +66,7 @@ import com.yfuse.core.designsystem.rememberBackdropState
 import com.yfuse.core.designsystem.rememberRetainedArtworkPageColor
 import com.yfuse.core.designsystem.windowWidthTier
 import com.yfuse.core.model.CalendarDay
+import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.ServerSource
 import com.yfuse.core.model.capabilities
 import com.yfuse.core.network.EmbyImages
@@ -759,6 +760,21 @@ fun DetailScreen(component: DetailComponent) {
                                             onOpen = { itemId ->
                                                 state.server?.id?.let { component.onOpenRelated(it, itemId) }
                                             },
+                                            liftMenu =
+                                                state.server?.let { server ->
+                                                    { item: MediaItem ->
+                                                        component.relatedLiftMenu(
+                                                            serverId = server.id,
+                                                            listed = item,
+                                                            backdropUrl =
+                                                                EmbyImages.backdrop(
+                                                                    baseUrl,
+                                                                    item,
+                                                                    accessToken = accessToken,
+                                                                ),
+                                                        )
+                                                    }
+                                                },
                                         )
                                     }
                                 }
@@ -1122,9 +1138,17 @@ fun DetailScreen(component: DetailComponent) {
                 // Over the page rather than inside it: as a row in the action column this
                 // pushed 简介 and everything under it down the moment a tap was confirmed,
                 // and it stayed there until some other action happened to replace it.
+                // A flag written from a 相关推荐 poster's 浮起菜单 reports in the same place.
+                val relatedMessage by component.relatedFlags.message.collectAsState()
                 ActionToast(
-                    message = state.actionMessage ?: state.sourceFailure?.toDetailMessage(),
-                    onDismiss = { component.store.accept(DetailIntent.DismissMessage) },
+                    message = relatedMessage ?: state.actionMessage ?: state.sourceFailure?.toDetailMessage(),
+                    onDismiss = {
+                        if (relatedMessage != null) {
+                            component.relatedFlags.dismissMessage()
+                        } else {
+                            component.store.accept(DetailIntent.DismissMessage)
+                        }
+                    },
                     accent = detailAccent,
                 )
             }

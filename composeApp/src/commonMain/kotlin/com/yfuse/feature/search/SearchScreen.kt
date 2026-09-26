@@ -168,7 +168,7 @@ private fun SearchHomeScreen(
     var compactResults by remember { mutableStateOf(true) }
     var filtersOpen by remember { mutableStateOf(false) }
     val state by component.store.states.collectAsState(component.store.state)
-    val actionMessage by component.actionMessage.collectAsState()
+    val actionMessage by component.flags.message.collectAsState()
     val palette = LocalPalette.current
     val store = component.store
     val fieldFocusRequester = remember { FocusRequester() }
@@ -426,7 +426,7 @@ private fun SearchHomeScreen(
 
         ActionToast(
             message = actionMessage,
-            onDismiss = component::dismissMessage,
+            onDismiss = component.flags::dismissMessage,
         )
     }
 
@@ -450,7 +450,7 @@ private fun searchLiftMenu(
     listed: MediaItem,
     copies: List<CrossServerMediaHit> = emptyList(),
 ): LiftMenu {
-    val item = component.current(serverId, listed)
+    val item = component.flags.current(serverId, listed)
     val resumeTicks = item.resumePositionTicks?.takeIf { it > 0L && !item.played }
     // A series resolves its episode in 详情, which the card opens; it gets no play row here.
     val playable = item.type != "Series"
@@ -487,8 +487,8 @@ private fun searchLiftMenu(
                     emptyList()
                 },
                 listOf(
-                    playedLiftAction(item.played) { component.setPlayed(serverId, listed, it) },
-                    favoriteLiftAction(item.isFavorite) { component.setFavorite(serverId, listed, it) },
+                    playedLiftAction(item.played) { component.flags.setPlayed(serverId, listed, it) },
+                    favoriteLiftAction(item.isFavorite) { component.flags.setFavorite(serverId, listed, it) },
                 ),
                 copies.takeIf { it.size > 1 }.orEmpty().map { copy ->
                     ItemAction(

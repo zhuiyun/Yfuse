@@ -30,6 +30,7 @@ import com.yfuse.core.sync.watchKey
 import com.yfuse.core.sync.watchMatchKeys
 import com.yfuse.core.util.componentScope
 import com.yfuse.feature.calendar.loadCalendarWithDeadline
+import com.yfuse.feature.library.LiftFlagWriter
 import com.yfuse.feature.player.PlaybackPreloadKey
 import com.yfuse.feature.player.PlaybackSourcePreload
 import com.yfuse.feature.player.PlayerStoreFactory
@@ -92,6 +93,21 @@ class DetailComponent(
     private val playbackSync =
         runCatching { GlobalContext.get().get<PlaybackSyncManager>() }.getOrNull()
     private var explicitFromStartPending = false
+
+    /** 标记已看 and 收藏 on a 相关推荐 poster, from its 浮起菜单; the list is not reloaded for them. */
+    val relatedFlags =
+        LiftFlagWriter(
+            scope = componentScope(lifecycle),
+            writer = dependencies.serverSyncManager,
+            serverById = registry::serverById,
+        )
+
+    /** 浮起菜单's 播放 on a 相关推荐 poster: straight to the player, without this page's selection. */
+    fun playRelated(
+        serverId: String,
+        itemId: String,
+        startPositionTicks: Long,
+    ) = onPlay(serverId, itemId, startPositionTicks, null)
 
     /** A genre or a name on this page, handed to the search tab as a query. */
     fun searchFor(query: String) {
