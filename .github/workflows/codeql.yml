@@ -59,11 +59,15 @@ jobs:
           languages: java-kotlin
           build-mode: manual
 
+      # The Kotlin extractor runs inside the Kotlin daemon while the phone and TV shared modules
+      # compile the same common sources side by side. With the project's 4 GB the daemon ran out
+      # of heap after 48 minutes once those sources grew past 235k lines; the runner has 16 GB.
       - name: Compile phone, TV, protocol, and server Kotlin for extraction
         run: >-
           ./gradlew :composeApp:compileDebugKotlin :tvApp:compileDebugKotlin
           :watchTogetherServer:classes
           --no-daemon --no-build-cache --rerun-tasks -Pkotlin.incremental=false
+          -Pkotlin.daemon.jvmargs=-Xmx8g
 
       - name: Analyze
         uses: github/codeql-action/analyze@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
