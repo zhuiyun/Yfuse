@@ -89,6 +89,7 @@ import com.yfuse.core.playback.PlaybackRuntimeFaultKind
 import com.yfuse.core.playback.classifyPlaybackFailure
 import com.yfuse.core.playback.planPlayback
 import com.yfuse.core.playback.resolvePlaybackOptimization
+import com.yfuse.core.sync.WatchStickers
 import com.yfuse.core.sync.WatchTogetherClient
 import com.yfuse.core2.android.canUseCore2Trial
 import com.yfuse.core2.android.toCore2MediaItems
@@ -2644,6 +2645,35 @@ internal fun PlayerRoot(
         }
         BindCastQueue(castState, player, activeItems, localState.currentIndex)
 
+        // 点弹幕, 旋转锁, 一起看贴纸轮盘 and 按住拖送: what the chrome is handed, and the layers they draw in.
+        val danmakuPicker = remember { DanmakuPicker() }
+        val quickPickHost = remember { PlayerQuickPickHost() }
+        val quickCast =
+            rememberPlayerQuickCast(
+                castManager = castManager,
+                castState = castState,
+                handoffAllowed = !watchState.connected,
+                requestDiscovery = requestCastDiscovery,
+                castTo = { deviceId -> loadCastItem(deviceId, state.currentIndex, livePlayback.value.positionMs) },
+            )
+        val stickerPick =
+            remember(watchState.chatMessages, watchState.connected, watchState.reconnecting) {
+                StickerQuickPick(
+                    stickers = quickStickers(watchState.chatMessages),
+                    canSend = watchState.connected && !watchState.reconnecting,
+                    onSend = { sticker -> watchTogether.sendChat(WatchStickers.token(sticker)) },
+                )
+            }
+        val rotationLock = rememberPlayerRotationLock()
+        val chromeExtras =
+            PlayerChromeExtras(
+                onPictureTap = danmakuPicker::claim,
+                rotationLock = rotationLock,
+                quickPick = quickPickHost,
+                stickers = stickerPick.takeIf { watchState.connected },
+                cast = quickCast.pick,
+            )
+
         var autoAdvancedCastRevision by remember { mutableStateOf<Long?>(null) }
         LaunchedEffect(
             castState.status,
@@ -2892,6 +2922,7 @@ internal fun PlayerRoot(
                             fontSize = danmaku.fontSize,
                             speed = danmaku.speed,
                             opacity = danmaku.opacity,
+                            picker = danmakuPicker,
                         )
                     }
                 }
@@ -3662,7 +3693,9 @@ internal fun PlayerRoot(
                     onCastTo = { deviceId ->
                         val item = activeItems.getOrNull(state.currentIndex) ?: return@PlayerControls
                         scope.launch {
-                            loadCastItem(deviceId, state.currentIndex, livePlayback.value.positionMs)
+                            if (loadCastItem(deviceId, state.currentIndex, livePlayback.value.positionMs)) {
+                                quickCast.noteCast(deviceId)
+                            }
                         }
                     },
                     onStopCast = {
@@ -3770,9 +3803,25 @@ internal fun PlayerRoot(
                         ),
                     remoteChrome = remoteChrome,
                     hardwareKeyboard = hardwareKeyboardAttached(),
+                    extras = chromeExtras,
                     // Held back while a transition carries the picture in, and gone first on the way out.
-                    modifier = Modifier.graphicsLayer { alpha = transition?.chromeAlpha() ?: 1f },
+                    modifier =
+                        Modifier
+                            .graphicsLayer { alpha = transition?.chromeAlpha() ?: 1f }
+                            .danmakuPressWatch(danmakuPicker),
                 )
+            }
+
+            // Over the chrome: 点弹幕's menu, and whatever a held 聊天 or 投屏 key has open.
+            if (!inPictureInPicture) {
+                if (danmaku.enabled) {
+                    DanmakuPickLayer(
+                        picker = danmakuPicker,
+                        onBlock = danmaku.onBlock,
+                        onUnblock = danmaku.onUnblock,
+                    )
+                }
+                PlayerQuickPickLayer(chromeExtras)
             }
 
             PlayerFrameRateOverlay(
