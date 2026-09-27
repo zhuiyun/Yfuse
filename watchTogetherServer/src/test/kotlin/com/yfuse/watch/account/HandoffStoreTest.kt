@@ -200,6 +200,17 @@ class HandoffStoreTest {
         }
     }
 
+    @Test
+    fun remoteAdvertisementReachesOnlyTheSameAccountAndLapsesWithTheNextHeartbeat() {
+        store.heartbeat(target, HandoffHeartbeat("客厅电视", "Android", canReceive = false, acceptsRemote = true))
+        online(source)
+        online(stranger)
+        assertEquals(listOf(true), store.inbox(source).devices.map { it.acceptsRemote })
+        assertTrue(store.inbox(stranger).devices.isEmpty())
+        store.heartbeat(target, HandoffHeartbeat("客厅电视", "Android", canReceive = false))
+        assertEquals(listOf(false), store.inbox(source).devices.map { it.acceptsRemote })
+    }
+
     private fun online(account: AuthenticatedAccount) =
         store.heartbeat(account, HandoffHeartbeat(account.sessionId, "Android", true))
 

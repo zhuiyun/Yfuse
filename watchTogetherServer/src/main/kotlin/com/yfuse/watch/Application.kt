@@ -511,6 +511,8 @@ internal fun Application.watchTogetherModule(
     calendarScheduleSigner: CalendarScheduleSigner? = CalendarScheduleSigner.fromEnvironment(),
     /** Shared schedule database; user Emby credentials never enter this store. */
     calendarScheduleStore: CalendarScheduleStore = NoOpCalendarScheduleStore,
+    /** 手机遥控's pairings; injectable so tests can look at them. */
+    remoteControlRelay: RemoteControlRelay<WebSocketSession> = RemoteControlRelay(),
 ) {
     require(roomGraceMs >= 0L) { "roomGraceMs must not be negative" }
     require(maxActiveRoomsPerIp in 1..MAX_ROOMS) {
@@ -865,6 +867,15 @@ internal fun Application.watchTogetherModule(
 
                     if (message.type !in WatchProtocol.CLIENT_MESSAGE_TYPES) {
                         return@consumeEach sendError("消息类型无效", "message_type_invalid")
+                    }
+                    // 手机遥控 sockets are their own kind: hosting or controlling never joins a room,
+                    // and a room member never carries a remote.
+                    if (remoteControlRelay.claims(this@webSocket, message)) {
+                        if (joinedRoom != null) {
+                            return@consumeEach sendError("一起看连接不能用作遥控", "remote_invalid")
+                        }
+                        remoteControlRelay.handle(this@webSocket, authenticatedAccount, message)
+                        return@consumeEach
                     }
                     if (message.type in AUTHENTICATED_MESSAGE_TYPES) {
                         val room =
@@ -1779,6 +1790,7 @@ internal fun Application.watchTogetherModule(
                 // job cancelled): a suspending call that throws here would skip the member
                 // removal below and leave a ghost that keeps the room alive forever.
                 withContext(NonCancellable) {
+                    remoteControlRelay.leave(this@webSocket)
                     cleanupSocket(
                         authWatchdog = authWatchdog,
                         joinedRoom = joinedRoom,

@@ -34,6 +34,10 @@ class TvMainActivity : ComponentActivity() {
     private lateinit var graph: TvApplicationGraph
     private lateinit var rootComponent: RootComponent
     private lateinit var castActionResolver: CastConnectHostActionResolver
+
+    /** 手机遥控 goes to 首页 and types into 搜索 through the same root as the shell's own tabs. */
+    internal val remoteRoot: RootComponent?
+        get() = if (::rootComponent.isInitialized) rootComponent else null
     private val castLoadHandler =
         CastConnectLoadHandler { request ->
             if (!::castActionResolver.isInitialized || isFinishing || isDestroyed) {

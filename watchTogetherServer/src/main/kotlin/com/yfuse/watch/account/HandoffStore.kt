@@ -63,6 +63,7 @@ internal class HandoffStore(
                     heartbeat.canReceive,
                     heartbeat.nowPlaying,
                     heartbeat.pull,
+                    heartbeat.acceptsRemote,
                 ),
             )
         return inbox(account)
