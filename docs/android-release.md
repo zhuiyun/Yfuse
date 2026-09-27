@@ -2,7 +2,9 @@
 
 Yfuse production APKs are built, signed, and uploaded by
 `.github/workflows/publish-android.yml`. A version change on the default branch
-publishes automatically; a manual dispatch remains available as a fallback. Both
+publishes automatically unless the pushed commit message contains `[artifact only]`,
+which builds and retains the signed APK without publishing. A manual dispatch remains
+available as a fallback. Both
 paths run in the `production` environment.
 
 ## One-time GitHub setup
@@ -281,6 +283,18 @@ Actions artifact for 7 days. Both manifests describe the same release metadata;
 only their `apkUrl` values differ.
 
 ### Package without publishing
+
+For automatic package-only builds, update `version.properties` and `release-notes.txt`,
+then include `[artifact only]` in the commit message pushed to `master`. When merging a
+pull request, keep this marker in the final merge or squash commit message; a marker
+only on an earlier commit is not sufficient. The version-file path filter still applies,
+so a source-only push does not request a package. A retry of an undelivered version keeps
+its existing version numbers in accordance with `AGENTS.md`.
+
+The marker selects package-only mode instead of skipping the entire job. It retains the
+same production environment, exact-commit quality gate, signing certificate check, and
+APK verification used by a manual package-only run. A normal version push without the
+marker retains its existing publishing behavior.
 
 Run the manual fallback above with **publish** turned off to get a production-signed APK that
 nobody is offered yet. The run, named `Package Yfuse <versionName> (<versionCode>) without

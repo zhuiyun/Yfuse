@@ -45,12 +45,42 @@ def run_with_fake(tool, body, step_script, env):
 
 
 class PublishPackageOnlyTest(unittest.TestCase):
-    def test_push_always_publishes_and_a_manual_run_follows_its_switch(self):
+    def test_publication_is_disabled_until_the_request_is_resolved(self):
         workflow = (WORKFLOWS / "publish-android.yml").read_text()
-        self.assertIn("      PUBLISH_UPDATE: ${{ github.event_name == 'push' || inputs.publish }}\n", workflow)
+        self.assertIn("      PUBLISH_UPDATE: 'false'\n", workflow)
+        job_header = workflow.split("  publish:\n", 1)[1].split("    steps:\n", 1)[0]
+        self.assertNotRegex(job_header, r"(?m)^    if:")
         publish_input = workflow.split("      publish:\n", 1)[1].split("\npermissions:", 1)[0]
         self.assertIn("default: true", publish_input)
         self.assertIn("type: boolean", publish_input)
+
+    def test_publication_mode_handles_pushes_and_manual_requests(self):
+        resolve = script(step("publish-android.yml", "Resolve publication mode"))
+        cases = (
+            ("push", "Release 1.0.89", "", "true"),
+            ("push", "Release 1.0.89 [artifact only]", "", "false"),
+            ("push", "Merge pull request #200\n\n[ARTIFACT ONLY]", "true", "false"),
+            ("push", "[artifact only] $(exit 99) `exit 99`", "", "false"),
+            ("workflow_dispatch", "", "false", "false"),
+            ("workflow_dispatch", "[artifact only]", "true", "true"),
+            ("workflow_dispatch", "", "", None),
+            ("workflow_dispatch", "", "yes", None),
+            ("pull_request", "", "true", None),
+        )
+        for event, message, publish, expected in cases:
+            with self.subTest(event=event, message=message, publish=publish):
+                with tempfile.TemporaryDirectory(prefix="yfuse-publication-mode-") as directory:
+                    output = Path(directory) / "github-env"
+                    environment = dict(os.environ, GITHUB_ENV=str(output), REQUEST_EVENT=event,
+                                       REQUEST_MESSAGE=message, REQUEST_PUBLISH=publish)
+                    result = subprocess.run(["bash", "-c", resolve], env=environment,
+                                            capture_output=True, text=True)
+                    if expected is None:
+                        self.assertNotEqual(0, result.returncode)
+                        self.assertFalse(output.exists())
+                    else:
+                        self.assertEqual(0, result.returncode, result.stderr)
+                        self.assertEqual(f"PUBLISH_UPDATE={expected}\n", output.read_text())
 
     def test_every_server_facing_step_is_skipped_without_publishing(self):
         self.assertIn(GATE, step("publish-android.yml", "Verify watch server protocol"))

@@ -2,6 +2,8 @@ name: Publish Android update
 run-name: >-
   ${{ github.event_name == 'workflow_dispatch' && !inputs.publish
   && format('Package Yfuse {0} ({1}) without publishing', inputs.version_name, inputs.version_code)
+  || github.event_name == 'push' && contains(github.event.head_commit.message, '[artifact only]')
+  && format('Package Yfuse from {0} without publishing', github.sha)
   || '' }}
 
 on:
@@ -52,8 +54,6 @@ concurrency:
 
 jobs:
   publish:
-    # Explicit artifact-only version bumps must not deploy the production updater.
-    if: github.event_name != 'push' || !contains(github.event.head_commit.message, '[artifact only]')
     name: Build, sign, and publish
     runs-on: ubuntu-24.04
     timeout-minutes: 300
@@ -68,9 +68,9 @@ jobs:
       # variable. Gradle's own verifyProductionMdkRights task fails the build if this is not
       # exactly "true" for a production-signed, MDK-included package (the default here).
       CONFIRM_MDK_DISTRIBUTION_RIGHTS: ${{ inputs.confirm_mdk_distribution_rights }}
-      # A push to master always publishes. A manual run with `publish` off stops after saving the
-      # signed, verified APK as the run artifact: every step that reaches the servers is skipped.
-      PUBLISH_UPDATE: ${{ github.event_name == 'push' || inputs.publish }}
+      # Fail closed until the request is resolved. Artifact-only pushes and manual runs with
+      # publish off save the signed APK while every deployment step remains skipped.
+      PUBLISH_UPDATE: 'false'
       ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
       ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
       ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
@@ -100,6 +100,32 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Resolve publication mode
+        shell: bash
+        env:
+          REQUEST_EVENT: ${{ github.event_name }}
+          REQUEST_MESSAGE: ${{ github.event.head_commit.message }}
+          REQUEST_PUBLISH: ${{ inputs.publish }}
+        run: |
+          set -euo pipefail
+          publish=false
+          case "$REQUEST_EVENT" in
+            push)
+              if [[ "${REQUEST_MESSAGE,,}" != *'[artifact only]'* ]]; then
+                publish=true
+              fi
+              ;;
+            workflow_dispatch)
+              case "$REQUEST_PUBLISH" in
+                true|false) publish="$REQUEST_PUBLISH" ;;
+                *) echo '::error::Manual runs require a boolean publish input'; exit 1 ;;
+              esac
+              ;;
+            *) echo '::error::Unsupported release event'; exit 1 ;;
+          esac
+          echo "PUBLISH_UPDATE=$publish" >> "$GITHUB_ENV"
+          echo "Publish update: $publish"
 
       - name: Require green Android quality gates on this commit
         shell: bash
