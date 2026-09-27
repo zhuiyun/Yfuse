@@ -12,7 +12,6 @@ import json
 import os
 from pathlib import Path
 import re
-import shutil
 import struct
 import subprocess
 import time
@@ -143,10 +142,19 @@ class Session:
 
     def tree(self):
         path = "/sdcard/yfuse-cloud-window.xml"
-        self.adb("shell", "rm", "-f", path)
-        self.adb("shell", "uiautomator", "dump", "--compressed", path, timeout=30)
-        value = self.adb("shell", "cat", path)
-        return ET.fromstring(value), value
+        errors = []
+        for attempt in range(5):
+            self.adb("shell", "rm", "-f", path)
+            try:
+                result = self.adb("shell", "uiautomator", "dump", "--compressed", path, timeout=30)
+                # uiautomator may exit zero after an idle/root failure and write no file.
+                value = self.adb("shell", "cat", path)
+                return ET.fromstring(value), value
+            except Exception as error:
+                errors.append(f"attempt {attempt + 1}: {error}")
+                time.sleep(2)
+        (self.output / "hierarchy-capture-errors.txt").write_text("\n".join(errors))
+        raise EnvironmentBlocked("UI hierarchy capture failed after five attempts; see screenshots/logs")
 
     def wait_label(self, label, timeout=45):
         end = time.monotonic() + timeout
@@ -175,18 +183,18 @@ class Session:
         time.sleep(2)
 
     def capture(self, name):
-        root, value = self.tree()
-        if not any(node.get("package") == PACKAGE for node in root.iter("node")):
-            raise RuntimeError("Yfuse is not represented in the foreground UI hierarchy")
-        windows = self.adb("shell", "dumpsys", "window", "windows")
-        focus = [line.strip() for line in windows.splitlines() if "mCurrentFocus=" in line]
-        if not any(PACKAGE in line for line in focus):
-            raise RuntimeError("Yfuse is not the focused application: " + str(focus))
-        (self.output / f"{name}.xml").write_text(value)
         png = self.adb("exec-out", "screencap", "-p", binary=True)
         if png[:8] != b"\x89PNG\r\n\x1a\n":
             raise RuntimeError("Invalid screenshot output")
         (self.output / f"{name}.png").write_bytes(png)
+        root, value = self.tree()
+        if not any(node.get("package") == PACKAGE for node in root.iter("node")):
+            raise RuntimeError("Yfuse is not represented in the foreground UI hierarchy")
+        windows = self.adb("shell", "dumpsys", "window")
+        focus = [line.strip() for line in windows.splitlines() if "mCurrentFocus=" in line]
+        if not any(PACKAGE in line for line in focus):
+            raise RuntimeError("Yfuse is not the focused application: " + str(focus))
+        (self.output / f"{name}.xml").write_text(value)
         width, height = struct.unpack(">II", png[16:24])
         pid = self.adb("shell", "pidof", PACKAGE, check=False)
         if not pid:
@@ -249,6 +257,10 @@ class Session:
     def diagnostics(self):
         if not self.serial:
             return
+        try:
+            (self.output / "final-screen.png").write_bytes(self.adb("exec-out", "screencap", "-p", binary=True))
+        except Exception:
+            pass
         for name, args in [("logcat.txt", ["logcat", "-d", "-v", "threadtime"]),
                            ("crash-buffer.txt", ["logcat", "-d", "-b", "crash"]),
                            ("meminfo.txt", ["shell", "dumpsys", "meminfo", PACKAGE]),
