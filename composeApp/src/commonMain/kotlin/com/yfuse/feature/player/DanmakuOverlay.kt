@@ -227,7 +227,7 @@ internal fun lowerBoundDanmaku(
  * 500 ms engine ticks no longer restart the frame interpolator and make comments stutter.
  */
 @Composable
-fun DanmakuOverlay(
+internal fun DanmakuOverlay(
     comments: List<DanmakuComment>,
     positionMs: Long,
     playing: Boolean,
