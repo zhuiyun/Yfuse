@@ -14,6 +14,11 @@ data class HandoffDevice(
     val nowPlaying: HandoffEnvelope? = null,
     /** The device is asking another one to hand its playback over — 在此继续. */
     val pull: HandoffPull? = null,
+    /**
+     * 手机遥控: a television in the foreground hosting a remote session on the watch relay, which
+     * a phone of the same account can join by [sessionId].
+     */
+    val acceptsRemote: Boolean = false,
 )
 
 /**
@@ -28,8 +33,8 @@ data class HandoffPull(
 )
 
 /**
- * [nowPlaying] and [pull] are optional and newer than the rest: a service that predates them
- * ignores both, and a device that predates them sends neither.
+ * [nowPlaying], [pull] and [acceptsRemote] are optional and newer than the rest: a service that
+ * predates them ignores them, and a device that predates them sends none.
  */
 @Serializable
 data class HandoffHeartbeat(
@@ -38,6 +43,7 @@ data class HandoffHeartbeat(
     val canReceive: Boolean,
     val nowPlaying: HandoffEnvelope? = null,
     val pull: HandoffPull? = null,
+    val acceptsRemote: Boolean = false,
 )
 
 /** The media identity, credentials-free locator and track preferences stay inside the vault. */
