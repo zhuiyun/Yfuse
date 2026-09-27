@@ -30,6 +30,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.UUID
+import kotlin.concurrent.Volatile
 
 data class HandoffUiState(
     val online: Boolean = false,
@@ -51,6 +52,8 @@ data class HandoffUiState(
     val continuing: HandoffElsewhere? = null,
     /** Whether this device told the service it can take a transfer: foreground, idle, a player to open. */
     val canReceive: Boolean = false,
+    /** Televisions of this account taking 手机遥控 now; always empty on a device that hosts it. */
+    val remotes: List<HandoffDevice> = emptyList(),
 ) {
     val connectionLabel: String
         get() =
@@ -97,6 +100,24 @@ class HandoffController(
     /** Cuts the wait for the next heartbeat short, so 在此继续 is sent at once. */
     private val wake = Channel<Unit>(Channel.CONFLATED)
 
+    /** 手机遥控: bound once by a television, read on every heartbeat. */
+    @Volatile
+    private var remoteHosting: (() -> Boolean)? = null
+
+    /**
+     * Makes this device a 手机遥控 host: every heartbeat advertises [accepting], and the device
+     * lists no remotes of its own — a television does not offer to be one.
+     */
+    fun hostRemoteControl(accepting: () -> Boolean) {
+        remoteHosting = accepting
+        wake.trySend(Unit)
+    }
+
+    /** Sends the next heartbeat now, so a change such as 手机遥控 starting reaches phones without the wait. */
+    fun refreshPresence() {
+        wake.trySend(Unit)
+    }
+
     fun start() {
         if (lifetime != null) return
         lifetime =
@@ -116,6 +137,7 @@ class HandoffController(
                                 try {
                                     val receiving = canReceive()
                                     val asking = pull
+                                    val hostsRemote = remoteHosting
                                     val inbox =
                                         api.heartbeat(
                                             HandoffHeartbeat(
@@ -124,6 +146,7 @@ class HandoffController(
                                                 receiving,
                                                 nowPlaying = sealNowPlaying(),
                                                 pull = asking?.let { HandoffPull(it.target.sessionId, it.id) },
+                                                acceptsRemote = hostsRemote?.invoke() == true,
                                             ),
                                         )
                                     clockOffset = inbox.serverTimeEpochMs - now()
@@ -145,6 +168,12 @@ class HandoffController(
                                             incoming = requested?.takeIf { answer == null },
                                             playingElsewhere = elsewhere,
                                             canReceive = receiving,
+                                            remotes =
+                                                if (hostsRemote != null) {
+                                                    emptyList()
+                                                } else {
+                                                    inbox.devices.filter { it.acceptsRemote }
+                                                },
                                         )
                                     }
                                     if (answer != null) {
@@ -161,6 +190,7 @@ class HandoffController(
                                         it.copy(
                                             online = false,
                                             devices = emptyList(),
+                                            remotes = emptyList(),
                                             incoming = null,
                                             connectionError =
                                                 (error as? HandoffApiException)?.message

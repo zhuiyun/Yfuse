@@ -45,6 +45,7 @@ import com.yfuse.feature.player.notifyPlaybackAppBackground
 import com.yfuse.initializeDeviceId
 import com.yfuse.tv.integration.CastConnectReceiverBridge
 import com.yfuse.tv.integration.TvContinueWatchingRuntime
+import com.yfuse.tv.remote.TvPhoneRemote
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.defaultRequest
@@ -150,6 +151,8 @@ open class TvApplication :
                 // Cast's official guidance requires process lifecycle ownership when an app has more than
                 // one Activity. This keeps the receiver alive while control passes between browsing and
                 // PlayerActivity, and stops it only after the whole TV app leaves the foreground.
+                // 手机遥控 follows the same process foreground as Cast: a phone keeps control across the player.
+                TvPhoneRemote.install(this@TvApplication, koinApplication.koin)
                 CastConnectReceiverBridge.initialize(this)
                 ProcessLifecycleOwner.get().lifecycle.addObserver(
                     object : DefaultLifecycleObserver {
