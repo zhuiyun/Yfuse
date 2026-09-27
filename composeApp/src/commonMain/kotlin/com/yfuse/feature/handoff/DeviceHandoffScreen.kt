@@ -15,6 +15,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.sp
@@ -50,6 +51,14 @@ fun DeviceHandoffScreen(
 ) {
     val state by controller.state.collectAsState()
     val palette = LocalPalette.current
+    // 遥控器 opens in place of this page: it belongs to the television picked here, and back returns here.
+    var remoteSessionId by rememberSaveable { mutableStateOf<String?>(null) }
+    var remoteName by rememberSaveable { mutableStateOf("") }
+    val television = remoteSessionId
+    if (television != null) {
+        PhoneRemoteScreen(television, remoteName, onBack = { remoteSessionId = null })
+        return
+    }
     SettingsPage(title = "设备接力", onBack = onBack) {
         item {
             Section(title = "在线设备") {
@@ -71,6 +80,20 @@ fun DeviceHandoffScreen(
                             embedded = true,
                             icon = AppIcons.Play,
                             onClick = if (state.busy) null else ({ controller.send(device.sessionId) }),
+                        )
+                    }
+                    // Only televisions that host 手机遥控 are listed, and only on a device that is not one.
+                    state.remotes.forEach { remote ->
+                        SettingsDivider()
+                        SettingRow(
+                            "遥控 ${remote.name}",
+                            "手机当遥控器和键盘",
+                            embedded = true,
+                            icon = AppIcons.Grid,
+                            onClick = {
+                                remoteName = remote.name
+                                remoteSessionId = remote.sessionId
+                            },
                         )
                     }
                     if (state.busy) {
