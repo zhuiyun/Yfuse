@@ -152,7 +152,7 @@ fun <T : Any> OfficialNavDisplay(
                                         transitionSpec = {
                                             // A zoom back draws both pages itself; NavDisplay's
                                             // transition has to be over the moment it lets go.
-                                            if (zoom?.controller?.active == true) {
+                                            if (zoom?.suppressPopTransition == true) {
                                                 snap()
                                             } else {
                                                 tween(Motion.POP, easing = Motion.Curve)
@@ -208,7 +208,7 @@ fun <T : Any> OfficialNavDisplay(
                         }
                     },
                     popTransitionSpec = {
-                        if (zoom?.controller?.active == true) {
+                        if (zoom?.suppressPopTransition == true) {
                             zoomBackRouteTransform()
                         } else if (calm && !reduceMotion) {
                             calmContentTransform(motion, calmTravelPx, popping = true)
@@ -224,7 +224,7 @@ fun <T : Any> OfficialNavDisplay(
                         }
                     },
                     predictivePopTransitionSpec = {
-                        if (zoom?.controller?.active == true) {
+                        if (zoom?.suppressPopTransition == true) {
                             zoomBackRouteTransform()
                         } else if (calm && !reduceMotion) {
                             calmContentTransform(motion, calmTravelPx, popping = true, predictive = true)
@@ -269,7 +269,7 @@ private fun calmContentTransform(
         when {
             motion != OfficialNavMotion.Stack -> fadeIn(swap) togetherWith fadeOut(swap)
             popping ->
-                fadeIn(swap) togetherWith
+                EnterTransition.None togetherWith
                     (fadeOut(swap) + slideOutHorizontally(tween(CALM_SWAP_MS, easing = easing)) { travelPx })
             else ->
                 (
@@ -280,6 +280,7 @@ private fun calmContentTransform(
     return ContentTransform(
         targetContentEnter = transform.targetContentEnter,
         initialContentExit = transform.initialContentExit,
+        targetContentZIndex = if (popping && motion == OfficialNavMotion.Stack) -1f else 0f,
         sizeTransform = null,
     )
 }
@@ -370,13 +371,12 @@ private fun rootContentTransform(
  * Predictive back on a stacked route: the page being pulled away is a card under the finger. It
  * stays on top, shrinks and slides with the gesture on a linear clock, and keeps its opacity
  * until the last stretch — which is nearly always after the release — while the page it returns
- * to fades in behind it. Fading the card with the swipe had it mostly gone by 30%.
+ * to remains opaque behind it. Fading the card with the swipe had it mostly gone by 30%.
  */
 private fun predictiveStackTransform(popTravelPx: Int): ContentTransform =
     ContentTransform(
         targetContentEnter =
-            fadeIn(tween(Motion.POP, easing = LinearEasing)) +
-                slideInHorizontally(tween(Motion.POP, easing = LinearEasing)) { -popTravelPx },
+            slideInHorizontally(tween(Motion.POP, easing = LinearEasing)) { -popTravelPx },
         initialContentExit =
             scaleOut(tween(Motion.POP, easing = LinearEasing), targetScale = PREDICTIVE_EXIT_SCALE) +
                 slideOutHorizontally(tween(Motion.POP, easing = LinearEasing)) { popTravelPx } +
@@ -397,18 +397,19 @@ private fun stackContentTransform(
     popTravelPx: Int,
 ): ContentTransform =
     if (popping) {
-        (
-            fadeIn(tween(Motion.POP, easing = Motion.Curve)) +
-                slideInHorizontally(tween(Motion.POP, easing = Motion.Curve)) {
-                    -popTravelPx
-                }
-        ) togetherWith
-            (
+        // Keep the destination opaque underneath the departing page. Crossfading two
+        // full-screen layers exposes the backdrop halfway through even at steady frame rates.
+        ContentTransform(
+            targetContentEnter =
+                slideInHorizontally(tween(Motion.POP, easing = Motion.Curve)) { -popTravelPx },
+            initialContentExit =
                 fadeOut(tween(Motion.POP, easing = Motion.Curve)) +
                     slideOutHorizontally(tween(Motion.POP, easing = Motion.Curve)) {
                         popTravelPx
-                    }
-            )
+                    },
+            targetContentZIndex = -1f,
+            sizeTransform = null,
+        )
     } else {
         (
             fadeIn(tween(Motion.PUSH, easing = Motion.Curve)) +

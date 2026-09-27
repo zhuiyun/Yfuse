@@ -25,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onPlaced
@@ -38,6 +39,7 @@ import androidx.navigationevent.NavigationEventDispatcherOwner
 import androidx.navigationevent.NavigationEventHandler
 import androidx.navigationevent.NavigationEventInfo
 import androidx.navigationevent.compose.LocalNavigationEventDispatcherOwner
+import com.yfuse.core.logging.AppLog
 
 // ---------------------------------------------------------------- 跟手返回 in a navigation stack
 //
@@ -162,6 +164,13 @@ internal class ZoomBackNavHost(
     /** Routes entered from a poster, by content key. */
     val origins = mutableStateMapOf<String, ZoomOrigin>()
 
+    // NavDisplay can retain an outgoing entry after its key leaves the back stack. Its
+    // last frame must stay hidden even after the gesture controller is reused/reset.
+    private val retiredPages = mutableStateMapOf<String, Unit>()
+    val suppressPopTransition: Boolean get() = controller.active || retiredPages.isNotEmpty()
+
+    fun isRetired(key: String): Boolean = retiredPages.containsKey(key)
+
     /** Stands in for NavDisplay's handler on the activity's dispatcher. */
     val standIn = RelayBackHandler()
 
@@ -184,6 +193,12 @@ internal class ZoomBackNavHost(
 
     init {
         controller.onFinished = { committed ->
+            AppLog.info(
+                category = "navigation.back",
+                event = "zoom_finished",
+                message = "Back gesture animation finished",
+                attributes = mapOf("committed" to committed.toString()),
+            )
             if (committed) {
                 // NavDisplay pops now; the page is invisible until it has gone. See [onStack].
                 navigation.completed()
@@ -213,6 +228,9 @@ internal class ZoomBackNavHost(
 
     fun forget(key: String) {
         frames.remove(key)
+        if (retiredPages.remove(key) != null) {
+            AppLog.info("navigation.back", "route_disposed", "Hidden outgoing route left composition")
+        }
     }
 
     fun isZoomPage(key: String): Boolean = origins.containsKey(key)
@@ -239,11 +257,30 @@ internal class ZoomBackNavHost(
             origins[keys.last()] = ZoomOrigin(pushedFrom, underlay, frames[underlay]?.size ?: Size.Zero)
         }
         origins.keys.filter { it !in keys }.forEach { origins.remove(it) }
+        // The same detail can be opened again before NavDisplay disposes its old entry.
+        retiredPages.keys.filter { it in keys }.forEach { retiredPages.remove(it) }
         val page = pageKey
         if (page != null && (page !in keys || keys.last() != page)) {
-            if (controller.phase != ZoomBackPhase.Done) navigation.cancelled()
+            if (controller.phase == ZoomBackPhase.Done && page !in keys && frames.containsKey(page)) {
+                retiredPages[page] = Unit
+            } else {
+                navigation.cancelled()
+            }
             controller.reset()
             clearGesture()
+        }
+        if (keys.size < stack.size) {
+            AppLog.info(
+                category = "navigation.back",
+                event = "stack_popped",
+                message = "Navigation stack returned to an earlier page",
+                attributes =
+                    mapOf(
+                        "previousDepth" to stack.size.toString(),
+                        "depth" to keys.size.toString(),
+                        "retainedHiddenPages" to retiredPages.size.toString(),
+                    ),
+            )
         }
         stack = keys
     }
@@ -340,6 +377,7 @@ internal class ZoomBackNavHost(
         pageKey = key
         underlayKey = underlay
         sources.wanted = origins[key]?.key
+        AppLog.info("navigation.back", "zoom_started", "Back gesture started")
         return true
     }
 
@@ -476,6 +514,7 @@ internal fun Modifier.zoomBackRoute(
     return this
         .then(pull)
         .zoomBackLayers(host.controller, role = { host.roleOf(key) }, onInner = { host.frame(key).inner = it })
+        .graphicsLayer { alpha = if (host.isRetired(key)) 0f else 1f }
 }
 
 /** 情境提示 for the pull-down, on a page that came from a poster, once it is the page in front. */

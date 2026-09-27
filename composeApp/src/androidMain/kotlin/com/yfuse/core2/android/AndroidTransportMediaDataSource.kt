@@ -336,6 +336,8 @@ internal class AndroidTransportMediaDataSource(
                         }?.second
                     ?: resolveBlock(
                         blockIndex,
+                        requestedOffset = offsetInBlock,
+                        requestedBytes = minOf(remaining, blockSize - offsetInBlock),
                         startupOffset =
                             offsetInBlock.takeIf {
                                 !persistReadBlocks &&
@@ -453,6 +455,8 @@ internal class AndroidTransportMediaDataSource(
     private fun resolveBlock(
         blockIndex: Long,
         startupOffset: Int? = null,
+        requestedOffset: Int = 0,
+        requestedBytes: Int = blockSize,
     ): YLoadedTransportBlock {
         if (startupTailPrefetchBlockIndex == blockIndex) startupTailPrefetchBlockIndex = null
         val startedNs = System.nanoTime()
@@ -464,7 +468,7 @@ internal class AndroidTransportMediaDataSource(
         try {
             // Join an already running range instead of cancelling it for every small extractor
             // read. Queued/stalled ranges are still promoted by takePrefetchedBlock's budget.
-            val prefetched = takePrefetchedBlock(blockIndex, budget, operation)
+            val prefetched = takePrefetchedBlock(blockIndex, budget, operation, requestedOffset, requestedBytes)
             val loaded =
                 if (prefetched != null) {
                     prefetchHitCount++
@@ -631,7 +635,7 @@ internal class AndroidTransportMediaDataSource(
         foreground: YForegroundRangeRead? = null,
     ): YLoadedTransportBlock {
         var completedRetries = 0
-        val partial = YPartialTransportBlock(ByteArray(requestedBytes))
+        var partial = YPartialTransportBlock(ByteArray(requestedBytes))
         val startedNs = System.nanoTime()
         while (true) {
             if (closed || isCancelled() || progress?.isCancelled == true || Thread.currentThread().isInterrupted) {
@@ -693,7 +697,10 @@ internal class AndroidTransportMediaDataSource(
                     partial.contentLength == null ||
                     partial.total >= partial.bytes.size
                 ) {
-                    partial.total = 0
+                    // Published prefixes may still be read by MediaExtractor. Never overwrite
+                    // them when a response without a strong validator must restart at zero.
+                    progress?.available?.clear()
+                    partial = YPartialTransportBlock(ByteArray(requestedBytes))
                 }
                 // Waiting on the close latch instead of sleeping lets close() interrupt the retry
                 // at once instead of pinning the extractor thread until the delay expires.
@@ -785,6 +792,9 @@ internal class AndroidTransportMediaDataSource(
                 }
                 reportTransportRoute(response)
                 val responseContentLength = response.contentLength?.takeIf { it >= 0L }
+                progress?.progressiveEntityTag?.let { expectedTag ->
+                    if (response.entityTag != expectedTag) representationChanged()
+                }
                 response.acceptedRange?.endInclusive?.let { servedEnd ->
                     val expectedEnd = responseContentLength?.let { minOf(end, it - 1L) } ?: end
                     if (servedEnd != expectedEnd) {
@@ -858,6 +868,12 @@ internal class AndroidTransportMediaDataSource(
                     diagnostics.bytes.addAndGet(count.toLong())
                     val nowNs = System.nanoTime()
                     progress?.recordProgress(total.toLong(), nowNs)
+                    // A consumed prefix may outlive this exchange. Only expose it when a
+                    // strong validator can bind any resumed tail to the same representation.
+                    if (partial.entityTag != null && responseContentLength != null) {
+                        progress?.progressiveEntityTag = partial.entityTag
+                        progress?.available?.publish(output, total, responseContentLength)
+                    }
                     bandwidthMeter
                         .onBytesTransferred(count.toLong(), nowNs)
                         ?.let { sample -> onNetworkSample?.invoke(sample.bytes, sample.durationMs) }
@@ -1116,13 +1132,16 @@ internal class AndroidTransportMediaDataSource(
         blockIndex: Long,
         budget: YRangeReadBudget,
         operation: YForegroundRangeRead,
+        requestedOffset: Int,
+        requestedBytes: Int,
     ): YLoadedTransportBlock? {
-        val prefetch = prefetchedBlocks.remove(blockIndex) ?: return null
+        val prefetch = prefetchedBlocks[blockIndex] ?: return null
         // A foreground MediaExtractor read must never sit behind speculative ranges. If its future
         // has not started, remove it from the executor queue and load through the primary transport
         // immediately. This is the exact head-of-line case where diagnostics showed a 22 s resolve
         // wait for a block whose actual network transfer took only 2.2 s.
         if (shouldPromoteTransportPrefetch(prefetch.future.isDone, prefetch.started)) {
+            prefetchedBlocks.remove(blockIndex)
             promotedPrefetchCount++
             prefetch.cancel("foreground_promotion")
             return null
@@ -1135,6 +1154,27 @@ internal class AndroidTransportMediaDataSource(
                 if (operation.cancelled) {
                     prefetch.cancel("foreground_superseded")
                     operation.checkActive()
+                }
+                // A 2 MiB block may take seconds on a variable link. Feed bytes already
+                // received to the demuxer while the same request fills the rest of the block.
+                // Completed futures still go through get(), including range/EOF failures.
+                if (!persistReadBlocks && !prefetch.future.isDone) {
+                    prefetch.available.read(requestedOffset, minOf(requestedBytes, STARTUP_RANGE_BYTES))?.let { slice ->
+                        val expectedSize =
+                            slice.contentLength
+                                ?.let { (it - blockIndex * blockSize).coerceIn(0L, blockSize.toLong()).toInt() }
+                                ?: blockSize
+                        // The last bytes wait for final range/EOF validation. This also lets the
+                        // completed block enter the normal memory/disk caches exactly once.
+                        if (slice.offset + slice.bytes.size < expectedSize) {
+                            prefetch.prefixDelivered = true
+                            return YLoadedTransportBlock(
+                                bytes = slice.bytes,
+                                contentLength = slice.contentLength,
+                                offsetInBlock = slice.offset,
+                            )
+                        }
+                    }
                 }
                 try {
                     loaded = prefetch.future.get(50L, TimeUnit.MILLISECONDS)
@@ -1153,17 +1193,33 @@ internal class AndroidTransportMediaDataSource(
                     }
                 }
             }
+            prefetchedBlocks.remove(blockIndex)
             loaded
-        } catch (_: TimeoutException) {
+        } catch (failure: TimeoutException) {
+            prefetchedBlocks.remove(blockIndex)
             // A stalled range is promoted only after checking live byte progress and headroom.
             promotedPrefetchCount++
             prefetch.cancel("prefetch_stalled")
+            if (prefetch.prefixDelivered) {
+                throw IOException(
+                    "Media range stalled after its prefix was consumed",
+                    failure,
+                )
+            }
             null
-        } catch (_: CancellationException) {
+        } catch (failure: CancellationException) {
+            prefetchedBlocks.remove(blockIndex)
+            if (prefetch.prefixDelivered) throw failure
             null
-        } catch (_: ExecutionException) {
+        } catch (failure: ExecutionException) {
+            prefetchedBlocks.remove(blockIndex)
+            // This is now a foreground read: its earlier bytes have reached the decoder.
+            // Preserve the failure instead of replacing its tail with a fresh exchange.
+            if (prefetch.prefixDelivered) throw (failure.cause ?: failure)
             null
         } catch (_: InterruptedException) {
+            prefetchedBlocks.remove(blockIndex)
+            prefetch.cancel("foreground_interrupted")
             Thread.currentThread().interrupt()
             null
         }
@@ -1478,6 +1534,9 @@ private class YTransportBlockPrefetch(
     private var activeTransport: YMediaTransport? = null
     val completedBytes = AtomicLong()
     val lastProgressNs = AtomicLong(System.nanoTime())
+    val available = YProgressiveTransportBlock()
+    var progressiveEntityTag: String? = null
+    var prefixDelivered = false
 
     fun beginAttempt(nowNs: Long) {
         completedBytes.set(0L)

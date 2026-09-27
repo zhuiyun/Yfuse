@@ -7,18 +7,112 @@ import com.yfuse.core2.network.YMediaTransportResponse
 import com.yfuse.core2.network.YSourceProtocol
 import com.yfuse.core2.network.YTransportCredentials
 import com.yfuse.core2.network.YTransportFeature
+import java.io.IOException
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class AndroidTransportMediaDataSourcePrefetchTest {
+    @Test
+    fun `extractor receives a prefetched prefix before the slow block tail arrives`() {
+        verifyProgressivePrefetch(tailFails = false)
+    }
+
+    @Test
+    fun `failed prefetched tail is not silently replaced after its prefix reached the extractor`() {
+        verifyProgressivePrefetch(tailFails = true)
+    }
+
+    private fun verifyProgressivePrefetch(tailFails: Boolean) {
+        val media = ByteArray(256) { it.toByte() }
+        val tailBlocked = CountDownLatch(1)
+        val releaseTail = CountDownLatch(1)
+        val secondBlockRequests = AtomicInteger()
+        val source =
+            AndroidTransportMediaDataSource(
+                uri = "https://example.invalid/video.mkv",
+                protocol = YSourceProtocol.Https,
+                headers = emptyMap(),
+                blockSizeOverride = 64,
+                createTransport = {
+                    object : YMediaTransport {
+                        override val supportedProtocols = setOf(YSourceProtocol.Https)
+                        override val features = emptySet<YTransportFeature>()
+                        private var cursor = 0
+                        private var end = 0
+                        private var slow = false
+
+                        override suspend fun open(request: YMediaTransportRequest): YMediaTransportResponse {
+                            val range = requireNotNull(request.range)
+                            cursor = range.startInclusive.toInt()
+                            end = minOf(range.endInclusive!!.toInt() + 1, media.size)
+                            slow = cursor in 64 until 128
+                            if (slow) secondBlockRequests.incrementAndGet()
+                            return YMediaTransportResponse(
+                                206,
+                                media.size.toLong(),
+                                YByteRange(cursor.toLong(), (end - 1).toLong()),
+                                entityTag = "\"stable\"",
+                            )
+                        }
+
+                        override suspend fun read(
+                            destination: ByteArray,
+                            offset: Int,
+                            length: Int,
+                        ): Int {
+                            if (cursor >= end) return -1
+                            if (slow && cursor >= 80) {
+                                tailBlocked.countDown()
+                                check(releaseTail.await(2, TimeUnit.SECONDS))
+                                if (tailFails) throw IOException("Connection closed before range tail")
+                            }
+                            val count = minOf(length, end - cursor, if (slow && cursor == 64) 16 else length)
+                            media.copyInto(destination, offset, cursor, cursor + count)
+                            cursor += count
+                            return count
+                        }
+
+                        override suspend fun close() = Unit
+                    }
+                },
+            )
+        val worker = Executors.newSingleThreadExecutor()
+        try {
+            assertEquals(1, worker.submit<Int> { source.readAt(0, ByteArray(1), 0, 1) }.get(1, TimeUnit.SECONDS))
+            assertTrue(tailBlocked.await(1, TimeUnit.SECONDS))
+            val prefix = ByteArray(8)
+            assertEquals(8, worker.submit<Int> { source.readAt(64, prefix, 0, 8) }.get(1, TimeUnit.SECONDS))
+            assertContentEquals(media.copyOfRange(64, 72), prefix)
+            assertEquals(1L, releaseTail.count, "read must finish while the network tail is still blocked")
+            releaseTail.countDown()
+            val whole = ByteArray(64)
+            val read = worker.submit<Int> { source.readAt(64, whole, 0, 64) }
+            if (tailFails) {
+                val failure = assertFailsWith<ExecutionException> { read.get(2, TimeUnit.SECONDS) }
+                assertTrue(failure.cause is IOException)
+                assertEquals(3, secondBlockRequests.get(), "only the original exchange and its two validated resumes")
+            } else {
+                assertEquals(64, read.get(1, TimeUnit.SECONDS))
+                assertContentEquals(media.copyOfRange(64, 128), whole)
+                assertEquals(1, secondBlockRequests.get(), "partial reads reuse the same exchange")
+            }
+        } finally {
+            releaseTail.countDown()
+            source.close()
+            worker.shutdownNow()
+        }
+    }
+
     @Test
     fun `foreground timeout cancels blocking body read and remains a network failure`() {
         val source =
