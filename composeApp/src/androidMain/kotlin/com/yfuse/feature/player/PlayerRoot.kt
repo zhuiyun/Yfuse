@@ -14,6 +14,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.statusBarsIgnoringVisibility
@@ -2786,11 +2788,20 @@ internal fun PlayerRoot(
         // Every layer that only belongs to the full-size window crosses the 画中画 boundary on the
         // same short fade, so the overlays leave together instead of blinking out one by one.
         val pictureInPictureFadeMs = if (LocalAccessibilityOptions.current.reduceMotion) 0 else Motion.QUICK
+        // 折叠屏桌面模式: standing half-open, the picture keeps above the hinge and the controls below.
+        var containerHeightPx by remember { mutableIntStateOf(0) }
+        val tabletopHinge = rememberTabletopHinge()
+        val tabletop =
+            tabletopHinge
+                ?.takeUnless { inPictureInPicture }
+                ?.let { tabletopSplit(it.first, it.last, containerHeightPx) }
+        val density = LocalDensity.current
         Box(
             Modifier
                 .fillMaxSize()
                 .background(Color.Black)
                 .onGloballyPositioned { coordinates ->
+                    containerHeightPx = coordinates.size.height
                     val bounds = coordinates.boundsInWindow()
                     onVideoBounds(
                         Rect(
@@ -2805,10 +2816,17 @@ internal fun PlayerRoot(
         ) {
             // 片尾接管: whichever engine draws, its surface moves the same way; the controls decide when.
             val pictureModifier =
-                Modifier.fillMaxSize().creditsTakeoverPicture(
-                    active = creditsTakeover && !inPictureInPicture,
-                    immediate = inPictureInPicture,
-                )
+                Modifier
+                    .then(
+                        if (tabletop == null) {
+                            Modifier.fillMaxSize()
+                        } else {
+                            Modifier.fillMaxWidth().height(with(density) { tabletop.pictureBottomPx.toDp() })
+                        },
+                    ).creditsTakeoverPicture(
+                        active = creditsTakeover && !inPictureInPicture,
+                        immediate = inPictureInPicture,
+                    )
             when (engine) {
                 is YPlayerVideoEngineAdapter ->
                     Core2Surface(
@@ -2941,6 +2959,12 @@ internal fun PlayerRoot(
 
             AnimatedVisibility(
                 visible = !inPictureInPicture,
+                modifier =
+                    if (tabletop == null) {
+                        Modifier
+                    } else {
+                        Modifier.fillMaxSize().padding(top = with(density) { tabletop.controlsTopPx.toDp() })
+                    },
                 enter = fadeIn(Motion.tween(pictureInPictureFadeMs)),
                 exit = ExitTransition.None,
             ) {
