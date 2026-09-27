@@ -84,6 +84,11 @@ class AiringCalendarRepository(
     private val identityCatalogCache = mutableMapOf<String, IdentityCatalogSnapshot>()
     private val libraryEpisodeRequests = Semaphore(LIBRARY_EPISODE_REQUEST_CONCURRENCY)
     private val libraryServerRequests = Semaphore(LIBRARY_SERVER_REQUEST_CONCURRENCY)
+
+    // Automatic tracking holds its scan slots while resolving identities. A visible
+    // calendar must not exhaust all of its deadlines waiting behind those scans.
+    private val libraryStatusRequests = Semaphore(LIBRARY_SERVER_REQUEST_CONCURRENCY)
+    private val libraryStatusCooldown = SourceLookupCooldown()
     private val calendarIdentityRequests = Semaphore(CALENDAR_IDENTITY_REQUEST_CONCURRENCY)
     private val calendarLoadMutex = Mutex()
     private val resourceDetailsCacheMutex = Mutex()
@@ -884,27 +889,45 @@ class AiringCalendarRepository(
             servers.forEach { server ->
                 launch {
                     try {
-                        if (server.id in unavailable) {
+                        if (server.id in unavailable || (!forceRefresh && libraryStatusCooldown.blocked(server))) {
                             completed.send(failedLibraryLookup(episodes, today))
                             return@launch
                         }
                         val hint = libraryHint?.takeIf { it.server.id == server.id }
 
-                        suspend fun lookup() = resolveServerStatus(episodes, today, server, hint, forceRefresh)
+                        var lookupStarted = false
+
+                        suspend fun lookup(): List<CalendarEntry> {
+                            lookupStarted = true
+                            return resolveServerStatus(episodes, today, server, hint, forceRefresh).also { entries ->
+                                if (entries.none { it.dataIssue == CalendarDataIssue.LibraryLookupFailed }) {
+                                    libraryStatusCooldown.record(server, reachable = true)
+                                }
+                            }
+                        }
                         // Include queue time in the deadline. A known detail-page identity does
                         // not have to wait for the background calendar's full-library scans.
                         val result =
                             withTimeoutOrNull(SERIES_LOOKUP_TIMEOUT_MS) {
-                                if (hint != null) lookup() else libraryServerRequests.withPermit { lookup() }
+                                if (hint != null) lookup() else libraryStatusRequests.withPermit { lookup() }
                             } ?: run {
+                                // A queued request never contacted the server; it must not put a
+                                // healthy server into backoff or be reported as a network timeout.
+                                if (lookupStarted) libraryStatusCooldown.record(server, reachable = false)
                                 AppLog.warning(
                                     category = "feature.calendar",
-                                    event = "library_lookup_timed_out",
+                                    event =
+                                        if (lookupStarted) {
+                                            "library_lookup_timed_out"
+                                        } else {
+                                            "library_lookup_queue_expired"
+                                        },
                                     message = "Calendar library lookup exceeded its time budget",
                                     attributes =
                                         mapOf(
                                             "serverId" to server.id,
                                             "timeoutMs" to SERIES_LOOKUP_TIMEOUT_MS.toString(),
+                                            "lookupStarted" to lookupStarted.toString(),
                                         ),
                                 )
                                 episodes.map {
