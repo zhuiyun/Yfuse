@@ -47,6 +47,7 @@ internal class PlayerNotificationController(
     private var lastState = PlaybackState()
     private var lastTitles: List<String> = emptyList()
     private var lastSegments: List<PlaybackSegment> = emptyList()
+    private var lastChapterStarts: List<Long> = emptyList()
     private var castRefresh: Job? = null
     private var stopReceiverRegistered = false
     private val stopCastReceiver =
@@ -83,21 +84,25 @@ internal class PlayerNotificationController(
     }
 
     /**
-     * @param segments the current title's 片头 / 片尾 markers, drawn as chapter points while casting.
+     * @param segments the current title's 片头 / 片尾 markers, drawn as points while casting when the
+     *   file has no named chapters.
+     * @param chapterStartsMs where the file's named chapters begin; they win over [segments].
      */
     fun update(
         state: PlaybackState,
         titles: List<String>,
         segments: List<PlaybackSegment> = emptyList(),
+        chapterStartsMs: List<Long> = emptyList(),
     ) {
         lastState = state
         lastTitles = titles
         lastSegments = segments
+        lastChapterStarts = chapterStartsMs
         if (Build.VERSION.SDK_INT >= 36) {
             val cast = castManager?.state?.value
             if (cast != null && cast.hasActiveSession) {
                 registerStopReceiver()
-                val live = castLiveUpdate(state, titles, segments, cast)
+                val live = castLiveUpdate(state, titles, segments, chapterStartsMs, cast)
                 runCatching { manager.notify(PlayerActivity.NOTIFICATION_ID, live) }
                 followCast()
                 return
@@ -173,6 +178,7 @@ internal class PlayerNotificationController(
         state: PlaybackState,
         titles: List<String>,
         segments: List<PlaybackSegment>,
+        chapterStartsMs: List<Long>,
         cast: CastState,
     ): Notification {
         val title = titles.getOrNull(state.currentIndex).orEmpty().ifBlank { "Yfuse" }
@@ -181,7 +187,7 @@ internal class PlayerNotificationController(
         val waiting = cast.status == CastPlaybackStatus.Buffering || cast.status == CastPlaybackStatus.Connecting
         val positionMs = if (cast.positionConfirmed) cast.positionMs else state.positionMs
         val durationMs = cast.durationMs.takeIf { it > 0L } ?: state.durationMs
-        val progress = castLiveProgress(positionMs, durationMs, segments)
+        val progress = castLiveProgress(positionMs, durationMs, segments, chapterStartsMs)
         val style = Notification.ProgressStyle()
         if (progress == null) {
             style.setProgressIndeterminate(true)
@@ -268,7 +274,7 @@ internal class PlayerNotificationController(
                         )
                     }.distinctUntilChanged()
                     .drop(1)
-                    .collect { update(lastState, lastTitles, lastSegments) }
+                    .collect { update(lastState, lastTitles, lastSegments, lastChapterStarts) }
             }
     }
 

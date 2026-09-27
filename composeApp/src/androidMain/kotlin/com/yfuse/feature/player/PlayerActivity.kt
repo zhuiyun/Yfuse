@@ -1689,9 +1689,15 @@ class PlayerActivity : ComponentActivity() {
             abandonAudioFocus()
         }
         publishMediaSessionState(state, SystemClock.elapsedRealtime())
-        // The title's 片头 / 片尾 markers become chapter points on the cast live update.
-        val markers = playbackItems.value.getOrNull(state.currentIndex)?.playbackSegments
-        notificationController.update(state, sessionTitles, markers.orEmpty())
+        // The title's named chapters become points on the cast live update; its 片头 / 片尾 markers
+        // stand in for a file without chapters.
+        val current = playbackItems.value.getOrNull(state.currentIndex)
+        notificationController.update(
+            state,
+            sessionTitles,
+            current?.playbackSegments.orEmpty(),
+            current?.chapters?.map { it.startMs }.orEmpty(),
+        )
     }
 
     /** Media session only; the notification is left alone so a position refresh costs two calls. */
