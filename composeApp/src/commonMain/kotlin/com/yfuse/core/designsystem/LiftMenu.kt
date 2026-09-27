@@ -1,11 +1,15 @@
 package com.yfuse.core.designsystem
 
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
@@ -44,6 +48,8 @@ class LiftMenu(
     val anchored: Boolean = false,
     /** Rows in groups; a hairline separates one group from the next. Empty groups are dropped. */
     sections: List<List<ItemAction>>,
+    /** 按住拖看: frames the lifting finger can scrub through on the card; null leaves the card as it is. */
+    val scrub: LiftScrub? = null,
 ) {
     val sections: List<List<ItemAction>> = sections.filter { it.isNotEmpty() }
     val actions: List<ItemAction> = this.sections.flatten()
@@ -63,8 +69,42 @@ class LiftMenu(
                 onOpen = onOpen,
                 anchored = anchored,
                 sections = sections,
+                scrub = scrub,
             )
         }
+}
+
+/**
+ * 按住拖看 — YouTube's thumbnail preview on a lifted card. While the finger that lifted it slides
+ * sideways across the card, the card shows the frame for how far across it is: the left edge is
+ * the start, the right edge the end. Letting go on the card still opens the title; sliding down
+ * onto the rows still picks one.
+ *
+ * The frames usually arrive after the lift — an episode's are fetched when its card is held — so
+ * [frameCount] is snapshot state, read afresh on every move: 0 while they load, or when there are
+ * none, and the card simply stays its artwork.
+ */
+@Stable
+interface LiftScrub {
+    /** Frames to scrub through, in order; 0 while there are none (yet). */
+    val frameCount: Int
+
+    /**
+     * The card has lifted under a finger: fetch the frames if they are not here yet. Not called
+     * for a menu opened from a keyboard or a screen reader, nor when the menu is merely built — a
+     * screen reader builds every poster's for its custom actions.
+     */
+    fun prepare() {}
+
+    /** What the card reads out over frame [index]: its time into the title, "12:30". */
+    fun label(index: Int): String
+
+    /** Frame [index], filling [modifier]. */
+    @Composable
+    fun Frame(
+        index: Int,
+        modifier: Modifier,
+    )
 }
 
 // ------------------------------------------------------------------ geometry
@@ -247,6 +287,64 @@ internal fun liftHitAt(
     return if (placement.card.contains(point)) LiftHit.Card else LiftHit.None
 }
 
+/**
+ * 按住拖看: the least finger travel between two frames. An episode has a frame every ten seconds or
+ * so, some 270 across a 320 dp card: stepping through every one would buzz with ticks and flicker
+ * between neighbours under a resting finger. At this spacing each change is a detent, at most 40
+ * across a full-width card, spread evenly over the whole episode.
+ */
+internal val LiftScrubStep = 8.dp
+
+/** How far across [card] [x] is: 0 at its left edge, 1 at its right, held there beyond them. */
+internal fun liftScrubFraction(
+    x: Float,
+    card: Rect,
+): Float = if (card.width > 0f) ((x - card.left) / card.width).coerceIn(0f, 1f) else 0f
+
+/**
+ * 按住拖看's dead zone: which way the finger has gone from [anchor] — where it came onto the card,
+ * or last went up or down — once past [deadZone]. Sideways only when more across than down, the
+ * way the browse pages tell a swipe from a scroll (8): [DragAxis.Horizontal] starts the scrub, a
+ * finger heading for the rows is [DragAxis.Vertical], and a still one is not decided yet.
+ */
+internal fun liftScrubAxis(
+    anchor: Offset,
+    finger: Offset,
+    deadZone: Float,
+): DragAxis = resolveDragAxis(finger.x - anchor.x, finger.y - anchor.y, deadZone)
+
+/** How many places a card [width] wide has for [frames] frames at least [step] apart; 0 for none. */
+internal fun liftScrubStops(
+    frames: Int,
+    width: Float,
+    step: Float,
+): Int {
+    if (frames <= 0 || width <= 0f) return 0
+    if (step <= 0f) return frames
+    return minOf(frames, (width / step).toInt().coerceAtLeast(1))
+}
+
+/** Which of [count] equal slices [fraction] falls in, the right edge in the last; -1 for none. */
+internal fun liftScrubIndex(
+    fraction: Float,
+    count: Int,
+): Int = if (count > 0) (fraction.coerceIn(0f, 1f) * count).toInt().coerceAtMost(count - 1) else -1
+
+/**
+ * The frame shown at [stop] of [stops]: spread evenly over [frames], so the first stop is the
+ * first frame and the last stop the last — the left edge is the start, the right edge the end.
+ */
+internal fun liftScrubFrame(
+    stop: Int,
+    stops: Int,
+    frames: Int,
+): Int =
+    when {
+        stops <= 0 || frames <= 0 -> -1
+        stops == 1 -> 0
+        else -> (stop.coerceIn(0, stops - 1).toLong() * (frames - 1) / (stops - 1)).toInt()
+    }
+
 // ---------------------------------------------------------------------- state
 
 /**
@@ -268,6 +366,8 @@ class LiftMenuState {
         onSettled: () -> Unit,
     ): LiftSession {
         session?.abandon()
+        // Only a finger can scrub, so only a card a finger holds fetches its frames.
+        if (finger != null) menu.scrub?.prepare()
         return LiftSession(menu, source, finger, onOpen ?: menu.onOpen, onSettled) { finished ->
             if (session === finished) session = null
         }.also { session = it }
@@ -315,8 +415,29 @@ internal class LiftSession(
     var separatorHeight = 0f
     var padding = 0f
 
+    /** [LiftScrubStep] in pixels, written by the host alongside [placement]; 0 steps every frame. */
+    var scrubStep = 0f
+
+    /** 按住拖看: the frame of [LiftMenu.scrub] under the finger, or -1 while the card shows its artwork. */
+    var scrubFrame by mutableIntStateOf(-1)
+        private set
+
+    /** How far across the card the scrubbing finger is, 0..1. Read while drawing; see [scrubFrame]. */
+    var scrubFraction by mutableFloatStateOf(0f)
+        private set
+
     private val origin = finger
     private var steering = false
+
+    /** The finger has gone sideways past the dead zone once; from then on the card follows it. */
+    private var scrubbing = false
+
+    /**
+     * Where the dead zone is measured from until then: the lift's start, then wherever the finger
+     * came onto the card or last went up or down on it. A poster low on the screen lifts with its
+     * menu under the finger, which has to climb onto the card before it can look sideways.
+     */
+    private var scrubAnchor: Offset? = finger
     private var pending: (() -> Unit)? = null
 
     /** Replaced by another lift before it finished; its finger may still be down, but it runs nothing. */
@@ -327,7 +448,8 @@ internal class LiftSession(
     /**
      * The finger moved. Nothing is hit until it has travelled [slop] from where the lift began —
      * the card lands under a still finger, and a tremor must not turn letting go into 打开.
-     * Returns true when the finger arrived on something new, which is what earns a tick.
+     * Returns true when the finger arrived on something new, or scrubbed the card on to another
+     * frame, which is what earns a tick.
      */
     fun steer(
         finger: Offset,
@@ -341,9 +463,48 @@ internal class LiftSession(
         }
         val laid = placement ?: return false
         val next = liftHitAt(finger, laid, sectionSizes, rowHeight, separatorHeight, padding)
-        if (next == hot) return false
+        val scrubbed = scrubAlong(finger, next, laid.card, slop)
+        if (next == hot) return scrubbed
         hot = next
         return next != LiftHit.None
+    }
+
+    /**
+     * 按住拖看: over the card, once the finger has gone sideways past [deadZone], the card shows the
+     * frame for how far across it is; anywhere else it is its artwork again. True when the frame
+     * changed. Nothing at all for a menu without [LiftMenu.scrub].
+     */
+    private fun scrubAlong(
+        finger: Offset,
+        hit: LiftHit,
+        card: Rect,
+        deadZone: Float,
+    ): Boolean {
+        val scrub = menu.scrub?.takeUnless { menu.anchored } ?: return false
+        if (hit != LiftHit.Card) {
+            scrubAnchor = null
+            scrubFrame = -1
+            return false
+        }
+        if (!scrubbing) {
+            val anchor = scrubAnchor?.takeIf { card.contains(it) } ?: finger
+            when (liftScrubAxis(anchor, finger, deadZone)) {
+                DragAxis.Horizontal -> scrubbing = true
+                DragAxis.Vertical -> scrubAnchor = finger
+                DragAxis.Undecided -> scrubAnchor = anchor
+            }
+        }
+        val frames = scrub.frameCount
+        val stops = liftScrubStops(frames, card.width, scrubStep)
+        if (!scrubbing || stops == 0) {
+            scrubFrame = -1
+            return false
+        }
+        scrubFraction = liftScrubFraction(finger.x, card)
+        val frame = liftScrubFrame(liftScrubIndex(scrubFraction, stops), stops, frames)
+        if (frame == scrubFrame) return false
+        scrubFrame = frame
+        return true
     }
 
     /** The lifting finger came up: run what it was over, or stay up to be tapped. */
@@ -362,6 +523,7 @@ internal class LiftSession(
         if (!holding) return
         holding = false
         hot = LiftHit.None
+        scrubFrame = -1
     }
 
     fun select(action: ItemAction) {

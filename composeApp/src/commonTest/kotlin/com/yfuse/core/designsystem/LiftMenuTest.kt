@@ -1,5 +1,7 @@
 package com.yfuse.core.designsystem
 
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
@@ -283,5 +285,234 @@ class LiftMenuTest {
         assertEquals(0.5f, liftTextAlpha(0.75f), 0.001f)
         assertEquals(1f, liftTextAlpha(1f), 0.001f)
         assertEquals(1f, liftTextAlpha(1.08f), 0.001f)
+    }
+
+    // ------------------------------------------------------------------ 按住拖看
+
+    private class FakeScrub(
+        var frames: Int,
+    ) : LiftScrub {
+        var prepared = 0
+
+        override val frameCount: Int get() = frames
+
+        override fun prepare() {
+            prepared++
+        }
+
+        override fun label(index: Int): String = "#$index"
+
+        @Composable
+        override fun Frame(
+            index: Int,
+            modifier: Modifier,
+        ) = Unit
+    }
+
+    private fun scrubMenu(
+        scrub: FakeScrub,
+        recorder: Recorder,
+    ): LiftMenu =
+        LiftMenu(
+            title = "第3集",
+            onOpen = { recorder.events += "open" },
+            sections = listOf(listOf(ItemAction("播放", leavesPage = true) { recorder.events += "play" })),
+            scrub = scrub,
+        )
+
+    // The card is 320 × 198 from the origin, the menu under it; the lift began at the card's centre.
+    private fun scrubSession(
+        scrub: FakeScrub,
+        recorder: Recorder = Recorder(),
+    ): LiftSession {
+        val menu = scrubMenu(scrub, recorder)
+        return LiftSession(
+            menu = menu,
+            source = Rect(80f, 60f, 240f, 150f),
+            finger = Offset(160f, 100f),
+            onOpenTitle = menu.onOpen,
+            onSettled = {},
+            onFinished = {},
+        ).also {
+            it.placement = LiftPlacement(Rect(0f, 0f, 320f, 198f), Rect(0f, 208f, 320f, 320f), menuScrolls = false)
+            it.rowHeight = 48f
+            it.separatorHeight = 9f
+            it.padding = 6f
+            it.scrubStep = 8f
+        }
+    }
+
+    @Test
+    fun theCardEdgeToEdgeIsTheTitleStartToEnd() {
+        val card = Rect(20f, 0f, 340f, 198f)
+        assertEquals(0f, liftScrubFraction(20f, card), 0.001f)
+        assertEquals(0.5f, liftScrubFraction(180f, card), 0.001f)
+        assertEquals(1f, liftScrubFraction(340f, card), 0.001f)
+        assertEquals(0f, liftScrubFraction(-40f, card), 0.001f)
+        assertEquals(1f, liftScrubFraction(400f, card), 0.001f)
+        assertEquals(0f, liftScrubFraction(10f, Rect(10f, 0f, 10f, 10f)), 0.001f)
+
+        assertEquals(0, liftScrubIndex(0f, 40))
+        assertEquals(20, liftScrubIndex(0.5f, 40))
+        assertEquals(39, liftScrubIndex(1f, 40))
+        assertEquals(0, liftScrubIndex(-0.2f, 40))
+        assertEquals(39, liftScrubIndex(1.5f, 40))
+        assertEquals(-1, liftScrubIndex(0.5f, 0))
+
+        assertEquals(0, liftScrubFrame(0, 40, 270))
+        assertEquals(269, liftScrubFrame(39, 40, 270))
+        assertEquals(269, liftScrubFrame(52, 40, 270))
+        assertEquals(5, liftScrubFrame(5, 12, 12))
+        assertEquals(0, liftScrubFrame(0, 1, 270))
+        assertEquals(-1, liftScrubFrame(3, 0, 10))
+        assertEquals(-1, liftScrubFrame(3, 10, 0))
+    }
+
+    @Test
+    fun framesAreSpacedSoEachChangeIsADetentNotABuzz() {
+        assertEquals(40, liftScrubStops(frames = 270, width = 320f, step = 8f))
+        assertEquals(12, liftScrubStops(frames = 12, width = 320f, step = 8f))
+        assertEquals(1, liftScrubStops(frames = 270, width = 4f, step = 8f))
+        assertEquals(270, liftScrubStops(frames = 270, width = 320f, step = 0f))
+        assertEquals(0, liftScrubStops(frames = 0, width = 320f, step = 8f))
+        assertEquals(0, liftScrubStops(frames = 270, width = 0f, step = 8f))
+    }
+
+    @Test
+    fun onlyAFingerGoneSidewaysPastTheDeadZoneScrubs() {
+        val anchor = Offset(100f, 100f)
+        assertEquals(DragAxis.Undecided, liftScrubAxis(anchor, Offset(105f, 101f), deadZone = 8f))
+        assertEquals(DragAxis.Horizontal, liftScrubAxis(anchor, Offset(110f, 101f), deadZone = 8f))
+        assertEquals(DragAxis.Horizontal, liftScrubAxis(anchor, Offset(88f, 97f), deadZone = 8f))
+        assertEquals(DragAxis.Vertical, liftScrubAxis(anchor, Offset(100f, 130f), deadZone = 8f))
+        assertEquals(DragAxis.Vertical, liftScrubAxis(anchor, Offset(110f, 110f), deadZone = 8f))
+    }
+
+    @Test
+    fun aFingerLiftedOverTheRowsScrubsOnceItHasClimbedOntoTheCard() {
+        val scrub = FakeScrub(270)
+        val menu = scrubMenu(scrub, Recorder())
+        // A poster low on the screen: the column slid up, and the finger starts on the menu.
+        val lift =
+            LiftSession(menu, Rect(80f, 240f, 240f, 330f), Offset(160f, 280f), menu.onOpen, {}, {}).also {
+                it.placement = LiftPlacement(Rect(0f, 0f, 320f, 198f), Rect(0f, 208f, 320f, 320f), menuScrolls = false)
+                it.rowHeight = 48f
+                it.separatorHeight = 9f
+                it.padding = 6f
+                it.scrubStep = 8f
+            }
+        assertTrue(lift.steer(Offset(160f, 150f), slop = 8f))
+        assertEquals(LiftHit.Card, lift.hot)
+        assertEquals(-1, lift.scrubFrame)
+        assertTrue(lift.steer(Offset(172f, 148f), slop = 8f))
+        assertEquals(144, lift.scrubFrame)
+    }
+
+    @Test
+    fun aFingerThatWentDownAndThenAcrossScrubsFromWhereItTurned() {
+        val lift = scrubSession(FakeScrub(270))
+        lift.steer(Offset(160f, 140f), slop = 8f)
+        lift.steer(Offset(160f, 170f), slop = 8f)
+        assertEquals(-1, lift.scrubFrame)
+        assertTrue(lift.steer(Offset(172f, 172f), slop = 8f))
+        assertEquals(144, lift.scrubFrame)
+    }
+
+    @Test
+    fun aStillFingerOrOneGoingDownKeepsTheArtwork() {
+        val lift = scrubSession(FakeScrub(270))
+        assertFalse(lift.steer(Offset(104f + 60f, 102f), slop = 8f))
+        assertEquals(-1, lift.scrubFrame)
+        assertTrue(lift.steer(Offset(162f, 120f), slop = 8f))
+        assertEquals(LiftHit.Card, lift.hot)
+        assertEquals(-1, lift.scrubFrame)
+    }
+
+    @Test
+    fun slidingAcrossTheCardStepsThroughTheFramesTickingOncePerFrame() {
+        val lift = scrubSession(FakeScrub(270))
+        // 172 / 320 of the way: stop 21 of 40, spread over 270 frames.
+        assertTrue(lift.steer(Offset(172f, 100f), slop = 8f))
+        assertEquals(LiftHit.Card, lift.hot)
+        assertEquals(144, lift.scrubFrame)
+        assertEquals(172f / 320f, lift.scrubFraction, 0.001f)
+        // Within the same stop: the line follows, the frame and the tick do not.
+        assertFalse(lift.steer(Offset(174f, 101f), slop = 8f))
+        assertEquals(144, lift.scrubFrame)
+        assertEquals(174f / 320f, lift.scrubFraction, 0.001f)
+        assertTrue(lift.steer(Offset(180f, 101f), slop = 8f))
+        assertEquals(151, lift.scrubFrame)
+        assertTrue(lift.steer(Offset(0f, 100f), slop = 8f))
+        assertEquals(0, lift.scrubFrame)
+        assertTrue(lift.steer(Offset(319.9f, 100f), slop = 8f))
+        assertEquals(269, lift.scrubFrame)
+    }
+
+    @Test
+    fun leavingTheCardForTheRowsBringsTheArtworkBackAndTheRowsWorkAsBefore() {
+        val recorder = Recorder()
+        val lift = scrubSession(FakeScrub(270), recorder)
+        lift.steer(Offset(200f, 100f), slop = 8f)
+        assertTrue(lift.scrubFrame >= 0)
+        assertTrue(lift.steer(Offset(200f, 208f + 6f + 10f), slop = 8f))
+        assertEquals(LiftHit.Row(0), lift.hot)
+        assertEquals(-1, lift.scrubFrame)
+        // Back on the card the scrub picks up where the finger is, without a second dead zone.
+        assertTrue(lift.steer(Offset(40f, 150f), slop = 8f))
+        assertEquals(liftScrubFrame(5, 40, 270), lift.scrubFrame)
+        lift.steer(Offset(200f, 208f + 6f + 10f), slop = 8f)
+        lift.release()
+        assertEquals(listOf("play"), recorder.events)
+    }
+
+    @Test
+    fun lettingGoOnTheCardAfterScrubbingStillOpensTheTitle() {
+        val recorder = Recorder()
+        val lift = scrubSession(FakeScrub(270), recorder)
+        lift.steer(Offset(250f, 100f), slop = 8f)
+        lift.release()
+        assertEquals(listOf("open"), recorder.events)
+        assertEquals(LiftExit.FadeAway, lift.exit)
+    }
+
+    @Test
+    fun framesStillOnTheirWayLeaveTheCardAsItIsUntilTheyArrive() {
+        val scrub = FakeScrub(0)
+        val lift = scrubSession(scrub)
+        assertTrue(lift.steer(Offset(200f, 100f), slop = 8f))
+        assertEquals(-1, lift.scrubFrame)
+        scrub.frames = 12
+        assertTrue(lift.steer(Offset(210f, 100f), slop = 8f))
+        assertEquals(7, lift.scrubFrame)
+    }
+
+    @Test
+    fun aTakenStreamMidScrubShowsTheArtworkAgain() {
+        val lift = scrubSession(FakeScrub(270))
+        lift.steer(Offset(200f, 100f), slop = 8f)
+        lift.stopHolding()
+        assertEquals(-1, lift.scrubFrame)
+        assertFalse(lift.steer(Offset(260f, 100f), slop = 8f))
+        assertEquals(-1, lift.scrubFrame)
+    }
+
+    @Test
+    fun aMenuWithoutFramesNeverScrubs() {
+        val lift = session(Recorder(), finger = Offset(100f, 100f))
+        assertTrue(lift.steer(Offset(140f, 100f), slop = 8f))
+        assertFalse(lift.steer(Offset(200f, 100f), slop = 8f))
+        assertEquals(-1, lift.scrubFrame)
+    }
+
+    @Test
+    fun onlyACardHeldByAFingerFetchesItsFrames() {
+        val scrub = FakeScrub(0)
+        val menu = scrubMenu(scrub, Recorder())
+        val host = LiftMenuState()
+        host.lift(menu, Rect(0f, 0f, 100f, 60f), finger = null, onOpen = null, onSettled = {})
+        assertEquals(0, scrub.prepared)
+        host.lift(menu, Rect(0f, 0f, 100f, 60f), finger = Offset(50f, 30f), onOpen = null, onSettled = {})
+        assertEquals(1, scrub.prepared)
+        assertSame(scrub, menu.withArtwork(listOf("poster")).scrub)
     }
 }
