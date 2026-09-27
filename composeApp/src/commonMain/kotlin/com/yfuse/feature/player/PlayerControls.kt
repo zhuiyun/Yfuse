@@ -271,6 +271,8 @@ internal fun PlayerControls(
     chapters: List<PlaybackChapter> = emptyList(),
     watch: WatchRoomState = WatchRoomState(),
     watchActions: WatchRoomActions = WatchRoomActions(),
+    /** 点弹幕, 旋转锁 and the press-and-slide keys, supplied by the player root; see [PlayerChromeExtras]. */
+    extras: PlayerChromeExtras = PlayerChromeExtras(),
     remoteChrome: TvPlayerChromeBridge? = null,
     /**
      * A hardware keyboard is attached: 键盘快捷键 answer. Ignored with [remoteChrome], because TV keeps
@@ -286,6 +288,7 @@ internal fun PlayerControls(
     systemGestureTopPx: Float = 0f,
 ) {
     val currentSystemGestureTop by rememberUpdatedState(systemGestureTopPx)
+    val latestExtras by rememberUpdatedState(extras)
     val state by rememberPlayerControlSnapshot(playback)
     var visible by remember { mutableStateOf(true) }
     var ambientChromeCount by remember { mutableIntStateOf(0) }
@@ -1005,7 +1008,7 @@ internal fun PlayerControls(
                             // hidden: the hold was for watching.
                             endSpeedBoost()
                         },
-                        onTap = {
+                        onTap = { offset ->
                             when {
                                 watchChatOpen -> watchChatOpen = false
                                 danmakuSendOpen -> danmakuSendOpen = false
@@ -1013,6 +1016,8 @@ internal fun PlayerControls(
                                 quickPopup != null -> quickPopup = null
                                 settingsPanelKind != null -> settingsPanelKind = null
                                 drawerOpen -> drawerOpen = false
+                                // 点弹幕: a tap that landed on a comment is the comment's; any other is unchanged.
+                                !locked && latestExtras.onPictureTap(offset) -> Unit
                                 visible -> visible = false
                                 else -> poke()
                             }
@@ -1318,6 +1323,8 @@ internal fun PlayerControls(
                                 lastReadChatId?.let { latest > it } ?: true
                             } ?: false,
                         onOpenChat = ::openWatchChat,
+                        extras = extras,
+                        onKeyActivity = ::poke,
                     )
                 }
 
@@ -1949,10 +1956,14 @@ internal fun PlayerControls(
                     modifier = Modifier.align(Alignment.TopCenter).padding(top = 28.dp),
                 )
 
-                // 全程缩略图: the frame a swipe across the picture, or a held side, has got to.
+                // 全程缩略图: the frame a swipe across the picture, or a held side, has got to — or,
+                // on a television, a held fast-forward or rewind on the remote.
                 PictureScrubPreview(
                     storyboard = trickplay,
-                    positionMs = { if (holdSeekDirection != 0) holdSeekTarget else pictureScrubMs },
+                    positionMs = {
+                        remoteChromeState?.holdPreviewMs
+                            ?: if (holdSeekDirection != 0) holdSeekTarget else pictureScrubMs
+                    },
                     chapters = chapters,
                     modifier = Modifier.align(Alignment.Center),
                 )

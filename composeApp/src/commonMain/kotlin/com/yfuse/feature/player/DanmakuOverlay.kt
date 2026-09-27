@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -21,12 +22,18 @@ import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -220,7 +227,7 @@ internal fun lowerBoundDanmaku(
  * 500 ms engine ticks no longer restart the frame interpolator and make comments stutter.
  */
 @Composable
-fun DanmakuOverlay(
+internal fun DanmakuOverlay(
     comments: List<DanmakuComment>,
     positionMs: Long,
     playing: Boolean,
@@ -230,6 +237,8 @@ fun DanmakuOverlay(
     speed: DanmakuSpeed,
     opacity: DanmakuOpacity,
     modifier: Modifier = Modifier,
+    /** 点弹幕: what a finger can stop. Null leaves the comments untouchable, as they always were. */
+    picker: DanmakuPicker? = null,
 ) {
     var renderedPositionMs by remember { mutableLongStateOf(positionMs) }
     var lastReportedPositionMs by remember { mutableLongStateOf(positionMs) }
@@ -269,6 +278,7 @@ fun DanmakuOverlay(
             !playing -> Unit
         }
         lastReportedPositionMs = positionMs
+        picker?.state?.settle(renderedPositionMs)
     }
     LaunchedEffect(playing, recoveryRevision) {
         if (!playing) return@LaunchedEffect
@@ -308,9 +318,14 @@ fun DanmakuOverlay(
                 if (reported > renderedPositionMs + POSITION_RESET_THRESHOLD_MS) {
                     renderedPositionMs = reported
                 }
+                picker?.state?.settle(renderedPositionMs)
             }
         }
     }
+    // A comment stopped by 点弹幕 belongs to the list it came from; a new list — a block, a reload,
+    // another episode — has no place for it.
+    LaunchedEffect(comments, picker) { picker?.state?.drop() }
+    SideEffect { picker?.state?.clock = { renderedPositionMs } }
 
     val textMeasurer = rememberTextMeasurer()
     val density = LocalDensity.current
@@ -324,7 +339,8 @@ fun DanmakuOverlay(
             Modifier
                 .fillMaxWidth()
                 .fillMaxHeight(displayArea.fraction)
-                .clipToBounds(),
+                .clipToBounds()
+                .onPlaced { picker?.laneFrame = it },
         ) {
             val textSize = 18f * fontSize.scale
             val textStyle =
@@ -410,7 +426,22 @@ fun DanmakuOverlay(
                     )
                 }
 
+            SideEffect {
+                picker?.density = density.density
+                picker?.state?.layout =
+                    DanmakuPickLayout(
+                        placements = placements,
+                        laneHeight = laneHeight.value,
+                        viewportWidth = maxWidth.value,
+                        scrollDurationMs = speed.durationMs,
+                        fixedDurationMs = FIXED_DURATION_MS,
+                    )
+            }
+            val hold = picker?.state?.hold
+
             placements.forEach { placement ->
+                // The stopped comment is drawn by the hold below, from where it stopped.
+                if (hold?.isFor(placement) == true) return@forEach
                 val comment = placement.input.comment
                 val duration =
                     if (comment.kind == DanmakuKind.Scroll) {
@@ -435,14 +466,14 @@ fun DanmakuOverlay(
                                 .offset {
                                     val elapsed = renderedPositionMs - comment.timeMs
                                     val x =
-                                        when (comment.kind) {
-                                            DanmakuKind.Scroll -> {
-                                                val progress = (elapsed.toFloat() / duration).coerceIn(0f, 1f)
-                                                maxWidth - (maxWidth + measuredWidth) * progress
-                                            }
-                                            else -> (maxWidth - measuredWidth).coerceAtLeast(0.dp) / 2f
-                                        }
-                                    IntOffset(x.roundToPx(), y.roundToPx())
+                                        danmakuLeft(
+                                            kind = comment.kind,
+                                            elapsedMs = elapsed,
+                                            durationMs = duration,
+                                            viewportWidth = maxWidth.value,
+                                            width = measuredWidth.value,
+                                        )
+                                    IntOffset(x.dp.roundToPx(), y.roundToPx())
                                 }.graphicsLayer {
                                     val elapsed = renderedPositionMs - comment.timeMs
                                     alpha =
@@ -457,6 +488,64 @@ fun DanmakuOverlay(
                     )
                 }
             }
+            if (hold != null) HeldDanmaku(hold, { renderedPositionMs }, textStyle, opacity, reduceMotion)
         }
     }
 }
+
+/**
+ * The comment 点弹幕 stopped: still, opaque and on a plate while its menu is open, then flying
+ * on from that spot like the rest — the menu's time is not taken out of its flight.
+ */
+@Composable
+private fun HeldDanmaku(
+    hold: DanmakuHold,
+    renderedMs: () -> Long,
+    style: TextStyle,
+    opacity: DanmakuOpacity,
+    reduceMotion: Boolean,
+) {
+    key(hold.index, hold.comment.timeMs) {
+        Text(
+            text = hold.comment.displayText,
+            maxLines = 1,
+            color = Color(0xFF000000 or hold.comment.color).copy(alpha = if (hold.held) 1f else opacity.alpha),
+            style = style,
+            modifier =
+                Modifier
+                    .offset { IntOffset(hold.leftAt(renderedMs()).dp.roundToPx(), hold.top.dp.roundToPx()) }
+                    .drawBehind {
+                        if (hold.held) {
+                            val pad = HeldPlatePadding.toPx()
+                            drawRoundRect(
+                                color = Color.Black.copy(alpha = 0.5f),
+                                topLeft = Offset(-pad, 0f),
+                                size = Size(size.width + pad * 2f, size.height),
+                                cornerRadius = CornerRadius(size.height / 2f),
+                            )
+                            drawRoundRect(
+                                color = Color.White.copy(alpha = 0.7f),
+                                topLeft = Offset(-pad, 0f),
+                                size = Size(size.width + pad * 2f, size.height),
+                                cornerRadius = CornerRadius(size.height / 2f),
+                                style = Stroke(width = 1.dp.toPx()),
+                            )
+                        }
+                    }.graphicsLayer {
+                        val now = renderedMs()
+                        val elapsed = hold.elapsedAt(now)
+                        alpha =
+                            when {
+                                hold.held -> 1f
+                                hold.finishedAt(now) -> 0f
+                                reduceMotion ->
+                                    danmakuHeldAlpha(elapsed, hold.durationMs, Motion.REDUCED_FADE.toLong())
+                                else -> 1f
+                            }
+                    },
+        )
+    }
+}
+
+/** How far the held comment's plate reaches past its text on either side. */
+private val HeldPlatePadding = 8.dp

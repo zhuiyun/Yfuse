@@ -20,6 +20,7 @@ import com.yfuse.core.data.DanmakuOpacity
 import com.yfuse.core.data.DanmakuPreferences
 import com.yfuse.core.data.DanmakuRepository
 import com.yfuse.core.data.DanmakuSpeed
+import com.yfuse.core.data.MAX_DANMAKU_SYNC_BLOCKED_WORDS
 import com.yfuse.core.data.activeOr
 import com.yfuse.core.data.danmakuBindingKey
 import kotlinx.coroutines.launch
@@ -44,6 +45,10 @@ internal data class PlayerDanmakuController(
      * picks it up while drawing, and null until a match has loaded.
      */
     val heat: () -> DanmakuHeat? = { null },
+    /** 点弹幕's 屏蔽此词 and 屏蔽同类: puts an entry on the block list, the one list both use. */
+    val onBlock: (String) -> DanmakuBlockOutcome = { DanmakuBlockOutcome.AlreadyBlocked },
+    /** 撤销 for [onBlock]: takes the entry it added off again. */
+    val onUnblock: (String) -> Unit = {},
 )
 
 @Composable
@@ -317,6 +322,17 @@ internal fun rememberPlayerDanmakuController(
         speed = speed,
         opacity = opacity,
         heat = heatReader,
+        onBlock = { entry ->
+            val before = preferences.blockedWords.value
+            preferences.addBlockedWord(entry)
+            val after = preferences.blockedWords.value
+            when {
+                after.size > before.size -> DanmakuBlockOutcome.Added(after.last())
+                before.size >= MAX_DANMAKU_SYNC_BLOCKED_WORDS -> DanmakuBlockOutcome.ListFull
+                else -> DanmakuBlockOutcome.AlreadyBlocked
+            }
+        },
+        onUnblock = preferences::removeBlockedWord,
         panelState =
             DanmakuPanelState(
                 sources = sources,

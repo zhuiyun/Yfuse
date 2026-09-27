@@ -14,6 +14,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.statusBarsIgnoringVisibility
@@ -89,6 +91,7 @@ import com.yfuse.core.playback.PlaybackRuntimeFaultKind
 import com.yfuse.core.playback.classifyPlaybackFailure
 import com.yfuse.core.playback.planPlayback
 import com.yfuse.core.playback.resolvePlaybackOptimization
+import com.yfuse.core.sync.WatchStickers
 import com.yfuse.core.sync.WatchTogetherClient
 import com.yfuse.core2.android.canUseCore2Trial
 import com.yfuse.core2.android.toCore2MediaItems
@@ -2644,6 +2647,35 @@ internal fun PlayerRoot(
         }
         BindCastQueue(castState, player, activeItems, localState.currentIndex)
 
+        // 点弹幕, 旋转锁, 一起看贴纸轮盘 and 按住拖送: what the chrome is handed, and the layers they draw in.
+        val danmakuPicker = remember { DanmakuPicker() }
+        val quickPickHost = remember { PlayerQuickPickHost() }
+        val quickCast =
+            rememberPlayerQuickCast(
+                castManager = castManager,
+                castState = castState,
+                handoffAllowed = !watchState.connected,
+                requestDiscovery = requestCastDiscovery,
+                castTo = { deviceId -> loadCastItem(deviceId, state.currentIndex, livePlayback.value.positionMs) },
+            )
+        val stickerPick =
+            remember(watchState.chatMessages, watchState.connected, watchState.reconnecting) {
+                StickerQuickPick(
+                    stickers = quickStickers(watchState.chatMessages),
+                    canSend = watchState.connected && !watchState.reconnecting,
+                    onSend = { sticker -> watchTogether.sendChat(WatchStickers.token(sticker)) },
+                )
+            }
+        val rotationLock = rememberPlayerRotationLock()
+        val chromeExtras =
+            PlayerChromeExtras(
+                onPictureTap = danmakuPicker::claim,
+                rotationLock = rotationLock,
+                quickPick = quickPickHost,
+                stickers = stickerPick.takeIf { watchState.connected },
+                cast = quickCast.pick,
+            )
+
         var autoAdvancedCastRevision by remember { mutableStateOf<Long?>(null) }
         LaunchedEffect(
             castState.status,
@@ -2756,11 +2788,20 @@ internal fun PlayerRoot(
         // Every layer that only belongs to the full-size window crosses the 画中画 boundary on the
         // same short fade, so the overlays leave together instead of blinking out one by one.
         val pictureInPictureFadeMs = if (LocalAccessibilityOptions.current.reduceMotion) 0 else Motion.QUICK
+        // 折叠屏桌面模式: standing half-open, the picture keeps above the hinge and the controls below.
+        var containerHeightPx by remember { mutableIntStateOf(0) }
+        val tabletopHinge = rememberTabletopHinge()
+        val tabletop =
+            tabletopHinge
+                ?.takeUnless { inPictureInPicture }
+                ?.let { tabletopSplit(it.first, it.last, containerHeightPx) }
+        val density = LocalDensity.current
         Box(
             Modifier
                 .fillMaxSize()
                 .background(Color.Black)
                 .onGloballyPositioned { coordinates ->
+                    containerHeightPx = coordinates.size.height
                     val bounds = coordinates.boundsInWindow()
                     onVideoBounds(
                         Rect(
@@ -2775,10 +2816,17 @@ internal fun PlayerRoot(
         ) {
             // 片尾接管: whichever engine draws, its surface moves the same way; the controls decide when.
             val pictureModifier =
-                Modifier.fillMaxSize().creditsTakeoverPicture(
-                    active = creditsTakeover && !inPictureInPicture,
-                    immediate = inPictureInPicture,
-                )
+                Modifier
+                    .then(
+                        if (tabletop == null) {
+                            Modifier.fillMaxSize()
+                        } else {
+                            Modifier.fillMaxWidth().height(with(density) { tabletop.pictureBottomPx.toDp() })
+                        },
+                    ).creditsTakeoverPicture(
+                        active = creditsTakeover && !inPictureInPicture,
+                        immediate = inPictureInPicture,
+                    )
             when (engine) {
                 is YPlayerVideoEngineAdapter ->
                     Core2Surface(
@@ -2892,6 +2940,7 @@ internal fun PlayerRoot(
                             fontSize = danmaku.fontSize,
                             speed = danmaku.speed,
                             opacity = danmaku.opacity,
+                            picker = danmakuPicker,
                         )
                     }
                 }
@@ -2910,6 +2959,12 @@ internal fun PlayerRoot(
 
             AnimatedVisibility(
                 visible = !inPictureInPicture,
+                modifier =
+                    if (tabletop == null) {
+                        Modifier
+                    } else {
+                        Modifier.fillMaxSize().padding(top = with(density) { tabletop.controlsTopPx.toDp() })
+                    },
                 enter = fadeIn(Motion.tween(pictureInPictureFadeMs)),
                 exit = ExitTransition.None,
             ) {
@@ -3662,7 +3717,9 @@ internal fun PlayerRoot(
                     onCastTo = { deviceId ->
                         val item = activeItems.getOrNull(state.currentIndex) ?: return@PlayerControls
                         scope.launch {
-                            loadCastItem(deviceId, state.currentIndex, livePlayback.value.positionMs)
+                            if (loadCastItem(deviceId, state.currentIndex, livePlayback.value.positionMs)) {
+                                quickCast.noteCast(deviceId)
+                            }
                         }
                     },
                     onStopCast = {
@@ -3770,9 +3827,25 @@ internal fun PlayerRoot(
                         ),
                     remoteChrome = remoteChrome,
                     hardwareKeyboard = hardwareKeyboardAttached(),
+                    extras = chromeExtras,
                     // Held back while a transition carries the picture in, and gone first on the way out.
-                    modifier = Modifier.graphicsLayer { alpha = transition?.chromeAlpha() ?: 1f },
+                    modifier =
+                        Modifier
+                            .graphicsLayer { alpha = transition?.chromeAlpha() ?: 1f }
+                            .danmakuPressWatch(danmakuPicker),
                 )
+            }
+
+            // Over the chrome: 点弹幕's menu, and whatever a held 聊天 or 投屏 key has open.
+            if (!inPictureInPicture) {
+                if (danmaku.enabled) {
+                    DanmakuPickLayer(
+                        picker = danmakuPicker,
+                        onBlock = danmaku.onBlock,
+                        onUnblock = danmaku.onUnblock,
+                    )
+                }
+                PlayerQuickPickLayer(chromeExtras)
             }
 
             PlayerFrameRateOverlay(

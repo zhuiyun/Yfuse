@@ -28,23 +28,84 @@ object DanmakuFilter {
      */
     const val MERGE_WINDOW_MS = 20_000L
 
+    /**
+     * Starts a block-list entry that means 屏蔽同类 rather than a word: the line after the mark and
+     * every way people type it — "前方高能！！！", "前方 高能", "ＡＷＳＬ", "哈哈哈哈哈". Comments carry
+     * no sender to block by, so near-identical text is the only kind of "the same" there is.
+     *
+     * It lives in the same list so it syncs, and is removed, like any word; a build that predates
+     * the mark reads it as a word nobody types, which blocks nothing.
+     */
+    const val SIMILAR_MARK = "≈"
+
+    /** The longest [similarKey] an entry keeps, so the mark and key fit one stored word. */
+    private const val SIMILAR_KEY_MAX = MAX_DANMAKU_SYNC_BLOCKED_WORD_CHARS - SIMILAR_MARK.length
+
     fun apply(
         comments: List<DanmakuComment>,
         merge: Boolean,
         blockedWords: List<String>,
     ): List<DanmakuComment> {
-        val blocked = blockedWords.mapNotNull { it.trim().lowercase().takeIf(String::isNotEmpty) }
+        val entries = blockedWords.mapNotNull { it.trim().takeIf(String::isNotEmpty) }
+        val blocked = entries.filterNot { it.startsWith(SIMILAR_MARK) }.map { it.lowercase() }
+        val similar =
+            entries
+                .filter { it.startsWith(SIMILAR_MARK) }
+                .map { similarKey(it.removePrefix(SIMILAR_MARK)) }
+                .filter(String::isNotEmpty)
         val kept =
-            if (blocked.isEmpty()) {
+            if (blocked.isEmpty() && similar.isEmpty()) {
                 comments
             } else {
                 comments.filterNot { comment ->
                     val text = comment.text.lowercase()
-                    blocked.any { it in text }
+                    blocked.any { it in text } ||
+                        (
+                            similar.isNotEmpty() &&
+                                similarKey(comment.text).let { key -> similar.any { similarMatches(key, it) } }
+                        )
                 }
             }
         return if (merge) merge(kept) else kept
     }
+
+    /** The 屏蔽同类 entry for [text], or null when nothing of it is left to compare. */
+    fun similarRule(text: String): String? =
+        similarKey(text)
+            .takeIf(String::isNotEmpty)
+            ?.let { SIMILAR_MARK + it.take(SIMILAR_KEY_MAX) }
+
+    /**
+     * What stays of a line once the ways of typing it are gone: full-width letters folded, case and
+     * spacing dropped, punctuation dropped when there are words to keep, and every run of one
+     * character cut to one — "哈哈哈" and "哈哈" and "2333" and "233333" are the same reaction.
+     */
+    fun similarKey(text: String): String {
+        val folded =
+            buildString(text.length) {
+                text.forEach { c -> append(if (c in '！'..'～') c - FULL_WIDTH_OFFSET else c) }
+            }.lowercase()
+        val words = folded.any(Char::isLetterOrDigit)
+        val kept = folded.filter { if (words) it.isLetterOrDigit() else !it.isWhitespace() }
+        return buildString(kept.length) {
+            var previous = ""
+            var at = 0
+            while (at < kept.length) {
+                // A pair of surrogates is one character: an emoji repeated is a run like any other.
+                val end = if (kept[at].isHighSurrogate() && at + 1 < kept.length) at + 2 else at + 1
+                val unit = kept.substring(at, end)
+                if (unit != previous) append(unit)
+                previous = unit
+                at = end
+            }
+        }
+    }
+
+    /** A key cut to [SIMILAR_KEY_MAX] stands for every line that starts the same way. */
+    private fun similarMatches(
+        key: String,
+        rule: String,
+    ): Boolean = key == rule || (rule.length >= SIMILAR_KEY_MAX && key.startsWith(rule))
 
     /**
      * Collapses runs of the same line into the earliest of them, carrying a count.
@@ -81,3 +142,6 @@ object DanmakuFilter {
         }
     }
 }
+
+/** From a full-width form (U+FF01..U+FF5E) to the ASCII character it stands for. */
+private const val FULL_WIDTH_OFFSET = 0xFEE0

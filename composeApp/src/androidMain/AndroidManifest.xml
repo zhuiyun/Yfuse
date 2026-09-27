@@ -160,7 +160,7 @@
             android:name="com.yfuse.feature.player.PlayerActivity"
             android:exported="false"
             android:launchMode="singleTop"
-            android:screenOrientation="landscape"
+            android:screenOrientation="sensorLandscape"
             android:supportsPictureInPicture="true"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|density|uiMode"
             android:theme="@style/Theme.Yfuse.Player"

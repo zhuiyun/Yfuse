@@ -50,6 +50,30 @@ class TvRemoteInputControllerTest {
     }
 
     @Test
+    fun only_a_held_seek_asks_for_the_trickplay_card() {
+        val harness = Harness(positionMs = 50_000L, durationMs = 7_200_000L)
+
+        // A tap jumps ten seconds and lets go: no card to flash in and out.
+        harness.keyDown(KeyEvent.KEYCODE_MEDIA_FAST_FORWARD, timeMs = 1_000L)
+        assertTrue(harness.chrome.state.value.seeking)
+        assertNull(harness.chrome.state.value.holdPreviewMs)
+        harness.keyUp(KeyEvent.KEYCODE_MEDIA_FAST_FORWARD, timeMs = 1_080L)
+        assertNull(harness.chrome.state.value.holdPreviewMs)
+
+        // Held, the card follows the target from the first repeat until the key comes up.
+        harness.keyDown(KeyEvent.KEYCODE_MEDIA_FAST_FORWARD, timeMs = 2_000L)
+        harness.keyDown(KeyEvent.KEYCODE_MEDIA_FAST_FORWARD, repeat = 1, timeMs = 2_500L)
+        assertEquals(harness.chrome.state.value.seekTargetMs, harness.chrome.state.value.holdPreviewMs)
+        assertEquals(73_000L, harness.chrome.state.value.holdPreviewMs)
+        harness.keyDown(KeyEvent.KEYCODE_MEDIA_FAST_FORWARD, repeat = 2, timeMs = 2_550L)
+        assertEquals(76_000L, harness.chrome.state.value.holdPreviewMs)
+
+        harness.keyUp(KeyEvent.KEYCODE_MEDIA_FAST_FORWARD, timeMs = 2_600L)
+        assertFalse(harness.chrome.state.value.seekHeld)
+        assertNull(harness.chrome.state.value.holdPreviewMs)
+    }
+
+    @Test
     fun release_flushes_a_repeat_that_arrived_inside_the_debounce_window() {
         val harness = Harness(positionMs = 20_000L, durationMs = 90_000L)
 

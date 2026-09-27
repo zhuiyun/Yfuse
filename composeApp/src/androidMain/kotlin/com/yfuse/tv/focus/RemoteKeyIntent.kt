@@ -84,6 +84,77 @@ sealed interface RemoteIntent {
     data object Guide : RemoteIntent
 }
 
+/** How long 确定 is held before it opens a card's quick actions instead of the card. */
+const val REMOTE_LONG_PRESS_MILLIS = 600L
+
+/**
+ * Decides when a held key has become a long press: [thresholdMs] after its first key-down, once
+ * per hold, on the first key-down (a repeat) at or past that point.
+ *
+ * The platform's own long-press flag cannot say this. The input dispatcher sets it on a key's
+ * first repeat, which it synthesises after the system long-press timeout — 400 or 500 ms,
+ * whichever the device ships — and a remote whose driver repeats keys itself gets it on that
+ * driver's second report, as early as 250 ms. Nor can a repeat's own down time: such a driver
+ * stamps every repeat as a fresh press. So the first key-down's time is kept here, per key.
+ */
+class RemoteLongPressClock(
+    private val thresholdMs: Long = REMOTE_LONG_PRESS_MILLIS,
+) {
+    private val downAt = mutableMapOf<Int, Long>()
+    private val fired = mutableSetOf<Int>()
+
+    /** A key-down, first or repeat. True exactly once per hold. */
+    fun onDown(
+        keyCode: Int,
+        repeatCount: Int,
+        eventTimeMs: Long,
+    ): Boolean {
+        // A fresh press starts the clock again. So does a repeat whose first press went to
+        // another surface: the hold is timed from where this one first saw it.
+        if (repeatCount == 0 || keyCode !in downAt) {
+            downAt[keyCode] = eventTimeMs
+            fired -= keyCode
+            return false
+        }
+        val start = downAt.getValue(keyCode)
+        if (keyCode in fired || eventTimeMs - start < thresholdMs) return false
+        fired += keyCode
+        return true
+    }
+
+    fun onUp(keyCode: Int) {
+        downAt -= keyCode
+        fired -= keyCode
+    }
+}
+
+/**
+ * What a panel opened by holding a key does with the rest of that hold.
+ *
+ * The panel takes focus while 确定 is still down, so the key's remaining repeats and its release
+ * arrive at the panel's first row. A row has not seen that press start, and a repeat looks to it
+ * like one: it would take the release as a click and run the action the person never chose. The
+ * hold belongs to the gesture that opened the panel, so the panel ignores it — every repeat and
+ * the release — until a fresh press of the key.
+ */
+class RemoteHoldCarryOver {
+    private val armed = mutableSetOf<Int>()
+
+    /** True when this event belongs to the hold that opened the panel and must go no further. */
+    fun swallow(
+        keyCode: Int,
+        down: Boolean,
+        repeatCount: Int,
+    ): Boolean {
+        if (keyCode in armed) return false
+        if (down && repeatCount == 0) {
+            armed += keyCode
+            return false
+        }
+        return true
+    }
+}
+
 /**
  * Converts a physical remote event into one semantic action.
  *

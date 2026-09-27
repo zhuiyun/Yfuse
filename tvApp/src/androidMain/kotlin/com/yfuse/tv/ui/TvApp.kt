@@ -207,31 +207,41 @@ fun TvRoot(component: RootComponent) {
     val currentPage by rememberUpdatedState(page)
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val travel = with(LocalDensity.current) { TvPageMotion.travel.roundToPx() }
+    // 焦点视差 asks which way focus came. Every D-pad press passes through the root on its way to
+    // focus, before focus moves, so the root writes it down for the card it lands on.
+    val focusTravel = remember { TvFocusTravel() }
 
-    Box(Modifier.fillMaxSize().background(TvBackground)) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(TvBackground)
+            .recordTvFocusTravel(focusTravel),
+    ) {
         // Each page renders from the target it was handed, never from the live stacks: the page
         // that is leaving has to keep drawing itself, not the one that replaced it.
-        AnimatedContent(
-            targetState = page,
-            transitionSpec = {
-                // Deeper arrives from the right, and back arrives from the left.
-                val direction = if (targetState.depth >= initialState.depth) 1 else -1
-                TvPageMotion.transform(reduceMotion, travel * direction) using Motion.sizeTransform(reduceMotion)
-            },
-            label = "tv-route",
-        ) { shown ->
-            // The page on its way out keeps focus until the new one takes it; a second press of
-            // 确定 in that moment must not open the same title again from the page that is leaving.
-            Box(Modifier.fillMaxSize().onPreviewKeyEvent { currentPage != shown }) {
-                TvRoutePage(
-                    shown = shown,
-                    component = component,
-                    activeTab = activeTab,
-                    focusMemory = focusMemory,
-                    navRequesters = navRequesters,
-                    contentRequesters = contentRequesters,
-                    pageStates = pageStates,
-                )
+        CompositionLocalProvider(LocalTvFocusTravel provides focusTravel) {
+            AnimatedContent(
+                targetState = page,
+                transitionSpec = {
+                    // Deeper arrives from the right, and back arrives from the left.
+                    val direction = if (targetState.depth >= initialState.depth) 1 else -1
+                    TvPageMotion.transform(reduceMotion, travel * direction) using Motion.sizeTransform(reduceMotion)
+                },
+                label = "tv-route",
+            ) { shown ->
+                // The page on its way out keeps focus until the new one takes it; a second press of
+                // 确定 in that moment must not open the same title again from the page that is leaving.
+                Box(Modifier.fillMaxSize().onPreviewKeyEvent { currentPage != shown }) {
+                    TvRoutePage(
+                        shown = shown,
+                        component = component,
+                        activeTab = activeTab,
+                        focusMemory = focusMemory,
+                        navRequesters = navRequesters,
+                        contentRequesters = contentRequesters,
+                        pageStates = pageStates,
+                    )
+                }
             }
         }
     }

@@ -367,9 +367,11 @@ class PlayerActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        // PlayerActivity declares a fixed landscape orientation in the manifest. This rotates only
-        // this Activity and never writes ACCELEROMETER_ROTATION or USER_ROTATION, so leaving the
-        // player restores the user's unchanged system rotation preference.
+        // PlayerActivity declares sensorLandscape in the manifest: landscape either way up, turning
+        // over with the phone, and 旋转锁 in the top bar pins whichever it is (see
+        // [rememberPlayerRotationLock]). This rotates only this Activity and never writes
+        // ACCELEROMETER_ROTATION or USER_ROTATION, so leaving the player restores the user's
+        // unchanged system rotation preference.
         super.onCreate(savedInstanceState)
         val launch =
             com.yfuse.core.designsystem.PlayerArtworkOrigins
@@ -385,7 +387,7 @@ class PlayerActivity : ComponentActivity() {
         waitingForSessions = ServerSessionRecovery.showIfNeeded(this)
         if (waitingForSessions) return
         // A tablet is held whichever way its owner likes; forcing landscape on it only forces a
-        // rotation. Phones keep the manifest's landscape lock. FULL_USER still honours the
+        // rotation. Phones keep the manifest's landscape. FULL_USER still honours the
         // system rotation lock, so this never fights the quick-settings toggle.
         if (resources.configuration.smallestScreenWidthDp >= TABLET_MIN_SMALLEST_WIDTH_DP &&
             !isTelevisionDevice(this)
@@ -1687,9 +1689,15 @@ class PlayerActivity : ComponentActivity() {
             abandonAudioFocus()
         }
         publishMediaSessionState(state, SystemClock.elapsedRealtime())
-        // The title's 片头 / 片尾 markers become chapter points on the cast live update.
-        val markers = playbackItems.value.getOrNull(state.currentIndex)?.playbackSegments
-        notificationController.update(state, sessionTitles, markers.orEmpty())
+        // The title's named chapters become points on the cast live update; its 片头 / 片尾 markers
+        // stand in for a file without chapters.
+        val current = playbackItems.value.getOrNull(state.currentIndex)
+        notificationController.update(
+            state,
+            sessionTitles,
+            current?.playbackSegments.orEmpty(),
+            current?.chapters?.map { it.startMs }.orEmpty(),
+        )
     }
 
     /** Media session only; the notification is left alone so a position refresh costs two calls. */

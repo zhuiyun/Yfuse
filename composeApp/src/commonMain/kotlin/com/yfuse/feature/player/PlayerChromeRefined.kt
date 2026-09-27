@@ -76,6 +76,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
@@ -143,8 +144,13 @@ internal fun RefinedTopBar(
     modifier: Modifier = Modifier,
     /** 氛围光, read only inside the scrim's draw node; null keeps the plain black scrim. */
     ambientLight: State<AmbientLight>? = null,
+    /** 旋转锁 and what holding 聊天 or 投屏 opens; the defaults leave the bar as it was. */
+    extras: PlayerChromeExtras = PlayerChromeExtras(),
+    /** A key is held open or toggled: keeps the chrome from hiding under the finger. */
+    onKeyActivity: () -> Unit = {},
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val haptics = LocalHaptics.current
     Row(
         modifier
             .fillMaxWidth()
@@ -239,9 +245,14 @@ internal fun RefinedTopBar(
             ) {
                 // 有新消息 is a change of treatment on one key rather than a second key, so the
                 // disc fills through a crossfade instead of being swapped for a filled one.
+                // 一起看贴纸轮盘 is held on the container, not the key: a message arriving mid-hold swaps
+                // the key for its unread twin, and would take the finger's gesture with it.
                 AnimatedContent(
                     targetState = unreadChat,
-                    modifier = Modifier.lightOnChange(unreadChat, LightEffect.Converge, emitWhen = unreadChat),
+                    modifier =
+                        Modifier
+                            .lightOnChange(unreadChat, LightEffect.Converge, emitWhen = unreadChat)
+                            .stickerFanKey(extras, onKeyActivity),
                     contentKey = { it },
                     transitionSpec = { barSwapTransform(reduceMotion) },
                     label = "player-chat-unread",
@@ -253,6 +264,7 @@ internal fun RefinedTopBar(
                         12.dp,
                         filled = unread,
                         onClick = onOpenChat,
+                        modifier = Modifier.semantics { customActions = stickerKeyActions(extras, haptics) },
                     )
                 }
             }
@@ -279,12 +291,28 @@ internal fun RefinedTopBar(
                     onClick = onToggleFill,
                 )
             }
+            extras.rotationLock?.let { lock ->
+                // 旋转锁 swaps its glyph the way 画面比例 beside it does.
+                AnimatedContent(
+                    targetState = lock.locked,
+                    contentKey = { it },
+                    transitionSpec = { barSwapTransform(reduceMotion) },
+                    label = "player-rotation-lock",
+                ) { locked ->
+                    RotationLockKey(lock, locked, onKeyActivity)
+                }
+            }
+            // 按住拖送: held, the key drops its recent devices underneath; tapped, it opens 投屏 as before.
             CircleControl(
                 AppIcons.Cast,
                 "投屏",
                 28.dp,
                 12.dp,
                 onClick = onOpenCast,
+                modifier =
+                    Modifier
+                        .castListKey(extras, onKeyActivity)
+                        .semantics { customActions = castKeyActions(extras) },
             )
             CircleControl(
                 AppIcons.More,
