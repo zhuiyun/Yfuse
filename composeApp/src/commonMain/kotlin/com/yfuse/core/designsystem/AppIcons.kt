@@ -463,6 +463,29 @@ object AppIcons {
             roundRect(12.2f, 11.4f, 6.6f, 5f, 1.4f)
         }.build()
 
+    /** 旋转锁, on: the phone on its side beside a shut padlock — [Lock]'s shackle, smaller. */
+    val RotationLocked =
+        strokeVector("rotation-locked") {
+            roundRect(3.2f, 7.2f, 10.6f, 9.6f, 1.8f)
+            roundRect(14.8f, 12.4f, 6f, 5.4f, 1.3f)
+        }.andPath {
+            moveTo(16.2f, 12.4f)
+            verticalLineTo(10.8f)
+            arcToRelative(1.6f, 1.6f, 0f, isMoreThanHalf = false, isPositiveArc = true, 3.2f, 0f)
+            verticalLineTo(12.4f)
+        }.build()
+
+    /** 旋转锁, off: the same padlock open, as [Unlock] opens. */
+    val RotationUnlocked =
+        strokeVector("rotation-unlocked") {
+            roundRect(3.2f, 7.2f, 10.6f, 9.6f, 1.8f)
+            roundRect(14.8f, 12.4f, 6f, 5.4f, 1.3f)
+        }.andPath {
+            moveTo(16.2f, 12.4f)
+            verticalLineTo(10.8f)
+            arcToRelative(1.6f, 1.6f, 0f, isMoreThanHalf = false, isPositiveArc = true, 2.96f, -0.84f)
+        }.build()
+
     // ------------------------------------------------------------ controls
 
     val More = dotVector("more", 5.9f to 12f, 12f to 12f, 18.1f to 12f)
