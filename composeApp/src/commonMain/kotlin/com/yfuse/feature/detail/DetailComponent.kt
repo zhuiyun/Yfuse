@@ -102,6 +102,23 @@ class DetailComponent(
             serverById = registry::serverById,
         )
 
+    /**
+     * 按住拖看 on the episode rail: a held episode's trickplay, fetched when its card lifts and kept
+     * while this page is. The season's list carries none.
+     */
+    internal val episodeTrickplay =
+        EpisodeTrickplay(scope = componentScope(lifecycle)) { seasonServerId, episode ->
+            val server = registry.serverById(seasonServerId)
+            val source = episode.versions.firstOrNull()?.id ?: episode.id
+            if (server == null) {
+                Result.success(null)
+            } else {
+                repo.trickplayInfo(server, episode.id, source).map { info ->
+                    info?.let { episodeStoryboard(it, server.baseUrl, server.accessToken, episode.id, source) }
+                }
+            }
+        }
+
     /** 浮起菜单's 播放 on a 相关推荐 poster: straight to the player, without this page's selection. */
     fun playRelated(
         serverId: String,

@@ -64,6 +64,7 @@ import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ItemAction
 import com.yfuse.core.designsystem.LiftAnchor
 import com.yfuse.core.designsystem.LiftMenu
+import com.yfuse.core.designsystem.LiftScrub
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.LocalRouteVisible
@@ -556,7 +557,9 @@ internal fun EpisodeSection(
                         download = rowActions?.downloads?.get(episode.id),
                         // A press held on a card lifts it into the 单集 menu (5.1). The rail scrolls
                         // sideways, so the card has no swipe of its own; 从这里开始多选 opens the
-                        // 管理进度 sheet, whose rows swipe and sweep.
+                        // 管理进度 sheet, whose rows swipe and sweep. The sideways look through the
+                        // episode (按住拖看) happens on the lifted card instead, once the rail can no
+                        // longer take the finger.
                         liftMenu =
                             rowActions?.takeIf { !seasonLoading }?.let { actions ->
                                 {
@@ -570,6 +573,7 @@ internal fun EpisodeSection(
                                         onMark = actions::mark,
                                         onDownload = { actions.download(listOf(episode)) },
                                         onSelectFrom = { actions.startSelection(episode) },
+                                        scrub = actions.scrub(episode),
                                     )
                                 }
                             },
@@ -718,7 +722,17 @@ internal class EpisodeRowActions(
     private val offline: OfflineMediaManager,
     /** The listed season's episodes on this device or on their way, by item id. */
     val downloads: Map<String, OfflineMedia>,
+    /** 按住拖看's frames, fetched as cards lift; null leaves a lifted card as it is. */
+    private val trickplay: EpisodeTrickplay? = null,
+    /** The server the listed season is on, which the frames are fetched from. */
+    private val serverId: String? = null,
 ) {
+    /** 按住拖看: what [episode]'s lifted card scrubs through, once its frames arrive. */
+    fun scrub(episode: Episode): LiftScrub? {
+        val server = serverId ?: return null
+        return trickplay?.scrub(server, episode)
+    }
+
     fun mark(
         episodeIds: Set<String>,
         played: Boolean,
@@ -795,6 +809,8 @@ internal fun rememberEpisodeRowActions(
             store = component.store,
             offline = offline,
             downloads = items.filter { it.serverId == serverId }.associateBy { it.itemId },
+            trickplay = component.episodeTrickplay,
+            serverId = serverId,
         )
     }
 }
@@ -802,7 +818,8 @@ internal fun rememberEpisodeRowActions(
 /**
  * The 浮起菜单 for one episode (5.1 单集): 播放 │ 标记为已看 or 未看, 标记此前全部已看 │ 下载,
  * 从这里开始多选. A row with nothing to do is left out — nothing unwatched before the episode, a
- * copy already downloaded.
+ * copy already downloaded. With [scrub], the lifted card previews the episode under a finger
+ * sliding across it (按住拖看).
  */
 internal fun episodeLiftMenu(
     episode: Episode,
@@ -814,6 +831,7 @@ internal fun episodeLiftMenu(
     onMark: (Set<String>, Boolean) -> Unit,
     onDownload: () -> Unit,
     onSelectFrom: () -> Unit,
+    scrub: LiftScrub? = null,
 ): LiftMenu {
     val earlier = unwatchedBefore(episodes, episode.id)
     return LiftMenu(
@@ -866,6 +884,7 @@ internal fun episodeLiftMenu(
                     ),
                 ),
             ),
+        scrub = scrub,
     )
 }
 
