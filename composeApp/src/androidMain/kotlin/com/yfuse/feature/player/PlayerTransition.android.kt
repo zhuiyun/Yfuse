@@ -42,6 +42,7 @@ import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
+import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalContext
@@ -62,6 +63,7 @@ import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.PlayerHandoff
 import com.yfuse.core.designsystem.PlayerTransitionStyle
 import com.yfuse.core.designsystem.ScreenGeometry
+import com.yfuse.core.designsystem.ScreenGeometrySource
 import com.yfuse.core.designsystem.coveringTurn
 import com.yfuse.core.designsystem.drawArtwork
 import com.yfuse.core.designsystem.drawGlassRim
@@ -86,7 +88,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.PI
-import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.exp
 import kotlin.math.max
@@ -399,10 +400,13 @@ internal fun PlayerTransitionLayer(
         Modifier
             .fillMaxSize()
             .onGloballyPositioned {
-                val screen = screenSource.current()
-                scene.screen = screen
-                scene.origin = it.positionInWindow() + screen.windowOffset
+                scene.coordinates = it
+                scene.refreshScreen(screenSource, moved = true)
             }.drawBehind {
+                // A half turn — into the other landscape, which the player now follows — moves
+                // nothing and resizes nothing, so layout never hears of it. Read again each frame,
+                // the scene is always drawn for the way the glass faces now.
+                scene.refreshScreen(screenSource)
                 when (layer) {
                     PlayerTransitionLayerKind.Entrance -> scene.drawEntrance(this)
                     PlayerTransitionLayerKind.Exit -> scene.drawExit(this)
@@ -427,8 +431,10 @@ internal fun PlayerTransitionLayer(
 }
 
 /**
- * 开幕 opens once the phone has actually been turned to the player's orientation. Flat on a
- * table the sensor has no answer, and the gate opens on its timeout instead.
+ * 开幕 opens once the phone has actually been turned to the player's orientation — to either
+ * landscape, where the player follows the phone into both — and not only the one the window
+ * happened to open in. Flat on a table the sensor has no answer, and the gate opens on its
+ * timeout instead.
  */
 @Composable
 private fun OrientationGate(state: PlayerTransitionState) {
@@ -436,13 +442,12 @@ private fun OrientationGate(state: PlayerTransitionState) {
     val screenSource = rememberScreenGeometrySource()
     DisposableEffect(state, context) {
         val playerRotation = screenSource.current().rotation
-        val target = (360 - 90 * playerRotation).mod(360)
+        val targets = orientationGateTargets(playerRotation, context.playerFollowsBothLandscapes())
         val listener =
             object : OrientationEventListener(context) {
                 override fun onOrientationChanged(orientation: Int) {
                     if (orientation == ORIENTATION_UNKNOWN) return
-                    val distance = abs(orientation - target).let { minOf(it, 360 - it) }
-                    if (distance <= TURNED_WITHIN_DEGREES) {
+                    if (turnedToward(orientation, targets, TURNED_WITHIN_DEGREES)) {
                         state.markTurned()
                         // One answer is all the gate needs; the sensor must not run for the whole film.
                         disable()
@@ -471,6 +476,7 @@ private class PlayerScene(
     var aspect: Float? = null
     var origin = Offset.Zero
     var screen: ScreenGeometry? = null
+    var coordinates: LayoutCoordinates? = null
     lateinit var artLayer: GraphicsLayer
     lateinit var fieldLayer: GraphicsLayer
     private val fieldBlurs = HandoffBlurs(TileMode.Clamp)
@@ -478,6 +484,21 @@ private class PlayerScene(
 
     private val launch get() = state.launch
     private val style get() = state.style
+
+    /**
+     * The display as this window sees it now. Everything [map] draws is placed by the rotation,
+     * so a window that turned half-way round — 90° to 270° — must not keep drawing for the old one.
+     */
+    fun refreshScreen(
+        source: ScreenGeometrySource,
+        moved: Boolean = false,
+    ) {
+        val placed = coordinates?.takeIf { it.isAttached } ?: return
+        val now = source.current()
+        if (!moved && now == screen) return
+        screen = now
+        origin = placed.positionInWindow() + now.windowOffset
+    }
 
     // ------------------------------------------------------------ geometry
 
