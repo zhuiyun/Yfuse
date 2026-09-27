@@ -254,6 +254,39 @@ class Session:
                 "capture": self.capture("10-background-return"),
                 "limit": "short unauthenticated smoke; not long-duration or playback stability"}
 
+    def layout_probe(self):
+        captures = []
+        self.tap("库")
+        captures.append(self.capture("layout-library-empty"))
+        self.tap("首页")
+        for scale in ("1.0", "1.3"):
+            self.adb("shell", "settings", "put", "system", "user_rotation", "0")
+            self.adb("shell", "settings", "put", "system", "font_scale", scale)
+            self.adb("shell", "settings", "put", "system", "accelerometer_rotation", "0")
+            time.sleep(5)
+            self.adb("shell", "settings", "put", "system", "user_rotation", "1")
+            began = time.monotonic()
+            # Avoid hierarchy dumps between frames: their idle waits alter capture timing.
+            for target in (1, 3, 10):
+                time.sleep(max(0, target - (time.monotonic() - began)))
+                observed = time.monotonic() - began
+                name = f"layout-font-{scale}-landscape-{target}s"
+                png = self.adb("exec-out", "screencap", "-p", binary=True)
+                if png[:8] != b"\x89PNG\r\n\x1a\n":
+                    raise RuntimeError("Invalid layout probe screenshot")
+                (self.output / f"{name}.png").write_bytes(png)
+                width, height = struct.unpack(">II", png[16:24])
+                captures.append({"screenshot": f"{name}.png", "width": width, "height": height,
+                                 "seconds_after_rotation_command": round(observed, 3)})
+            root, value = self.tree()
+            (self.output / f"layout-font-{scale}-landscape.xml").write_text(value)
+        self.adb("shell", "settings", "put", "system", "font_scale", "1.0")
+        self.adb("shell", "wm", "size", "1600x2560")
+        self.adb("shell", "wm", "density", "320")
+        time.sleep(10)
+        captures.append(self.capture("layout-tablet-viewport"))
+        return {"captures": captures, "limit": "viewport emulation and sampled frames; not physical tablet or continuous frame timing"}
+
     def diagnostics(self):
         if not self.serial:
             return
@@ -285,6 +318,7 @@ def main():
     parser.add_argument("--apk-directory", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--soak-seconds", type=int, default=120)
+    parser.add_argument("--layout-probe", action="store_true")
     args = parser.parse_args()
     if not 0 <= args.soak_seconds <= 600:
         parser.error("soak-seconds must be between 0 and 600")
@@ -296,6 +330,10 @@ def main():
         session.case("Booted emulator and ARM64 translation", session.connect)
         session.case("Clean install", session.install)
         session.case("App launch and foreground hierarchy", session.launch)
+        if args.layout_probe:
+            session.case("Targeted rotation, font and tablet viewport evidence", session.layout_probe)
+            session.summary["result"] = "layout_probe_completed_visual_review_required"
+            return 0
         session.case("Profile page reachable", lambda: session.navigate("我的", "账号与同步", "02-profile"))
         session.case("Account signed-out page reachable", lambda: session.navigate("账号与同步", "登录账号", "03-account-signed-out"))
         session.back()

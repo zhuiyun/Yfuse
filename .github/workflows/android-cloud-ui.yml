@@ -59,7 +59,7 @@ jobs:
           emulator-boot-timeout: 600
           disable-animations: false
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none -accel on
-          script: python3 scripts/android_cloud_ui.py --apk-directory artifacts/cloud-input --output artifacts/cloud-ui --soak-seconds 120
+          script: python3 scripts/android_cloud_ui.py --apk-directory artifacts/cloud-input --output artifacts/cloud-ui --layout-probe
       - name: Save screenshots, UI trees, diagnostics and case results
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a

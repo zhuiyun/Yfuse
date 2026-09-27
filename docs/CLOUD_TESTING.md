@@ -22,6 +22,13 @@ media-server requests, playback, downloads, live update UI and real-device
 performance remain separate pending tests. Artifacts on this public repository
 must not contain account credentials or restored private media configurations.
 
+The follow-up `--layout-probe` mode samples 1/3/10 seconds after rotation at
+font scales 1.0 and 1.3, captures the empty Library tab and an emulated tablet
+viewport. It skips the already completed foreground/background smoke loop.
+Actual elapsed capture times and pixel dimensions are saved; these sampled
+frames do not establish exact blank-frame duration. The current workflow runs
+this targeted mode to investigate observations from run `36351030665`.
+
 Local command (disposable emulator only):
 
 ```sh
