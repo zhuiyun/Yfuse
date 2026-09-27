@@ -380,12 +380,42 @@ class LiftMenuTest {
 
     @Test
     fun onlyAFingerGoneSidewaysPastTheDeadZoneScrubs() {
-        val start = Offset(100f, 100f)
-        assertFalse(liftScrubEngaged(start, Offset(105f, 101f), deadZone = 8f))
-        assertTrue(liftScrubEngaged(start, Offset(110f, 101f), deadZone = 8f))
-        assertTrue(liftScrubEngaged(start, Offset(88f, 97f), deadZone = 8f))
-        assertFalse(liftScrubEngaged(start, Offset(100f, 130f), deadZone = 8f))
-        assertFalse(liftScrubEngaged(start, Offset(110f, 110f), deadZone = 8f))
+        val anchor = Offset(100f, 100f)
+        assertEquals(DragAxis.Undecided, liftScrubAxis(anchor, Offset(105f, 101f), deadZone = 8f))
+        assertEquals(DragAxis.Horizontal, liftScrubAxis(anchor, Offset(110f, 101f), deadZone = 8f))
+        assertEquals(DragAxis.Horizontal, liftScrubAxis(anchor, Offset(88f, 97f), deadZone = 8f))
+        assertEquals(DragAxis.Vertical, liftScrubAxis(anchor, Offset(100f, 130f), deadZone = 8f))
+        assertEquals(DragAxis.Vertical, liftScrubAxis(anchor, Offset(110f, 110f), deadZone = 8f))
+    }
+
+    @Test
+    fun aFingerLiftedOverTheRowsScrubsOnceItHasClimbedOntoTheCard() {
+        val scrub = FakeScrub(270)
+        val menu = scrubMenu(scrub, Recorder())
+        // A poster low on the screen: the column slid up, and the finger starts on the menu.
+        val lift =
+            LiftSession(menu, Rect(80f, 240f, 240f, 330f), Offset(160f, 280f), menu.onOpen, {}, {}).also {
+                it.placement = LiftPlacement(Rect(0f, 0f, 320f, 198f), Rect(0f, 208f, 320f, 320f), menuScrolls = false)
+                it.rowHeight = 48f
+                it.separatorHeight = 9f
+                it.padding = 6f
+                it.scrubStep = 8f
+            }
+        assertTrue(lift.steer(Offset(160f, 150f), slop = 8f))
+        assertEquals(LiftHit.Card, lift.hot)
+        assertEquals(-1, lift.scrubFrame)
+        assertTrue(lift.steer(Offset(172f, 148f), slop = 8f))
+        assertEquals(144, lift.scrubFrame)
+    }
+
+    @Test
+    fun aFingerThatWentDownAndThenAcrossScrubsFromWhereItTurned() {
+        val lift = scrubSession(FakeScrub(270))
+        lift.steer(Offset(160f, 140f), slop = 8f)
+        lift.steer(Offset(160f, 170f), slop = 8f)
+        assertEquals(-1, lift.scrubFrame)
+        assertTrue(lift.steer(Offset(172f, 172f), slop = 8f))
+        assertEquals(144, lift.scrubFrame)
     }
 
     @Test

@@ -302,15 +302,16 @@ internal fun liftScrubFraction(
 ): Float = if (card.width > 0f) ((x - card.left) / card.width).coerceIn(0f, 1f) else 0f
 
 /**
- * Whether the lifting finger has gone sideways far enough from [start], where the lift began, to
- * scrub: past [deadZone], and more across than down, the way the browse pages tell a sideways
- * swipe from a scroll (8). A still finger, or one heading down for the rows, does not scrub.
+ * 按住拖看's dead zone: which way the finger has gone from [anchor] — where it came onto the card,
+ * or last went up or down — once past [deadZone]. Sideways only when more across than down, the
+ * way the browse pages tell a swipe from a scroll (8): [DragAxis.Horizontal] starts the scrub, a
+ * finger heading for the rows is [DragAxis.Vertical], and a still one is not decided yet.
  */
-internal fun liftScrubEngaged(
-    start: Offset,
+internal fun liftScrubAxis(
+    anchor: Offset,
     finger: Offset,
     deadZone: Float,
-): Boolean = resolveDragAxis(finger.x - start.x, finger.y - start.y, deadZone) == DragAxis.Horizontal
+): DragAxis = resolveDragAxis(finger.x - anchor.x, finger.y - anchor.y, deadZone)
 
 /** How many places a card [width] wide has for [frames] frames at least [step] apart; 0 for none. */
 internal fun liftScrubStops(
@@ -430,6 +431,13 @@ internal class LiftSession(
 
     /** The finger has gone sideways past the dead zone once; from then on the card follows it. */
     private var scrubbing = false
+
+    /**
+     * Where the dead zone is measured from until then: the lift's start, then wherever the finger
+     * came onto the card or last went up or down on it. A poster low on the screen lifts with its
+     * menu under the finger, which has to climb onto the card before it can look sideways.
+     */
+    private var scrubAnchor: Offset? = finger
     private var pending: (() -> Unit)? = null
 
     /** Replaced by another lift before it finished; its finger may still be down, but it runs nothing. */
@@ -448,14 +456,14 @@ internal class LiftSession(
         slop: Float,
     ): Boolean {
         if (abandoned || !holding || exit != LiftExit.None) return false
-        val start = origin ?: finger
         if (!steering) {
+            val start = origin ?: finger
             if ((finger - start).getDistance() <= slop) return false
             steering = true
         }
         val laid = placement ?: return false
         val next = liftHitAt(finger, laid, sectionSizes, rowHeight, separatorHeight, padding)
-        val scrubbed = scrubAlong(finger, start, next, laid.card, slop)
+        val scrubbed = scrubAlong(finger, next, laid.card, slop)
         if (next == hot) return scrubbed
         hot = next
         return next != LiftHit.None
@@ -468,16 +476,27 @@ internal class LiftSession(
      */
     private fun scrubAlong(
         finger: Offset,
-        start: Offset,
         hit: LiftHit,
         card: Rect,
         deadZone: Float,
     ): Boolean {
         val scrub = menu.scrub?.takeUnless { menu.anchored } ?: return false
-        if (!scrubbing) scrubbing = liftScrubEngaged(start, finger, deadZone)
+        if (hit != LiftHit.Card) {
+            scrubAnchor = null
+            scrubFrame = -1
+            return false
+        }
+        if (!scrubbing) {
+            val anchor = scrubAnchor?.takeIf { card.contains(it) } ?: finger
+            when (liftScrubAxis(anchor, finger, deadZone)) {
+                DragAxis.Horizontal -> scrubbing = true
+                DragAxis.Vertical -> scrubAnchor = finger
+                DragAxis.Undecided -> scrubAnchor = anchor
+            }
+        }
         val frames = scrub.frameCount
         val stops = liftScrubStops(frames, card.width, scrubStep)
-        if (!scrubbing || hit != LiftHit.Card || stops == 0) {
+        if (!scrubbing || stops == 0) {
             scrubFrame = -1
             return false
         }
