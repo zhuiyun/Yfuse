@@ -34,6 +34,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
@@ -87,6 +88,13 @@ private val LiftRowTravel = 6.dp
 
 /** The highlight under the row a finger is over. Deliberately not animated: it has to keep up. */
 private const val LIFT_HOT_ALPHA = 0.08f
+
+/** 按住拖看's position line, its dark edge, and the time's plate, inset from the card's edges. */
+private val LiftScrubLineWidth = 2.dp
+private val LiftScrubLineEdge = 1.dp
+private val LiftScrubLineShade = Color.Black.copy(alpha = 0.32f)
+private val LiftScrubLabelInset = 8.dp
+private val LiftScrubLabelFill = Color(0xFF080C14).copy(alpha = 0.72f)
 
 /**
  * Draws the lifted poster, when there is one: the blurred and dimmed page, the preview card,
@@ -175,6 +183,7 @@ private fun LiftLayer(
         val rowHeight = with(density) { LiftMenuRowHeight.toPx() }
         val separatorHeight = with(density) { LiftMenuSeparatorHeight.toPx() }
         val menuPadding = with(density) { LiftMenuPadding.toPx() }
+        val scrubStep = with(density) { LiftScrubStep.toPx() }
         val placement =
             remember(session, width, height, origin, insetLeft, insetRight, insetTop, insetBottom, density) {
                 val margin = with(density) { LiftMargin.toPx() }
@@ -213,6 +222,7 @@ private fun LiftLayer(
             session.rowHeight = rowHeight
             session.separatorHeight = separatorHeight
             session.padding = menuPadding
+            session.scrubStep = scrubStep
         }
 
         // The blur rides the same fade as the dimming, so a settling poster brings the page back
@@ -420,6 +430,70 @@ private fun LiftCard(
                 )
             }
         }
+        menu.scrub?.let { scrub ->
+            LiftScrubLayer(session = session, scrub = scrub, modifier = Modifier.matchParentSize())
+        }
+    }
+}
+
+/**
+ * 按住拖看: while the lifting finger scrubs, the frame under it covers the whole card — artwork and
+ * words — with a hairline where the finger is and the time above it. Only a change of
+ * [LiftSession.scrubFrame] recomposes this; the line and the time follow the finger in drawing and
+ * placement, so a move between two frames costs neither.
+ */
+@Composable
+private fun LiftScrubLayer(
+    session: LiftSession,
+    scrub: LiftScrub,
+    modifier: Modifier,
+) {
+    val frame = session.scrubFrame
+    if (frame < 0) return
+    val density = LocalDensity.current
+    val line = with(density) { LiftScrubLineWidth.toPx() }
+    val edge = with(density) { LiftScrubLineEdge.toPx() }
+    val inset = with(density) { LiftScrubLabelInset.roundToPx() }
+    Box(modifier) {
+        scrub.Frame(index = frame, modifier = Modifier.fillMaxSize())
+        Box(
+            Modifier
+                .fillMaxSize()
+                .drawBehind {
+                    val x = session.scrubFraction * size.width
+                    // A dark edge keeps the white line visible over a bright frame.
+                    drawRect(
+                        color = LiftScrubLineShade,
+                        topLeft = Offset(x - line / 2f - edge, 0f),
+                        size = Size(line + edge * 2f, size.height),
+                    )
+                    drawRect(
+                        color = Color.White,
+                        topLeft = Offset(x - line / 2f, 0f),
+                        size = Size(line, size.height),
+                    )
+                },
+        )
+        Text(
+            scrub.label(frame),
+            style = AppTypography.caption.strong,
+            color = Color.White,
+            maxLines = 1,
+            modifier =
+                Modifier
+                    .layout { measurable, constraints ->
+                        // Along the top, centred on the line and kept inside the card, clear of
+                        // the finger, which is lower down where the poster was pressed.
+                        val placeable = measurable.measure(constraints.copy(minWidth = 0, minHeight = 0))
+                        val width = constraints.maxWidth
+                        layout(width, placeable.height + inset) {
+                            val centred = (session.scrubFraction * width - placeable.width / 2f).roundToInt()
+                            val last = (width - inset - placeable.width).coerceAtLeast(inset)
+                            placeable.place(centred.coerceIn(inset, last), inset)
+                        }
+                    }.background(LiftScrubLabelFill, AppShapes.micro)
+                    .padding(horizontal = 6.dp, vertical = 2.dp),
+        )
     }
 }
 
