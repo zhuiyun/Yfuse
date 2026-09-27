@@ -89,8 +89,11 @@ import androidx.compose.ui.unit.offset
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.request.crossfade
+import com.yfuse.core.designsystem.DialogPresence
+import com.yfuse.core.designsystem.LiftMenu
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.Motion
+import com.yfuse.core.designsystem.calmMotion
 import com.yfuse.tv.focus.FocusAnchor
 import com.yfuse.tv.focus.FocusCandidate
 import com.yfuse.tv.focus.FocusContext
@@ -317,6 +320,12 @@ internal data class TvMediaCardModel(
     val selected: Boolean = false,
     /** Whether the card is one choice among its row's — see [TvFocusableSurface]'s `selectable`. */
     val selectable: Boolean = false,
+    /**
+     * What holding 确定 on the card offers — the title's [com.yfuse.core.designsystem.ItemAction]s,
+     * the same the phone's 浮起菜单 lists. Built when the hold lands, not for every card on every
+     * pass; null keeps the card without a long press.
+     */
+    val quickActions: (() -> LiftMenu)? = null,
     val onClick: () -> Unit,
 )
 
@@ -357,10 +366,16 @@ internal fun TvFocusableSurface(
     profileId: String? = null,
     /** What a screen reader says for this surface; the stable id is an internal key, not a name. */
     contentDescription: String? = null,
+    /** 焦点视差 as focus arrives — for a card, not for a button, a row or the rail. */
+    parallax: Boolean = false,
     content: @Composable (focused: Boolean) -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    // 静息 and 减少动态效果 keep the lift and the white edge, and nothing else.
+    val calm = calmMotion()
+    val parallaxCard = if (parallax && !reduceMotion && !calm) rememberTvFocusParallax() else null
+    val focusTravel = LocalTvFocusTravel.current
     // One clock, read only in the layer and draw phases: scale, edge and plate move together
     // and a focus change recomposes nothing. See [TvFocusMotion].
     val focusAmount =
@@ -385,6 +400,10 @@ internal fun TvFocusableSurface(
                 val scale = 1f + (focusScale - 1f) * focusAmount.value
                 scaleX = scale
                 scaleY = scale
+                if (parallaxCard != null) {
+                    cameraDistance = TvFocusMotion.PARALLAX_CAMERA_DISTANCE * density
+                    rotationY = parallaxCard.tilt.value
+                }
             }.then(requesterModifier)
             .tvFocusTarget(
                 targetId = targetId,
@@ -406,6 +425,7 @@ internal fun TvFocusableSurface(
                 if (state.isFocused) {
                     focusMemory.remember(focusScope, stableId, serverId, profileId)
                     onFocused?.invoke()
+                    parallaxCard?.arriveBy(focusTravel)
                 }
             }.onPreviewKeyEvent { event ->
                 if (
@@ -428,10 +448,13 @@ internal fun TvFocusableSurface(
             }.clip(shape)
             .drawWithCache {
                 val outline = shape.createOutline(size, layoutDirection, this)
+                val sweep = parallaxCard?.let { TvFocusSweep(size) }
                 onDrawWithContent {
                     val amount = focusAmount.value.coerceIn(0f, 1f)
                     drawOutline(outline, lerp(restPlate, TvSurfaceFocused, amount))
                     drawContent()
+                    // Over the artwork and under the edge, inside the clip.
+                    if (parallaxCard != null && sweep != null) drawTvFocusSweep(sweep, parallaxCard.sweep.value)
                     // The clip removes the outer half of a centred stroke, so twice the width
                     // leaves exactly the token inside the shape — what `border` used to draw.
                     val edge = lerp(restEdgeWidth, TvFocusMotion.focusBorder, amount).toPx()
@@ -595,6 +618,18 @@ internal fun TvMediaCard(
     fallbackIndex: Int = 0,
 ) {
     val width = if (model.artworkShape == TvArtworkShape.Poster) 142.dp else 232.dp
+    // 长按面板 — see [TvQuickActionsPanel]. The card keeps focus in its own window while the panel
+    // is up, so closing it puts the remote back on this card with nothing to restore.
+    var quickActions by remember { mutableStateOf<LiftMenu?>(null) }
+    val openQuickActions = model.quickActions?.let { build -> { quickActions = build() } }
+    DialogPresence(quickActions) { menu ->
+        TvQuickActionsPanel(
+            menu = menu,
+            focusMemory = focusMemory,
+            route = tvFocusRoute(focusScope),
+            onDismiss = { quickActions = null },
+        )
+    }
     TvFocusableSurface(
         stableId = model.stableId,
         // One sentence for the whole card. The artwork below stays silent: it carried the title
@@ -612,10 +647,11 @@ internal fun TvMediaCard(
         selected = model.selected,
         selectable = model.selectable,
         onFocused = onFocused,
-        onContextMenu = onContextMenu,
+        onContextMenu = onContextMenu ?: openQuickActions,
         fallbackIndex = fallbackIndex,
         serverId = model.serverId,
         profileId = model.profileId,
+        parallax = true,
     ) { focused ->
         Column {
             Box(
@@ -922,6 +958,7 @@ internal fun TvMediaRow(
                         focusMemory = focusMemory,
                         onClick = onSeeAll,
                         modifier = Modifier.width(116.dp).height(180.dp),
+                        parallax = true,
                     ) {
                         Column(
                             Modifier.fillMaxSize(),

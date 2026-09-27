@@ -26,9 +26,15 @@ class TvPlayerChromeControllerTest {
         assertTrue(controller.state.value.seeking)
         assertEquals(42_000L, controller.state.value.seekTargetMs)
 
+        assertNull(controller.state.value.holdPreviewMs)
+        controller.updateSeekPreview(51_000L, held = true)
+        assertEquals(51_000L, controller.state.value.holdPreviewMs)
+
         controller.finishSeekPreview()
         assertFalse(controller.state.value.seeking)
         assertNull(controller.state.value.seekTargetMs)
+        assertFalse(controller.state.value.seekHeld)
+        assertNull(controller.state.value.holdPreviewMs)
 
         controller.hideControls()
         assertEquals(TvPlayerChromeLayer.Hidden, controller.state.value.layer)

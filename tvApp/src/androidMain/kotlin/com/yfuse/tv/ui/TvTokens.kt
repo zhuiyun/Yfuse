@@ -2,7 +2,9 @@ package com.yfuse.tv.ui
 
 import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.core.AnimationSpec
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.SpringSpec
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
@@ -124,6 +126,43 @@ internal object TvFocusMotion {
         requested: Float,
         reduceMotion: Boolean,
     ): Float = if (reduceMotion) 1f else requested
+
+    // 焦点视差 — cards only, and neither under 静息 nor under 减少动态效果, which keep the lift
+    // and the white edge above and nothing else.
+
+    /** How far a card focus arrives on starts turned, the side focus came from set back. */
+    const val PARALLAX_DEGREES = 8f
+
+    /**
+     * Where the turned card is seen from, times density — the phone's press tilt uses the same
+     * distance: Compose's default is close enough that a turned poster smears instead of turning.
+     */
+    const val PARALLAX_CAMERA_DISTANCE = 20f
+
+    /**
+     * The card turning back to face the room. Under-damped: it passes rest once, by about an
+     * eighth of the turn, and stops. A spring and not a duration because the next press can
+     * land before it has settled, and it carries on from wherever it was.
+     */
+    fun <T> parallax(): SpringSpec<T> = spring(dampingRatio = 0.55f, stiffness = 260f)
+
+    /** The light that crosses a card once as focus arrives on it, left to right. */
+    const val SWEEP_MILLIS = 420
+
+    /** The band's width, as a share of the card's. */
+    const val SWEEP_BAND = 0.45f
+
+    /** White at the band's centre line, fading to nothing at its edges. */
+    const val SWEEP_ALPHA = 0.34f
+
+    /** The band leans this far from upright, its top ahead of its foot. */
+    const val SWEEP_LEAN_DEGREES = 12f
+
+    /** Quick off the mark and long in the tail, so the light is seen to leave rather than stop. */
+    val SweepEasing = CubicBezierEasing(0.3f, 0.6f, 0.4f, 1f)
+
+    /** How soon after a D-pad press a card gaining focus still counts as that press arriving. */
+    const val ARRIVAL_WINDOW_MILLIS = 300L
 }
 
 // ---------------------------------------------------------------- dialogs
