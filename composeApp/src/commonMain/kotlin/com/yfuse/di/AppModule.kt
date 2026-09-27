@@ -19,6 +19,7 @@ import com.yfuse.core.data.DanmakuPreferences
 import com.yfuse.core.data.DanmakuRepository
 import com.yfuse.core.data.DiagnosticPreferences
 import com.yfuse.core.data.EmbyRepository
+import com.yfuse.core.data.HomeShelfPreferences
 import com.yfuse.core.data.LibraryCache
 import com.yfuse.core.data.NoOpCalendarLocalStore
 import com.yfuse.core.data.OfficialAiringScheduleCatalog
@@ -35,6 +36,7 @@ import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.ServerStatsStore
 import com.yfuse.core.data.SkipSegmentPreferences
 import com.yfuse.core.data.ThemePreferences
+import com.yfuse.core.data.TipsPreferences
 import com.yfuse.core.data.TmdbHomeCache
 import com.yfuse.core.data.TmdbRepository
 import com.yfuse.core.data.UserAgentPreferences
@@ -65,6 +67,7 @@ import com.yfuse.core.sync.WatchTogetherClient
 import com.yfuse.core.sync.playback.PlaybackSyncManager
 import com.yfuse.core.sync.playback.PlaybackSyncStore
 import com.yfuse.core.util.platformName
+import com.yfuse.feature.library.LibraryGridColumnsPreferences
 import com.yfuse.feature.player.PlaybackReportingCoordinator
 import com.yfuse.feature.search.SearchRequests
 import com.yfuse.feature.servers.EmbyQuickConnectGateway
@@ -116,6 +119,9 @@ fun appModule(
         )
     }
     single { ThemePreferences(get()) }
+    single { TipsPreferences(get()) }
+    single { LibraryGridColumnsPreferences(get()) }
+    single { HomeShelfPreferences(get()) }
     single { PlaybackPreferences(get()) }
     single { PlaybackFailoverRequest() }
     single { PlaybackEventOutbox(get()) }

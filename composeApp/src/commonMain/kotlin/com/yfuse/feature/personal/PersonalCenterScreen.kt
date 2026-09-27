@@ -2,38 +2,53 @@ package com.yfuse.feature.personal
 
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.account.AccountRepository
 import com.yfuse.core.account.AccountState
 import com.yfuse.core.data.EmbyRepository
+import com.yfuse.core.designsystem.ActionToast
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.ContextualTip
 import com.yfuse.core.designsystem.DialogPresence
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.GlassDialog
+import com.yfuse.core.designsystem.ItemAction
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.Section
 import com.yfuse.core.designsystem.SettingRow
 import com.yfuse.core.designsystem.SettingsCard
 import com.yfuse.core.designsystem.SettingsDivider
+import com.yfuse.core.designsystem.SwipeActionsRow
 import com.yfuse.core.designsystem.SwitchRow
+import com.yfuse.core.designsystem.Tips
+import com.yfuse.core.designsystem.ToastAction
+import com.yfuse.core.designsystem.UndoWindow
 import com.yfuse.core.designsystem.YfButton
 import com.yfuse.core.designsystem.YfButtonTone
 import com.yfuse.core.designsystem.YfFormField
@@ -76,6 +91,55 @@ fun PersonalCenterScreen(
     initialTab: PersonalCenterTab = PersonalCenterTab.WatchLater,
     repo: EmbyRepository? = null,
 ) {
+    val removals = remember(personal) { PersonalRemovals(personal) }
+    // Leaving the page is the toast leaving too: nothing stays held behind a closed page.
+    DisposableEffect(removals) {
+        onDispose { removals.settle() }
+    }
+    Box(Modifier.fillMaxSize()) {
+        PersonalCenterPage(
+            personal = personal,
+            account = account,
+            playbackSync = playbackSync,
+            serverSync = serverSync,
+            servers = servers,
+            onBack = onBack,
+            onOpenMedia = onOpenMedia,
+            initialTab = initialTab,
+            repo = repo,
+            removals = removals,
+        )
+        // Once a list has records to swipe; the first swipe retires it.
+        ContextualTip(
+            id = Tips.SWIPE_ROW,
+            text = "向左滑动记录可以移除，5 秒内可撤销",
+            active = removals.swipeable,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = Dimens.sectionGap),
+        )
+        key(removals.generation) {
+            val pending = removals.pending
+            ActionToast(
+                message = pending?.let { personalRemovalMessage(it.collection, it.media.title) },
+                onDismiss = removals::settle,
+                action = pending?.let { entry -> ToastAction("撤销") { removals.undo(entry) } },
+            )
+        }
+    }
+}
+
+@Composable
+private fun PersonalCenterPage(
+    personal: PersonalLibraryRepository,
+    account: AccountRepository,
+    playbackSync: PlaybackSyncManager,
+    serverSync: ServerSyncManager,
+    servers: List<SavedServer>,
+    onBack: () -> Unit,
+    onOpenMedia: (PersonalMediaRef) -> Unit,
+    initialTab: PersonalCenterTab,
+    repo: EmbyRepository?,
+    removals: PersonalRemovals,
+) {
     val state by personal.state.collectAsState()
     val accountState by account.state.collectAsState()
     val playbackState by playbackSync.state.collectAsState()
@@ -108,6 +172,18 @@ fun PersonalCenterScreen(
 
     val contentTabs = listOf(PersonalCenterTab.WatchLater, PersonalCenterTab.Favorites, PersonalCenterTab.History)
     val contentPage = initialTab in contentTabs
+    val entries =
+        when (tab) {
+            PersonalCenterTab.Favorites -> state.favorites
+            PersonalCenterTab.History -> state.history
+            else -> state.watchLater
+        }
+    // The record waiting on its 撤销 is already gone from the list.
+    val pendingIdentity = removals.pending?.identity
+    val visible =
+        entries.filter { it.media.title.contains(query.trim(), ignoreCase = true) && it.identity != pendingIdentity }
+    val swipeable = contentPage && tab in contentTabs && visible.isNotEmpty()
+    SideEffect { removals.swipeable = swipeable }
     SettingsPage(
         title = if (contentPage) "我的内容" else initialTab.label,
         subtitle = state.activeProfile.name,
@@ -365,7 +441,7 @@ fun PersonalCenterScreen(
                     }
                 }
                 // `SettingsPage`'s content lambda is `LazyListScope.() -> Unit`, not @Composable,
-                // so this cannot be `remember`-cached — same constraint `visible` below lives with.
+                // so this cannot be `remember`-cached.
                 // Still computed once per list build rather than once per row.
                 val visibleConflicts =
                     serverState.conflicts.filter { personal.canAccessServer(it.mutation.serverId) }
@@ -440,13 +516,6 @@ fun PersonalCenterScreen(
                         }
                     }
                 }
-                val entries =
-                    when (tab) {
-                        PersonalCenterTab.Favorites -> state.favorites
-                        PersonalCenterTab.History -> state.history
-                        else -> state.watchLater
-                    }
-                val visible = entries.filter { it.media.title.contains(query.trim(), ignoreCase = true) }
                 if (visible.isEmpty()) {
                     item {
                         PersonalNotice(
@@ -463,17 +532,11 @@ fun PersonalCenterScreen(
                     }
                 }
                 items(visible, key = { it.identity }) { entry ->
-                    PersonalEntryCard(entry, onOpen = { onOpenMedia(entry.media) }, onRemove = {
-                        attempt {
-                            runCatching {
-                                when (entry.collection) {
-                                    PersonalCollection.Favorite -> personal.setFavorite(entry.media, false)
-                                    PersonalCollection.WatchLater -> personal.setWatchLater(entry.media, false)
-                                    PersonalCollection.History -> personal.removeHistory(entry.media)
-                                }
-                            }
-                        }
-                    })
+                    PersonalEntryCard(
+                        entry,
+                        onOpen = { onOpenMedia(entry.media) },
+                        onRemove = { removals.remove(entry) },
+                    )
                 }
             }
         }
@@ -537,6 +600,63 @@ fun PersonalCenterScreen(
     }
 }
 
+/**
+ * 移除记录, 先做，给 5 秒撤销 (see [UndoWindow]): a record leaves the list at once and the profile only
+ * once its toast has gone. [pending] is the same change as state, so the list can hide its row.
+ */
+@Stable
+private class PersonalRemovals(
+    private val personal: PersonalLibraryRepository,
+) {
+    private val window = UndoWindow<PersonalEntry>()
+
+    var pending by mutableStateOf<PersonalEntry?>(null)
+        private set
+
+    /** One more for every removal, so each gets a toast of its own even when two read alike. */
+    var generation by mutableIntStateOf(0)
+        private set
+
+    /** Whether the page has records a finger could swipe now; the tip waits for them. */
+    var swipeable by mutableStateOf(false)
+
+    fun remove(entry: PersonalEntry) {
+        window.hold(entry)?.let(personal::removeEntry)
+        pending = entry
+        generation++
+    }
+
+    fun undo(entry: PersonalEntry) {
+        if (window.undo { it.identity == entry.identity } != null) pending = null
+    }
+
+    /** The toast left — timed out, swiped away, the app or the page gone: the record goes now. */
+    fun settle() {
+        window.release()?.let(personal::removeEntry)
+        pending = null
+    }
+}
+
+/** What the toast says an undoable removal took, in the words of the list it left. */
+internal fun personalRemovalMessage(
+    collection: PersonalCollection,
+    title: String,
+): String =
+    when (collection) {
+        PersonalCollection.WatchLater -> "已从想看移除「$title」"
+        PersonalCollection.Favorite -> "已从收藏移除「$title」"
+        PersonalCollection.History -> "已移除「$title」的观看记录"
+    }
+
+/** The one call that takes [entry] out of the active profile; a failure lands in the repository's error. */
+private fun PersonalLibraryRepository.removeEntry(entry: PersonalEntry) {
+    when (entry.collection) {
+        PersonalCollection.Favorite -> setFavorite(entry.media, false)
+        PersonalCollection.WatchLater -> setWatchLater(entry.media, false)
+        PersonalCollection.History -> removeHistory(entry.media)
+    }
+}
+
 /** A page action that did not go through, and the same action to run again. */
 private class PersonalFailure(
     val message: String,
@@ -584,15 +704,28 @@ private fun PersonalNotice(
     )
 }
 
+/** A record swipes left for 移除, the same undoable removal as its 移除记录 row. */
 @Composable
 private fun PersonalEntryCard(
     entry: PersonalEntry,
     onOpen: () -> Unit,
     onRemove: () -> Unit,
 ) {
-    Column(Modifier.padding(horizontal = Dimens.pageHorizontal)) {
+    SwipeActionsRow(
+        modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),
+        trailing =
+            ItemAction(
+                label = "移除",
+                icon = AppIcons.Close,
+                destructive = true,
+                undoable = true,
+                id = "personal.remove",
+                onSelect = onRemove,
+            ),
+    ) { actions ->
         SettingsCard {
             SettingRow(
+                modifier = actions,
                 title = entry.media.title,
                 value =
                     listOfNotNull(

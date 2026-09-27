@@ -968,6 +968,7 @@ internal fun SettingsPanel(
                                             onClick = { sleepTimerActions.onSelect(option) },
                                         )
                                     }
+                                    PlayerGestureSettingsSection(animePreferences)
                                 }
 
                                 AdvancedPage.Engine -> {
@@ -1586,7 +1587,7 @@ internal fun SpeedPickerPopup(
 }
 
 @Composable
-private fun CompactChoiceGrid(
+internal fun CompactChoiceGrid(
     options: List<String>,
     selectedIndex: Int,
     columns: Int,

@@ -77,6 +77,7 @@ import com.yfuse.core.designsystem.HeroPageFade
 import com.yfuse.core.designsystem.HeroPageIndicator
 import com.yfuse.core.designsystem.HeroTextShadow
 import com.yfuse.core.designsystem.LaunchWaveState
+import com.yfuse.core.designsystem.LiftMenu
 import com.yfuse.core.designsystem.LightEffect
 import com.yfuse.core.designsystem.LivingPosterAmbient
 import com.yfuse.core.designsystem.LivingPosterDefaults
@@ -90,6 +91,7 @@ import com.yfuse.core.designsystem.MediaSharedElementKey
 import com.yfuse.core.designsystem.MediaSizing
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.MotionSwap
+import com.yfuse.core.designsystem.OverlayActionRow
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.PageHint
 import com.yfuse.core.designsystem.RefreshIndicator
@@ -155,6 +157,7 @@ import com.yfuse.core.model.MediaContainerKind
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.network.EmbyImages
+import com.yfuse.core.util.rememberPosterCardSharer
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.yfuse.core.designsystem.ThemeIcon as Icon
@@ -238,6 +241,7 @@ private fun utcDate(epochMs: Long): String {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LibraryHomeScreen(component: LibraryHomeComponent) {
+    val sharer = rememberPosterCardSharer()
     val state by component.store.states.collectAsState(component.store.state)
     val libraryCarousel by component.themePreferences.libraryCarousel.collectAsState()
     val store = component.store
@@ -659,6 +663,26 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                 if (state.loading && state.content.isEmpty) {
                                     motionItem(key = "library-loading") { SkeletonRow() }
                                 }
+                                // The same 浮起菜单 as 首页's shelves: play, and the favourite this
+                                // store can write.
+                                val itemLiftMenu: (MediaItem) -> LiftMenu = { item ->
+                                    libraryHomeLiftMenu(
+                                        item = item,
+                                        backdropUrl = EmbyImages.backdrop(baseUrl, item, accessToken = accessToken),
+                                        onOpen = { component.onOpenItem(item.id) },
+                                        onPlay = { component.onPlayItem(item.id) },
+                                        onFavorite = { favorite ->
+                                            store.accept(LibraryIntent.ToggleFavorite(item.id, item.title, favorite))
+                                        },
+                                        onShare = {
+                                            sharer.sharePosterCard(
+                                                item.posterShareCard(
+                                                    EmbyImages.poster(baseUrl, item, accessToken = accessToken),
+                                                ),
+                                            )
+                                        },
+                                    )
+                                }
                                 if (state.content.resume.isNotEmpty()) {
                                     waveItem(key = "library-resume") {
                                         PlaybackHistory(
@@ -667,6 +691,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                             serverId = state.currentServer?.id,
                                             items = state.content.resume,
                                             onItemClick = { component.onOpenItem(it.id) },
+                                            liftMenu = itemLiftMenu,
                                         )
                                     }
                                 }
@@ -679,6 +704,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                             row = row,
                                             onSeeAll = { component.onSeeAll(row.libraryId, row.title) },
                                             onItemClick = { component.onOpenItem(it.id) },
+                                            liftMenu = itemLiftMenu,
                                         )
                                     }
                                 }
@@ -711,6 +737,10 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                     onSelect = {
                         store.accept(LibraryIntent.SelectServer(it))
                         serverMenuOpen = false
+                    },
+                    onOpenUnified = {
+                        serverMenuOpen = false
+                        component.onOpenUnified()
                     },
                     onDismiss = { serverMenuOpen = false },
                 )
@@ -1009,6 +1039,7 @@ private fun ServerSheet(
     servers: List<SavedServer>,
     currentId: String?,
     onSelect: (String) -> Unit,
+    onOpenUnified: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val palette = LocalPalette.current
@@ -1103,6 +1134,16 @@ private fun ServerSheet(
                     }
                 }
             }
+        }
+        // 全部服务器 had a route and a screen but nothing that led to it. It belongs beside the
+        // servers it merges, and only once there is more than one.
+        if (servers.size > 1) {
+            Spacer(Modifier.height(12.dp))
+            OverlayActionRow(
+                label = "浏览全部服务器",
+                description = "把 ${servers.size} 个服务器的媒体库合在一起，同一部只列一次",
+                onClick = overlayAction(onOpenUnified),
+            )
         }
     }
 }
@@ -1275,6 +1316,7 @@ private fun PlaybackHistory(
     serverId: String?,
     items: List<MediaItem>,
     onItemClick: (MediaItem) -> Unit,
+    liftMenu: (MediaItem) -> LiftMenu,
 ) {
     Column {
         SectionHeader("播放记录")
@@ -1320,6 +1362,7 @@ private fun PlaybackHistory(
                     // that was just added, so the same id is on screen twice — see
                     // [CategorySection] for what that costs.
                     onClick = { onItemClick(item) },
+                    liftMenu = { liftMenu(item) },
                     sharedTransitionKey = MediaSharedElementKey(serverId, item.id),
                     modifier = Modifier.width(MediaSizing.landscapeCardWidth),
                     posterModifier = Modifier.fillMaxWidth().height(MediaSizing.landscapeCardHeight),
@@ -1341,6 +1384,7 @@ private fun CategorySection(
     row: HomeRow,
     onSeeAll: () -> Unit,
     onItemClick: (MediaItem) -> Unit,
+    liftMenu: (MediaItem) -> LiftMenu,
 ) {
     Column {
         SectionHeader(row.title, actionLabel = "全部", onAction = onSeeAll)
@@ -1381,6 +1425,7 @@ private fun CategorySection(
                     // id scopes the key to this rail; 首页 hit the same thing and answered
                     // it by dropping the key entirely (see HomeScreen's shelves).
                     onClick = { onItemClick(item) },
+                    liftMenu = { liftMenu(item) },
                     sharedTransitionKey = MediaSharedElementKey(serverId, item.id),
                     modifier = Modifier.width(PosterWidth),
                 )
@@ -1412,11 +1457,12 @@ internal fun PosterCard(
     showProgress: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    onLongClick: (() -> Unit)? = null,
+    /** The poster's 浮起菜单; see [com.yfuse.core.designsystem.liftable]. */
+    liftMenu: (() -> LiftMenu)? = null,
 ) {
     CaptionedPoster(
         url = EmbyImages.poster(baseUrl, item, accessToken = accessToken),
-        onLongClick = onLongClick,
+        liftMenu = liftMenu,
         title = item.title,
         rating = item.communityRating,
         year = item.year?.toString(),

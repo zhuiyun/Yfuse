@@ -8,6 +8,7 @@ import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -74,13 +75,29 @@ fun <T : Any> OfficialNavDisplay(
     val shownStack = backStack.filterNot(isLauncher).ifEmpty { backStack }
     val currentTop by rememberUpdatedState(shownStack.last())
     val sharedMediaController = remember { SharedMediaTransitionController() }
+    // 跟手返回 for pushed routes. Before NavDisplay, so its stand-in back handler registers where
+    // NavDisplay's own used to: after the shell's, before every page's.
+    val zoom = rememberZoomBackNavHost(enabled = motion == OfficialNavMotion.Stack)
+    val latestBack by rememberUpdatedState(onBack)
+    val liftMenu = LocalLiftMenu.current
+    val screenReader = rememberScreenReaderActive()
     val previousDepth = remember { intArrayOf(shownStack.size) }
     if (shownStack.size < previousDepth[0]) {
         // The route follows predictive back, but the forward-only artwork morph must not run
         // in reverse over it. Suppress that overlay before the smaller stack is composed.
         sharedMediaController.suppressForPop()
     }
-    SideEffect { previousDepth[0] = shownStack.size }
+    SideEffect {
+        // A route pushed right after a poster was tapped is a route from that poster.
+        val pushedFrom = if (shownStack.size > previousDepth[0]) sharedMediaController.takeOrigin() else null
+        if (zoom != null) {
+            zoom.onBack = { latestBack() }
+            zoom.blocked = { liftMenu?.isOpen == true || screenReader }
+            zoom.standIn.isBackEnabled = shownStack.size > 1
+            zoom.onStack(shownStack.map(contentKey), pushedFrom)
+        }
+        previousDepth[0] = shownStack.size
+    }
     val activeSharedKey = sharedMediaController.activeKey
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val calm = calmMotion()
@@ -117,7 +134,9 @@ fun <T : Any> OfficialNavDisplay(
                         remember(entryKey, parentVisibility) {
                             derivedStateOf { (parentVisibility?.value ?: true) && entryKey == currentTop }
                         }
+                    val routeKey = contentKey(entryKey)
                     CompositionLocalProvider(
+                        *zoomBackRouteLocals(zoom, routeKey),
                         LocalRouteVisible provides
                             (parentRouteVisible && entryKey == currentTop),
                         LocalRouteVisibilityState provides visibility,
@@ -130,70 +149,100 @@ fun <T : Any> OfficialNavDisplay(
                                 val visibility = LocalNavAnimatedContentScope.current
                                 val edge =
                                     visibility.transition.animateFloat(
-                                        transitionSpec = { tween(Motion.POP, easing = Motion.Curve) },
+                                        transitionSpec = {
+                                            // A zoom back draws both pages itself; NavDisplay's
+                                            // transition has to be over the moment it lets go.
+                                            if (zoom?.controller?.active == true) {
+                                                snap()
+                                            } else {
+                                                tween(Motion.POP, easing = Motion.Curve)
+                                            }
+                                        },
                                         label = "routeReturnCorners",
                                     ) { if (it == EnterExitState.PostExit) 1f else 0f }
                                 Modifier.graphicsLayer {
-                                    val amount = edge.value
+                                    // The card has its own corners, and must not be clipped to the page.
+                                    val zoomed = zoom != null && zoom.roleOf(routeKey) != ZoomBackRole.None
+                                    val amount = if (zoomed) 0f else edge.value
                                     shape = RoundedCornerShape(Motion.routeReturnCorner * amount)
                                     clip = amount > 0f
                                 }
                             } else {
                                 Modifier
                             }
-                        Box(Modifier.fillMaxSize().then(corners)) { currentContent(entryKey) }
+                        val entryTransition = LocalNavAnimatedContentScope.current.transition
+                        Box(
+                            Modifier
+                                .zoomBackFrame(zoom, routeKey)
+                                .fillMaxSize()
+                                .then(corners)
+                                .zoomBackRoute(zoom, routeKey) {
+                                    entryTransition.currentState == EnterExitState.Visible &&
+                                        entryTransition.targetState == EnterExitState.Visible
+                                },
+                        ) {
+                            currentContent(entryKey)
+                            ZoomBackRouteTip(zoom, routeKey)
+                        }
                     }
                 }
             }
-            NavDisplay(
-                backStack = shownStack,
-                modifier = Modifier.fillMaxSize(),
-                onBack = onBack,
-                transitionSpec = {
-                    if (calm && !reduceMotion) {
-                        calmContentTransform(motion, calmTravelPx, popping = false)
-                    } else {
-                        rootContentTransform(
-                            motion,
-                            reduceMotion,
-                            searchTravelPx,
-                            pushTravelPx,
-                            popTravelPx,
-                            popping = false,
-                        )
-                    }
-                },
-                popTransitionSpec = {
-                    if (calm && !reduceMotion) {
-                        calmContentTransform(motion, calmTravelPx, popping = true)
-                    } else {
-                        rootContentTransform(
-                            motion,
-                            reduceMotion,
-                            searchTravelPx,
-                            pushTravelPx,
-                            popTravelPx,
-                            popping = true,
-                        )
-                    }
-                },
-                predictivePopTransitionSpec = {
-                    if (calm && !reduceMotion) {
-                        calmContentTransform(motion, calmTravelPx, popping = true, predictive = true)
-                    } else {
-                        rootContentTransform(
-                            motion,
-                            reduceMotion,
-                            searchTravelPx,
-                            pushTravelPx,
-                            popTravelPx,
-                            popping = true,
-                            predictive = true,
-                        )
-                    }
-                },
-                entryProvider = entryProvider,
-            )
+            // Inside a zoom-back stack NavDisplay hears only the host: see ZoomBackNavigation.kt.
+            CompositionLocalProvider(*zoomBackDisplayLocals(zoom)) {
+                NavDisplay(
+                    backStack = shownStack,
+                    modifier = Modifier.fillMaxSize(),
+                    onBack = onBack,
+                    transitionSpec = {
+                        if (calm && !reduceMotion) {
+                            calmContentTransform(motion, calmTravelPx, popping = false)
+                        } else {
+                            rootContentTransform(
+                                motion,
+                                reduceMotion,
+                                searchTravelPx,
+                                pushTravelPx,
+                                popTravelPx,
+                                popping = false,
+                            )
+                        }
+                    },
+                    popTransitionSpec = {
+                        if (zoom?.controller?.active == true) {
+                            zoomBackRouteTransform()
+                        } else if (calm && !reduceMotion) {
+                            calmContentTransform(motion, calmTravelPx, popping = true)
+                        } else {
+                            rootContentTransform(
+                                motion,
+                                reduceMotion,
+                                searchTravelPx,
+                                pushTravelPx,
+                                popTravelPx,
+                                popping = true,
+                            )
+                        }
+                    },
+                    predictivePopTransitionSpec = {
+                        if (zoom?.controller?.active == true) {
+                            zoomBackRouteTransform()
+                        } else if (calm && !reduceMotion) {
+                            calmContentTransform(motion, calmTravelPx, popping = true, predictive = true)
+                        } else {
+                            rootContentTransform(
+                                motion,
+                                reduceMotion,
+                                searchTravelPx,
+                                pushTravelPx,
+                                popTravelPx,
+                                popping = true,
+                                predictive = true,
+                            )
+                        }
+                    },
+                    entryProvider = entryProvider,
+                )
+            }
             launchers.forEach { launcher ->
                 key(contentKey(launcher)) {
                     Box(Modifier.size(0.dp)) { currentContent(launcher) }

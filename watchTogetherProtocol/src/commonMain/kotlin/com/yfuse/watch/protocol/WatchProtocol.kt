@@ -55,7 +55,33 @@ data class WatchWireMessage(
     val playlistIndex: Int? = null,
     val message: String? = null,
     val errorCode: String? = null,
+    /** 手机遥控: the account session of the television a phone asks to control. */
+    val remoteSessionId: String? = null,
+    /** 手机遥控: a [RemoteControlKey.wireName]. */
+    val remoteKey: String? = null,
 )
+
+/**
+ * 手机遥控's keys by their wire names. A phone sends one per press; the television replays it as a
+ * key event in its own window, so focus moves the way a physical remote would move it.
+ */
+enum class RemoteControlKey(
+    val wireName: String,
+) {
+    Up("up"),
+    Down("down"),
+    Left("left"),
+    Right("right"),
+    Center("center"),
+    Back("back"),
+    Home("home"),
+    PlayPause("playPause"),
+    ;
+
+    companion object {
+        fun fromWireName(value: String?): RemoteControlKey? = entries.firstOrNull { it.wireName == value }
+    }
+}
 
 @Serializable
 data class WatchWireParticipant(
@@ -113,6 +139,12 @@ object WatchProtocol {
     const val CAPABILITY_VERSION_RANGE = "protocolVersionRange"
     const val CAPABILITY_ROOM_PLAYLIST = "roomPlaylist"
 
+    /**
+     * 手机遥控: the relay pairs a phone with a television of the same account and forwards keys and
+     * text from the phone to the television. The `remote*` message types exist only under it.
+     */
+    const val CAPABILITY_REMOTE_CONTROL = "remoteControl"
+
     val SERVER_CAPABILITIES =
         listOf(
             CAPABILITY_REACTIONS,
@@ -122,6 +154,7 @@ object WatchProtocol {
             CAPABILITY_ACCOUNT_AUTH,
             CAPABILITY_VERSION_RANGE,
             CAPABILITY_ROOM_PLAYLIST,
+            CAPABILITY_REMOTE_CONTROL,
         )
 
     fun isSupportedVersion(version: Int?): Boolean = version != null && version in MIN_SUPPORTED_VERSION..VERSION
@@ -148,6 +181,11 @@ object WatchProtocol {
     const val MAX_SYNC_DRIFT_MS = 30_000L
     const val MIN_REASONABLE_EPOCH_MS = 1_577_836_800_000L // 2020-01-01 UTC
     const val MAX_FUTURE_CLOCK_SKEW_MS = 5L * 60L * 1_000L
+    const val MAX_REMOTE_SESSION_ID_BYTES = 128
+
+    /** A search box's worth: the whole of the phone's field is resent on every change. */
+    const val MAX_REMOTE_TEXT_BYTES = 256
+    const val MAX_REMOTE_TEXT_GRAPHEMES = 64
 
     private val graphemeRegex = Regex("\\X")
 
@@ -163,6 +201,15 @@ object WatchProtocol {
         Regex("[A-Za-z][A-Za-z0-9_-]{0,31}:[A-Za-z0-9][A-Za-z0-9._-]*(?:/s[0-9]{1,4}e[0-9]{1,5})?")
     private val capabilityRegex = Regex("[A-Za-z0-9_-]{$CAPABILITY_LENGTH}")
     private val playlistEntryIdRegex = Regex("[A-Za-z0-9][A-Za-z0-9._:-]{0,63}")
+
+    /**
+     * 手机遥控, under [CAPABILITY_REMOTE_CONTROL]: a television sends `remoteHost`; a phone sends
+     * `remoteJoin` with the television's [WatchWireMessage.remoteSessionId], then `remoteKey` and
+     * `remoteText`. The relay answers `remoteHosting` / `remoteJoined`, tells the television
+     * `remoteConnected` / `remoteDisconnected` as phones come and go, and tells a phone
+     * `remoteDisconnected` when its television leaves. Such a socket never joins a room.
+     */
+    val REMOTE_CLIENT_MESSAGE_TYPES = setOf("remoteHost", "remoteJoin", "remoteKey", "remoteText")
 
     val CLIENT_MESSAGE_TYPES =
         setOf(
@@ -183,7 +230,7 @@ object WatchProtocol {
             "playlistRemove",
             "playlistReorder",
             "ping",
-        )
+        ) + REMOTE_CLIENT_MESSAGE_TYPES
 
     fun isValidRoomCode(value: String?): Boolean =
         value != null &&
@@ -277,6 +324,25 @@ object WatchProtocol {
         if (value.hasControlCharacters()) return false
         if (value.encodeToByteArray().size > MAX_CHAT_BYTES) return false
         return graphemeRegex.findAll(value).count() <= MAX_CHAT_GRAPHEMES
+    }
+
+    /** An account session id as the handoff inbox lists it; the relay never trusts more than its shape. */
+    fun isValidRemoteSessionId(value: String?): Boolean =
+        isBoundedOpaqueId(
+            value = value,
+            maxBytes = MAX_REMOTE_SESSION_ID_BYTES,
+        )
+
+    fun isValidRemoteKey(value: String?): Boolean = RemoteControlKey.fromWireName(value) != null
+
+    /**
+     * The phone's whole field, so a lost or repeated message cannot garble what the television
+     * shows. Empty clears it, and the spaces of a half-typed query are kept as typed.
+     */
+    fun isValidRemoteText(value: String?): Boolean {
+        if (value == null || value.hasControlCharacters()) return false
+        if (value.encodeToByteArray().size > MAX_REMOTE_TEXT_BYTES) return false
+        return graphemeRegex.findAll(value).count() <= MAX_REMOTE_TEXT_GRAPHEMES
     }
 
     private fun isBoundedOpaqueId(

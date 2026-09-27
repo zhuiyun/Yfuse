@@ -30,6 +30,7 @@ import com.yfuse.core.sync.watchKey
 import com.yfuse.core.sync.watchMatchKeys
 import com.yfuse.core.util.componentScope
 import com.yfuse.feature.calendar.loadCalendarWithDeadline
+import com.yfuse.feature.library.LiftFlagWriter
 import com.yfuse.feature.player.PlaybackPreloadKey
 import com.yfuse.feature.player.PlaybackSourcePreload
 import com.yfuse.feature.player.PlayerStoreFactory
@@ -93,6 +94,38 @@ class DetailComponent(
         runCatching { GlobalContext.get().get<PlaybackSyncManager>() }.getOrNull()
     private var explicitFromStartPending = false
 
+    /** 标记已看 and 收藏 on a 相关推荐 poster, from its 浮起菜单; the list is not reloaded for them. */
+    val relatedFlags =
+        LiftFlagWriter(
+            scope = componentScope(lifecycle),
+            writer = dependencies.serverSyncManager,
+            serverById = registry::serverById,
+        )
+
+    /**
+     * 按住拖看 on the episode rail: a held episode's trickplay, fetched when its card lifts and kept
+     * while this page is. The season's list carries none.
+     */
+    internal val episodeTrickplay =
+        EpisodeTrickplay(scope = componentScope(lifecycle)) { seasonServerId, episode ->
+            val server = registry.serverById(seasonServerId)
+            val source = episode.versions.firstOrNull()?.id ?: episode.id
+            if (server == null) {
+                Result.success(null)
+            } else {
+                repo.trickplayInfo(server, episode.id, source).map { info ->
+                    info?.let { episodeStoryboard(it, server.baseUrl, server.accessToken, episode.id, source) }
+                }
+            }
+        }
+
+    /** 浮起菜单's 播放 on a 相关推荐 poster: straight to the player, without this page's selection. */
+    fun playRelated(
+        serverId: String,
+        itemId: String,
+        startPositionTicks: Long,
+    ) = onPlay(serverId, itemId, startPositionTicks, null)
+
     /** A genre or a name on this page, handed to the search tab as a query. */
     fun searchFor(query: String) {
         dependencies.searchRequests.submit(query)
@@ -126,6 +159,12 @@ class DetailComponent(
                     DetailIntent.TogglePlayed -> mirrorManualPlayed(delegateStore.state)
                     is DetailIntent.ApplyEpisodeProgress ->
                         mirrorEpisodeProgress(delegateStore.state, intent.action)
+                    // The same durable path, for episodes named rather than selected.
+                    is DetailIntent.MarkEpisodes ->
+                        mirrorEpisodeProgress(
+                            delegateStore.state.copy(progressSelection = intent.episodeIds),
+                            if (intent.played) EpisodeProgressAction.MarkWatched else EpisodeProgressAction.Reset,
+                        )
                     else -> Unit
                 }
                 delegateStore.accept(intent)

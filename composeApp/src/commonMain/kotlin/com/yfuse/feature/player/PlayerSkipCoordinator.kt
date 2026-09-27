@@ -300,6 +300,7 @@ internal fun rememberPlayerSkipController(
                 introEndSeconds = times?.introEndSeconds ?: 0L,
                 creditsLeadSeconds = times?.effectiveCreditsLeadSeconds(playbackState.durationMs) ?: 0L,
                 mode = mode,
+                credits = creditsSegment(segments, playbackState.durationMs),
             ),
         actions =
             SkipSegmentActions(

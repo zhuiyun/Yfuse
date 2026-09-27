@@ -2,6 +2,7 @@ package com.yfuse.feature.detail
 
 import com.arkivanov.mvikotlin.core.store.Reducer
 import com.yfuse.core.data.PlaybackTrackRequest
+import com.yfuse.core.model.Episode
 
 internal object DetailReducer : Reducer<DetailState, DetailMsg> {
     override fun DetailState.reduce(msg: DetailMsg): DetailState =
@@ -152,6 +153,8 @@ internal object DetailReducer : Reducer<DetailState, DetailMsg> {
                     progressSaving = false,
                     actionMessage = msg.message,
                 )
+            is DetailMsg.EpisodesPlayedChanged ->
+                copy(episodes = episodesMarked(episodes, msg.episodeIds, msg.played))
             is DetailMsg.WatchLaterChanged ->
                 if (
                     server?.id == msg.serverId && detail?.id == msg.itemId
@@ -280,6 +283,23 @@ internal object DetailReducer : Reducer<DetailState, DetailMsg> {
             }
         }
 }
+
+/**
+ * [episodes] with those in [ids] marked [played]. Either way the resume point goes: Emby clears
+ * it when an episode is marked watched and when it is marked unwatched.
+ */
+internal fun episodesMarked(
+    episodes: List<Episode>,
+    ids: Set<String>,
+    played: Boolean,
+): List<Episode> =
+    episodes.map { episode ->
+        if (episode.id in ids) {
+            episode.copy(played = played, playedPercentage = null, resumePositionTicks = null)
+        } else {
+            episode
+        }
+    }
 
 private fun DetailState.withSelectedVersion(versionId: String?): DetailState {
     val version = playTarget?.versions?.firstOrNull { it.id == versionId }

@@ -150,6 +150,12 @@ internal sealed interface DetailMsg {
         val message: String,
     ) : DetailMsg
 
+    /** The episodes' side of [EpisodesProgressChanged] alone: the sheet and its selection stay. */
+    data class EpisodesPlayedChanged(
+        val episodeIds: Set<String>,
+        val played: Boolean,
+    ) : DetailMsg
+
     data class WatchLaterChanged(
         val serverId: String,
         val itemId: String,

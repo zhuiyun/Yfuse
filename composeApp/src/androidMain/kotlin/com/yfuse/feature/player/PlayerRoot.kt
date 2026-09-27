@@ -14,6 +14,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.statusBarsIgnoringVisibility
@@ -89,6 +91,7 @@ import com.yfuse.core.playback.PlaybackRuntimeFaultKind
 import com.yfuse.core.playback.classifyPlaybackFailure
 import com.yfuse.core.playback.planPlayback
 import com.yfuse.core.playback.resolvePlaybackOptimization
+import com.yfuse.core.sync.WatchStickers
 import com.yfuse.core.sync.WatchTogetherClient
 import com.yfuse.core2.android.canUseCore2Trial
 import com.yfuse.core2.android.toCore2MediaItems
@@ -224,6 +227,7 @@ internal fun PlayerRoot(
     val configuredEngineSelection by playbackPreferences.engineSelection.collectAsState()
     val core2TrialEnabled by playbackPreferences.core2TrialEnabled.collectAsState()
     val core2NativeOnlyEnabled by playbackPreferences.core2NativeOnlyEnabled.collectAsState()
+    val gestureSettings by playbackPreferences.gestureSettings.collectAsState()
     var core2DisabledForSession by remember { mutableStateOf(false) }
     var sessionEngineSelection by remember {
         mutableStateOf(configuredEngineSelection)
@@ -323,12 +327,22 @@ internal fun PlayerRoot(
     val sourceSwitchCoordinator = remember { PlaybackSourceSwitchCoordinator() }
     val latestQueueRevision by rememberUpdatedState(queueRevision)
     var requestedPlaybackSpeed by remember { mutableFloatStateOf(1f) }
+    // 长按中间: the rate while the middle of the picture is held, over the chosen one. Only the
+    // engine sees it — never the room, the series memory or the preference — and a hold that
+    // began from a pause puts the pause back when it lets go.
+    var speedBoost by remember { mutableStateOf<Float?>(null) }
+    var speedBoostResumedPlayback by remember { mutableStateOf(false) }
     var handoverItemId by remember { mutableStateOf<String?>(null) }
     var audioRestore by remember { mutableStateOf<TrackRestorePreference?>(null) }
     var subtitleRestore by remember { mutableStateOf<TrackRestorePreference?>(null) }
     var secondarySubtitleRestore by remember { mutableStateOf<TrackRestorePreference?>(null) }
     var secondarySubtitleTrackId by remember { mutableStateOf<String?>(null) }
     var restoreSubtitlesOff by remember { mutableStateOf(false) }
+    // 没听清: a subtitle shown for a replay. Kept out of the restore state above, series memory and
+    // the preferences alike; while it runs, the track restore stands aside.
+    var subtitlePeek by remember { mutableStateOf<SubtitlePeek?>(null) }
+    // 片尾接管: the controls decide when the credits take the picture into its corner; the surface follows.
+    var creditsTakeover by remember { mutableStateOf(false) }
     var scaleMode by remember { mutableStateOf(VideoScaleMode.Fit) }
     var subtitleControls by remember { mutableStateOf(SubtitleControlState()) }
     var audioControls by remember { mutableStateOf(AudioControlState()) }
@@ -1806,8 +1820,12 @@ internal fun PlayerRoot(
             } else if (!sameItem) {
                 audioRestore = null
             }
+            // What 没听清 is showing is the moment's: the handover carries the choice it set aside, and
+            // the new session restores that one with nothing standing in its way.
+            val peek = subtitlePeek
+            subtitlePeek = null
             if (snapshot.subtitleTracks.isNotEmpty()) {
-                val selectedSubtitle = snapshot.subtitleTracks.firstOrNull { it.selected }
+                val selectedSubtitle = viewerSubtitleChoice(snapshot.subtitleTracks, peek)
                 subtitleRestore = selectedSubtitle?.let(snapshot.subtitleTracks::restorePreferenceFor)
                 restoreSubtitlesOff = selectedSubtitle == null
             } else if (!sameItem) {
@@ -2387,7 +2405,7 @@ internal fun PlayerRoot(
             state = state,
             currentItemId = currentItem?.id,
             handoverItemId = handoverItemId,
-            requestedSpeed = requestedPlaybackSpeed,
+            requestedSpeed = speedBoost ?: requestedPlaybackSpeed,
             audioRestore = audioRestore,
             subtitleRestore = subtitleRestore,
             secondarySubtitleRestore = secondarySubtitleRestore,
@@ -2414,6 +2432,7 @@ internal fun PlayerRoot(
                     selectEngineStrategy(PlaybackEngineSelection.LockMpv)
                 }
             },
+            subtitlePeekActive = subtitlePeek != null,
         )
 
         LaunchedEffect(engine, state.playing, state.buffering) {
@@ -2628,6 +2647,35 @@ internal fun PlayerRoot(
         }
         BindCastQueue(castState, player, activeItems, localState.currentIndex)
 
+        // 点弹幕, 旋转锁, 一起看贴纸轮盘 and 按住拖送: what the chrome is handed, and the layers they draw in.
+        val danmakuPicker = remember { DanmakuPicker() }
+        val quickPickHost = remember { PlayerQuickPickHost() }
+        val quickCast =
+            rememberPlayerQuickCast(
+                castManager = castManager,
+                castState = castState,
+                handoffAllowed = !watchState.connected,
+                requestDiscovery = requestCastDiscovery,
+                castTo = { deviceId -> loadCastItem(deviceId, state.currentIndex, livePlayback.value.positionMs) },
+            )
+        val stickerPick =
+            remember(watchState.chatMessages, watchState.connected, watchState.reconnecting) {
+                StickerQuickPick(
+                    stickers = quickStickers(watchState.chatMessages),
+                    canSend = watchState.connected && !watchState.reconnecting,
+                    onSend = { sticker -> watchTogether.sendChat(WatchStickers.token(sticker)) },
+                )
+            }
+        val rotationLock = rememberPlayerRotationLock()
+        val chromeExtras =
+            PlayerChromeExtras(
+                onPictureTap = danmakuPicker::claim,
+                rotationLock = rotationLock,
+                quickPick = quickPickHost,
+                stickers = stickerPick.takeIf { watchState.connected },
+                cast = quickCast.pick,
+            )
+
         var autoAdvancedCastRevision by remember { mutableStateOf<Long?>(null) }
         LaunchedEffect(
             castState.status,
@@ -2740,11 +2788,20 @@ internal fun PlayerRoot(
         // Every layer that only belongs to the full-size window crosses the 画中画 boundary on the
         // same short fade, so the overlays leave together instead of blinking out one by one.
         val pictureInPictureFadeMs = if (LocalAccessibilityOptions.current.reduceMotion) 0 else Motion.QUICK
+        // 折叠屏桌面模式: standing half-open, the picture keeps above the hinge and the controls below.
+        var containerHeightPx by remember { mutableIntStateOf(0) }
+        val tabletopHinge = rememberTabletopHinge()
+        val tabletop =
+            tabletopHinge
+                ?.takeUnless { inPictureInPicture }
+                ?.let { tabletopSplit(it.first, it.last, containerHeightPx) }
+        val density = LocalDensity.current
         Box(
             Modifier
                 .fillMaxSize()
                 .background(Color.Black)
                 .onGloballyPositioned { coordinates ->
+                    containerHeightPx = coordinates.size.height
                     val bounds = coordinates.boundsInWindow()
                     onVideoBounds(
                         Rect(
@@ -2757,6 +2814,19 @@ internal fun PlayerRoot(
                     ambient.onContainerSize(coordinates.size)
                 },
         ) {
+            // 片尾接管: whichever engine draws, its surface moves the same way; the controls decide when.
+            val pictureModifier =
+                Modifier
+                    .then(
+                        if (tabletop == null) {
+                            Modifier.fillMaxSize()
+                        } else {
+                            Modifier.fillMaxWidth().height(with(density) { tabletop.pictureBottomPx.toDp() })
+                        },
+                    ).creditsTakeoverPicture(
+                        active = creditsTakeover && !inPictureInPicture,
+                        immediate = inPictureInPicture,
+                    )
             when (engine) {
                 is YPlayerVideoEngineAdapter ->
                     Core2Surface(
@@ -2780,7 +2850,7 @@ internal fun PlayerRoot(
                         subtitleBrightness = presentationSubtitleControls.brightness,
                         subtitlePosition = presentationSubtitleControls.position,
                         subtitleAppearance = presentationSubtitleControls.appearance,
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = pictureModifier,
                         visible = !inPictureInPicture,
                         ambientSampler = ambient.sampler,
                         ambientLayer = ambientLayer,
@@ -2788,14 +2858,14 @@ internal fun PlayerRoot(
                 is MdkVideoEngine ->
                     MdkSurface(
                         engine,
-                        Modifier.fillMaxSize(),
+                        pictureModifier,
                         ambientSampler = ambient.sampler,
                         ambientLayer = ambientLayer,
                     )
                 is MpvVideoEngine ->
                     MpvSurface(
                         engine,
-                        Modifier.fillMaxSize(),
+                        pictureModifier,
                         ambientSampler = ambient.sampler,
                         ambientLayer = ambientLayer,
                         subtitlesInsidePicture = ambient.enabled,
@@ -2810,7 +2880,7 @@ internal fun PlayerRoot(
                         subtitleBrightness = presentationSubtitleControls.brightness,
                         subtitlePosition = presentationSubtitleControls.position,
                         subtitleAppearance = presentationSubtitleControls.appearance,
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = pictureModifier,
                         ambientSampler = ambient.sampler,
                         ambientLayer = ambientLayer,
                     )
@@ -2870,6 +2940,7 @@ internal fun PlayerRoot(
                             fontSize = danmaku.fontSize,
                             speed = danmaku.speed,
                             opacity = danmaku.opacity,
+                            picker = danmakuPicker,
                         )
                     }
                 }
@@ -2888,6 +2959,12 @@ internal fun PlayerRoot(
 
             AnimatedVisibility(
                 visible = !inPictureInPicture,
+                modifier =
+                    if (tabletop == null) {
+                        Modifier
+                    } else {
+                        Modifier.fillMaxSize().padding(top = with(density) { tabletop.controlsTopPx.toDp() })
+                    },
                 enter = fadeIn(Motion.tween(pictureInPictureFadeMs)),
                 exit = ExitTransition.None,
             ) {
@@ -3007,6 +3084,7 @@ internal fun PlayerRoot(
                         }
                     },
                     onDismissNextUp = { nextUpDismissedItemId = activeItems.getOrNull(state.currentIndex)?.id },
+                    onCreditsTakeover = { creditsTakeover = it },
                     onNextItem = {
                         sourceSwitchCoordinator.invalidate()
                         val next = state.currentIndex + 1
@@ -3102,6 +3180,8 @@ internal fun PlayerRoot(
                             },
                         ),
                     onSelectSubtitle = { id ->
+                        // An explicit pick ends any 没听清 replay subtitle; the pick is what stays.
+                        subtitlePeek = null
                         val track = state.subtitleTracks.firstOrNull { it.id == id }
                         if (castState.hasActiveSession) {
                             // The receiver applies it; the memory and the restore state are ours,
@@ -3183,6 +3263,23 @@ internal fun PlayerRoot(
                                 }
                             }
                             player.selectTrack(YTrackType.Subtitle, id)
+                        }
+                    },
+                    // 没听清: straight to the engine and nowhere else — no series memory, no preference
+                    // and no restore state, which is what the handover and the next item read.
+                    onPeekSubtitle = { peek ->
+                        if (!castState.hasActiveSession) {
+                            subtitlePeek = peek
+                            player.selectTrack(YTrackType.Subtitle, peek.trackId)
+                        }
+                    },
+                    onEndSubtitlePeek = { restoreTrackId ->
+                        // A handover since the peek began has already carried the viewer's choice
+                        // across; the old engine's track ids mean nothing to the new one.
+                        val peeking = subtitlePeek != null
+                        subtitlePeek = null
+                        if (peeking && restoreTrackId != null && !castState.hasActiveSession) {
+                            player.selectTrack(YTrackType.Subtitle, restoreTrackId)
                         }
                     },
                     subtitleControls =
@@ -3450,6 +3547,23 @@ internal fun PlayerRoot(
                         playbackGate.setSpeed(newSpeed)
                         rememberSeriesPlayback { remembered -> remembered.copy(speed = newSpeed) }
                     },
+                    gestures = gestureSettings,
+                    onSpeedBoost = { boost ->
+                        if (boost != null) {
+                            if (speedBoost == null) {
+                                // Judged on the play intent, not on frames: a stream that is
+                                // buffering towards playback is not paused.
+                                speedBoostResumedPlayback = !player.playbackRequested && playbackGate.play()
+                            }
+                            speedBoost = boost
+                        } else if (speedBoost != null) {
+                            speedBoost = null
+                            if (speedBoostResumedPlayback && player.playbackRequested && !playbackGate.locked) {
+                                playbackGate.pause()
+                            }
+                            speedBoostResumedPlayback = false
+                        }
+                    },
                     sleepTimer = SleepTimerState(sleepTimerOption),
                     sleepTimerActions =
                         SleepTimerActions(
@@ -3472,6 +3586,18 @@ internal fun PlayerRoot(
                             remembered.copy(aspectMode = scaleMode.name)
                         }
                         Toast.makeText(context, "画面：${scaleMode.label}", Toast.LENGTH_SHORT).show()
+                    },
+                    // 捏合填充 and F: the same state and series memory as the 画面 button, set to a mode
+                    // rather than cycled. The controls' HUD says which, so no toast.
+                    onSetFill = { fill ->
+                        val mode = if (fill) VideoScaleMode.Fill else VideoScaleMode.Fit
+                        if (scaleMode != mode) {
+                            scaleMode = mode
+                            backendExtensions.setVideoScaleMode(mode)
+                            rememberSeriesPlayback { remembered ->
+                                remembered.copy(aspectMode = mode.name)
+                            }
+                        }
                     },
                     trickplay = currentTrickplay,
                     // Readers, not values: read here, every step of a volume or brightness drag
@@ -3591,7 +3717,9 @@ internal fun PlayerRoot(
                     onCastTo = { deviceId ->
                         val item = activeItems.getOrNull(state.currentIndex) ?: return@PlayerControls
                         scope.launch {
-                            loadCastItem(deviceId, state.currentIndex, livePlayback.value.positionMs)
+                            if (loadCastItem(deviceId, state.currentIndex, livePlayback.value.positionMs)) {
+                                quickCast.noteCast(deviceId)
+                            }
                         }
                     },
                     onStopCast = {
@@ -3611,6 +3739,7 @@ internal fun PlayerRoot(
                     },
                     danmaku = danmaku.panelState,
                     danmakuActions = danmaku.actions,
+                    danmakuHeat = danmaku.heat,
                     // Only worth naming when there is more than one server to be on. On a
                     // single-server install it is a constant, and a constant on a line meant
                     // for live facts is noise.
@@ -3641,6 +3770,7 @@ internal fun PlayerRoot(
                     onSelectVersion = { versionId -> selectVersion(versionId) },
                     skip = skip.state,
                     skipActions = skip.actions,
+                    chapters = currentItem?.chapters.orEmpty(),
                     watch =
                         WatchRoomState(
                             available = watchAvailable,
@@ -3696,9 +3826,26 @@ internal fun PlayerRoot(
                             onReactionFinished = watchTogether::clearReaction,
                         ),
                     remoteChrome = remoteChrome,
+                    hardwareKeyboard = hardwareKeyboardAttached(),
+                    extras = chromeExtras,
                     // Held back while a transition carries the picture in, and gone first on the way out.
-                    modifier = Modifier.graphicsLayer { alpha = transition?.chromeAlpha() ?: 1f },
+                    modifier =
+                        Modifier
+                            .graphicsLayer { alpha = transition?.chromeAlpha() ?: 1f }
+                            .danmakuPressWatch(danmakuPicker),
                 )
+            }
+
+            // Over the chrome: 点弹幕's menu, and whatever a held 聊天 or 投屏 key has open.
+            if (!inPictureInPicture) {
+                if (danmaku.enabled) {
+                    DanmakuPickLayer(
+                        picker = danmakuPicker,
+                        onBlock = danmaku.onBlock,
+                        onUnblock = danmaku.onUnblock,
+                    )
+                }
+                PlayerQuickPickLayer(chromeExtras)
             }
 
             PlayerFrameRateOverlay(

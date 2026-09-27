@@ -1,6 +1,8 @@
 package com.yfuse.core.designsystem
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
@@ -13,13 +15,18 @@ import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
@@ -33,17 +40,27 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalAccessibilityManager
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.dismiss
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlinx.coroutines.delay
 import kotlin.math.abs
 import com.yfuse.core.designsystem.ThemeText as Text
@@ -70,9 +87,30 @@ internal fun toastDurationMillis(message: String): Long =
  */
 val LocalToastBottomInset = compositionLocalOf<Dp?> { null }
 
+/**
+ * The one thing a toast can offer besides being read: 撤销, as a rule.
+ *
+ * A toast with an action is how 先做，给 5 秒撤销 looks: the screen has already changed, the
+ * server has not yet been told, and [onAction] puts things back. The producer commits when the
+ * toast leaves — timed out, swiped away, or the app sent to the background — which is exactly
+ * when `onDismiss` runs; that is the only signal it needs.
+ */
+@Immutable
+class ToastAction(
+    val label: String,
+    val onAction: () -> Unit,
+)
+
+/**
+ * How long an undo stays on offer. Fixed rather than scaled with the message: the countdown ring
+ * says how long is left, and a window that moved with the wording could not be learned.
+ */
+const val TOAST_UNDO_WINDOW_MS = 5_000L
+
 internal class ToastEntry(
     val message: String,
     val accent: Color?,
+    val action: ToastAction? = null,
 ) {
     var visible by mutableStateOf(true)
 
@@ -87,6 +125,7 @@ internal class ToastQueue {
     fun post(
         message: String?,
         accent: Color? = null,
+        action: ToastAction? = null,
     ) {
         if (message == null) {
             entries.forEach { it.visible = false }
@@ -94,11 +133,14 @@ internal class ToastQueue {
             return
         }
         entries.removeAll { it.message == message }
+        // An undo never outlives the next change: its producer commits what it was holding as soon
+        // as something new is done (see [UndoWindow]), so its 撤销 would have nothing left to undo.
+        entries.filter { it.visible && it.action != null }.forEach { it.visible = false }
         // The oldest leaves the way every toast leaves; it used to vanish in one frame. A burst
         // can outrun the exits, so anything past twice the stack still goes at once.
         while (entries.count { it.visible } >= MAX_TOASTS) entries.first { it.visible }.visible = false
         while (entries.size >= MAX_TOASTS * 2) entries.removeAt(0)
-        val entry = ToastEntry(message, accent)
+        val entry = ToastEntry(message, accent, action)
         latest = entry
         entries.add(entry)
     }
@@ -110,24 +152,47 @@ internal class ToastQueue {
     }
 }
 
-/** Bounded, independently timed feedback. Only the latest notice may clear the producer's state. */
+/**
+ * Bounded, independently timed feedback. Only the latest notice may clear the producer's state.
+ *
+ * With an [action], the toast carries a button and a ring counting down [TOAST_UNDO_WINDOW_MS];
+ * it stays up for the whole window (longer if the accessibility service asks for it), and it is
+ * closed at once if the app leaves the foreground, so a deferred commit never hangs in the air.
+ */
 @Composable
 fun BoxScope.ActionToast(
     message: String?,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
     accent: Color? = null,
+    action: ToastAction? = null,
 ) {
     val queue = remember { ToastQueue() }
     val entries = queue.entries
     val latestMessage by rememberUpdatedState(message)
     val latestDismiss by rememberUpdatedState(onDismiss)
+    val latestAction by rememberUpdatedState(action)
     val duration = if (LocalAccessibilityOptions.current.reduceMotion || !LocalRouteVisible.current) 0 else Motion.TAB
     // The toast finds its own floor: each page used to pass a padding of its own, fixed numbers
     // that ignored the navigation bar and put toasts under three-button navigation.
     val systemBar = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val floor = LocalToastBottomInset.current ?: (systemBar + Dimens.sectionGap)
-    LaunchedEffect(message) { queue.post(message, accent) }
+    LaunchedEffect(message) { queue.post(message, accent, latestAction) }
+    // Leaving the app commits what the undo was holding back: an action left pending while the
+    // process sits in the background could be lost with it, or undone hours later by accident.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, queue) {
+        val observer =
+            LifecycleEventObserver { _, event ->
+                if (event == Lifecycle.Event.ON_STOP) {
+                    queue.entries.filter { it.visible && it.action != null }.forEach { entry ->
+                        if (queue.dismiss(entry) && latestMessage == entry.message) latestDismiss()
+                    }
+                }
+            }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     Column(
         modifier
             .align(Alignment.BottomCenter)
@@ -168,6 +233,8 @@ private fun ActionToastEntry(
     val exitLight = rememberLightFeedback(enhancedOnly = true)
     val currentExitLight by rememberUpdatedState(exitLight)
     var offset by remember { mutableFloatStateOf(0f) }
+    // What is left of an undo's window, 1 to 0; read only while drawing the ring.
+    val remaining = remember(entry) { Animatable(1f) }
     val animatedOffset =
         animateFloatAsState(
             offset,
@@ -184,14 +251,25 @@ private fun ActionToastEntry(
     LaunchedEffect(entry.visible, dragging, accessibility, duration) {
         if (entry.visible) {
             if (!dragging) {
-                val base = toastDurationMillis(entry.message)
+                val base = if (entry.action != null) TOAST_UNDO_WINDOW_MS else toastDurationMillis(entry.message)
                 val recommended =
                     accessibility?.calculateRecommendedTimeoutMillis(
                         base,
                         containsText = true,
                         containsControls = true,
                     ) ?: base
-                delay(maxOf(base, recommended))
+                val window = maxOf(base, recommended)
+                // A service that asks for no timeout at all gets none: the notice waits to be closed.
+                if (window == Long.MAX_VALUE) return@LaunchedEffect
+                if (entry.action != null) {
+                    remaining.snapTo(1f)
+                    remaining.animateTo(
+                        0f,
+                        Motion.tween(window.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(), easing = LinearEasing),
+                    )
+                } else {
+                    delay(window)
+                }
                 latestClose()
             }
         } else {
@@ -200,6 +278,52 @@ private fun ActionToastEntry(
         }
     }
     val thrown = entry.thrown
+    val action = entry.action
+    val container =
+        Modifier
+            .padding(horizontal = Dimens.pageHorizontal)
+            .lightOnAppear()
+            .lightFeedback(exitLight)
+            .graphicsLayer {
+                translationX = animatedOffset.value
+                alpha = (1f - abs(animatedOffset.value) / (threshold * 2f)).coerceIn(0.25f, 1f)
+            }.draggable(
+                state = rememberDraggableState { offset += it },
+                orientation = Orientation.Horizontal,
+                enabled = entry.visible,
+                onDragStarted = { dragging = true },
+                onDragStopped = { velocity ->
+                    dragging = false
+                    if (abs(offset) >= threshold ||
+                        (abs(offset) > threshold / 4f && abs(velocity) > threshold * 8f)
+                    ) {
+                        currentExitLight.emit(LightEffect.Dissolve, directionX = if (offset < 0f) -1f else 1f)
+                        entry.thrown = if (offset < 0f) -1 else 1
+                        latestClose()
+                    } else {
+                        offset = 0f
+                    }
+                },
+            ).semantics {
+                liveRegion = LiveRegionMode.Polite
+                dismiss {
+                    latestClose()
+                    true
+                }
+                if (action != null) {
+                    customActions =
+                        listOf(
+                            CustomAccessibilityAction(action.label) {
+                                action.onAction()
+                                latestClose()
+                                true
+                            },
+                        )
+                }
+            }.pressable(enabled = entry.visible, onClickLabel = "关闭提示", onClick = onClose)
+            .touchTarget()
+            .shadow(Shadows.tabBar, AppShapes.chip)
+            .solidGlass(AppShapes.chip, colors.container, colors.border)
     AnimatedVisibility(
         visibleState = visibility,
         enter = fadeIn(Motion.tween(duration)) + slideInVertically(Motion.tween(duration)) { it / 2 },
@@ -212,47 +336,85 @@ private fun ActionToastEntry(
                     slideOutVertically(Motion.tween(duration)) { it / 2 }
                 },
     ) {
-        Text(
-            entry.message,
-            style = AppTypography.body.strong,
-            color = colors.accent,
-            textAlign = TextAlign.Center,
-            modifier =
-                Modifier
-                    .padding(horizontal = Dimens.pageHorizontal)
-                    .lightOnAppear()
-                    .lightFeedback(exitLight)
-                    .graphicsLayer {
-                        translationX = animatedOffset.value
-                        alpha = (1f - abs(animatedOffset.value) / (threshold * 2f)).coerceIn(0.25f, 1f)
-                    }.draggable(
-                        state = rememberDraggableState { offset += it },
-                        orientation = Orientation.Horizontal,
-                        enabled = entry.visible,
-                        onDragStarted = { dragging = true },
-                        onDragStopped = { velocity ->
-                            dragging = false
-                            if (abs(offset) >= threshold ||
-                                (abs(offset) > threshold / 4f && abs(velocity) > threshold * 8f)
-                            ) {
-                                currentExitLight.emit(LightEffect.Dissolve, directionX = if (offset < 0f) -1f else 1f)
-                                entry.thrown = if (offset < 0f) -1 else 1
-                                latestClose()
-                            } else {
-                                offset = 0f
-                            }
-                        },
-                    ).semantics {
-                        liveRegion = LiveRegionMode.Polite
-                        dismiss {
-                            latestClose()
-                            true
-                        }
-                    }.pressable(enabled = entry.visible, onClickLabel = "关闭提示", onClick = onClose)
-                    .touchTarget()
-                    .shadow(Shadows.tabBar, AppShapes.chip)
-                    .solidGlass(AppShapes.chip, colors.container, colors.border)
-                    .padding(horizontal = 16.dp, vertical = 11.dp),
+        if (action == null) {
+            Text(
+                entry.message,
+                style = AppTypography.body.strong,
+                color = colors.accent,
+                textAlign = TextAlign.Center,
+                modifier = container.padding(horizontal = 16.dp, vertical = 11.dp),
+            )
+        } else {
+            Row(
+                container.padding(start = 16.dp, end = 8.dp, top = 5.dp, bottom = 5.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    entry.message,
+                    style = AppTypography.body.strong,
+                    color = colors.accent,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                ToastActionButton(
+                    label = action.label,
+                    color = colors.accent,
+                    remaining = { remaining.value },
+                    onClick = {
+                        // Undo first, then close: the producer commits on close, and by then there is
+                        // nothing left pending to commit.
+                        action.onAction()
+                        latestClose()
+                    },
+                )
+            }
+        }
+    }
+}
+
+/** 撤销, behind a ring that empties as the window runs out. */
+@Composable
+private fun ToastActionButton(
+    label: String,
+    color: Color,
+    remaining: () -> Float,
+    onClick: () -> Unit,
+) {
+    Row(
+        Modifier
+            .pressable(onClick = onClick)
+            .touchTarget()
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier
+                .size(16.dp)
+                .drawBehind {
+                    val stroke = 2.dp.toPx()
+                    val inset = stroke / 2f
+                    val arcSize = Size(size.width - stroke, size.height - stroke)
+                    drawArc(
+                        color = color.copy(alpha = color.alpha * 0.25f),
+                        startAngle = 0f,
+                        sweepAngle = 360f,
+                        useCenter = false,
+                        topLeft = Offset(inset, inset),
+                        size = arcSize,
+                        style = Stroke(stroke),
+                    )
+                    drawArc(
+                        color = color,
+                        startAngle = -90f,
+                        sweepAngle = 360f * remaining().coerceIn(0f, 1f),
+                        useCenter = false,
+                        topLeft = Offset(inset, inset),
+                        size = arcSize,
+                        style = Stroke(stroke, cap = StrokeCap.Round),
+                    )
+                },
         )
+        Text(label, style = AppTypography.body.strong, color = color)
     }
 }

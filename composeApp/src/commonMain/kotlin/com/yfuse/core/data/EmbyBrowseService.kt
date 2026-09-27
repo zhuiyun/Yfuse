@@ -398,7 +398,7 @@ internal class EmbyBrowseService(
                     parameter(
                         "Fields",
                         "ProductionYear,CommunityRating,Overview,ProviderIds,BackdropImageTags,ParentBackdropItemId," +
-                            "ParentBackdropImageTags,SeriesPrimaryImageTag,UserData,RunTimeTicks",
+                            "ParentBackdropImageTags,SeriesPrimaryImageTag,UserData,RunTimeTicks,DateCreated",
                     )
                     parameter("EnableImageTypes", "Primary,Backdrop")
                     parameter("EnableUserData", true)
@@ -600,7 +600,7 @@ internal class EmbyBrowseService(
         parameter(
             "Fields",
             "ProductionYear,CommunityRating,Overview,ProviderIds,BackdropImageTags,ParentBackdropItemId," +
-                "ParentBackdropImageTags,SeriesPrimaryImageTag,UserData,RunTimeTicks",
+                "ParentBackdropImageTags,SeriesPrimaryImageTag,UserData,RunTimeTicks,DateCreated",
         )
         parameter("EnableImageTypes", "Primary,Backdrop")
         parameter("EnableUserData", true)

@@ -24,7 +24,7 @@ class DownloadNotificationActions : BroadcastReceiver() {
         intent: Intent,
     ) {
         val action = intent.action
-        if (action != ACTION_PAUSE && action != ACTION_RESUME) return
+        if (action != ACTION_PAUSE && action != ACTION_RESUME && action != ACTION_STOP) return
         val pending = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             try {
@@ -54,6 +54,9 @@ class DownloadNotificationActions : BroadcastReceiver() {
     companion object {
         const val ACTION_PAUSE = "com.yfuse.download.PAUSE"
         const val ACTION_RESUME = "com.yfuse.download.RESUME"
+
+        /** 停止 on the live update: everything pauses and the notification goes until a download runs again. */
+        const val ACTION_STOP = "com.yfuse.download.STOP"
         const val EXTRA_OPEN_DOWNLOADS = "com.yfuse.OPEN_DOWNLOADS"
     }
 }
@@ -65,7 +68,10 @@ class DownloadNotificationActionWorker(
     override suspend fun doWork(): Result =
         try {
             val manager = GlobalContext.get().get<OfflineMediaManager>() as AndroidOfflineMediaManager
-            manager.applyNotificationAction(inputData.getString("action"))
+            val action = inputData.getString("action")
+            // Before the pause lands, so the paused queue never flashes up its own notification.
+            if (action == DownloadNotificationActions.ACTION_STOP) silenceOfflineAttention()
+            manager.applyNotificationAction(action)
             updateOfflineAttentionNotification(applicationContext)
             Result.success()
         } catch (cancelled: CancellationException) {

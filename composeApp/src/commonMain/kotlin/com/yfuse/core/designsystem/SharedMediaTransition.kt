@@ -13,6 +13,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.navigation3.ui.LocalNavAnimatedContentScope
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.TimeSource
 
 /** Stable identity shared by a library artwork tile and the detail hero it opens. */
 data class MediaSharedElementKey(
@@ -50,6 +52,28 @@ internal class SharedMediaTransitionController {
     fun begin(key: MediaSharedElementKey) {
         popSuppressed = false
         activeKey = key
+        noteOrigin(key)
+    }
+
+    // The poster a route is about to be pushed from, for 跟手返回 to go back into. Noted on every
+    // tap — under 减弱动态效果 too, which has no morph but keeps the pull-down — and claimed by the
+    // push that follows it, or by nothing once it is stale.
+    private var pendingOrigin: MediaSharedElementKey? = null
+    private var pendingSince: TimeSource.Monotonic.ValueTimeMark? = null
+
+    /** A poster with [key] was tapped to open something. */
+    fun noteOrigin(key: MediaSharedElementKey) {
+        pendingOrigin = key
+        pendingSince = TimeSource.Monotonic.markNow()
+    }
+
+    /** The poster the route just pushed was opened from, if a tap has just named one. Claims it. */
+    fun takeOrigin(): MediaSharedElementKey? {
+        val key = pendingOrigin
+        val fresh = pendingSince?.let { it.elapsedNow() < OriginClaimWindow } == true
+        pendingOrigin = null
+        pendingSince = null
+        return key?.takeIf { fresh }
     }
 
     /** A shrinking navigation stack must not reuse the forward-only artwork morph. */
@@ -61,6 +85,9 @@ internal class SharedMediaTransitionController {
         if (activeKey == key) activeKey = null
     }
 }
+
+/** How long after a tap its push may still claim the poster it came from. */
+private val OriginClaimWindow = 1_500.milliseconds
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 internal val LocalSharedTransitionScope =
@@ -92,21 +119,27 @@ internal fun sharedMediaOnClick(
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val controller = LocalSharedMediaTransitionController.current
     return {
-        if (!reduceMotion && key != null) controller?.begin(key)
+        if (key != null) {
+            if (reduceMotion) controller?.noteOrigin(key) else controller?.begin(key)
+        }
         onClick()
     }
 }
 
-/** Register matching artwork for the current one-way media push, if one is active. */
+/**
+ * Register matching artwork for the current one-way media push, if one is active — and, while a
+ * 跟手返回 is looking for it, offer it as the place the page goes back into (see [zoomBackSource]).
+ */
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 internal fun Modifier.sharedMediaArtwork(key: MediaSharedElementKey?): Modifier {
-    if (!isSharedMediaArtworkActive(key)) return this
+    val base = zoomBackSource(key)
+    if (!isSharedMediaArtworkActive(key)) return base
     val activeKey = checkNotNull(key)
-    val sharedScope = LocalSharedTransitionScope.current ?: return this
+    val sharedScope = LocalSharedTransitionScope.current ?: return base
     val visibilityScope = LocalNavAnimatedContentScope.current
     return with(sharedScope) {
-        this@sharedMediaArtwork.sharedBounds(
+        base.sharedBounds(
             sharedContentState = rememberSharedContentState(activeKey),
             animatedVisibilityScope = visibilityScope,
             // The route's own push length: a 300ms morph under a 280ms push finished after the page

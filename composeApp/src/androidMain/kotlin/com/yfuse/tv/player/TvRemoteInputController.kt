@@ -243,7 +243,8 @@ internal class TvRemoteInputController(
         val step = if (heldForMs >= HOLD_SEEK_RAMP_MS) HOLD_SEEK_FAST_STEP_MS else HOLD_SEEK_STEP_MS
         seekTargetMs = boundedSeekTarget(seekTargetMs, direction * step)
         seekDirty = true
-        chrome.updateSeekPreview(seekTargetMs)
+        // A repeat: the key is held, and the trickplay card shows where the hold has got to.
+        chrome.updateSeekPreview(seekTargetMs, held = true)
         if (elapsedSinceLastDispatch(now) >= SEEK_DISPATCH_DEBOUNCE_MS) {
             // Reset the same inactivity timer as a touch scrub; long remote seeks must not make
             // their own timeline disappear half way through the hold.

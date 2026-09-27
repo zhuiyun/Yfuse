@@ -54,6 +54,7 @@ import com.yfuse.core.designsystem.OverlayPage
 import com.yfuse.core.designsystem.SkeletonHandoff
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.WindowWidthTier
+import com.yfuse.core.designsystem.ZoomBackAnchor
 import com.yfuse.core.designsystem.backdropSource
 import com.yfuse.core.designsystem.liftOverHero
 import com.yfuse.core.designsystem.lightOnAppear
@@ -65,7 +66,9 @@ import com.yfuse.core.designsystem.rememberArtworkPageColor
 import com.yfuse.core.designsystem.rememberBackdropState
 import com.yfuse.core.designsystem.rememberRetainedArtworkPageColor
 import com.yfuse.core.designsystem.windowWidthTier
+import com.yfuse.core.designsystem.zoomBackAnchor
 import com.yfuse.core.model.CalendarDay
+import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.ServerSource
 import com.yfuse.core.model.capabilities
 import com.yfuse.core.network.EmbyImages
@@ -73,7 +76,9 @@ import com.yfuse.core.network.currentPlaybackNetworkClass
 import com.yfuse.core.network.toUserMessage
 import com.yfuse.core.sync.WatchInvite
 import com.yfuse.core.sync.watchKey
+import com.yfuse.core.util.rememberPosterCardSharer
 import com.yfuse.core.util.rememberShareHandler
+import com.yfuse.feature.library.posterShareCard
 import com.yfuse.feature.player.PlaybackSelection
 import com.yfuse.feature.player.PlaybackSelectionState
 import com.yfuse.feature.watch.WatchInviteShareSheet
@@ -311,9 +316,14 @@ fun DetailScreen(component: DetailComponent) {
     var moreSheetOpen by remember { mutableStateOf(false) }
     var metadataEditorOpen by remember { mutableStateOf(false) }
     var downloadSheetOpen by remember { mutableStateOf(false) }
+    val sharer = rememberPosterCardSharer()
+    // The episode rows' 浮起菜单, swipes and 长按拖选, and what of the season is downloaded.
+    val episodeRowActions = rememberEpisodeRowActions(component, state.playServer?.id)
     var organizationSheetOpen by remember { mutableStateOf(false) }
     var sourceListOpen by remember { mutableStateOf(false) }
     var allEpisodesOpen by remember { mutableStateOf(false) }
+    // The rail 全部剧集 opens out of, and folds back into when that page is pulled down.
+    val allEpisodesSource = remember { ZoomBackAnchor() }
     var airingCalendarOpen by remember { mutableStateOf(false) }
     var airingCalendarReload by remember { mutableStateOf(0) }
     var airingCalendarLoading by remember(detail?.id) { mutableStateOf(false) }
@@ -626,41 +636,44 @@ fun DetailScreen(component: DetailComponent) {
                                 // external links before they can choose what to watch.
                                 if (state.episodes.isNotEmpty()) {
                                     motionItem(key = "episodes") {
-                                        EpisodeSection(
-                                            baseUrl = playBaseUrl,
-                                            accessToken = playAccessToken,
-                                            episodes = state.episodes,
-                                            seriesPosterUrl = heroUrls.getOrNull(1),
-                                            selectedEpisodeId = state.selectedEpisodeId,
-                                            accent = detailAccent,
-                                            seasonLabel =
-                                                state.seasons
-                                                    .firstOrNull { it.id == state.selectedSeasonId }
-                                                    ?.name
-                                                    ?: "剧集",
-                                            availableEpisodeCount = state.episodes.size,
-                                            seasonCount = state.seasons.size,
-                                            seasonLoading = listedSeasonId != state.selectedSeasonId,
-                                            listedSeasonId = listedSeasonId,
-                                            pickerOpen = seasonPickerOpen,
-                                            onTogglePicker = { seasonPickerOpen = !seasonPickerOpen },
-                                            onPickerAnchor = { seasonPickerAnchor.bounds = it },
-                                            onManageProgress = {
-                                                component.store.accept(DetailIntent.OpenProgressManager)
-                                            },
-                                            onPlayEpisode = { episode ->
-                                                com.yfuse.core.designsystem.PlayerArtworkOrigins.begin(
-                                                    sharedHeroKey,
-                                                )
-                                                component.store.accept(
-                                                    DetailIntent.SelectEpisode(
-                                                        episode.id,
-                                                        episode.resumePositionTicks ?: 0L,
-                                                    ),
-                                                )
-                                            },
-                                            onSeeAll = { allEpisodesOpen = true },
-                                        )
+                                        Box(Modifier.zoomBackAnchor(allEpisodesSource)) {
+                                            EpisodeSection(
+                                                baseUrl = playBaseUrl,
+                                                accessToken = playAccessToken,
+                                                episodes = state.episodes,
+                                                seriesPosterUrl = heroUrls.getOrNull(1),
+                                                selectedEpisodeId = state.selectedEpisodeId,
+                                                accent = detailAccent,
+                                                seasonLabel =
+                                                    state.seasons
+                                                        .firstOrNull { it.id == state.selectedSeasonId }
+                                                        ?.name
+                                                        ?: "剧集",
+                                                availableEpisodeCount = state.episodes.size,
+                                                seasonCount = state.seasons.size,
+                                                seasonLoading = listedSeasonId != state.selectedSeasonId,
+                                                listedSeasonId = listedSeasonId,
+                                                pickerOpen = seasonPickerOpen,
+                                                onTogglePicker = { seasonPickerOpen = !seasonPickerOpen },
+                                                onPickerAnchor = { seasonPickerAnchor.bounds = it },
+                                                onManageProgress = {
+                                                    component.store.accept(DetailIntent.OpenProgressManager)
+                                                },
+                                                onPlayEpisode = { episode ->
+                                                    com.yfuse.core.designsystem.PlayerArtworkOrigins.begin(
+                                                        sharedHeroKey,
+                                                    )
+                                                    component.store.accept(
+                                                        DetailIntent.SelectEpisode(
+                                                            episode.id,
+                                                            episode.resumePositionTicks ?: 0L,
+                                                        ),
+                                                    )
+                                                },
+                                                onSeeAll = { allEpisodesOpen = true },
+                                                rowActions = episodeRowActions,
+                                            )
+                                        }
                                     }
                                 }
 
@@ -759,6 +772,32 @@ fun DetailScreen(component: DetailComponent) {
                                             onOpen = { itemId ->
                                                 state.server?.id?.let { component.onOpenRelated(it, itemId) }
                                             },
+                                            liftMenu =
+                                                state.server?.let { server ->
+                                                    { item: MediaItem ->
+                                                        component.relatedLiftMenu(
+                                                            serverId = server.id,
+                                                            listed = item,
+                                                            backdropUrl =
+                                                                EmbyImages.backdrop(
+                                                                    baseUrl,
+                                                                    item,
+                                                                    accessToken = accessToken,
+                                                                ),
+                                                            onShare = {
+                                                                sharer.sharePosterCard(
+                                                                    item.posterShareCard(
+                                                                        EmbyImages.poster(
+                                                                            baseUrl,
+                                                                            item,
+                                                                            accessToken = accessToken,
+                                                                        ),
+                                                                    ),
+                                                                )
+                                                            },
+                                                        )
+                                                    }
+                                                },
                                         )
                                     }
                                 }
@@ -795,6 +834,40 @@ fun DetailScreen(component: DetailComponent) {
                         onBack = component.onBack,
                         onPlay = playerArtworkOnClick(sharedHeroKey) { component.store.accept(DetailIntent.Play) },
                         onMore = { moreSheetOpen = true },
+                        moreMenu =
+                            detail?.let { shown ->
+                                {
+                                    detailMoreLiftMenu(
+                                        title = shown.title,
+                                        played = shown.played,
+                                        favoriteAvailable =
+                                            state.playServer
+                                                ?.kind
+                                                ?.capabilities()
+                                                ?.favorites != false,
+                                        favorite = shown.isFavorite,
+                                        watchLater = state.watchLater,
+                                        onTogglePlayed = { component.store.accept(DetailIntent.TogglePlayed) },
+                                        onToggleFavorite = { component.store.accept(DetailIntent.ToggleFavorite) },
+                                        onToggleWatchLater = { component.store.accept(DetailIntent.ToggleWatchLater) },
+                                        onDownload = { downloadSheetOpen = true },
+                                        onWatchTogether =
+                                            if (watchAvailable && watchState.roomCode == null) {
+                                                {
+                                                    watchTogether.createRoom(
+                                                        endpoint = watchEndpoint,
+                                                        mediaKey = shown.providerIds.watchKey(shown.id),
+                                                    )
+                                                    shareSheetOpen = true
+                                                }
+                                            } else {
+                                                null
+                                            },
+                                        onAllActions = { moreSheetOpen = true },
+                                        onShare = { sharer.sharePosterCard(shown.shareCardAt(baseUrl, accessToken)) },
+                                    )
+                                }
+                            },
                     )
                 }
 
@@ -906,6 +979,10 @@ fun DetailScreen(component: DetailComponent) {
                             shareSheetOpen = true
                         },
                         onDismiss = { moreSheetOpen = false },
+                        onShare = {
+                            moreSheetOpen = false
+                            sharer.sharePosterCard(detail.shareCardAt(baseUrl, accessToken))
+                        },
                     )
                 }
 
@@ -1036,6 +1113,7 @@ fun DetailScreen(component: DetailComponent) {
                 OverlayPage(
                     value = detail?.takeIf { allEpisodesOpen },
                     onBack = { allEpisodesOpen = false },
+                    source = allEpisodesSource,
                 ) { shown ->
                     SeasonEpisodesPage(
                         seasonLabel =
@@ -1064,6 +1142,10 @@ fun DetailScreen(component: DetailComponent) {
                             )
                         },
                         onDismiss = { allEpisodesOpen = false },
+                        seasons = state.seasons.map { it.id to it.name },
+                        selectedSeasonId = state.selectedSeasonId,
+                        listedSeasonId = listedSeasonId,
+                        onSelectSeason = { component.store.accept(DetailIntent.SelectSeason(it)) },
                     )
                 }
 
@@ -1090,6 +1172,7 @@ fun DetailScreen(component: DetailComponent) {
                         onDismiss = {
                             component.store.accept(DetailIntent.CloseProgressManager)
                         },
+                        rowActions = episodeRowActions,
                     )
                 }
 
@@ -1122,9 +1205,17 @@ fun DetailScreen(component: DetailComponent) {
                 // Over the page rather than inside it: as a row in the action column this
                 // pushed 简介 and everything under it down the moment a tap was confirmed,
                 // and it stayed there until some other action happened to replace it.
+                // A flag written from a 相关推荐 poster's 浮起菜单 reports in the same place.
+                val relatedMessage by component.relatedFlags.message.collectAsState()
                 ActionToast(
-                    message = state.actionMessage ?: state.sourceFailure?.toDetailMessage(),
-                    onDismiss = { component.store.accept(DetailIntent.DismissMessage) },
+                    message = relatedMessage ?: state.actionMessage ?: state.sourceFailure?.toDetailMessage(),
+                    onDismiss = {
+                        if (relatedMessage != null) {
+                            component.relatedFlags.dismissMessage()
+                        } else {
+                            component.store.accept(DetailIntent.DismissMessage)
+                        }
+                    },
                     accent = detailAccent,
                 )
             }

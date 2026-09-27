@@ -42,6 +42,7 @@ import coil3.compose.LocalPlatformContext
 import coil3.request.ImageRequest
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.LiftMenu
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.contentHandoff
@@ -53,6 +54,7 @@ import com.yfuse.feature.home.HomeIntent
 import com.yfuse.feature.home.HomeLabel
 import com.yfuse.feature.home.HomeResumeEntry
 import com.yfuse.feature.home.HomeState
+import com.yfuse.feature.home.homeLiftMenu
 import kotlinx.coroutines.delay
 
 @Composable
@@ -212,7 +214,7 @@ internal fun TvHomeScreen(
                         sectionKey = "home:tmdb:${row.title}:$rowIndex",
                         items =
                             row.items.map { item ->
-                                item.toTvCard {
+                                item.toTvCard(quickActions = { item.homeLiftMenu(onIntent = store::accept) }) {
                                     store.accept(HomeIntent.Open(item))
                                 }
                             },
@@ -248,6 +250,9 @@ internal fun TvHomeScreen(
                                         profileId = source.server.userId,
                                         progress = media.playedPercentage?.div(100.0)?.toFloat(),
                                         badge = media.communityRating?.let { "%.1f".format(it) },
+                                        quickActions = {
+                                            HomeResumeEntry(media, source.server).homeLiftMenu(onIntent = store::accept)
+                                        },
                                         onClick = {
                                             store.accept(
                                                 HomeIntent.OpenResume(
@@ -429,15 +434,22 @@ private fun HomeResumeEntry.toTvCard(
         progress = item.playedPercentage?.div(100.0)?.toFloat(),
         badge = item.communityRating?.let { "%.1f".format(it) },
         artworkShape = TvArtworkShape.Landscape,
+        // The phone's 浮起菜单 for the same card, less two rows: 从继续观看移除 waits on a toast's
+        // 撤销 that the television does not show, and a television has nothing to share to.
+        quickActions = { homeLiftMenu(onIntent = store::accept) },
         onClick = { store.accept(HomeIntent.OpenResume(this)) },
     )
 
-private fun TmdbItem.toTvCard(onClick: () -> Unit): TvMediaCardModel =
+private fun TmdbItem.toTvCard(
+    quickActions: (() -> LiftMenu)? = null,
+    onClick: () -> Unit,
+): TvMediaCardModel =
     TvMediaCardModel(
         stableId = "tmdb:$mediaType:$id",
         title = title,
         subtitle = year,
         imageUrl = TmdbImages.poster(posterPath),
         badge = rating?.let { "%.1f".format(it) },
+        quickActions = quickActions,
         onClick = onClick,
     )

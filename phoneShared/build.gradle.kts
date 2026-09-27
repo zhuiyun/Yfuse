@@ -62,6 +62,7 @@ kotlin {
                 compileOnly(libs.jcifs.ng)
                 compileOnly(libs.play.services.cronet)
                 compileOnly(libs.androidx.activity.compose)
+                compileOnly(libs.androidx.window)
                 compileOnly(libs.androidx.camera.core)
                 compileOnly(libs.androidx.camera.camera2)
                 compileOnly(libs.androidx.camera.lifecycle)

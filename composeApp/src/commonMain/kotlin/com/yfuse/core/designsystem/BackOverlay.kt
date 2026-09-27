@@ -81,6 +81,10 @@ fun BackOverlay(
  * it leaves, so a predictive back released at 0.9 carries on from there rather than cutting away.
  * [content] must draw from the value it is handed, not from the owner's state.
  *
+ * It goes back the way a page from a poster does (跟手返回): pulled down from its top, or swiped
+ * from the side, it follows the finger, and let go past the point of no return it flies back into
+ * [source] — the shelf or rail it was opened from — or, with none on screen, leaves the ordinary way.
+ *
  * The page underneath is still composed; stop anything there that moves on its own — a carousel's
  * auto-advance — while this is up.
  */
@@ -89,6 +93,7 @@ fun <T : Any> OverlayPage(
     value: T?,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    source: ZoomBackAnchor? = null,
     content: @Composable BoxScope.(T) -> Unit,
 ) {
     var retained by remember { mutableStateOf(value) }
@@ -97,18 +102,23 @@ fun <T : Any> OverlayPage(
     val visible = value != null
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val presence = remember { Animatable(if (reduceMotion) 1f else 0f) }
+    // Set when the page has already flown back into its source: there is nothing left to leave.
+    val zoomedAway = remember { booleanArrayOf(false) }
     LaunchedEffect(visible, reduceMotion) {
         val target = if (visible) 1f else 0f
-        if (reduceMotion) {
+        if (visible) zoomedAway[0] = false
+        if (reduceMotion || (!visible && zoomedAway[0])) {
             presence.snapTo(target)
         } else {
             presence.animateTo(target, Motion.tween(if (visible) Motion.PUSH else Motion.POP))
         }
         if (!visible) retained = null
     }
-    BackOverlay(
+    ZoomBackOverlay(
+        visible = visible,
+        source = source,
         onBack = onBack,
-        enabled = visible,
+        onZoomedAway = { zoomedAway[0] = true },
         modifier =
             modifier.graphicsLayer {
                 val p = presence.value

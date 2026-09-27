@@ -59,11 +59,16 @@ internal class TvPlayerChromeController : TvPlayerChromeBridge {
         emit(TvPlayerChromeCommandType.OpenInfo)
     }
 
-    fun updateSeekPreview(positionMs: Long) {
+    /** [held] once the seek key has repeated — see [TvPlayerChromeState.seekHeld]. */
+    fun updateSeekPreview(
+        positionMs: Long,
+        held: Boolean = false,
+    ) {
         mutableState.update {
             it.copy(
                 seeking = true,
                 seekTargetMs = positionMs.coerceAtLeast(0L),
+                seekHeld = held,
                 interactionRevision = it.interactionRevision + 1,
             )
         }
@@ -74,6 +79,7 @@ internal class TvPlayerChromeController : TvPlayerChromeBridge {
             it.copy(
                 seeking = false,
                 seekTargetMs = null,
+                seekHeld = false,
                 interactionRevision = it.interactionRevision + 1,
             )
         }

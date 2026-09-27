@@ -24,3 +24,12 @@ data class PlaybackSegment(
         return positionMs in startMs until end
     }
 }
+
+/**
+ * An ordinary chapter of the file, as its container named it: where it starts and what it is
+ * called. Only named chapters exist here — see `playbackChapters()` for what is left out.
+ */
+data class PlaybackChapter(
+    val startMs: Long,
+    val name: String,
+)

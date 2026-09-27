@@ -7,6 +7,7 @@ import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.arkivanov.mvikotlin.extensions.coroutines.labels
 import com.yfuse.core.data.AiringCalendarRepository
 import com.yfuse.core.data.EmbyRepository
+import com.yfuse.core.data.HomeShelfPreferences
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.TmdbHomeCache
 import com.yfuse.core.data.TmdbRepository
@@ -15,6 +16,7 @@ import com.yfuse.core.model.CalendarEntry
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.sync.ServerSyncManager
+import com.yfuse.core.sync.playback.PlaybackSyncManager
 import com.yfuse.core.util.componentScope
 import com.yfuse.feature.calendar.loadCalendarWithDeadline
 import kotlinx.coroutines.Job
@@ -32,6 +34,7 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import org.koin.core.context.GlobalContext
 import kotlin.coroutines.coroutineContext
 
 class HomeComponent(
@@ -44,7 +47,8 @@ class HomeComponent(
     syncManager: ServerSyncManager,
     private val calendarRepository: AiringCalendarRepository,
     private val onOpenEmbyItem: (String, String) -> Unit,
-    private val onPlayEmbyItem: (String, String, Boolean) -> Unit,
+    /** Server, item, whether it is a series, and where to start in ticks (0 for the beginning). */
+    private val onPlayEmbyItem: (String, String, Boolean, Long) -> Unit,
     private val onOpenTmdbItem: (TmdbItem, String?) -> Unit,
     val onOpenSearch: () -> Unit,
     val onOpenLibrary: () -> Unit,
@@ -64,6 +68,11 @@ class HomeComponent(
     // restoring an index after recomposition briefly painted the hero and caused a flash.
     internal val listState = LazyListState()
 
+    private val playbackSync = runCatching { GlobalContext.get().get<PlaybackSyncManager>() }.getOrNull()
+
+    /** The order and visibility of 首页's shelves; null without the app's graph (previews, tests). */
+    val shelves: HomeShelfPreferences? = runCatching { GlobalContext.get().get<HomeShelfPreferences>() }.getOrNull()
+
     val store =
         HomeStoreFactory(
             storeFactory = storeFactory,
@@ -72,6 +81,12 @@ class HomeComponent(
             registry = registry,
             cache = cache,
             syncManager = syncManager,
+            forgetResume =
+                if (playbackSync == null) {
+                    null
+                } else {
+                    { serverId, itemId -> playbackSync.forgetResume(serverId, itemId) }
+                },
         ).create()
 
     init {
@@ -87,7 +102,8 @@ class HomeComponent(
                 when (label) {
                     is HomeLabel.OpenEmbyItem -> onOpenEmbyItem(label.serverId, label.itemId)
                     is HomeLabel.OpenTmdbItem -> onOpenTmdbItem(label.item, label.embyItemId)
-                    is HomeLabel.PlayEmbyItem -> onPlayEmbyItem(label.serverId, label.itemId, label.isSeries)
+                    is HomeLabel.PlayEmbyItem ->
+                        onPlayEmbyItem(label.serverId, label.itemId, label.isSeries, label.startPositionTicks)
                 }
             }.launchIn(scope)
         lifecycle.doOnDestroy(store::dispose)

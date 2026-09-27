@@ -63,6 +63,7 @@ kotlin {
                 compileOnly(libs.jcifs.ng)
                 compileOnly(libs.play.services.cronet)
                 compileOnly(libs.androidx.activity.compose)
+                compileOnly(libs.androidx.window)
                 compileOnly(libs.androidx.lifecycle.process)
                 compileOnly(libs.media3.exoplayer)
                 compileOnly(libs.media3.datasource.okhttp)

@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.LiftMenu
 import com.yfuse.core.designsystem.contentHandoff
 import com.yfuse.core.model.LibraryResolution
 import com.yfuse.core.model.LibrarySort
@@ -49,6 +50,10 @@ import com.yfuse.feature.library.GridIntent
 import com.yfuse.feature.library.LibraryGridComponent
 import com.yfuse.feature.library.LibraryHomeComponent
 import com.yfuse.feature.library.LibraryIntent
+import com.yfuse.feature.library.favoriteLiftAction
+import com.yfuse.feature.library.libraryHomeLiftMenu
+import com.yfuse.feature.library.mediaItemLiftMenu
+import com.yfuse.feature.library.playedLiftAction
 import com.yfuse.tv.focus.FocusCandidate
 import com.yfuse.tv.focus.FocusContext
 
@@ -100,6 +105,17 @@ internal fun TvLibraryHomeScreen(
     }
 
     val featured = state.content.featured.firstOrNull()
+    // 长按面板: the phone's shelves' 浮起菜单 — play (through 详情, which picks the file) and the
+    // favourite this store writes; it keeps no watched flag.
+    val quickActions: (MediaItem) -> LiftMenu = { media ->
+        libraryHomeLiftMenu(
+            item = media,
+            backdropUrl = null,
+            onOpen = { component.onOpenItem(media.id) },
+            onPlay = { component.onPlayItem(media.id) },
+            onFavorite = { favorite -> store.accept(LibraryIntent.ToggleFavorite(media.id, media.title, favorite)) },
+        )
+    }
     LazyColumn(
         state = component.listState,
         modifier = Modifier.fillMaxSize().then(arrival),
@@ -148,7 +164,7 @@ internal fun TvLibraryHomeScreen(
                     sectionKey = "library:${server.id}:resume",
                     items =
                         state.content.resume.map { media ->
-                            media.toLibraryTvCard(server, landscape = true) {
+                            media.toLibraryTvCard(server, landscape = true, quickActions = { quickActions(media) }) {
                                 component.onOpenItem(media.id)
                             }
                         },
@@ -166,7 +182,9 @@ internal fun TvLibraryHomeScreen(
                         sectionKey = "library:${server.id}:${row.libraryId}",
                         items =
                             row.items.map { media ->
-                                media.toLibraryTvCard(server) { component.onOpenItem(media.id) }
+                                media.toLibraryTvCard(server, quickActions = { quickActions(media) }) {
+                                    component.onOpenItem(media.id)
+                                }
                             },
                         focusMemory = focusMemory,
                         navigationRequester = navigationRequester,
@@ -354,6 +372,22 @@ internal fun TvLibraryGridScreen(
     val store = component.store
     val backRequester = remember { FocusRequester() }
     val gridScope = "grid:${component.title}"
+    // 长按面板: the two flags this store writes, as on the phone's grid. It has no way to play a
+    // title, and 从播放列表移除 waits on a confirmation this screen does not show.
+    val quickActions: (MediaItem) -> LiftMenu = { item ->
+        mediaItemLiftMenu(
+            item = item,
+            backdropUrl = null,
+            onOpen = { component.onOpenItem(item.id) },
+            actions =
+                listOf(
+                    listOf(
+                        favoriteLiftAction(item.isFavorite) { store.accept(GridIntent.SetFavorite(item.id, it)) },
+                        playedLiftAction(item.played) { store.accept(GridIntent.SetPlayed(item.id, it)) },
+                    ),
+                ),
+        )
+    }
     val backStableId = "grid:back:${component.title}"
     val contentCandidates =
         if (state.directoryKind != null) {
@@ -603,7 +637,10 @@ internal fun TvLibraryGridScreen(
                             key = { _, item -> "item:server:${component.serverId}:${item.id}" },
                         ) { index, item ->
                             TvMediaCard(
-                                model = item.toGridTvCard(component) { component.onOpenItem(item.id) },
+                                model =
+                                    item.toGridTvCard(component, quickActions = { quickActions(item) }) {
+                                        component.onOpenItem(item.id)
+                                    },
                                 focusScope = gridScope,
                                 focusMemory = focusMemory,
                                 fallbackIndex = index,
@@ -624,6 +661,7 @@ internal fun TvLibraryGridScreen(
 private fun MediaItem.toLibraryTvCard(
     server: SavedServer,
     landscape: Boolean = false,
+    quickActions: (() -> LiftMenu)? = null,
     onClick: () -> Unit,
 ): TvMediaCardModel =
     TvMediaCardModel(
@@ -642,11 +680,13 @@ private fun MediaItem.toLibraryTvCard(
         progress = playedPercentage?.div(100.0)?.toFloat(),
         badge = communityRating?.let { "%.1f".format(it) },
         artworkShape = if (landscape) TvArtworkShape.Landscape else TvArtworkShape.Poster,
+        quickActions = quickActions,
         onClick = onClick,
     )
 
 private fun MediaItem.toGridTvCard(
     component: LibraryGridComponent,
+    quickActions: (() -> LiftMenu)? = null,
     onClick: () -> Unit,
 ): TvMediaCardModel =
     TvMediaCardModel(
@@ -662,6 +702,7 @@ private fun MediaItem.toGridTvCard(
         serverId = component.serverId,
         progress = playedPercentage?.div(100.0)?.toFloat(),
         badge = communityRating?.let { "%.1f".format(it) },
+        quickActions = quickActions,
         onClick = onClick,
     )
 

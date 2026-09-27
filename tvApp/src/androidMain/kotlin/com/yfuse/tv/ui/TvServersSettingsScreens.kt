@@ -224,6 +224,7 @@ private fun TvServerCard(
         profileId = server.userId,
         onContextMenu = onEdit,
         modifier = Modifier.fillMaxWidth().height(190.dp),
+        parallax = true,
     ) { focused ->
         Column(
             Modifier.fillMaxSize().padding(19.dp),

@@ -18,7 +18,9 @@ import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.SearchHistory
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.navigation.SingleFlightNavigationGuard
+import com.yfuse.core.util.componentScope
 import com.yfuse.feature.detail.DetailComponent
+import com.yfuse.feature.library.LiftFlagWriter
 import com.yfuse.feature.player.PlayerComponent
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.Serializable
@@ -171,6 +173,9 @@ class SearchComponent(
                         onOpenItem = { serverId, itemId ->
                             navigation.pushToFront(Config.Detail(serverId, itemId))
                         },
+                        onPlayItem = { serverId, itemId, ticks ->
+                            openPlayer(Config.Player(serverId, itemId, ticks))
+                        },
                     ),
                 )
             is Config.Detail ->
@@ -223,9 +228,22 @@ class SearchHomeComponent(
     dependencies: AppDependencies,
     val onOpenServerSettings: () -> Unit,
     val onOpenItem: (serverId: String, itemId: String) -> Unit,
+    /** 浮起菜单's 播放: straight to the player from where the title was left, or from [startTicks]. */
+    val onPlayItem: (serverId: String, itemId: String, startTicks: Long) -> Unit = { _, _, _ -> },
 ) : ComponentContext by componentContext {
     /** Search remains composed logically while detail covers it; retain its real viewport. */
     internal val listState = LazyListState()
+
+    /**
+     * 标记已看 and 收藏 from a result's 浮起菜单. Results are a snapshot; this remembers what was
+     * changed since the search ran.
+     */
+    val flags =
+        LiftFlagWriter(
+            scope = componentScope(lifecycle),
+            writer = dependencies.serverSyncManager,
+            serverById = registry::serverById,
+        )
 
     fun serverBaseUrl(serverId: String): String = registry.serverById(serverId)?.baseUrl.orEmpty()
 

@@ -58,4 +58,28 @@ class EpisodeProgressReducerTest {
         assertFalse(applied.progressManagerOpen)
         assertEquals("已更新", applied.actionMessage)
     }
+
+    @Test
+    fun a_swiped_episode_changes_without_closing_the_sheet_or_touching_its_selection() {
+        val original =
+            DetailState(
+                episodes =
+                    listOf(
+                        episode("e1", played = false, position = 100L),
+                        episode("e2", played = true),
+                    ),
+                progressManagerOpen = true,
+                progressSelection = setOf("e2"),
+            )
+        val marked =
+            with(DetailReducer) {
+                original.reduce(DetailMsg.EpisodesPlayedChanged(episodeIds = setOf("e1"), played = true))
+            }
+
+        assertTrue(marked.episodes.first().played)
+        assertEquals(null, marked.episodes.first().resumePositionTicks)
+        assertTrue(marked.progressManagerOpen)
+        assertEquals(setOf("e2"), marked.progressSelection)
+        assertEquals(null, marked.actionMessage)
+    }
 }

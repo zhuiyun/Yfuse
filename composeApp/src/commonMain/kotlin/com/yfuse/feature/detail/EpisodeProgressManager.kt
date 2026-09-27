@@ -18,7 +18,17 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -29,27 +39,45 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.yfuse.core.designsystem.ActionToast
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.ContextualTip
 import com.yfuse.core.designsystem.DialogAnimation
 import com.yfuse.core.designsystem.GlassDialog
+import com.yfuse.core.designsystem.ItemAction
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.LocalToastBottomInset
 import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.Poster
+import com.yfuse.core.designsystem.SwipeActionsRow
+import com.yfuse.core.designsystem.Tips
+import com.yfuse.core.designsystem.ToastAction
+import com.yfuse.core.designsystem.UndoWindow
 import com.yfuse.core.designsystem.YfChip
+import com.yfuse.core.designsystem.dragSelect
+import com.yfuse.core.designsystem.dragSelectRow
 import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.overlayDismiss
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.rememberDragSelectState
 import com.yfuse.core.designsystem.solidGlass
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.Episode
 import com.yfuse.core.network.EmbyImages
+import com.yfuse.core.offline.OfflineMedia
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
 
-/** Sticky-header/footer batch editor: bottom sheet on phones, bounded dialog on larger screens. */
+/**
+ * Sticky-header/footer batch editor: bottom sheet on phones, bounded dialog on larger screens.
+ *
+ * With [rowActions] the rows do more than tick (5.4): a row swipes right for 标记已看 / 未看 and
+ * left for 下载 or 删除下载, a press held on a row sweeps the selection up or down to the finger
+ * (长按拖选), and the bar gains 下载 for what is selected.
+ */
 @Composable
 internal fun EpisodeProgressManager(
     episodes: List<Episode>,
@@ -66,7 +94,46 @@ internal fun EpisodeProgressManager(
     onPreset: (EpisodeSelectionPreset) -> Unit,
     onApply: (EpisodeProgressAction) -> Unit,
     onDismiss: () -> Unit,
+    rowActions: EpisodeRowActions? = null,
 ) {
+    // 删除下载 from a swipe is 先做，给 5 秒撤销 (see [UndoWindow]): the row reads as not downloaded
+    // at once, and the file goes only when the toast has.
+    val removals = remember { UndoWindow<OfflineMedia>() }
+    var removing by remember { mutableStateOf<OfflineMedia?>(null) }
+    var removalToast by remember { mutableIntStateOf(0) }
+    val latestActions by rememberUpdatedState(rowActions)
+
+    fun commitRemoval(download: OfflineMedia) {
+        latestActions?.removeDownload(download)
+    }
+
+    fun removeDownload(download: OfflineMedia) {
+        removals.hold(download)?.let(::commitRemoval)
+        removing = download
+        removalToast++
+    }
+
+    fun undoRemoval(download: OfflineMedia) {
+        if (removals.undo { it.id == download.id } != null) removing = null
+    }
+
+    // The toast left — timed out, swiped away, the app sent to the background: the file goes now.
+    fun settleRemoval() {
+        removals.release()?.let(::commitRemoval)
+        removing = null
+    }
+    // Closing the sheet is the toast leaving too.
+    DisposableEffect(removals) {
+        onDispose { removals.release()?.let(::commitRemoval) }
+    }
+    val removingId = removing?.id
+    val downloads = rowActions?.downloads.orEmpty().filterValues { it.id != removingId }
+    // 从这里开始多选 opens the sheet with its episode already chosen: the list starts there.
+    val listState =
+        rememberLazyListState(
+            initialFirstVisibleItemIndex = episodes.indexOfFirst { it.id in selectedIds }.coerceAtLeast(0),
+        )
+    val sweep = rememberDragSelectState<String>()
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val compact = maxWidth < 600.dp
         GlassDialog(
@@ -125,22 +192,86 @@ internal fun EpisodeProgressManager(
                     }
                 }
                 Spacer(Modifier.height(10.dp))
-                LazyColumn(
-                    Modifier.weight(1f),
-                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    motionItems(episodes, key = { it.id }) { episode ->
-                        ProgressEpisodeRow(
-                            episode = episode,
-                            baseUrl = baseUrl,
-                            accessToken = accessToken,
-                            seriesPosterUrl = seriesPosterUrl,
-                            selected = episode.id in selectedIds,
-                            accent = accent,
-                            enabled = !saving,
-                            onClick = { onToggle(episode.id) },
-                        )
+                Box(Modifier.weight(1f)) {
+                    LazyColumn(
+                        Modifier
+                            .fillMaxSize()
+                            .dragSelect(
+                                state = sweep,
+                                listState = listState,
+                                keys = episodes.map { it.id },
+                                selection = selectedIds,
+                                onSelectionChange = { swept -> rowActions?.select(swept) },
+                                enabled = rowActions != null && !saving,
+                            ),
+                        state = listState,
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        motionItems(episodes, key = { it.id }) { episode ->
+                            val download = downloads[episode.id]
+                            SwipeActionsRow(
+                                modifier = Modifier.dragSelectRow(sweep, episode.id),
+                                leading =
+                                    rowActions?.let { actions ->
+                                        ItemAction(
+                                            label = if (episode.played) "标记未看" else "标记已看",
+                                            icon = if (episode.played) AppIcons.Eye else AppIcons.Check,
+                                            id = "episode.played",
+                                        ) { actions.mark(setOf(episode.id), !episode.played) }
+                                    },
+                                trailing =
+                                    rowActions?.let { actions ->
+                                        if (download != null) {
+                                            ItemAction(
+                                                label = "删除下载",
+                                                icon = AppIcons.Close,
+                                                destructive = true,
+                                                undoable = true,
+                                                id = "episode.removeDownload",
+                                            ) { removeDownload(download) }
+                                        } else {
+                                            ItemAction(
+                                                label = "下载",
+                                                icon = AppIcons.Download,
+                                                id = "episode.download",
+                                            ) { actions.download(listOf(episode)) }
+                                        }
+                                    },
+                                enabled = !saving,
+                            ) { swipeActions ->
+                                ProgressEpisodeRow(
+                                    episode = episode,
+                                    baseUrl = baseUrl,
+                                    accessToken = accessToken,
+                                    seriesPosterUrl = seriesPosterUrl,
+                                    selected = episode.id in selectedIds,
+                                    accent = accent,
+                                    enabled = !saving,
+                                    onClick = { onToggle(episode.id) },
+                                    download = download,
+                                    modifier = swipeActions,
+                                )
+                            }
+                        }
+                    }
+                    // Where the rows can be swiped, once there are rows; the first swipe retires it.
+                    ContextualTip(
+                        id = Tips.SWIPE_ROW,
+                        text = "右滑标记已看，左滑下载；长按一集后上下拖动可连续选择",
+                        active = rowActions != null && episodes.isNotEmpty(),
+                        modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp),
+                    )
+                    // Inside the sheet: it is its own window, over anything the page could show.
+                    CompositionLocalProvider(LocalToastBottomInset provides 8.dp) {
+                        key(removalToast) {
+                            val pending = removing
+                            ActionToast(
+                                message = pending?.let { "已删除「${it.title}」的下载" },
+                                onDismiss = ::settleRemoval,
+                                action = pending?.let { download -> ToastAction("撤销") { undoRemoval(download) } },
+                            )
+                        }
                     }
                 }
                 ProgressManagerActions(
@@ -150,6 +281,10 @@ internal fun EpisodeProgressManager(
                         if (savingTotal > 0) "正在同步 $savingCompleted / $savingTotal…" else "正在同步…",
                     accent = accent,
                     onApply = onApply,
+                    onDownload =
+                        rowActions?.let { actions ->
+                            { actions.download(episodes.filter { it.id in selectedIds }) }
+                        },
                 )
             }
         }
@@ -193,10 +328,14 @@ private fun ProgressEpisodeRow(
     accent: Color,
     enabled: Boolean,
     onClick: () -> Unit,
+    /** This episode's offline copy, finished or on its way. */
+    download: OfflineMedia? = null,
+    /** Applied first, on the node that carries the row's click: a swipe's custom actions go here. */
+    modifier: Modifier = Modifier,
 ) {
     val palette = LocalPalette.current
     Row(
-        Modifier
+        modifier
             .fillMaxWidth()
             .pressable(
                 enabled = enabled,
@@ -242,12 +381,15 @@ private fun ProgressEpisodeRow(
             )
             Spacer(Modifier.height(3.dp))
             Text(
-                when {
-                    episode.played -> "已看完"
-                    (episode.resumePositionTicks ?: 0L) > 0L ->
-                        "观看中 · ${episode.playedPercentage?.toInt() ?: 0}%"
-                    else -> "未观看"
-                },
+                listOfNotNull(
+                    when {
+                        episode.played -> "已看完"
+                        (episode.resumePositionTicks ?: 0L) > 0L ->
+                            "观看中 · ${episode.playedPercentage?.toInt() ?: 0}%"
+                        else -> "未观看"
+                    },
+                    episodeDownloadLabel(download?.status),
+                ).joinToString(" · "),
                 style = AppTypography.caption.regular,
                 color = if (selected) accent else palette.sub2,
                 maxLines = 1,
@@ -263,6 +405,8 @@ private fun ProgressManagerActions(
     savingLabel: String,
     accent: Color,
     onApply: (EpisodeProgressAction) -> Unit,
+    /** 下载 for what is selected; null where downloads are not offered. */
+    onDownload: (() -> Unit)? = null,
 ) {
     val palette = LocalPalette.current
     val enabled = selectionCount > 0 && !saving
@@ -291,6 +435,9 @@ private fun ProgressManagerActions(
             }
             ProgressAction("重置", enabled, accent, Modifier.weight(1f)) {
                 onApply(EpisodeProgressAction.Reset)
+            }
+            onDownload?.let { download ->
+                ProgressAction("下载", enabled, accent, Modifier.weight(1f), onClick = download)
             }
         }
     }

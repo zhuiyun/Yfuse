@@ -1,6 +1,7 @@
 package com.yfuse.feature.player
 
 import com.yfuse.core.data.SkipMode
+import com.yfuse.core.model.PlaybackSegment
 import com.yfuse.core.sync.WatchChatMessage
 import com.yfuse.core.sync.WatchControlMode
 import com.yfuse.core.sync.WatchParticipant
@@ -101,6 +102,11 @@ data class SkipSegmentState(
     /** 片尾 starts this many seconds before the end. */
     val creditsLeadSeconds: Long = 0L,
     val mode: SkipMode = SkipMode.Button,
+    /**
+     * The file's credits as the player will act on them — the server's marker or the remembered
+     * 片尾, whichever applies — whatever [mode] is. 片尾接管下一集 starts here.
+     */
+    val credits: PlaybackSegment? = null,
 ) {
     /** True once any boundary is set, including a half-entered intro. */
     val anySet: Boolean

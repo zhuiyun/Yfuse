@@ -463,6 +463,29 @@ object AppIcons {
             roundRect(12.2f, 11.4f, 6.6f, 5f, 1.4f)
         }.build()
 
+    /** 旋转锁, on: the phone on its side beside a shut padlock — [Lock]'s shackle, smaller. */
+    val RotationLocked =
+        strokeVector("rotation-locked") {
+            roundRect(3.2f, 7.2f, 10.6f, 9.6f, 1.8f)
+            roundRect(14.8f, 12.4f, 6f, 5.4f, 1.3f)
+        }.andPath {
+            moveTo(16.2f, 12.4f)
+            verticalLineTo(10.8f)
+            arcToRelative(1.6f, 1.6f, 0f, isMoreThanHalf = false, isPositiveArc = true, 3.2f, 0f)
+            verticalLineTo(12.4f)
+        }.build()
+
+    /** 旋转锁, off: the same padlock open, as [Unlock] opens. */
+    val RotationUnlocked =
+        strokeVector("rotation-unlocked") {
+            roundRect(3.2f, 7.2f, 10.6f, 9.6f, 1.8f)
+            roundRect(14.8f, 12.4f, 6f, 5.4f, 1.3f)
+        }.andPath {
+            moveTo(16.2f, 12.4f)
+            verticalLineTo(10.8f)
+            arcToRelative(1.6f, 1.6f, 0f, isMoreThanHalf = false, isPositiveArc = true, 2.96f, -0.84f)
+        }.build()
+
     // ------------------------------------------------------------ controls
 
     val More = dotVector("more", 5.9f to 12f, 12f to 12f, 18.1f to 12f)
@@ -581,6 +604,26 @@ object AppIcons {
             moveTo(9.7f, 19.2f)
             curveTo(10.2f, 20.1f, 11f, 20.5f, 12f, 20.5f)
             curveTo(13f, 20.5f, 13.8f, 20.1f, 14.3f, 19.2f)
+        }.build()
+
+    /** 分享 — an arrow leaving an open tray, the platform's share glyph. */
+    val Share =
+        strokeVector("share") {
+            moveTo(12f, 3.8f)
+            verticalLineTo(14.2f)
+            moveTo(8.4f, 7.4f)
+            lineTo(12f, 3.8f)
+            lineTo(15.6f, 7.4f)
+            moveTo(8.4f, 10.4f)
+            horizontalLineTo(6.8f)
+            arcToRelative(1.9f, 1.9f, 0f, isMoreThanHalf = false, isPositiveArc = false, -1.9f, 1.9f)
+            verticalLineTo(18.3f)
+            arcToRelative(1.9f, 1.9f, 0f, isMoreThanHalf = false, isPositiveArc = false, 1.9f, 1.9f)
+            horizontalLineTo(17.2f)
+            arcToRelative(1.9f, 1.9f, 0f, isMoreThanHalf = false, isPositiveArc = false, 1.9f, -1.9f)
+            verticalLineTo(12.3f)
+            arcToRelative(1.9f, 1.9f, 0f, isMoreThanHalf = false, isPositiveArc = false, -1.9f, -1.9f)
+            horizontalLineTo(15.6f)
         }.build()
 
     val Download =

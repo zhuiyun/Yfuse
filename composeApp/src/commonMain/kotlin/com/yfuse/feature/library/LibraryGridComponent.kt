@@ -37,6 +37,9 @@ class LibraryGridComponent(
     val serverAccessToken: String = fixedServer?.accessToken.orEmpty()
 
     val containerKind = containerRoute?.kind
+
+    /** Which grid this is, for what it remembers about itself: how many posters a row holds. */
+    val densityKey: String = libraryId
     val directoryKind = directoryRoute?.kind
 
     /** Keep the exact poster row visible while a detail route is on top. */

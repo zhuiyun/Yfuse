@@ -82,6 +82,7 @@ open class YfuseApp :
 
                 override fun onActivityStopped(activity: Activity) {
                     com.yfuse.widget.scheduleWidgetUpdate(this@YfuseApp)
+                    com.yfuse.shortcuts.scheduleShortcutUpdate(this@YfuseApp)
                 }
 
                 override fun onActivitySaveInstanceState(

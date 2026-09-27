@@ -757,6 +757,12 @@ object Motion {
     /** Right-edge drawers remain interruptible while opening, settling, or cancelling back. */
     fun <T> drawer(): SpringSpec<T> = spring(dampingRatio = 0.86f, stiffness = Spring.StiffnessMediumLow)
 
+    /**
+     * 浮起菜单: a poster lifting into its preview card, and settling back into the grid. A touch
+     * under-damped, so the card arrives with some weight instead of a bounce.
+     */
+    fun <T> lift(): SpringSpec<T> = spring(dampingRatio = 0.8f, stiffness = 380f)
+
     /** Something turning on — a favourite, a follow: one dip, one small rebound, rest. */
     fun <T> burst(): SpringSpec<T> = spring(dampingRatio = 0.5f, stiffness = Spring.StiffnessMediumLow)
 
@@ -805,6 +811,19 @@ object Motion {
                 }
             spring(dampingRatio = 0.92f, stiffness = stiffness)
         }
+
+    /**
+     * 跟手返回: a page flying back into the poster it came from, or springing back to full screen
+     * when let go short. Barely under-damped, so the card lands without a bounce.
+     */
+    fun <T> zoomBack(): SpringSpec<T> = spring(dampingRatio = 0.86f, stiffness = 380f)
+
+    /**
+     * 片尾接管: the whole picture drawing back into its corner as the credits start, and growing
+     * back for 看完片尾. Softer than a control's spring — a screen's worth of picture is moving — and
+     * without a bounce, which on a film reads as the video glitching.
+     */
+    fun <T> creditsTakeover(): SpringSpec<T> = spring(dampingRatio = 0.9f, stiffness = Spring.StiffnessLow)
 
     /** 推进（详情 / 类型 / 下载）— 右侧 30px 滑入 + 淡入. */
     const val PUSH = EMPHASIZED

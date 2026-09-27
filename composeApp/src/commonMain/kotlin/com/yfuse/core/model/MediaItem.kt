@@ -46,6 +46,11 @@ data class MediaItem(
      * de-duplicates repeated memberships by [id], while retaining this value for removal.
      */
     val playlistItemId: String? = null,
+    /**
+     * `2026-09-26`: when the server added the item, where the listing asked for it. Labels the
+     * 最近添加 grid's fast-scroll index by month.
+     */
+    val dateCreated: String? = null,
 )
 
 /** The two server-owned organization containers surfaced by the library home screen. */

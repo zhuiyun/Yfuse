@@ -200,8 +200,8 @@ class HomeTabComponent(
                         onOpenEmbyItem = { serverId, itemId ->
                             navigation.pushToFront(Config.Detail(serverId, itemId))
                         },
-                        onPlayEmbyItem = { serverId, itemId, isSeries ->
-                            openPlayer(Config.Player(serverId, itemId, 0L, isSeriesLaunch = isSeries))
+                        onPlayEmbyItem = { serverId, itemId, isSeries, startPositionTicks ->
+                            openPlayer(Config.Player(serverId, itemId, startPositionTicks, isSeriesLaunch = isSeries))
                         },
                         onOpenTmdbItem = { item, embyItemId ->
                             navigation.pushToFront(Config.Info(item, embyItemId))

@@ -304,6 +304,12 @@ class MainActivity : ComponentActivity() {
 
     private fun consumeWidgetIntent(intent: Intent?) {
         val action = intent?.getStringExtra("widget_action") ?: return
+        // The launcher's 搜索 shortcut: the search tab with its field focused.
+        if (action == "search") {
+            rootComponent?.openSearch()
+            intent.removeExtra("widget_action")
+            return
+        }
         val serverId = intent.getStringExtra("widget_server")
         val itemId = intent.getStringExtra("widget_item")
         // A removed account/old launcher PendingIntent must never reopen a different server.

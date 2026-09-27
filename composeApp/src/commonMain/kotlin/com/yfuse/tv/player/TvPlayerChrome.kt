@@ -37,10 +37,21 @@ data class TvPlayerChromeState(
     val controlsHaveFocus: Boolean = false,
     val seeking: Boolean = false,
     val seekTargetMs: Long? = null,
+    /**
+     * The seek key is being held — it has repeated — rather than tapped. A tap jumps ten seconds
+     * and lets go within a frame or two; only a hold travels far enough to need a picture.
+     */
+    val seekHeld: Boolean = false,
     val interactionRevision: Long = 0L,
 ) {
     val visible: Boolean get() = layer != TvPlayerChromeLayer.Hidden
     val hasDismissibleLayer: Boolean get() = visible
+
+    /**
+     * 全程缩略图 for the remote: where a held fast-forward or rewind has got to, for the trickplay
+     * card over the picture; null when no seek is being held.
+     */
+    val holdPreviewMs: Long? get() = seekTargetMs?.takeIf { seeking && seekHeld }
 }
 
 enum class TvPlayerChromeCommandType {

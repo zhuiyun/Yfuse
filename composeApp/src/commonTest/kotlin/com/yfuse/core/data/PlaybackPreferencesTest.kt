@@ -25,6 +25,29 @@ class PlaybackPreferencesTest {
     }
 
     @Test
+    fun gesture_settings_default_to_the_old_behaviour_and_survive_restart() {
+        val settings = MapSettings()
+        val preferences = PlaybackPreferences(settings)
+        assertEquals(PlayerGestureSettings(), preferences.gestureSettings.value)
+        assertEquals(10_000L, preferences.gestureSettings.value.doubleTapSeekMs)
+
+        preferences.setGestureSettings(
+            PlayerGestureSettings(
+                doubleTapSeekSeconds = 30,
+                centerHoldSpeedBoost = false,
+                swapBrightnessVolume = true,
+            ),
+        )
+
+        val restored = PlaybackPreferences(settings).gestureSettings.value
+        assertEquals(30, restored.doubleTapSeekSeconds)
+        assertFalse(restored.centerHoldSpeedBoost)
+        assertTrue(restored.swapBrightnessVolume)
+        settings.putInt("player.gesture.doubleTapSeekSeconds", 7)
+        assertEquals(10, PlaybackPreferences(settings).gestureSettings.value.doubleTapSeekSeconds)
+    }
+
+    @Test
     fun source_preheat_defaults_to_wifi_and_mobile_and_survives_restart() {
         val settings = MapSettings()
         val preferences = PlaybackPreferences(settings)
