@@ -1,7 +1,7 @@
 [versions]
 kotlin = "2.4.20"
 agp = "9.1.1"
-compose = "1.12.0"
+compose = "1.12.1"
 androidx-activity = "1.13.0"
 androidx-lifecycle = "2.10.0"
 cameraX = "1.6.1"
