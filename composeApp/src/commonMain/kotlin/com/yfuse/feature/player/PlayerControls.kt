@@ -1949,10 +1949,14 @@ internal fun PlayerControls(
                     modifier = Modifier.align(Alignment.TopCenter).padding(top = 28.dp),
                 )
 
-                // 全程缩略图: the frame a swipe across the picture, or a held side, has got to.
+                // 全程缩略图: the frame a swipe across the picture, or a held side, has got to — or,
+                // on a television, a held fast-forward or rewind on the remote.
                 PictureScrubPreview(
                     storyboard = trickplay,
-                    positionMs = { if (holdSeekDirection != 0) holdSeekTarget else pictureScrubMs },
+                    positionMs = {
+                        remoteChromeState?.holdPreviewMs
+                            ?: if (holdSeekDirection != 0) holdSeekTarget else pictureScrubMs
+                    },
                     chapters = chapters,
                     modifier = Modifier.align(Alignment.Center),
                 )
