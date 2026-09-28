@@ -350,7 +350,18 @@ release and complete the native-license checklist in
 `docs/third-party-licenses/README.md`.
 
 Production packaging also requires the release owner to acknowledge the exact MDK distribution
-rights for the intended release:
+rights for the intended release.
+
+For a package-only push, the owner's explicit confirmation may be recorded in
+`.github/mdk-distribution-approval.json`. The workflow accepts that record only when
+the version name, integer version code, and pinned MDK archive SHA-256 all match the
+current source, `confirmed` is the boolean `true`, and the scope is `package-only`.
+This record is an acknowledgement, not a license grant. It does not authorize publishing
+or carry over to a different version or MDK artifact. Update it only after the owner
+has explicitly confirmed the intended delivery. Manual inputs and the existing
+`MDK_DISTRIBUTION_CONFIRMED` repository variable remain available as before.
+
+The equivalent Gradle invocation is:
 
 ```bash
 ./gradlew :composeApp:assembleRelease -PconfirmMdkDistributionRights=true
