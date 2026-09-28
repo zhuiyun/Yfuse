@@ -196,35 +196,42 @@ internal class TvPhoneRemote private constructor(
         outState: Bundle,
     ) = Unit
 
-    companion object {
-        /** Starts 手机遥控 for the process; the television's application calls it once. */
-        fun install(
-            application: Application,
-            koin: Koin,
-        ) {
-            val tokens = koin.get<AccountAccessTokenSource>()
-            val host =
-                RemoteControlHost(
-                    signedIn = tokens.sessionAvailable,
-                    accessToken = { tokens.validAccessTokenFor(ACCOUNT_BASE_URL) },
-                    refreshAccessToken = { tokens.refreshAccessTokenFor(ACCOUNT_BASE_URL) },
-                )
-            val remote = TvPhoneRemote(application)
-            application.registerActivityLifecycleCallbacks(remote)
-            val handoff = koin.get<HandoffController>()
-            handoff.hostRemoteControl { host.hosting.value }
-            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-            // A phone learns of this television from the handoff heartbeat; send it as soon as that changes.
-            scope.launch { host.hosting.drop(1).collect { handoff.refreshPresence() } }
-            scope.launch { host.events.collect { remote.replay(it) } }
-            ProcessLifecycleOwner.get().lifecycle.addObserver(
-                object : DefaultLifecycleObserver {
-                    override fun onStart(owner: LifecycleOwner) = host.setActive(true)
-
-                    override fun onStop(owner: LifecycleOwner) = host.setActive(false)
-                },
+    /**
+     * Starts hosting 手机遥控 once the saved sessions are restored: the account token source and the
+     * handoff controller both resolve the server registry. The television's application calls it once.
+     */
+    fun start(koin: Koin) {
+        val tokens = koin.get<AccountAccessTokenSource>()
+        val host =
+            RemoteControlHost(
+                signedIn = tokens.sessionAvailable,
+                accessToken = { tokens.validAccessTokenFor(ACCOUNT_BASE_URL) },
+                refreshAccessToken = { tokens.refreshAccessTokenFor(ACCOUNT_BASE_URL) },
             )
-        }
+        val handoff = koin.get<HandoffController>()
+        handoff.hostRemoteControl { host.hosting.value }
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        // A phone learns of this television from the handoff heartbeat; send it as soon as that changes.
+        scope.launch { host.hosting.drop(1).collect { handoff.refreshPresence() } }
+        scope.launch { host.events.collect { replay(it) } }
+        ProcessLifecycleOwner.get().lifecycle.addObserver(
+            object : DefaultLifecycleObserver {
+                override fun onStart(owner: LifecycleOwner) = host.setActive(true)
+
+                override fun onStop(owner: LifecycleOwner) = host.setActive(false)
+            },
+        )
+    }
+
+    companion object {
+        /**
+         * Tracks this app's activities from process start. The sessions restore on a worker and
+         * [start] runs after it, usually once the first activity is already created and resumed; a
+         * callback registered only then would miss both, and keys from the phone would go nowhere
+         * until the next page change.
+         */
+        fun register(application: Application): TvPhoneRemote =
+            TvPhoneRemote(application).also(application::registerActivityLifecycleCallbacks)
     }
 }
 

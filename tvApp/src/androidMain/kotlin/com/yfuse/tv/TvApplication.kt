@@ -115,6 +115,7 @@ open class TvApplication :
                     },
                 )
             }
+        val phoneRemote = TvPhoneRemote.register(this)
         ServerSessionRecovery.initialize(
             restore = {
                 // Classify historical crashes before any native engine can be constructed.
@@ -152,7 +153,7 @@ open class TvApplication :
                 // one Activity. This keeps the receiver alive while control passes between browsing and
                 // PlayerActivity, and stops it only after the whole TV app leaves the foreground.
                 // 手机遥控 follows the same process foreground as Cast: a phone keeps control across the player.
-                TvPhoneRemote.install(this@TvApplication, koinApplication.koin)
+                phoneRemote.start(koinApplication.koin)
                 CastConnectReceiverBridge.initialize(this)
                 ProcessLifecycleOwner.get().lifecycle.addObserver(
                     object : DefaultLifecycleObserver {

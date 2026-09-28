@@ -9,6 +9,7 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.lifecycleScope
 import com.arkivanov.decompose.retainedComponent
 import com.yfuse.app.RootComponent
 import com.yfuse.core.logging.AppLog
@@ -27,6 +28,7 @@ import com.yfuse.tv.integration.CastConnectLoadHandler
 import com.yfuse.tv.integration.CastConnectReceiverBridge
 import com.yfuse.tv.integration.TvPlaybackDeepLinkResolver
 import com.yfuse.tv.ui.TvApp
+import kotlinx.coroutines.launch
 import java.util.UUID
 
 /** Android TV launcher hosting the real shared server graph and native TV navigation surface. */
@@ -61,6 +63,21 @@ class TvMainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         preferHighRefreshRateForUi()
         if (ServerSessionRecovery.showIfNeeded(this)) return
+        if (ServerSessionRecovery.isReady) {
+            showApp()
+        } else {
+            // A cold start restores the saved sessions on a worker, and the application assigns
+            // its graph only once that restore finishes, in a later main-thread message. This
+            // activity is created before then on almost every cold start, so reading the graph
+            // here threw. The phone shell waits the same way (MainActivity.onCreate).
+            lifecycleScope.launch {
+                ServerSessionRecovery.awaitReady()
+                showApp()
+            }
+        }
+    }
+
+    private fun showApp() {
         graph = (application as TvApplication).graph
         rootComponent =
             retainedComponent { componentContext ->
