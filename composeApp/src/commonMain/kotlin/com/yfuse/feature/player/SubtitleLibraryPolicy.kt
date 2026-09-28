@@ -3,6 +3,7 @@ package com.yfuse.feature.player
 import com.yfuse.core.data.dto.RemoteSubtitleInfoDto
 import com.yfuse.core.model.MediaServerKind
 import com.yfuse.core.model.capabilities
+import com.yfuse.core.network.toUserMessage
 
 enum class SubtitleSearchLanguage(
     val code: String,
@@ -66,5 +67,5 @@ internal fun RemoteSubtitlePanelState.withSearchResult(
                 message = "没有找到${language.label}字幕；可切换语言、检查服务器字幕提供商配置，或导入本地字幕。".takeIf { results.isEmpty() },
             )
         },
-        onFailure = { copy(loading = false, message = it.message ?: "字幕搜索失败，请重试。") },
+        onFailure = { copy(loading = false, message = it.toUserMessage("字幕搜索失败，请重试。")) },
     )

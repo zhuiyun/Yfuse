@@ -87,6 +87,7 @@ class HomeComponent(
                 } else {
                     { serverId, itemId -> playbackSync.forgetResume(serverId, itemId) }
                 },
+            playbackSync = playbackSync,
         ).create()
 
     init {

@@ -35,12 +35,33 @@ class PlayerSkipCoordinatorTest {
     }
 
     @Test
-    fun `manual skip prompt follows playback control visibility`() {
+    fun `manual skip prompt shows on its own as the segment starts`() {
+        assertTrue(
+            shouldShowManualSkipPill(
+                segmentLabel = "跳过片头",
+                countdownSeconds = null,
+                controlsVisible = false,
+                segmentJustEntered = true,
+            ),
+        )
         assertTrue(
             shouldShowManualSkipPill(
                 segmentLabel = "跳过片头",
                 countdownSeconds = null,
                 controlsVisible = true,
+                segmentJustEntered = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `manual skip prompt follows playback control visibility after the first seconds`() {
+        assertTrue(
+            shouldShowManualSkipPill(
+                segmentLabel = "跳过片头",
+                countdownSeconds = null,
+                controlsVisible = true,
+                segmentJustEntered = false,
             ),
         )
         assertFalse(
@@ -48,13 +69,27 @@ class PlayerSkipCoordinatorTest {
                 segmentLabel = "跳过片头",
                 countdownSeconds = null,
                 controlsVisible = false,
+                segmentJustEntered = false,
             ),
         )
+    }
+
+    @Test
+    fun `manual skip prompt stays away during an automatic countdown and outside a segment`() {
         assertFalse(
             shouldShowManualSkipPill(
                 segmentLabel = "跳过片头",
                 countdownSeconds = 3,
                 controlsVisible = true,
+                segmentJustEntered = true,
+            ),
+        )
+        assertFalse(
+            shouldShowManualSkipPill(
+                segmentLabel = null,
+                countdownSeconds = null,
+                controlsVisible = true,
+                segmentJustEntered = true,
             ),
         )
     }

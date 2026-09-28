@@ -991,21 +991,9 @@ private fun seriesScheduleInfo(days: List<CalendarDay>): SeriesScheduleInfo {
                             else -> "预计排期"
                         },
                     )
-                    trustedSchedule.releaseAtBeijing
-                        ?.takeIf {
-                            trustedSchedule.origin == com.yfuse.core.model.ShowOrigin.Foreign &&
-                                it.length >= 16
-                        }?.substring(11, 16)
-                        ?.let { add("北京时间 $it") }
-                        ?: trustedSchedule.airTime?.let { time ->
-                            add(
-                                if (trustedSchedule.timeZoneId == "Asia/Shanghai") {
-                                    "北京时间 $time"
-                                } else {
-                                    "$time（${trustedSchedule.timeZoneId ?: "原播时区"}）"
-                                },
-                            )
-                        }
+                    com.yfuse.feature.calendar
+                        .broadcastTimeLabel(trustedSchedule)
+                        ?.let(::add)
                     trustedSchedule.platforms
                         .takeIf { it.isNotEmpty() }
                         ?.joinToString("/")

@@ -156,6 +156,14 @@ internal sealed interface DetailMsg {
         val played: Boolean,
     ) : DetailMsg
 
+    /** The whole series was marked, which the server applies to every one of its episodes. */
+    data class SeriesProgressChanged(
+        val serverId: String,
+        val itemId: String,
+        val played: Boolean,
+        val message: String,
+    ) : DetailMsg
+
     data class WatchLaterChanged(
         val serverId: String,
         val itemId: String,
@@ -195,10 +203,12 @@ internal sealed interface DetailMsg {
 
     data class AudioLanguageSelected(
         val language: String?,
+        val ordinal: Int? = null,
     ) : DetailMsg
 
     data class SubtitleLanguageSelected(
         val language: String?,
+        val ordinal: Int? = null,
     ) : DetailMsg
 
     data object OrganizationLoading : DetailMsg
@@ -227,7 +237,7 @@ internal sealed interface DetailMsg {
 
 internal fun Throwable.isTransientSourceFailure(): Boolean =
     when (val error = (this as? EmbyErrorException)?.error) {
-        EmbyError.Network -> true
+        is EmbyError.Unreachable -> true
         is EmbyError.Server -> error.code in 500..599
         else -> false
     }

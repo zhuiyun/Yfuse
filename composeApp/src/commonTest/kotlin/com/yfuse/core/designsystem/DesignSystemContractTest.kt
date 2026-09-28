@@ -60,6 +60,31 @@ class DesignSystemContractTest {
     }
 
     @Test
+    fun status_text_clears_small_text_contrast_on_the_page_and_its_glass() {
+        listOf(LightPalette, DarkPalette).forEach { palette ->
+            // Status labels sit on cards and sheets as often as on the page. Those fills are
+            // translucent, so they are measured as they land over the page.
+            listOf(palette.background, palette.card, palette.card2, palette.sheet).forEach { fill ->
+                val surface = fill.compositeOver(palette.background)
+                assertContrastAtLeast(palette.success, surface, 4.5f, "success")
+                assertContrastAtLeast(palette.warning, surface, 4.5f, "warning")
+                assertContrastAtLeast(palette.error, surface, 4.5f, "error")
+                assertContrastAtLeast(palette.statusText(Semantic.Offline), surface, 4.5f, "offline")
+            }
+        }
+    }
+
+    @Test
+    fun a_status_dot_colour_maps_to_its_calibrated_text_role() {
+        listOf(LightPalette, DarkPalette).forEach { palette ->
+            assertEquals(palette.success, palette.statusText(Semantic.Success))
+            assertEquals(palette.warning, palette.statusText(Semantic.Warning))
+            assertEquals(palette.error, palette.statusText(Semantic.Error))
+            assertEquals(palette.sub, palette.statusText(Semantic.Offline))
+        }
+    }
+
+    @Test
     fun typography_exposes_four_fixed_levels_with_three_weights() {
         assertEquals(26.sp, AppTypography.display.regular.fontSize)
         assertEquals(18.sp, AppTypography.section.regular.fontSize)

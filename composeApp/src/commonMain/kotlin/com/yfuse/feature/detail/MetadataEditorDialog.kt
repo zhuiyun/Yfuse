@@ -27,6 +27,7 @@ import com.yfuse.core.data.MetadataEditorService
 import com.yfuse.core.data.plexArtworkTag
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.ConfirmDialog
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.LocalPalette
@@ -37,10 +38,15 @@ import com.yfuse.core.designsystem.overlayDismiss
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.model.MediaServerKind
 import com.yfuse.core.model.SavedServer
+import com.yfuse.core.network.EmbyError
+import com.yfuse.core.network.EmbyErrorException
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.network.toUserMessage
+import io.ktor.client.plugins.ResponseException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import kotlinx.io.IOException
+import kotlinx.serialization.SerializationException
 import org.koin.core.context.GlobalContext
 import com.yfuse.core.designsystem.ThemeText as Text
 
@@ -72,12 +78,7 @@ internal fun MetadataEditorDialog(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
-            error =
-                if (failure is IllegalArgumentException || failure is IllegalStateException) {
-                    failure.message
-                } else {
-                    failure.toUserMessage("操作失败，请检查服务器编辑权限后重试")
-                }
+            error = failure.metadataEditorMessage()
         } finally {
             busy = false
         }
@@ -91,7 +92,18 @@ internal fun MetadataEditorDialog(
     }
     // Edited text is not something a fast flick should be able to throw away.
     val editing = original?.let { draft != it.draft } == true
-    GlassDialog(onDismiss = onDismiss, dismissEnabled = !busy, dragToDismiss = !editing) {
+    // Nor something the scrim, back or 关闭 should drop unasked — a picked, unapplied image included.
+    val unsaved = editing || selected != null
+    var confirmDiscard by remember { mutableStateOf(false) }
+    GlassDialog(
+        onDismiss = onDismiss,
+        dismissEnabled = !busy,
+        dragToDismiss = !unsaved,
+        confirmDismiss = {
+            if (unsaved) confirmDiscard = true
+            !unsaved
+        },
+    ) {
         OverlayHeader("编辑元数据", "修改将保存到 ${server.serverName}，需要服务器编辑权限")
         if (original != null) {
             MetadataField("标题", draft.title, 500, true, busy) { draft = draft.copy(title = it) }
@@ -190,8 +202,52 @@ internal fun MetadataEditorDialog(
         error?.let { Text(it, style = AppTypography.caption.regular, color = palette.error) }
         notice?.let { Text(it, style = AppTypography.caption.regular, color = palette.text) }
         OverlayActionRow("关闭", overlayDismiss(onDismiss))
+
+        // Opened from inside the editor, so it belongs to this dialog rather than to its owner.
+        if (confirmDiscard) {
+            ConfirmDialog(
+                title = "放弃更改？",
+                message = if (editing) "修改的文字信息还没有保存。" else "选中的图片还没有应用。",
+                confirmLabel = "放弃",
+                dismissLabel = "继续编辑",
+                destructive = true,
+                onConfirm = {
+                    confirmDiscard = false
+                    onDismiss()
+                },
+                onDismiss = { confirmDiscard = false },
+            )
+        }
     }
 }
+
+/**
+ * A failure in words that point at its cause. Order matters: Ktor's ResponseException is an
+ * IllegalStateException whose message is the raw response, and a SerializationException is an
+ * IllegalArgumentException; only the service's own require / check wording is meant to be read.
+ */
+private fun Throwable.metadataEditorMessage(): String =
+    when (this) {
+        is ResponseException -> metadataEditorHttpMessage(response.status.value)
+        // Already classified by the client, as when a server that refused this session cools down.
+        is EmbyErrorException -> toUserMessage("操作失败，请稍后重试")
+        is IOException -> EmbyError.Network.toUserMessage()
+        is SerializationException -> "服务器返回的内容无法识别，请稍后重试"
+        is IllegalArgumentException, is IllegalStateException -> message ?: "操作失败，请稍后重试"
+        else -> "操作失败，请稍后重试"
+    }
+
+/**
+ * Only a 401 or 403 says this account may not edit. Every failure used to be reported that way,
+ * which sent people to their server's user settings over a missing item or a server error.
+ */
+internal fun metadataEditorHttpMessage(status: Int): String =
+    when (status) {
+        401, 403 -> "操作失败，请检查服务器编辑权限后重试"
+        404, 410 -> EmbyError.NotFound.toUserMessage()
+        in 500..599 -> EmbyError.Server(status).toUserMessage()
+        else -> "操作失败（HTTP $status），请稍后重试"
+    }
 
 @Composable
 private fun MetadataField(

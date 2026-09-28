@@ -17,8 +17,13 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
@@ -137,6 +142,14 @@ private fun PlayerLoadError(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val retryFocus = remember { FocusRequester() }
+    // A remote reaches these buttons only through focus, and nothing on this screen holds any: 重试
+    // takes it, so the first OK retries. Touch mode refuses focus to clickables, so a phone is
+    // untouched unless a keyboard is driving it.
+    LaunchedEffect(retryFocus) {
+        withFrameNanos { }
+        runCatching { retryFocus.requestFocus() }
+    }
     Column(
         modifier
             .padding(horizontal = 32.dp)
@@ -152,7 +165,12 @@ private fun PlayerLoadError(
         )
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             PlayerLoadErrorAction(label = "返回", primary = false, onClick = onBack)
-            PlayerLoadErrorAction(label = "重试", primary = true, onClick = onRetry)
+            PlayerLoadErrorAction(
+                label = "重试",
+                primary = true,
+                onClick = onRetry,
+                modifier = Modifier.focusRequester(retryFocus),
+            )
         }
     }
 }
@@ -162,10 +180,11 @@ private fun PlayerLoadErrorAction(
     label: String,
     primary: Boolean,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val accent = rememberAccentColorsForSurface(dark = true)
     Box(
-        Modifier
+        modifier
             .height(44.dp)
             .widthIn(min = 104.dp)
             .pressable(onClickLabel = label, onClick = onClick)

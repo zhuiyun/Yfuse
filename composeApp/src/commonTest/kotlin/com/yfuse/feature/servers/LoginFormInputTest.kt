@@ -38,4 +38,41 @@ class LoginFormInputTest {
         assertTrue(saved.copy(serverName = "客厅").hasInputSince(saved))
         assertTrue(LoginForm().hasInputSince(saved))
     }
+
+    @Test
+    fun whether_protocol_and_port_were_picked_is_bookkeeping_not_input() {
+        val opened = LoginForm()
+
+        assertFalse(opened.copy(protocolChosen = true, portChosen = true).hasInputSince(opened))
+    }
+
+    @Test
+    fun private_addresses_localhost_and_mdns_names_are_lan_hosts() {
+        listOf(
+            "192.168.1.8",
+            "10.0.0.2",
+            "172.16.0.1",
+            "172.31.255.254",
+            "127.0.0.1",
+            "localhost",
+            "nas.local",
+            "NAS.Local.",
+        ).forEach { assertTrue(isLanServerHost(it), it) }
+    }
+
+    @Test
+    fun public_hosts_and_unfinished_addresses_are_not_lan_hosts() {
+        listOf(
+            "media.example.com",
+            "8.8.8.8",
+            "172.32.0.1",
+            "192.169.1.1",
+            "192.168.1",
+            "192.168.1.",
+            "192.168.1.300",
+            "192.168.1.8.9",
+            "nas",
+            "local",
+        ).forEach { assertFalse(isLanServerHost(it), it) }
+    }
 }

@@ -65,7 +65,6 @@ import com.yfuse.core.designsystem.ActionToast
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
-import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.DisclosureContent
 import com.yfuse.core.designsystem.ErrorState
@@ -1014,7 +1013,7 @@ private fun AccordionCalendarEntry(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                entry.episode.airTime?.let { airTime ->
+                airTimeLabel(entry.episode)?.let { airTime ->
                     Text(
                         airTime,
                         style = AppTypography.caption.medium,
@@ -1388,10 +1387,7 @@ private fun CalendarTrackingList(
                         Modifier
                             .pressable {
                                 confirmUnfollowAll = false
-                                component.setReminderForAll(
-                                    CalendarReminderMode.BeforeAndAtBroadcast,
-                                    beforeMinutes = 30,
-                                )
+                                component.setReminderForAll(CalendarReminderMode.BeforeAndAtBroadcast)
                             }.touchTarget(),
                 )
                 Text(
@@ -1402,10 +1398,7 @@ private fun CalendarTrackingList(
                         Modifier
                             .pressable {
                                 confirmUnfollowAll = false
-                                component.setReminderForAll(
-                                    CalendarReminderMode.Off,
-                                    beforeMinutes = 30,
-                                )
+                                component.setReminderForAll(CalendarReminderMode.Off)
                             }.touchTarget(),
                 )
                 Spacer(Modifier.weight(1f))
@@ -1858,7 +1851,7 @@ private fun CalendarSettingsPane(
         }
         motionItem {
             Text(
-                "平台和内容筛选会同时作用于“日历”页；提醒的具体模式和提前量可在“追剧”页或剧集详情中调整。",
+                "平台和内容筛选会同时作用于“日历”页；提醒模式可在“追剧”页切换，提前量在剧集详情页的“播出日历”中调整。",
                 style = AppTypography.caption.regular,
                 color = palette.sub2,
                 modifier = Modifier.padding(vertical = 8.dp),
@@ -2035,7 +2028,8 @@ private fun coalesceCalendarEntries(entries: List<CalendarEntry>): List<Calendar
                     },
             )
         }.sortedWith(
-            compareBy<CalendarDisplayEntry> { it.entry.episode.airTime ?: "99:99" }
+            // By the time each row shows, not the published one: a Seoul 20:00 is 19:00 here.
+            compareBy<CalendarDisplayEntry> { localAirMinutes(it.entry.episode) }
                 .thenBy { it.entry.episode.showTitle },
         )
 
@@ -2050,8 +2044,8 @@ private fun StatusBadge(entry: CalendarEntry) {
             when (status) {
                 LibraryStatus.Unaired -> "未播出" to palette.sub2
                 LibraryStatus.Missing -> "待入库" to palette.error
-                LibraryStatus.Available -> "已入库" to Brand.Online
-                LibraryStatus.InProgress -> "观看中" to Brand.Online
+                LibraryStatus.Available -> "已入库" to palette.success
+                LibraryStatus.InProgress -> "观看中" to palette.success
                 LibraryStatus.Watched -> "已观看" to palette.sub2
                 LibraryStatus.Unknown ->
                     when (entry.dataIssue) {
@@ -2116,11 +2110,7 @@ private fun broadcastStateLabel(entry: CalendarEntry): String {
             },
         )
         episode.scheduleConfidence?.let { add("可信度 $it") }
-        episode.releaseAtBeijing
-            ?.takeIf { episode.origin == com.yfuse.core.model.ShowOrigin.Foreign && it.length >= 16 }
-            ?.substring(11, 16)
-            ?.let { add("北京时间 $it") }
-            ?: episode.airTime?.let(::add)
+        broadcastTimeLabel(episode)?.let(::add)
         addAll(episode.platforms.take(2))
         tier?.let(::add)
         add(state)

@@ -5,6 +5,7 @@ package com.yfuse.feature.player
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Arrangement
@@ -34,8 +35,11 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.paneTitle
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.DialogAnimation
@@ -87,6 +91,13 @@ private val PlayerPanelBorder = Color.White.copy(alpha = 0.24f)
  * [dim] is the one deliberate difference between them. A list of choices about the picture
  * should not dim the picture it is describing, while a panel being *typed* into — 搜索弹幕,
  * 房间聊天 — has taken the screen over and says so.
+ *
+ * Neither the catcher nor the drawer is a control. Both used to take their taps through a
+ * clickable, which made the catcher a nameless full-screen button — often the first thing a screen
+ * reader landed on, one double tap from closing the panel — and merged every heading and note in
+ * the drawer into a second button that did nothing. They take taps through bare gesture detection
+ * now, as [com.yfuse.core.designsystem.GlassDialog] does: a tap on the picture still closes the
+ * drawer, a screen reader closes it with Back or its own close key, and [paneTitle] announces it.
  */
 @Composable
 internal fun PlayerSidePanel(
@@ -94,6 +105,7 @@ internal fun PlayerSidePanel(
     modifier: Modifier = Modifier,
     dim: Boolean = false,
     verticalArrangement: Arrangement.Vertical = Arrangement.Top,
+    paneTitle: String? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
@@ -155,6 +167,7 @@ internal fun PlayerSidePanel(
     val requestDismiss = {
         if (currentPresence?.visible == true) currentDismiss() else animateDrawer(true)
     }
+    val latestRequestDismiss by rememberUpdatedState(requestDismiss)
     LaunchedEffect(reduceMotion) {
         if (!directlyManipulating && !closing) animateDrawer(false)
     }
@@ -212,8 +225,15 @@ internal fun PlayerSidePanel(
                 },
             )
             // On its way out the drawer is no longer in the way: a tap meant for the picture reaches it.
-            .then(if (closing) Modifier else Modifier.noRippleClickable(requestDismiss)),
+            .then(
+                if (closing) {
+                    Modifier
+                } else {
+                    Modifier.pointerInput(Unit) { detectTapGestures { latestRequestDismiss() } }
+                },
+            ),
     )
+    val shownPaneTitle = paneTitle
     Column(
         modifier
             .fillMaxHeight()
@@ -244,8 +264,9 @@ internal fun PlayerSidePanel(
                 },
             ).shadow(Shadows.playerSheet, PlayerPanelShape)
             .mutedGlassPanel(PlayerPanelShape, samplePage = false, dark = true)
+            .semantics { shownPaneTitle?.let { this.paneTitle = it } }
             // Taps inside the panel must not reach the catcher behind it.
-            .noRippleClickable { }
+            .pointerInput(Unit) { detectTapGestures { } }
             // Padding only; see [GlassDialog] for why the keyboard is not driven by scroll.
             .imePadding()
             .padding(horizontal = 14.dp, vertical = 16.dp),
@@ -316,6 +337,8 @@ internal fun PlayerPopupPanel(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
     compact: Boolean = false,
+    /** What a screen reader announces the popup as; see [PlayerSidePanel] for why it needs one. */
+    paneTitle: String? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     var leaving by remember { mutableStateOf(false) }
@@ -409,9 +432,10 @@ internal fun PlayerPopupPanel(
         Box(
             Modifier
                 .fillMaxSize()
-                .noRippleClickable(requestDismiss),
+                .pointerInput(requestDismiss) { detectTapGestures { requestDismiss() } },
         )
     }
+    val shownPaneTitle = paneTitle
     Column(
         modifier
             .width(PlayerPopupWidth)
@@ -423,8 +447,9 @@ internal fun PlayerPopupPanel(
             ).shadow(Shadows.playerSheet, AppShapes.sheet)
             .mutedGlassPanel(AppShapes.sheet, samplePage = false, dark = true)
             .dialogInteriorMotion(animation, progress)
+            .semantics { shownPaneTitle?.let { this.paneTitle = it } }
             // Taps inside the popup must not reach the dismiss catcher behind it.
-            .noRippleClickable { }
+            .pointerInput(Unit) { detectTapGestures { } }
             // Padding only; see [GlassDialog] for why the keyboard is not driven by scroll.
             .imePadding()
             .then(if (reduceMotionByUser) Modifier else Modifier.nestedScroll(drag))

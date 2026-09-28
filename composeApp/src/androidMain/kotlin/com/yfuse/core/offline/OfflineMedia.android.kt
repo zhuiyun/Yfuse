@@ -367,6 +367,7 @@ internal fun planOfflineEnqueue(
                         DownloadStatus.Queued
                     },
                 updatedAtEpochMs = nowMs,
+                addedOrder = old?.addedOrder ?: 0L,
             ),
         sourceChanged = sourceChanged,
     )
@@ -798,7 +799,7 @@ internal class AndroidOfflineMediaManager(
                 cleanup = ::cleanupOrphanedArtifacts,
                 persist = indexStore::sync,
                 recover = { storedItems ->
-                    storedItems.map { stored ->
+                    ensureOfflineAddedOrder(storedItems).map { stored ->
                         // v1 persisted authenticated source/poster URLs. Extract the non-secret source
                         // selection once, then erase both URLs before the index is written again.
                         val item = sanitizeLegacyOfflineItem(stored)
@@ -819,7 +820,7 @@ internal class AndroidOfflineMediaManager(
                     }
                 },
             )
-        _items.value = recovered.sortedByDescending(OfflineMedia::updatedAtEpochMs)
+        _items.value = recovered.sortedWith(offlineAddedComparator)
         _indexStatus.value = OfflineIndexStatus.Ready
         val resetCount = _items.value.count { it.status == DownloadStatus.Queued }
         val missingCount =
@@ -1908,7 +1909,7 @@ internal class AndroidOfflineMediaManager(
         persist: Boolean = true,
     ) {
         val previous = _items.value
-        val normalized = value.sortedByDescending { it.updatedAtEpochMs }
+        val normalized = ensureOfflineAddedOrder(value)
         if (persist) indexStore.sync(previous, normalized)
         _items.value = normalized
     }

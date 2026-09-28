@@ -10,6 +10,7 @@ class PlaybackFailoverPolicyTest {
     @Test
     fun network_and_5xx_can_fail_over() {
         assertTrue(EmbyErrorException(EmbyError.Network).isPlaybackFailoverEligible())
+        assertTrue(EmbyErrorException(EmbyError.Timeout).isPlaybackFailoverEligible())
         assertTrue(EmbyErrorException(EmbyError.Server(503)).isPlaybackFailoverEligible())
     }
 

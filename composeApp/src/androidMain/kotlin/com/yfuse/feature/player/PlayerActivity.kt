@@ -356,9 +356,13 @@ class PlayerActivity : ComponentActivity() {
      * usual reason for pausing is that the viewer has gone to do something else — so the
      * screen should be allowed to time out normally, exactly as it would anywhere else in
      * the system. Resuming re-arms it here.
+     *
+     * Casting is the same case from the other side: the film is running on the receiver, and this
+     * screen is only a remote for it, so it times out like any remote would.
      */
     private fun applyScreenOnPolicy() {
-        val awake = activeState.playing || activeState.buffering
+        val casting = remoteCastManager?.state?.value?.hasActiveSession == true
+        val awake = (activeState.playing || activeState.buffering) && !casting
         if (awake) {
             window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         } else {
@@ -492,6 +496,9 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun showPendingPlayer(pending: PendingPlayerLaunch) {
+        // No player controls exist on this screen. A remote's D-pad, OK and Back belong to its
+        // 重试 / 返回 and the Activity's back until PlayerControls publishes its first layer.
+        tvChromeController.detach()
         val preferences = runCatching { GlobalContext.get().get<ThemePreferences>() }.getOrNull()
         setContent {
             val state by pending.store.states.collectAsState(pending.store.state)
@@ -1724,12 +1731,14 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun requestPlaybackStart() {
-        if (!playbackAllowedByLifecycle()) return
+        // The receiver is what plays during a cast, and it is still on whatever this activity is
+        // doing, so the lock screen's and the notification's 播放 reach it before the lifecycle gate.
         val castManager = remoteCastManager
         if (castManager?.state?.value?.hasActiveSession == true) {
             lifecycleScope.launch { castManager.resume() }
             return
         }
+        if (!playbackAllowedByLifecycle()) return
         if (ensureAudioFocus()) {
             startPlaybackKeepAliveService(fromUserAction = true)
             playbackGate?.play()
@@ -1762,7 +1771,7 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun togglePlaybackWithFocus() {
-        if (!activeState.playing && !playbackAllowedByLifecycle()) return
+        // Ahead of the lifecycle gate for the same reason as in [requestPlaybackStart].
         val castManager = remoteCastManager
         if (castManager?.state?.value?.hasActiveSession == true) {
             lifecycleScope.launch {
@@ -1774,7 +1783,11 @@ class PlayerActivity : ComponentActivity() {
             }
             return
         }
-        if (activeState.playing) {
+        // The viewer's intent, not the picture: an engine asked to play reports playing == false
+        // while it buffers, and reading that as paused turned OK during a stall into a second play.
+        val playRequested = activePlayer?.playbackRequested ?: activeState.playing
+        if (!playRequested && !playbackAllowedByLifecycle()) return
+        if (playRequested) {
             playbackGate?.pause()
         } else if (ensureAudioFocus()) {
             startPlaybackKeepAliveService(fromUserAction = true)
@@ -1902,19 +1915,17 @@ class PlayerActivity : ComponentActivity() {
 
     private fun pausePlaybackForLifecycle(reason: String) {
         if (stopRequested || lifecyclePauseRequested) return
-        val castManager = remoteCastManager
-        val remoteActive = castManager?.state?.value?.hasActiveSession == true
-        val playbackActive = activeState.playing || activeState.buffering || remoteActive
+        // Nothing plays here during a cast: the local engine is already paused under it, and the
+        // film is on the receiver. Locking the phone or leaving the app used to pause the
+        // television along with it, which is the opposite of why anyone casts.
+        if (remoteCastManager?.state?.value?.hasActiveSession == true) return
+        val playbackActive = activeState.playing || activeState.buffering
         if (!playbackActive) return
 
         lifecyclePauseRequested = true
-        if (remoteActive && castManager != null) {
-            lifecycleScope.launch { castManager.pause() }
-        } else {
-            // Lifecycle safety must not be rejected by watch-together guest controls.
-            activePlayer?.pause()
-            abandonAudioFocus()
-        }
+        // Lifecycle safety must not be rejected by watch-together guest controls.
+        activePlayer?.pause()
+        abandonAudioFocus()
         AppLog.info(
             category = "feature.player",
             event = "playback_paused_for_lifecycle",
@@ -1924,7 +1935,6 @@ class PlayerActivity : ComponentActivity() {
                     "reason" to reason,
                     "pictureInPicture" to isInPictureInPictureMode.toString(),
                     "screenInteractive" to isScreenInteractive().toString(),
-                    "remoteCast" to remoteActive.toString(),
                 ),
         )
     }

@@ -43,6 +43,7 @@ import com.yfuse.core.designsystem.ActionToast
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.ConfirmDialog
 import com.yfuse.core.designsystem.ContextualTip
 import com.yfuse.core.designsystem.DialogAnimation
 import com.yfuse.core.designsystem.GlassDialog
@@ -134,6 +135,8 @@ internal fun EpisodeProgressManager(
             initialFirstVisibleItemIndex = episodes.indexOfFirst { it.id in selectedIds }.coerceAtLeast(0),
         )
     val sweep = rememberDragSelectState<String>()
+    // Every selected episode's history or resume point goes in one tap, and neither comes back.
+    var pendingAction by remember { mutableStateOf<EpisodeProgressAction?>(null) }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val compact = maxWidth < 600.dp
         GlassDialog(
@@ -280,16 +283,57 @@ internal fun EpisodeProgressManager(
                     savingLabel =
                         if (savingTotal > 0) "正在同步 $savingCompleted / $savingTotal…" else "正在同步…",
                     accent = accent,
-                    onApply = onApply,
+                    onApply = { pendingAction = it },
                     onDownload =
                         rowActions?.let { actions ->
                             { actions.download(episodes.filter { it.id in selectedIds }) }
                         },
                 )
             }
+            pendingAction?.let { action ->
+                val markWatched = action == EpisodeProgressAction.MarkWatched
+                ConfirmDialog(
+                    title =
+                        if (markWatched) {
+                            "将所选 ${selectedIds.size} 集标记为已看？"
+                        } else {
+                            "将所选 ${selectedIds.size} 集标记为未看？"
+                        },
+                    message =
+                        if (markWatched) {
+                            "这些剧集的续播进度会一并清除。"
+                        } else {
+                            "这些剧集的已看记录和续播进度都会清除。"
+                        },
+                    confirmLabel = if (markWatched) "标记已看" else "标记未看",
+                    destructive = true,
+                    onConfirm = {
+                        pendingAction = null
+                        onApply(action)
+                    },
+                    onDismiss = { pendingAction = null },
+                )
+            }
         }
     }
 }
+
+/**
+ * What marking a whole series does, spelled out before it runs: every season, every episode, and
+ * the resume points with them. The action used to run on the tap.
+ */
+internal fun seriesProgressConfirmMessage(
+    title: String,
+    seasonCount: Int,
+    markPlayed: Boolean,
+): String =
+    if (markPlayed) {
+        val episodes = if (seasonCount > 1) "全部 $seasonCount 季的所有剧集" else "所有剧集"
+        "《$title》${episodes}都会标记为已看，续播进度会一并清除。"
+    } else {
+        val episodes = if (seasonCount > 1) "全部 $seasonCount 季所有剧集" else "所有剧集"
+        "《$title》${episodes}的已看记录和续播进度都会清除。"
+    }
 
 @Composable
 private fun ProgressManagerHeader(
@@ -430,6 +474,8 @@ private fun ProgressManagerActions(
             ProgressAction("标记已看", enabled, accent, Modifier.weight(1f)) {
                 onApply(EpisodeProgressAction.MarkWatched)
             }
+            // No 重置: the app has no write that clears a resume point and keeps 已看, so it did
+            // exactly what 标记未看 does under a name that promised something gentler.
             ProgressAction("标记未看", enabled, accent, Modifier.weight(1f)) {
                 onApply(EpisodeProgressAction.MarkUnwatched)
             }

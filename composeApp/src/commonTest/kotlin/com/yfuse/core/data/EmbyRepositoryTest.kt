@@ -38,6 +38,7 @@ import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -1750,13 +1751,11 @@ class EmbyRepositoryTest {
 
             assertTrue(res.isFailure)
             assertEquals(2, calls)
-            assertTrue(
-                res
-                    .exceptionOrNull()
-                    ?.message
-                    .orEmpty()
-                    .contains("分页未前进"),
-            )
+            val failure = assertIs<EmbyErrorException>(res.exceptionOrNull())
+            // The diagnostic stays structured; raw server/parser text is not UI copy.
+            val error = assertIs<EmbyError.Unknown>(failure.error)
+            assertTrue(error.message.contains("分页未前进"))
+            assertEquals("出错了，请稍后重试", failure.message)
         }
 
     @Test

@@ -27,6 +27,9 @@ import com.yfuse.core.model.deduplicatePlaybackHistory
 import com.yfuse.core.network.knownUnavailableEndpointReason
 import com.yfuse.core.network.toUserMessage
 import com.yfuse.core.sync.ServerSyncManager
+import com.yfuse.core.sync.playback.PlaybackSyncManager
+import com.yfuse.core.sync.watchKey
+import com.yfuse.core.sync.watchMatchKeys
 import com.yfuse.core.util.currentIsoDate
 import com.yfuse.core.util.pickForDay
 import com.yfuse.feature.library.flagChangeMessage
@@ -125,6 +128,18 @@ data class HomeState(
                         .flatMap { row -> row.items.map { HomeResumeEntry(it, source.server) } }
                 }.distinctBy { it.server.id to it.item.id }
                 .take(16)
+
+    /**
+     * How many favourites the servers hold in all. Each server only lends its newest few to the
+     * home page, and [favorites] keeps the first sixteen of those, so 全部 says what it leaves out.
+     */
+    val favoritesTotal: Int
+        get() =
+            libraryContent.sumOf { source ->
+                source.content.rows
+                    .firstOrNull { it.libraryId == FAVORITES_COLLECTION_ID }
+                    ?.totalCount ?: 0
+            }
 }
 
 data class HomeResumeEntry(
@@ -222,6 +237,12 @@ sealed interface HomeIntent {
     data class UndoRemoveFromResume(
         val key: String,
     ) : HomeIntent
+
+    /** 标记已看 / 标记未看 from a library card's long press. */
+    data class SetPlayed(
+        val entry: HomeResumeEntry,
+        val value: Boolean,
+    ) : HomeIntent
 }
 
 sealed interface HomeLabel {
@@ -304,6 +325,12 @@ private sealed interface Msg {
     data class ResumeRestored(
         val entry: HomeResumeEntry,
         val index: Int,
+    ) : Msg
+
+    data class PlayedChanged(
+        val serverId: String,
+        val itemId: String,
+        val value: Boolean,
     ) : Msg
 }
 
@@ -438,6 +465,8 @@ class HomeStoreFactory(
      * built from local progress. Null where there is no local store, and the row is not offered.
      */
     private val forgetResume: ((serverId: String, itemId: String) -> Unit)? = null,
+    /** The device-local progress 继续观看 and 下一集 are built from; see [HomeIntent.SetPlayed]. */
+    private val playbackSync: PlaybackSyncManager? = null,
 ) {
     fun create(): Store<HomeIntent, HomeState, HomeLabel> =
         storeFactory.create(
@@ -521,6 +550,7 @@ class HomeStoreFactory(
                     publish(
                         HomeLabel.OpenEmbyItem(intent.entry.server.id, intent.entry.item.id),
                     )
+                is HomeIntent.SetPlayed -> setPlayed(intent.entry, intent.value)
                 is HomeIntent.PlayEntry -> {
                     val item = intent.entry.item
                     publish(
@@ -533,7 +563,7 @@ class HomeStoreFactory(
                     )
                 }
                 is HomeIntent.SetEntryFavorite -> writeEntryFlag(intent.entry, favorite = intent.favorite)
-                is HomeIntent.SetEntryPlayed -> writeEntryFlag(intent.entry, played = intent.played)
+                is HomeIntent.SetEntryPlayed -> setPlayed(intent.entry, intent.played)
                 is HomeIntent.AddEntryToWatchLater -> addToWatchLater(intent.entry)
                 is HomeIntent.RemoveFromResume -> removeFromResume(intent.entry)
                 is HomeIntent.UndoRemoveFromResume ->
@@ -617,6 +647,60 @@ class HomeStoreFactory(
                             }
                         dispatch(Msg.ActionMessage(message))
                     }
+            }
+        }
+
+        /**
+         * 继续观看 and 下一集 are built from this device's own progress records, not from the
+         * server's, so the decision is written there first — the record and keys the detail
+         * page's 标记已看 writes — and then queued for the server. With only the server write the
+         * card stayed where it was, whatever the server answered.
+         */
+        private fun setPlayed(
+            entry: HomeResumeEntry,
+            value: Boolean,
+        ) {
+            val server = registry.serverById(entry.server.id)
+            if (server == null) {
+                dispatch(Msg.ActionMessage("原服务器已不可用，未能标记"))
+                return
+            }
+            val item = entry.item
+            val local = playbackSync
+            local?.markWatched(
+                mediaKey = item.providerIds.watchKey(item.id),
+                aliases = watchMatchKeys(ownProviderIds = item.providerIds, fallbackId = item.id),
+                watched = value,
+                serverId = server.id,
+                serverItemId = item.id,
+            )
+            dispatch(Msg.PlayedChanged(server.id, item.id, value))
+            if (local != null) {
+                // The show's next episode is due in 下一集 now, and only the record just written
+                // can say so. Without that record a reload would only put the card back.
+                loadResume(registry.data.value.servers, force = true)
+                loadNextUp(registry.data.value.servers)
+            }
+            scope.launch {
+                val result =
+                    syncManager?.setPlayed(server, item.id, item.title, value)
+                        ?: emby.setPlayed(server, item.id, value)
+                dispatch(
+                    Msg.ActionMessage(
+                        result.fold(
+                            onSuccess = { if (value) "已标记为看过" else "已标记为未看" },
+                            onFailure = { error ->
+                                // The sync manager keeps a failed write queued; a bare repository
+                                // write is simply lost.
+                                if (syncManager != null) {
+                                    "服务器暂不可用，已看状态已排队同步"
+                                } else {
+                                    error.toUserMessage("标记失败")
+                                }
+                            },
+                        ),
+                    ),
+                )
             }
         }
 
@@ -947,6 +1031,36 @@ class HomeStoreFactory(
                         actionMessage = null,
                         resumeUndoKey = null,
                     )
+                is Msg.PlayedChanged -> {
+                    val marked: (HomeResumeEntry) -> Boolean = {
+                        it.server.id == msg.serverId && it.item.id == msg.itemId
+                    }
+                    copy(
+                        // Watched, or reset to its start, the title is no longer part-way through.
+                        resume = resume.filterNot(marked),
+                        nextUp = if (msg.value) nextUp.filterNot(marked) else nextUp,
+                        libraryContent =
+                            libraryContent.map { source ->
+                                if (source.server.id != msg.serverId) {
+                                    source
+                                } else {
+                                    source.copy(content = source.content.withPlayed(msg.itemId, msg.value))
+                                }
+                            },
+                    )
+                }
             }
     }
 }
+
+/** The long press's next offer reads this flag, so it flips with the write rather than a reload later. */
+private fun HomeContent.withPlayed(
+    itemId: String,
+    played: Boolean,
+): HomeContent =
+    copy(
+        rows =
+            rows.map { row ->
+                row.copy(items = row.items.map { if (it.id == itemId) it.copy(played = played) else it })
+            },
+    )

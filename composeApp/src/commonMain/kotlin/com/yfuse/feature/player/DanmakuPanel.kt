@@ -327,6 +327,7 @@ internal fun DanmakuSearchPanel(
         modifier = modifier,
         dim = true,
         verticalArrangement = Arrangement.spacedBy(10.dp),
+        paneTitle = "搜索弹幕",
     ) {
         Row(
             Modifier.fillMaxWidth(),

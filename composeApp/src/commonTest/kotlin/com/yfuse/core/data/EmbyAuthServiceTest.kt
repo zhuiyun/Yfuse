@@ -13,8 +13,10 @@ import io.ktor.client.engine.mock.respond
 import io.ktor.client.engine.mock.toByteArray
 import io.ktor.client.request.HttpRequestData
 import io.ktor.client.request.HttpResponseData
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.headersOf
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -89,6 +91,89 @@ class EmbyAuthServiceTest {
 
                 assertTrue(result.isFailure)
                 assertEquals(EmbyError.Unauthorized, assertIs<EmbyErrorException>(result.exceptionOrNull()).error)
+            } finally {
+                client.close()
+            }
+        }
+
+    @Test
+    fun a_sign_in_that_lands_on_a_web_page_is_reported_as_not_a_media_server() =
+        runTest {
+            val requested = mutableListOf<String>()
+            val client =
+                client { request ->
+                    requested += request.url.encodedPath
+                    respond(
+                        content = "<!doctype html><title>NAS</title>",
+                        headers = headersOf(HttpHeaders.ContentType, "text/html"),
+                    )
+                }
+            try {
+                val result = EmbyAuthService(client).authenticate("http://host:5000", "zhuiyun", "pw")
+
+                assertEquals(EmbyError.NotMediaServer, assertIs<EmbyErrorException>(result.exceptionOrNull()).error)
+                // One probe of the public endpoint, sent only once the sign-in had failed.
+                assertEquals(listOf("/Users/AuthenticateByName", "/System/Info/Public"), requested)
+            } finally {
+                client.close()
+            }
+        }
+
+    @Test
+    fun a_media_server_that_404s_the_sign_in_keeps_its_own_error() =
+        runTest {
+            val client =
+                client { request ->
+                    if (request.url.encodedPath.endsWith("/System/Info/Public")) {
+                        json("""{"ServerName":"Home","Version":"4.8.0.80","Id":"abc"}""")
+                    } else {
+                        respond(content = "", status = HttpStatusCode.NotFound)
+                    }
+                }
+            try {
+                val result = EmbyAuthService(client).authenticate("http://host:8096", "zhuiyun", "pw")
+
+                assertEquals(EmbyError.NotFound, assertIs<EmbyErrorException>(result.exceptionOrNull()).error)
+            } finally {
+                client.close()
+            }
+        }
+
+    @Test
+    fun only_a_sign_in_that_did_not_answer_like_emby_is_probed() =
+        runTest {
+            val requested = mutableListOf<String>()
+            val client =
+                client { request ->
+                    requested += request.url.encodedPath
+                    respond(content = "", status = HttpStatusCode.Unauthorized)
+                }
+            try {
+                EmbyAuthService(client).authenticate("http://host:8096", "zhuiyun", "wrong")
+
+                assertEquals(listOf("/Users/AuthenticateByName"), requested)
+            } finally {
+                client.close()
+            }
+        }
+
+    @Test
+    fun a_successful_sign_in_reads_the_public_info_once() =
+        runTest {
+            val requested = mutableListOf<String>()
+            val client =
+                client { request ->
+                    requested += request.url.encodedPath
+                    if (request.url.encodedPath.endsWith("/Users/AuthenticateByName")) {
+                        json("""{"AccessToken":"tok","User":{"Id":"u1","Name":"zhuiyun"}}""")
+                    } else {
+                        json("""{"ServerName":"Home","Version":"10.10.7","Id":"abc"}""")
+                    }
+                }
+            try {
+                EmbyAuthService(client).authenticate("http://host:8096", "zhuiyun", "pw").getOrThrow()
+
+                assertEquals(listOf("/Users/AuthenticateByName", "/System/Info/Public"), requested)
             } finally {
                 client.close()
             }

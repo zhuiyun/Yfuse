@@ -190,7 +190,7 @@ internal fun AiringShowCalendarDialog(
                 CalendarQuickActions(
                     tracked = followedSeries != null,
                     reminder = followedSeries?.reminderMode ?: CalendarReminderMode.Off,
-                    reminderBeforeMinutes = followedSeries?.remindBeforeMinutes ?: DEFAULT_REMINDER_MINUTES,
+                    reminderBeforeMinutes = reminderMinutes(followedSeries),
                     reminderExpanded = reminderExpanded,
                     refreshing = refreshing,
                     onTracking = onToggleFollow,
@@ -200,8 +200,9 @@ internal fun AiringShowCalendarDialog(
                 if (reminderExpanded) {
                     ReminderOptions(
                         selected = followedSeries?.reminderMode ?: CalendarReminderMode.Off,
+                        beforeMinutes = reminderMinutes(followedSeries),
                         onSelect = { timing ->
-                            onReminderChanged(timing, DEFAULT_REMINDER_MINUTES)
+                            onReminderChanged(timing, reminderMinutes(followedSeries))
                             reminderExpanded = false
                         },
                     )
@@ -414,6 +415,7 @@ private fun QuickActionDivider() {
 @Composable
 private fun ReminderOptions(
     selected: CalendarReminderMode,
+    beforeMinutes: Int,
     onSelect: (CalendarReminderMode) -> Unit,
 ) {
     val palette = LocalPalette.current
@@ -445,7 +447,7 @@ private fun ReminderOptions(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    timing.label(DEFAULT_REMINDER_MINUTES),
+                    timing.label(beforeMinutes),
                     style = AppTypography.body.medium,
                     color = selectionColor(if (active) accent.accent else palette.text),
                     modifier = Modifier.weight(1f),
@@ -464,6 +466,12 @@ private fun ReminderOptions(
 }
 
 private const val DEFAULT_REMINDER_MINUTES = 30
+
+/**
+ * The lead time a mode change carries. This sheet has no minutes picker, so it passes on the
+ * one chosen in the series' own 播出日历 instead of resetting it to the default.
+ */
+internal fun reminderMinutes(followed: FollowedSeries?): Int = followed?.remindBeforeMinutes ?: DEFAULT_REMINDER_MINUTES
 
 @Composable
 private fun DialogDateNavigation(

@@ -61,7 +61,7 @@ internal class OfflineMediaIndexStore(
                 null,
                 null,
                 null,
-                "updated_at DESC",
+                "updated_at DESC, id ASC",
             ).use { cursor ->
                 while (cursor.moveToNext()) {
                     result += json.decodeFromString(OfflineMedia.serializer(), cursor.getString(0))

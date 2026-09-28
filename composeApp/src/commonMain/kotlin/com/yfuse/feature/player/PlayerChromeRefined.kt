@@ -148,6 +148,8 @@ internal fun RefinedTopBar(
     extras: PlayerChromeExtras = PlayerChromeExtras(),
     /** A key is held open or toggled: keeps the chrome from hiding under the finger. */
     onKeyActivity: () -> Unit = {},
+    /** A cast session is live: the key takes the same lit treatment as 弹幕 when it is on. */
+    castActive: Boolean = false,
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val haptics = LocalHaptics.current
@@ -304,10 +306,12 @@ internal fun RefinedTopBar(
             }
             // 按住拖送: held, the key drops its recent devices underneath; tapped, it opens 投屏 as before.
             CircleControl(
-                AppIcons.Cast,
-                "投屏",
-                28.dp,
-                12.dp,
+                icon = AppIcons.Cast,
+                // Also while connecting, so not 已连接.
+                description = if (castActive) "投屏中" else "投屏",
+                size = 28.dp,
+                iconSize = 12.dp,
+                active = castActive,
                 onClick = onOpenCast,
                 modifier =
                     Modifier
@@ -362,6 +366,8 @@ internal fun RefinedBottomBar(
     danmakuHeat: () -> DanmakuHeat? = { null },
     /** 没听清 behind a held ⟲10; null keeps the key a plain rewind. */
     onSeekBackwardLongPress: (() -> Unit)? = null,
+    /** See [TransportRow]: where a remote's focus lands when the controls come up. */
+    playKeyModifier: Modifier = Modifier,
 ) {
     // A new timeline sample arrives twice a second, and this function is called with it. Only
     // this frame stops here: everything below takes the holder and reads it from a draw or a
@@ -402,6 +408,7 @@ internal fun RefinedBottomBar(
         ambientLight = ambientLight,
         danmakuHeat = danmakuHeat,
         onSeekBackwardLongPress = onSeekBackwardLongPress,
+        playKeyModifier = playKeyModifier,
     )
 }
 
@@ -437,6 +444,7 @@ private fun RefinedBottomBarContent(
     ambientLight: State<AmbientLight>? = null,
     danmakuHeat: () -> DanmakuHeat? = { null },
     onSeekBackwardLongPress: (() -> Unit)? = null,
+    playKeyModifier: Modifier = Modifier,
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     // Where the finger left the thumb. Read from derived state only, never from composition:
@@ -722,6 +730,7 @@ private fun RefinedBottomBarContent(
                     onSeek(if (latest.durationMs > 0L) target.coerceAtMost(latest.durationMs) else target)
                 },
                 onSeekBackwardLongPress = onSeekBackwardLongPress,
+                playKeyModifier = playKeyModifier,
             )
 
             Row(
@@ -1104,7 +1113,10 @@ internal fun StandardSeekBar(
             animationSpec = Motion.pressSpec(pressed = dragging, reduceMotion = reduceMotion),
             label = "artwork-seek-interaction",
         )
-    val keyStep = (5_000f / durationMs.coerceAtLeast(1L)).coerceIn(0.01f, 0.1f)
+    // The same ten seconds as the ±10 keys beside the bar and a remote's arrows over hidden chrome.
+    // It used to be at least 1% of the film: 72 seconds a press on two hours. The floor now only
+    // matters past a day of footage; the ceiling keeps a short clip to ten presses end to end.
+    val keyStep = (REFINED_SEEK_STEP_MS.toFloat() / durationMs.coerceAtLeast(1L)).coerceIn(0.0001f, 0.1f)
     val commit: (Float) -> Boolean = { target ->
         if (!enabled) {
             false
@@ -1179,8 +1191,8 @@ internal fun StandardSeekBar(
                 if (!enabled || event.type != KeyEventType.KeyDown) return@onKeyEvent false
                 val direction =
                     when (event.key) {
-                        Key.DirectionLeft, Key.DirectionDown -> -1
-                        Key.DirectionRight, Key.DirectionUp -> 1
+                        Key.DirectionLeft -> -1
+                        Key.DirectionRight -> 1
                         else -> return@onKeyEvent false
                     }
                 val frames = filmstripFrames

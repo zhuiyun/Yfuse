@@ -10,6 +10,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.os.SystemClock
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingWorkPolicy
 import androidx.work.ForegroundInfo
@@ -28,7 +29,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import org.koin.core.context.GlobalContext
 
-private const val OFFLINE_NOTIFICATION_CHANNEL_ID = "yfuse_downloads"
+internal const val OFFLINE_NOTIFICATION_CHANNEL_ID = "yfuse_downloads"
 private const val OFFLINE_SERVICE_NOTIFICATION_ID = 2410
 private const val OFFLINE_WORK_NOTIFICATION_ID = 2411
 private const val OFFLINE_ATTENTION_NOTIFICATION_ID = 2415
@@ -180,7 +181,9 @@ class OfflineDownloadWorker(
             coroutineScope {
                 val updates =
                     launch {
+                        val rateLimit = DownloadNotificationRateLimit()
                         manager.items.collectLatest { items ->
+                            if (!rateLimit.shouldPost(items, SystemClock.elapsedRealtime())) return@collectLatest
                             updateOfflineAttentionNotification(applicationContext)
                             val active = items.firstOrNull { it.status != DownloadStatus.Completed }
                             if (active != null) {
@@ -256,7 +259,9 @@ class OfflineDownloadService : Service() {
             scope.launch {
                 val updates =
                     launch {
+                        val rateLimit = DownloadNotificationRateLimit()
                         manager.items.collectLatest { items ->
+                            if (!rateLimit.shouldPost(items, SystemClock.elapsedRealtime())) return@collectLatest
                             updateOfflineAttentionNotification(applicationContext)
                             val active = items.firstOrNull { it.status != DownloadStatus.Completed }
                             if (active != null) {
