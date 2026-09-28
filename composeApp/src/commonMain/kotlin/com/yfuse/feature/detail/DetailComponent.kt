@@ -12,6 +12,7 @@ import com.yfuse.core.data.CalendarReminderMode
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.FollowedSeries
 import com.yfuse.core.data.PlaybackFailoverPlan
+import com.yfuse.core.data.PlaybackNetworkClass
 import com.yfuse.core.data.SeriesCalendarLibraryHint
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.SourcePreheatMode
@@ -23,8 +24,11 @@ import com.yfuse.core.model.CalendarDay
 import com.yfuse.core.model.MediaDetail
 import com.yfuse.core.model.capabilities
 import com.yfuse.core.network.currentPlaybackNetworkClass
+import com.yfuse.core.offline.OfflineBatchItem
 import com.yfuse.core.offline.OfflineDownloadSelection
 import com.yfuse.core.offline.buildOfflineDownloadRequests
+import com.yfuse.core.offline.sameOfflineDownloadVariant
+import com.yfuse.core.offline.selectOfflineBatchItems
 import com.yfuse.core.sync.playback.PlaybackSyncManager
 import com.yfuse.core.sync.watchKey
 import com.yfuse.core.sync.watchMatchKeys
@@ -171,10 +175,11 @@ class DetailComponent(
             }
         }
 
-    fun download(selection: OfflineDownloadSelection) {
+    /** Queues the selection and reports what was actually queued; null when nothing could be. */
+    fun download(selection: OfflineDownloadSelection): OfflineEnqueueResult? {
         val state = store.state
-        val detail = state.playTarget ?: return
-        val server = state.playServer ?: return
+        val detail = state.playTarget ?: return null
+        val server = state.playServer ?: return null
         val requests =
             buildOfflineDownloadRequests(
                 serverId = server.id,
@@ -187,7 +192,47 @@ class DetailComponent(
                 currentSeriesId = detail.seriesId,
                 currentSeasonId = state.episodes.firstOrNull { it.id == detail.id }?.seasonId,
             )
-        dependencies.offlineMediaManager.enqueueAll(requests)
+        val offline = dependencies.offlineMediaManager
+        // Read before enqueueing, by the downloader's own rule: an episode already downloaded as
+        // this variant keeps its file, so it is neither queued again nor waiting for Wi-Fi.
+        val downloaded =
+            offline.items.value
+                .filter { it.playable }
+                .associateBy { it.serverId to it.itemId }
+        val alreadyDownloaded =
+            requests.count { request ->
+                val old = downloaded[request.serverId to request.itemId]
+                old != null &&
+                    sameOfflineDownloadVariant(
+                        itemId = request.itemId,
+                        oldSourceId = old.mediaSourceId,
+                        newSourceId = request.mediaSourceId,
+                        oldQuality = old.quality,
+                        newQuality = request.quality,
+                        oldSubtitleIndex = old.subtitleStreamIndex,
+                        newSubtitleIndex = request.subtitleStreamIndex,
+                    )
+            }
+        offline.enqueueAll(requests)
+        // What the range named, against what survived: an episode with no file resembling the
+        // chosen version is skipped rather than downloaded as some other cut.
+        val planned =
+            selectOfflineBatchItems(
+                mode = selection.batchMode,
+                currentItemId = detail.id,
+                seasonItems = state.episodes.map { OfflineBatchItem(it.id, it.played) },
+            ).size
+        val network = currentPlaybackNetworkClass()
+        val queued = requests.size - alreadyDownloaded
+        return OfflineEnqueueResult(
+            queued = queued,
+            skipped = (planned - requests.size).coerceAtLeast(0),
+            waitingForWifi =
+                queued > 0 &&
+                    offline.wifiOnly.value &&
+                    (network == PlaybackNetworkClass.Metered || network == PlaybackNetworkClass.Offline),
+            alreadyDownloaded = alreadyDownloaded,
+        )
     }
 
     suspend fun refreshServerMetadata(detail: MediaDetail): Result<Unit> {
@@ -323,11 +368,7 @@ class DetailComponent(
         ) {
             val selected = playback.items.getOrNull(playback.startIndex) ?: return
             if (playback.loading || playback.error != null || !selected.canPreloadSource) return
-            val tracks =
-                com.yfuse.core.data.PlaybackTrackRequest.Tracks(
-                    store.state.preferredAudioLanguage,
-                    store.state.preferredSubtitleLanguage,
-                )
+            val tracks = store.state.requestedTracks()
             if (sourceWarmup != null && warmedTrackRequest == tracks && warmedPreheatMode == mode) return
             sourceWarmup?.cancel()
             warmedTrackRequest = tracks

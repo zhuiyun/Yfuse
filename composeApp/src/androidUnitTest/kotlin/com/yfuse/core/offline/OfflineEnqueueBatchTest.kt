@@ -77,4 +77,26 @@ class OfflineEnqueueBatchTest {
         assertEquals("content://new/tree", replacement.items.single().storageTreeUri)
         assertEquals(8L, replacement.items.single().downloadRevision)
     }
+
+    @Test
+    fun requeue_and_source_replacement_keep_the_original_added_order() {
+        val current =
+            ensureOfflineAddedOrder(listOf(OfflineMedia("s#a", "s", "a", "A"), OfflineMedia("s#b", "s", "b", "B")))
+        for (source in listOf(null, "replacement")) {
+            val batch =
+                planOfflineEnqueueBatch(
+                    current,
+                    listOf(OfflineDownloadRequest("s", "b", "B", mediaSourceId = source)),
+                    null,
+                    999,
+                )
+            assertEquals(current.map { it.id }, ensureOfflineAddedOrder(batch.items).map { it.id })
+            assertEquals(
+                current.last().addedOrder,
+                batch.changed
+                    .single()
+                    .item.addedOrder,
+            )
+        }
+    }
 }

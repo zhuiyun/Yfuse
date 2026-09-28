@@ -34,6 +34,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -58,9 +59,11 @@ import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.Brand
+import com.yfuse.core.designsystem.ConfirmDialog
 import com.yfuse.core.designsystem.ContextualTip
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
+import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.ItemAction
 import com.yfuse.core.designsystem.LightEffect
 import com.yfuse.core.designsystem.LocalAccentColors
@@ -68,6 +71,9 @@ import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.MinTouchTarget
 import com.yfuse.core.designsystem.Motion
+import com.yfuse.core.designsystem.OverlayHeader
+import com.yfuse.core.designsystem.OverlayOptionRow
+import com.yfuse.core.designsystem.OverlayOptionSpacing
 import com.yfuse.core.designsystem.Section
 import com.yfuse.core.designsystem.Semantic
 import com.yfuse.core.designsystem.SettingRow
@@ -85,6 +91,7 @@ import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.lightOnChange
 import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.motionItems
+import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberDecorativePhase
 import com.yfuse.core.designsystem.touchTarget
@@ -93,6 +100,7 @@ import com.yfuse.core.offline.OfflineIndexStatus
 import com.yfuse.core.offline.OfflineMedia
 import com.yfuse.core.offline.OfflineMediaManager
 import com.yfuse.core.offline.OfflineQueueSummary
+import com.yfuse.core.offline.rememberDownloadNotificationAccess
 import com.yfuse.core.offline.rememberOfflineStorageDirectoryPicker
 import com.yfuse.core.offline.summarizeOfflineQueue
 import com.yfuse.core.designsystem.ThemeIcon as Icon
@@ -106,23 +114,6 @@ import com.yfuse.core.designsystem.ThemeText as Text
  * way out.
  */
 private val DownloadBarGap = 14.dp
-
-enum class DownloadFilter(
-    val label: String,
-) {
-    All("全部"),
-    Active("进行中"),
-    Completed("已完成"),
-    Failed("失败"),
-}
-
-enum class DownloadSort(
-    val label: String,
-) {
-    Updated("最近更新"),
-    Name("名称"),
-    Size("大小"),
-}
 
 /** What a right swipe does to a transfer: 暂停 what moves or waits, 继续 what is paused, 重试 what failed. */
 internal enum class DownloadSwipe(
@@ -150,34 +141,6 @@ private class DownloadRemoval(
     val ids: Set<String>,
     val message: String,
 )
-
-internal fun filterAndSortDownloads(
-    items: List<OfflineMedia>,
-    filter: DownloadFilter,
-    sort: DownloadSort,
-): List<OfflineMedia> =
-    items
-        .filter { item ->
-            when (filter) {
-                DownloadFilter.All -> true
-                DownloadFilter.Active ->
-                    item.status in
-                        setOf(
-                            DownloadStatus.Queued,
-                            DownloadStatus.WaitingForWifi,
-                            DownloadStatus.Downloading,
-                            DownloadStatus.Paused,
-                        )
-                DownloadFilter.Completed -> item.status == DownloadStatus.Completed
-                DownloadFilter.Failed -> item.status == DownloadStatus.Failed
-            }
-        }.let { values ->
-            when (sort) {
-                DownloadSort.Updated -> values.sortedByDescending { it.updatedAtEpochMs }
-                DownloadSort.Name -> values.sortedBy { it.title.lowercase() }
-                DownloadSort.Size -> values.sortedByDescending { maxOf(it.totalBytes, it.downloadedBytes) }
-            }
-        }
 
 @Composable
 internal fun DownloadsScreen(
@@ -213,13 +176,26 @@ internal fun DownloadsScreen(
     val autoDownloadRuleCount by manager.autoDownloadRuleCount.collectAsState()
     val operationError by manager.operationError.collectAsState()
     val indexStatus by manager.indexStatus.collectAsState()
+    val notificationAccess = rememberDownloadNotificationAccess()
     val pickStorageDirectory =
         rememberOfflineStorageDirectoryPicker { treeUri, label ->
             if (personal.policy.value.canManageServers) manager.setStorageDirectory(treeUri, label)
         }
     var showSettings by remember { mutableStateOf(false) }
-    var filter by remember { mutableStateOf(DownloadFilter.All) }
-    var sort by remember { mutableStateOf(DownloadSort.Updated) }
+    var filter by rememberSaveable { mutableStateOf(DownloadFilter.All) }
+    val sortMemory =
+        remember {
+            DownloadSortMemory(
+                org.koin.core.context.GlobalContext
+                    .get()
+                    .get(),
+            )
+        }
+    var sort by rememberSaveable { mutableStateOf(sortMemory.read()) }
+    var sortOpen by remember { mutableStateOf(false) }
+    // Its own flag rather than "anything selected": 多选 opens on an empty selection now, and
+    // the mode has to survive having nothing ticked in it.
+    var selecting by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
 
     fun commit(change: DownloadRemoval) = manager.removeMany(change.ids.toList())
@@ -250,6 +226,7 @@ internal fun DownloadsScreen(
     DisposableEffect(removals) {
         onDispose { removals.release()?.let(::commit) }
     }
+    var confirmClearRules by remember { mutableStateOf(false) }
 
     val shown =
         remember(items, filter, sort) {
@@ -259,6 +236,7 @@ internal fun DownloadsScreen(
 
     fun removeSelected() = remove(selectedItems.mapTo(linkedSetOf()) { it.id }, "已删除 ${selectedItems.size} 项下载")
 
+    val allShownSelected = shown.isNotEmpty() && shown.all { it.id in selected }
     val summary = remember(items) { summarizeOfflineQueue(items) }
     val canPauseAll = summary.active > 0
     val canResumeAll = summary.paused > 0 || summary.failed > 0
@@ -300,24 +278,42 @@ internal fun DownloadsScreen(
                         enter = downloadRevealEnter(vertical = false),
                         exit = downloadRevealExit(vertical = false),
                     ) {
-                        Text(
-                            if (selected.isEmpty()) "多选" else "完成",
-                            style = AppTypography.body.strong,
-                            color = accent,
-                            modifier =
-                                Modifier
-                                    .pressable(
-                                        onClickLabel = if (selected.isEmpty()) "选中当前下载" else "退出多选",
-                                    ) {
-                                        selected =
-                                            if (selected.isEmpty()) {
-                                                shown.mapTo(linkedSetOf()) { it.id }
-                                            } else {
-                                                emptySet()
-                                            }
-                                    }.touchTarget()
-                                    .padding(horizontal = 8.dp),
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            // 多选 used to tick every download on the way in, so 多选 then 删除
+                            // emptied the whole queue in two taps. It opens on nothing now, and
+                            // ticking everything is its own step.
+                            if (selecting) {
+                                Text(
+                                    if (allShownSelected) "取消全选" else "全选",
+                                    style = AppTypography.body.strong,
+                                    color = accent,
+                                    modifier =
+                                        Modifier
+                                            .pressable(
+                                                onClickLabel = if (allShownSelected) "取消选中" else "选中当前下载",
+                                            ) {
+                                                val shownIds = shown.mapTo(linkedSetOf()) { it.id }
+                                                selected =
+                                                    if (allShownSelected) selected - shownIds else selected + shownIds
+                                            }.touchTarget()
+                                            .padding(horizontal = 8.dp),
+                                )
+                            }
+                            Text(
+                                if (selecting) "完成" else "多选",
+                                style = AppTypography.body.strong,
+                                color = accent,
+                                modifier =
+                                    Modifier
+                                        .pressable(
+                                            onClickLabel = if (selecting) "退出多选" else "进入多选",
+                                        ) {
+                                            selecting = !selecting
+                                            selected = emptySet()
+                                        }.touchTarget()
+                                        .padding(horizontal = 8.dp),
+                            )
+                        }
                     }
                 }
             }
@@ -363,6 +359,13 @@ internal fun DownloadsScreen(
                 motionItem {
                     Section(title = "下载设置") {
                         SettingsCard {
+                            SettingRow(
+                                title = "下载通知与实况通知",
+                                value = notificationAccess.label,
+                                embedded = true,
+                                onClick = notificationAccess.openSettings,
+                            )
+                            SettingsDivider()
                             SettingRow(
                                 title = "离线视频容量上限",
                                 value =
@@ -495,7 +498,7 @@ internal fun DownloadsScreen(
                                     title = "清除追更规则",
                                     value = "$autoDownloadRuleCount 条",
                                     embedded = true,
-                                    onClick = manager::clearAutoDownloadRules,
+                                    onClick = { confirmClearRules = true },
                                 )
                             }
                             SettingsDivider()
@@ -565,12 +568,7 @@ internal fun DownloadsScreen(
                                     label = "排序 · ${sort.label}",
                                     selected = false,
                                     onClickLabel = "更改排序，当前${sort.label}",
-                                    onClick = {
-                                        sort =
-                                            DownloadSort.entries[
-                                                (DownloadSort.entries.indexOf(sort) + 1) % DownloadSort.entries.size,
-                                            ]
-                                    },
+                                    onClick = { sortOpen = true },
                                 )
                             }
                         }
@@ -713,12 +711,12 @@ internal fun DownloadsScreen(
                                 id = "download.remove",
                                 onSelect = removeItem,
                             ),
-                        enabled = selected.isEmpty(),
+                        enabled = !selecting,
                     ) { actions ->
                         DownloadTaskRow(
                             item = item,
                             selected = item.id in selected,
-                            selectionMode = selected.isNotEmpty(),
+                            selectionMode = selecting,
                             onToggleSelected = {
                                 selected = if (item.id in selected) selected - item.id else selected + item.id
                             },
@@ -737,7 +735,7 @@ internal fun DownloadsScreen(
         ContextualTip(
             id = Tips.SWIPE_ROW,
             text = "左滑可删除下载，右滑可暂停或继续",
-            active = shown.isNotEmpty() && selected.isEmpty(),
+            active = shown.isNotEmpty() && !selecting,
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = TabBarInset),
         )
 
@@ -751,6 +749,66 @@ internal fun DownloadsScreen(
                 action = pending?.let { change -> ToastAction("撤销") { undoRemoval(change) } },
             )
         }
+
+        if (sortOpen) {
+            GlassDialog(onDismiss = { sortOpen = false }) {
+                OverlayHeader(title = "下载排序", onClose = { sortOpen = false })
+                Column(verticalArrangement = Arrangement.spacedBy(OverlayOptionSpacing)) {
+                    DownloadSort.entries.forEach { option ->
+                        OverlayOptionRow(
+                            label = option.label,
+                            selected = sort == option,
+                            onClick =
+                                overlayAction {
+                                    sort = option
+                                    sortMemory.write(option)
+                                    sortOpen = false
+                                },
+                        )
+                    }
+                }
+            }
+        }
+
+        if (confirmClearRules) {
+            ConfirmDialog(
+                title = "清除追更规则？",
+                message = "$autoDownloadRuleCount 条追更规则会被清除，之后更新的剧集不再自动下载；已下载的内容会保留。",
+                confirmLabel = "清除",
+                destructive = true,
+                onConfirm = {
+                    manager.clearAutoDownloadRules()
+                    confirmClearRules = false
+                },
+                onDismiss = { confirmClearRules = false },
+            )
+        }
+    }
+}
+
+/**
+ * The delete confirmation's title and message: how many downloads go and the space they hold.
+ *
+ * The space is what is on disk now — a transfer stopped halfway counts only what it has — and it
+ * is left out when there is none, rather than promising to free "0 B".
+ */
+internal fun downloadRemovalCopy(items: List<OfflineMedia>): Pair<String, String> {
+    val bytes = items.sumOf { it.downloadedBytes.coerceAtLeast(0L) }
+    val single = items.singleOrNull()
+    return if (single != null) {
+        "删除下载？" to
+            if (bytes > 0L) {
+                "“${single.title}”的离线文件（${formatDownloadBytes(bytes)}）会从这台设备删除，不能撤销。"
+            } else {
+                "“${single.title}”的下载任务会被移除，不能撤销。"
+            }
+    } else {
+        "删除 ${items.size} 项下载？" to
+            if (bytes > 0L) {
+                "选中的 ${items.size} 项下载共占用 ${formatDownloadBytes(bytes)}，删除后需要重新下载，不能撤销。"
+            } else {
+                "选中的 ${items.size} 项下载任务会被移除，不能撤销。"
+            }
     }
 }
 
@@ -907,8 +965,8 @@ private fun DownloadTaskRow(
                     style = AppTypography.caption.medium,
                     color =
                         when {
-                            item.status == DownloadStatus.Failed -> Semantic.Error
-                            item.nextRetryAt > 0L -> Semantic.Warning
+                            item.status == DownloadStatus.Failed -> palette.error
+                            item.nextRetryAt > 0L -> palette.warning
                             else -> palette.sub2
                         },
                     maxLines = 2,

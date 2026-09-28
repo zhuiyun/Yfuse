@@ -218,7 +218,7 @@ class EmbyLookupServiceTest {
 
                 // A miss would let playback sync drop the progress it was asked to write back.
                 assertTrue(result.isFailure)
-                assertEquals(EmbyError.Network, assertIs<EmbyErrorException>(result.exceptionOrNull()).error)
+                assertEquals(EmbyError.Timeout, assertIs<EmbyErrorException>(result.exceptionOrNull()).error)
             } finally {
                 client.close()
             }

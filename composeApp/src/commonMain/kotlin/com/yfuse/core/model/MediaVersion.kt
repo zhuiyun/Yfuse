@@ -283,11 +283,26 @@ data class AudioTrackInfo(
     val sampleRateHz: Int? = null,
     val external: Boolean? = null,
     val default: Boolean? = null,
+    /** The file's own name for the track (`导演评论`), kept even when [language] came from a tag. */
+    val title: String? = null,
 ) {
-    /** `国语 · DTS-HD MA · 7.1` */
+    /**
+     * `国语 · DTS-HD MA · 7.1`. Title-free on purpose: the player reads this as the source's
+     * audio format, and Cast picks its codec out of it — see [choiceLabel] for a picker.
+     */
     val label: String
         get() =
             listOfNotNull(language, codec?.uppercase(), channels)
+                .joinToString(" · ")
+                .ifBlank { "未知音轨" }
+
+    /**
+     * `国语 · 导演评论 · AAC · 2.0` — [label] with the track's title. A commentary and the feature
+     * it talks over share a language, a codec and a layout; the title is what tells them apart.
+     */
+    val choiceLabel: String
+        get() =
+            listOfNotNull(language, title.distinctFrom(language), codec?.uppercase(), channels)
                 .joinToString(" · ")
                 .ifBlank { "未知音轨" }
 
@@ -330,16 +345,29 @@ data class SubtitleTrackInfo(
     val default: Boolean = false,
     /** Authenticated provider URL for a sidecar subtitle; null for embedded streams. */
     val uri: String? = null,
+    /** The file's own name for the track (`简英双语`), kept even when [language] came from a tag. */
+    val title: String? = null,
 ) {
+    /**
+     * `中文 · 简英双语 · ASS`. A release's 简体, 繁體 and 简英双语 tracks are all tagged `chi`;
+     * without the title every one of them read `中文 · ASS`.
+     */
     val label: String
         get() =
-            listOfNotNull(language, codec?.uppercase(), "强制".takeIf { forced })
+            listOfNotNull(language, title.distinctFrom(language), codec?.uppercase(), "强制".takeIf { forced })
                 .joinToString(" · ")
                 .ifBlank { "未知字幕" }
 
     val requiresStyledRenderer: Boolean
         get() = codec?.lowercase() in setOf("ass", "ssa", "pgs", "pgssub", "dvdsub", "dvbsub")
 }
+
+/**
+ * A track's title when it adds something. A track with no language tag already shows its title
+ * as the language, and a blank one says nothing, so neither is repeated.
+ */
+private fun String?.distinctFrom(language: String?): String? =
+    this?.trim()?.takeIf { it.isNotEmpty() && !it.equals(language?.trim(), ignoreCase = true) }
 
 private fun formatBytes(bytes: Long): String {
     val gb = bytes / 1024.0 / 1024.0 / 1024.0

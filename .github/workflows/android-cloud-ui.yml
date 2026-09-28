@@ -1,0 +1,83 @@
+name: Android cloud UI evidence
+
+on:
+  workflow_run:
+    workflows: [Publish Android update]
+    types: [completed]
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Successful production-signed package run
+        required: true
+        type: string
+      source_sha:
+        description: Exact source commit used by that package run
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: cloud-ui-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  ui:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    name: Signed APK on Android ${{ matrix.api }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [35, 36]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.workflow_run.head_sha || inputs.source_sha }}
+      - name: Download pinned production-signed test APK
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          pattern: Yfuse-*
+          merge-multiple: true
+          run-id: ${{ github.event.workflow_run.id || inputs.run_id }}
+          github-token: ${{ github.token }}
+          path: artifacts/cloud-input
+      - name: Enable hardware acceleration
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/cloud-ui
+          test -c /dev/kvm
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm > artifacts/cloud-ui/kvm.txt
+      - name: Run real APK UI checks and retain evidence
+        env:
+          SOURCE_RUN: ${{ github.event.workflow_run.id || inputs.run_id }}
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: ${{ matrix.api }}
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          ram-size: 4096M
+          heap-size: 512M
+          disk-size: 4096M
+          emulator-boot-timeout: 600
+          disable-animations: false
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none -accel on
+          script: python3 scripts/android_cloud_ui.py --apk-directory artifacts/cloud-input --output artifacts/cloud-ui --layout-probe --source-run "$SOURCE_RUN"
+      - name: Save screenshots, UI trees, diagnostics and case results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: cloud-ui-api-${{ matrix.api }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/cloud-ui/
+          if-no-files-found: error
+          retention-days: 7

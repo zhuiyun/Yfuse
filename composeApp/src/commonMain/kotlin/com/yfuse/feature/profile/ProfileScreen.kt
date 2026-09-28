@@ -818,6 +818,21 @@ fun ProfileScreen(component: ProfileComponent) {
 
         offlineToPlay?.takeIf { it.playable }?.let { offline ->
             val path = offline.localPath ?: return@let
+            // It opened at 00:00 however far the title had got. A download is what plays without
+            // the server, so the point comes from this device's own progress records instead; read
+            // once per launch, so a recomposition cannot restart the launch at another position.
+            val startPositionMs =
+                remember(offline) {
+                    runCatching {
+                        val states =
+                            org.koin.core.context.GlobalContext
+                                .get()
+                                .get<com.yfuse.core.sync.playback.PlaybackSyncStore>()
+                                .statesForServer(offline.serverId)
+                        com.yfuse.core.offline
+                            .offlineStartPositionMs(offline, states)
+                    }.getOrDefault(0L)
+                }
             PlayerLauncher(
                 items =
                     listOf(
@@ -832,7 +847,7 @@ fun ProfileScreen(component: ProfileComponent) {
                         ),
                     ),
                 startIndex = 0,
-                startPositionMs = 0L,
+                startPositionMs = startPositionMs,
                 onLaunched = { offlineToPlay = null },
             )
         }
@@ -1071,7 +1086,8 @@ fun ProfileScreen(component: ProfileComponent) {
                     onDismiss = { sheet = null },
                 )
 
-            Sheet.WatchTogether ->
+            Sheet.WatchTogether -> {
+                var confirmLeaveRoom by remember { mutableStateOf(false) }
                 WatchJoinDialog(
                     connected = watchState.connected,
                     connecting = watchState.connecting,
@@ -1080,12 +1096,32 @@ fun ProfileScreen(component: ProfileComponent) {
                     error = watchState.error ?: watchState.syncWarning,
                     onJoin = { code -> watchTogether.joinRoom(watchEndpoint, code, mediaKey = "") },
                     onEnter = component.onEnterWatchRoom,
-                    onLeave = {
-                        watchTogether.leave()
-                        sheet = null
-                    },
+                    onLeave = { confirmLeaveRoom = true },
                     onDismiss = { sheet = null },
                 )
+                // Leaving cannot be taken back from here, and a host leaves a room others are in:
+                // the relay keeps it for them and hands the host role to one of them shortly after.
+                if (confirmLeaveRoom) {
+                    ConfirmDialog(
+                        title = "退出一起看房间？",
+                        message =
+                            if (watchState.isHost) {
+                                "其他成员会留在房间里，房主身份稍后交给其中一人。你之后要用房间码重新加入。"
+                            } else {
+                                "退出后不再同步播放，之后仍可以用房间码重新加入。"
+                            },
+                        confirmLabel = "退出房间",
+                        dismissLabel = "留在房间",
+                        destructive = true,
+                        onConfirm = {
+                            confirmLeaveRoom = false
+                            watchTogether.leave()
+                            sheet = null
+                        },
+                        onDismiss = { confirmLeaveRoom = false },
+                    )
+                }
+            }
 
             Sheet.WatchProfile ->
                 WatchProfileDialog(

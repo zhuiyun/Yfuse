@@ -39,7 +39,7 @@ class WatchInviteResolver(
                 event = "invite_server_missing",
                 message = "Watch-together invite could not resolve without a configured server",
             )
-            return InviteResolution.Failed("还没有添加服务器，请先到「我的」登录一台 Emby 服务器。")
+            return InviteResolution.Failed("还没有添加服务器，请先到「服务器」页连接 Emby、Jellyfin 或 Plex 服务器。")
         }
 
         var sawFailure = false

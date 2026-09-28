@@ -103,7 +103,7 @@ class ProfileSettingsLogicTest {
 
         assertEquals(
             listOf("paused", "queued"),
-            filterAndSortDownloads(items, DownloadFilter.Active, DownloadSort.Updated).map { it.id },
+            filterAndSortDownloads(items, DownloadFilter.Active, DownloadSort.Added).map { it.id },
         )
         assertEquals(
             listOf("done"),
@@ -114,7 +114,7 @@ class ProfileSettingsLogicTest {
             filterAndSortDownloads(items, DownloadFilter.Failed, DownloadSort.Size).map { it.id },
         )
         assertEquals(
-            listOf("failed", "done", "queued", "paused"),
+            listOf("done", "queued", "paused", "failed"),
             filterAndSortDownloads(items, DownloadFilter.All, DownloadSort.Size).map { it.id },
         )
     }
@@ -143,5 +143,6 @@ class ProfileSettingsLogicTest {
         downloadedBytes = downloaded,
         status = status,
         updatedAtEpochMs = updated,
+        addedOrder = updated,
     )
 }

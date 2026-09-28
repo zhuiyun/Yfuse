@@ -73,6 +73,7 @@ internal fun downloadLiveUpdate(
             .setCategory(Notification.CATEGORY_PROGRESS)
             .setOnlyAlertOnce(true)
             .setOngoing(running)
+            .setProgress(100, progress.percent, progress.downloading.any { it.totalBytes <= 0L })
             .setStyle(style)
     if (running) {
         builder

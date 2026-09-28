@@ -1,5 +1,8 @@
 package com.yfuse.feature.player
 
+import com.russhwolf.settings.MapSettings
+import com.yfuse.core.data.PlaybackPreferences
+import com.yfuse.core.data.PlaybackTrackRequest
 import com.yfuse.core.handoff.HandoffMedia
 import com.yfuse.core.sync.playback.PlaybackTrackPreference
 import com.yfuse.core2.api.YInitialTrackSelection
@@ -45,5 +48,26 @@ class InitialPlaybackTracksTest {
         assertEquals(original, original.withInitialHandoff(item, handoff.copy(mediaSourceId = "other"), "profile"))
         assertEquals(original, original.withInitialHandoff(item, handoff, "other-profile"))
         assertEquals(original, original.withInitialHandoff(item, null, "profile"))
+    }
+
+    @Test fun a_detail_page_pick_among_one_language_survives_the_rematch_after_discovery() {
+        val hint = PlaybackTrackRequest.TrackHint(label = "简英双语", codec = "ass", languageOrdinal = 1)
+        val initial =
+            item.initialPlaybackTracks(
+                PlaybackPreferences(MapSettings()),
+                PlaybackTrackRequest.Tracks(audioLanguage = null, subtitleLanguage = "中文", subtitleHint = hint),
+            )
+        assertEquals(YTrackPreference("中文", "简英双语", "ass", 1), initial?.subtitle)
+
+        val tracks =
+            listOf(
+                EngineTrack("s1", "简体", "chi", selected = false, codec = "x-ssa"),
+                EngineTrack("s2", "简英双语", "chi", selected = true, codec = "x-ssa"),
+            )
+        assertEquals("s2", tracks.matchingRequestedTrack("中文", hint))
+        // An engine that names tracks by language alone still gets the place among them.
+        assertEquals("s2", tracks.map { it.copy(label = "chi") }.matchingRequestedTrack("中文", hint))
+        // Without a hint the language's first track, exactly as before.
+        assertEquals("s1", tracks.matchingRequestedTrack("中文", null))
     }
 }

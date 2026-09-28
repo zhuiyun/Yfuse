@@ -33,6 +33,7 @@ import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.designsystem.ActionToast
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.ConfirmDialog
 import com.yfuse.core.designsystem.ContextualTip
 import com.yfuse.core.designsystem.DialogPresence
 import com.yfuse.core.designsystem.Dimens
@@ -158,6 +159,8 @@ private fun PersonalCenterPage(
     var switching by remember { mutableStateOf<PersonalProfile?>(null) }
     var showPin by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
+    // Both removals used to run on the first tap, and neither has a way back on this page.
+    var removingProfile by remember { mutableStateOf<PersonalProfile?>(null) }
 
     fun attempt(action: suspend () -> Result<Any?>) {
         scope.launch {
@@ -319,7 +322,7 @@ private fun PersonalCenterPage(
                                 if (profile.id != DEFAULT_PERSONAL_PROFILE && profile.id != state.activeProfile.id) {
                                     SettingsDivider()
                                     SettingRow("移除资料", "移除此家庭成员", embedded = true, onClick = {
-                                        attempt { personal.deleteProfile(profile.id) }
+                                        removingProfile = profile
                                     })
                                 }
                             }
@@ -597,6 +600,19 @@ private fun PersonalCenterPage(
                     }.onFailure { dialogError = it.message ?: PERSONAL_ACTION_FAILED }
             }
         }
+    }
+    removingProfile?.let { profile ->
+        ConfirmDialog(
+            title = "移除家庭资料？",
+            message = "“${profile.name}”的想看、收藏、观看历史和追剧会一并删除，不能撤销。",
+            confirmLabel = "移除",
+            destructive = true,
+            onConfirm = {
+                attempt { personal.deleteProfile(profile.id) }
+                removingProfile = null
+            },
+            onDismiss = { removingProfile = null },
+        )
     }
 }
 

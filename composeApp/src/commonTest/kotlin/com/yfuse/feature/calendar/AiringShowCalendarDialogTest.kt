@@ -59,6 +59,15 @@ class AiringShowCalendarDialogTest {
         assertEquals(45, result.remindBeforeMinutes)
     }
 
+    @Test
+    fun a_mode_change_carries_the_series_own_lead_time() {
+        val followed = FollowedSeries(tmdbId = 8, title = "剧", remindBeforeMinutes = 120)
+
+        assertEquals(120, reminderMinutes(followed))
+        // Nothing chosen yet: the same default the detail sheet starts from.
+        assertEquals(30, reminderMinutes(null))
+    }
+
     private fun entry(
         showId: Int,
         date: String,

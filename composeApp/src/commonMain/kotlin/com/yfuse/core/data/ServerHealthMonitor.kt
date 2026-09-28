@@ -478,7 +478,7 @@ class ServerHealthMonitor(
         when (val emby = (error as? EmbyErrorException)?.error) {
             EmbyError.Unauthorized -> ServerHealthStatus.AuthRequired
             is EmbyError.AccessDenied -> ServerHealthStatus.Offline
-            EmbyError.Network -> ServerHealthStatus.Offline
+            is EmbyError.Unreachable -> ServerHealthStatus.Offline
             is EmbyError.Server ->
                 if (emby.code in 500..599) {
                     ServerHealthStatus.Degraded

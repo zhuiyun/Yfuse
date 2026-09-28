@@ -1125,12 +1125,16 @@ internal fun PlayerRoot(
                     },
             )
         var oledPauseProtectionActive by remember { mutableStateOf(false) }
+        // Taking the screensaver away brings the controls back with it; see OledPauseProtectionOverlay.
+        var controlsWakeRequests by remember { mutableIntStateOf(0) }
         LaunchedEffect(
             state.currentIndex,
             state.playing,
             state.buffering,
             state.ended,
             state.error,
+            // Woken without playing: the pause goes on, and so does the wait for the screensaver.
+            controlsWakeRequests,
         ) {
             oledPauseProtectionActive = false
             if (!state.playing && !state.buffering && !state.ended && state.error == null) {
@@ -1639,7 +1643,7 @@ internal fun PlayerRoot(
             var audioApplied = requested.audioLanguage == null
             var subtitleApplied = requested.subtitleLanguage == null
             requested.audioLanguage?.let { language ->
-                state.audioTracks.matchingLanguage(language)?.let { trackId ->
+                state.audioTracks.matchingRequestedTrack(language, requested.audioHint)?.let { trackId ->
                     state.audioTracks.firstOrNull { it.id == trackId }?.let { track ->
                         handoverItemId = currentItem?.id
                         audioRestore = state.audioTracks.restorePreferenceFor(track)
@@ -1663,7 +1667,7 @@ internal fun PlayerRoot(
                 }
                 else ->
                     state.subtitleTracks
-                        .matchingLanguage(subtitle)
+                        .matchingRequestedTrack(subtitle, requested.subtitleHint)
                         ?.let { trackId ->
                             state.subtitleTracks.firstOrNull { it.id == trackId }?.let { track ->
                                 handoverItemId = currentItem?.id
@@ -2624,7 +2628,7 @@ internal fun PlayerRoot(
         // Held as State and read where the level is drawn. Destructured to a Float here, every
         // pointer sample of a volume/brightness drag invalidated this whole runtime scope.
         val (volumeLevel, setVolume) = rememberSystemVolume()
-        val (brightnessLevel, setBrightness) = rememberWindowBrightness()
+        val (brightnessLevel, setBrightness) = rememberWindowBrightness(followSystem = inPictureInPicture)
 
         suspend fun loadCastItem(
             deviceId: String,
@@ -3085,6 +3089,7 @@ internal fun PlayerRoot(
                     },
                     onDismissNextUp = { nextUpDismissedItemId = activeItems.getOrNull(state.currentIndex)?.id },
                     onCreditsTakeover = { creditsTakeover = it },
+                    autoNext = autoNext,
                     onNextItem = {
                         sourceSwitchCoordinator.invalidate()
                         val next = state.currentIndex + 1
@@ -3614,14 +3619,14 @@ internal fun PlayerRoot(
                     brightness = { brightnessLevel.value },
                     onBrightness = { setBrightness(it) },
                     engineOptions =
-                        PlaybackEngineSelection.selectable.map { selection ->
+                        packagedEngineStrategies().map { selection ->
                             val label =
                                 selection.lockedEngine?.let { "本视频使用 ${it.label}" }
                                     ?: "本视频跟随 YCore 智能策略"
                             label to (selection == sessionEngineSelection)
                         },
                     onSelectEngine = { index ->
-                        PlaybackEngineSelection.selectable.getOrNull(index)?.let { selection ->
+                        packagedEngineStrategies().getOrNull(index)?.let { selection ->
                             selectEngineStrategy(selection)
                             Toast
                                 .makeText(context, "仅覆盖当前视频；全局播放策略未更改", Toast.LENGTH_SHORT)
@@ -3687,6 +3692,9 @@ internal fun PlayerRoot(
                         castState.activeDevice?.let {
                             "${it.name} · ${castState.status.label}"
                         },
+                    // Connecting or live, as the app's status capsule counts it. A first load that failed
+                    // keeps its device with an error and no termination; that is not a cast in progress.
+                    castActive = castState.hasActiveSession || castState.status == CastPlaybackStatus.Connecting,
                     castPositionSource = {
                         liveCastState.value.activeDevice?.let {
                             if (!liveCastState.value.positionConfirmed) {
@@ -3828,6 +3836,7 @@ internal fun PlayerRoot(
                     remoteChrome = remoteChrome,
                     hardwareKeyboard = hardwareKeyboardAttached(),
                     extras = chromeExtras,
+                    wakeRequests = controlsWakeRequests,
                     // Held back while a transition carries the picture in, and gone first on the way out.
                     modifier =
                         Modifier
@@ -3863,9 +3872,9 @@ internal fun PlayerRoot(
             // screensaver for 画中画 fades out instead of vanishing between two frames.
             OledPauseProtectionOverlay(
                 visible = oledPauseProtectionActive && !inPictureInPicture,
-                onResume = {
+                onDismiss = {
                     oledPauseProtectionActive = false
-                    playbackGate.play()
+                    controlsWakeRequests++
                 },
                 modifier = Modifier.fillMaxSize(),
             )
@@ -3896,6 +3905,14 @@ private fun transitionAspectRatio(
     } else {
         null
     }
+
+/**
+ * The per-video engine choices this package can honour, for the settings panel and the error
+ * layer's alternatives alike. A native-only package, such as the television build, plays through
+ * YCore whatever is locked: offering Exo or mpv only reloaded the same path to fail the same way.
+ */
+private fun packagedEngineStrategies(): List<PlaybackEngineSelection> =
+    PlaybackEngineSelection.selectable.filter { !BuildConfig.YFUSE_NATIVE_ONLY_RUNTIME || it.lockedEngine == null }
 
 private const val HDR_DEFAULT_SUBTITLE_BRIGHTNESS = 0.78f
 private const val OLED_PAUSE_PROTECTION_DELAY_MS = 5L * 60L * 1_000L

@@ -137,6 +137,9 @@ private val ServerHeaderCircleSize = 42.dp
 /** How often 「上次观看」 re-reads the clock, so 「刚刚看过」 becomes 「1 分钟前」 on its own. */
 private const val AGE_TICK_MS = 30_000L
 
+/** Why a child profile finds nothing here to add, edit or remove, and the way to an adult one. */
+private const val CHILD_PROFILE_NOTE = "儿童资料不能管理服务器，请用家长 PIN 切换到成人资料"
+
 /**
  * 服务器 — every saved server as a card: what it is called, whether it answers and how
  * quickly, and how long it has been since anyone watched anything on it.
@@ -158,6 +161,16 @@ fun ServersTabScreen(component: ServersTabComponent) {
     val layout by component.layout.collectAsState()
     val listFilter by component.listFilter.collectAsState()
     val managementState by component.management.collectAsState()
+    val access by component.access.collectAsState()
+    // A child profile may choose among its servers but not change them: the registry refuses the
+    // edit, and offering it only led to that refusal.
+    val canManage = access.canManageServers
+
+    // A server that refuses its saved session fails every request 库 would make, so its card opens
+    // the sign-in form instead. One that is only offline still opens: 库 shows what it cached.
+    fun signsInFirst(server: SavedServer): Boolean =
+        canManage && health[server.id]?.status == ServerHealthStatus.AuthRequired
+
     val gridState = rememberLazyGridState()
     val share = rememberShareHandler()
 
@@ -285,7 +298,7 @@ fun ServersTabScreen(component: ServersTabComponent) {
                     ) {
                         motionItem(key = "header", span = { GridItemSpan(maxLineSpan) }) {
                             ServersHeader(
-                                onAdd = { component.store.accept(ServersIntent.OpenAddDialog) },
+                                onAdd = { component.store.accept(ServersIntent.OpenAddDialog) }.takeIf { canManage },
                                 refreshing = refreshing,
                                 refreshingFromKey = refreshing && !refreshByPull,
                                 onRefreshAll = { requestRefresh(false) },
@@ -296,19 +309,38 @@ fun ServersTabScreen(component: ServersTabComponent) {
                             )
                         }
 
+                        if (!canManage) {
+                            motionItem(key = "child-profile", span = { GridItemSpan(maxLineSpan) }) {
+                                Text(
+                                    if (state.servers.isEmpty()) {
+                                        "这个资料还没有关联服务器，请用家长 PIN 切换到成人资料后添加"
+                                    } else {
+                                        CHILD_PROFILE_NOTE
+                                    },
+                                    style = AppTypography.body.medium,
+                                    color = palette.sub2,
+                                    modifier = Modifier.padding(bottom = 4.dp),
+                                )
+                            }
+                        }
+
                         currentServer?.let { server ->
                             motionItem(
                                 key = server.id,
                                 contentType = "current-server",
                                 span = { GridItemSpan(maxLineSpan) },
                             ) {
+                                val signIn = signsInFirst(server)
                                 CurrentServerHero(
                                     server = server,
                                     health = health[server.id],
                                     stats = serverStats[server.id],
                                     serverCount = state.servers.size,
                                     onlineCount = onlineServerCount,
-                                    onOpen = { component.onOpenLibrary() },
+                                    signInOnOpen = signIn,
+                                    onOpen = {
+                                        if (signIn) component.reauthenticate(server) else component.onOpenLibrary()
+                                    },
                                     onMore = { actionsFor = server },
                                     modifier = Modifier,
                                 )
@@ -321,7 +353,8 @@ fun ServersTabScreen(component: ServersTabComponent) {
                             }
                         }
 
-                        if (state.servers.isEmpty()) {
+                        // A child profile's empty page is the note above: it has no way to add one.
+                        if (state.servers.isEmpty() && canManage) {
                             motionItem(key = "empty", span = { GridItemSpan(maxLineSpan) }) {
                                 EmptyServers(
                                     onAdd = { component.store.accept(ServersIntent.OpenAddDialog) },
@@ -362,15 +395,21 @@ fun ServersTabScreen(component: ServersTabComponent) {
                                             Modifier
                                         },
                                     )
+                            val signIn = signsInFirst(server)
                             ServerCard(
                                 server = server,
                                 isCurrent = false,
                                 health = health[server.id],
                                 stats = serverStats[server.id],
                                 lastWatchedLabel = formatWatchedAgo(lastWatched[server.id], nowEpochMs),
+                                signInOnClick = signIn,
                                 onClick = {
-                                    component.store.accept(ServersIntent.SelectDefault(server.id))
-                                    component.onOpenLibrary()
+                                    if (signIn) {
+                                        component.reauthenticate(server)
+                                    } else {
+                                        component.store.accept(ServersIntent.SelectDefault(server.id))
+                                        component.onOpenLibrary()
+                                    }
                                 },
                                 onMore = { actionsFor = server },
                                 modifier = cardMotion,
@@ -397,6 +436,7 @@ fun ServersTabScreen(component: ServersTabComponent) {
         ServerActionsDialog(
             server = server,
             isCurrent = server.id == state.defaultServerId,
+            canManage = canManage,
             health = health[server.id],
             lastWatchedLabel = formatWatchedAgo(lastWatched[server.id], nowEpochMs),
             onOpenLibrary = {
@@ -578,7 +618,8 @@ private fun routesSummary(
 
 @Composable
 private fun ServersHeader(
-    onAdd: () -> Unit,
+    /** Null for a profile that cannot add servers; the key is then left out. */
+    onAdd: (() -> Unit)?,
     /** A refresh is under way, however it was started; the key waits for it. */
     refreshing: Boolean,
     /** The refresh under way came from the key, so the key carries its indicator. */
@@ -606,22 +647,24 @@ private fun ServersHeader(
                 // A pull-to-refresh page: TalkBack's touch exploration never produces the pull.
                 modifier = Modifier.weight(1f).refreshAction(enabled = !refreshing, onRefresh = onRefreshAll),
             )
-            Row(
-                Modifier
-                    .pressable(onClickLabel = "添加服务器", onClick = onAdd)
-                    .touchTarget()
-                    .shadow(GlassLift.control, AppShapes.chip)
-                    .liquidGlass(
-                        shape = AppShapes.chip,
-                        fill = accent.container,
-                        border = accent.border.copy(alpha = 0.42f),
-                        sheen = 0.7f,
-                    ).padding(horizontal = 13.dp, vertical = 9.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(AppIcons.Add, null, tint = accent.accent, modifier = Modifier.size(13.dp))
-                Text("添加", style = AppTypography.body.strong, color = accent.accent)
+            if (onAdd != null) {
+                Row(
+                    Modifier
+                        .pressable(onClickLabel = "添加服务器", onClick = onAdd)
+                        .touchTarget()
+                        .shadow(GlassLift.control, AppShapes.chip)
+                        .liquidGlass(
+                            shape = AppShapes.chip,
+                            fill = accent.container,
+                            border = accent.border.copy(alpha = 0.42f),
+                            sheen = 0.7f,
+                        ).padding(horizontal = 13.dp, vertical = 9.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(AppIcons.Add, null, tint = accent.accent, modifier = Modifier.size(13.dp))
+                    Text("添加", style = AppTypography.body.strong, color = accent.accent)
+                }
             }
         }
         Row(
@@ -738,6 +781,8 @@ private fun CurrentServerHero(
     stats: ServerStats?,
     serverCount: Int,
     onlineCount: Int,
+    /** [onOpen] signs in again rather than opening 库; see [ServerCard]'s `signInOnClick`. */
+    signInOnOpen: Boolean,
     onOpen: () -> Unit,
     onMore: () -> Unit,
     modifier: Modifier = Modifier,
@@ -755,7 +800,7 @@ private fun CurrentServerHero(
             .fillMaxWidth()
             .semantics { selected = true }
             .pressable(
-                onClickLabel = "打开${server.serverName}媒体库",
+                onClickLabel = if (signInOnOpen) "重新登录${server.serverName}" else "打开${server.serverName}媒体库",
                 onLongClick = onMore,
                 onLongClickLabel = "打开${server.serverName}操作",
                 onClick = onOpen,
@@ -837,7 +882,12 @@ private fun CurrentServerHero(
                     Text(
                         connectionLabel(health),
                         style = AppTypography.body.medium,
-                        color = if (status == ServerHealthStatus.Unknown) palette.sub2 else statusColor,
+                        color =
+                            if (status == ServerHealthStatus.Unknown) {
+                                palette.sub2
+                            } else {
+                                palette.statusText(statusColor)
+                            },
                         maxLines = 1,
                     )
                 }
@@ -921,7 +971,7 @@ private fun HeroMetric(
             Text(
                 value,
                 style = AppTypography.body.strong,
-                color = if (label == "延迟") palette.text else color,
+                color = if (label == "延迟") palette.text else palette.statusText(color),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -971,6 +1021,8 @@ private fun ServerCard(
     health: ServerHealth?,
     stats: ServerStats?,
     lastWatchedLabel: String,
+    /** The server wants a new sign-in, and [onClick] opens that form instead of 库. */
+    signInOnClick: Boolean,
     onClick: () -> Unit,
     onMore: () -> Unit,
     modifier: Modifier = Modifier,
@@ -1021,10 +1073,10 @@ private fun ServerCard(
             .semantics { selected = isCurrent }
             .pressable(
                 onClickLabel =
-                    if (isCurrent) {
-                        "打开${server.serverName}媒体库"
-                    } else {
-                        "切换到${server.serverName}"
+                    when {
+                        signInOnClick -> "重新登录${server.serverName}"
+                        isCurrent -> "打开${server.serverName}媒体库"
+                        else -> "切换到${server.serverName}"
                     },
                 onLongClick = onMore,
                 onLongClickLabel = "打开${server.serverName}操作",
@@ -1107,7 +1159,7 @@ private fun ServerCard(
                 Text(
                     connectionLabel(health),
                     style = AppTypography.caption.medium,
-                    color = if (status == ServerHealthStatus.Unknown) palette.sub2 else statusColor,
+                    color = if (status == ServerHealthStatus.Unknown) palette.sub2 else palette.statusText(statusColor),
                     maxLines = 1,
                 )
                 Spacer(Modifier.weight(1f))
@@ -1134,7 +1186,7 @@ private fun ServerCard(
                 Text(
                     latencyLabel(health),
                     style = AppTypography.caption.medium,
-                    color = latencySeverityColor(latencySeverity),
+                    color = palette.statusText(latencySeverityColor(latencySeverity)),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -1275,7 +1327,7 @@ private fun EmptyServers(onAdd: () -> Unit) {
     ) {
         Icon(AppIcons.Server, null, tint = palette.sub2, modifier = Modifier.size(28.dp))
         Spacer(Modifier.height(12.dp))
-        Text("连接一台 Emby 服务器", style = AppTypography.body.strong, color = palette.text)
+        Text("连接 Emby、Jellyfin 或 Plex 服务器", style = AppTypography.body.strong, color = palette.text)
         Spacer(Modifier.height(4.dp))
         Text(
             "填入地址和账号即可，之后可以随时在这里切换",
@@ -1423,7 +1475,7 @@ private fun ServerManagementDialog(
                 }
                 state.message?.let {
                     Spacer(Modifier.height(10.dp))
-                    Text(it, style = AppTypography.caption.medium, color = Semantic.Success)
+                    Text(it, style = AppTypography.caption.medium, color = palette.success)
                 }
                 state.error?.let {
                     Spacer(Modifier.height(10.dp))
@@ -1454,6 +1506,8 @@ private fun ServerManagementDialog(
 private fun ServerActionsDialog(
     server: SavedServer,
     isCurrent: Boolean,
+    /** False for a child profile: what changes the server is left out, and the note says why. */
+    canManage: Boolean,
     health: ServerHealth?,
     lastWatchedLabel: String,
     onOpenLibrary: () -> Unit,
@@ -1614,13 +1668,15 @@ private fun ServerActionsDialog(
             enabled = !isCurrent,
             onClick = overlayAction(onSetDefault),
         )
-        Spacer(Modifier.height(8.dp))
-        ServerActionRow(
-            icon = AppIcons.Cast,
-            label = "线路",
-            description = routesSummary(server, health),
-            onClick = overlayAction(onRoutes),
-        )
+        if (canManage) {
+            Spacer(Modifier.height(8.dp))
+            ServerActionRow(
+                icon = AppIcons.Cast,
+                label = "线路",
+                description = routesSummary(server, health),
+                onClick = overlayAction(onRoutes),
+            )
+        }
         Spacer(Modifier.height(8.dp))
         ServerActionRow(
             icon = AppIcons.Lock,
@@ -1628,35 +1684,40 @@ private fun ServerActionsDialog(
             description = "检查主线路与备用地址的传输安全",
             onClick = overlayAction(onDiagnostics),
         )
-        Spacer(Modifier.height(8.dp))
-        ServerActionRow(
-            icon = AppIcons.Server,
-            label = "服务器管理",
-            description = "扫描媒体库、查看并运行服务器任务",
-            onClick = overlayAction(onManage),
-        )
-        Spacer(Modifier.height(8.dp))
-        ServerActionRow(
-            icon = AppIcons.Grid,
-            label = "图标与颜色",
-            description = "给这台服务器一个一眼认得出的样子",
-            onClick = overlayAction(onIcon),
-        )
-        Spacer(Modifier.height(8.dp))
-        ServerActionRow(
-            icon = AppIcons.Edit,
-            label = "编辑连接与名称",
-            description = "改名不用重新登录，改地址或账号要",
-            onClick = overlayAction(onEdit),
-        )
-        Spacer(Modifier.height(8.dp))
-        ServerActionRow(
-            icon = AppIcons.Close,
-            label = "移除服务器",
-            description = "已下载的离线内容会保留",
-            destructive = true,
-            onClick = overlayAction(onRemove),
-        )
+        if (canManage) {
+            Spacer(Modifier.height(8.dp))
+            ServerActionRow(
+                icon = AppIcons.Server,
+                label = "服务器管理",
+                description = "扫描媒体库、查看并运行服务器任务",
+                onClick = overlayAction(onManage),
+            )
+            Spacer(Modifier.height(8.dp))
+            ServerActionRow(
+                icon = AppIcons.Grid,
+                label = "图标与颜色",
+                description = "给这台服务器一个一眼认得出的样子",
+                onClick = overlayAction(onIcon),
+            )
+            Spacer(Modifier.height(8.dp))
+            ServerActionRow(
+                icon = AppIcons.Edit,
+                label = "编辑连接与名称",
+                description = "改名不用重新登录，改地址或账号要",
+                onClick = overlayAction(onEdit),
+            )
+            Spacer(Modifier.height(8.dp))
+            ServerActionRow(
+                icon = AppIcons.Close,
+                label = "移除服务器",
+                description = "已下载的离线内容会保留",
+                destructive = true,
+                onClick = overlayAction(onRemove),
+            )
+        } else {
+            Spacer(Modifier.height(12.dp))
+            Text(CHILD_PROFILE_NOTE, style = AppTypography.caption.regular, color = palette.sub2)
+        }
     }
 }
 
