@@ -7,6 +7,11 @@
 -keep class com.yfuse.tv.integration.YfuseCastReceiverOptionsProvider { *; }
 -keep class com.yfuse.tv.integration.TvContinueWatchingSyncWorker { *; }
 
+# Same guard as composeApp/proguard-rules.pro: R8 moves the large Compose PlayerRoot lambda into an
+# unrelated class, and on Android 17 that DEX fails verification before the app starts. The TV
+# package compiles the same PlayerRoot with the same R8.
+-keep class com.yfuse.feature.player.PlayerRootKt { *; }
+
 # Failure logs record exception class names; keep them readable in exported diagnostics.
 -keepnames class * extends java.lang.Throwable
 

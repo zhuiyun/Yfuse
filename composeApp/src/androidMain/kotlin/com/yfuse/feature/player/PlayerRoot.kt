@@ -203,7 +203,8 @@ internal fun PlayerRoot(
     onVideoBounds: (Rect) -> Unit,
     transition: PlayerTransitionState? = null,
     onBack: () -> Unit,
-    onEnterPictureInPicture: () -> Unit,
+    /** Null where the device has no picture-in-picture; the key is left out then. */
+    onEnterPictureInPicture: (() -> Unit)?,
     onRefreshEpisodes: () -> Unit,
     onRemotePlayRequested: () -> Boolean,
     remoteChrome: TvPlayerChromeBridge? = null,

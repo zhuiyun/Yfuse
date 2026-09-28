@@ -134,7 +134,7 @@ internal fun RefinedTopBar(
     dolbyVision: Boolean,
     dolbyAtmos: Boolean,
     onBack: () -> Unit,
-    onEnterPictureInPicture: () -> Unit,
+    onEnterPictureInPicture: (() -> Unit)?,
     onToggleFill: () -> Unit,
     onOpenCast: () -> Unit,
     onOpenMore: () -> Unit,
@@ -270,13 +270,15 @@ internal fun RefinedTopBar(
                     )
                 }
             }
-            CircleControl(
-                AppIcons.PictureInPicture,
-                "小窗播放",
-                28.dp,
-                12.dp,
-                onClick = onEnterPictureInPicture,
-            )
+            onEnterPictureInPicture?.let { enter ->
+                CircleControl(
+                    AppIcons.PictureInPicture,
+                    "小窗播放",
+                    28.dp,
+                    12.dp,
+                    onClick = enter,
+                )
+            }
             // One key with two readings, so the glyph dissolves into the other one. The key keeps
             // its size through the swap, which is the whole reason there is no size transform.
             AnimatedContent(

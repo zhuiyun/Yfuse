@@ -202,7 +202,7 @@ internal fun PlayerControls(
     episodes: List<EpisodeCard>,
     filled: Boolean,
     onBack: () -> Unit,
-    onEnterPictureInPicture: () -> Unit,
+    onEnterPictureInPicture: (() -> Unit)?,
     onPlayPause: () -> Unit,
     onRetry: () -> Unit,
     /** Where playback resumed from, when it did; shows a brief 从头开始 offer. */

@@ -204,6 +204,14 @@ class PlayerActivity : ComponentActivity() {
     private var sessionTitles: List<String> = emptyList()
     private val mediaSessionPositionSync = MediaSessionPositionSync()
     private val pictureInPicture = MutableStateFlow(false)
+
+    /**
+     * Android Go phones and some televisions ship without picture-in-picture, and there every PiP
+     * call - setting the params included - throws IllegalStateException.
+     */
+    private val pictureInPictureSupported: Boolean by lazy {
+        packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
+    }
     private lateinit var mediaSessionAdapter: TvMediaSessionAdapter
     private lateinit var notificationController: PlayerNotificationController
     private val tvChromeController = TvPlayerChromeController()
@@ -925,7 +933,8 @@ class PlayerActivity : ComponentActivity() {
                             }
                         },
                         onBack = ::closePlayerAndReturn,
-                        onEnterPictureInPicture = ::enterPlayerPictureInPicture,
+                        onEnterPictureInPicture =
+                            if (pictureInPictureSupported) ::enterPlayerPictureInPicture else null,
                         onRefreshEpisodes = { refreshEpisodes(force = true) },
                         onRemotePlayRequested = ::ensureAudioFocus,
                         remoteChrome = tvChromeController.takeIf { televisionDevice },
@@ -1030,7 +1039,7 @@ class PlayerActivity : ComponentActivity() {
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        if (activeState.playing && !isFinishing && !stopRequested) {
+        if (pictureInPictureSupported && activeState.playing && !isFinishing && !stopRequested) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 // Auto-enter is already configured; remove controls before Android captures the transition.
                 pictureInPicture.value = true
@@ -1187,7 +1196,7 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun enterPlayerPictureInPicture() {
-        if (isFinishing || stopRequested || isInPictureInPictureMode) return
+        if (!pictureInPictureSupported || isFinishing || stopRequested || isInPictureInPictureMode) return
         val previousVisibility = pictureInPicture.value
         pictureInPicture.value = true
         var entered = false
@@ -1203,6 +1212,14 @@ class PlayerActivity : ComponentActivity() {
                             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) setSeamlessResizeEnabled(true)
                         }.build(),
                 )
+        } catch (error: IllegalStateException) {
+            // The feature flag can be present while multi-window is off; the window stays as it is.
+            AppLog.warning(
+                category = "player.pip",
+                event = "enter_refused",
+                message = "The system refused picture-in-picture",
+                throwable = error,
+            )
         } finally {
             if (!entered) pictureInPicture.value = previousVisibility
         }
@@ -1608,6 +1625,7 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun updatePictureInPictureParams() {
+        if (!pictureInPictureSupported) return
         val params =
             PictureInPictureParams
                 .Builder()
