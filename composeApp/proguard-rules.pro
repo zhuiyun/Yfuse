@@ -11,6 +11,12 @@
 -keep class com.yfuse.feature.player.PlaybackKeepAliveService { *; }
 -keep class com.yfuse.core.cast.YfuseCastOptionsProvider { *; }
 
+# R8 9.1.31 moves the large Compose PlayerRoot lambda into an unrelated class.
+# On Android 17 the resulting DEX fails verification before Application startup
+# (VerifyError: register contains a reference where an integer is required).
+# Keep this generated file class and its methods out of that optimization.
+-keep class com.yfuse.feature.player.PlayerRootKt { *; }
+
 # ---- Diagnostics ----
 # Failure logs record exception class names (native_direct_failed exceptiontype and similar).
 # Renamed classes read "g7b" / "a10" / "hn4" in exported diagnostics, which nobody can act on
