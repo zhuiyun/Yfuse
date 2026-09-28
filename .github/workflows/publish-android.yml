@@ -64,8 +64,8 @@ jobs:
       VERSION_NAME: ${{ inputs.version_name }}
       RELEASE_NOTES: ${{ inputs.release_notes }}
       # Overwritten below for a push-triggered run (Resolve automatic release request), which has
-      # no workflow_dispatch inputs and instead reads the MDK_DISTRIBUTION_CONFIRMED repository
-      # variable. Gradle's own verifyProductionMdkRights task fails the build if this is not
+      # no workflow_dispatch inputs and instead reads the repository confirmation or a matching
+      # package-only approval. Gradle's own verifyProductionMdkRights task fails the build if this is not
       # exactly "true" for a production-signed, MDK-included package (the default here).
       CONFIRM_MDK_DISTRIBUTION_RIGHTS: ${{ inputs.confirm_mdk_distribution_rights }}
       # Fail closed until the request is resolved. Artifact-only pushes and manual runs with
@@ -127,28 +127,6 @@ jobs:
           echo "PUBLISH_UPDATE=$publish" >> "$GITHUB_ENV"
           echo "Publish update: $publish"
 
-      - name: Require green Android quality gates on this commit
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          # Editing version.properties starts this workflow and the quality gates at the same
-          # time. Production signing waits for the gates to finish and refuses a red commit.
-          for attempt in $(seq 1 90); do
-            run="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow quality-gates-v2.yml --commit "$GITHUB_SHA" --limit 1 --json status,conclusion --jq '.[0] // empty')"
-            status="$(jq -r '.status // "missing"' <<<"${run:-null}")"
-            conclusion="$(jq -r '.conclusion // ""' <<<"${run:-null}")"
-            if [[ "$status" == "completed" ]]; then
-              [[ "$conclusion" == "success" ]] || { echo "::error::Android quality gates for $GITHUB_SHA concluded '$conclusion'"; exit 1; }
-              echo "Android quality gates passed for $GITHUB_SHA"
-              exit 0
-            fi
-            echo "quality gates for $GITHUB_SHA: ${status} (attempt $attempt)"
-            sleep 30
-          done
-          echo "::error::Android quality gates for $GITHUB_SHA did not finish in time"
-          exit 1
       - name: Resolve automatic release request
         if: github.event_name == 'push'
         shell: bash
@@ -162,6 +140,9 @@ jobs:
           # release owner's equivalent one-time confirmation for this deployment path.
           if [[ "$MDK_DISTRIBUTION_CONFIRMED" == "true" ]]; then
             echo 'CONFIRM_MDK_DISTRIBUTION_RIGHTS=true' >> "$GITHUB_ENV"
+          elif [[ "$PUBLISH_UPDATE" == "false" ]]; then
+            confirmed="$(python3 scripts/mdk_distribution_approval.py --package-only)"
+            echo "CONFIRM_MDK_DISTRIBUTION_RIGHTS=$confirmed" >> "$GITHUB_ENV"
           else
             echo 'CONFIRM_MDK_DISTRIBUTION_RIGHTS=false' >> "$GITHUB_ENV"
           fi
@@ -188,6 +169,10 @@ jobs:
           fi
           if [[ -z "${RELEASE_NOTES//[[:space:]]/}" ]]; then
             echo "::error::release notes must not be empty"
+            exit 1
+          fi
+          if [[ "$CONFIRM_MDK_DISTRIBUTION_RIGHTS" != "true" ]]; then
+            echo "::error::MDK distribution rights need the release owner's confirmation before building this full package"
             exit 1
           fi
 
@@ -241,6 +226,29 @@ jobs:
           normalized_watch_url="${WATCH_BASE_URL%/}"
           echo "UPDATE_BASE_URL=$normalized_update_url" >> "$GITHUB_ENV"
           echo "WATCH_BASE_URL=$normalized_watch_url" >> "$GITHUB_ENV"
+
+      - name: Require green Android quality gates on this commit
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Editing version.properties starts this workflow and the quality gates at the same
+          # time. Production signing waits for the gates to finish and refuses a red commit.
+          for attempt in $(seq 1 90); do
+            run="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow quality-gates-v2.yml --commit "$GITHUB_SHA" --limit 1 --json status,conclusion --jq '.[0] // empty')"
+            status="$(jq -r '.status // "missing"' <<<"${run:-null}")"
+            conclusion="$(jq -r '.conclusion // ""' <<<"${run:-null}")"
+            if [[ "$status" == "completed" ]]; then
+              [[ "$conclusion" == "success" ]] || { echo "::error::Android quality gates for $GITHUB_SHA concluded '$conclusion'"; exit 1; }
+              echo "Android quality gates passed for $GITHUB_SHA"
+              exit 0
+            fi
+            echo "quality gates for $GITHUB_SHA: ${status} (attempt $attempt)"
+            sleep 30
+          done
+          echo "::error::Android quality gates for $GITHUB_SHA did not finish in time"
+          exit 1
 
       - name: Verify watch server protocol
         if: env.PUBLISH_UPDATE == 'true'
