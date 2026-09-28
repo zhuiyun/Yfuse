@@ -64,6 +64,7 @@ import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.BackOverlay
 import com.yfuse.core.designsystem.ContextualTip
 import com.yfuse.core.designsystem.DarkPalette
+import com.yfuse.core.designsystem.DragAxis
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LightEffect
@@ -1262,6 +1263,9 @@ internal fun PlayerControls(
                     var totalX = 0f
                     var totalY = 0f
                     var startX = 0f
+                    // Decided on the first move and kept until the finger lifts: only a drag that
+                    // began sideways ever seeks, however far a volume drag's thumb wanders.
+                    var axis = DragAxis.Undecided
                     var seekTarget = latestPosition
                     var volumeAtDragStart = latestVolume()
                     var brightnessAtDragStart = latestBrightness()
@@ -1271,6 +1275,7 @@ internal fun PlayerControls(
                             startX = offset.x
                             totalX = 0f
                             totalY = 0f
+                            axis = DragAxis.Undecided
                             pictureScrubMs = null
                             seekTarget = latestPosition
                             volumeAtDragStart = latestVolume()
@@ -1282,7 +1287,7 @@ internal fun PlayerControls(
                             if (speedBoostGear == null) {
                                 if (
                                     holdSeekDirection == 0 &&
-                                    abs(totalX) > abs(totalY) &&
+                                    axis == DragAxis.Horizontal &&
                                     latestDuration > 0 &&
                                     !latestWatchLocked
                                 ) {
@@ -1303,7 +1308,8 @@ internal fun PlayerControls(
                         if (holdSeekDirection != 0 || speedBoostGear != null) return@detectPlayerDragGestures
                         totalX += amount.x
                         totalY += amount.y
-                        if (abs(totalX) > abs(totalY)) {
+                        axis = lockedPlayerDragAxis(axis, totalX, totalY)
+                        if (axis == DragAxis.Horizontal) {
                             // Brightness/volume drags stay available to guests; only the
                             // horizontal scrub is the host's to make.
                             if (latestWatchLocked) {
@@ -1319,7 +1325,7 @@ internal fun PlayerControls(
                             val sign = if (delta < 0L) "-" else "+"
                             gestureHud = "$sign${abs(delta).asClock()} · ${seekTarget.asClock()} / ${span.asClock()}"
                             pictureScrubMs = seekTarget
-                        } else {
+                        } else if (axis == DragAxis.Vertical) {
                             pictureScrubMs = null
                             val delta = -totalY / size.height
                             // 亮度与音量左右互换 flips which half answers with which.
