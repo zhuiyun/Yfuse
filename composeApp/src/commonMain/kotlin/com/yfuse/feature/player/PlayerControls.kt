@@ -6,8 +6,6 @@ import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusGroup
@@ -36,6 +34,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,16 +49,13 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalAccessibilityManager
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.data.PlayerGestureSettings
 import com.yfuse.core.designsystem.AmbientLight
 import com.yfuse.core.designsystem.AppIcons
-import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.BackOverlay
 import com.yfuse.core.designsystem.ContextualTip
@@ -67,7 +63,6 @@ import com.yfuse.core.designsystem.DarkPalette
 import com.yfuse.core.designsystem.DragAxis
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HapticSignal
-import com.yfuse.core.designsystem.LightEffect
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalHaptics
 import com.yfuse.core.designsystem.LocalTips
@@ -75,7 +70,6 @@ import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.PlatformBackHandler
 import com.yfuse.core.designsystem.Tips
 import com.yfuse.core.designsystem.glass
-import com.yfuse.core.designsystem.lightOnChange
 import com.yfuse.core.designsystem.rememberScreenReaderActive
 import com.yfuse.core.model.PlaybackChapter
 import com.yfuse.tv.player.TvPlayerChromeBridge
@@ -84,6 +78,7 @@ import com.yfuse.tv.player.TvPlayerChromeLayer
 import com.yfuse.tv.player.TvPlayerChromePanel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.isActive
 import kotlin.math.abs
 import kotlin.time.TimeSource
@@ -853,8 +848,12 @@ internal fun PlayerControls(
         delay(timeout)
         visible = false
     }
-    LaunchedEffect(gestureHud, accessibilityManager) {
-        if (gestureHud != null) {
+    // Watched from the coroutine rather than keyed: a drag rewrites the HUD on every move, and a key
+    // read here would recompose this whole tree once a frame for as long as the finger moved. Each
+    // new reading restarts the clock, as a key change did.
+    LaunchedEffect(accessibilityManager) {
+        snapshotFlow { gestureHud }.collectLatest { reading ->
+            if (reading == null) return@collectLatest
             val timeout =
                 accessibilityManager?.calculateRecommendedTimeoutMillis(
                     originalTimeoutMillis = GESTURE_HUD_MS,
@@ -862,7 +861,7 @@ internal fun PlayerControls(
                     containsText = true,
                     containsControls = false,
                 ) ?: GESTURE_HUD_MS
-            if (timeout == Long.MAX_VALUE) return@LaunchedEffect
+            if (timeout == Long.MAX_VALUE) return@collectLatest
             delay(timeout)
             gestureHud = null
         }
@@ -1544,9 +1543,15 @@ internal fun PlayerControls(
                                 onSeek(it)
                             },
                             onScrub = {
-                                scrubbing = true
+                                // Every touch sample lands here. `interactions` is read by this
+                                // whole control tree and keys two effects, so bumping it per sample
+                                // rebuilt ~2,300 lines of chrome each frame of a drag. The hide timer
+                                // already waits on `scrubbing`, and the release pokes it afresh.
+                                if (!scrubbing) {
+                                    scrubbing = true
+                                    interactions++
+                                }
                                 fineScrubTipArmed = true
-                                interactions++
                             },
                             onScrubEnd = {
                                 scrubbing = false
@@ -2201,53 +2206,11 @@ internal fun PlayerControls(
 
                 // Suppressed while the resume button occupies the same spot: the double tap that
                 // pauses would otherwise stack "暂停" directly on top of it.
-                AnimatedContent(
-                    targetState = gestureHud?.takeIf { !showPausedKey && !showEndedKeys },
-                    contentKey = ::gestureHudMotionKey,
-                    transitionSpec = {
-                        val swap =
-                            if (reduceMotion) {
-                                fadeIn(snap()) togetherWith fadeOut(snap())
-                            } else {
-                                (
-                                    fadeIn(Motion.tween(Motion.QUICK)) +
-                                        scaleIn(Motion.settle(), initialScale = HUD_SCALE_IN)
-                                ) togetherWith
-                                    (
-                                        fadeOut(Motion.tween(Motion.QUICK)) +
-                                            scaleOut(
-                                                Motion.tween(Motion.QUICK),
-                                                targetScale = HUD_SCALE_OUT,
-                                            )
-                                    )
-                            }
-                        swap using Motion.sizeTransform(reduceMotion)
-                    },
-                    contentAlignment = Alignment.Center,
+                PlayerGestureHud(
+                    hud = { gestureHud },
+                    suppressed = showPausedKey || showEndedKeys,
                     modifier = Modifier.align(Alignment.Center),
-                    label = "gesture-hud",
-                ) { value ->
-                    if (value != null) {
-                        Text(
-                            value,
-                            style = AppTypography.body.strong,
-                            color = Color.White,
-                            modifier =
-                                Modifier
-                                    .lightOnChange(
-                                        value,
-                                        LightEffect.Trail,
-                                        emitWhen =
-                                            value.startsWith("音量 ") || value.startsWith("亮度 "),
-                                    ).semantics { liveRegion = LiveRegionMode.Polite }
-                                    .glass(
-                                        shape = AppShapes.pill,
-                                        fill = Color.Black.copy(alpha = 0.56f),
-                                        border = Color.White.copy(alpha = 0.24f),
-                                    ).padding(horizontal = 16.dp, vertical = 9.dp),
-                        )
-                    }
-                }
+                )
 
                 SeekBurstFeedback(seekPulseRevision, seekPulsePosition, state.currentIndex)
                 ChromeVisibility(
