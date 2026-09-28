@@ -854,6 +854,10 @@ internal fun CircleControl(
     onLongClick: (() -> Unit)? = null,
     /** What a screen reader calls [onLongClick]. */
     onLongClickLabel: String? = null,
+    /** False while something else draws the disc or ring — the ending's liquid, as it forms. */
+    bodyVisible: Boolean = true,
+    /** Applied to the glyph, for callers that move or focus it while [bodyVisible] is false. */
+    glyphModifier: Modifier = Modifier,
 ) {
     val interactions = remember { MutableInteractionSource() }
     // The ring is what you see; the touch target is bigger than the ring. Sizing them
@@ -891,11 +895,10 @@ internal fun CircleControl(
                 // and made it read as a third kind of object wedged between two rings rather
                 // than as the emphatic member of their family.
                 .let {
-                    if (filled) {
-                        it.background(PlayerTokens.playFill, CircleShape)
-                    } else {
-                        it
-                            .border(1.dp, Color.White.copy(alpha = 0.62f), CircleShape)
+                    when {
+                        !bodyVisible -> it
+                        filled -> it.background(PlayerTokens.playFill, CircleShape)
+                        else -> it.border(1.dp, Color.White.copy(alpha = 0.62f), CircleShape)
                     }
                 }.softSelectionSurface(
                     interactionSource = interactions,
@@ -911,7 +914,7 @@ internal fun CircleControl(
                 icon,
                 contentDescription = description,
                 tint = if (filled) PlayerTokens.onPlay else Color.White,
-                modifier = Modifier.size(iconSize),
+                modifier = Modifier.size(iconSize).then(glyphModifier),
             )
         }
     }
@@ -943,7 +946,7 @@ internal val CenterKeyIconSize = 22.dp
 private const val SEEK_STEP_MS = 10_000L
 
 /** Slack around a control's ring, so a small ring still has a thumb-sized target. */
-private val ControlTouchPadding = 7.dp
+internal val ControlTouchPadding = 7.dp
 
 /**
  * Lock screen — a 52px circle over `屏幕已锁定` at `gap:14px`, with the

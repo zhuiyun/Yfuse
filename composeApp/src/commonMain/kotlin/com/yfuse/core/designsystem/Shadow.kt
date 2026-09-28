@@ -2,7 +2,9 @@ package com.yfuse.core.designsystem
 
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
@@ -21,3 +23,12 @@ expect fun Modifier.cssShadow(
     color: Color,
     shape: Shape,
 ): Modifier
+
+/**
+ * [shadow] along a path that changes every frame — a liquid layer, where one outline covers
+ * several keys at once. Spread is not supported: every lift the layers use has none.
+ */
+internal expect fun DrawScope.drawPathShadow(
+    path: Path,
+    shadow: CssShadow,
+)
