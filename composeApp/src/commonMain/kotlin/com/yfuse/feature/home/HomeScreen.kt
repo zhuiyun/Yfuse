@@ -272,7 +272,6 @@ private fun HomeContent(
             onRefreshCalendar = { component.refreshCalendar(forceRefresh = true) },
             onOpenProfile = component.onOpenProfile,
             onOpenCalendar = component.onOpenCalendar,
-            onOpenLibrary = component.onOpenLibrary,
             onOpenCalendarEntry = component::openCalendarEntry,
             shelfLayout = shelfLayout,
             onEditShelves = editShelves.takeIf { shelves != null },
