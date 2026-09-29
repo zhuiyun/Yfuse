@@ -16,6 +16,8 @@ import com.yfuse.feature.library.shareLiftAction
  * letting go back on the button.
  *
  * @param onWatchTogether null when a room cannot be started from here.
+ * @param seasonDownload the listed season by name, `第 2 季（10 集）` (see [listedSeasonLabel]), which
+ *   [onDownloadSeason] opens the 下载 sheet on; null where there is no season to take whole.
  */
 internal fun detailMoreLiftMenu(
     title: String,
@@ -30,6 +32,8 @@ internal fun detailMoreLiftMenu(
     onWatchTogether: (() -> Unit)?,
     onAllActions: () -> Unit,
     onShare: (() -> Unit)? = null,
+    seasonDownload: String? = null,
+    onDownloadSeason: () -> Unit = {},
 ): LiftMenu =
     LiftMenu(
         title = title,
@@ -48,6 +52,9 @@ internal fun detailMoreLiftMenu(
                 ),
                 listOfNotNull(
                     ItemAction(label = "下载…", icon = AppIcons.Download, onSelect = onDownload),
+                    seasonDownload?.let {
+                        ItemAction(label = "下载$it…", icon = AppIcons.Download, onSelect = onDownloadSeason)
+                    },
                     onWatchTogether?.let {
                         ItemAction(label = "一起看…", icon = AppIcons.Chat, onSelect = it)
                     },

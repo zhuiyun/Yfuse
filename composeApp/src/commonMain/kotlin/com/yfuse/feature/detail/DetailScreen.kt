@@ -76,6 +76,7 @@ import com.yfuse.core.model.capabilities
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.network.currentPlaybackNetworkClass
 import com.yfuse.core.network.toUserMessage
+import com.yfuse.core.offline.OfflineBatchMode
 import com.yfuse.core.sync.WatchInvite
 import com.yfuse.core.sync.WatchTogetherState
 import com.yfuse.core.sync.parseEpisodeWatchKey
@@ -360,12 +361,24 @@ fun DetailScreen(component: DetailComponent) {
     var shareSheetOpen by remember { mutableStateOf(false) }
     var replaceRoomConfirmOpen by remember { mutableStateOf(false) }
     var seriesPlayedConfirmOpen by remember { mutableStateOf(false) }
+    // A show is every episode's history and resume point in one tap, so it asks first — from the key
+    // under 播放 and from both of 更多's menus alike.
+    val togglePlayed = {
+        if (detail?.type.equals("Series", ignoreCase = true)) {
+            seriesPlayedConfirmOpen = true
+        } else {
+            component.store.accept(DetailIntent.TogglePlayed)
+        }
+    }
     var moreSheetOpen by remember { mutableStateOf(false) }
     var metadataEditorOpen by remember { mutableStateOf(false) }
-    var downloadSheetOpen by remember { mutableStateOf(false) }
+    // The range the 下载 sheet opens on; null while it is closed.
+    var downloadRange by remember { mutableStateOf<OfflineBatchMode?>(null) }
     val sharer = rememberPosterCardSharer()
     // The episode rows' 浮起菜单, swipes and 长按拖选, and what of the season is downloaded.
     val episodeRowActions = rememberEpisodeRowActions(component, state.playServer?.id)
+    // The top bar's 投屏 and its device list; null where this platform cannot cast.
+    val cast = rememberDetailCast(component)
     var organizationSheetOpen by remember { mutableStateOf(false) }
     var sourceListOpen by remember { mutableStateOf(false) }
     var allEpisodesOpen by remember { mutableStateOf(false) }
@@ -427,6 +440,8 @@ fun DetailScreen(component: DetailComponent) {
                     personalWanted = personalLists?.wanted == true,
                 )
             }.orEmpty()
+    // 下载第 2 季（10 集）… in 更多: only where 播放 opens an episode, whose season can be taken whole.
+    val seasonDownloadLabel = state.playTarget?.seriesId?.let { listedSeasonLabel(state.episodes, state.seasons) }
 
     LaunchedEffect(airingCalendarOpen, airingCalendarReload, detail?.id) {
         val target = detail ?: return@LaunchedEffect
@@ -662,6 +677,15 @@ fun DetailScreen(component: DetailComponent) {
                                             statuses = detailStatusList,
                                             onStatusClick = { moreSheetOpen = true },
                                         )
+                                        // Built out here rather than in the colour scope below: the play key
+                                        // repaints on every frame of its blend, the keys stay the same list.
+                                        val actionKeys =
+                                            detailPageActionKeys(
+                                                state,
+                                                episodeRowActions.downloads,
+                                                accept = component.store::accept,
+                                                onTogglePlayed = togglePlayed,
+                                            ) { downloadRange = OfflineBatchMode.Current }
                                         AnimatedColorContent(detailPlayColorState) { detailPlayColor ->
                                             DetailActionDock(
                                                 accent = detailPlayColor,
@@ -678,15 +702,17 @@ fun DetailScreen(component: DetailComponent) {
                                                     playerArtworkOnClick(sharedHeroKey) {
                                                         component.store.accept(DetailIntent.PlayFromStart)
                                                     },
+                                                keys = actionKeys,
+                                                keyAccent = detailAccent,
                                             )
                                         }
                                     }
                                 }
 
-                                // 收藏 / 稍后看 and the personal lists live in the 更多操作 sheet: under the play
-                                // key they pushed the synopsis and the sources below the fold. The title
-                                // block still says which of them are on, and the top bar keeps 服务器收藏
-                                // one tap away.
+                                // The personal lists live in the 更多操作 sheet: as buttons under the play key
+                                // they pushed the synopsis and the sources below the fold. The one compact row
+                                // of keys there carries 收藏 / 稍后看 / 已看 / 下载 instead, and the title block
+                                // still says which lists hold the title.
                                 val overview = detail.overview
                                 if (!overview.isNullOrBlank()) {
                                     motionItem(key = "overview") {
@@ -944,17 +970,15 @@ fun DetailScreen(component: DetailComponent) {
                                     detailMoreLiftMenu(
                                         title = shown.title,
                                         played = shown.played,
-                                        favoriteAvailable =
-                                            state.playServer
-                                                ?.kind
-                                                ?.capabilities()
-                                                ?.favorites != false,
+                                        favoriteAvailable = serverFavoriteAvailable,
                                         favorite = shown.isFavorite,
                                         watchLater = state.watchLater,
-                                        onTogglePlayed = { component.store.accept(DetailIntent.TogglePlayed) },
+                                        onTogglePlayed = togglePlayed,
                                         onToggleFavorite = { component.store.accept(DetailIntent.ToggleFavorite) },
                                         onToggleWatchLater = { component.store.accept(DetailIntent.ToggleWatchLater) },
-                                        onDownload = { downloadSheetOpen = true },
+                                        onDownload = { downloadRange = OfflineBatchMode.Current },
+                                        seasonDownload = seasonDownloadLabel,
+                                        onDownloadSeason = { downloadRange = OfflineBatchMode.Season },
                                         onWatchTogether =
                                             if (watchAvailable && watchState.roomCode == null) {
                                                 {
@@ -972,8 +996,7 @@ fun DetailScreen(component: DetailComponent) {
                                     )
                                 }
                             },
-                        favorite = detail?.isFavorite?.takeIf { serverFavoriteAvailable },
-                        onToggleFavorite = { component.store.accept(DetailIntent.ToggleFavorite) },
+                        cast = cast.takeIf { detail != null },
                     )
                 }
 
@@ -1024,7 +1047,7 @@ fun DetailScreen(component: DetailComponent) {
                         onToggleServerWatchLater = { component.store.accept(DetailIntent.ToggleWatchLater) },
                         onDownload = {
                             moreSheetOpen = false
-                            downloadSheetOpen = true
+                            downloadRange = OfflineBatchMode.Current
                         },
                         onCalendar = {
                             moreSheetOpen = false
@@ -1047,12 +1070,7 @@ fun DetailScreen(component: DetailComponent) {
                         },
                         onTogglePlayed = {
                             moreSheetOpen = false
-                            // A series is every episode's history and resume point in one tap.
-                            if (detail.type.equals("Series", ignoreCase = true)) {
-                                seriesPlayedConfirmOpen = true
-                            } else {
-                                component.store.accept(DetailIntent.TogglePlayed)
-                            }
+                            togglePlayed()
                         },
                         onOrganization = {
                             moreSheetOpen = false
@@ -1097,27 +1115,13 @@ fun DetailScreen(component: DetailComponent) {
                     )
                 }
 
-                val downloadTarget = state.playTarget
-                if (downloadSheetOpen && downloadTarget != null) {
-                    OfflineDownloadDialog(
-                        detail = downloadTarget,
-                        episodes = state.episodes,
-                        selectedVersionId = state.selectedVersionId,
-                        allowedQualities =
-                            if (state.playServer?.kind == com.yfuse.core.model.MediaServerKind.Plex) {
-                                listOf(com.yfuse.core.offline.OfflineDownloadQuality.Original)
-                            } else {
-                                com.yfuse.core.offline.OfflineDownloadQuality.entries
-                            },
-                        onConfirm = { selection ->
-                            downloadSheetOpen = false
-                            component.download(selection)?.let { result ->
-                                val message = offlineEnqueueMessage(result, episode = downloadTarget.seriesId != null)
-                                component.store.accept(DetailIntent.ShowMessage(message))
-                            }
-                        },
-                        onDismiss = { downloadSheetOpen = false },
-                    )
+                downloadRange?.let { range ->
+                    DetailDownloadSheet(component, state, range, onClose = { downloadRange = null })
+                }
+
+                // Picked, a device plays what 播放 would open, and the page stays where it is.
+                if (cast != null && cast.listOpen && detail != null) {
+                    DetailCastSheet(cast, state.playPositionTicks, playDetailLine, onPick = component::castTo)
                 }
 
                 if (organizationSheetOpen && detail != null) {
@@ -1291,18 +1295,11 @@ fun DetailScreen(component: DetailComponent) {
                 }
 
                 if (seriesPlayedConfirmOpen && detail != null) {
-                    val markPlayed = !detail.played
-                    ConfirmDialog(
-                        title = if (markPlayed) "整部剧标记为已看？" else "整部剧标记为未看？",
-                        message = seriesProgressConfirmMessage(detail.title, state.seasons.size, markPlayed),
-                        confirmLabel = if (markPlayed) "标记已看" else "标记未看",
-                        destructive = true,
-                        onConfirm = {
-                            seriesPlayedConfirmOpen = false
-                            component.store.accept(DetailIntent.TogglePlayed)
-                        },
-                        onDismiss = { seriesPlayedConfirmOpen = false },
-                    )
+                    val close = { seriesPlayedConfirmOpen = false }
+                    SeriesPlayedConfirmDialog(detail, state.seasons.size, onDismiss = close) {
+                        close()
+                        component.store.accept(DetailIntent.TogglePlayed)
+                    }
                 }
 
                 if (replaceRoomConfirmOpen && detail != null) {

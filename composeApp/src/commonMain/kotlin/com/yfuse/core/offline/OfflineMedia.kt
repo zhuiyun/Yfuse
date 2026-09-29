@@ -49,8 +49,31 @@ enum class OfflineBatchMode(
     val label: String,
 ) {
     Current("本集 / 本片"),
+
+    /** The generic name; wherever the season is known it is named instead — see [offlineSeasonLabel]. */
     Season("整季"),
     Unwatched("仅未看集"),
+}
+
+/**
+ * A whole season as a download names it: `第 2 季（10 集）`, and `特别篇` for season 0, which is where
+ * Emby and Jellyfin file specials. 整季 on its own never said which season, and the episode list a
+ * download takes can trail a season picked a moment ago, so the caller names the season of the
+ * episodes it will actually take. An unknown count is left out rather than guessed; a season with
+ * no number keeps the server's own name for it.
+ */
+fun offlineSeasonLabel(
+    seasonNumber: Int?,
+    episodeCount: Int?,
+    seasonName: String? = null,
+): String {
+    val season =
+        when {
+            seasonNumber == 0 -> "特别篇"
+            seasonNumber != null && seasonNumber > 0 -> "第 $seasonNumber 季"
+            else -> seasonName?.trim()?.takeIf(String::isNotEmpty) ?: "本季"
+        }
+    return if (episodeCount != null && episodeCount > 0) "$season（$episodeCount 集）" else season
 }
 
 @Serializable

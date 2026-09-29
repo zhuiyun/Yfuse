@@ -1,5 +1,6 @@
 package com.yfuse.feature.detail
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -47,12 +48,9 @@ import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
-import androidx.compose.ui.semantics.toggleableState
-import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Density
@@ -66,7 +64,6 @@ import com.yfuse.core.designsystem.BackdropState
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.DolbyBadge
 import com.yfuse.core.designsystem.FallbackImage
-import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.HeroInk
 import com.yfuse.core.designsystem.InlineLoadingContent
 import com.yfuse.core.designsystem.LiftMenu
@@ -93,6 +90,7 @@ import com.yfuse.core.designsystem.rememberOneTakeArrival
 import com.yfuse.core.designsystem.sharedMediaArtwork
 import com.yfuse.core.designsystem.solidGlass
 import com.yfuse.core.designsystem.touchTarget
+import com.yfuse.core.designsystem.waitingPulse
 import com.yfuse.core.model.MediaDetail
 import com.yfuse.core.model.MediaVersion
 import com.yfuse.core.designsystem.ThemeIcon as Icon
@@ -345,13 +343,13 @@ internal fun DetailTopBar(
     onMore: () -> Unit,
     /** What holding 更多 lifts for the finger to slide through; null keeps it a plain button. */
     moreMenu: (() -> LiftMenu)? = null,
-    /** 服务器收藏 beside 更多操作; null when the title has no server favourite to switch. */
-    favorite: Boolean? = null,
-    onToggleFavorite: () -> Unit = {},
+    /** 投屏 beside 更多, while there is something to cast to; null where this page cannot cast. */
+    cast: DetailCast? = null,
 ) {
     val palette = LocalPalette.current
     val playBody = primaryActionColor(accent)
     val playInk = primaryActionContentColor(accent)
+    val still = LocalAccessibilityOptions.current.reduceMotion || calmMotion()
     // 0.94 was very nearly opaque, and it had to be: with nothing blurred behind it, any
     // less and the poster underneath read straight through the title. Now that §8.1's blur
     // is actually under the plate, the fill can go back to being a fill — this bar was the
@@ -429,23 +427,34 @@ internal fun DetailTopBar(
                     Text("播放", style = AppTypography.body.strong, color = playInk)
                 }
             }
-            if (favorite != null) {
-                // One tap, where it used to be … → switch → close. Like 更多操作 it stays up
-                // over the artwork; the title gives up the width, never the play shortcut.
-                DetailTopBarIcon(
-                    icon = if (favorite) AppIcons.HeartFilled else AppIcons.Heart,
-                    description = "服务器收藏",
-                    progress = progress,
-                    surfaceColor = surfaceColor,
-                    onClick = onToggleFavorite,
-                    checked = favorite,
-                    stateLabel = if (favorite) "已收藏" else "未收藏",
-                )
+            // 服务器收藏 used to sit here; it is one of the keys under 播放 now, beside 稍后看, 已看
+            // and 下载, and the bar keeps only what the whole page needs.
+            if (cast != null) {
+                // Up over the artwork like 更多, as the Cast guidelines want on any page that can
+                // cast: it plays what 播放 would, on the television, without the phone's player.
+                // Lit while a cast is live, waiting while one from here is on its way.
+                AnimatedVisibility(
+                    visible = cast.available,
+                    enter = castKeyEnter(still),
+                    exit = castKeyExit(still),
+                    label = "detailCastKey",
+                ) {
+                    DetailTopBarIcon(
+                        icon = AppIcons.Cast,
+                        description = "投屏",
+                        progress = progress,
+                        surfaceColor = surfaceColor,
+                        onClick = cast::open,
+                        stateLabel = cast.stateLabel,
+                        lit = accent.takeIf { cast.casting },
+                        busy = cast.busy,
+                    )
+                }
             }
             if (showMore) {
-                // Unlike the title and the play shortcut this does not fade in with scroll:
-                // it is the only route to 下载 / 标记已看 / 一起看, so it has to be reachable
-                // from the top of the page as well as the bottom.
+                // Unlike the title and the play shortcut this does not fade in with scroll: once the
+                // keys under 播放 have scrolled away it is the route to 下载 / 标记已看 / 一起看, so it
+                // has to be reachable from the top of the page as well as the bottom.
                 DetailTopBarIcon(
                     icon = AppIcons.More,
                     description = "更多操作",
@@ -460,8 +469,8 @@ internal fun DetailTopBar(
 }
 
 /**
- * Both glyph tint and glass colour follow scroll solely in the draw phase. A [checked] key is a
- * switch: it says its state, and it is felt, because it changes state in place.
+ * Both glyph tint and glass colour follow scroll solely in the draw phase. The bar holds no switch
+ * since 服务器收藏 moved under 播放: every key here opens something or goes somewhere.
  */
 @Composable
 private fun DetailTopBarIcon(
@@ -471,35 +480,44 @@ private fun DetailTopBarIcon(
     surfaceColor: Color,
     onClick: () -> Unit,
     liftMenu: (() -> LiftMenu)? = null,
-    checked: Boolean? = null,
+    /** Read after [description]: what the key's action is doing now. */
     stateLabel: String? = null,
+    /**
+     * A body of this colour, the play shortcut's, with its ink: something the key started is live
+     * (a cast). Over the artwork and over the plate alike, so it does not follow scroll.
+     */
+    lit: Color? = null,
+    /** The waiting pulse: what the key started is on its way. */
+    busy: Boolean = false,
 ) {
     val palette = LocalPalette.current
     val painter = rememberVectorPainter(icon)
+    val litBody = lit?.let(::primaryActionColor)
+    val litInk = lit?.let(::primaryActionContentColor)
+    val heroFill = Color(0xFF11151F).copy(alpha = 0.28f)
+    val heroEdge = Color.White.copy(alpha = 0.34f)
     Canvas(
         Modifier
             .liftable(menu = liftMenu, onOpen = onClick)
-            .pressable(
-                haptic = HapticSignal.Confirm.takeIf { checked != null },
-                role = if (checked == null) Role.Button else Role.Checkbox,
-                onClick = onClick,
-            ).touchTarget()
+            .pressable(onClick = onClick)
+            .touchTarget()
             .size(38.dp)
             .liquidGlass(
                 shape = CircleShape,
-                fill = { lerp(Color(0xFF11151F).copy(alpha = 0.28f), palette.card2, progress.value) },
-                border = { lerp(Color.White.copy(alpha = 0.34f), palette.border, progress.value) },
+                fill = { litBody ?: lerp(heroFill, palette.card2, progress.value) },
+                border = { if (litBody == null) lerp(heroEdge, palette.border, progress.value) else null },
                 over = { lerp(HeroInk, surfaceColor, progress.value) },
                 sheen = 0.7f,
-            ).padding(11.dp)
+            ).waitingPulse(active = busy, shape = CircleShape, color = litInk ?: Color.White)
+            .padding(11.dp)
             .semantics {
                 contentDescription = description
-                if (checked != null) toggleableState = ToggleableState(checked)
                 if (stateLabel != null) stateDescription = stateLabel
             },
     ) {
         with(painter) {
-            draw(size, colorFilter = ColorFilter.tint(lerp(Color.White, palette.text, progress.value)))
+            val ink = litInk ?: lerp(Color.White, palette.text, progress.value)
+            draw(size, colorFilter = ColorFilter.tint(ink))
         }
     }
 }
