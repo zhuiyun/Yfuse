@@ -10,6 +10,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
 import com.yfuse.core.logging.AppLog
+import com.yfuse.core.logging.diagnosticOrigin
 import com.yfuse.core.logging.diagnosticRootCause
 import com.yfuse.core.logging.diagnosticTypeName
 import com.yfuse.core.logging.playbackDiagnosticTrace
@@ -2326,6 +2327,12 @@ internal class AndroidAdaptiveCore2YPlayer(
                         }
                     }
                 } catch (failure: Throwable) {
+                    // Throwable on purpose, like the engine workers under this router (NativeDirect
+                    // hands every failure to fail()). This scope has no exception handler, so an Error
+                    // escaping here would end the app rather than one route, and such Errors do occur
+                    // on this path: R8 output failing verification when a class first loads (1.0.91
+                    // shipped one), a native artifact missing a JNI entry point, an allocation sized
+                    // from a malformed file. Cancellation still propagates.
                     if (failure is CancellationException) throw failure
                     if (released) break
                     if (failure is AndroidProbeAbortedException && failure.reason == "superseded") continue
@@ -2340,6 +2347,22 @@ internal class AndroidAdaptiveCore2YPlayer(
                                     "reason" to failure.reason,
                                     "generation" to probes.generation().toString(),
                                     "keptFailureCategory" to keptRouteFailure?.category?.name.orEmpty(),
+                                ),
+                        )
+                    } else {
+                        // The published state keeps only the type name (core2RouterFailureReason);
+                        // without the stack an unexpected router failure cannot be traced to a line.
+                        val root = failure.diagnosticRootCause()
+                        AppLog.error(
+                            category = "player.core2",
+                            event = "router_command_failed",
+                            message = "YCore router failed while handling a command",
+                            throwable = failure,
+                            attributes =
+                                mapOf(
+                                    "command" to command.javaClass.simpleName,
+                                    "exceptionType" to root.diagnosticTypeName(),
+                                    "origin" to root.diagnosticOrigin(),
                                 ),
                         )
                     }
