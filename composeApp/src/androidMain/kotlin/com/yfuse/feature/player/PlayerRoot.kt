@@ -28,7 +28,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -226,18 +225,7 @@ internal fun PlayerRoot(
     val core2TrialEnabled by playbackPreferences.core2TrialEnabled.collectAsState()
     val core2NativeOnlyEnabled by playbackPreferences.core2NativeOnlyEnabled.collectAsState()
     val gestureSettings by playbackPreferences.gestureSettings.collectAsState()
-    var core2DisabledForSession by remember { mutableStateOf(false) }
-    var sessionEngineSelection by remember {
-        mutableStateOf(configuredEngineSelection)
-    }
-    val core2NativeOnlyActive =
-        BuildConfig.YFUSE_NATIVE_ONLY_RUNTIME ||
-            (
-                core2NativeOnlyEnabled &&
-                    core2TrialEnabled &&
-                    sessionEngineSelection == PlaybackEngineSelection.Auto &&
-                    !core2DisabledForSession
-            )
+    val choices = remember { PlayerViewerChoices(configuredEngineSelection) }
 
     /**
      * Decide the initial HDR path before constructing a backend. Exo is selected for a verified
@@ -295,7 +283,7 @@ internal fun PlayerRoot(
                 preferredDecoderMode = decoderMode,
                 allowAudioPassthrough = allowAudioPassthrough,
                 optimizationMode = effectiveOptimizationMode,
-                engineSelection = sessionEngineSelection,
+                engineSelection = choices.sessionEngineSelection,
                 engineCosts = performanceMemory.engineCosts(probe.capabilitySignature),
                 videoSupport =
                     capabilityProvider?.videoSupport(probe.source.videoRequirements)
@@ -303,84 +291,65 @@ internal fun PlayerRoot(
                 dolbyVisionRuntime = dolbyVisionRuntime,
             )
         }
-    var kind by remember {
-        mutableStateOf(initialPlaybackPlan.primaryEngine)
-    }
-    var effectiveDecoderMode by remember { mutableStateOf(initialPlaybackPlan.decoderMode) }
-    // Everything a newly built backend needs to resume without changing user intent.
-    var resume by remember {
-        mutableStateOf(
-            PlaybackHandoverSnapshot(
-                itemIndex = startIndex,
-                positionMs = startPositionMs,
-                playbackRequested = startPlaybackRequested,
-                speed = 1f,
-            ),
-        )
-    }
+    val build =
+        remember {
+            PlayerEngineBuild(
+                kind = initialPlaybackPlan.primaryEngine,
+                decoderMode = initialPlaybackPlan.decoderMode,
+                resume =
+                    PlaybackHandoverSnapshot(
+                        itemIndex = startIndex,
+                        positionMs = startPositionMs,
+                        playbackRequested = startPlaybackRequested,
+                        speed = 1f,
+                    ),
+            )
+        }
+    val core2NativeOnlyActive =
+        BuildConfig.YFUSE_NATIVE_ONLY_RUNTIME ||
+            (
+                core2NativeOnlyEnabled &&
+                    core2TrialEnabled &&
+                    choices.sessionEngineSelection == PlaybackEngineSelection.Auto &&
+                    !build.core2DisabledForSession
+            )
     // The first item's resume point, offered once; later items and engine swaps do not re-ask.
     val initialResumeNoticeMs = remember { startPositionMs.takeIf { it >= RESUME_NOTICE_MIN_MS } }
-    var engineGeneration by remember { mutableIntStateOf(0) }
-    var runtimeSessionGeneration by remember { mutableIntStateOf(0) }
     val sourceSwitchCoordinator = remember { PlaybackSourceSwitchCoordinator() }
     val latestQueueRevision by rememberUpdatedState(queueRevision)
-    var requestedPlaybackSpeed by remember { mutableFloatStateOf(1f) }
     // 长按中间's rate and the seeks a drag proposes, kept out of this composition.
     val gestures = remember { PlayerGestureCommands() }
-    var handoverItemId by remember { mutableStateOf<String?>(null) }
-    var audioRestore by remember { mutableStateOf<TrackRestorePreference?>(null) }
-    var subtitleRestore by remember { mutableStateOf<TrackRestorePreference?>(null) }
-    var secondarySubtitleRestore by remember { mutableStateOf<TrackRestorePreference?>(null) }
-    var secondarySubtitleTrackId by remember { mutableStateOf<String?>(null) }
-    var restoreSubtitlesOff by remember { mutableStateOf(false) }
-    // 没听清: a subtitle shown for a replay. Kept out of the restore state above, series memory and
-    // the preferences alike; while it runs, the track restore stands aside.
-    var subtitlePeek by remember { mutableStateOf<SubtitlePeek?>(null) }
     // 片尾接管: the controls decide when the credits take the picture into its corner; the surface follows.
     var creditsTakeover by remember { mutableStateOf(false) }
-    var scaleMode by remember { mutableStateOf(VideoScaleMode.Fit) }
-    var subtitleControls by remember { mutableStateOf(SubtitleControlState()) }
-    var audioControls by remember { mutableStateOf(AudioControlState()) }
     val audioOutputDelayPreferences = remember(context) { AudioOutputDelayPreferences(context) }
-    var lastVerifiedAudioRoute by remember { mutableStateOf("") }
     var sleepTimerOption by remember { mutableStateOf(SleepTimerOption.Off) }
     var sleepTimerEndIndex by remember { mutableStateOf<Int?>(null) }
     var sleepTimerEndSessionRevision by remember { mutableStateOf<Long?>(null) }
     var sleepTimerArmedItemReachedEnd by remember { mutableStateOf(false) }
     var sleepTimerRevision by remember { mutableIntStateOf(0) }
-    var pendingSubtitleLanguage by remember { mutableStateOf<String?>(null) }
     val playbackSinkCache =
         remember {
             mutableMapOf<PlaybackReportingTarget, PlaybackEventSink?>()
         }
 
-    // Entry id -> chosen file, for titles the server holds more than one copy of. Switching
-    // rebuilds the queue and restarts the engine at the same position, which is the same
-    // handover an engine switch already performs — no engine needs to know about versions.
-    var versionChoices by remember {
-        mutableStateOf(emptyMap<String, PlayerMediaVersion>())
-    }
-    var serverChoices by remember {
-        mutableStateOf(emptyMap<Int, PlayerMediaItem>())
-    }
+    val sources = remember { PlayerSourceChoices() }
     val serverFallbackPlans =
         remember(items) {
             items.mapIndexed { index, item -> index to item.serverFallbacks }.toMap()
         }
-    var importedSubtitles by remember { mutableStateOf(emptyMap<SubtitleItemKey, List<PlayerExternalSubtitle>>()) }
     val activeItems =
-        remember(items, serverChoices, versionChoices, importedSubtitles) {
+        remember(items, sources.serverChoices, sources.versionChoices, sources.importedSubtitles) {
             val sourcedItems =
-                items.mapIndexed { index, item -> serverChoices[index] ?: item }
+                items.mapIndexed { index, item -> sources.serverChoices[index] ?: item }
             val versionedItems =
-                if (versionChoices.isEmpty()) {
+                if (sources.versionChoices.isEmpty()) {
                     sourcedItems
                 } else {
                     sourcedItems.map { item ->
-                        versionChoices[item.id]?.let(item::withVersion) ?: item
+                        sources.versionChoices[item.id]?.let(item::withVersion) ?: item
                     }
                 }
-            versionedItems.map { it.withImportedSubtitles(importedSubtitles) }
+            versionedItems.map { it.withImportedSubtitles(sources.importedSubtitles) }
         }
 
     fun preflightItem(item: PlayerMediaItem): PlayerMediaItem {
@@ -392,11 +361,11 @@ internal fun PlayerRoot(
             planPlayback(
                 probe = probe,
                 capabilities = deviceCapabilities,
-                preferredEngine = kind,
-                preferredDecoderMode = effectiveDecoderMode,
+                preferredEngine = build.kind,
+                preferredDecoderMode = build.effectiveDecoderMode,
                 allowAudioPassthrough = allowAudioPassthrough,
                 optimizationMode = effectiveOptimizationMode,
-                engineSelection = sessionEngineSelection,
+                engineSelection = choices.sessionEngineSelection,
                 engineCosts = performanceMemory.engineCosts(probe.capabilitySignature),
                 videoSupport = videoSupport,
                 dolbyVisionRuntime = dolbyVisionRuntime,
@@ -416,10 +385,10 @@ internal fun PlayerRoot(
             capabilityProvider,
             deviceCapabilities,
             capabilityRevision,
-            kind,
-            effectiveDecoderMode,
+            build.kind,
+            build.effectiveDecoderMode,
             effectiveOptimizationMode,
-            sessionEngineSelection,
+            choices.sessionEngineSelection,
             dolbyVisionRuntime,
             core2NativeOnlyActive,
         ) {
@@ -457,20 +426,20 @@ internal fun PlayerRoot(
             }.toMap()
     val engineRequest =
         remember(
-            kind,
-            engineGeneration,
-            effectiveDecoderMode,
+            build.kind,
+            build.engineGeneration,
+            build.effectiveDecoderMode,
             core2TrialEnabled,
             core2NativeOnlyActive,
-            core2DisabledForSession,
-            sessionEngineSelection,
+            build.core2DisabledForSession,
+            choices.sessionEngineSelection,
             allowAudioPassthrough,
             frameRateMatch,
             yCoreBufferTargetUs,
         ) {
-            val requestedKind = kind
+            val requestedKind = build.kind
             PlaybackEngineRequest(
-                PlaybackEngineInput(preflightItems, resume),
+                PlaybackEngineInput(preflightItems, build.resume),
                 kind = requestedKind,
             ) { input, crashOwner ->
                 createVideoEngine(
@@ -481,7 +450,7 @@ internal fun PlayerRoot(
                     startPositionMs = input.handover.positionMs,
                     startPlaybackRequested = input.handover.playbackRequested,
                     startSpeed = input.handover.speed,
-                    decoderMode = effectiveDecoderMode,
+                    decoderMode = build.effectiveDecoderMode,
                     optimizationMode = effectiveOptimizationMode,
                     autoNext = autoNext,
                     customUserAgent = customUserAgent,
@@ -491,9 +460,9 @@ internal fun PlayerRoot(
                     stopEncoding = { sessionId ->
                         playbackSinkForSession(sessionId)?.stopEncoding(sessionId) ?: true
                     },
-                    core2TrialEnabled = core2TrialEnabled && !core2DisabledForSession,
+                    core2TrialEnabled = core2TrialEnabled && !build.core2DisabledForSession,
                     core2NativeOnlyEnabled = core2NativeOnlyActive,
-                    engineSelection = sessionEngineSelection,
+                    engineSelection = choices.sessionEngineSelection,
                     allowAudioPassthrough = allowAudioPassthrough,
                     frameRateMatch = frameRateMatch,
                     initialTrackSelections = initialTrackSelections(input.items),
@@ -567,7 +536,7 @@ internal fun PlayerRoot(
         rememberUpdatedState<(List<PlayerMediaItem>, Int) -> Boolean> { refreshed, currentIndex ->
             sourceSwitchCoordinator.invalidate()
             val remappedChoices =
-                serverChoices
+                sources.serverChoices
                     .mapNotNull { (oldIndex, chosen) ->
                         val original = items.getOrNull(oldIndex)
                         val nextIndex =
@@ -580,7 +549,7 @@ internal fun PlayerRoot(
             val prepared =
                 refreshed.mapIndexed { index, item ->
                     val sourced = remappedChoices[index] ?: item
-                    preflightItem(versionChoices[sourced.id]?.let(sourced::withVersion) ?: sourced)
+                    preflightItem(sources.versionChoices[sourced.id]?.let(sourced::withVersion) ?: sourced)
                 }
             val accepted =
                 prepared.canUseCore2Trial(startIndex = currentIndex) &&
@@ -594,8 +563,8 @@ internal fun PlayerRoot(
                     ) ||
                     backendExtensions.updateQueue(prepared, currentIndex)
             if (accepted) {
-                serverChoices = remappedChoices
-                resume = resume.copy(itemIndex = currentIndex)
+                sources.serverChoices = remappedChoices
+                build.resume = build.resume.copy(itemIndex = currentIndex)
             }
             accepted
         }
@@ -701,7 +670,7 @@ internal fun PlayerRoot(
             }
         }
     }
-    val attachedKind = engineBinding.kind ?: kind
+    val attachedKind = engineBinding.kind ?: build.kind
     val attachedEngineLabel = engineAttachedLabel(engine, attachedKind)
     DisposableEffect(engine, player, attachedKind) {
         AppLog.info(
@@ -775,19 +744,15 @@ internal fun PlayerRoot(
                     ).show()
                 return@LaunchedEffect
             }
-            resume =
-                playbackHandoverSnapshot(
+            build.resume =
+                choices.handover(
                     state = localState,
-                    currentPositionMs = player.currentPositionMs(),
+                    positionMs = player.currentPositionMs(),
                     playbackRequested = player.playbackRequested,
-                    requestedSpeed = requestedPlaybackSpeed,
-                    secondarySubtitle = secondarySubtitleRestore,
-                    subtitleDelayMs = subtitleControls.offsetMs,
-                    audioDelayMs = audioControls.delayMs,
                 )
             backendExtensions.prepareForHandover()
-            core2DisabledForSession = true
-            engineGeneration++
+            build.core2DisabledForSession = true
+            build.engineGeneration++
             AppLog.warning(
                 category = "player.core2",
                 event = "trial_fallback_to_legacy",
@@ -820,11 +785,11 @@ internal fun PlayerRoot(
                     planPlayback(
                         probe = probe,
                         capabilities = deviceCapabilities,
-                        preferredEngine = kind,
-                        preferredDecoderMode = effectiveDecoderMode,
+                        preferredEngine = build.kind,
+                        preferredDecoderMode = build.effectiveDecoderMode,
                         allowAudioPassthrough = allowAudioPassthrough,
                         optimizationMode = effectiveOptimizationMode,
-                        engineSelection = sessionEngineSelection,
+                        engineSelection = choices.sessionEngineSelection,
                         engineCosts = performanceMemory.engineCosts(probe.capabilitySignature),
                         videoSupport =
                             capabilityProvider?.videoSupport(probe.source.videoRequirements)
@@ -832,15 +797,15 @@ internal fun PlayerRoot(
                         dolbyVisionRuntime = dolbyVisionRuntime,
                     )
                 }
-            val targetEngine = plan?.primaryEngine ?: kind
-            val targetDecoder = plan?.decoderMode ?: effectiveDecoderMode
+            val targetEngine = plan?.primaryEngine ?: build.kind
+            val targetDecoder = plan?.decoderMode ?: build.effectiveDecoderMode
             val targetTranscoding =
                 preflightItems
                     .getOrNull(index)
                     ?.startsWithServerTranscode() == true
             val requiresRebuild =
-                targetEngine != kind ||
-                    targetDecoder != effectiveDecoderMode ||
+                targetEngine != build.kind ||
+                    targetDecoder != build.effectiveDecoderMode ||
                     targetTranscoding != localState.transcoding
             if (!requiresRebuild) {
                 AppLog.info(
@@ -851,20 +816,16 @@ internal fun PlayerRoot(
                 )
                 return@LaunchedEffect
             }
-            resume =
-                playbackHandoverSnapshot(
+            build.resume =
+                choices.handover(
                     state = localState.copy(currentIndex = index),
-                    currentPositionMs = player.currentPositionMs(),
+                    positionMs = player.currentPositionMs(),
                     playbackRequested = player.playbackRequested,
-                    requestedSpeed = requestedPlaybackSpeed,
-                    secondarySubtitle = secondarySubtitleRestore,
-                    subtitleDelayMs = subtitleControls.offsetMs,
-                    audioDelayMs = audioControls.delayMs,
                 )
             backendExtensions.prepareForHandover()
-            kind = targetEngine
-            effectiveDecoderMode = targetDecoder
-            engineGeneration++
+            build.kind = targetEngine
+            build.effectiveDecoderMode = targetDecoder
+            build.engineGeneration++
             AppLog.info(
                 category = "player.capabilities",
                 event = "playback_reconciled",
@@ -943,11 +904,11 @@ internal fun PlayerRoot(
             planPlayback(
                 probe = activeProbe,
                 capabilities = deviceCapabilities,
-                preferredEngine = kind,
-                preferredDecoderMode = effectiveDecoderMode,
+                preferredEngine = build.kind,
+                preferredDecoderMode = build.effectiveDecoderMode,
                 allowAudioPassthrough = allowAudioPassthrough,
                 optimizationMode = effectiveOptimizationMode,
-                engineSelection = sessionEngineSelection,
+                engineSelection = choices.sessionEngineSelection,
                 excludedEngines = failureMemory.excludedEngines(activeProbe.capabilitySignature),
                 engineCosts = performanceMemory.engineCosts(activeProbe.capabilitySignature),
                 videoSupport =
@@ -960,8 +921,8 @@ internal fun PlayerRoot(
             localState,
             activeProbe,
             activePlan,
-            kind,
-            effectiveDecoderMode,
+            build.kind,
+            build.effectiveDecoderMode,
             castAuthoritative,
             attachedEngineLabel,
             dolbyVisionRuntime,
@@ -970,7 +931,7 @@ internal fun PlayerRoot(
         val runtimeAssessmentState =
             rememberYCoreRuntimeAssessmentState(
                 player = player,
-                engineKind = kind,
+                engineKind = build.kind,
                 probe = activeProbe,
                 plan = activePlan,
                 failureMemory = failureMemory,
@@ -981,7 +942,7 @@ internal fun PlayerRoot(
                 stateSource = liveLocalState,
                 networkRecoveryAttempts = networkRecovery.attempts,
                 networkRecoverySuccesses = networkRecovery.successes,
-                sessionRevision = runtimeSessionGeneration,
+                sessionRevision = build.runtimeSessionGeneration,
                 tapAnchoredStartupMs = tapAnchoredStartupMs,
             )
         val runtimeAssessment by remember(runtimeAssessmentState) {
@@ -1032,28 +993,24 @@ internal fun PlayerRoot(
                     .playbackMediaProbe(usingServerTranscode = localState.transcoding)
                     .discKind
             val resolvedDiscRouteChanged =
-                kind == PlayerEngine.Mpv &&
+                build.kind == PlayerEngine.Mpv &&
                     baselineDiscKind == com.yfuse.core.playback.PlaybackDiscKind.Iso &&
                     activeProbe.discKind != baselineDiscKind
             if (
-                activePlan.primaryEngine != kind ||
-                activePlan.decoderMode != effectiveDecoderMode ||
+                activePlan.primaryEngine != build.kind ||
+                activePlan.decoderMode != build.effectiveDecoderMode ||
                 resolvedDiscRouteChanged
             ) {
-                resume =
-                    playbackHandoverSnapshot(
+                build.resume =
+                    choices.handover(
                         state = localState,
-                        currentPositionMs = player.currentPositionMs(),
+                        positionMs = player.currentPositionMs(),
                         playbackRequested = player.playbackRequested,
-                        requestedSpeed = requestedPlaybackSpeed,
-                        secondarySubtitle = secondarySubtitleRestore,
-                        subtitleDelayMs = subtitleControls.offsetMs,
-                        audioDelayMs = audioControls.delayMs,
                     )
                 backendExtensions.prepareForHandover()
-                kind = activePlan.primaryEngine
-                effectiveDecoderMode = activePlan.decoderMode
-                engineGeneration++
+                build.kind = activePlan.primaryEngine
+                build.effectiveDecoderMode = activePlan.decoderMode
+                build.engineGeneration++
             }
         }
         val metadataSource =
@@ -1101,12 +1058,12 @@ internal fun PlayerRoot(
                 state.diagnostics.dynamicRange.contains("hdr", ignoreCase = true) ||
                 state.diagnostics.dynamicRange.contains("dolby", ignoreCase = true)
         val presentationSubtitleControls =
-            subtitleControls.copy(
+            choices.subtitleControls.copy(
                 brightness =
-                    if (hdrPresentation && subtitleControls.brightness >= 0.95f) {
+                    if (hdrPresentation && choices.subtitleControls.brightness >= 0.95f) {
                         HDR_DEFAULT_SUBTITLE_BRIGHTNESS
                     } else {
-                        subtitleControls.brightness
+                        choices.subtitleControls.brightness
                     },
             )
         var oledPauseProtectionActive by remember { mutableStateOf(false) }
@@ -1233,7 +1190,7 @@ internal fun PlayerRoot(
                 ?.takeIf { it.dolbyVision || it.dolbyAtmos }
         LaunchedEffect(
             activeDolbyVersion?.id,
-            kind,
+            build.kind,
             state.diagnostics.videoReadiness,
             state.diagnostics.audioReadiness,
             state.diagnostics.dolbyVisionOutput,
@@ -1293,7 +1250,7 @@ internal fun PlayerRoot(
         }
         LaunchedEffect(
             activeDolbyVersion?.id,
-            kind,
+            build.kind,
             runtimeAssessment.health.grade,
             runtimeAssessment.health.evaluationReady,
             runtimeAssessment.health.droppedFrames / 10,
@@ -1360,9 +1317,9 @@ internal fun PlayerRoot(
                     seriesId = item.seriesId,
                     itemId = item.id,
                 )
-            handoverItemId = item.id
+            choices.handoverItemId = item.id
             val initialTracks = initialTracks(item)
-            audioRestore =
+            choices.audioRestore =
                 initialTracks?.audio?.let {
                     TrackRestorePreference(
                         it.language,
@@ -1371,7 +1328,7 @@ internal fun PlayerRoot(
                         it.languageOrdinal,
                     )
                 }
-            subtitleRestore =
+            choices.subtitleRestore =
                 initialTracks?.subtitle?.let {
                     TrackRestorePreference(
                         it.language,
@@ -1380,15 +1337,15 @@ internal fun PlayerRoot(
                         it.languageOrdinal,
                     )
                 }
-            secondarySubtitleRestore = remembered?.secondarySubtitle?.toRestorePreference()
-            secondarySubtitleTrackId = null
-            restoreSubtitlesOff = initialTracks?.subtitlesDisabled == true
-            requestedPlaybackSpeed = remembered?.speed ?: 1f
-            audioControls =
-                audioControls.copy(
+            choices.secondarySubtitleRestore = remembered?.secondarySubtitle?.toRestorePreference()
+            choices.secondarySubtitleTrackId = null
+            choices.restoreSubtitlesOff = initialTracks?.subtitlesDisabled == true
+            choices.requestedPlaybackSpeed = remembered?.speed ?: 1f
+            choices.audioControls =
+                choices.audioControls.copy(
                     delayMs =
                         audioOutputDelayPreferences.read(
-                            lastVerifiedAudioRoute,
+                            choices.lastVerifiedAudioRoute,
                         ) ?: remembered?.audioDelayMs ?: 0L,
                     enhancement =
                         remembered
@@ -1396,13 +1353,13 @@ internal fun PlayerRoot(
                             ?.let { stored -> AudioEnhancementMode.entries.firstOrNull { it.name == stored } }
                             ?: AudioEnhancementMode.Off,
                 )
-            scaleMode =
+            choices.scaleMode =
                 remembered
                     ?.aspectMode
                     ?.let { stored -> VideoScaleMode.entries.firstOrNull { it.name == stored } }
                     ?: VideoScaleMode.Fit
-            subtitleControls =
-                subtitleControls.copy(
+            choices.subtitleControls =
+                choices.subtitleControls.copy(
                     offsetMs = remembered?.subtitleOffsetMs ?: 0L,
                     scale = remembered?.subtitleScale ?: 1f,
                     secondaryScale = remembered?.secondarySubtitleScale ?: 1f,
@@ -1439,7 +1396,7 @@ internal fun PlayerRoot(
         ) {
             if (!backendExtensions.supportsSecondarySubtitleTrack) return
             val oldPrimary = state.subtitleTracks.firstOrNull { it.selected }
-            val oldSecondary = secondarySubtitleTrackId
+            val oldSecondary = choices.secondarySubtitleTrackId
             backendExtensions.selectSecondarySubtitleTrack(EngineTrack.OFF)
             player.selectTrack(YTrackType.Subtitle, primary.id)
             if (!backendExtensions.selectSecondarySubtitleTrack(secondary.id)) {
@@ -1448,11 +1405,11 @@ internal fun PlayerRoot(
                 Toast.makeText(context, "当前内核无法应用此双字幕方案", Toast.LENGTH_SHORT).show()
                 return
             }
-            handoverItemId = currentItem?.id
-            subtitleRestore = state.subtitleTracks.restorePreferenceFor(primary)
-            secondarySubtitleRestore = state.subtitleTracks.restorePreferenceFor(secondary)
-            secondarySubtitleTrackId = secondary.id
-            restoreSubtitlesOff = false
+            choices.handoverItemId = currentItem?.id
+            choices.subtitleRestore = state.subtitleTracks.restorePreferenceFor(primary)
+            choices.secondarySubtitleRestore = state.subtitleTracks.restorePreferenceFor(secondary)
+            choices.secondarySubtitleTrackId = secondary.id
+            choices.restoreSubtitlesOff = false
             rememberSeriesPlayback {
                 it.copy(
                     primarySubtitlesOff = false,
@@ -1469,8 +1426,8 @@ internal fun PlayerRoot(
         ) {
             val route = state.diagnostics.audioOutputRoute
             if (!state.diagnostics.audioOutputRouteVerified || route.isBlank()) return@LaunchedEffect
-            if (route != lastVerifiedAudioRoute) {
-                lastVerifiedAudioRoute = route
+            if (route != choices.lastVerifiedAudioRoute) {
+                choices.lastVerifiedAudioRoute = route
                 val item = currentItem
                 val seriesDelay =
                     playbackPreferences
@@ -1479,7 +1436,8 @@ internal fun PlayerRoot(
                             seriesId = item?.seriesId,
                             itemId = item?.id,
                         )?.audioDelayMs ?: 0L
-                audioControls = audioControls.copy(delayMs = audioOutputDelayPreferences.read(route) ?: seriesDelay)
+                choices.audioControls =
+                    choices.audioControls.copy(delayMs = audioOutputDelayPreferences.read(route) ?: seriesDelay)
             }
         }
 
@@ -1630,8 +1588,8 @@ internal fun PlayerRoot(
             requested.audioLanguage?.let { language ->
                 state.audioTracks.matchingRequestedTrack(language, requested.audioHint)?.let { trackId ->
                     state.audioTracks.firstOrNull { it.id == trackId }?.let { track ->
-                        handoverItemId = currentItem?.id
-                        audioRestore = state.audioTracks.restorePreferenceFor(track)
+                        choices.handoverItemId = currentItem?.id
+                        choices.audioRestore = state.audioTracks.restorePreferenceFor(track)
                     }
                     if (state.audioTracks.none { it.id == trackId && it.selected }) {
                         player.selectTrack(YTrackType.Audio, trackId)
@@ -1642,9 +1600,9 @@ internal fun PlayerRoot(
             when (val subtitle = requested.subtitleLanguage) {
                 null -> Unit
                 PlaybackTrackRequest.SUBTITLES_OFF -> {
-                    handoverItemId = currentItem?.id
-                    subtitleRestore = null
-                    restoreSubtitlesOff = true
+                    choices.handoverItemId = currentItem?.id
+                    choices.subtitleRestore = null
+                    choices.restoreSubtitlesOff = true
                     if (state.subtitleTracks.any { it.selected }) {
                         player.selectTrack(YTrackType.Subtitle, EngineTrack.OFF)
                     }
@@ -1655,9 +1613,9 @@ internal fun PlayerRoot(
                         .matchingRequestedTrack(subtitle, requested.subtitleHint)
                         ?.let { trackId ->
                             state.subtitleTracks.firstOrNull { it.id == trackId }?.let { track ->
-                                handoverItemId = currentItem?.id
-                                subtitleRestore = state.subtitleTracks.restorePreferenceFor(track)
-                                restoreSubtitlesOff = false
+                                choices.handoverItemId = currentItem?.id
+                                choices.subtitleRestore = state.subtitleTracks.restorePreferenceFor(track)
+                                choices.restoreSubtitlesOff = false
                             }
                             if (state.subtitleTracks.none { it.id == trackId && it.selected }) {
                                 player.selectTrack(YTrackType.Subtitle, trackId)
@@ -1715,37 +1673,37 @@ internal fun PlayerRoot(
                 )
             if (!resolution.apply) return@LaunchedEffect
             val missing = resolution.missing.toMutableList()
-            handoverItemId = item.id
+            choices.handoverItemId = item.id
             resolution.audio?.let { track ->
-                audioRestore = state.audioTracks.restorePreferenceFor(track)
+                choices.audioRestore = state.audioTracks.restorePreferenceFor(track)
                 player.selectTrack(YTrackType.Audio, track.id)
             }
-            restoreSubtitlesOff = preference?.subtitlesEnabled == false
-            if (restoreSubtitlesOff) {
-                subtitleRestore = null
+            choices.restoreSubtitlesOff = preference?.subtitlesEnabled == false
+            if (choices.restoreSubtitlesOff) {
+                choices.subtitleRestore = null
                 player.selectTrack(YTrackType.Subtitle, EngineTrack.OFF)
             } else {
                 resolution.subtitle?.let { track ->
-                    subtitleRestore = state.subtitleTracks.restorePreferenceFor(track)
+                    choices.subtitleRestore = state.subtitleTracks.restorePreferenceFor(track)
                     player.selectTrack(YTrackType.Subtitle, track.id)
                 }
             }
             if (backendExtensions.supportsSecondarySubtitleTrack) {
                 val secondary = resolution.secondarySubtitle
                 if (backendExtensions.selectSecondarySubtitleTrack(secondary?.id ?: EngineTrack.OFF)) {
-                    secondarySubtitleRestore = secondary?.let(state.subtitleTracks::restorePreferenceFor)
-                    secondarySubtitleTrackId = secondary?.id
+                    choices.secondarySubtitleRestore = secondary?.let(state.subtitleTracks::restorePreferenceFor)
+                    choices.secondarySubtitleTrackId = secondary?.id
                 } else if (received.secondarySubtitlesEnabled == true) {
                     missing += "副字幕"
                 }
             }
-            requestedPlaybackSpeed = preference?.playbackSpeed ?: 1f
-            subtitleControls =
-                subtitleControls.copy(
+            choices.requestedPlaybackSpeed = preference?.playbackSpeed ?: 1f
+            choices.subtitleControls =
+                choices.subtitleControls.copy(
                     offsetMs = received.subtitleOffsetMs ?: 0L,
                     secondaryOffsetMs = received.secondarySubtitleOffsetMs ?: 0L,
                 )
-            audioControls = audioControls.copy(delayMs = received.audioOffsetMs ?: 0L)
+            choices.audioControls = choices.audioControls.copy(delayMs = received.audioOffsetMs ?: 0L)
             handoffBridge?.clearPreferences(received)
             if (missing.isNotEmpty()) {
                 Toast
@@ -1776,8 +1734,8 @@ internal fun PlayerRoot(
             val item = latestActiveItems.getOrNull(index)
             return PlaybackSourceSwitchContext(
                 queueRevision = latestQueueRevision,
-                engineGeneration = engineGeneration,
-                runtimeSessionGeneration = runtimeSessionGeneration,
+                engineGeneration = build.engineGeneration,
+                runtimeSessionGeneration = build.runtimeSessionGeneration,
                 itemIndex = index,
                 itemId = item?.id,
                 serverId = item?.serverId,
@@ -1788,40 +1746,36 @@ internal fun PlayerRoot(
 
         fun capturePlaybackHandover() {
             val snapshot = latestState
-            resume =
-                playbackHandoverSnapshot(
+            build.resume =
+                choices.handover(
                     state = snapshot,
-                    currentPositionMs = player.currentPositionMs(),
+                    positionMs = player.currentPositionMs(),
                     playbackRequested = player.playbackRequested,
-                    requestedSpeed = requestedPlaybackSpeed,
-                    secondarySubtitle = secondarySubtitleRestore,
-                    subtitleDelayMs = subtitleControls.offsetMs,
-                    audioDelayMs = audioControls.delayMs,
                 )
             val itemId = latestActiveItems.getOrNull(snapshot.currentIndex)?.id ?: return
-            val sameItem = handoverItemId == itemId
-            handoverItemId = itemId
+            val sameItem = choices.handoverItemId == itemId
+            choices.handoverItemId = itemId
             if (snapshot.audioTracks.isNotEmpty()) {
-                audioRestore =
+                choices.audioRestore =
                     snapshot.audioTracks
                         .firstOrNull { it.selected }
                         ?.let(snapshot.audioTracks::restorePreferenceFor)
             } else if (!sameItem) {
-                audioRestore = null
+                choices.audioRestore = null
             }
             // What 没听清 is showing is the moment's: the handover carries the choice it set aside, and
             // the new session restores that one with nothing standing in its way.
-            val peek = subtitlePeek
-            subtitlePeek = null
+            val peek = choices.subtitlePeek
+            choices.subtitlePeek = null
             if (snapshot.subtitleTracks.isNotEmpty()) {
                 val selectedSubtitle = viewerSubtitleChoice(snapshot.subtitleTracks, peek)
-                subtitleRestore = selectedSubtitle?.let(snapshot.subtitleTracks::restorePreferenceFor)
-                restoreSubtitlesOff = selectedSubtitle == null
+                choices.subtitleRestore = selectedSubtitle?.let(snapshot.subtitleTracks::restorePreferenceFor)
+                choices.restoreSubtitlesOff = selectedSubtitle == null
             } else if (!sameItem) {
-                subtitleRestore = null
-                restoreSubtitlesOff = false
+                choices.subtitleRestore = null
+                choices.restoreSubtitlesOff = false
             }
-            resume.secondarySubtitle?.let { secondarySubtitleRestore = it }
+            build.resume.secondarySubtitle?.let { choices.secondarySubtitleRestore = it }
             backendExtensions.prepareForHandover()
         }
         val (remoteSubtitles, remoteSubtitleActions) =
@@ -1832,13 +1786,13 @@ internal fun PlayerRoot(
                 repository = remoteSubtitleRepository,
                 onImported = { owner, subtitle ->
                     if (currentItem?.subtitleItemKey() == owner) {
-                        val existing = importedSubtitles[owner].orEmpty()
+                        val existing = sources.importedSubtitles[owner].orEmpty()
                         if (existing.none { it.uri == subtitle.uri }) {
                             if (existing.size < 8) {
                                 capturePlaybackHandover()
                                 player.pause()
-                                importedSubtitles = importedSubtitles + (owner to (existing + subtitle))
-                                engineGeneration++
+                                sources.importedSubtitles = sources.importedSubtitles + (owner to (existing + subtitle))
+                                build.engineGeneration++
                                 true
                             } else {
                                 Toast.makeText(context, "本片已导入 8 条字幕，请重新打开影片后再导入。", Toast.LENGTH_LONG).show()
@@ -1860,22 +1814,22 @@ internal fun PlayerRoot(
             handoffAllowed = !watchState.connected,
             personal = personalLibrary,
             ownerToken = personalPlaybackOwner,
-            subtitleOffsetMs = subtitleControls.offsetMs,
-            secondarySubtitleOffsetMs = subtitleControls.secondaryOffsetMs,
-            audioOffsetMs = audioControls.delayMs,
+            subtitleOffsetMs = choices.subtitleControls.offsetMs,
+            secondarySubtitleOffsetMs = choices.subtitleControls.secondaryOffsetMs,
+            audioOffsetMs = choices.audioControls.delayMs,
         )
         // A refreshed queue is one deliberate handover. It must not turn a user pause into autoplay.
         LaunchedEffect(queueRevision) {
             if (queueRevision <= 0L) return@LaunchedEffect
             sourceSwitchCoordinator.invalidate()
             capturePlaybackHandover()
-            serverChoices = emptyMap()
-            resume =
-                resume.copy(
+            sources.serverChoices = emptyMap()
+            build.resume =
+                build.resume.copy(
                     itemIndex = refreshedResume.first,
                     positionMs = refreshedResume.second,
                 )
-            engineGeneration++
+            build.engineGeneration++
         }
         BindPlaybackReporting(
             engine,
@@ -1901,9 +1855,9 @@ internal fun PlayerRoot(
             currentItem?.versionId?.let { versionsTried = versionsTried + it }
         }
         var enginesTried by remember(state.currentIndex, currentItem?.serverId, currentItem?.versionId) {
-            mutableStateOf(setOf(kind))
+            mutableStateOf(setOf(build.kind))
         }
-        BindPlaybackDiagnostics(livePlayback, kind, enginesTried, core2NativeOnlyActive)
+        BindPlaybackDiagnostics(livePlayback, build.kind, enginesTried, core2NativeOnlyActive)
         var serversTried by remember(state.currentIndex) {
             mutableStateOf(setOfNotNull(currentItem?.serverId))
         }
@@ -1927,7 +1881,7 @@ internal fun PlayerRoot(
         ) {
             val switchState = latestState
             val item = latestActiveItems.getOrNull(switchState.currentIndex) ?: return
-            val committedVersionId = versionChoices[item.id]?.id ?: item.versionId
+            val committedVersionId = sources.versionChoices[item.id]?.id ?: item.versionId
             if (committedVersionId == versionId && pendingVersionId == null) return
             if (pendingVersionId == versionId) return
             val version = item.versions.firstOrNull { it.id == versionId } ?: return
@@ -2017,8 +1971,8 @@ internal fun PlayerRoot(
                         // engine remains attached, so a rejected/timeout cleanup is non-destructive.
                         capturePlaybackHandover()
                         player.pause()
-                        resume =
-                            resume.copy(
+                        build.resume =
+                            build.resume.copy(
                                 itemIndex = itemIndex,
                                 positionMs = player.currentPositionMs(),
                             )
@@ -2028,8 +1982,8 @@ internal fun PlayerRoot(
                                 selected = versionId,
                                 automaticRecovery = automaticRecovery,
                             )
-                        versionChoices = versionChoices + (itemId to freshVersion)
-                        engineGeneration++
+                        sources.versionChoices = sources.versionChoices + (itemId to freshVersion)
+                        build.engineGeneration++
                     } finally {
                         if (operation == versionSwitchNonce) {
                             pendingVersionId = null
@@ -2108,15 +2062,15 @@ internal fun PlayerRoot(
 
                         capturePlaybackHandover()
                         player.pause()
-                        resume =
-                            resume.copy(
+                        build.resume =
+                            build.resume.copy(
                                 itemIndex = itemIndex,
                                 positionMs = player.currentPositionMs(),
                             )
-                        versionChoices = versionChoices - item.id - freshCandidate.id
-                        serverChoices = serverChoices + (itemIndex to freshCandidate)
+                        sources.versionChoices = sources.versionChoices - item.id - freshCandidate.id
+                        sources.serverChoices = sources.serverChoices + (itemIndex to freshCandidate)
                         serversTried = serversTried + serverId
-                        engineGeneration++
+                        build.engineGeneration++
                         AppLog.info(
                             category = "player",
                             event = "playback_server_switch_requested",
@@ -2135,7 +2089,7 @@ internal fun PlayerRoot(
         }
 
         fun switchEngine(target: PlayerEngine) {
-            if (target == kind) return
+            if (target == build.kind) return
             sourceSwitchCoordinator.invalidate()
             // Read the position before the old engine is torn down.
             capturePlaybackHandover()
@@ -2147,27 +2101,27 @@ internal fun PlayerRoot(
                 message = "Playback engine switch requested",
                 attributes =
                     mapOf(
-                        "from" to kind.name,
+                        "from" to build.kind.name,
                         "to" to target.name,
                         "itemIndex" to state.currentIndex.toString(),
                         "positionMs" to positionMs.toString(),
                     ),
             )
-            resume = resume.copy(itemIndex = state.currentIndex, positionMs = positionMs)
-            kind = target
+            build.resume = build.resume.copy(itemIndex = state.currentIndex, positionMs = positionMs)
+            build.kind = target
         }
 
         fun selectEngineStrategy(selection: PlaybackEngineSelection) {
-            if (selection == sessionEngineSelection) return
+            if (selection == choices.sessionEngineSelection) return
             sourceSwitchCoordinator.invalidate()
             capturePlaybackHandover()
-            sessionEngineSelection = selection
+            choices.sessionEngineSelection = selection
             val selectionPlan =
                 planPlayback(
                     probe = activeProbe,
                     capabilities = deviceCapabilities,
-                    preferredEngine = kind,
-                    preferredDecoderMode = effectiveDecoderMode,
+                    preferredEngine = build.kind,
+                    preferredDecoderMode = build.effectiveDecoderMode,
                     allowAudioPassthrough = allowAudioPassthrough,
                     optimizationMode = effectiveOptimizationMode,
                     engineSelection = selection,
@@ -2178,20 +2132,20 @@ internal fun PlayerRoot(
                             ?: deviceCapabilities.videoSupport(activeProbe.source.videoRequirements),
                     dolbyVisionRuntime = dolbyVisionRuntime,
                 )
-            val decoderChanged = selectionPlan.decoderMode != effectiveDecoderMode
-            effectiveDecoderMode = selectionPlan.decoderMode
+            val decoderChanged = selectionPlan.decoderMode != build.effectiveDecoderMode
+            build.effectiveDecoderMode = selectionPlan.decoderMode
             if (!core2NativeOnlyActive && selectionPlan.requiresServerTranscode && !state.transcoding) {
                 backendExtensions.switchToTranscode(selectionPlan.reason)
             }
-            if (selectionPlan.primaryEngine != kind) {
+            if (selectionPlan.primaryEngine != build.kind) {
                 switchEngine(selectionPlan.primaryEngine)
             } else if (decoderChanged) {
-                resume =
-                    resume.copy(
+                build.resume =
+                    build.resume.copy(
                         itemIndex = state.currentIndex,
                         positionMs = player.currentPositionMs(),
                     )
-                engineGeneration++
+                build.engineGeneration++
             }
         }
 
@@ -2223,14 +2177,14 @@ internal fun PlayerRoot(
         }
         LaunchedEffect(
             runtimeAssessment.runtimeFault,
-            kind,
-            sessionEngineSelection,
+            build.kind,
+            choices.sessionEngineSelection,
             engine,
-            core2DisabledForSession,
+            build.core2DisabledForSession,
             core2NativeOnlyActive,
         ) {
             val fault = runtimeAssessment.runtimeFault ?: return@LaunchedEffect
-            if (sessionEngineSelection != PlaybackEngineSelection.Auto || castAuthoritative) {
+            if (choices.sessionEngineSelection != PlaybackEngineSelection.Auto || castAuthoritative) {
                 return@LaunchedEffect
             }
             if (
@@ -2243,17 +2197,13 @@ internal fun PlayerRoot(
                 networkRecovery.attempts++
                 networkRecovery.pending = true
                 networkRecovery.resumePositionMs = positionMs
-                resume =
-                    playbackHandoverSnapshot(
+                build.resume =
+                    choices.handover(
                         state = state,
-                        currentPositionMs = positionMs,
+                        positionMs = positionMs,
                         playbackRequested = player.playbackRequested,
-                        requestedSpeed = requestedPlaybackSpeed,
-                        secondarySubtitle = secondarySubtitleRestore,
-                        subtitleDelayMs = subtitleControls.offsetMs,
-                        audioDelayMs = audioControls.delayMs,
                     )
-                runtimeSessionGeneration++
+                build.runtimeSessionGeneration++
                 player.seekTo(positionMs)
                 player.retry()
                 AppLog.warning(
@@ -2282,20 +2232,16 @@ internal fun PlayerRoot(
                 if (nativeOnlyRecoveryAttempts < MAX_NATIVE_ONLY_RECOVERY_ATTEMPTS) {
                     nativeOnlyRecoveryAttempts++
                     lastRecoveryPositionMs = positionMs
-                    resume =
-                        playbackHandoverSnapshot(
+                    build.resume =
+                        choices.handover(
                             state = state,
-                            currentPositionMs = positionMs,
+                            positionMs = positionMs,
                             playbackRequested = player.playbackRequested,
-                            requestedSpeed = requestedPlaybackSpeed,
-                            secondarySubtitle = secondarySubtitleRestore,
-                            subtitleDelayMs = subtitleControls.offsetMs,
-                            audioDelayMs = audioControls.delayMs,
                         )
                     // Restart the existing Core2 worker in place. Its command queue serializes
                     // releaseMedia(), source reopen and decoder configuration, so a blocked outgoing
                     // extractor cannot overlap a second MediaCodec instance on the same Surface.
-                    runtimeSessionGeneration++
+                    build.runtimeSessionGeneration++
                     player.retry()
                     AppLog.warning(
                         category = "player.core2",
@@ -2337,20 +2283,16 @@ internal fun PlayerRoot(
                     ).show()
                 return@LaunchedEffect
             }
-            if (engine is YPlayerVideoEngineAdapter && !core2DisabledForSession) {
-                resume =
-                    playbackHandoverSnapshot(
+            if (engine is YPlayerVideoEngineAdapter && !build.core2DisabledForSession) {
+                build.resume =
+                    choices.handover(
                         state = state,
-                        currentPositionMs = player.currentPositionMs(),
+                        positionMs = player.currentPositionMs(),
                         playbackRequested = player.playbackRequested,
-                        requestedSpeed = requestedPlaybackSpeed,
-                        secondarySubtitle = secondarySubtitleRestore,
-                        subtitleDelayMs = subtitleControls.offsetMs,
-                        audioDelayMs = audioControls.delayMs,
                     )
                 backendExtensions.prepareForHandover()
-                core2DisabledForSession = true
-                engineGeneration++
+                build.core2DisabledForSession = true
+                build.engineGeneration++
                 AppLog.warning(
                     category = "player.core2",
                     event = "trial_runtime_fault_fallback",
@@ -2365,7 +2307,7 @@ internal fun PlayerRoot(
                 Toast.makeText(context, "试用内核输出异常，已切回兼容内核", Toast.LENGTH_SHORT).show()
                 return@LaunchedEffect
             }
-            val tried = enginesTried + kind
+            val tried = enginesTried + build.kind
             enginesTried = tried
             val nextEngine = activePlan.engineOrder.firstOrNull { it !in tried }
             AppLog.info(
@@ -2390,38 +2332,38 @@ internal fun PlayerRoot(
         PlayerTrackEffects(
             player = player,
             backendExtensions = backendExtensions,
-            engineKind = kind,
+            engineKind = build.kind,
             state = state,
             currentItemId = currentItem?.id,
-            handoverItemId = handoverItemId,
-            requestedSpeed = { gestures.boost ?: requestedPlaybackSpeed },
-            audioRestore = audioRestore,
-            subtitleRestore = subtitleRestore,
-            secondarySubtitleRestore = secondarySubtitleRestore,
-            restoreSubtitlesOff = restoreSubtitlesOff,
+            handoverItemId = choices.handoverItemId,
+            requestedSpeed = { gestures.boost ?: choices.requestedPlaybackSpeed },
+            audioRestore = choices.audioRestore,
+            subtitleRestore = choices.subtitleRestore,
+            secondarySubtitleRestore = choices.secondarySubtitleRestore,
+            restoreSubtitlesOff = choices.restoreSubtitlesOff,
             subtitleControls = presentationSubtitleControls,
-            audioControls = audioControls,
-            handoverSnapshot = resume,
-            scaleMode = scaleMode,
-            pendingSubtitleLanguage = pendingSubtitleLanguage,
+            audioControls = choices.audioControls,
+            handoverSnapshot = build.resume,
+            scaleMode = choices.scaleMode,
+            pendingSubtitleLanguage = choices.pendingSubtitleLanguage,
             automaticEngineSelection =
-                sessionEngineSelection == PlaybackEngineSelection.Auto && !core2NativeOnlyActive,
-            onSecondarySubtitleTrackChanged = { secondarySubtitleTrackId = it },
-            onPendingSubtitleLanguageApplied = { pendingSubtitleLanguage = null },
+                choices.sessionEngineSelection == PlaybackEngineSelection.Auto && !core2NativeOnlyActive,
+            onSecondarySubtitleTrackChanged = { choices.secondarySubtitleTrackId = it },
+            onPendingSubtitleLanguageApplied = { choices.pendingSubtitleLanguage = null },
             onRequestMpv = {
                 if (engine is YPlayerVideoEngineAdapter) {
                     // A control that Core2 cannot execute must leave the trial path for this session;
                     // changing only `kind` would immediately construct Core2 again in Auto mode.
                     capturePlaybackHandover()
-                    core2DisabledForSession = true
-                    sessionEngineSelection = PlaybackEngineSelection.LockMpv
-                    kind = PlayerEngine.Mpv
-                    engineGeneration++
+                    build.core2DisabledForSession = true
+                    choices.sessionEngineSelection = PlaybackEngineSelection.LockMpv
+                    build.kind = PlayerEngine.Mpv
+                    build.engineGeneration++
                 } else {
                     selectEngineStrategy(PlaybackEngineSelection.LockMpv)
                 }
             },
-            subtitlePeekActive = subtitlePeek != null,
+            subtitlePeekActive = choices.subtitlePeek != null,
         )
 
         LaunchedEffect(engine, state.playing, state.buffering) {
@@ -2494,7 +2436,7 @@ internal fun PlayerRoot(
             state.fallbacksExhausted,
             state.automaticFallbackBlocked,
             state.currentIndex,
-            kind,
+            build.kind,
             currentItem?.serverId,
             currentItem?.versionId,
             state.error,
@@ -2519,18 +2461,18 @@ internal fun PlayerRoot(
                         message = state.error,
                         automaticFallbackBlocked = state.automaticFallbackBlocked,
                     )
-            failureMemory.record(activeProbe.capabilitySignature, kind, failureKind)
-            val triedEngines = enginesTried + kind
+            failureMemory.record(activeProbe.capabilitySignature, build.kind, failureKind)
+            val triedEngines = enginesTried + build.kind
             enginesTried = triedEngines
             val recoveryPlan =
                 planPlayback(
                     probe = activeProbe,
                     capabilities = deviceCapabilities,
-                    preferredEngine = kind,
-                    preferredDecoderMode = effectiveDecoderMode,
+                    preferredEngine = build.kind,
+                    preferredDecoderMode = build.effectiveDecoderMode,
                     allowAudioPassthrough = allowAudioPassthrough,
                     optimizationMode = effectiveOptimizationMode,
-                    engineSelection = sessionEngineSelection,
+                    engineSelection = choices.sessionEngineSelection,
                     excludedEngines = failureMemory.excludedEngines(activeProbe.capabilitySignature),
                     engineCosts = performanceMemory.engineCosts(activeProbe.capabilitySignature),
                     videoSupport =
@@ -2556,7 +2498,7 @@ internal fun PlayerRoot(
                         message = "Playback exhausted its streams; trying another engine",
                         attributes =
                             mapOf(
-                                "from" to kind.name,
+                                "from" to build.kind.name,
                                 "to" to step.engine.name,
                                 "itemIndex" to state.currentIndex.toString(),
                                 "failureKind" to failureKind.name,
@@ -2588,10 +2530,10 @@ internal fun PlayerRoot(
                     player.pause()
                     val positionMs = player.currentPositionMs()
                     serversTried = serversTried + step.serverId
-                    versionChoices = versionChoices - (currentItem?.id ?: "")
-                    serverChoices = serverChoices + (state.currentIndex to step.candidate)
-                    resume = resume.copy(itemIndex = state.currentIndex, positionMs = positionMs)
-                    engineGeneration++
+                    sources.versionChoices = sources.versionChoices - (currentItem?.id ?: "")
+                    sources.serverChoices = sources.serverChoices + (state.currentIndex to step.candidate)
+                    build.resume = build.resume.copy(itemIndex = state.currentIndex, positionMs = positionMs)
+                    build.engineGeneration++
                     AppLog.warning(
                         category = "player",
                         event = "playback_server_failover",
@@ -2710,7 +2652,7 @@ internal fun PlayerRoot(
                 currentItem,
                 state,
                 livePlayback,
-                scaleMode,
+                choices.scaleMode,
                 inPictureInPicture,
                 ambientPowerLimited =
                     runtimeEnvironment.pressure != PlaybackResourcePressure.Normal ||
@@ -2729,7 +2671,7 @@ internal fun PlayerRoot(
                 light = ambient.light,
                 sampler = ambient.sampler,
                 videoSize = ambient.videoSize,
-                scaleMode = scaleMode,
+                scaleMode = choices.scaleMode,
                 modifier = Modifier.fillMaxSize(),
             )
         }
@@ -2829,7 +2771,7 @@ internal fun PlayerRoot(
                                 currentItem?.let { item ->
                                     item.drmConfiguration != null || item.activeVersion?.drmConfiguration != null
                                 } == true,
-                            scaleMode = scaleMode,
+                            scaleMode = choices.scaleMode,
                             videoWidth =
                                 state.diagnostics.videoWidth.takeIf { it > 0 }
                                     ?: currentItem?.activeVersion?.sourceWidth
@@ -2868,7 +2810,7 @@ internal fun PlayerRoot(
                     is ExoVideoEngine ->
                         ExoSurface(
                             engine = engine,
-                            scaleMode = scaleMode,
+                            scaleMode = choices.scaleMode,
                             subtitleScale = presentationSubtitleControls.scale,
                             secondarySubtitleScale = presentationSubtitleControls.secondaryScale,
                             subtitleBrightness = presentationSubtitleControls.brightness,
@@ -2908,7 +2850,7 @@ internal fun PlayerRoot(
                         state = transition,
                         ready = state.error != null || pictureReady || audioOnly,
                         inPictureInPicture = inPictureInPicture,
-                        aspectRatio = transitionAspectRatio(scaleMode, state),
+                        aspectRatio = transitionAspectRatio(choices.scaleMode, state),
                         layer = PlayerTransitionLayerKind.Entrance,
                     )
                     PlaybackStatusChip(
@@ -2972,7 +2914,7 @@ internal fun PlayerRoot(
                         bookmarks = bookmarkBinding.first,
                         bookmarkActions = bookmarkBinding.second,
                         episodes = remember(activeItems) { activeItems.toEpisodeCards() },
-                        scaleMode = scaleMode,
+                        scaleMode = choices.scaleMode,
                         ambientLight = ambient.light.takeIf { ambient.enabled },
                         ambientLightEnabled = ambient.enabled,
                         onToggleAmbientLight = { playbackPreferences.setAmbientLight(!ambient.enabled) },
@@ -3103,8 +3045,8 @@ internal fun PlayerRoot(
                         onSelectAudio = { id ->
                             val selectedTrack = state.audioTracks.firstOrNull { it.id == id }
                             selectedTrack?.let { track ->
-                                handoverItemId = currentItem?.id
-                                audioRestore = state.audioTracks.restorePreferenceFor(track)
+                                choices.handoverItemId = currentItem?.id
+                                choices.audioRestore = state.audioTracks.restorePreferenceFor(track)
                                 rememberSeriesPlayback { remembered ->
                                     remembered.copy(audio = track.toRememberedPlaybackTrack())
                                 }
@@ -3122,24 +3064,24 @@ internal fun PlayerRoot(
                             }
                         },
                         audioControls =
-                            audioControls.copy(
+                            choices.audioControls.copy(
                                 measuredAvOffsetMs = state.diagnostics.avSyncOffsetMs,
                                 available =
                                     backendExtensions.supportsAudioDelay ||
                                         (
-                                            sessionEngineSelection == PlaybackEngineSelection.Auto &&
+                                            choices.sessionEngineSelection == PlaybackEngineSelection.Auto &&
                                                 !core2NativeOnlyActive
                                         ),
                                 enhancementAvailable =
                                     backendExtensions.supportsAudioEnhancement ||
                                         (
-                                            sessionEngineSelection == PlaybackEngineSelection.Auto &&
+                                            choices.sessionEngineSelection == PlaybackEngineSelection.Auto &&
                                                 !core2NativeOnlyActive
                                         ),
                                 unavailableReason =
                                     if (
-                                        kind == PlayerEngine.Mpv ||
-                                        sessionEngineSelection == PlaybackEngineSelection.Auto
+                                        build.kind == PlayerEngine.Mpv ||
+                                        choices.sessionEngineSelection == PlaybackEngineSelection.Auto
                                     ) {
                                         null
                                     } else {
@@ -3149,16 +3091,16 @@ internal fun PlayerRoot(
                         audioActions =
                             AudioControlActions(
                                 onDelay = {
-                                    audioControls = audioControls.copy(delayMs = it)
-                                    audioOutputDelayPreferences.write(lastVerifiedAudioRoute, it)
+                                    choices.audioControls = choices.audioControls.copy(delayMs = it)
+                                    audioOutputDelayPreferences.write(choices.lastVerifiedAudioRoute, it)
                                     rememberSeriesPlayback { remembered -> remembered.copy(audioDelayMs = it) }
                                 },
                                 onAutoSync = {
                                     livePlayback.value.diagnostics.avSyncOffsetMs?.let { measured ->
                                         val corrected =
-                                            calibratedAudioDelayMs(audioControls.delayMs, measured)
-                                        audioControls = audioControls.copy(delayMs = corrected)
-                                        audioOutputDelayPreferences.write(lastVerifiedAudioRoute, corrected)
+                                            calibratedAudioDelayMs(choices.audioControls.delayMs, measured)
+                                        choices.audioControls = choices.audioControls.copy(delayMs = corrected)
+                                        audioOutputDelayPreferences.write(choices.lastVerifiedAudioRoute, corrected)
                                         rememberSeriesPlayback { remembered ->
                                             remembered.copy(audioDelayMs = corrected)
                                         }
@@ -3168,7 +3110,7 @@ internal fun PlayerRoot(
                                     }
                                 },
                                 onEnhancement = {
-                                    audioControls = audioControls.copy(enhancement = it)
+                                    choices.audioControls = choices.audioControls.copy(enhancement = it)
                                     rememberSeriesPlayback { remembered ->
                                         remembered.copy(audioEnhancement = it.name)
                                     }
@@ -3176,14 +3118,14 @@ internal fun PlayerRoot(
                             ),
                         onSelectSubtitle = { id ->
                             // An explicit pick ends any 没听清 replay subtitle; the pick is what stays.
-                            subtitlePeek = null
+                            choices.subtitlePeek = null
                             val track = state.subtitleTracks.firstOrNull { it.id == id }
                             if (castState.hasActiveSession) {
                                 // The receiver applies it; the memory and the restore state are ours,
                                 // so a hand-back to the phone lands on the same subtitle.
-                                handoverItemId = currentItem?.id
-                                subtitleRestore = track?.let { state.subtitleTracks.restorePreferenceFor(it) }
-                                restoreSubtitlesOff = id == EngineTrack.OFF
+                                choices.handoverItemId = currentItem?.id
+                                choices.subtitleRestore = track?.let { state.subtitleTracks.restorePreferenceFor(it) }
+                                choices.restoreSubtitlesOff = id == EngineTrack.OFF
                                 rememberSeriesPlayback { remembered ->
                                     remembered.copy(
                                         primarySubtitlesOff = id == EngineTrack.OFF,
@@ -3201,9 +3143,9 @@ internal fun PlayerRoot(
                                 return@PlayerControls
                             }
                             if (id == EngineTrack.OFF) {
-                                handoverItemId = currentItem?.id
-                                subtitleRestore = null
-                                restoreSubtitlesOff = true
+                                choices.handoverItemId = currentItem?.id
+                                choices.subtitleRestore = null
+                                choices.restoreSubtitlesOff = true
                                 player.selectTrack(YTrackType.Subtitle, id)
                                 rememberSeriesPlayback { remembered ->
                                     remembered.copy(
@@ -3213,18 +3155,18 @@ internal fun PlayerRoot(
                                 }
                             } else if (
                                 track?.requiresStyledRenderer == true &&
-                                kind != PlayerEngine.Mpv &&
-                                sessionEngineSelection == PlaybackEngineSelection.Auto &&
+                                build.kind != PlayerEngine.Mpv &&
+                                choices.sessionEngineSelection == PlaybackEngineSelection.Auto &&
                                 !core2NativeOnlyActive
                             ) {
-                                pendingSubtitleLanguage = track.language ?: track.label
+                                choices.pendingSubtitleLanguage = track.language ?: track.label
                                 switchEngine(PlayerEngine.Mpv)
-                                handoverItemId = currentItem?.id
-                                subtitleRestore = state.subtitleTracks.restorePreferenceFor(track)
-                                restoreSubtitlesOff = false
-                                if (secondarySubtitleTrackId == id) {
-                                    secondarySubtitleTrackId = null
-                                    secondarySubtitleRestore = null
+                                choices.handoverItemId = currentItem?.id
+                                choices.subtitleRestore = state.subtitleTracks.restorePreferenceFor(track)
+                                choices.restoreSubtitlesOff = false
+                                if (choices.secondarySubtitleTrackId == id) {
+                                    choices.secondarySubtitleTrackId = null
+                                    choices.secondarySubtitleRestore = null
                                 }
                                 rememberSeriesPlayback { remembered ->
                                     remembered.copy(
@@ -3238,13 +3180,13 @@ internal fun PlayerRoot(
                                 }
                             } else {
                                 track?.let {
-                                    handoverItemId = currentItem?.id
-                                    subtitleRestore = state.subtitleTracks.restorePreferenceFor(it)
-                                    restoreSubtitlesOff = false
-                                    if (secondarySubtitleTrackId == id) {
+                                    choices.handoverItemId = currentItem?.id
+                                    choices.subtitleRestore = state.subtitleTracks.restorePreferenceFor(it)
+                                    choices.restoreSubtitlesOff = false
+                                    if (choices.secondarySubtitleTrackId == id) {
                                         backendExtensions.selectSecondarySubtitleTrack(EngineTrack.OFF)
-                                        secondarySubtitleTrackId = null
-                                        secondarySubtitleRestore = null
+                                        choices.secondarySubtitleTrackId = null
+                                        choices.secondarySubtitleRestore = null
                                     }
                                     rememberSeriesPlayback { remembered ->
                                         remembered.copy(
@@ -3264,22 +3206,22 @@ internal fun PlayerRoot(
                         // and no restore state, which is what the handover and the next item read.
                         onPeekSubtitle = { peek ->
                             if (!castState.hasActiveSession) {
-                                subtitlePeek = peek
+                                choices.subtitlePeek = peek
                                 player.selectTrack(YTrackType.Subtitle, peek.trackId)
                             }
                         },
                         onEndSubtitlePeek = { restoreTrackId ->
                             // A handover since the peek began has already carried the viewer's choice
                             // across; the old engine's track ids mean nothing to the new one.
-                            val peeking = subtitlePeek != null
-                            subtitlePeek = null
+                            val peeking = choices.subtitlePeek != null
+                            choices.subtitlePeek = null
                             if (peeking && restoreTrackId != null && !castState.hasActiveSession) {
                                 player.selectTrack(YTrackType.Subtitle, restoreTrackId)
                             }
                         },
                         subtitleControls =
-                            subtitleControls.copy(
-                                secondaryTrackId = secondarySubtitleTrackId,
+                            choices.subtitleControls.copy(
+                                secondaryTrackId = choices.secondarySubtitleTrackId,
                                 independentScaleAvailable =
                                     engine is YPlayerVideoEngineAdapter ||
                                         engine is ExoVideoEngine ||
@@ -3291,7 +3233,7 @@ internal fun PlayerRoot(
                                                         .firstOrNull {
                                                             it.selected
                                                         }?.id,
-                                                    secondarySubtitleTrackId,
+                                                    choices.secondarySubtitleTrackId,
                                                 )
                                         ),
                                 dualLayoutNote =
@@ -3311,36 +3253,36 @@ internal fun PlayerRoot(
                                 offsetAvailable =
                                     backendExtensions.supportsSubtitleOffset ||
                                         (
-                                            sessionEngineSelection == PlaybackEngineSelection.Auto &&
+                                            choices.sessionEngineSelection == PlaybackEngineSelection.Auto &&
                                                 !core2NativeOnlyActive
                                         ),
                                 scaleAvailable =
                                     backendExtensions.supportsSubtitleScale ||
                                         (
-                                            sessionEngineSelection == PlaybackEngineSelection.Auto &&
+                                            choices.sessionEngineSelection == PlaybackEngineSelection.Auto &&
                                                 !core2NativeOnlyActive
                                         ),
                                 brightnessAvailable =
                                     backendExtensions.supportsSubtitleBrightness ||
                                         (
-                                            sessionEngineSelection == PlaybackEngineSelection.Auto &&
+                                            choices.sessionEngineSelection == PlaybackEngineSelection.Auto &&
                                                 !core2NativeOnlyActive
                                         ),
                                 positionAvailable =
                                     backendExtensions.supportsSubtitlePosition ||
                                         (
-                                            sessionEngineSelection == PlaybackEngineSelection.Auto &&
+                                            choices.sessionEngineSelection == PlaybackEngineSelection.Auto &&
                                                 !core2NativeOnlyActive
                                         ),
                                 appearanceAvailable =
                                     backendExtensions.supportsSubtitleAppearance ||
                                         (
-                                            sessionEngineSelection == PlaybackEngineSelection.Auto &&
+                                            choices.sessionEngineSelection == PlaybackEngineSelection.Auto &&
                                                 !core2NativeOnlyActive
                                         ),
                                 unavailableReason =
                                     if (
-                                        sessionEngineSelection == PlaybackEngineSelection.Auto &&
+                                        choices.sessionEngineSelection == PlaybackEngineSelection.Auto &&
                                         !core2NativeOnlyActive
                                     ) {
                                         "调整后将自动切换到支持该功能的播放内核。"
@@ -3353,18 +3295,18 @@ internal fun PlayerRoot(
                         subtitleActions =
                             SubtitleControlActions(
                                 onSecondaryScale = { value ->
-                                    subtitleControls =
-                                        subtitleControls.copy(secondaryScale = value.coerceIn(0.6f, 1.8f))
+                                    choices.subtitleControls =
+                                        choices.subtitleControls.copy(secondaryScale = value.coerceIn(0.6f, 1.8f))
                                     rememberSeriesPlayback {
                                         it.copy(
-                                            secondarySubtitleScale = subtitleControls.secondaryScale,
+                                            secondarySubtitleScale = choices.subtitleControls.secondaryScale,
                                         )
                                     }
                                 },
                                 onSwap = {
                                     val primary = state.subtitleTracks.firstOrNull { it.selected }
                                     val secondary =
-                                        state.subtitleTracks.firstOrNull { it.id == secondarySubtitleTrackId }
+                                        state.subtitleTracks.firstOrNull { it.id == choices.secondarySubtitleTrackId }
                                     if (primary != null && secondary != null) applySubtitlePair(secondary, primary)
                                 },
                                 onLanguagePair = { pair ->
@@ -3376,14 +3318,14 @@ internal fun PlayerRoot(
                                     }
                                 },
                                 onOffset = {
-                                    subtitleControls = subtitleControls.copy(offsetMs = it)
+                                    choices.subtitleControls = choices.subtitleControls.copy(offsetMs = it)
                                     rememberSeriesPlayback { remembered ->
                                         remembered.copy(subtitleOffsetMs = it)
                                     }
                                 },
                                 onScale = {
-                                    subtitleControls =
-                                        subtitleControls.copy(
+                                    choices.subtitleControls =
+                                        choices.subtitleControls.copy(
                                             scale = it,
                                             stylePreset = SubtitleStylePreset.Custom,
                                         )
@@ -3395,8 +3337,8 @@ internal fun PlayerRoot(
                                     }
                                 },
                                 onBrightness = {
-                                    subtitleControls =
-                                        subtitleControls.copy(
+                                    choices.subtitleControls =
+                                        choices.subtitleControls.copy(
                                             brightness = it,
                                             stylePreset = SubtitleStylePreset.Custom,
                                         )
@@ -3408,8 +3350,8 @@ internal fun PlayerRoot(
                                     }
                                 },
                                 onPosition = {
-                                    subtitleControls =
-                                        subtitleControls.copy(
+                                    choices.subtitleControls =
+                                        choices.subtitleControls.copy(
                                             position = it,
                                             stylePreset = SubtitleStylePreset.Custom,
                                         )
@@ -3421,8 +3363,8 @@ internal fun PlayerRoot(
                                     }
                                 },
                                 onStylePreset = { preset ->
-                                    subtitleControls =
-                                        subtitleControls.copy(
+                                    choices.subtitleControls =
+                                        choices.subtitleControls.copy(
                                             scale = preset.scale,
                                             brightness = preset.brightness,
                                             position = preset.position,
@@ -3443,9 +3385,9 @@ internal fun PlayerRoot(
                                     }
                                 },
                                 onTextColor = { color ->
-                                    val appearance = subtitleControls.appearance.copy(textColorArgb = color)
-                                    subtitleControls =
-                                        subtitleControls.copy(
+                                    val appearance = choices.subtitleControls.appearance.copy(textColorArgb = color)
+                                    choices.subtitleControls =
+                                        choices.subtitleControls.copy(
                                             appearance = appearance,
                                             stylePreset = SubtitleStylePreset.Custom,
                                         )
@@ -3457,9 +3399,12 @@ internal fun PlayerRoot(
                                     }
                                 },
                                 onBackgroundColor = { color ->
-                                    val appearance = subtitleControls.appearance.copy(backgroundColorArgb = color)
-                                    subtitleControls =
-                                        subtitleControls.copy(
+                                    val appearance =
+                                        choices.subtitleControls.appearance.copy(
+                                            backgroundColorArgb = color,
+                                        )
+                                    choices.subtitleControls =
+                                        choices.subtitleControls.copy(
                                             appearance = appearance,
                                             stylePreset = SubtitleStylePreset.Custom,
                                         )
@@ -3471,9 +3416,9 @@ internal fun PlayerRoot(
                                     }
                                 },
                                 onOutlineColor = { color ->
-                                    val appearance = subtitleControls.appearance.copy(outlineColorArgb = color)
-                                    subtitleControls =
-                                        subtitleControls.copy(
+                                    val appearance = choices.subtitleControls.appearance.copy(outlineColorArgb = color)
+                                    choices.subtitleControls =
+                                        choices.subtitleControls.copy(
                                             appearance = appearance,
                                             stylePreset = SubtitleStylePreset.Custom,
                                         )
@@ -3485,9 +3430,9 @@ internal fun PlayerRoot(
                                     }
                                 },
                                 onOutlineWidth = { width ->
-                                    val appearance = subtitleControls.appearance.copy(outlineWidth = width)
-                                    subtitleControls =
-                                        subtitleControls.copy(
+                                    val appearance = choices.subtitleControls.appearance.copy(outlineWidth = width)
+                                    choices.subtitleControls =
+                                        choices.subtitleControls.copy(
                                             appearance = appearance,
                                             stylePreset = SubtitleStylePreset.Custom,
                                         )
@@ -3500,15 +3445,16 @@ internal fun PlayerRoot(
                                 },
                                 onSecondaryOffset = { offset ->
                                     if (backendExtensions.setSecondarySubtitleOffsetMs(offset)) {
-                                        subtitleControls = subtitleControls.copy(secondaryOffsetMs = offset)
+                                        choices.subtitleControls =
+                                            choices.subtitleControls.copy(secondaryOffsetMs = offset)
                                         rememberSeriesPlayback { it.copy(secondarySubtitleOffsetMs = offset) }
                                     }
                                 },
                                 onSecondaryTrack = secondary@{ id ->
                                     if (id == EngineTrack.OFF) {
                                         backendExtensions.selectSecondarySubtitleTrack(EngineTrack.OFF)
-                                        secondarySubtitleTrackId = null
-                                        secondarySubtitleRestore = null
+                                        choices.secondarySubtitleTrackId = null
+                                        choices.secondarySubtitleRestore = null
                                         rememberSeriesPlayback { remembered ->
                                             remembered.copy(secondarySubtitle = null)
                                         }
@@ -3529,9 +3475,9 @@ internal fun PlayerRoot(
                                             .show()
                                         return@secondary
                                     }
-                                    handoverItemId = currentItem?.id
-                                    secondarySubtitleTrackId = id
-                                    secondarySubtitleRestore = state.subtitleTracks.restorePreferenceFor(track)
+                                    choices.handoverItemId = currentItem?.id
+                                    choices.secondarySubtitleTrackId = id
+                                    choices.secondarySubtitleRestore = state.subtitleTracks.restorePreferenceFor(track)
                                     rememberSeriesPlayback { remembered ->
                                         remembered.copy(secondarySubtitle = track.toRememberedPlaybackTrack())
                                     }
@@ -3540,7 +3486,7 @@ internal fun PlayerRoot(
                         remoteSubtitles = remoteSubtitles,
                         remoteSubtitleActions = remoteSubtitleActions,
                         onSpeed = { newSpeed ->
-                            requestedPlaybackSpeed = newSpeed
+                            choices.requestedPlaybackSpeed = newSpeed
                             playbackGate.setSpeed(newSpeed)
                             rememberSeriesPlayback { remembered -> remembered.copy(speed = newSpeed) }
                         },
@@ -3570,19 +3516,19 @@ internal fun PlayerRoot(
                                 },
                             ),
                         onToggleFill = { stretch ->
-                            scaleMode = scaleMode.toggled(stretch)
-                            backendExtensions.setVideoScaleMode(scaleMode)
+                            choices.scaleMode = choices.scaleMode.toggled(stretch)
+                            backendExtensions.setVideoScaleMode(choices.scaleMode)
                             rememberSeriesPlayback { remembered ->
-                                remembered.copy(aspectMode = scaleMode.name)
+                                remembered.copy(aspectMode = choices.scaleMode.name)
                             }
-                            Toast.makeText(context, "画面：${scaleMode.label}", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "画面：${choices.scaleMode.label}", Toast.LENGTH_SHORT).show()
                         },
                         // 捏合填充 and F: the same state and series memory as the 画面 button, set to a mode
                         // rather than cycled. The controls' HUD says which, so no toast.
                         onSetFill = { fill ->
                             val mode = if (fill) VideoScaleMode.Fill else VideoScaleMode.Fit
-                            if (scaleMode != mode) {
-                                scaleMode = mode
+                            if (choices.scaleMode != mode) {
+                                choices.scaleMode = mode
                                 backendExtensions.setVideoScaleMode(mode)
                                 rememberSeriesPlayback { remembered ->
                                     remembered.copy(aspectMode = mode.name)
@@ -3608,7 +3554,7 @@ internal fun PlayerRoot(
                                 val label =
                                     selection.lockedEngine?.let { "本视频使用 ${it.label}" }
                                         ?: "本视频跟随 YCore 智能策略"
-                                label to (selection == sessionEngineSelection)
+                                label to (selection == choices.sessionEngineSelection)
                             },
                         onSelectEngine = { index ->
                             packagedEngineStrategies().getOrNull(index)?.let { selection ->
@@ -3872,7 +3818,7 @@ internal fun PlayerRoot(
                         state = transition,
                         ready = true,
                         inPictureInPicture = inPictureInPicture,
-                        aspectRatio = transitionAspectRatio(scaleMode, state),
+                        aspectRatio = transitionAspectRatio(choices.scaleMode, state),
                         layer = PlayerTransitionLayerKind.Exit,
                     )
                 }
