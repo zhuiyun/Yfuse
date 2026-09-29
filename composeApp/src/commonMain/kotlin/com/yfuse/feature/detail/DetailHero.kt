@@ -77,6 +77,7 @@ import com.yfuse.core.designsystem.MediaSharedElementKey
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.PressFeedback
 import com.yfuse.core.designsystem.backdropBlur
+import com.yfuse.core.designsystem.calmMotion
 import com.yfuse.core.designsystem.cssLinearGradient
 import com.yfuse.core.designsystem.fadeIntoPage
 import com.yfuse.core.designsystem.heroTopScrim
@@ -225,15 +226,19 @@ internal fun Hero(
 ) {
     // 详情页顶图 1.08 → 1, §3.1. The parallax below has always been here; the entrance
     // it belongs to was not, so the artwork simply appeared at rest.
-    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    //
+    // Under 减少动画 and under 静息, where nothing scales, the artwork starts at rest: the page's
+    // own transition brings it in, and the image still fades in as it loads. Starting entered
+    // means not even the first frame is drawn at 1.08.
+    val still = LocalAccessibilityOptions.current.reduceMotion || calmMotion()
     val sharedEntrance = isSharedMediaArtworkActive(sharedKey)
-    var entered by remember(animationKey) { mutableStateOf(sharedEntrance) }
+    var entered by remember(animationKey) { mutableStateOf(sharedEntrance || still) }
     LaunchedEffect(animationKey) { entered = true }
     val entrance by animateFloatAsState(
         targetValue = if (entered) 1f else 0f,
         animationSpec =
             tween(
-                durationMillis = if (reduceMotion) 0 else Motion.EXPAND,
+                durationMillis = if (still) 0 else Motion.EXPAND,
                 easing = Motion.Curve,
             ),
         label = "heroEntrance",
