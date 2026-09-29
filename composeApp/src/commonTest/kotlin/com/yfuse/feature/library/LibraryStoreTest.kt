@@ -149,6 +149,80 @@ class LibraryStoreTest {
         }
 
     @Test
+    fun a_play_history_change_is_written_only_once_its_undo_has_gone() =
+        runTest {
+            val server = SavedServer("one", "http://one", "One", "u", "User", "token")
+            val registry = testRegistry().apply { addOrUpdate(server) }
+            val first = historyItem("e1")
+            val second = historyItem("e2")
+            val cache =
+                LibraryCache(MapSettings()).apply {
+                    write(server.id, HomeContent(resume = listOf(first, second)), updatedAtEpochMs = 1L)
+                }
+            val forgotten = mutableListOf<String>()
+            val marked = mutableListOf<String>()
+            val store =
+                LibraryStoreFactory(
+                    DefaultStoreFactory(),
+                    // The live load never answers, so the cached 播放记录 stays on the page.
+                    testRepo(dispatcher = UnconfinedTestDispatcher(testScheduler)) { awaitCancellation() },
+                    registry,
+                    cache,
+                    mainContext = UnconfinedTestDispatcher(testScheduler),
+                    workContext = UnconfinedTestDispatcher(testScheduler),
+                    forgetHistory = { _, itemId -> forgotten += itemId },
+                    playedWriter = { _, item, value ->
+                        marked += "${item.id}:$value"
+                        Result.success(Unit)
+                    },
+                ).create()
+            try {
+                runCurrent()
+                assertEquals(listOf("e1", "e2"), store.state.historyIds())
+
+                store.accept(LibraryIntent.HideFromHistory(first, watched = true))
+                assertEquals(listOf("e2"), store.state.historyIds())
+                assertEquals("e1", store.state.historyUndoKey)
+                assertTrue(marked.isEmpty())
+
+                // 撤销: back where it was, and the place it was stopped at was never touched.
+                store.accept(LibraryIntent.UndoHistoryChange("e1"))
+                assertEquals(listOf("e1", "e2"), store.state.historyIds())
+                assertEquals(null, store.state.historyUndoKey)
+                assertTrue(marked.isEmpty())
+
+                // A second change sends the first on its way; the toast leaving sends the second.
+                store.accept(LibraryIntent.HideFromHistory(first, watched = true))
+                store.accept(LibraryIntent.HideFromHistory(second, watched = false))
+                runCurrent()
+                assertEquals(listOf("e1:true"), marked)
+                assertTrue(forgotten.isEmpty())
+                store.accept(LibraryIntent.DismissMessage)
+                assertEquals(listOf("e2"), forgotten)
+                assertTrue(store.state.historyIds().isEmpty())
+                assertEquals(null, store.state.actionMessage)
+            } finally {
+                store.dispose()
+            }
+        }
+
+    private fun LibraryState.historyIds(): List<String> = content.resume.map { it.id }
+
+    private fun historyItem(id: String): MediaItem =
+        MediaItem(
+            id = id,
+            title = "某剧 $id",
+            subtitle = null,
+            type = "Episode",
+            posterItemId = id,
+            posterTag = null,
+            backdropItemId = null,
+            backdropTag = null,
+            playedPercentage = 30.0,
+            resumePositionTicks = 600_000_000L,
+        )
+
+    @Test
     fun personal_categories_are_not_repeated_as_library_shelves() {
         val item = content("m1", movieCount = 1).featured.single()
         val shelves =

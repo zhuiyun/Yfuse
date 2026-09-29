@@ -81,6 +81,63 @@ class MotionHandoffPolicyTest {
         }
     }
 
+    @Test fun an_attached_artwork_is_measured_only_when_a_tap_asks() {
+        val titleKey = MediaSharedElementKey("test", "lazy")
+        val otherKey = MediaSharedElementKey("test", "bystander")
+        val viewport = Rect(0f, 0f, 1080f, 2400f)
+        var measured = 0
+        val card =
+            object : PlayerArtworkSource {
+                override val key: MediaSharedElementKey = titleKey
+                override val screen: ScreenGeometrySource? = null
+
+                override fun measure(): PlayerArtworkOrigin {
+                    measured++
+                    return PlayerArtworkOrigin(titleKey, Rect(40f, 300f, 440f, 525f), viewport, listOf("test://card"))
+                }
+            }
+        // Another title's card is never measured for this one's tap.
+        val bystander =
+            object : PlayerArtworkSource {
+                override val key: MediaSharedElementKey = otherKey
+                override val screen: ScreenGeometrySource? = null
+
+                override fun measure(): PlayerArtworkOrigin? = error("measured for another title's tap")
+            }
+        try {
+            PlayerArtworkOrigins.attach(card)
+            PlayerArtworkOrigins.attach(bystander)
+            assertEquals(0, measured)
+            assertEquals(Rect(40f, 300f, 440f, 525f), PlayerArtworkOrigins.resolve(titleKey)?.bounds)
+            assertEquals(1, measured)
+        } finally {
+            PlayerArtworkOrigins.remove(card)
+            PlayerArtworkOrigins.remove(bystander)
+        }
+        assertNull(PlayerArtworkOrigins.resolve(titleKey))
+    }
+
+    @Test fun an_artwork_that_cannot_be_measured_starts_no_launch() {
+        val titleKey = MediaSharedElementKey("test", "covered")
+        // A page under another, or a card attached but not yet placed.
+        val covered =
+            object : PlayerArtworkSource {
+                override val key: MediaSharedElementKey = titleKey
+                override val screen: ScreenGeometrySource? = null
+
+                override fun measure(): PlayerArtworkOrigin? = null
+            }
+        try {
+            PlayerArtworkOrigins.attach(covered)
+            PlayerArtworkOrigins.begin(titleKey)
+            assertNull(PlayerArtworkOrigins.issueLaunch(PlayerTransitionStyle.Turn))
+            assertEquals(HandoffPhase.Idle, PlayerHandoff.phase)
+        } finally {
+            PlayerArtworkOrigins.remove(covered)
+            PlayerHandoff.settle()
+        }
+    }
+
     @Test fun a_launch_flies_from_the_hero_rather_than_a_poster_with_its_key() {
         val hero = Any()
         val poster = Any()

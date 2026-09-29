@@ -298,8 +298,11 @@ fun YfuseTheme(
     content: @Composable () -> Unit,
 ) {
     // 静息 overrides the decorative choices it has an opinion on; the individual settings are kept
-    // and come back with 经典.
-    val calm = motionTheme == MotionTheme.Calm
+    // and come back with 经典. A device short of power, cooling or memory draws as 静息 whatever was
+    // chosen, for as long as it is (see [MotionBudget]).
+    val budget = rememberMotionBudget()
+    val theme = effectiveMotionTheme(motionTheme, budget)
+    val calm = theme == MotionTheme.Calm
     val targetPalette = if (dark) DarkPalette else LightPalette
     val targetAccent = remember(dark) { resolveAccentColors(Brand.Primary, dark) } // design-system: brand-identity
     val colors = remember(targetPalette, targetAccent) { ThemeColors(targetPalette, targetAccent) }
@@ -317,7 +320,8 @@ fun YfuseTheme(
         LocalDialogAnimation provides if (calm) DialogAnimation.Lift else dialogAnimation,
         LocalLoadingAnimation provides if (calm) CalmLoadingAnimation else loadingAnimation,
         LocalParticleLight provides if (calm) ParticleLight.Off else particleLight,
-        LocalMotionTheme provides motionTheme,
+        LocalMotionTheme provides theme,
+        LocalMotionBudget provides budget,
         LocalParticleStyle provides particleStyle,
         LocalParticleLimit provides particleLimit.coerceIn(0, 64),
         LocalParticleActive provides particleActive,

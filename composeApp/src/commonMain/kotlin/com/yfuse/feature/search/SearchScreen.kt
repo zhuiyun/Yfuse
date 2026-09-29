@@ -128,6 +128,17 @@ import com.yfuse.core.designsystem.ThemeText as Text
 fun SearchScreen(component: SearchComponent) {
     val focusRequest by component.focusRequest.subscribeAsState()
     val stack by component.stack.subscribeAsState()
+    // I-18. The tab is composed afresh each time it is switched to — the dock's 搜索 key, most
+    // often. Arriving on a page with nothing searched is arriving to type, so the field takes
+    // focus as it already did from the launcher's shortcut. A search already on the page, a query
+    // or a playlist that came along with the switch, or a detail page on top keeps what is shown.
+    LaunchedEffect(Unit) {
+        val home = stack.active.instance as? SearchComponent.Child.Home ?: return@LaunchedEffect
+        val state = home.component.store.state
+        if (state.query.isEmpty() && !state.hasSearched && !state.loading && state.person == null) {
+            component.requestFocus()
+        }
+    }
     OfficialNavDisplay(
         backStack = stack.items,
         onBack = component::navigateBack,

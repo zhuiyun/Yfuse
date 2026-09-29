@@ -1,6 +1,7 @@
 package com.yfuse.core.designsystem
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -163,13 +164,24 @@ class BackdropState internal constructor(
     }
 }
 
+/**
+ * Whether the live backdrop blur is on here: the platform can blur, and the [MotionBudget] can afford
+ * it. A device in 省电模式, running warm or short of memory spares itself a full-screen capture and
+ * blur every frame. Surfaces that take a lighter fill because a blur sits under them ask this rather
+ * than [supportsBackdropBlur] alone, so they turn opaque whenever the blur goes, as they do where the
+ * platform cannot blur at all.
+ */
+@Composable
+@ReadOnlyComposable
+fun backdropBlurAvailable(): Boolean = supportsBackdropBlur && !LocalMotionBudget.current.reduced
+
 @Composable
 fun rememberBackdropState(): BackdropState {
     val layer = rememberGraphicsLayer()
     val reduceTransparency = LocalAccessibilityOptions.current.reduceTransparency
     // 降低透明度 asks for opaque surfaces; blurring what cannot be seen through is work
     // with nothing to show for it.
-    val enabled = supportsBackdropBlur && !reduceTransparency
+    val enabled = backdropBlurAvailable() && !reduceTransparency
     return remember(layer, enabled) { BackdropState(layer, enabled) }
 }
 

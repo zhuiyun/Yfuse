@@ -436,9 +436,16 @@ private fun HomeResumeEntry.toTvCard(
         artworkShape = TvArtworkShape.Landscape,
         // The phone's 浮起菜单 for the same card, less two rows: 从继续观看移除 waits on a toast's
         // 撤销 that the television does not show, and a television has nothing to share to.
-        quickActions = { homeLiftMenu(onIntent = store::accept) },
-        onClick = { store.accept(HomeIntent.OpenResume(this)) },
+        quickActions = { homeLiftMenu(onIntent = store::accept, playsOnTap = resumesOnClick(prefix)) },
+        // 继续观看 and 接下来 pick up where they were left on 确定, as on the phone; the title's page is
+        // in the long-press panel. The other rows still open the title.
+        onClick = {
+            store.accept(if (resumesOnClick(prefix)) HomeIntent.PlayEntry(this) else HomeIntent.OpenResume(this))
+        },
     )
+
+/** The rows whose cards resume on 确定 rather than open the title. */
+private fun resumesOnClick(prefix: String): Boolean = prefix == "resume" || prefix == "next"
 
 private fun TmdbItem.toTvCard(
     quickActions: (() -> LiftMenu)? = null,

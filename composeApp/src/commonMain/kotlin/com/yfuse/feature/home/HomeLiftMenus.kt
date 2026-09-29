@@ -8,6 +8,7 @@ import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.network.TmdbImages
 import com.yfuse.core.util.PosterShareCard
+import com.yfuse.feature.library.detailsLiftAction
 import com.yfuse.feature.library.favoriteLiftAction
 import com.yfuse.feature.library.liftRemainingLabel
 import com.yfuse.feature.library.mediaItemLiftMenu
@@ -16,16 +17,22 @@ import com.yfuse.feature.library.posterShareCard
 import com.yfuse.feature.library.shareLiftAction
 
 /**
- * 浮起菜单 on a 继续观看 or 我的收藏 card. It replaces a sheet that offered one row, 查看详情 —
- * the same thing the tap already did — because 首页's store could open a library title and
- * nothing else. It can now play one from where it was left, or from the start, and write the
- * two flags people change without opening a title.
+ * 浮起菜单 on a 继续观看, 下一集 or 我的收藏 card. It replaces a sheet that offered one row, 查看详情
+ * — the same thing the tap then did — because 首页's store could open a library title and nothing
+ * else. It can play one from where it was left, or from the start, and write the two flags people
+ * change without opening a title.
  *
- * [inResume] for a card on 继续观看 itself, which can also be taken off that shelf.
+ * [inResume] for a card on 继续观看 itself, which can also be taken off that shelf. [playsOnTap]
+ * for a card whose tap already resumes it (继续观看, 下一集): 查看详情 leads its menu in place of
+ * 播放, since the menu is now the way to the title's page. [undoWatched] where the page has a toast
+ * to offer 撤销 on: 标记为已看 then waits for it before anything is written (see
+ * [HomeIntent.SetEntryPlayed]); the television has none, and marks at once.
  */
 internal fun HomeResumeEntry.homeLiftMenu(
     onIntent: (HomeIntent) -> Unit,
     inResume: Boolean = false,
+    playsOnTap: Boolean = false,
+    undoWatched: Boolean = false,
     onShare: (() -> Unit)? = null,
 ): LiftMenu {
     val entry = this
@@ -39,13 +46,17 @@ internal fun HomeResumeEntry.homeLiftMenu(
         actions =
             listOf(
                 listOfNotNull(
-                    ItemAction(
-                        label = if (resumable) "继续播放" else "播放",
-                        icon = AppIcons.Play,
-                        detail = if (resumable) item.liftRemainingLabel() else null,
-                        leavesPage = true,
-                        onSelect = { onIntent(HomeIntent.PlayEntry(entry)) },
-                    ),
+                    if (playsOnTap) {
+                        detailsLiftAction { onIntent(HomeIntent.OpenResume(entry)) }
+                    } else {
+                        ItemAction(
+                            label = if (resumable) "继续播放" else "播放",
+                            icon = AppIcons.Play,
+                            detail = if (resumable) item.liftRemainingLabel() else null,
+                            leavesPage = true,
+                            onSelect = { onIntent(HomeIntent.PlayEntry(entry)) },
+                        )
+                    },
                     if (resumable) {
                         ItemAction(
                             label = "从头播放",
@@ -58,7 +69,9 @@ internal fun HomeResumeEntry.homeLiftMenu(
                     },
                 ),
                 listOfNotNull(
-                    playedLiftAction(item.played) { onIntent(HomeIntent.SetEntryPlayed(entry, it)) },
+                    playedLiftAction(item.played) {
+                        onIntent(HomeIntent.SetEntryPlayed(entry, it, undoable = undoWatched))
+                    },
                     if (inResume) {
                         ItemAction(
                             label = "从继续观看移除",

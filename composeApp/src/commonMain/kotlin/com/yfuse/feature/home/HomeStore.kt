@@ -91,7 +91,10 @@ data class HomeState(
     /** A recommendation refresh was incomplete or failed; server library state is independent. */
     val recommendationNotice: String? = null,
     val actionMessage: String? = null,
-    /** Set while [actionMessage] offers 撤销 for a 继续观看 removal: the [HomeResumeEntry.key] it restores. */
+    /**
+     * Set while [actionMessage] offers 撤销 for a card taken off 继续观看, or one marked watched from
+     * its 浮起菜单: the [HomeResumeEntry.key] it puts back.
+     */
     val resumeUndoKey: String? = null,
 ) {
     /**
@@ -221,10 +224,17 @@ sealed interface HomeIntent {
         val favorite: Boolean,
     ) : HomeIntent
 
-    /** 浮起菜单: 标记为已看 or 未看. The shelves reload afterwards: a watched title leaves 继续观看. */
+    /**
+     * 浮起菜单: 标记为已看 or 未看. The shelves reload afterwards: a watched title leaves 继续观看.
+     *
+     * [undoable] where the page shows a toast: 标记为已看 then takes the card off at once and waits out
+     * its 撤销 before anything is written, so taking it back leaves the resume point where it was
+     * rather than trying to rebuild it. The television shows no toast, and writes at once.
+     */
     data class SetEntryPlayed(
         val entry: HomeResumeEntry,
         val played: Boolean,
+        val undoable: Boolean = false,
     ) : HomeIntent
 
     /** 浮起菜单: 稍后看, the same server list 详情 adds to. */
@@ -240,8 +250,8 @@ sealed interface HomeIntent {
         val entry: HomeResumeEntry,
     ) : HomeIntent
 
-    /** The removal toast's 撤销, for the entry with this [HomeResumeEntry.key]. */
-    data class UndoRemoveFromResume(
+    /** The toast's 撤销 for a removal or a watched mark, for the entry with this [HomeResumeEntry.key]. */
+    data class UndoResumeChange(
         val key: String,
     ) : HomeIntent
 
@@ -329,9 +339,16 @@ private sealed interface Msg {
         val entry: HomeResumeEntry,
     ) : Msg
 
-    data class ResumeRestored(
+    /** Marked watched from the lift and waiting out its 撤销: off 继续观看 and 下一集, nothing written. */
+    data class WatchedHeld(
         val entry: HomeResumeEntry,
-        val index: Int,
+    ) : Msg
+
+    /** 撤销: the card back on the shelves it left, where it was on each; -1 for one it was not on. */
+    data class CardRestored(
+        val entry: HomeResumeEntry,
+        val resumeIndex: Int,
+        val nextUpIndex: Int,
     ) : Msg
 
     data class PlayedChanged(
@@ -341,10 +358,16 @@ private sealed interface Msg {
     ) : Msg
 }
 
-/** A 继续观看 card taken off the shelf and waiting out its 撤销: where it was, to put it back there. */
-private class ResumeRemoval(
+/**
+ * A card's change waiting out its 撤销: taken off 继续观看, or marked watched ([watched]). The card
+ * has left its shelves and nothing has been written yet; [resumeIndex] and [nextUpIndex] say where it
+ * goes back on each, -1 where it was not there.
+ */
+private class HeldCardChange(
     val entry: HomeResumeEntry,
-    val index: Int,
+    val watched: Boolean,
+    val resumeIndex: Int,
+    val nextUpIndex: Int,
 )
 
 private const val RECOMMENDATIONS_UNAVAILABLE_MESSAGE =
@@ -509,7 +532,7 @@ class HomeStoreFactory(
         private var resumeJob: Job? = null
         private var nextUpJob: Job? = null
         private var lastLibraryRevisit: kotlin.time.TimeMark? = null
-        private val resumeRemovals = UndoWindow<ResumeRemoval>()
+        private val cardChanges = UndoWindow<HeldCardChange>()
 
         /** Shared by both home rows so startup cannot fan out once per server twice. */
         private val homeRequestPermits = Semaphore(3)
@@ -548,7 +571,7 @@ class HomeStoreFactory(
                 }
                 HomeIntent.DismissMessage -> {
                     dispatch(Msg.ActionMessage(null))
-                    resumeRemovals.release()?.let(::commitResumeRemoval)
+                    cardChanges.release()?.let(::commitCardChange)
                 }
                 is HomeIntent.Open -> resolve(intent.item, play = false)
                 is HomeIntent.Play -> resolve(intent.item, play = true)
@@ -570,13 +593,18 @@ class HomeStoreFactory(
                     )
                 }
                 is HomeIntent.SetEntryFavorite -> writeEntryFlag(intent.entry, favorite = intent.favorite)
-                is HomeIntent.SetEntryPlayed -> setPlayed(intent.entry, intent.played)
+                is HomeIntent.SetEntryPlayed ->
+                    if (intent.played && intent.undoable) {
+                        holdWatched(intent.entry)
+                    } else {
+                        setPlayed(intent.entry, intent.played)
+                    }
                 is HomeIntent.AddEntryToWatchLater -> addToWatchLater(intent.entry)
                 is HomeIntent.RemoveFromResume -> removeFromResume(intent.entry)
-                is HomeIntent.UndoRemoveFromResume ->
-                    resumeRemovals
+                is HomeIntent.UndoResumeChange ->
+                    cardChanges
                         .undo { it.entry.key == intent.key }
-                        ?.let { dispatch(Msg.ResumeRestored(it.entry, it.index)) }
+                        ?.let { dispatch(Msg.CardRestored(it.entry, it.resumeIndex, it.nextUpIndex)) }
             }
         }
 
@@ -584,13 +612,41 @@ class HomeStoreFactory(
             if (forgetResume == null) return
             val index = state().resume.indexOfFirst { it.key == entry.key }
             if (index < 0) return
-            resumeRemovals.hold(ResumeRemoval(entry, index))?.let(::commitResumeRemoval)
+            cardChanges
+                .hold(HeldCardChange(entry, watched = false, resumeIndex = index, nextUpIndex = -1))
+                ?.let(::commitCardChange)
             dispatch(Msg.ResumeRemoved(entry))
         }
 
-        private fun commitResumeRemoval(removal: ResumeRemoval) {
-            forgetResume?.invoke(removal.entry.server.id, removal.entry.item.id)
+        /**
+         * 标记为已看 from a lift, 先做，给 5 秒撤销. It used to be written on the spot, and a watched
+         * mark resets the place the title was stopped at, which no 撤销 could then give back: now the
+         * card leaves its shelves at once and the write waits for the toast to go.
+         */
+        private fun holdWatched(entry: HomeResumeEntry) {
+            val resumeIndex = state().resume.indexOfFirst { it.key == entry.key }
+            val nextUpIndex = state().nextUp.indexOfFirst { it.key == entry.key }
+            cardChanges
+                .hold(HeldCardChange(entry, watched = true, resumeIndex = resumeIndex, nextUpIndex = nextUpIndex))
+                ?.let(::commitCardChange)
+            dispatch(Msg.WatchedHeld(entry))
         }
+
+        private fun commitCardChange(change: HeldCardChange) {
+            if (change.watched) {
+                // The toast already said so; only a write that has to wait is reported again.
+                setPlayed(change.entry, true, announce = false)
+            } else {
+                forgetResume?.invoke(change.entry.server.id, change.entry.item.id)
+            }
+        }
+
+        /** The key of a card waiting out its 撤销, which a reload meanwhile must not put back. */
+        private fun heldKey(watchedOnly: Boolean = false): String? =
+            cardChanges.current
+                ?.takeIf { it.watched || !watchedOnly }
+                ?.entry
+                ?.key
 
         private fun addToWatchLater(entry: HomeResumeEntry) {
             scope.launch {
@@ -666,6 +722,8 @@ class HomeStoreFactory(
         private fun setPlayed(
             entry: HomeResumeEntry,
             value: Boolean,
+            /** False once the toast of a held change has already said it; failures are still told. */
+            announce: Boolean = true,
         ) {
             val server = registry.serverById(entry.server.id)
             if (server == null) {
@@ -692,6 +750,7 @@ class HomeStoreFactory(
                 val result =
                     syncManager?.setPlayed(server, item.id, item.title, value)
                         ?: emby.setPlayed(server, item.id, value)
+                if (result.isSuccess && !announce) return@launch
                 dispatch(
                     Msg.ActionMessage(
                         result.fold(
@@ -821,9 +880,9 @@ class HomeStoreFactory(
                                     .filterNotNull()
                             }
                         if (ownsResumeLoad(generation, connection)) {
-                            // A card waiting out its 撤销 has not started over yet, so the server's
+                            // A card waiting out its 撤销 has not been written yet, so the server's
                             // list still has it; it stays off the shelf until the toast decides.
-                            val held = resumeRemovals.current?.entry?.key
+                            val held = heldKey()
                             dispatch(
                                 Msg.ResumeLoaded(
                                     snapshots.flatMap { snapshot ->
@@ -867,7 +926,13 @@ class HomeStoreFactory(
                     // A newer load may have started while this one was in flight; its
                     // answer wins, exactly as loadResume already guarantees for its row.
                     if (generation == nextUpGeneration) {
-                        dispatch(Msg.NextUpLoaded(entries.distinctBy { it.server.id to it.item.id }))
+                        // An episode marked watched and waiting out its 撤销 is not due yet either.
+                        val held = heldKey(watchedOnly = true)
+                        dispatch(
+                            Msg.NextUpLoaded(
+                                entries.distinctBy { it.server.id to it.item.id }.filterNot { it.key == held },
+                            ),
+                        )
                     }
                 }
         }
@@ -1032,9 +1097,17 @@ class HomeStoreFactory(
                         actionMessage = "已从继续观看移除「${msg.entry.item.title}」",
                         resumeUndoKey = msg.entry.key,
                     )
-                is Msg.ResumeRestored ->
+                is Msg.WatchedHeld ->
                     copy(
-                        resume = resume.restoring(msg.entry, msg.index),
+                        resume = resume.filterNot { it.key == msg.entry.key },
+                        nextUp = nextUp.filterNot { it.key == msg.entry.key },
+                        actionMessage = "已标记为已看「${msg.entry.item.title}」",
+                        resumeUndoKey = msg.entry.key,
+                    )
+                is Msg.CardRestored ->
+                    copy(
+                        resume = if (msg.resumeIndex >= 0) resume.restoring(msg.entry, msg.resumeIndex) else resume,
+                        nextUp = if (msg.nextUpIndex >= 0) nextUp.restoring(msg.entry, msg.nextUpIndex) else nextUp,
                         actionMessage = null,
                         resumeUndoKey = null,
                     )

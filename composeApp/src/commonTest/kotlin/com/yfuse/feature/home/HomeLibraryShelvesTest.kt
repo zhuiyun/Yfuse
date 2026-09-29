@@ -148,6 +148,80 @@ class HomeLibraryShelvesTest {
             }
         }
 
+    @Test
+    fun a_watched_mark_from_the_lift_waits_out_its_undo_before_anything_is_written() =
+        runTest(scheduler) {
+            val registry = testRegistry().apply { addOrUpdate(ONE) }
+            val progress = PlaybackSyncStore(MapSettings()) { 1_000L }
+            progress.updatePlayback(
+                mediaKey = "emby:e1",
+                aliases = emptyList(),
+                positionMs = 30_000L,
+                durationMs = 100_000L,
+                played = false,
+                sessionId = "local",
+                serverId = ONE.id,
+                serverItemId = "e1",
+                mutationKind = PlaybackMutationKind.AutoProgress,
+                trigger = PlaybackSyncTrigger.Periodic,
+            )
+            val writes = mutableListOf<String>()
+            val store =
+                HomeStoreFactory(
+                    storeFactory = DefaultStoreFactory(),
+                    tmdb = unreachableTmdb(),
+                    emby =
+                        testRepo(
+                            dispatcher = UnconfinedTestDispatcher(testScheduler),
+                            progressProjection = PlaybackProgressProjection(progress) { true },
+                        ) { request ->
+                            when {
+                                "/PlayedItems/" in request.url.encodedPath -> {
+                                    writes += "${request.method.value} ${request.url.encodedPath}"
+                                    json("{}")
+                                }
+                                request.url.parameters["Ids"] == "e1" ->
+                                    json(
+                                        """{"Items":[{"Id":"e1","Name":"第1集","Type":"Episode",""" +
+                                            """"SeriesName":"某剧","SeriesId":"s1","RunTimeTicks":1000000000}]}""",
+                                    )
+                                else -> homeRoutes(request)
+                            }
+                        },
+                    registry = registry,
+                    cache = TmdbHomeCache(MapSettings()),
+                    cacheDispatcher = UnconfinedTestDispatcher(testScheduler),
+                ).create()
+            try {
+                advanceUntilIdle()
+                val entry = store.state.resume.single()
+
+                store.accept(HomeIntent.SetEntryPlayed(entry, played = true, undoable = true))
+                advanceUntilIdle()
+                assertTrue(writes.isEmpty())
+                assertTrue(store.state.resume.isEmpty())
+                assertTrue(store.state.nextUp.isEmpty())
+                assertEquals(entry.key, store.state.resumeUndoKey)
+
+                // 撤销 puts the card back on both shelves, and nothing ever touched its resume point.
+                store.accept(HomeIntent.UndoResumeChange(entry.key))
+                advanceUntilIdle()
+                assertEquals(listOf(entry.key), store.state.resume.map { it.key })
+                assertEquals(listOf("e1"), store.state.nextUp.map { it.item.id })
+                assertTrue(writes.isEmpty())
+
+                // The toast leaving writes it, without a second toast saying so.
+                store.accept(HomeIntent.SetEntryPlayed(entry, played = true, undoable = true))
+                store.accept(HomeIntent.DismissMessage)
+                advanceUntilIdle()
+                assertEquals(listOf("POST /Users/u/PlayedItems/e1"), writes)
+                assertTrue(store.state.resume.isEmpty())
+                assertEquals(null, store.state.actionMessage)
+            } finally {
+                store.dispose()
+            }
+        }
+
     private fun unreachableTmdb(): TmdbRepository =
         TmdbRepository(
             HttpClient(

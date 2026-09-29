@@ -103,6 +103,40 @@ class MediaItemLiftMenuTest {
     }
 
     @Test
+    fun playHistoryOffersThePageStartingOverAndBothWaysOffTheRow() {
+        var opened = false
+        val menu =
+            libraryHistoryLiftMenu(
+                item = item(resumeMinutes = 30),
+                backdropUrl = null,
+                onOpen = { opened = true },
+                onPlayFromStart = {},
+                onMarkWatched = {},
+                onRemove = {},
+                onFavorite = {},
+            )
+        assertEquals(listOf("查看详情", "从头播放", "标记为已看", "从播放记录移除", "收藏"), menu.actions.map { it.label })
+        assertEquals(true, menu.actions.single { it.label == "从播放记录移除" }.destructive)
+        menu.actions.first().onSelect()
+        assertEquals(true, opened)
+        // A finished title has neither a place to start over from nor a flag left to set.
+        assertEquals(
+            listOf("查看详情", "从播放记录移除", "收藏"),
+            libraryHistoryLiftMenu(item(played = true), null, {}, {}, {}, {}, {}).actions.map { it.label },
+        )
+    }
+
+    @Test
+    fun undoPutsAHistoryCardBackWhereItWasAndNeverTwice() {
+        val a = item().copy(id = "a")
+        val b = item().copy(id = "b")
+        val c = item().copy(id = "c")
+        assertEquals(listOf("a", "b", "c"), listOf(a, c).restoringHistory(b, 1).map { it.id })
+        assertEquals(listOf("a", "b"), listOf(a).restoringHistory(b, 5).map { it.id })
+        assertEquals(listOf("a", "b"), listOf(b, a).restoringHistory(b, 1).map { it.id })
+    }
+
+    @Test
     fun theToastSaysWhatChangedOrThatItIsWaitingToSync() {
         assertEquals("已加入收藏", flagChangeMessage(favorite = true, played = null))
         assertEquals("已取消收藏", flagChangeMessage(favorite = false, played = null))
