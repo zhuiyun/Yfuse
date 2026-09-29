@@ -577,7 +577,7 @@ class HomeStoreFactory(
         private val nextUpLoad = LatestWins(scope)
         private var resumeConnection: List<HomeServerConnection> = emptyList()
         private var lastLibraryRevisit: kotlin.time.TimeMark? = null
-        private val cardChanges = UndoWindow<HeldCardChange>()
+        private val cardChanges = UndoWindow(::commitCardChange)
 
         /** Shared by both home rows so startup cannot fan out once per server twice. */
         private val homeRequestPermits = Semaphore(3)
@@ -616,7 +616,7 @@ class HomeStoreFactory(
                 }
                 HomeIntent.DismissMessage -> {
                     dispatch(Msg.ActionMessage(null))
-                    cardChanges.release()?.let(::commitCardChange)
+                    cardChanges.settle()
                 }
                 is HomeIntent.Open -> resolve(intent.item, play = false)
                 is HomeIntent.Play -> resolve(intent.item, play = true)
@@ -692,7 +692,7 @@ class HomeStoreFactory(
         ) {
             if (cards.isEmpty()) return
             val change = HeldCardChange(cards, watched)
-            cardChanges.hold(change)?.let(::commitCardChange)
+            cardChanges.hold(change)
             dispatch(Msg.CardsHeld(cards.map { it.entry }, watched, change.key))
         }
 

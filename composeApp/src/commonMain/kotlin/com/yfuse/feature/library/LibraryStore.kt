@@ -290,7 +290,7 @@ class LibraryStoreFactory(
         CoroutineExecutor<LibraryIntent, Action, LibraryState, Msg, Nothing>(mainContext) {
         private var loadedConnection: LibraryConnection? = null
         private val libraryLoad = LatestWins(scope)
-        private val historyChanges = UndoWindow<HistoryChange>()
+        private val historyChanges = UndoWindow(::commitHistoryChange)
 
         override fun executeAction(action: Action) {
             when (action) {
@@ -324,7 +324,7 @@ class LibraryStoreFactory(
                         ?.let { dispatch(Msg.HistoryRestored(it.item, it.index)) }
                 LibraryIntent.DismissMessage -> {
                     dispatch(Msg.ActionMessage(null))
-                    historyChanges.release()?.let(::commitHistoryChange)
+                    historyChanges.settle()
                 }
             }
         }
@@ -337,7 +337,7 @@ class LibraryStoreFactory(
             val index = state().content.resume.indexOfFirst { it.id == item.id }
             if (index < 0) return
             // Something new sends the change still waiting on its toast on its way, as on 首页.
-            historyChanges.hold(HistoryChange(item, index, server, watched))?.let(::commitHistoryChange)
+            historyChanges.hold(HistoryChange(item, index, server, watched))
             dispatch(
                 Msg.HistoryHidden(
                     item = item,

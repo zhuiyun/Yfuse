@@ -28,7 +28,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -96,7 +95,6 @@ import com.yfuse.core.designsystem.SwitchRow
 import com.yfuse.core.designsystem.TabBarInset
 import com.yfuse.core.designsystem.Tips
 import com.yfuse.core.designsystem.ToastAction
-import com.yfuse.core.designsystem.UndoWindow
 import com.yfuse.core.designsystem.YfChip
 import com.yfuse.core.designsystem.coversAll
 import com.yfuse.core.designsystem.dragSelect
@@ -110,6 +108,7 @@ import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberDecorativePhase
 import com.yfuse.core.designsystem.rememberDragSelectState
 import com.yfuse.core.designsystem.rememberThrottledValue
+import com.yfuse.core.designsystem.rememberUndoWindow
 import com.yfuse.core.designsystem.selectingAll
 import com.yfuse.core.designsystem.toggling
 import com.yfuse.core.designsystem.touchTarget
@@ -208,7 +207,7 @@ internal fun DownloadsScreen(
     val allItems by manager.items.collectAsState()
     // The delete waiting on its toast (see [UndoWindow]), and the same change as state: its rows
     // are hidden from the list — and from every count — while it waits.
-    val removals = remember { UndoWindow<DownloadRemoval>() }
+    val removals = rememberUndoWindow<DownloadRemoval> { manager.removeMany(it.ids.toList()) }
     var removal by remember { mutableStateOf<DownloadRemoval?>(null) }
     // A fresh toast for every delete: two deletes can read alike, and a toast only re-posts on a
     // new message.
@@ -256,8 +255,6 @@ internal fun DownloadsScreen(
     // A held finger enters 多选 without ever passing 完成, so 返回 leaves the mode before the page.
     PlatformBackHandler(enabled = selecting, onBack = ::endSelection)
 
-    fun commit(change: DownloadRemoval) = manager.removeMany(change.ids.toList())
-
     // Every delete on this page — a swipe, the row's ×, the batch bar — goes through here.
     fun remove(
         ids: Set<String>,
@@ -265,7 +262,7 @@ internal fun DownloadsScreen(
     ) {
         if (ids.isEmpty()) return
         val change = DownloadRemoval(ids, message)
-        removals.hold(change)?.let(::commit)
+        removals.hold(change)
         removal = change
         removalToast++
         selected = selected - ids
@@ -276,13 +273,10 @@ internal fun DownloadsScreen(
     }
 
     // The toast left — timed out, swiped away, the app sent to the background: the files go now.
+    // Leaving the page is the toast leaving too, and the window settles itself then.
     fun settleRemoval() {
-        removals.release()?.let(::commit)
+        removals.settle()
         removal = null
-    }
-    // Leaving the page is the toast leaving too; nothing may stay held behind a closed page.
-    DisposableEffect(removals) {
-        onDispose { removals.release()?.let(::commit) }
     }
     var confirmClearRules by remember { mutableStateOf(false) }
 
