@@ -74,6 +74,7 @@ import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.OverlayOptionRow
 import com.yfuse.core.designsystem.OverlayOptionSpacing
+import com.yfuse.core.designsystem.RollingNumber
 import com.yfuse.core.designsystem.Section
 import com.yfuse.core.designsystem.Semantic
 import com.yfuse.core.designsystem.SettingRow
@@ -94,6 +95,7 @@ import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberDecorativePhase
+import com.yfuse.core.designsystem.rememberThrottledValue
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.offline.DownloadStatus
 import com.yfuse.core.offline.OfflineIndexStatus
@@ -954,24 +956,40 @@ private fun DownloadTaskRow(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Text(
-                    downloadStatusText(item),
-                    modifier =
-                        Modifier.lightOnChange(
-                            item.status,
-                            if (item.status == DownloadStatus.Completed) LightEffect.Converge else LightEffect.Node,
-                            emitWhen = item.status != DownloadStatus.Failed,
-                        ),
-                    style = AppTypography.caption.medium,
-                    color =
-                        when {
-                            item.status == DownloadStatus.Failed -> palette.error
-                            item.nextRetryAt > 0L -> palette.warning
-                            else -> palette.sub2
-                        },
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                val statusColor =
+                    when {
+                        item.status == DownloadStatus.Failed -> palette.error
+                        item.nextRetryAt > 0L -> palette.warning
+                        else -> palette.sub2
+                    }
+                Box(
+                    Modifier.lightOnChange(
+                        item.status,
+                        if (item.status == DownloadStatus.Completed) LightEffect.Converge else LightEffect.Node,
+                        emitWhen = item.status != DownloadStatus.Failed,
+                    ),
+                ) {
+                    if (item.status == DownloadStatus.Downloading && item.totalBytes > 0L) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                "${formatDownloadBytes(item.downloadedBytes)} / " +
+                                    "${formatDownloadBytes(item.totalBytes)} · ",
+                                style = AppTypography.caption.medium,
+                                color = statusColor,
+                                maxLines = 1,
+                            )
+                            DownloadPercent(item.progress, color = statusColor)
+                        }
+                    } else {
+                        Text(
+                            downloadStatusText(item),
+                            style = AppTypography.caption.medium,
+                            color = statusColor,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
             }
             if (!selectionMode) {
                 Text(
@@ -1094,6 +1112,19 @@ private fun DownloadProgressTrack(
             }
         },
     )
+}
+
+/**
+ * How far a transfer is, as a figure that rolls up. A transfer reports every chunk it writes; the
+ * figure moves at most ten times a second, so each roll can be read.
+ */
+@Composable
+private fun DownloadPercent(
+    progress: Float,
+    color: Color,
+) {
+    val percent = rememberThrottledValue((progress.coerceIn(0f, 1f) * 100f).toInt())
+    RollingNumber(text = "$percent%", style = AppTypography.caption.medium, color = color)
 }
 
 private fun downloadStatusText(item: OfflineMedia): String =

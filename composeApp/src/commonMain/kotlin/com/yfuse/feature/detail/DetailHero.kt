@@ -21,7 +21,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
@@ -76,6 +75,7 @@ import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.MediaSharedElementKey
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.PressFeedback
+import com.yfuse.core.designsystem.RollingNumber
 import com.yfuse.core.designsystem.backdropBlur
 import com.yfuse.core.designsystem.cssLinearGradient
 import com.yfuse.core.designsystem.fadeIntoPage
@@ -735,10 +735,11 @@ private fun RatingFigure(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text("TMDB", style = AppTypography.body.strong, color = ArtworkInkSub)
-        BasicText(
-            rating.toString(),
+        // Rolls when fresher data brings a new score while the page is up; shown as-is on arrival.
+        RollingNumber(
+            text = rating.toString(),
             style = AppTypography.section.strong,
-            color = { lerp(accent(), Color.White, 0.38f) },
+            colorProducer = { lerp(accent(), Color.White, 0.38f) },
         )
     }
 }
