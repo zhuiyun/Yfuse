@@ -24,12 +24,15 @@ import com.yfuse.feature.library.shareLiftAction
  *
  * [inResume] for a card on 继续观看 itself, which can also be taken off that shelf. [playsOnTap]
  * for a card whose tap already resumes it (继续观看, 下一集): 查看详情 leads its menu in place of
- * 播放, since the menu is now the way to the title's page.
+ * 播放, since the menu is now the way to the title's page. [undoWatched] where the page has a toast
+ * to offer 撤销 on: 标记为已看 then waits for it before anything is written (see
+ * [HomeIntent.SetEntryPlayed]); the television has none, and marks at once.
  */
 internal fun HomeResumeEntry.homeLiftMenu(
     onIntent: (HomeIntent) -> Unit,
     inResume: Boolean = false,
     playsOnTap: Boolean = false,
+    undoWatched: Boolean = false,
     onShare: (() -> Unit)? = null,
 ): LiftMenu {
     val entry = this
@@ -66,7 +69,9 @@ internal fun HomeResumeEntry.homeLiftMenu(
                     },
                 ),
                 listOfNotNull(
-                    playedLiftAction(item.played) { onIntent(HomeIntent.SetEntryPlayed(entry, it)) },
+                    playedLiftAction(item.played) {
+                        onIntent(HomeIntent.SetEntryPlayed(entry, it, undoable = undoWatched))
+                    },
                     if (inResume) {
                         ItemAction(
                             label = "从继续观看移除",

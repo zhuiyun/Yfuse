@@ -581,6 +581,7 @@ internal fun HomeContentBody(
                                                     onIntent,
                                                     inResume = true,
                                                     playsOnTap = true,
+                                                    undoWatched = true,
                                                     onShare = { sharer.sharePosterCard(entry.shareCard()) },
                                                 )
                                             },
@@ -602,6 +603,7 @@ internal fun HomeContentBody(
                                                 entry.homeLiftMenu(
                                                     onIntent,
                                                     playsOnTap = true,
+                                                    undoWatched = true,
                                                     onShare = { sharer.sharePosterCard(entry.shareCard()) },
                                                 )
                                             },
@@ -621,6 +623,7 @@ internal fun HomeContentBody(
                                             liftMenu = { entry ->
                                                 entry.homeLiftMenu(
                                                     onIntent,
+                                                    undoWatched = true,
                                                     onShare = { sharer.sharePosterCard(entry.shareCard()) },
                                                 )
                                             },
@@ -714,17 +717,6 @@ internal fun HomeContentBody(
             }
         }
 
-        // Floats over the page rather than sitting in it: as a list item this pushed the
-        // whole feed down and then let it snap back, and it never cleared itself.
-        ActionToast(
-            message = state.actionMessage,
-            onDismiss = { onIntent(HomeIntent.DismissMessage) },
-            action =
-                state.resumeUndoKey?.let { key ->
-                    ToastAction("撤销") { onIntent(HomeIntent.UndoRemoveFromResume(key)) }
-                },
-        )
-
         // Once there are posters to hold. Retires on its own the first time one is lifted.
         ContextualTip(
             id = Tips.LIFT,
@@ -780,12 +772,25 @@ internal fun HomeContentBody(
                         },
                         inResume = shelf == HomeLibraryShelf.ContinueWatching,
                         playsOnTap = shelf.playsOnTap,
+                        undoWatched = true,
                         onShare = { sharer.sharePosterCard(entry.shareCard()) },
                     )
                 },
                 onDismiss = { expandedShelf = null },
             )
         }
+
+        // Floats over the page rather than sitting in it: as a list item this pushed the
+        // whole feed down and then let it snap back, and it never cleared itself. Drawn over the
+        // 全部 pages too, whose 移除 and 标记为已看 it holds for 撤销 as it does the shelves'.
+        ActionToast(
+            message = state.actionMessage,
+            onDismiss = { onIntent(HomeIntent.DismissMessage) },
+            action =
+                state.resumeUndoKey?.let { key ->
+                    ToastAction("撤销") { onIntent(HomeIntent.UndoResumeChange(key)) }
+                },
+        )
     }
 }
 

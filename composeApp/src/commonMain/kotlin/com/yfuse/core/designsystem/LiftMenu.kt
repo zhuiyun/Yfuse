@@ -429,6 +429,9 @@ internal class LiftSession(
     private val origin = finger
     private var steering = false
 
+    /** The finger has once been a whole row from where the lift began; see [slideReaches]. */
+    private var rowsArmed = false
+
     /** The finger has gone sideways past the dead zone once; from then on the card follows it. */
     private var scrubbing = false
 
@@ -447,9 +450,9 @@ internal class LiftSession(
 
     /**
      * The finger moved. Nothing is hit until it has travelled [slop] from where the lift began —
-     * the card lands under a still finger, and a tremor must not turn letting go into 打开.
-     * Returns true when the finger arrived on something new, or scrubbed the card on to another
-     * frame, which is what earns a tick.
+     * the card lands under a still finger, and a tremor must not turn letting go into 打开 — and no
+     * row until it has travelled a whole row (see [slideReaches]). Returns true when the finger
+     * arrived on something new, or scrubbed the card on to another frame, which is what earns a tick.
      */
     fun steer(
         finger: Offset,
@@ -462,12 +465,27 @@ internal class LiftSession(
             steering = true
         }
         val laid = placement ?: return false
-        val next = liftHitAt(finger, laid, sectionSizes, rowHeight, separatorHeight, padding)
+        if (!rowsArmed) {
+            val start = origin ?: finger
+            rowsArmed = (finger - start).getDistance() >= maxOf(rowHeight, slop)
+        }
+        val found = liftHitAt(finger, laid, sectionSizes, rowHeight, separatorHeight, padding)
+        val next = if (found is LiftHit.Row && !slideReaches(found.index)) LiftHit.None else found
         val scrubbed = scrubAlong(finger, next, laid.card, slop)
         if (next == hot) return scrubbed
         hot = next
         return next != LiftHit.None
     }
+
+    /**
+     * Whether the sliding finger may land on row [index] and run it by letting go.
+     *
+     * Not before it has once been a whole row away from where the lift began: a poster low on the
+     * screen lifts with its menu right under the finger, and a drift past the touch slop — some 8 dp
+     * — used to pick whatever row it rested on. Never a destructive row: letting go can happen by
+     * itself, so those take a tap on the menu, which stays up.
+     */
+    private fun slideReaches(index: Int): Boolean = rowsArmed && menu.actions.getOrNull(index)?.destructive != true
 
     /**
      * 按住拖看: over the card, once the finger has gone sideways past [deadZone], the card shows the
