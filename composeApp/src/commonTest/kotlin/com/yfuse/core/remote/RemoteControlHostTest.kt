@@ -40,7 +40,10 @@ class RemoteControlHostTest {
             backgroundScope.launch { host.events.collect { events += it } }
             host.setActive(true)
             val socket = relay.sessions.receive()
-            assertEquals("remoteHost", socket.sent.receive().type)
+            val hostMessage = socket.sent.receive()
+            assertEquals("remoteHost", hostMessage.type)
+            // It says it asks, so a relay that knows has each phone wait for the answer.
+            assertEquals(listOf(WatchProtocol.CAPABILITY_REMOTE_PAIRING), hostMessage.capabilities)
             socket.push(hosting)
             host.hosting.first { it }
             socket.push(connected("phone-a", "小米 14", phones = 1))
@@ -48,7 +51,10 @@ class RemoteControlHostTest {
             socket.push(key("up", "phone-a"))
             runCurrent()
             assertEquals(listOf(RemoteControlPhone("phone-a", "小米 14", allowed = false)), host.phones.value)
+            assertTrue(socket.sent.tryReceive().isFailure, "nobody has been let in yet")
             host.allow("phone-a")
+            // The relay hears it, and tells that phone to stop waiting.
+            assertEquals(admit("phone-a"), socket.sent.receive())
             socket.push(key("up", "phone-a"))
             socket.push(key("power", "phone-a"))
             socket.push(WatchWireMessage(type = "remoteText", text = "星际 ", remoteDeviceId = "phone-a"))
@@ -81,6 +87,9 @@ class RemoteControlHostTest {
             runCurrent()
             assertEquals(listOf<RemoteControlEvent>(RemoteControlEvent.Key(RemoteControlKey.Left)), events)
             assertEquals(listOf(true, false), host.phones.value.map { it.allowed })
+            // The trusted phone is let in as it connects, and hears so; the other one waits on.
+            assertEquals(admit("phone-a"), socket.sent.receive())
+            assertTrue(socket.sent.tryReceive().isFailure)
 
             host.release("phone-b")
             val refusal = socket.sent.receive()
@@ -113,11 +122,14 @@ class RemoteControlHostTest {
             assertFalse(host.onlyPhone().allowed)
             assertFalse(host.onlyPhone().rememberable)
             host.allow("~stand-in")
-            // Its network blinks: it comes back under the same id and is not asked about again.
+            assertEquals(admit("~stand-in"), first.sent.receive())
+            // Its network blinks: it comes back under the same id and is not asked about again,
+            // and its new connection is told so at once.
             first.push(disconnected("~stand-in", phones = 0))
             first.push(connected("~stand-in", null, phones = 1))
             runCurrent()
             assertTrue(host.onlyPhone().allowed)
+            assertEquals(admit("~stand-in"), first.sent.receive())
 
             // Leaving the foreground ends that; the relay tells every phone its television left.
             host.setActive(false)
@@ -170,6 +182,9 @@ class RemoteControlHostTest {
             assertFalse(unnamed.allowed)
             assertFalse(unnamed.rememberable)
             host.allow(unnamed.deviceId)
+            runCurrent()
+            // Such a relay never made the phone wait, and has nobody to tell.
+            assertTrue(socket.sent.tryReceive().isFailure)
             socket.push(WatchWireMessage(type = "remoteKey", remoteKey = "up"))
             // A second phone's keys could not be told from the first's: both wait again.
             socket.push(WatchWireMessage(type = "remoteConnected", participantCount = 2))
@@ -282,6 +297,8 @@ class RemoteControlHostTest {
         wireName: String,
         deviceId: String,
     ) = WatchWireMessage(type = "remoteKey", remoteKey = wireName, remoteDeviceId = deviceId)
+
+    private fun admit(deviceId: String) = WatchWireMessage(type = "remoteAdmit", remoteDeviceId = deviceId)
 
     private companion object {
         const val RETRY_MS = 5_000L

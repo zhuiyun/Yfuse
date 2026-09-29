@@ -27,8 +27,8 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.selects.select
 
 /** What a phone the television has let in did on 手机遥控. */
 sealed interface RemoteControlEvent {
@@ -68,7 +68,8 @@ data class RemoteControlPhone(
  * Signing in to the same account is not enough to press keys on this television. [phones] lists
  * who is on, and only what a phone the viewer let in ([allow]), or one [trusted] for good, reaches
  * [events]. Anything else is dropped rather than held, so nothing pressed while a phone waited
- * lands later. [release] lets a phone go — refusing it, if it was still waiting. A relay without
+ * lands later. The relay hears of each phone let in and tells that phone, which says 等待电视确认
+ * until then. [release] lets a phone go — refusing it, if it was still waiting. A relay without
  * [WatchProtocol.CAPABILITY_REMOTE_PAIRING] cannot tell phones apart or let one go: each newcomer
  * waits, and letting them go means hosting afresh, which every phone hears as its television
  * leaving.
@@ -98,6 +99,9 @@ class RemoteControlHost(
     /** The viewer's 拒绝 and 断开, for whichever socket is hosting to pass on. */
     private val releases = Channel<Release>(Channel.UNLIMITED)
 
+    /** Who was let in, for whichever socket is hosting to tell the relay, so that phone stops waiting. */
+    private val signals = Channel<Signal>(Channel.UNLIMITED)
+
     init {
         scope.launch {
             combine(active, signedIn) { foreground, account -> foreground && account }
@@ -113,7 +117,7 @@ class RemoteControlHost(
 
     /** 允许一次, or 始终允许此设备 once the caller has remembered it: what [deviceId] sends counts. */
     fun allow(deviceId: String) {
-        pairing.update { it.allow(deviceId) }
+        changePairing { it.allow(deviceId) }
     }
 
     /** Lets [deviceId] go: 拒绝 for a phone still waiting, 断开 for one already in. */
@@ -165,6 +169,7 @@ class RemoteControlHost(
             // Every phone hears its television leave; each one is asked about again next time.
             pairing.value = RemotePairing()
             drainReleases()
+            while (signals.tryReceive().isSuccess) Unit
         }
     }
 
@@ -172,9 +177,13 @@ class RemoteControlHost(
         val relay = url ?: throw RemoteControlRefusedException("手机遥控服务地址无效", supported = false)
         val token = accessToken() ?: throw AccountRequiredForWatchException()
         connector.connect(relay, token) { channel ->
-            channel.send(WatchWireMessage(type = "remoteHost"))
+            // This television asks before a phone may press anything: a relay that knows to tells
+            // each phone to wait, and passes on who is let in.
+            channel.send(
+                WatchWireMessage(type = "remoteHost", capabilities = listOf(WatchProtocol.CAPABILITY_REMOTE_PAIRING)),
+            )
             coroutineScope {
-                var lettingGo: Job? = null
+                var answering: Job? = null
                 try {
                     while (true) {
                         val message = channel.receive() ?: break
@@ -190,13 +199,10 @@ class RemoteControlHost(
                                 if (staying == 0) drainReleases()
                                 pairing.update { it.hosted(staying) }
                                 _hosting.value = true
-                                if (lettingGo == null) {
-                                    val namesPhones = WatchProtocol.CAPABILITY_REMOTE_PAIRING in offered
-                                    lettingGo = launch { letGo(channel, namesPhones) }
-                                }
+                                if (answering == null) answering = launch { answer(channel, offered) }
                             }
                             "remoteConnected" ->
-                                pairing.update { it.connected(message.phone(), message.phoneName(), trusted) }
+                                changePairing { it.connected(message.phone(), message.phoneName(), trusted) }
                             "remoteDisconnected" ->
                                 pairing.update { it.disconnected(message.phone(), message.participantCount) }
                             "remoteKey" ->
@@ -212,7 +218,7 @@ class RemoteControlHost(
                         }
                     }
                 } finally {
-                    lettingGo?.cancel()
+                    answering?.cancel()
                 }
             }
         }
@@ -221,26 +227,53 @@ class RemoteControlHost(
     /** Input counts only from a phone let in; from one not heard of before, it starts the asking. */
     private fun admits(message: WatchWireMessage): Boolean {
         val phone = message.phone()
-        return pairing.updateAndGet { it.heard(phone, trusted) }.admits(phone)
+        return changePairing { it.heard(phone, trusted) }.admits(phone)
+    }
+
+    /** Applies [change], and has the relay tell each phone it let in that it may press keys now. */
+    private fun changePairing(change: (RemotePairing) -> RemotePairing): RemotePairing {
+        while (true) {
+            val previous = pairing.value
+            val next = change(previous)
+            if (pairing.compareAndSet(previous, next)) {
+                next.admittedSince(previous).forEach { signals.trySend(Signal.Admit(it)) }
+                return next
+            }
+        }
     }
 
     /**
-     * Passes the viewer's 拒绝 and 断开 to the relay as they come. A relay that cannot let one phone
-     * go is left instead, and hosted again after a pause, which ends every phone's session.
+     * Passes the viewer's answers to the relay as they come: 拒绝 and 断开, and who was let in. A relay
+     * that cannot let one phone go is left instead, and hosted again after a pause, which ends every
+     * phone's session; one that does not name phones cannot be told who was let in, and never makes
+     * a phone wait for it.
      */
-    private suspend fun letGo(
+    private suspend fun answer(
         channel: RemoteRelayChannel,
-        namesPhones: Boolean,
+        offered: List<String>,
     ) {
-        for (release in releases) {
-            if (!namesPhones) throw PhonesLetGoException()
-            channel.send(
-                WatchWireMessage(
-                    type = "remoteRelease",
-                    remoteDeviceId = release.deviceId,
-                    errorCode = WatchProtocol.REMOTE_REFUSED_CODE.takeIf { release.refused },
-                ),
-            )
+        val namesPhones = WatchProtocol.CAPABILITY_REMOTE_PAIRING in offered
+        while (true) {
+            select {
+                releases.onReceive { release ->
+                    if (!namesPhones) throw PhonesLetGoException()
+                    channel.send(
+                        WatchWireMessage(
+                            type = "remoteRelease",
+                            remoteDeviceId = release.deviceId,
+                            errorCode = WatchProtocol.REMOTE_REFUSED_CODE.takeIf { release.refused },
+                        ),
+                    )
+                }
+                signals.onReceive { signal ->
+                    when (signal) {
+                        is Signal.Admit ->
+                            if (namesPhones) {
+                                channel.send(WatchWireMessage(type = "remoteAdmit", remoteDeviceId = signal.deviceId))
+                            }
+                    }
+                }
+            }
         }
     }
 
@@ -252,6 +285,14 @@ class RemoteControlHost(
         val deviceId: String,
         val refused: Boolean,
     )
+
+    /** What this television tells the relay of its own accord. */
+    private sealed interface Signal {
+        /** The viewer, or trust, let the phone of [deviceId] in. */
+        data class Admit(
+            val deviceId: String,
+        ) : Signal
+    }
 
     /** Ends a session on a relay that cannot let one phone go, so that all of them go. */
     private class PhonesLetGoException : Exception()
