@@ -31,13 +31,13 @@ import com.yfuse.core.sync.ServerSyncManager
 import com.yfuse.core.sync.playback.PlaybackSyncManager
 import com.yfuse.core.sync.watchKey
 import com.yfuse.core.sync.watchMatchKeys
+import com.yfuse.core.util.LatestWins
 import com.yfuse.core.util.currentIsoDate
 import com.yfuse.core.util.pickForDay
 import com.yfuse.feature.library.flagChangeMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -567,18 +567,15 @@ class HomeStoreFactory(
         )
 
     private inner class ExecutorImpl : CoroutineExecutor<HomeIntent, Action, HomeState, Msg, HomeLabel>() {
-        private var recommendationGeneration = 0L
-        private var recommendationJob: Job? = null
+        private val recommendations = LatestWins(scope)
         private val recommendationCacheWriter =
             RecommendationCacheWriter(
                 dispatcher = cacheDispatcher,
                 persist = { cache.write(it) },
             )
-        private var resumeGeneration = 0L
-        private var nextUpGeneration = 0L
+        private val resumeLoad = LatestWins(scope)
+        private val nextUpLoad = LatestWins(scope)
         private var resumeConnection: List<HomeServerConnection> = emptyList()
-        private var resumeJob: Job? = null
-        private var nextUpJob: Job? = null
         private var lastLibraryRevisit: kotlin.time.TimeMark? = null
         private val cardChanges = UndoWindow<HeldCardChange>()
 
@@ -609,7 +606,7 @@ class HomeStoreFactory(
                     loadNextUp(registry.data.value.servers)
                 }
                 HomeIntent.RefreshLibrary -> {
-                    if (resumeJob?.isActive == true || nextUpJob?.isActive == true) return
+                    if (resumeLoad.isActive || nextUpLoad.isActive) return
                     if (lastLibraryRevisit?.elapsedNow()?.inWholeMilliseconds?.let { it < 15_000L } == true) return
                     lastLibraryRevisit =
                         kotlin.time.TimeSource.Monotonic
@@ -842,71 +839,65 @@ class HomeStoreFactory(
         }
 
         private fun loadRecommendations(refresh: Boolean = false) {
-            recommendationJob?.cancel()
-            val generation = ++recommendationGeneration
+            val request = recommendations.next()
             dispatch(Msg.Loading(refresh))
             val shouldReadCache = state().content.isEmpty
-            recommendationJob =
-                scope.launch {
-                    try {
-                        if (shouldReadCache) {
-                            val cached = withContext(cacheDispatcher) { cache.readCached() }
-                            if (generation != recommendationGeneration) return@launch
-                            if (cached != null) {
-                                // Fetched today already: that is the page, not a stand-in
-                                // for it. The sixteen feed requests wait for a pull or a
-                                // new day; a stale entry still shows first and refreshes.
-                                if (!refresh && cached.isFresh(currentIsoDate())) {
-                                    dispatch(Msg.Loaded(cached.content))
-                                    return@launch
-                                }
-                                dispatch(Msg.Cached(cached.content))
-                            }
+            recommendations.launch(request) {
+                if (shouldReadCache) {
+                    val cached = withContext(cacheDispatcher) { cache.readCached() }
+                    if (!request.isCurrent) return@launch
+                    if (cached != null) {
+                        // Fetched today already: that is the page, not a stand-in
+                        // for it. The sixteen feed requests wait for a pull or a
+                        // new day; a stale entry still shows first and refreshes.
+                        if (!refresh && cached.isFresh(currentIsoDate())) {
+                            dispatch(Msg.Loaded(cached.content))
+                            return@launch
                         }
-
-                        val result = tmdb.refreshHome()
-                        if (generation != recommendationGeneration) return@launch
-                        val refreshResult = result.getOrNull()
-                        if (refreshResult != null) {
-                            val update = mergeRecommendationRefresh(state().content, refreshResult)
-                            val complete = refreshResult.incompleteRows.isEmpty()
-                            // A partial page must not make yesterday's full cache look fresh today.
-                            if (complete) recommendationCacheWriter.write(update.content)
-                            if (generation == recommendationGeneration) {
-                                dispatch(
-                                    Msg.Loaded(
-                                        content = update.content,
-                                        notice =
-                                            if (complete) {
-                                                null
-                                            } else {
-                                                partialRecommendationNotice(
-                                                    refreshResult.failure,
-                                                    update.usedPreviousContent,
-                                                )
-                                            },
-                                    ),
-                                )
-                            }
-                        } else {
-                            val error = result.exceptionOrNull()
-                            if (error is CancellationException) throw error
-                            AppLog.warning(
-                                category = "feature.home",
-                                event = "recommendations_load_failed",
-                                message = "Home recommendations failed to load",
-                                throwable = error,
-                            )
-                            dispatch(
-                                Msg.Failed(
-                                    recommendationFailureMessage((error as? TmdbRecommendationException)?.failure),
-                                ),
-                            )
-                        }
-                    } finally {
-                        if (generation == recommendationGeneration) recommendationJob = null
+                        dispatch(Msg.Cached(cached.content))
                     }
                 }
+
+                val result = tmdb.refreshHome()
+                if (!request.isCurrent) return@launch
+                val refreshResult = result.getOrNull()
+                if (refreshResult != null) {
+                    val update = mergeRecommendationRefresh(state().content, refreshResult)
+                    val complete = refreshResult.incompleteRows.isEmpty()
+                    // A partial page must not make yesterday's full cache look fresh today.
+                    if (complete) recommendationCacheWriter.write(update.content)
+                    if (request.isCurrent) {
+                        dispatch(
+                            Msg.Loaded(
+                                content = update.content,
+                                notice =
+                                    if (complete) {
+                                        null
+                                    } else {
+                                        partialRecommendationNotice(
+                                            refreshResult.failure,
+                                            update.usedPreviousContent,
+                                        )
+                                    },
+                            ),
+                        )
+                    }
+                } else {
+                    val error = result.exceptionOrNull()
+                    if (error is CancellationException) throw error
+                    AppLog.warning(
+                        category = "feature.home",
+                        event = "recommendations_load_failed",
+                        message = "Home recommendations failed to load",
+                        throwable = error,
+                    )
+                    dispatch(
+                        Msg.Failed(
+                            recommendationFailureMessage((error as? TmdbRecommendationException)?.failure),
+                        ),
+                    )
+                }
+            }
         }
 
         /** Loads every server independently so one slow or offline endpoint cannot blank the row. */
@@ -918,101 +909,92 @@ class HomeStoreFactory(
             val connection = availableServers.map(SavedServer::homeConnection)
             if (!force && connection == resumeConnection) return
             resumeConnection = connection
-            resumeJob?.cancel()
-            val generation = ++resumeGeneration
+            val request = resumeLoad.next()
             if (availableServers.isEmpty()) {
-                resumeJob = null
                 dispatch(Msg.ResumeLoaded(emptyList()))
                 dispatch(Msg.LibraryLoaded(emptyList()))
                 return
             }
-            resumeJob =
-                scope.launch {
-                    try {
-                        val snapshots =
-                            coroutineScope {
-                                availableServers
-                                    .map { server ->
-                                        async {
-                                            homeRequestPermits
-                                                .withPermit { emby.homeContent(server) }
-                                                .onFailure { error ->
-                                                    AppLog.warning(
-                                                        category = "feature.home",
-                                                        event = "resume_load_failed",
-                                                        message = "One server's continue-watching row failed to load",
-                                                        throwable = error,
-                                                        attributes = mapOf("serverId" to server.id),
-                                                    )
-                                                }.getOrNull()
-                                                ?.let { HomeLibraryContent(it, server) }
-                                        }
-                                    }.awaitAll()
-                                    .filterNotNull()
-                            }
-                        if (ownsResumeLoad(generation, connection)) {
-                            // A card waiting out its 撤销 has not been written yet, so the server's
-                            // list still has it; it stays off the shelf until the toast decides.
-                            val held = heldKeys()
-                            dispatch(
-                                Msg.ResumeLoaded(
-                                    snapshots.flatMap { snapshot ->
-                                        snapshot.content.resume
-                                            .map { HomeResumeEntry(it, snapshot.server) }
-                                            .filterNot { it.key in held }
-                                    },
-                                ),
-                            )
-                            dispatch(Msg.LibraryLoaded(snapshots))
-                        }
-                    } finally {
-                        if (generation == resumeGeneration) resumeJob = null
+            resumeLoad.launch(request) {
+                val snapshots =
+                    coroutineScope {
+                        availableServers
+                            .map { server ->
+                                async {
+                                    homeRequestPermits
+                                        .withPermit { emby.homeContent(server) }
+                                        .onFailure { error ->
+                                            AppLog.warning(
+                                                category = "feature.home",
+                                                event = "resume_load_failed",
+                                                message = "One server's continue-watching row failed to load",
+                                                throwable = error,
+                                                attributes = mapOf("serverId" to server.id),
+                                            )
+                                        }.getOrNull()
+                                        ?.let { HomeLibraryContent(it, server) }
+                                }
+                            }.awaitAll()
+                            .filterNotNull()
                     }
+                if (ownsResumeLoad(request, connection)) {
+                    // A card waiting out its 撤销 has not been written yet, so the server's
+                    // list still has it; it stays off the shelf until the toast decides.
+                    val held = heldKeys()
+                    dispatch(
+                        Msg.ResumeLoaded(
+                            snapshots.flatMap { snapshot ->
+                                snapshot.content.resume
+                                    .map { HomeResumeEntry(it, snapshot.server) }
+                                    .filterNot { it.key in held }
+                            },
+                        ),
+                    )
+                    dispatch(Msg.LibraryLoaded(snapshots))
                 }
+            }
         }
 
         private fun loadNextUp(servers: List<SavedServer>) {
-            nextUpJob?.cancel()
-            val generation = ++nextUpGeneration
+            val request = nextUpLoad.next()
             val available = servers.filter { it.knownUnavailableEndpointReason() == null }
             if (available.isEmpty()) {
                 dispatch(Msg.NextUpLoaded(emptyList()))
                 return
             }
-            nextUpJob =
-                scope.launch {
-                    val entries =
-                        coroutineScope {
-                            available
-                                .map { server ->
-                                    async {
-                                        homeRequestPermits
-                                            .withPermit { emby.nextUpEpisodes(server, 8) }
-                                            .getOrDefault(emptyList())
-                                            .map { HomeResumeEntry(it, server) }
-                                    }
-                                }.awaitAll()
-                                .flatten()
-                        }
-                    // A newer load may have started while this one was in flight; its
-                    // answer wins, exactly as loadResume already guarantees for its row.
-                    if (generation == nextUpGeneration) {
-                        // An episode marked watched and waiting out its 撤销 is not due yet either.
-                        val held = heldKeys(watchedOnly = true)
-                        dispatch(
-                            Msg.NextUpLoaded(
-                                entries.distinctBy { it.server.id to it.item.id }.filterNot { it.key in held },
-                            ),
-                        )
+            nextUpLoad.launch(request) {
+                val entries =
+                    coroutineScope {
+                        available
+                            .map { server ->
+                                async {
+                                    homeRequestPermits
+                                        .withPermit { emby.nextUpEpisodes(server, 8) }
+                                        .getOrDefault(emptyList())
+                                        .map { HomeResumeEntry(it, server) }
+                                }
+                            }.awaitAll()
+                            .flatten()
                     }
+                // A newer load may have started while this one was in flight; its
+                // answer wins, exactly as loadResume already guarantees for its row.
+                if (request.isCurrent) {
+                    // An episode marked watched and waiting out its 撤销 is not due yet either.
+                    val held = heldKeys(watchedOnly = true)
+                    dispatch(
+                        Msg.NextUpLoaded(
+                            entries.distinctBy { it.server.id to it.item.id }.filterNot { it.key in held },
+                        ),
+                    )
                 }
+            }
         }
 
         private fun ownsResumeLoad(
-            generation: Long,
+            request: LatestWins.Ticket,
             connection: List<HomeServerConnection>,
         ): Boolean =
-            generation == resumeGeneration &&
+            request.isCurrent &&
                 resumeConnection == connection &&
                 registry.data.value.servers
                     .filter { it.knownUnavailableEndpointReason() == null }
