@@ -201,7 +201,7 @@ class TvRemoteInputControllerTest {
             backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
                 harness.chrome.commands.collect { commands += it.type }
             }
-            harness.chrome.publishSkipPrompt(true)
+            harness.chrome.publishPrompt(TvPlayerPrompt.Skip)
 
             assertTrue(harness.keyDown(KeyEvent.KEYCODE_DPAD_CENTER, timeMs = 1_000L))
             // A held OK acts once, like a tap on the pill.
@@ -213,7 +213,7 @@ class TvRemoteInputControllerTest {
             // Nothing rose over the picture on the way.
             assertEquals(TvPlayerChromeLayer.Hidden, harness.chrome.state.value.layer)
 
-            harness.chrome.publishSkipPrompt(false)
+            harness.chrome.publishPrompt(null)
             assertTrue(harness.keyDown(KeyEvent.KEYCODE_DPAD_CENTER, timeMs = 2_000L))
             assertEquals(1, harness.toggles)
         }
@@ -226,7 +226,7 @@ class TvRemoteInputControllerTest {
             backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
                 harness.chrome.commands.collect { commands += it.type }
             }
-            harness.chrome.publishSkipPrompt(true)
+            harness.chrome.publishPrompt(TvPlayerPrompt.Skip)
             harness.chrome.publishUiState(
                 layer = TvPlayerChromeLayer.Controls,
                 panel = null,
@@ -238,6 +238,67 @@ class TvRemoteInputControllerTest {
             assertFalse(TvPlayerChromeCommandType.ActivateSkipPrompt in commands)
             assertEquals(0, harness.toggles)
         }
+
+    @Test
+    fun ok_over_hidden_chrome_plays_the_next_episode_from_the_next_up_card() =
+        runTest {
+            val harness = Harness()
+            val commands = mutableListOf<TvPlayerChromeCommandType>()
+            backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+                harness.chrome.commands.collect { commands += it.type }
+            }
+            harness.chrome.publishPrompt(TvPlayerPrompt.NextUp)
+
+            assertTrue(harness.keyDown(KeyEvent.KEYCODE_DPAD_CENTER, timeMs = 1_000L))
+            assertTrue(harness.keyDown(KeyEvent.KEYCODE_DPAD_CENTER, repeat = 1, timeMs = 1_400L))
+            assertTrue(harness.keyUp(KeyEvent.KEYCODE_DPAD_CENTER, timeMs = 1_410L))
+
+            // Once, and never the pause OK used to be over the credits.
+            assertEquals(listOf(TvPlayerChromeCommandType.ActivateNextUp), commands)
+            assertEquals(0, harness.toggles)
+            assertEquals(TvPlayerChromeLayer.Hidden, harness.chrome.state.value.layer)
+        }
+
+    @Test
+    fun back_over_the_next_up_card_stays_with_the_credits_instead_of_closing() =
+        runTest {
+            val harness = Harness()
+            val commands = mutableListOf<TvPlayerChromeCommandType>()
+            backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+                harness.chrome.commands.collect { commands += it.type }
+            }
+            harness.chrome.publishPrompt(TvPlayerPrompt.NextUp)
+
+            assertTrue(harness.keyDown(KeyEvent.KEYCODE_BACK, timeMs = 1_000L))
+            assertTrue(harness.keyUp(KeyEvent.KEYCODE_BACK, timeMs = 1_010L))
+            assertEquals(listOf(TvPlayerChromeCommandType.DismissNextUp), commands)
+
+            // With the card gone, Back reaches the Activity again.
+            harness.chrome.publishPrompt(null)
+            assertFalse(harness.keyDown(KeyEvent.KEYCODE_BACK, timeMs = 1_100L))
+        }
+
+    @Test
+    fun a_second_arrow_soon_after_a_seek_keeps_seeking_instead_of_moving_focus() {
+        val harness = Harness(positionMs = 30_000L, durationMs = 600_000L)
+
+        assertTrue(harness.keyDown(KeyEvent.KEYCODE_DPAD_RIGHT, timeMs = 1_000L))
+        assertTrue(harness.keyUp(KeyEvent.KEYCODE_DPAD_RIGHT, timeMs = 1_050L))
+        // The first press raised the controls, and the play key took focus.
+        harness.chrome.publishUiState(
+            layer = TvPlayerChromeLayer.Controls,
+            panel = null,
+            controlsHaveFocus = true,
+        )
+
+        assertTrue(harness.keyDown(KeyEvent.KEYCODE_DPAD_RIGHT, timeMs = 1_500L))
+        assertTrue(harness.keyUp(KeyEvent.KEYCODE_DPAD_RIGHT, timeMs = 1_550L))
+        assertEquals(listOf(40_000L, 50_000L), harness.seeks)
+
+        // Well after the last seek, the arrows are focus navigation again.
+        assertFalse(harness.keyDown(KeyEvent.KEYCODE_DPAD_RIGHT, timeMs = 4_000L))
+        assertEquals(listOf(40_000L, 50_000L), harness.seeks)
+    }
 
     private class Harness(
         private var positionMs: Long = 30_000L,

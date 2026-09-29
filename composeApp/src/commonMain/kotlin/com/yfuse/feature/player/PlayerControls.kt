@@ -76,6 +76,7 @@ import com.yfuse.tv.player.TvPlayerChromeBridge
 import com.yfuse.tv.player.TvPlayerChromeCommandType
 import com.yfuse.tv.player.TvPlayerChromeLayer
 import com.yfuse.tv.player.TvPlayerChromePanel
+import com.yfuse.tv.player.TvPlayerPrompt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
@@ -781,6 +782,10 @@ internal fun PlayerControls(
                         latestSkipActions.onSkip()
                     }
                 }
+                // The end-of-episode cards live further down; their own collector answers these.
+                TvPlayerChromeCommandType.ActivateNextUp,
+                TvPlayerChromeCommandType.DismissNextUp,
+                -> Unit
             }
         }
     }
@@ -1084,6 +1089,32 @@ internal fun PlayerControls(
     LaunchedEffect(creditsTakeover) { latestOnCreditsTakeover(creditsTakeover) }
     DisposableEffect(Unit) {
         onDispose { latestOnCreditsTakeover(false) }
+    }
+
+    // The remote at the end of an episode (TvPlayerPrompt.NextUp): neither card ever takes focus,
+    // so OK over the picture plays the next episode and Back stays with the credits. Written through
+    // the latest closures: the dismissals are remembered per episode, and a collector that outlives
+    // one episode must not write the last one's.
+    val nextUpCardShowing by remember(playback, nextUpDismissed) {
+        derivedStateOf { nextUpCardVisible(playback.value, nextUpDismissed) }
+    }
+    val latestPlayNextFromRemote by rememberUpdatedState { onNextItem() }
+    val latestKeepCreditsFromRemote by rememberUpdatedState<() -> Unit> {
+        if (creditsPhase == CreditsTakeoverPhase.Card) {
+            creditsTakeoverDismissed = true
+        } else if (!nextUpDismissed) {
+            nextUpDismissed = true
+            onDismissNextUp()
+        }
+    }
+    LaunchedEffect(remoteChrome) {
+        remoteChrome?.commands?.collect { command ->
+            when (command.type) {
+                TvPlayerChromeCommandType.ActivateNextUp -> latestPlayNextFromRemote()
+                TvPlayerChromeCommandType.DismissNextUp -> latestKeepCreditsFromRemote()
+                else -> Unit
+            }
+        }
     }
 
     // 暂停信息层: three seconds into a settled pause with the chrome away. Put away by a touch or a
@@ -1733,12 +1764,31 @@ internal fun PlayerControls(
                         },
                     )
                 }
-                // A remote cannot reach either pill while the controls are down, so OK over the
-                // picture acts on whichever one is showing (TvRemoteInputController reads this).
-                val remoteSkipPrompt = (manualSkip || skip.countdownSeconds != null) && !locked && errorMessage == null
-                DisposableEffect(remoteChrome, remoteSkipPrompt) {
-                    remoteChrome?.publishSkipPrompt(remoteSkipPrompt)
-                    onDispose { remoteChrome?.publishSkipPrompt(false) }
+                // A remote cannot reach the skip pills or the end-of-episode cards while the controls
+                // are down, so OK over the picture acts on whichever is showing (TvRemoteInputController
+                // reads this). A skip speaks first: it is the more urgent of the two.
+                val remotePrompt =
+                    when {
+                        locked || errorMessage != null -> null
+                        manualSkip || skip.countdownSeconds != null -> TvPlayerPrompt.Skip
+                        nextUpCardShowing || creditsPhase == CreditsTakeoverPhase.Card -> TvPlayerPrompt.NextUp
+                        else -> null
+                    }
+                DisposableEffect(remoteChrome, remotePrompt) {
+                    remoteChrome?.publishPrompt(remotePrompt)
+                    onDispose { remoteChrome?.publishPrompt(null) }
+                }
+                // Said beside the card, since nothing on it can take focus to say it.
+                ChromeVisibility(
+                    visible = remoteChrome != null && remotePrompt == TvPlayerPrompt.NextUp && !visible,
+                    edge = ChromeEdge.End,
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(end = 22.dp, bottom = 60.dp),
+                ) {
+                    Text(
+                        "按确定播放下一集 · 按返回看完片尾",
+                        style = AppTypography.caption.medium,
+                        color = Color.White.copy(alpha = 0.72f),
+                    )
                 }
 
                 // Every playback function popup uses the same bottom-right anchor. Content may be
