@@ -471,11 +471,33 @@ internal class LiquidClock<M : Any>(
     /** Milliseconds into [move]. */
     val elapsed: Float get() = time.value
 
-    /** Holds [move] at its first frame without starting it — a key waiting for its page to arrive. */
-    suspend fun arm(move: M) {
+    /**
+     * Holds [move] at its first frame — or at [atMs] — without starting it: a key waiting for its
+     * page to arrive, or a move picked up partway through by [runTo].
+     */
+    suspend fun arm(
+        move: M,
+        atMs: Float = 0f,
+    ) {
         generation++
         this.move = move
-        time.snapTo(0f)
+        time.snapTo(atMs)
+    }
+
+    /**
+     * Runs the move that is on from where it is to [toMs] at its own pace — backwards when [toMs] is
+     * behind it, so a move that changes its mind goes back the way it came — then rests, or with
+     * [holdLastFrame] stays there. Cancelled on the way, it leaves the move where it got to, for
+     * whatever cancelled it to carry on from.
+     */
+    suspend fun runTo(
+        toMs: Float,
+        holdLastFrame: Boolean = false,
+    ) {
+        val mine = ++generation
+        val distance = abs(toMs - time.value).roundToInt()
+        time.animateTo(toMs, tween(distance, easing = LinearEasing))
+        if (generation == mine && !holdLastFrame) move = null
     }
 
     /**

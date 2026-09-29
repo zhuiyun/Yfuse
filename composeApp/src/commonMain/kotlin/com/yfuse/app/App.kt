@@ -76,6 +76,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
@@ -200,6 +201,9 @@ private val tabs =
         TabItem(Tab.Servers, "服务器", AppIcons.TabServers),
         TabItem(Tab.Profile, "我的", AppIcons.TabProfile),
     )
+
+/** 搜索 as the collapsed key carries it, while the search page is where the user is. */
+private val searchKeyItem = TabItem(Tab.Search, "搜索", AppIcons.SearchTab)
 
 @Composable
 fun App(root: RootComponent) {
@@ -808,18 +812,18 @@ private fun rememberNavCollapseConnection(
 
 /**
  * The bottom furniture: the four destinations in a capsule, and 搜索 as its own round key at
- * the end of the row — one tap from anywhere, which is the point of moving it out of the row.
+ * the end of the row — one tap away wherever the row is open.
  *
  * Two shapes for one row. Expanded, the tabs fill a capsule and search is a circle at its end.
- * Collapsed, the capsule contracts to a single button carrying the icon of wherever the user is
- * — enough to say "navigation lives here" without spending a bar's worth of screen on four
- * destinations nobody is looking at while reading — and tapping it brings the row back. Search
- * does not collapse: it is one tap from anywhere, and that is the point of moving it out.
+ * Collapsed, the whole row is one key carrying the icon of wherever the user is — enough to say
+ * "navigation lives here" without spending a bar's worth of screen on destinations nobody is
+ * looking at while reading — and tapping it brings the row back. 搜索 collapses with the tabs:
+ * it is one body with them, and comes apart from it only as the row opens out.
  *
- * Every time the row shows — rising onto a root page, or coming back from collapsed — it shows
- * as liquid: one capsule that 搜索 grows out of (see [DockLiquid]). For those frames the two
- * panes hand their glass to the liquid drawn behind the row, and take it back once 搜索 has
- * landed. Leaving and collapsing are what they always were.
+ * With the liquid on (see [DockLiquid]) every change of shape is liquid: rising onto a root page
+ * or expanding, the row is one capsule that 搜索 grows out of; collapsing, 搜索 flows back into
+ * the capsule before it contracts. For those frames the two panes hand their glass to the liquid
+ * drawn behind the row, and take it back once it rests. Leaving is what it always was.
  */
 @Composable
 private fun BottomNavigationDock(
@@ -841,20 +845,39 @@ private fun BottomNavigationDock(
     val routeVisible = rememberRouteVisibility()
     LaunchedEffect(liquid) {
         if (liquid.clock.move != DockLiquidMove.Enter) return@LaunchedEffect
-        // At launch the dock is composed behind the splash: 搜索 buds once the app is on screen.
+        // At launch the dock is composed behind the splash: 搜索 buds once the app is on screen —
+        // unless a collapse has taken the dock over meanwhile.
         snapshotFlow { routeVisible.value }.first { it }
+        if (liquid.clock.move != DockLiquidMove.Enter || liquid.clock.elapsed > 0f) return@LaunchedEffect
         liquid.clock.play(DockLiquidMove.Enter, DockLiquidMove.Enter.durationMs)
     }
     val latestLiquidMotion by rememberUpdatedState(liquidMotion)
     val wasCollapsed = remember { booleanArrayOf(collapsed) }
     LaunchedEffect(collapsed) {
-        val expanding = wasCollapsed[0] && !collapsed
+        if (wasCollapsed[0] == collapsed) return@LaunchedEffect
         wasCollapsed[0] = collapsed
+        val clock = liquid.clock
+        val move = clock.move
         when {
-            // Collapsing is the capsule's own spring, as it always was.
-            collapsed -> liquid.clock.rest()
-            expanding && latestLiquidMotion ->
-                liquid.clock.play(DockLiquidMove.Expand, DockLiquidMove.Expand.durationMs)
+            // Without the liquid the panes change shape themselves: the capsule's spring, 搜索's fade.
+            !latestLiquidMotion -> clock.rest()
+            move == null -> {
+                val next = if (collapsed) DockLiquidMove.Collapse else DockLiquidMove.Expand
+                clock.arm(next)
+                clock.runTo(next.durationMs.toFloat())
+            }
+            move == DockLiquidMove.Enter && collapsed -> {
+                // Back to the whole-row capsule it rose as, 搜索 flowing back in, then down to the key.
+                if (clock.elapsed > 0f) clock.runTo(0f, holdLastFrame = true)
+                clock.arm(DockLiquidMove.Collapse, atMs = DOCK_MERGE_MS.toFloat())
+                clock.runTo(DockLiquidMove.Collapse.durationMs.toFloat())
+            }
+            // Overtaken halfway: on to its end if that is where the dock is going now, otherwise
+            // back the way it came, from wherever it had got to.
+            else -> {
+                val onward = (move == DockLiquidMove.Collapse) == collapsed
+                clock.runTo(if (onward) move.durationMs.toFloat() else 0f)
+            }
         }
     }
     val liquidDrawing = liquid.drawing
@@ -900,18 +923,24 @@ private fun BottomNavigationDock(
     ) {
         BoxWithConstraints(Modifier.weight(1f)) {
             val expandedWidth = maxWidth
-            val dockWidth =
+            val paneWidth =
                 animateDpAsState(
                     targetValue = if (collapsed) height else maxWidth,
-                    // The liquid owns the way back, so the pane is at full width under it at once.
+                    // The liquid owns every change of shape, so the pane is at its new width at once.
                     animationSpec =
-                        if (reduceMotion || (liquidMotion && !collapsed)) {
+                        if (reduceMotion || liquidMotion) {
                             snap()
                         } else {
                             spring(dampingRatio = 0.92f, stiffness = 360f)
                         },
                     label = "navigationDockWidth",
                 )
+            // Under the liquid the pane spans the row and is clipped to the liquid's capsule; it
+            // takes its own width back together with its glass, in the same frame.
+            val dockWidth =
+                remember(liquid, paneWidth, expandedWidth) {
+                    derivedStateOf { if (liquid.drawing) expandedWidth else paneWidth.value }
+                }
             // A single continuous lens changes width; content fades inside its clipped bounds.
             // The fixed outer slot keeps search still, including when a fling is interrupted.
             AnimatedContent(
@@ -957,12 +986,27 @@ private fun BottomNavigationDock(
                 }
             }
         }
+        // 搜索 is inside the collapsed key. The liquid takes it in and lets it out; without the
+        // liquid it fades with the capsule, quickly going and at the tabs' pace coming back.
+        val searchShown =
+            animateFloatAsState(
+                targetValue = if (collapsed) 0f else 1f,
+                animationSpec =
+                    when {
+                        reduceMotion || liquidMotion -> snap()
+                        collapsed -> Motion.tween(Motion.QUICK)
+                        else -> Motion.tween(Motion.EMPHASIZED)
+                    },
+                label = "dockSearchShown",
+            )
         SearchButton(
             selected = active == Tab.Search,
             backdrop = backdrop,
             diameter = height,
             onClick = onSearch,
             dockLiquid = liquid,
+            inKey = collapsed,
+            shown = searchShown,
         )
     }
 }
@@ -996,7 +1040,10 @@ internal fun Modifier.navigationDockViewport(
         layout(visibleWidth, content.height) { content.placeRelative(0, 0) }
     }
 
-/** The bar contracted to one key — the current tab's glyph, and a way back to the rest. */
+/**
+ * The bar contracted to one key — the glyph of wherever the user is, 搜索 included now that it
+ * collapses with the tabs, and a way back to the rest.
+ */
 @Composable
 private fun CollapsedNavButton(
     active: Tab,
@@ -1004,7 +1051,7 @@ private fun CollapsedNavButton(
     onClick: () -> Unit,
 ) {
     val accent = LocalAccentColors.current
-    val item = tabs.firstOrNull { it.tab == active } ?: tabs.first()
+    val item = tabs.firstOrNull { it.tab == active } ?: searchKeyItem.takeIf { active == Tab.Search } ?: tabs.first()
     Box(
         Modifier
             .size(diameter)
@@ -1032,9 +1079,13 @@ private fun CollapsedNavButton(
  * search is not a place, it is an action that is always available, and it should look it.
  * Only while the search page is open does it take the accent and an island of its own.
  *
- * While the dock shows as liquid its pane is the drop growing out of the capsule: the key
- * stays where it is to be tapped, and the island and magnifier ride the drop, the magnifier
- * coming into focus as the drop lands.
+ * While the dock moves as liquid its pane is the drop growing out of the capsule or flowing
+ * back into it: the key stays where it is to be tapped, and the island and magnifier ride the
+ * drop, the magnifier coming into focus as the drop lands and going first as it leaves.
+ *
+ * [inKey]: the dock has collapsed into one key and 搜索 is inside it — out of sight, out of
+ * reach and out of TalkBack's order until the row opens out again. [shown] is how much of it
+ * there is while the liquid is not drawing it.
  */
 @Composable
 private fun SearchButton(
@@ -1043,6 +1094,8 @@ private fun SearchButton(
     diameter: Dp,
     onClick: () -> Unit,
     dockLiquid: DockLiquid? = null,
+    inKey: Boolean = false,
+    shown: State<Float>? = null,
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
@@ -1064,8 +1117,11 @@ private fun SearchButton(
     Box(
         Modifier
             .size(diameter)
+            .graphicsLayer { alpha = if (dockLiquid?.drawing == true) 1f else (shown?.value ?: 1f) }
+            .then(if (inKey) Modifier.clearAndSetSemantics {} else Modifier)
             .searchDockSource()
             .pressable(
+                enabled = !inKey,
                 pressedScale = 0.96f,
                 haptic = HapticSignal.Select,
                 role = Role.Tab,
