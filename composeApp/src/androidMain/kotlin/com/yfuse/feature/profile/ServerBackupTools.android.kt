@@ -39,6 +39,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.SecureFlagPolicy
 import androidx.core.content.ContextCompat
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.Brand
@@ -46,6 +48,7 @@ import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OverlayButton
+import com.yfuse.core.designsystem.OverlayButtonRow
 import com.yfuse.core.designsystem.OverlayButtonTone
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.YfButton
@@ -85,8 +88,14 @@ actual fun ServerBackupTools(
     var passphrase by remember { mutableStateOf("") }
     var qrBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var pendingFilePayload by remember { mutableStateOf<String?>(null) }
+    var pendingFileSavedMessage by remember { mutableStateOf<String?>(null) }
     var pendingImportPayload by remember { mutableStateOf<String?>(null) }
     var activeMigrationCode by remember { mutableStateOf<String?>(null) }
+    var showProtectedExport by remember { mutableStateOf(false) }
+    var exportPassphrase by remember { mutableStateOf("") }
+    var exportConfirmation by remember { mutableStateOf("") }
+    var exportPassphraseError by remember { mutableStateOf<String?>(null) }
+    var protectedExportRunning by remember { mutableStateOf(false) }
     val relayApi = migrationRelayApi
 
     DisposableEffect(activity) {
@@ -159,7 +168,7 @@ actual fun ServerBackupTools(
             if (onIsRelay(decoded)) {
                 "已读取迁移包，请输入源设备显示的 6 位迁移码"
             } else {
-                "这是旧版迁移包，请输入原来的至少 12 位保护口令"
+                "这是口令保护的迁移包，请输入导出时设置的至少 12 位口令"
             }
     }
 
@@ -227,7 +236,9 @@ actual fun ServerBackupTools(
             ActivityResultContracts.CreateDocument("application/json"),
         ) { uri ->
             val payload = pendingFilePayload
+            val savedMessage = pendingFileSavedMessage ?: "服务器备份已保存"
             pendingFilePayload = null
+            pendingFileSavedMessage = null
             if (uri != null && payload != null) {
                 runCatching {
                     context.contentResolver
@@ -241,7 +252,7 @@ actual fun ServerBackupTools(
                         event = "file_exported",
                         message = "Server backup file exported",
                     )
-                    message = "服务器备份已保存"
+                    message = savedMessage
                 }.onFailure {
                     AppLog.error(
                         category = "server.migration",
@@ -347,6 +358,49 @@ actual fun ServerBackupTools(
             }
         }
 
+    fun closeProtectedExport() {
+        // A String cannot be wiped, but no reference to the typed passphrase outlives the dialog.
+        exportPassphrase = ""
+        exportConfirmation = ""
+        exportPassphraseError = null
+        showProtectedExport = false
+    }
+
+    /**
+     * 口令导出: the passphrase-protected package the TV also writes, for a move without the online
+     * relay. It goes through the same document picker as 导出文件; the passphrase only ever exists
+     * here as a CharArray that is zeroed as soon as the package is sealed.
+     */
+    fun exportWithPassphrase() {
+        protectedExportPassphraseError(exportPassphrase, exportConfirmation)?.let { reason ->
+            exportPassphraseError = reason
+            return
+        }
+        val secret = exportPassphrase.toCharArray()
+        closeProtectedExport()
+        protectedExportRunning = true
+        scope.launch {
+            val now = System.currentTimeMillis() / 1_000L
+            val result =
+                try {
+                    withContext(Dispatchers.Default) { onExport(secret, now) }
+                } finally {
+                    secret.fill('\u0000')
+                    protectedExportRunning = false
+                }
+            result
+                .onSuccess { payload ->
+                    pendingFilePayload = payload
+                    pendingFileSavedMessage =
+                        "口令保护备份已保存，请在 $PROTECTED_EXPORT_TTL_MINUTES 分钟内用同一口令导入"
+                    exportFile.launch("Yfuse-servers.protected.json")
+                }.onFailure {
+                    // ServerRegistry has already logged the failure; the message names no secret.
+                    message = it.message ?: "生成口令保护备份失败"
+                }
+        }
+    }
+
     Column(
         Modifier
             .fillMaxWidth()
@@ -408,7 +462,7 @@ actual fun ServerBackupTools(
                     if (pendingImportPayload?.let(onIsRelay) == true) {
                         "6 位数字迁移码"
                     } else {
-                        "迁移码（新文件为 6 位；旧文件为原口令）"
+                        "迁移码（6 位）或导出时设置的保护口令"
                     },
                 )
             },
@@ -502,6 +556,11 @@ actual fun ServerBackupTools(
                 }
             }
             MigrationDivider()
+            MigrationLink("口令导出", Modifier.weight(1f), serverCount > 0 && !protectedExportRunning) {
+                message = null
+                showProtectedExport = true
+            }
+            MigrationDivider()
             MigrationLink("导入文件", Modifier.weight(1f), true) {
                 importFile.launch(arrayOf("application/json", "text/plain", "*/*"))
             }
@@ -525,12 +584,76 @@ actual fun ServerBackupTools(
         }
         Text(
             "新迁移包由随机 256 位密钥使用 AES-256-GCM 加密；6 位迁移码仅能在线尝试 5 次，" +
-                "15 分钟后失效且只能兑换一次。服务端不接收或保存备份内容。旧版强口令文件仍可导入。" +
+                "15 分钟后失效且只能兑换一次。服务端不接收或保存备份内容。" +
+                "口令导出不经过迁移服务，由你设置的至少 12 位口令加密，同样 15 分钟内有效，电视端也可导入。" +
                 "导入后请删除文件/二维码；" +
                 "若曾外泄，请在 Emby 注销会话以轮换访问令牌。",
             style = mr(9.5f, 400),
             color = palette.sub2,
         )
+    }
+
+    if (showProtectedExport) {
+        GlassDialog(
+            onDismiss = ::closeProtectedExport,
+            // Two typed passphrases: a flick must not throw them away mid-entry.
+            dragToDismiss = false,
+            // The window already holds FLAG_SECURE; the dialog's own window says so explicitly.
+            properties =
+                DialogProperties(
+                    usePlatformDefaultWidth = false,
+                    decorFitsSystemWindows = false,
+                    securePolicy = SecureFlagPolicy.SecureOn,
+                ),
+        ) {
+            OverlayHeader(
+                title = "口令保护导出",
+                subtitle =
+                    "用自设口令加密服务器与登录信息，不经过迁移服务；" +
+                        "文件 $PROTECTED_EXPORT_TTL_MINUTES 分钟内有效，导入时输入同一口令。",
+                onClose = ::closeProtectedExport,
+            )
+            OutlinedTextField(
+                value = exportPassphrase,
+                onValueChange = {
+                    exportPassphrase = it.take(ServerMigrationCrypto.MAX_PASSPHRASE_LENGTH)
+                    exportPassphraseError = null
+                },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("保护口令（至少 ${ServerMigrationCrypto.MIN_PASSPHRASE_LENGTH} 位）") },
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                singleLine = true,
+                shape = RoundedCornerShape(14.dp),
+            )
+            Spacer(Modifier.height(10.dp))
+            OutlinedTextField(
+                value = exportConfirmation,
+                onValueChange = {
+                    exportConfirmation = it.take(ServerMigrationCrypto.MAX_PASSPHRASE_LENGTH)
+                    exportPassphraseError = null
+                },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("再次输入口令") },
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                singleLine = true,
+                shape = RoundedCornerShape(14.dp),
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                exportPassphraseError ?: "口令无法找回；请勿与备份文件放在同一处。",
+                style = mr(10.5f, 500),
+                color = if (exportPassphraseError != null) palette.error else palette.sub2,
+            )
+            OverlayButtonRow(
+                dismissLabel = "取消",
+                confirmLabel = "导出",
+                onDismiss = ::closeProtectedExport,
+                onConfirm = ::exportWithPassphrase,
+                confirmEnabled = exportPassphrase.isNotEmpty() && exportConfirmation.isNotEmpty(),
+            )
+        }
     }
 
     val displayedQr = qrBitmap
@@ -568,6 +691,30 @@ actual fun ServerBackupTools(
 
 /** Process-wide, immutable client; it owns a pooled HTTP engine and is safe to reuse. */
 private val migrationRelayApi: MigrationRelayApi by lazy { MigrationRelayApi() }
+
+/** How long a 口令导出 package stays importable: the registry seals it with the default lifetime. */
+private const val PROTECTED_EXPORT_TTL_MINUTES = ServerMigrationCrypto.DEFAULT_TTL_SECONDS / 60
+
+/**
+ * Why a 口令导出 passphrase cannot be used, or null when it can.
+ *
+ * The rules are the ones [ServerMigrationCrypto] enforces when it seals the package, and so the ones
+ * every import — this screen's and the TV's — asks for; checking them first lets the dialog say which
+ * one failed. The confirmation is the only addition: a typo here would lock the file for good.
+ */
+internal fun protectedExportPassphraseError(
+    passphrase: String,
+    confirmation: String,
+): String? =
+    when {
+        passphrase.length < ServerMigrationCrypto.MIN_PASSPHRASE_LENGTH ->
+            "保护口令至少需要 ${ServerMigrationCrypto.MIN_PASSPHRASE_LENGTH} 个字符"
+        passphrase.length > ServerMigrationCrypto.MAX_PASSPHRASE_LENGTH ->
+            "保护口令最多 ${ServerMigrationCrypto.MAX_PASSPHRASE_LENGTH} 个字符"
+        passphrase.all(Char::isWhitespace) -> "保护口令不能只包含空白字符"
+        passphrase != confirmation -> "两次输入的口令不一致"
+        else -> null
+    }
 
 @Composable
 private fun MigrationLink(
