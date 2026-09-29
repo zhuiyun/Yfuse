@@ -38,7 +38,6 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
 import com.arkivanov.mvikotlin.core.store.Store
 import com.arkivanov.mvikotlin.extensions.coroutines.states
-import com.yfuse.app.ProvideAppTips
 import com.yfuse.app.effectiveGlassStyle
 import com.yfuse.app.rememberAppAccessibilityOptions
 import com.yfuse.core.account.AccountAccessTokenSource
@@ -824,7 +823,7 @@ class PlayerActivity : ComponentActivity() {
                 particleActive = !inPictureInPicture,
                 motionTheme = motionTheme,
             ) {
-                ProvideAppTips {
+                ProvidePlayerChrome(television = televisionDevice) {
                     PlayerRoot(
                         transition = transition,
                         items = liveItems,
@@ -933,8 +932,9 @@ class PlayerActivity : ComponentActivity() {
                             }
                         },
                         onBack = ::closePlayerAndReturn,
+                        // No 小窗 key on a television: a remote has no second app to keep it company.
                         onEnterPictureInPicture =
-                            if (pictureInPictureSupported) ::enterPlayerPictureInPicture else null,
+                            if (pictureInPictureSupported && !televisionDevice) ::enterPlayerPictureInPicture else null,
                         onRefreshEpisodes = { refreshEpisodes(force = true) },
                         onRemotePlayRequested = ::ensureAudioFocus,
                         remoteChrome = tvChromeController.takeIf { televisionDevice },

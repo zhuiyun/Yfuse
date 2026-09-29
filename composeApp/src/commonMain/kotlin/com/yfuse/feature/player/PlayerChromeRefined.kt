@@ -922,6 +922,8 @@ private fun RefinedSpeedControl(
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val figure = if (speed % 1f == 0f) "${speed.toInt()}" else "$speed"
     val label = "$figure×"
+    // The same ring as its neighbours: 26 dp in reach of a thumb, larger across a room.
+    val ring = chromeKeySize(26.dp)
     Box(
         Modifier
             // Named for what it sets, with the rate as its state: read out, 「1.25×」 alone was a
@@ -929,12 +931,12 @@ private fun RefinedSpeedControl(
             .pressable(label = "播放速度", onClick = onClick)
             .touchTarget()
             .semantics { stateDescription = "$figure 倍" }
-            .size(40.dp),
+            .size(ring + ControlTouchPadding * 2),
         contentAlignment = Alignment.Center,
     ) {
         Box(
             Modifier
-                .size(26.dp)
+                .size(ring)
                 .border(1.dp, Color.White.copy(alpha = 0.62f), CircleShape),
             contentAlignment = Alignment.Center,
         ) {

@@ -296,6 +296,8 @@ internal fun TransportRow(
     }
     val showsPause = transportShowsPause(state.playing, state.buffering, settledPlaying)
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    // The ring [CircleControl] will draw, which a television enlarges; the stall ring follows it.
+    val keySize = chromeKeySize(TransportKeySize)
 
     Row(
         modifier.graphicsLayer { alpha = if (locked) 0.45f else 1f },
@@ -324,7 +326,7 @@ internal fun TransportRow(
         // cursor resting on the key does not lose it. The stall is a ring round the key instead.
         // Nor does pressing it: the glyph turns into the other one inside the same key, so focus
         // stays put and a screen reader hears the new state rather than nothing.
-        Box(Modifier.size(TransportKeySize + ControlTouchPadding * 2), contentAlignment = Alignment.Center) {
+        Box(Modifier.size(keySize + ControlTouchPadding * 2), contentAlignment = Alignment.Center) {
             CircleControl(
                 if (showsPause) AppIcons.Pause else AppIcons.Play,
                 if (showsPause) "暂停" else "播放",
@@ -356,7 +358,7 @@ internal fun TransportRow(
                 exit = fadeOut(Motion.tween(if (reduceMotion) 0 else Motion.QUICK)),
                 label = "transport-buffering",
             ) {
-                BufferingRing(Modifier.size(TransportKeySize + BufferingRingGap * 2))
+                BufferingRing(Modifier.size(keySize + BufferingRingGap * 2))
             }
         }
 
@@ -845,6 +847,10 @@ internal fun CircleControl(
     crossfadeIcon: Boolean = false,
 ) {
     val interactions = remember { MutableInteractionSource() }
+    // Across a room the phone's ring is a speck: a television draws it no smaller than 40 dp, and
+    // the glyph grows with it.
+    val ring = chromeKeySize(size)
+    val glyphSize = iconSize * (ring / size)
     // The ring is what you see; the touch target is bigger than the ring. Sizing them
     // together is what made these controls big enough to cover a face — a 48dp disc over
     // the middle of the picture is 48dp of picture you cannot see.
@@ -869,12 +875,12 @@ internal fun CircleControl(
                 } else {
                     it.touchTarget()
                 }
-            }.size(size + ControlTouchPadding * 2),
+            }.size(ring + ControlTouchPadding * 2),
         contentAlignment = Alignment.Center,
     ) {
         Box(
             ringModifier
-                .size(size)
+                .size(ring)
                 // A filled key gets no ring. Outlined siblings are drawn *by* their hairline;
                 // putting the same hairline around a solid disc gave the play key two edges
                 // and made it read as a third kind of object wedged between two rings rather
@@ -899,7 +905,7 @@ internal fun CircleControl(
             val tint = if (filled) PlayerTokens.onPlay else Color.White
             when {
                 glyph != null -> {
-                    Icon(glyph, contentDescription = description, tint = tint, modifier = Modifier.size(iconSize))
+                    Icon(glyph, contentDescription = description, tint = tint, modifier = Modifier.size(glyphSize))
                 }
                 crossfadeIcon -> {
                     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
@@ -907,15 +913,15 @@ internal fun CircleControl(
                     // hears both halves of the dissolve.
                     Crossfade(
                         targetState = icon,
-                        modifier = Modifier.size(iconSize).semantics { contentDescription = description },
+                        modifier = Modifier.size(glyphSize).semantics { contentDescription = description },
                         animationSpec = Motion.tween(if (reduceMotion) 0 else Motion.QUICK),
                         label = "circle-control-glyph",
                     ) { shown ->
-                        Icon(shown, contentDescription = null, tint = tint, modifier = Modifier.size(iconSize))
+                        Icon(shown, contentDescription = null, tint = tint, modifier = Modifier.size(glyphSize))
                     }
                 }
                 else -> {
-                    Icon(icon, contentDescription = description, tint = tint, modifier = Modifier.size(iconSize))
+                    Icon(icon, contentDescription = description, tint = tint, modifier = Modifier.size(glyphSize))
                 }
             }
         }
@@ -948,7 +954,7 @@ internal val CenterKeyIconSize = 22.dp
 private const val SEEK_STEP_MS = 10_000L
 
 /** Slack around a control's ring, so a small ring still has a thumb-sized target. */
-private val ControlTouchPadding = 7.dp
+internal val ControlTouchPadding = 7.dp
 
 /** From the left edge, where the left thumb rests on a phone held sideways. */
 internal val LockKeyEdgePadding = 16.dp

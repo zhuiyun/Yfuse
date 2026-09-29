@@ -973,8 +973,11 @@ internal fun SettingsPanel(
                                         checked = ambientLightEnabled,
                                         onToggle = onToggleAmbientLight,
                                     )
-                                    OptionRow("锁定控制", false, onClick = overlayAction(onLock))
-                                    OptionRow("手势说明", false, onClick = overlayAction(onOpenGestureHelp))
+                                    // A remote has no touches to lock out and no gestures to explain.
+                                    if (!LocalTelevisionChrome.current) {
+                                        OptionRow("锁定控制", false, onClick = overlayAction(onLock))
+                                        OptionRow("手势说明", false, onClick = overlayAction(onOpenGestureHelp))
+                                    }
                                     onExternalPlayer?.let { open ->
                                         OptionRow("使用外部播放器", false, onClick = overlayAction(open))
                                     }

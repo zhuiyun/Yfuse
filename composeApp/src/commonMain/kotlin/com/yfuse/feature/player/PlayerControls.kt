@@ -1679,13 +1679,11 @@ internal fun PlayerControls(
 
                 // 锁定 without the trip into 更多: the left edge's key, up with the rest of the chrome.
                 // Touch screens only — a remote sends no stray touches for a lock to keep out.
-                if (remoteChrome == null) {
-                    ChromeVisibility(
-                        visible = visible,
-                        modifier = Modifier.align(Alignment.CenterStart).padding(start = LockKeyEdgePadding),
-                    ) {
-                        PlayerLockKey(locked = false, onClick = ::lockScreen)
-                    }
+                ChromeVisibility(
+                    visible = visible && remoteChrome == null,
+                    modifier = Modifier.align(Alignment.CenterStart).padding(start = LockKeyEdgePadding),
+                ) {
+                    PlayerLockKey(locked = false, onClick = ::lockScreen)
                 }
 
                 // 回到 12:34: a scan that ran past its mark is one tap from where it set out.
@@ -2254,6 +2252,7 @@ internal fun PlayerControls(
                         },
                     active =
                         visible &&
+                            remoteChrome == null &&
                             (gestures.centerHoldSpeedBoost || !gestures.sideHoldScans) &&
                             state.durationMs > 0L &&
                             !watch.connected &&
