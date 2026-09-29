@@ -190,14 +190,20 @@ internal class TmdbRequestRouter(
         execute: suspend (HttpRequestBuilder) -> HttpClientCall,
     ): HttpClientCall {
         val access = checkNotNull(account)
-        var outcome = tryProxy(execute, request.towardsProxy(access.proxyBase, tmdbPath, token))
-        if (outcome.response.status.isSuccess()) return outcome.keep()
-        if (outcome.response.status == HttpStatusCode.Unauthorized) {
-            renewToken(access, rejected = token)?.let { renewed ->
-                outcome = tryProxy(execute, request.towardsProxy(access.proxyBase, tmdbPath, renewed))
-                if (outcome.response.status.isSuccess()) return outcome.keep()
+        val outcome =
+            try {
+                proxyAttempts(access, request, tmdbPath, token, execute)
+            } catch (unreachable: IOException) {
+                // No answer at all says nothing about TMDB, which signed-in reads reached directly
+                // before the proxy existed. A build with a token takes this request direct and leaves
+                // the account server alone for a while, so a server that is down or out of reach
+                // costs one timeout rather than one for every shelf.
+                if (direct.isEmpty()) throw unreachable
+                startCooldown(PROXY_COOLDOWN_MS, UNREACHABLE)
+                noteFallback(UNREACHABLE)
+                return directly(request, original, direct, execute)
             }
-        }
+        if (outcome.response.status.isSuccess()) return outcome.keep()
         val response = outcome.response
         val verdict =
             tmdbProxyVerdict(
@@ -206,9 +212,23 @@ internal class TmdbRequestRouter(
                 retryAfterSeconds = response.headers[HttpHeaders.RetryAfter]?.trim()?.toLongOrNull(),
             )
         if (direct.isEmpty() || verdict !is TmdbProxyVerdict.RetryDirect) return outcome.keep()
-        if (verdict.cooldownMs > 0L) startCooldown(verdict.cooldownMs, response.status.value)
-        noteFallback(response.status.value)
+        if (verdict.cooldownMs > 0L) startCooldown(verdict.cooldownMs, response.status.value.toString())
+        noteFallback(response.status.value.toString())
         return directly(request, original, direct, execute)
+    }
+
+    /** The proxied attempt, and one more under a renewed session when the server refused this one. */
+    private suspend fun proxyAttempts(
+        access: TmdbAccountAccess,
+        request: HttpRequestBuilder,
+        tmdbPath: String,
+        token: String,
+        execute: suspend (HttpRequestBuilder) -> HttpClientCall,
+    ): ProxyAttempt {
+        val first = tryProxy(execute, request.towardsProxy(access.proxyBase, tmdbPath, token))
+        if (first.response.status != HttpStatusCode.Unauthorized) return first
+        val renewed = renewToken(access, rejected = token) ?: return first
+        return tryProxy(execute, request.towardsProxy(access.proxyBase, tmdbPath, renewed))
     }
 
     private suspend fun directly(
@@ -235,9 +255,10 @@ internal class TmdbRequestRouter(
             renewed
         }
 
+    /** [status] is the proxy's HTTP status, or [UNREACHABLE] when no answer came back. */
     private fun startCooldown(
         cooldownMs: Long,
-        status: Int,
+        status: String,
     ) {
         val until = nowEpochMs() + cooldownMs
         if (until <= proxyCoolingUntil) return
@@ -246,20 +267,20 @@ internal class TmdbRequestRouter(
             category = "tmdb",
             event = "proxy_cooldown_started",
             message = "The account server cannot proxy TMDB; the built-in token is used meanwhile",
-            attributes = mapOf("status" to status.toString(), "cooldownMs" to cooldownMs.toString()),
+            attributes = mapOf("status" to status, "cooldownMs" to cooldownMs.toString()),
         )
     }
 
     /** At most once a minute: a lagging allowlist would otherwise log every shelf of every refresh. */
-    private fun noteFallback(status: Int) {
+    private fun noteFallback(status: String) {
         val now = nowEpochMs()
         lastFallbackLoggedAt?.let { if (now - it in 0 until FALLBACK_LOG_INTERVAL_MS) return }
         lastFallbackLoggedAt = now
         AppLog.info(
             category = "tmdb",
             event = "proxy_fallback",
-            message = "The TMDB proxy declined a request; it was retried with the built-in token",
-            attributes = mapOf("status" to status.toString()),
+            message = "The TMDB proxy could not serve a request; it was retried with the built-in token",
+            attributes = mapOf("status" to status),
         )
     }
 
@@ -366,6 +387,9 @@ private const val PROXY_COOLDOWN_MS = 2 * 60_000L
 private const val DEFAULT_RETRY_AFTER_SECONDS = 30L
 private const val MAX_RETRY_AFTER_SECONDS = 120L
 private const val FALLBACK_LOG_INTERVAL_MS = 60_000L
+
+/** Logged in place of a status when the account server gave no answer (refused, timed out, no route). */
+private const val UNREACHABLE = "unreachable"
 
 /**
  * At launch the account restore holds its lock for one refresh round trip; a sync upload can hold

@@ -285,9 +285,34 @@ class TmdbRoutingTest {
         }
 
     @Test
-    fun an_unreachable_proxy_is_not_answered_by_a_second_slow_attempt() =
+    fun an_unreachable_account_server_is_skipped_for_a_while_and_the_read_goes_direct() =
         runTest {
-            val client = client { throw IOException("connection refused") }
+            val client =
+                client { request ->
+                    if (request.url.toString().startsWith(PROXY)) throw IOException("connection refused")
+                    json("{}")
+                }
+            client.get("$TMDB_BASE/tv/1").bodyAsText()
+            // Within the cooldown the server is not asked again, so a dead one costs one timeout.
+            client.get("$TMDB_BASE/tv/2").bodyAsText()
+            clock += 2 * 60_000L + 1L
+            client.get("$TMDB_BASE/tv/3").bodyAsText()
+            assertEquals(
+                listOf(
+                    "$PROXY/tv/1" to "Bearer account-1",
+                    "$TMDB_BASE/tv/1" to "Bearer $BUILT_IN",
+                    "$TMDB_BASE/tv/2" to "Bearer $BUILT_IN",
+                    "$PROXY/tv/3" to "Bearer account-1",
+                    "$TMDB_BASE/tv/3" to "Bearer $BUILT_IN",
+                ),
+                sent.value,
+            )
+        }
+
+    @Test
+    fun without_a_built_in_token_an_unreachable_account_server_fails_the_read() =
+        runTest {
+            val client = client(builtInToken = "") { throw IOException("connection refused") }
             assertFailsWith<IOException> { client.get("$TMDB_BASE/tv/1") }
             assertEquals(listOf("$PROXY/tv/1" to "Bearer account-1"), sent.value)
         }

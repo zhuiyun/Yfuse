@@ -52,9 +52,6 @@ fun createTmdbClient(
 ): HttpClient =
     HttpClient(engine) {
         expectSuccess = true
-        // The account's bearer must never follow a redirect off the account server, and TMDB's API
-        // does not redirect: a 3xx fails like any other error answer.
-        followRedirects = false
         install(ContentEncoding) { gzip() }
         install(HttpTimeout) {
             requestTimeoutMillis = TMDB_REQUEST_TIMEOUT_MS
