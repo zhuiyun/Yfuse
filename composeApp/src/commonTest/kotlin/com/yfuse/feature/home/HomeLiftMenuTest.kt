@@ -59,4 +59,30 @@ class HomeLiftMenuTest {
         assertEquals("查看详情", labels.first())
         assertTrue("从头播放" !in labels)
     }
+
+    @Test
+    fun edit_does_to_every_ticked_card_what_the_lift_does_to_one() {
+        val sent = mutableListOf<HomeIntent>()
+        val watched = entry().let { it.copy(item = it.item.copy(id = "e2", played = true)) }
+        val bar = resumeSelectionActions(listOf(entry(), watched)) { sent += it }
+        assertEquals(listOf("标记已看", "移除"), bar.map { it.label })
+        assertEquals(listOf(false, true), bar.map { it.destructive })
+
+        bar.forEach { it.onClick() }
+        // A card already watched has nothing to mark; it still goes when the cards are removed.
+        assertEquals(
+            listOf(
+                HomeIntent.MarkEntriesWatched(listOf(entry())),
+                HomeIntent.RemoveEntriesFromResume(listOf(entry(), watched)),
+            ),
+            sent,
+        )
+    }
+
+    @Test
+    fun edit_dims_what_has_nothing_to_act_on() {
+        assertTrue(resumeSelectionActions(emptyList()) {}.none { it.enabled })
+        val watched = entry().let { it.copy(item = it.item.copy(played = true)) }
+        assertEquals(listOf(false, true), resumeSelectionActions(listOf(watched)) {}.map { it.enabled })
+    }
 }
