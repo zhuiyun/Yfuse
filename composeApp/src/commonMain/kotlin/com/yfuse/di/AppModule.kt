@@ -42,9 +42,13 @@ import com.yfuse.core.data.TmdbRepository
 import com.yfuse.core.data.UserAgentPreferences
 import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.filesource.FileSourceClient
+import com.yfuse.core.filesource.FileSourceLibraryStore
 import com.yfuse.core.filesource.FileSourceProgressStore
 import com.yfuse.core.filesource.FileSourceRegistry
+import com.yfuse.core.filesource.FileSourceScanner
+import com.yfuse.core.filesource.TmdbTitleMatcher
 import com.yfuse.core.filesource.createFileSourceClient
+import com.yfuse.core.filesource.createFileSourceLibraryStorage
 import com.yfuse.core.network.LanDiscovery
 import com.yfuse.core.network.createDanmakuClient
 import com.yfuse.core.network.createEmbyClient
@@ -133,6 +137,19 @@ fun appModule(
     }
     single { FileSourceProgressStore(get()) }
     single<FileSourceClient> { createFileSourceClient() }
+    // 刮削: the share's paths, named through the same TMDB client as the home page's rows.
+    single { FileSourceLibraryStore(createFileSourceLibraryStorage()) }
+    single {
+        val tmdb = get<TmdbRepository>()
+        FileSourceScanner(
+            client = get(),
+            matcher =
+                TmdbTitleMatcher(
+                    search = { query, mediaType, year -> tmdb.searchTitles(query, mediaType, year) },
+                    alternativeTitles = tmdb::alternativeTitles,
+                ),
+        )
+    }
     single { ThemePreferences(get()) }
     single { TipsPreferences(get()) }
     single { LibraryGridColumnsPreferences(get()) }

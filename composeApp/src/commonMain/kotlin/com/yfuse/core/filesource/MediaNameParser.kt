@@ -26,7 +26,27 @@ data class ParsedMediaName(
  * Null for what is not a title of its own: samples, trailers and extras, and the insides of a
  * Blu-ray or DVD folder, which only play as the disc they belong to.
  */
-fun parseMediaPath(path: List<String>): ParsedMediaName? {
+fun parseMediaPath(path: List<String>): ParsedMediaName? = parseMediaPath(path, ::readName)
+
+/**
+ * Parses the paths of one share, reading each folder's name once: a season of forty episodes
+ * would otherwise read its show's folder forty times, and a scan parses thousands of paths.
+ */
+class MediaPathParser {
+    private val folders = HashMap<String, NameFacts>()
+
+    fun parse(path: List<String>): ParsedMediaName? =
+        parseMediaPath(path) { name ->
+            folders.getOrPut(name) {
+                readName(name)
+            }
+        }
+}
+
+private fun parseMediaPath(
+    path: List<String>,
+    readFolder: (String) -> NameFacts,
+): ParsedMediaName? {
     val fileName = path.lastOrNull()?.takeIf(String::isNotBlank) ?: return null
     val folders = path.dropLast(1)
     if (folders.any { it.isDiscStructureFolder() || it.isExtrasFolder() }) return null
@@ -34,7 +54,7 @@ fun parseMediaPath(path: List<String>): ParsedMediaName? {
     if (base.isExtraFileName()) return null
     val read = readName(base)
     // Nearest first: the season folder, then the show or film folder, then whatever holds those.
-    val above = folders.asReversed().map { it to readName(it) }
+    val above = folders.asReversed().map { it to readFolder(it) }
     val seasonFolder = above.firstOrNull { (_, facts) -> facts.season != null && facts.titles.isEmpty() }?.second
     val titled = above.firstOrNull { (name, facts) -> facts.titles.isNotEmpty() && !name.isGenericFolder() }?.second
     val file = read.withTrailingEpisode(titled, seasonFolder != null)
@@ -48,7 +68,7 @@ fun parseMediaPath(path: List<String>): ParsedMediaName? {
     return if (episodeFile.episode != null) {
         episodeName(episodeFile, titled, seasonFolder)
     } else {
-        movieName(file, titled, folders.lastOrNull())
+        movieName(file, titled, folders.lastOrNull()?.takeUnless(String::isGenericFolder)?.let(readFolder))
     }
 }
 
@@ -72,12 +92,11 @@ private fun episodeName(
 private fun movieName(
     file: NameFacts,
     titledFolder: NameFacts?,
-    parentName: String?,
+    parent: NameFacts?,
 ): ParsedMediaName? {
     val fileTitles = file.titles.filterNot(String::isGenericTitle)
     // The parent folder is this film's own when it says so — a year, a TMDB tag, or the same
     // title. A folder of many films (`诺兰作品集`) must not become a guess of its own.
-    val parent = parentName?.takeUnless(String::isGenericFolder)?.let(::readName)
     val ownFolder =
         parent?.takeIf { facts ->
             facts.titles.isNotEmpty() &&
@@ -469,6 +488,9 @@ private fun String.isGenericFolder(): Boolean {
     val normalized = normalizedTitle()
     return normalized.isEmpty() || normalized in GENERIC_FOLDERS || isGenericTitle()
 }
+
+/** A folder a library scan need not open: a disc's insides, or a title's extras. */
+internal fun isLibraryNoiseFolder(name: String): Boolean = name.isDiscStructureFolder() || name.isExtrasFolder()
 
 private fun String.isDiscStructureFolder(): Boolean = lowercase() in DISC_FOLDERS
 
