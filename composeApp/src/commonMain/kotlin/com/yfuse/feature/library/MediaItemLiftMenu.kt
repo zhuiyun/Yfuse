@@ -134,6 +134,59 @@ internal fun libraryHomeLiftMenu(
 }
 
 /**
+ * 浮起菜单 on 媒体库's 播放记录, whose tap already resumes: the rows 首页's 继续观看 offers — 查看详情
+ * and 从头播放, 标记为已看 and 从播放记录移除, then the favourite and 分享. The two in the middle are
+ * held back by the page's toast for 撤销 rather than written as they are picked.
+ */
+internal fun libraryHistoryLiftMenu(
+    item: MediaItem,
+    backdropUrl: String?,
+    onOpen: () -> Unit,
+    onPlayFromStart: () -> Unit,
+    onMarkWatched: () -> Unit,
+    onRemove: () -> Unit,
+    onFavorite: (Boolean) -> Unit,
+    onShare: (() -> Unit)? = null,
+): LiftMenu {
+    // A series resolves its own next episode; only a single title has a place to go back to.
+    val resumable = item.type != "Series" && (item.resumePositionTicks ?: 0L) > 0L && !item.played
+    return mediaItemLiftMenu(
+        item = item,
+        backdropUrl = backdropUrl,
+        onOpen = onOpen,
+        actions =
+            listOf(
+                listOfNotNull(
+                    detailsLiftAction(onOpen),
+                    if (resumable) {
+                        ItemAction(
+                            label = "从头播放",
+                            icon = AppIcons.Refresh,
+                            leavesPage = true,
+                            onSelect = onPlayFromStart,
+                        )
+                    } else {
+                        null
+                    },
+                ),
+                listOfNotNull(
+                    // This store writes 已看 and nothing else of the flag, so an already watched
+                    // title has nothing here to mark.
+                    if (item.played) null else playedLiftAction(played = false) { onMarkWatched() },
+                    ItemAction(
+                        label = "从播放记录移除",
+                        icon = AppIcons.Close,
+                        destructive = true,
+                        undoable = true,
+                        onSelect = onRemove,
+                    ),
+                ),
+                listOfNotNull(favoriteLiftAction(item.isFavorite, onFavorite), onShare?.let(::shareLiftAction)),
+            ),
+    )
+}
+
+/**
  * What the toast says once a 浮起菜单 flag has been written — the same words on every screen.
  * [queued] when the server turned the write down: the sync manager keeps it and tries again, so
  * the change stands and the toast says it is waiting rather than that it failed.

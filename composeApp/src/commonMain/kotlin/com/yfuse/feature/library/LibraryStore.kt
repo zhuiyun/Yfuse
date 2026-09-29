@@ -9,8 +9,10 @@ import com.yfuse.app.ProductSession
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.LibraryCache
 import com.yfuse.core.data.ServerRegistry
+import com.yfuse.core.designsystem.UndoWindow
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.HomeContent
+import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.deduplicatePlaybackHistory
 import com.yfuse.core.network.toUserMessage
@@ -97,6 +99,10 @@ data class LibraryState(
     /** Timestamp of the live response that produced [content]; null for pre-v2 cache entries. */
     val updatedAtEpochMs: Long? = null,
     val error: String? = null,
+    /** The page's one-line notice, see [ActionToast][com.yfuse.core.designsystem.ActionToast]. */
+    val actionMessage: String? = null,
+    /** Set while [actionMessage] offers 撤销 for a 播放记录 change: the id of the title it puts back. */
+    val historyUndoKey: String? = null,
 )
 
 sealed interface LibraryIntent {
@@ -111,6 +117,24 @@ sealed interface LibraryIntent {
     ) : LibraryIntent
 
     data object Retry : LibraryIntent
+
+    /**
+     * 浮起菜单 on 播放记录: 标记为已看 when [watched], else 从播放记录移除. The card leaves at once and
+     * the toast offers 撤销; nothing is written until the toast has gone (see [UndoWindow]), so taking
+     * it back leaves the place the title was stopped at untouched.
+     */
+    data class HideFromHistory(
+        val item: MediaItem,
+        val watched: Boolean,
+    ) : LibraryIntent
+
+    /** The toast's 撤销, for the 播放记录 card with this id. */
+    data class UndoHistoryChange(
+        val itemId: String,
+    ) : LibraryIntent
+
+    /** The toast has gone — timed out, swiped, the app left: what it held back is written now. */
+    data object DismissMessage : LibraryIntent
 }
 
 private sealed interface Action {
@@ -152,7 +176,46 @@ private sealed interface Msg {
     data class Failed(
         val message: String,
     ) : Msg
+
+    data class ActionMessage(
+        val value: String?,
+    ) : Msg
+
+    data class HistoryHidden(
+        val item: MediaItem,
+        val message: String,
+    ) : Msg
+
+    data class HistoryRestored(
+        val item: MediaItem,
+        val index: Int,
+    ) : Msg
 }
+
+/** A 播放记录 card taken off the page and waiting out its 撤销: where it was, to put it back there. */
+private class HistoryChange(
+    val item: MediaItem,
+    val index: Int,
+    val server: SavedServer,
+    val watched: Boolean,
+)
+
+/**
+ * [item] back where it was in 播放记录 after a 撤销, or last when the row has since grown shorter. A
+ * reload in between may already have brought it back, and it is not listed twice.
+ */
+internal fun List<MediaItem>.restoringHistory(
+    item: MediaItem,
+    index: Int,
+): List<MediaItem> {
+    val rest = filterNot { it.id == item.id }
+    val at = index.coerceIn(0, rest.size)
+    return rest.take(at) + item + rest.drop(at)
+}
+
+/** Writes 已看 for one title: this device's progress record first, then the server through the sync queue. */
+typealias LibraryPlayedWriter =
+    suspend (server: SavedServer, item: MediaItem, value: Boolean) -> Result<Unit>
 
 /** Connection fields that change which authenticated library request is being served. */
 private data class LibraryConnection(
@@ -197,6 +260,14 @@ class LibraryStoreFactory(
     private val appBackgroundedSince: (Long) -> Boolean = { since ->
         LibraryForegroundTimeline.leftForegroundSince(since)
     },
+    /**
+     * Starts a title over on this device, which is what takes it off 播放记录 — the row is built
+     * from local progress, as 首页's 继续观看 is. Null where there is no local store: the request is
+     * then dropped, as 首页's is.
+     */
+    private val forgetHistory: ((serverId: String, itemId: String) -> Unit)? = null,
+    /** 标记为已看 from 播放记录; tests that never mark a title may leave the default. */
+    private val playedWriter: LibraryPlayedWriter = { _, _, _ -> Result.success(Unit) },
 ) {
     fun create(): Store<LibraryIntent, LibraryState, Nothing> =
         storeFactory.create(
@@ -217,6 +288,7 @@ class LibraryStoreFactory(
         private var loadedConnection: LibraryConnection? = null
         private var loadGeneration = 0L
         private var loadJob: Job? = null
+        private val historyChanges = UndoWindow<HistoryChange>()
 
         override fun executeAction(action: Action) {
             when (action) {
@@ -243,7 +315,59 @@ class LibraryStoreFactory(
                         loadedConnection = it.libraryConnection()
                         load(it, refresh = true)
                     }
+                is LibraryIntent.HideFromHistory -> hideFromHistory(intent.item, intent.watched)
+                is LibraryIntent.UndoHistoryChange ->
+                    historyChanges
+                        .undo { it.item.id == intent.itemId }
+                        ?.let { dispatch(Msg.HistoryRestored(it.item, it.index)) }
+                LibraryIntent.DismissMessage -> {
+                    dispatch(Msg.ActionMessage(null))
+                    historyChanges.release()?.let(::commitHistoryChange)
+                }
             }
+        }
+
+        private fun hideFromHistory(
+            item: MediaItem,
+            watched: Boolean,
+        ) {
+            val server = state().currentServer ?: return
+            val index = state().content.resume.indexOfFirst { it.id == item.id }
+            if (index < 0) return
+            // Something new sends the change still waiting on its toast on its way, as on 首页.
+            historyChanges.hold(HistoryChange(item, index, server, watched))?.let(::commitHistoryChange)
+            dispatch(
+                Msg.HistoryHidden(
+                    item = item,
+                    message = if (watched) "已标记为已看「${item.title}」" else "已从播放记录移除「${item.title}」",
+                ),
+            )
+        }
+
+        private fun commitHistoryChange(change: HistoryChange) {
+            if (!change.watched) {
+                forgetHistory?.invoke(change.server.id, change.item.id)
+                return
+            }
+            scope.launch {
+                playedWriter(change.server, change.item, true).onFailure { error ->
+                    AppLog.warning(
+                        category = "feature.library",
+                        event = "history_played_deferred",
+                        message = "Watched mark from play history queued for a later sync",
+                        throwable = error,
+                        attributes = mapOf("serverId" to change.server.id),
+                    )
+                    // The sync queue keeps the write, so the change stands; say that it is waiting.
+                    dispatch(Msg.ActionMessage(flagChangeMessage(favorite = null, played = true, queued = true)))
+                }
+            }
+        }
+
+        /** A 播放记录 card waiting out its 撤销 stays off the page through any reload meanwhile. */
+        private fun HomeContent.withoutHeldHistory(): HomeContent {
+            val held = historyChanges.current?.item?.id ?: return this
+            return copy(resume = resume.filterNot { it.id == held })
         }
 
         private fun toggleFavorite(intent: LibraryIntent.ToggleFavorite) {
@@ -289,7 +413,7 @@ class LibraryStoreFactory(
                                     }.getOrNull()
                             }
                         if (!ownsLoad(generation, connection)) return@launch
-                        snapshot?.let { dispatch(Msg.Cached(it.content, it.updatedAtEpochMs)) }
+                        snapshot?.let { dispatch(Msg.Cached(it.content.withoutHeldHistory(), it.updatedAtEpochMs)) }
                     }
                     val initialContent = state().content
                     val started = TimeSource.Monotonic.markNow()
@@ -302,7 +426,7 @@ class LibraryStoreFactory(
                             repo.homeContent(server, initialContent = initialContent) { content ->
                                 withContext(mainContext) {
                                     if (ownsLoad(generation, connection)) {
-                                        dispatch(Msg.Progress(content))
+                                        dispatch(Msg.Progress(content.withoutHeldHistory()))
                                         if (firstProgress) {
                                             firstProgress = false
                                             AppLog.info(
@@ -334,7 +458,7 @@ class LibraryStoreFactory(
                                     }
                             }
                             if (!ownsLoad(generation, connection)) return@onSuccess
-                            dispatch(Msg.Loaded(content, updatedAtEpochMs))
+                            dispatch(Msg.Loaded(content.withoutHeldHistory(), updatedAtEpochMs))
                             AppLog.info(
                                 "feature.library",
                                 "load_completed",
@@ -462,6 +586,19 @@ class LibraryStoreFactory(
                                 LibraryContentSource.Cached
                             },
                         error = msg.message,
+                    )
+                is Msg.ActionMessage -> copy(actionMessage = msg.value, historyUndoKey = null)
+                is Msg.HistoryHidden ->
+                    copy(
+                        content = content.copy(resume = content.resume.filterNot { it.id == msg.item.id }),
+                        actionMessage = msg.message,
+                        historyUndoKey = msg.item.id,
+                    )
+                is Msg.HistoryRestored ->
+                    copy(
+                        content = content.copy(resume = content.resume.restoringHistory(msg.item, msg.index)),
+                        actionMessage = null,
+                        historyUndoKey = null,
                     )
             }
     }

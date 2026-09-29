@@ -63,6 +63,7 @@ import com.yfuse.app.floatingNavigationContentInset
 import com.yfuse.core.data.FAVORITES_COLLECTION_ID
 import com.yfuse.core.data.ServerHealthStatus
 import com.yfuse.core.data.WATCH_LATER_COLLECTION_ID
+import com.yfuse.core.designsystem.ActionToast
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
@@ -79,6 +80,7 @@ import com.yfuse.core.designsystem.HeroPageFade
 import com.yfuse.core.designsystem.HeroPageIndicator
 import com.yfuse.core.designsystem.HeroTextShadow
 import com.yfuse.core.designsystem.LaunchWaveState
+import com.yfuse.core.designsystem.LiftAnchor
 import com.yfuse.core.designsystem.LiftMenu
 import com.yfuse.core.designsystem.LightEffect
 import com.yfuse.core.designsystem.LivingPosterAmbient
@@ -97,6 +99,7 @@ import com.yfuse.core.designsystem.MotionSwap
 import com.yfuse.core.designsystem.OverlayActionRow
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.PageHint
+import com.yfuse.core.designsystem.Poster
 import com.yfuse.core.designsystem.RefreshIndicator
 import com.yfuse.core.designsystem.RefreshThresholdHaptics
 import com.yfuse.core.designsystem.ScrollToTopOnReselect
@@ -106,6 +109,7 @@ import com.yfuse.core.designsystem.SkeletonArrivalScope
 import com.yfuse.core.designsystem.SkeletonBlock
 import com.yfuse.core.designsystem.SkeletonRail
 import com.yfuse.core.designsystem.StatusBarIconStyle
+import com.yfuse.core.designsystem.ToastAction
 import com.yfuse.core.designsystem.arrivalSweep
 import com.yfuse.core.designsystem.carouselArtworkMotion
 import com.yfuse.core.designsystem.carouselCaptionEntry
@@ -120,6 +124,9 @@ import com.yfuse.core.designsystem.heroTopScrim
 import com.yfuse.core.designsystem.launchWaveImage
 import com.yfuse.core.designsystem.launchWaveInterrupt
 import com.yfuse.core.designsystem.launchWaveItem
+import com.yfuse.core.designsystem.liftAnchor
+import com.yfuse.core.designsystem.liftable
+import com.yfuse.core.designsystem.liftedCardOpen
 import com.yfuse.core.designsystem.lightFeedback
 import com.yfuse.core.designsystem.livingPosterFrame
 import com.yfuse.core.designsystem.livingPosterHeroHeight
@@ -648,6 +655,48 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                     }
                                 }
 
+                                // 播放记录 comes straight after the hero (I-04): picking up where one left
+                                // off is the first thing this page is for, and the banner, the smart
+                                // playlists and the categories above it had pushed it to the third, fourth
+                                // or fifth block, depending on which of them were showing.
+                                val historyLiftMenu: (MediaItem) -> LiftMenu = { item ->
+                                    libraryHistoryLiftMenu(
+                                        item = item,
+                                        backdropUrl = EmbyImages.backdrop(baseUrl, item, accessToken = accessToken),
+                                        onOpen = { component.onOpenItem(item.id) },
+                                        onPlayFromStart = { component.onResumeItem(item, true) },
+                                        onMarkWatched = {
+                                            store.accept(LibraryIntent.HideFromHistory(item, watched = true))
+                                        },
+                                        onRemove = {
+                                            store.accept(LibraryIntent.HideFromHistory(item, watched = false))
+                                        },
+                                        onFavorite = { favorite ->
+                                            store.accept(LibraryIntent.ToggleFavorite(item.id, item.title, favorite))
+                                        },
+                                        onShare = {
+                                            sharer.sharePosterCard(
+                                                item.posterShareCard(
+                                                    EmbyImages.poster(baseUrl, item, accessToken = accessToken),
+                                                ),
+                                            )
+                                        },
+                                    )
+                                }
+                                if (state.content.resume.isNotEmpty()) {
+                                    waveItem(key = "library-resume") {
+                                        PlaybackHistory(
+                                            baseUrl = baseUrl,
+                                            accessToken = accessToken,
+                                            serverId = state.currentServer?.id,
+                                            items = state.content.resume,
+                                            onResume = { component.onResumeItem(it, false) },
+                                            onOpen = { component.onOpenItem(it.id) },
+                                            liftMenu = historyLiftMenu,
+                                        )
+                                    }
+                                }
+
                                 if (state.contentSource == LibraryContentSource.Cached && !state.content.isEmpty) {
                                     waveItem(key = "library-freshness") {
                                         LibraryFreshnessBanner(
@@ -689,8 +738,8 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                         )
                                     }
                                 }
-                                // Where 播放记录 and the shelves will land: under the category
-                                // cards, not above them, so the page does not reshuffle on arrival.
+                                // Where the shelves will land: under the category cards, not above
+                                // them, so the page does not reshuffle on arrival.
                                 if (state.loading && state.content.isEmpty) {
                                     motionItem(key = "library-loading") { SkeletonRow() }
                                 }
@@ -713,18 +762,6 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                             )
                                         },
                                     )
-                                }
-                                if (state.content.resume.isNotEmpty()) {
-                                    waveItem(key = "library-resume") {
-                                        PlaybackHistory(
-                                            baseUrl = baseUrl,
-                                            accessToken = accessToken,
-                                            serverId = state.currentServer?.id,
-                                            items = state.content.resume,
-                                            onItemClick = { component.onOpenItem(it.id) },
-                                            liftMenu = itemLiftMenu,
-                                        )
-                                    }
                                 }
                                 state.content.rows.libraryShelfRows().forEach { row ->
                                     waveItem(key = "library-shelf:${row.libraryId}:${row.title}") {
@@ -760,6 +797,16 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                         .drawBehind { drawRect(sampledPageColor.value) },
                 )
             }
+
+            // 播放记录's 标记为已看 and 移除 wait here for their 撤销; the card is already off the row.
+            ActionToast(
+                message = state.actionMessage,
+                onDismiss = { store.accept(LibraryIntent.DismissMessage) },
+                action =
+                    state.historyUndoKey?.let { key ->
+                        ToastAction("撤销") { store.accept(LibraryIntent.UndoHistoryChange(key)) }
+                    },
+            )
 
             if (serverMenuOpen) {
                 ServerSheet(
@@ -1370,7 +1417,10 @@ private fun PlaybackHistory(
     accessToken: String,
     serverId: String?,
     items: List<MediaItem>,
-    onItemClick: (MediaItem) -> Unit,
+    /** A tap: play from where it was left. */
+    onResume: (MediaItem) -> Unit,
+    /** Letting go on the lifted card: the title's page. */
+    onOpen: (MediaItem) -> Unit,
     liftMenu: (MediaItem) -> LiftMenu,
 ) {
     Column {
@@ -1386,44 +1436,95 @@ private fun PlaybackHistory(
                     mediaLazyItemKey("library-history:${serverId.orEmpty()}", index, item.id)
                 },
             ) { _, item ->
-                CaptionedPoster(
-                    url =
-                        EmbyImages.backdrop(
-                            baseUrl,
-                            item,
-                            maxWidth = 640,
-                            accessToken = accessToken,
-                        ),
-                    fallbackUrl =
-                        EmbyImages.poster(
-                            baseUrl,
-                            item,
-                            accessToken = accessToken,
-                        ),
-                    fallbackUrls =
-                        listOfNotNull(
-                            EmbyImages.primary(
-                                baseUrl,
-                                item.id,
-                                tag = null,
-                                maxHeight = 450,
-                                accessToken = accessToken,
-                            ),
-                        ),
-                    title = item.title,
-                    rating = item.communityRating,
-                    year = item.year?.toString(),
-                    progress = item.playedPercentage?.let { (it / 100.0).toFloat() },
-                    // Scoped to this rail: a film that was just watched is also a film
-                    // that was just added, so the same id is on screen twice — see
-                    // [CategorySection] for what that costs.
-                    onClick = { onItemClick(item) },
+                PlaybackHistoryCard(
+                    baseUrl = baseUrl,
+                    accessToken = accessToken,
+                    serverId = serverId,
+                    item = item,
+                    onResume = { onResume(item) },
+                    onOpen = { onOpen(item) },
                     liftMenu = { liftMenu(item) },
-                    sharedTransitionKey = MediaSharedElementKey(serverId, item.id),
-                    modifier = Modifier.width(MediaSizing.landscapeCardWidth),
-                    posterModifier = Modifier.fillMaxWidth().height(MediaSizing.landscapeCardHeight),
                 )
             }
+        }
+    }
+}
+
+/**
+ * One 播放记录 card. A tap picks the title up where it was left, the player coming out of the card's
+ * still (I-04); its page is reached from the lift. It is [CaptionedPoster]'s tile with the tap on the
+ * tile rather than in the poster, whose own click would start the morph into 详情.
+ */
+@Composable
+private fun PlaybackHistoryCard(
+    baseUrl: String,
+    accessToken: String,
+    serverId: String?,
+    item: MediaItem,
+    onResume: () -> Unit,
+    onOpen: () -> Unit,
+    liftMenu: () -> LiftMenu,
+) {
+    val palette = LocalPalette.current
+    val backdropUrl = EmbyImages.backdrop(baseUrl, item, maxWidth = 640, accessToken = accessToken)
+    val posterUrl = EmbyImages.poster(baseUrl, item, accessToken = accessToken)
+    val primaryUrl = EmbyImages.primary(baseUrl, item.id, tag = null, maxHeight = 450, accessToken = accessToken)
+    val artworkUrls =
+        remember(backdropUrl, posterUrl, primaryUrl) {
+            listOfNotNull(backdropUrl, posterUrl, primaryUrl).filter(String::isNotBlank).distinct()
+        }
+    // Scoped to this rail: a film that was just watched is also a film that was just added, so
+    // the same id is on screen twice — and the player, or 跟手返回, must come back to this copy.
+    val artworkKey = remember(serverId, item.id) { MediaSharedElementKey(serverId, item.id, kind = "history") }
+    val resume = playerArtworkOnClick(artworkKey, onResume)
+    val open = liftedCardOpen(artworkKey, onOpen)
+    val artwork = remember { LiftAnchor() }
+    val resumable = (item.resumePositionTicks ?: 0L) > 0L && !item.played
+    Column(
+        // The press lands on the whole tile, caption included, as on [CaptionedPoster]; the
+        // artwork is what lifts.
+        Modifier
+            .width(MediaSizing.landscapeCardWidth)
+            .liftable(menu = { liftMenu().withArtwork(artworkUrls) }, anchor = artwork, onOpen = open)
+            .pressable(onClickLabel = if (resumable) "继续播放" else "播放", onClick = resume),
+    ) {
+        Poster(
+            url = backdropUrl,
+            fallbackUrl = posterUrl,
+            fallbackUrls = listOfNotNull(primaryUrl),
+            rating = item.communityRating,
+            progress = item.playedPercentage?.let { (it / 100.0).toFloat() },
+            contentDescription = item.title,
+            sharedTransitionKey = artworkKey,
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .height(MediaSizing.landscapeCardHeight)
+                    .liftAnchor(artwork),
+        )
+        Spacer(Modifier.height(7.dp))
+        Text(
+            text = item.title,
+            style = AppTypography.body.strong,
+            color = palette.text,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(2.dp))
+        val year = item.year?.toString()
+        if (year != null) {
+            Text(
+                text = year,
+                style = AppTypography.caption.regular,
+                color = palette.sub2,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        } else {
+            // The year's own line box, so the cards line up with or without one; see [CaptionedPoster].
+            Spacer(Modifier.height(15.dp))
         }
     }
 }
