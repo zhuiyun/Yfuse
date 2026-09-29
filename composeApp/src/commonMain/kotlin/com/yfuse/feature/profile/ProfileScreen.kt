@@ -98,6 +98,7 @@ import com.yfuse.core.designsystem.platformAnimationsDisabled
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.designsystem.windowWidthTier
+import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.StartupTab
 import com.yfuse.core.offline.OfflineIndexStatus
@@ -831,7 +832,21 @@ fun ProfileScreen(component: ProfileComponent) {
                                 .statesForServer(offline.serverId)
                         com.yfuse.core.offline
                             .offlineStartPositionMs(offline, states)
-                    }.getOrDefault(0L)
+                    }.getOrElse { failure ->
+                        // The server's progress is already in these records (the startup pull seeds
+                        // it into this store), and every other view of it, the repository's details
+                        // and the sync manager's start position included, reads the same store. So
+                        // there is nothing else to fall back to without the network; start from the
+                        // beginning as before, but no longer silently.
+                        AppLog.warning(
+                            category = "offline",
+                            event = "resume_position_unavailable",
+                            message = "Resume point for a download could not be read; starting from the beginning",
+                            throwable = failure,
+                            attributes = mapOf("itemId" to offline.itemId),
+                        )
+                        0L
+                    }
                 }
             PlayerLauncher(
                 items =
