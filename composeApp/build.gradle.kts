@@ -70,16 +70,21 @@ val verifyDesignSystemUsage by tasks.registering {
     group = "verification"
     description = "Rejects raw UI typography, radii, fixed functional colours, and motion off the house curve."
     val designSources =
-        fileTree("src/commonMain/kotlin/com/yfuse") {
-            include("app/App.kt", "core/designsystem/**/*.kt", "feature/**/*.kt")
-            // These files define the low-level primitives or scale type from runtime geometry.
-            exclude(
-                "core/designsystem/ContinuousCorner.kt",
-                "core/designsystem/SemanticTypography.kt",
-                "core/designsystem/Tokens.kt",
-                "core/designsystem/WatchAvatar.kt",
-            )
-        }
+        files(
+            fileTree("src/commonMain/kotlin/com/yfuse") {
+                include("app/App.kt", "core/designsystem/**/*.kt", "feature/**/*.kt")
+                // These files define the low-level primitives or scale type from runtime geometry.
+                exclude(
+                    "core/designsystem/ContinuousCorner.kt",
+                    "core/designsystem/SemanticTypography.kt",
+                    "core/designsystem/Tokens.kt",
+                    "core/designsystem/WatchAvatar.kt",
+                )
+            },
+            // The television's screens draw with the same tokens, so they answer to the same rules
+            // rather than drifting on their own.
+            fileTree(rootProject.file("tvApp/src/androidMain/kotlin")) { include("**/*.kt") },
+        )
     // Motion is checked wherever it is written: shared code, Android code, and the television.
     val motionSources =
         files(
@@ -185,7 +190,7 @@ val verifyDesignSystemUsage by tasks.registering {
                             if (
                                 !(label == "fixed interactive brand colour" && explicitlyBrandIdentity)
                             ) {
-                                add("${source.relativeTo(projectDir)}:$lineNumber: $label")
+                                add("${source.relativeTo(rootDir)}:$lineNumber: $label")
                             }
                         }
                     }

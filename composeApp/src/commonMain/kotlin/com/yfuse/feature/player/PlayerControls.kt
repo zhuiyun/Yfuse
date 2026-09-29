@@ -52,7 +52,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.data.PlayerGestureSettings
 import com.yfuse.core.designsystem.AmbientLight
-import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.BackOverlay
 import com.yfuse.core.designsystem.DragAxis
@@ -2184,28 +2183,6 @@ internal fun PlayerControls(
                     onDismiss = ::poke,
                     modifier = Modifier.align(Alignment.CenterStart).padding(start = 28.dp),
                 )
-                ChromeVisibility(
-                    visible = showPausedKey,
-                    modifier = Modifier.align(Alignment.Center),
-                ) {
-                    CircleControl(
-                        // 播放, never 暂停. This is an affordance, not a readout — it says what the
-                        // tap does, the way every transport key in the app does.
-                        icon = AppIcons.Play,
-                        description = if (watchLocked) "已暂停，等待房主继续" else "继续播放",
-                        size = CenterKeySize,
-                        iconSize = CenterKeyIconSize,
-                        enabled = !watchLocked,
-                        // The one control that has to be found at a glance in a dark room, so it
-                        // takes the filled treatment the transport keys leave to it.
-                        filled = true,
-                        onClick = {
-                            onPlayPause()
-                            poke()
-                        },
-                    )
-                }
-
                 /**
                  * The end of an item that did not roll on into the next one, where nothing used to be.
                  *
@@ -2215,35 +2192,42 @@ internal fun PlayerControls(
                  * stalled, and no way on that does not start with a tap to summon the chrome. Keys at
                  * the same size and in the same place as 继续播放, because it is the same question —
                  * what happens if I touch this — asked one moment later; 下一集 leads when there is one.
+                 *
+                 * 重播 runs the ending's split backwards before its keys go, and they stay up for that.
                  */
-                val showEndedKeys = stoppedAtItemEnd
-                ChromeVisibility(
-                    visible = showEndedKeys,
-                    modifier = Modifier.align(Alignment.Center),
-                ) {
-                    PlayerEndedKeys(
-                        hasNext = state.hasNext,
-                        enabled = !watchLocked,
-                        onNext = {
-                            poke()
-                            onNextItem()
-                        },
-                        onReplay = {
-                            if (playback.value.ended) {
-                                // Back to the first frame, and playing again: the engine reports the
-                                // ended item as paused, so the seek alone would leave it on frame one.
-                                latestOnSeek(0L)
-                                if (!playback.value.playing) onPlayPause()
-                            } else {
-                                // Parked on the last frame instead of ended: resuming would run into
-                                // the next item before the seek landed, so it starts again from the top.
-                                onSelectItem(state.currentIndex)
-                            }
-                            poke()
-                        },
-                        onBack = onBack,
-                    )
-                }
+                var endingFlowsBack by remember { mutableStateOf(false) }
+                val showEndedKeys = stoppedAtItemEnd || endingFlowsBack
+                PlayerCenterKeys(
+                    showPausedKey = showPausedKey,
+                    showEndedKeys = showEndedKeys,
+                    watchLocked = watchLocked,
+                    hasNext = state.hasNext,
+                    onResume = {
+                        onPlayPause()
+                        poke()
+                    },
+                    onNext = {
+                        poke()
+                        onNextItem()
+                    },
+                    onReplay = {
+                        if (playback.value.ended) {
+                            // Back to the first frame, and playing again: the engine reports
+                            // the ended item as paused, so the seek alone would leave it
+                            // standing on frame one.
+                            latestOnSeek(0L)
+                            if (!playback.value.playing) onPlayPause()
+                        } else {
+                            // Parked on the last frame instead of ended: resuming would run
+                            // into the next item before the seek landed, so the item is
+                            // started again from the top.
+                            onSelectItem(state.currentIndex)
+                        }
+                        poke()
+                    },
+                    onBack = onBack,
+                    onHold = { endingFlowsBack = it },
+                )
 
                 // Taught once each, while their gesture is in reach; see [PlayerGestureTips].
                 PlayerGestureTips(
