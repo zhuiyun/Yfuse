@@ -20,11 +20,12 @@ class DockLiquidTest {
         expected: DockLiquidFrame,
         actual: DockLiquidFrame,
         tolerance: Float = 0.1f,
+        tabs: Boolean = true,
     ) {
         assertEquals(expected.capsuleEnd, actual.capsuleEnd, tolerance)
         assertEquals(expected.dropCenter, actual.dropCenter, tolerance)
         assertEquals(expected.dropRadius, actual.dropRadius, tolerance)
-        assertEquals(expected.tabSpan, actual.tabSpan, tolerance)
+        if (tabs) assertEquals(expected.tabSpan, actual.tabSpan, tolerance)
         assertEquals(expected.glyph, actual.glyph, 0.01f)
         assertEquals(expected.blend, actual.blend, 0.5f)
     }
@@ -152,8 +153,27 @@ class DockLiquidTest {
         // Bridged across the gap early in the merge, well before the capsule starts back.
         assertTrue(joined in 1 until DOCK_MERGE_MS / 8, "search joined at ${joined * 4} ms: $counts")
         assertTrue(counts.drop(joined).all { it == 1 }, "$counts")
-        // The magnifier is gone before 搜索 has shrunk into the capsule.
-        assertEquals(0f, frame(DockLiquidMove.Collapse, 110f).glyph)
+    }
+
+    @Test
+    fun search_stays_sharp_while_it_flows_in_and_fades_only_as_the_capsule_takes_it() {
+        (0..DockLiquidMove.Collapse.durationMs step 5).forEach { ms ->
+            val collapse = frame(DockLiquidMove.Collapse, ms.toFloat())
+            assertEquals(1f, collapse.glyphFocus, "the magnifier blurs at $ms ms")
+            if (ms <= DOCK_MERGE_MS / 2) assertEquals(1f, collapse.glyph, "the magnifier fades early, at $ms ms")
+        }
+        // Gone before the capsule starts back, riding 搜索 in at 搜索's own size until then.
+        assertEquals(0f, frame(DockLiquidMove.Collapse, DOCK_MERGE_MS - 20f).glyph)
+        val halfway = frame(DockLiquidMove.Collapse, DOCK_MERGE_MS / 2f)
+        assertEquals(halfway.dropRadius / metrics.radius, halfway.dropScale, 0.001f)
+    }
+
+    @Test
+    fun the_tabs_hold_still_while_the_dock_collapses() {
+        (0..DockLiquidMove.Collapse.durationMs step 5).forEach { ms ->
+            val span = frame(DockLiquidMove.Collapse, ms.toFloat()).tabSpan
+            assertEquals(metrics.capsuleRest + metrics.radius, span, 0.01f, "the tabs move at $ms ms")
+        }
     }
 
     @Test
@@ -175,7 +195,8 @@ class DockLiquidTest {
         val key = pieces(last).single()
         assertEquals(0f, key.start, 0.1f)
         assertEquals(metrics.height, key.end, 0.1f)
-        assertSameFrame(frame(DockLiquidMove.Expand, 0f), last)
+        // The tabs are out of sight at both ends — faded out, not yet faded in — so only the liquid has to meet.
+        assertSameFrame(frame(DockLiquidMove.Expand, 0f), last, tabs = false)
     }
 
     @Test

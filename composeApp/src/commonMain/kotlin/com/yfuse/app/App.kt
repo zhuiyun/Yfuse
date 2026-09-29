@@ -819,7 +819,13 @@ private fun BottomNavigationDock(
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val liquidMotion = liquidMotionEnabled()
     // Composed afresh each time the dock enters, so every entrance starts as one capsule.
-    val liquid = remember { DockLiquid(armed = if (liquidMotion && !collapsed) DockLiquidMove.Enter else null) }
+    val liquid =
+        remember {
+            DockLiquid(
+                armed = if (liquidMotion && !collapsed) DockLiquidMove.Enter else null,
+                collapsed = collapsed,
+            )
+        }
     val routeVisible = rememberRouteVisibility()
     LaunchedEffect(liquid) {
         if (liquid.clock.move != DockLiquidMove.Enter) return@LaunchedEffect
@@ -838,24 +844,34 @@ private fun BottomNavigationDock(
         val move = clock.move
         when {
             // Without the liquid the panes change shape themselves: the capsule's spring, 搜索's fade.
-            !latestLiquidMotion -> clock.rest()
-            move == null -> {
-                val next = if (collapsed) DockLiquidMove.Collapse else DockLiquidMove.Expand
-                clock.arm(next)
-                clock.runTo(next.durationMs.toFloat())
+            !latestLiquidMotion -> {
+                clock.rest()
+                liquid.keyShown = collapsed
             }
-            move == DockLiquidMove.Enter && collapsed -> {
-                // Back to the whole-row capsule it rose as, 搜索 flowing back in, then down to the key.
-                if (clock.elapsed > 0f) clock.runTo(0f, holdLastFrame = true)
-                clock.arm(DockLiquidMove.Collapse, atMs = DOCK_MERGE_MS.toFloat())
-                clock.runTo(DockLiquidMove.Collapse.durationMs.toFloat())
+            !collapsed -> {
+                liquid.keyShown = false
+                when (move) {
+                    null -> {
+                        clock.arm(DockLiquidMove.Expand)
+                        clock.runTo(DockLiquidMove.Expand.durationMs.toFloat())
+                    }
+                    // A collapse overtaken halfway goes back the way it came: 搜索 flows out again.
+                    DockLiquidMove.Collapse -> clock.runTo(0f)
+                    else -> clock.runTo(move.durationMs.toFloat())
+                }
             }
-            // Overtaken halfway: on to its end if that is where the dock is going now, otherwise
-            // back the way it came, from wherever it had got to.
-            else -> {
-                val onward = (move == DockLiquidMove.Collapse) == collapsed
-                clock.runTo(if (onward) move.durationMs.toFloat() else 0f)
+            move == DockLiquidMove.Expand -> {
+                // An expand overtaken halfway goes back the way it came: 搜索 flows in, then the key.
+                if (clock.elapsed > DOCK_GATHER_MS) clock.runTo(DOCK_GATHER_MS.toFloat(), holdLastFrame = true)
+                liquid.keyShown = true
+                clock.runTo(0f)
             }
+            move == DockLiquidMove.Enter -> {
+                // Still rising: it arrives first, then collapses from rest.
+                clock.runTo(DockLiquidMove.Enter.durationMs.toFloat(), holdLastFrame = true)
+                liquid.collapse()
+            }
+            else -> liquid.collapse(fromMs = if (move == DockLiquidMove.Collapse) clock.elapsed else 0f)
         }
     }
     val liquidDrawing = liquid.drawing
@@ -922,7 +938,8 @@ private fun BottomNavigationDock(
             // A single continuous lens changes width; content fades inside its clipped bounds.
             // The fixed outer slot keeps search still, including when a fling is interrupted.
             AnimatedContent(
-                targetState = collapsed,
+                // Collapsing, the tabs stay up until 搜索 has flowed into the capsule — see [DockLiquid.keyShown].
+                targetState = liquid.keyShown,
                 modifier =
                     Modifier
                         .then(
@@ -1142,11 +1159,12 @@ private fun SearchButton(
             modifier =
                 Modifier.size(26.dp).graphicsLayer {
                     // Shape first, content after: the magnifier comes into focus as the drop lands.
-                    val glyph = dockLiquid?.frame()?.glyph ?: return@graphicsLayer
-                    alpha = glyph
-                    scaleX = SEARCH_GLYPH_FOCUS_FROM + (1f - SEARCH_GLYPH_FOCUS_FROM) * glyph
+                    // Going back in it stays sharp, riding the drop, and only fades as it is taken.
+                    val frame = dockLiquid?.frame() ?: return@graphicsLayer
+                    alpha = frame.glyph
+                    scaleX = SEARCH_GLYPH_FOCUS_FROM + (1f - SEARCH_GLYPH_FOCUS_FROM) * frame.glyphFocus
                     scaleY = scaleX
-                    val blur = SEARCH_GLYPH_BLUR.toPx() * (1f - glyph)
+                    val blur = SEARCH_GLYPH_BLUR.toPx() * (1f - frame.glyphFocus)
                     renderEffect = if (blur > 0.5f) BlurEffect(blur, blur, TileMode.Decal) else null
                 },
         )
