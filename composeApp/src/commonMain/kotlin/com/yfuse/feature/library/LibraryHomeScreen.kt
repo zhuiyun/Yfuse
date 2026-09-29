@@ -26,6 +26,7 @@ import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -85,6 +86,7 @@ import com.yfuse.core.designsystem.LivingPosterDefaults
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalLaunchWave
+import com.yfuse.core.designsystem.LocalLiftMenu
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.LocalSkeletonArrival
@@ -348,7 +350,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
     val carouselVisible by remember(listState) {
         derivedStateOf { listState.firstVisibleItemIndex == 0 && !listState.isScrollInProgress }
     }
-    CarouselAutoAdvance(
+    LibraryCarouselAutoAdvance(
         pagerState = pagerState,
         pageCount = slides.size,
         held = !libraryCarousel || !carouselVisible || serverMenuOpen || carouselDragging || carouselTouched.value,
@@ -776,6 +778,28 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
             }
         }
     }
+}
+
+/**
+ * The reel's clock, held as well while a 浮起菜单 is up — as 首页's hero already was. The menu blurs
+ * the page it lifts off, and a reel turning underneath had that blur worked out again on every
+ * frame of the turn. The lift is read here, in a scope of its own, so opening one does not
+ * recompose the page around it.
+ */
+@Composable
+private fun LibraryCarouselAutoAdvance(
+    pagerState: PagerState,
+    pageCount: Int,
+    held: Boolean,
+    restartKey: Any?,
+) {
+    val lifted = LocalLiftMenu.current?.isOpen == true
+    CarouselAutoAdvance(
+        pagerState = pagerState,
+        pageCount = pageCount,
+        held = held || lifted,
+        restartKey = restartKey,
+    )
 }
 
 /** Non-blocking disclosure for content that is not currently verified live. */
