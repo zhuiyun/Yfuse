@@ -8,9 +8,11 @@ import com.yfuse.core.filesource.FileSourceDraft
 import com.yfuse.core.filesource.FileSourceEntry
 import com.yfuse.core.filesource.FileSourceException
 import com.yfuse.core.filesource.FileSourceKind
+import com.yfuse.core.filesource.FileSourceLibraryStore
 import com.yfuse.core.filesource.FileSourceProgress
 import com.yfuse.core.filesource.FileSourceProgressStore
 import com.yfuse.core.filesource.FileSourceRegistry
+import com.yfuse.core.filesource.FileSourceScanner
 import com.yfuse.core.filesource.LOG_CATEGORY
 import com.yfuse.core.filesource.browsable
 import com.yfuse.core.filesource.defaultPort
@@ -90,10 +92,15 @@ class FileSourcesController(
     private val registry: FileSourceRegistry,
     private val client: FileSourceClient,
     private val progressStore: FileSourceProgressStore,
+    libraryStore: FileSourceLibraryStore,
+    scanner: FileSourceScanner,
     private val scope: CoroutineScope,
 ) {
     val sources: StateFlow<List<FileSource>> = registry.sources
     val progress: StateFlow<Map<String, FileSourceProgress>> = progressStore.progress
+
+    /** 刮削 and the 片库 it builds; see [FileSourceLibraryScans]. */
+    val scans = FileSourceLibraryScans(registry, libraryStore, scanner, scope, notify = ::showNotice)
 
     private val _form = MutableStateFlow<FileSourceFormState?>(null)
     val form: StateFlow<FileSourceFormState?> = _form.asStateFlow()
@@ -216,6 +223,7 @@ class FileSourcesController(
             try {
                 registry.remove(source.id)
                 progressStore.removeSource(source.id)
+                scans.forget(source.id)
                 if (_browser.value?.source?.id == source.id) closeBrowser()
                 _notice.value = "已移除「${source.name}」"
             } catch (error: CancellationException) {

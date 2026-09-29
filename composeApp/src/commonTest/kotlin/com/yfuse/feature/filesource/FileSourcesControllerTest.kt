@@ -1,6 +1,7 @@
 package com.yfuse.feature.filesource
 
 import com.russhwolf.settings.MapSettings
+import com.yfuse.core.data.TmdbSearchResult
 import com.yfuse.core.filesource.FileSource
 import com.yfuse.core.filesource.FileSourceAddress
 import com.yfuse.core.filesource.FileSourceClient
@@ -9,8 +10,13 @@ import com.yfuse.core.filesource.FileSourceEntry
 import com.yfuse.core.filesource.FileSourceException
 import com.yfuse.core.filesource.FileSourceFailure
 import com.yfuse.core.filesource.FileSourceKind
+import com.yfuse.core.filesource.FileSourceLibrary
+import com.yfuse.core.filesource.FileSourceLibraryStorage
+import com.yfuse.core.filesource.FileSourceLibraryStore
 import com.yfuse.core.filesource.FileSourceProgressStore
 import com.yfuse.core.filesource.FileSourceRegistry
+import com.yfuse.core.filesource.FileSourceScanner
+import com.yfuse.core.filesource.TmdbTitleMatcher
 import com.yfuse.core.filesource.fileSourceItemId
 import com.yfuse.core.filesource.resolveAddress
 import com.yfuse.core.security.TestSecureStore
@@ -31,8 +37,25 @@ class FileSourcesControllerTest {
         FileSourceRegistry(settings, secureStore, ioDispatcher = Dispatchers.Unconfined) { "fs" + "1".repeat(24) }
     private val progress = FileSourceProgressStore(settings)
     private val client = FakeClient()
+    private val libraryStore = FileSourceLibraryStore(MemoryStorage(), Dispatchers.Unconfined)
+    private val scanner =
+        FileSourceScanner(
+            client = client,
+            matcher =
+                TmdbTitleMatcher(
+                    search = { query, mediaType, _ ->
+                        val dune =
+                            TmdbSearchResult(438631, "movie", "沙丘", "Dune", 2021, null, null, null, 7.8, 100, 50.0)
+                        Result.success(listOfNotNull(dune.takeIf { query == "Dune" && mediaType == "movie" }))
+                    },
+                    alternativeTitles = { _, _ -> Result.success(emptyList()) },
+                ),
+            // The test reads the result right after the scan starts; no thread hop in between.
+            parseDispatcher = Dispatchers.Unconfined,
+        )
 
-    private fun TestScope.controller() = FileSourcesController(registry, client, progress, backgroundScope)
+    private fun TestScope.controller() =
+        FileSourcesController(registry, client, progress, libraryStore, scanner, backgroundScope)
 
     @Test
     fun an_invalid_address_is_explained_without_connecting() =
@@ -154,6 +177,7 @@ class FileSourcesControllerTest {
             registry.save(source, password = "pw")
             val itemId = fileSourceItemId(source.id, listOf("E01.mkv"))
             progress.record(itemId, positionMs = 900_000L, durationMs = 2_400_000L, persistNow = true)
+            libraryStore.save(source.id, FileSourceLibrary(scannedAtEpochMs = 1L))
             controller.open(source)
 
             controller.remove(source)
@@ -161,6 +185,31 @@ class FileSourcesControllerTest {
             assertTrue(registry.sources.value.isEmpty())
             assertNull(progress.get(itemId))
             assertNull(controller.browser.value)
+            assertTrue(libraryStore.libraries.value.isEmpty())
+        }
+
+    @Test
+    fun scanning_a_share_fills_its_library_and_says_what_it_found() =
+        runTest(UnconfinedTestDispatcher()) {
+            val controller = controller()
+            val source = savedSource()
+            registry.save(source, password = "pw")
+            client.tree = mapOf("" to listOf(FileSourceEntry("Dune.2021.2160p.WEB-DL.mkv", directory = false)))
+
+            controller.scans.scan(source)
+
+            assertEquals(
+                "movie:438631",
+                libraryStore.libraries.value[source.id]
+                    ?.titles
+                    ?.single()
+                    ?.key,
+            )
+            assertEquals("「NAS」已加入片库：1 部影片与剧集", controller.notice.value)
+            assertTrue(
+                controller.scans.progress.value
+                    .isEmpty(),
+            )
         }
 
     @Test
@@ -200,9 +249,22 @@ class FileSourcesControllerTest {
             username = "alice",
         )
 
+    private class MemoryStorage : FileSourceLibraryStorage {
+        private var text: String? = null
+
+        override fun read(): String? = text
+
+        override fun write(text: String) {
+            this.text = text
+        }
+    }
+
     private class FakeClient : FileSourceClient {
         val listed = mutableListOf<String>()
         var failure: FileSourceFailure? = null
+
+        /** When set, the whole share as folder path → entries; otherwise a root and one subfolder. */
+        var tree: Map<String, List<FileSourceEntry>>? = null
         val root =
             listOf(
                 FileSourceEntry("剧集", directory = true),
@@ -217,6 +279,7 @@ class FileSourcesControllerTest {
         ): List<FileSourceEntry> {
             listed += "${credentials.username}:${credentials.password}@${path.joinToString("/").ifEmpty { "root" }}"
             failure?.let { throw FileSourceException(it) }
+            tree?.let { folders -> return folders[path.joinToString("/")].orEmpty() }
             return if (path.isEmpty()) root else listOf(FileSourceEntry("S01E01.mkv", directory = false))
         }
 

@@ -99,6 +99,8 @@ class ServersTabComponent(
             registry = koin.get(),
             client = koin.get(),
             progressStore = koin.get(),
+            libraryStore = koin.get(),
+            scanner = koin.get(),
             scope = scope,
         )
     }

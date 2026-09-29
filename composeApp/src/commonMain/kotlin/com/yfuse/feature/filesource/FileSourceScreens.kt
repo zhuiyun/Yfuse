@@ -35,6 +35,7 @@ import com.yfuse.core.designsystem.GlassLift
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.MinTouchTarget
+import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.OverlayActionRow
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.liquidGlass
@@ -62,9 +63,11 @@ import com.yfuse.core.designsystem.ThemeText as Text
 @Composable
 internal fun FileSourcesSection(controller: FileSourcesController) {
     val sources by controller.sources.collectAsState()
+    val scanning by controller.scans.progress.collectAsState()
+    val libraries by controller.scans.libraries.collectAsState()
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
-    val connect = rememberFileSourceConnection(controller)
+    val connect = rememberFileSourceConnection(controller::showNotice)
     var actionsFor by remember { mutableStateOf<FileSource?>(null) }
     var confirmRemove by remember { mutableStateOf<FileSource?>(null) }
 
@@ -99,6 +102,8 @@ internal fun FileSourcesSection(controller: FileSourcesController) {
             sources.forEach { source ->
                 FileSourceCard(
                     source = source,
+                    status = libraryStatus(scanning[source.id], libraries[source.id]),
+                    scanning = source.id in scanning,
                     onOpen = { connect(source.origin) { controller.open(source) } },
                     onMore = { actionsFor = source },
                 )
@@ -109,9 +114,19 @@ internal fun FileSourcesSection(controller: FileSourcesController) {
     actionsFor?.let { source ->
         FileSourceActionsDialog(
             source = source,
+            scanning = source.id in scanning,
+            scanned = source.id in libraries,
             onBrowse = {
                 actionsFor = null
                 connect(source.origin) { controller.open(source) }
+            },
+            onScan = {
+                actionsFor = null
+                if (source.id in scanning) {
+                    controller.scans.cancel(source.id)
+                } else {
+                    connect(source.origin) { controller.scans.scan(source) }
+                }
             },
             onEdit = {
                 actionsFor = null
@@ -140,10 +155,12 @@ internal fun FileSourcesSection(controller: FileSourcesController) {
     }
 }
 
-/** One share: what kind it is, what it is called, and where it lives. */
+/** One share: what kind it is, what it is called, where it lives, and what its 片库 holds. */
 @Composable
 private fun FileSourceCard(
     source: FileSource,
+    status: String?,
+    scanning: Boolean,
     onOpen: () -> Unit,
     onMore: () -> Unit,
 ) {
@@ -188,6 +205,22 @@ private fun FileSourceCard(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            status?.let { line ->
+                Row(
+                    Modifier.padding(top = 3.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (scanning) OrbProgress(size = 11.dp, contentDescription = null)
+                    Text(
+                        line,
+                        style = AppTypography.caption.medium,
+                        color = if (scanning) LocalAccentColors.current.accent else palette.hint,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
         }
         // The same corner key the server cards carry, for the same reason: a place to press that
         // is always in the same spot, apart from the row's own tap.
@@ -247,7 +280,10 @@ private fun EmptyFileSources(onAdd: () -> Unit) {
 @Composable
 private fun FileSourceActionsDialog(
     source: FileSource,
+    scanning: Boolean,
+    scanned: Boolean,
     onBrowse: () -> Unit,
+    onScan: () -> Unit,
     onEdit: () -> Unit,
     onRemove: () -> Unit,
     onDismiss: () -> Unit,
@@ -293,6 +329,22 @@ private fun FileSourceActionsDialog(
         )
         Spacer(Modifier.height(8.dp))
         OverlayActionRow(
+            label =
+                when {
+                    scanning -> "停止刮削"
+                    scanned -> "重新刮削"
+                    else -> "刮削到片库"
+                },
+            description =
+                if (scanning) {
+                    "这次读到的不会保存，片库保持上次的样子"
+                } else {
+                    "按文件名在 TMDB 识别电影与剧集，合并进「全部服务器」片库"
+                },
+            onClick = overlayAction(onScan),
+        )
+        Spacer(Modifier.height(8.dp))
+        OverlayActionRow(
             label = "编辑连接与名称",
             description = "地址、账号或密码变了，在这里改",
             onClick = overlayAction(onEdit),
@@ -315,7 +367,7 @@ private fun FileSourceActionsDialog(
  * time out, so the refusal is said instead.
  */
 @Composable
-internal fun rememberFileSourceConnection(controller: FileSourcesController): (String, () -> Unit) -> Unit {
+internal fun rememberFileSourceConnection(onDenied: (String) -> Unit): (String, () -> Unit) -> Unit {
     var pending by remember { mutableStateOf<(() -> Unit)?>(null) }
     val request =
         rememberLocalNetworkPermissionRequest(
@@ -325,7 +377,7 @@ internal fun rememberFileSourceConnection(controller: FileSourcesController): (S
             },
             onDenied = {
                 pending = null
-                LocalNetworkPermissionRequiredException().message?.let(controller::showNotice)
+                LocalNetworkPermissionRequiredException().message?.let(onDenied)
             },
         )
     return { origin, action ->

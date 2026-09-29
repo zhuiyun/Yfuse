@@ -68,7 +68,7 @@ private fun FileSourceFormDialog(
 ) {
     val palette = LocalPalette.current
     val draft = state.draft
-    val connect = rememberFileSourceConnection(controller)
+    val connect = rememberFileSourceConnection(controller::showNotice)
     val openedDraft = remember(state.editingId) { draft }
     val holdsInput = draft != openedDraft
     var confirmDiscard by remember { mutableStateOf(false) }
