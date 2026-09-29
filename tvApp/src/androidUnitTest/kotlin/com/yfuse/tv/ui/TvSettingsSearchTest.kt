@@ -71,6 +71,14 @@ class TvSettingsSearchTest {
     }
 
     @Test
+    fun `there is no glass page, and looking for one finds the page that says why`() {
+        // Every television surface is an opaque plate: 玻璃材质 had nothing there to change.
+        assertTrue(TvSettingsPage.entries.none { "玻璃" in it.title })
+        assertEquals(listOf(TvSettingsPage.Appearance), searchTvSettings("玻璃"))
+        assertEquals(listOf(TvSettingsPage.Appearance), searchTvSettings("布局"))
+    }
+
+    @Test
     fun `an unrelated query returns nothing rather than everything`() {
         assertTrue(searchTvSettings("紫色的大象").isEmpty())
     }

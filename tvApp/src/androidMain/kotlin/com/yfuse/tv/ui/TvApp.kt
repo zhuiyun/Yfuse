@@ -55,6 +55,7 @@ import com.yfuse.app.RootComponent
 import com.yfuse.app.effectiveGlassStyle
 import com.yfuse.app.rememberAppAccessibilityOptions
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.GlassStyle
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalDialogBackdrop
 import com.yfuse.core.designsystem.Motion
@@ -95,9 +96,7 @@ fun TvApp(component: RootComponent) {
     // off for the whole device.
     val accessibility = rememberAppAccessibilityOptions(component.themePreferences)
     val dialogAnimation by component.themePreferences.dialogAnimation.collectAsState()
-    val glassStyle by component.themePreferences.glassStyle.collectAsState()
     val loadingAnimation by component.themePreferences.loadingAnimation.collectAsState()
-    val glassMaterials by component.themePreferences.glassMaterials.collectAsState()
     // 动效主题 is the phone's setting as much as the television's: 静息 asked for calm motion and
     // the TV kept running 经典 whatever was chosen.
     val motionTheme by component.themePreferences.motionTheme.collectAsState()
@@ -108,13 +107,15 @@ fun TvApp(component: RootComponent) {
     YfuseTheme(
         dark = true,
         accessibility = accessibility,
-        glassStyle = effectiveGlassStyle(glassStyle, accessibility.reduceTransparency),
+        // No 玻璃质感 or 玻璃材质 on a television (see TvAppearanceSettingsPage): the few shared
+        // panels keep the design's own glass, so a choice made before those rows went cannot linger
+        // unseen and out of reach. 减少透明度 still makes them solid.
+        glassStyle = effectiveGlassStyle(GlassStyle.Liquid, accessibility.reduceTransparency),
         dialogAnimation = dialogAnimation.onTv(),
         // A set-top GPU pays for no decoration it does not have to: the phone's default 轻柔
         // particles lit on every focus of a shared control, and there is no setting for them here.
         particleLight = ParticleLight.Off,
         loadingAnimation = loadingAnimation,
-        glassMaterials = glassMaterials,
         motionTheme = motionTheme,
     ) {
         // Dialog panels stay opaque, like every other plate on the television (see TvTokens):
