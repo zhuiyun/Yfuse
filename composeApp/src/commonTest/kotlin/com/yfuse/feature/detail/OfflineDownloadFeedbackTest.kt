@@ -1,8 +1,12 @@
 package com.yfuse.feature.detail
 
+import com.yfuse.core.model.Episode
+import com.yfuse.core.model.Season
 import com.yfuse.core.offline.OfflineBatchMode
+import com.yfuse.core.offline.offlineSeasonLabel
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 
 class OfflineDownloadFeedbackTest {
     @Test
@@ -12,7 +16,34 @@ class OfflineDownloadFeedbackTest {
         assertEquals(OfflineBatchMode.entries.toList(), offlineBatchModes(episode = true, seasonEpisodes = 12))
         assertEquals("本片", offlineBatchModeLabel(OfflineBatchMode.Current, episode = false))
         assertEquals("本集", offlineBatchModeLabel(OfflineBatchMode.Current, episode = true))
+        assertEquals(
+            "第 2 季（10 集）",
+            offlineBatchModeLabel(OfflineBatchMode.Season, episode = true, seasonLabel = "第 2 季（10 集）"),
+        )
+        // Only a caller that cannot say which season still gets the generic word.
         assertEquals("整季", offlineBatchModeLabel(OfflineBatchMode.Season, episode = true))
+    }
+
+    @Test
+    fun a_whole_season_is_named_with_its_count_and_specials_by_name() {
+        assertEquals("第 2 季（10 集）", offlineSeasonLabel(seasonNumber = 2, episodeCount = 10))
+        assertEquals("特别篇（3 集）", offlineSeasonLabel(seasonNumber = 0, episodeCount = 3))
+        // A count that is not known is left out, never guessed.
+        assertEquals("第 2 季", offlineSeasonLabel(seasonNumber = 2, episodeCount = null))
+        assertEquals("特别篇", offlineSeasonLabel(seasonNumber = 0, episodeCount = 0))
+        // Without a number the server's own name stands, and without that the season is only 本季.
+        assertEquals("Season Two（4 集）", offlineSeasonLabel(seasonNumber = null, episodeCount = 4, "Season Two"))
+        assertEquals("本季", offlineSeasonLabel(seasonNumber = null, episodeCount = null, seasonName = " "))
+    }
+
+    @Test
+    fun the_season_named_is_the_one_whose_episodes_are_listed() {
+        val seasons = listOf(Season("s1", "第 1 季", 1, null), Season("s0", "特别篇", 0, null))
+        // The rail still lists season 1 while season 2 loads: season 1 is what would be taken.
+        assertEquals("第 1 季（3 集）", listedSeasonLabel(List(3) { episode("e$it", 1, "s1") }, seasons))
+        assertEquals("特别篇（2 集）", listedSeasonLabel(List(2) { episode("x$it", null, "s0") }, seasons))
+        assertEquals("Extras（1 集）", listedSeasonLabel(listOf(episode("x", null, "sx")), seasons + extras))
+        assertNull(listedSeasonLabel(emptyList(), seasons))
     }
 
     @Test
@@ -32,6 +63,25 @@ class OfflineDownloadFeedbackTest {
         assertEquals("所选的 12 集都已下载", notice(queued = 0, alreadyDownloaded = 12, episode = true))
         assertEquals("已经下载过了", notice(queued = 0, alreadyDownloaded = 1, episode = false))
     }
+
+    private val extras = Season("sx", "Extras", null, null)
+
+    private fun episode(
+        id: String,
+        seasonNumber: Int?,
+        seasonId: String,
+    ) = Episode(
+        id = id,
+        name = id,
+        indexNumber = null,
+        seasonNumber = seasonNumber,
+        seasonId = seasonId,
+        overview = null,
+        runtimeMinutes = null,
+        primaryTag = null,
+        playedPercentage = null,
+        resumePositionTicks = null,
+    )
 
     private fun notice(
         queued: Int,

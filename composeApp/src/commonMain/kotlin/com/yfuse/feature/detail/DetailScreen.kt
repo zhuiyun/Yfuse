@@ -76,6 +76,7 @@ import com.yfuse.core.model.capabilities
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.network.currentPlaybackNetworkClass
 import com.yfuse.core.network.toUserMessage
+import com.yfuse.core.offline.OfflineBatchMode
 import com.yfuse.core.sync.WatchInvite
 import com.yfuse.core.sync.WatchTogetherState
 import com.yfuse.core.sync.parseEpisodeWatchKey
@@ -362,7 +363,8 @@ fun DetailScreen(component: DetailComponent) {
     var seriesPlayedConfirmOpen by remember { mutableStateOf(false) }
     var moreSheetOpen by remember { mutableStateOf(false) }
     var metadataEditorOpen by remember { mutableStateOf(false) }
-    var downloadSheetOpen by remember { mutableStateOf(false) }
+    // The range the 下载 sheet opens on; null while it is closed.
+    var downloadRange by remember { mutableStateOf<OfflineBatchMode?>(null) }
     val sharer = rememberPosterCardSharer()
     // The episode rows' 浮起菜单, swipes and 长按拖选, and what of the season is downloaded.
     val episodeRowActions = rememberEpisodeRowActions(component, state.playServer?.id)
@@ -427,6 +429,8 @@ fun DetailScreen(component: DetailComponent) {
                     personalWanted = personalLists?.wanted == true,
                 )
             }.orEmpty()
+    // 下载第 2 季（10 集）… in 更多: only where 播放 opens an episode, whose season can be taken whole.
+    val seasonDownloadLabel = state.playTarget?.seriesId?.let { listedSeasonLabel(state.episodes, state.seasons) }
 
     LaunchedEffect(airingCalendarOpen, airingCalendarReload, detail?.id) {
         val target = detail ?: return@LaunchedEffect
@@ -944,17 +948,15 @@ fun DetailScreen(component: DetailComponent) {
                                     detailMoreLiftMenu(
                                         title = shown.title,
                                         played = shown.played,
-                                        favoriteAvailable =
-                                            state.playServer
-                                                ?.kind
-                                                ?.capabilities()
-                                                ?.favorites != false,
+                                        favoriteAvailable = serverFavoriteAvailable,
                                         favorite = shown.isFavorite,
                                         watchLater = state.watchLater,
                                         onTogglePlayed = { component.store.accept(DetailIntent.TogglePlayed) },
                                         onToggleFavorite = { component.store.accept(DetailIntent.ToggleFavorite) },
                                         onToggleWatchLater = { component.store.accept(DetailIntent.ToggleWatchLater) },
-                                        onDownload = { downloadSheetOpen = true },
+                                        onDownload = { downloadRange = OfflineBatchMode.Current },
+                                        seasonDownload = seasonDownloadLabel,
+                                        onDownloadSeason = { downloadRange = OfflineBatchMode.Season },
                                         onWatchTogether =
                                             if (watchAvailable && watchState.roomCode == null) {
                                                 {
@@ -1024,7 +1026,7 @@ fun DetailScreen(component: DetailComponent) {
                         onToggleServerWatchLater = { component.store.accept(DetailIntent.ToggleWatchLater) },
                         onDownload = {
                             moreSheetOpen = false
-                            downloadSheetOpen = true
+                            downloadRange = OfflineBatchMode.Current
                         },
                         onCalendar = {
                             moreSheetOpen = false
@@ -1097,27 +1099,8 @@ fun DetailScreen(component: DetailComponent) {
                     )
                 }
 
-                val downloadTarget = state.playTarget
-                if (downloadSheetOpen && downloadTarget != null) {
-                    OfflineDownloadDialog(
-                        detail = downloadTarget,
-                        episodes = state.episodes,
-                        selectedVersionId = state.selectedVersionId,
-                        allowedQualities =
-                            if (state.playServer?.kind == com.yfuse.core.model.MediaServerKind.Plex) {
-                                listOf(com.yfuse.core.offline.OfflineDownloadQuality.Original)
-                            } else {
-                                com.yfuse.core.offline.OfflineDownloadQuality.entries
-                            },
-                        onConfirm = { selection ->
-                            downloadSheetOpen = false
-                            component.download(selection)?.let { result ->
-                                val message = offlineEnqueueMessage(result, episode = downloadTarget.seriesId != null)
-                                component.store.accept(DetailIntent.ShowMessage(message))
-                            }
-                        },
-                        onDismiss = { downloadSheetOpen = false },
-                    )
+                downloadRange?.let { range ->
+                    DetailDownloadSheet(component, state, range, onClose = { downloadRange = null })
                 }
 
                 if (organizationSheetOpen && detail != null) {
