@@ -42,6 +42,7 @@ import com.yfuse.core.designsystem.contentHandoff
 import com.yfuse.core.model.Episode
 import com.yfuse.core.model.MediaDetail
 import com.yfuse.core.model.MediaItem
+import com.yfuse.core.model.MediaTrailer
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.network.currentPlaybackNetworkClass
 import com.yfuse.core.offline.DownloadStatus
@@ -55,6 +56,8 @@ import com.yfuse.feature.detail.episodeStillUrl
 import com.yfuse.feature.detail.relatedLiftMenu
 import com.yfuse.feature.detail.rememberEpisodeRowActions
 import com.yfuse.feature.extras.DetailThemeSong
+import com.yfuse.feature.extras.TrailerLaunchEffect
+import com.yfuse.feature.extras.rememberTrailerLauncher
 import com.yfuse.feature.personal.PersonalMediaActions
 import com.yfuse.tv.focus.FocusCandidate
 import com.yfuse.tv.focus.FocusContext
@@ -72,7 +75,11 @@ internal fun TvDetailScreen(
     val playRequester = remember { FocusRequester() }
     val secondaryNavigationRequester = remember { FocusRequester() }
     var sheet by remember(component.itemId) { mutableStateOf<TvDetailSheet?>(null) }
-    // 主题曲 plays itself, as on the phone's detail page.
+    // 预告片 under the hero's keys; 主题曲 plays itself, as on the phone.
+    val trailers by component.trailers.collectAsState()
+    val trailerLauncher = rememberTrailerLauncher()
+    TrailerLaunchEffect(trailerLauncher)
+    TvTrailerNoticeTimeout(trailerLauncher)
     DetailThemeSong(component)
     if (detail != null && server != null) {
         // One route per title, so returning from a related title restores this page's own focus.
@@ -183,6 +190,16 @@ internal fun TvDetailScreen(
                         downloadEnabled =
                             state.playTarget != null && state.playServer != null && !state.selectionLoading,
                         onDownload = { sheet = TvDetailSheet.Download },
+                        trailers = trailers,
+                        onOpenTrailers = {
+                            val only = trailers.singleOrNull()
+                            if (only != null) {
+                                trailerLauncher.open(only, detail.title)
+                            } else {
+                                sheet = TvDetailSheet.Trailers
+                            }
+                        },
+                        trailerNotice = trailerLauncher.problem,
                         focusMemory = focusMemory,
                         playRequester = playRequester,
                         serverId = server.id,
@@ -465,6 +482,17 @@ internal fun TvDetailScreen(
                         focusMemory = focusMemory,
                         onDismiss = { sheet = null },
                     )
+                TvDetailSheet.Trailers ->
+                    TvTrailerListDialog(
+                        title = detail.title,
+                        trailers = trailers,
+                        focusMemory = focusMemory,
+                        onOpen = { trailer ->
+                            sheet = null
+                            trailerLauncher.open(trailer, detail.title)
+                        },
+                        onDismiss = { sheet = null },
+                    )
             }
         }
     }
@@ -489,6 +517,10 @@ private fun TvDetailHero(
     downloadEnabled: Boolean,
     onDownload: () -> Unit,
     onOpenMore: () -> Unit,
+    trailers: List<MediaTrailer>,
+    onOpenTrailers: () -> Unit,
+    /** Why the last trailer link did not open; see TvTrailerNoticeTimeout. */
+    trailerNotice: String?,
     focusMemory: TvUiFocusMemory,
     playRequester: FocusRequester,
     serverId: String,
@@ -678,6 +710,20 @@ private fun TvDetailHero(
                         )
                     }
                 }
+                if (trailers.isNotEmpty()) {
+                    item(key = "trailer") {
+                        TvActionButton(
+                            label = "预告片",
+                            stableId = "detail:${detail.id}:trailer",
+                            focusScope = "detail:${detail.id}:hero",
+                            focusMemory = focusMemory,
+                            onClick = onOpenTrailers,
+                            icon = AppIcons.Movie,
+                            serverId = serverId,
+                            profileId = profileId,
+                        )
+                    }
+                }
                 item(key = "more") {
                     TvActionButton(
                         label = "更多",
@@ -690,6 +736,10 @@ private fun TvDetailHero(
                         profileId = profileId,
                     )
                 }
+            }
+            trailerNotice?.let { notice ->
+                Spacer(Modifier.height(8.dp))
+                Text(notice, color = TvOnSurfaceMuted, fontSize = TvType.caption)
             }
         }
     }

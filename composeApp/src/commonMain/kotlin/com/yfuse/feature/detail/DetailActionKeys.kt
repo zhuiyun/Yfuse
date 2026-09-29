@@ -11,6 +11,9 @@ internal object DetailActionKeyIds {
     const val WATCH_LATER = "watchLater"
     const val PLAYED = "played"
     const val DOWNLOAD = "download"
+
+    /** 预告片, last in the row: see DetailTrailers. */
+    const val TRAILER = "trailer"
 }
 
 /**

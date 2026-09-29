@@ -380,7 +380,8 @@ fun DetailScreen(component: DetailComponent) {
     val episodeRowActions = rememberEpisodeRowActions(component, state.playServer?.id)
     // The top bar's 投屏 and its device list; null where this platform cannot cast.
     val cast = rememberDetailCast(component)
-    // 主题曲 plays itself, when the setting asks for it — see DetailThemeSong.
+    // 预告片: a key under 播放 while the title has one — see DetailTrailers. 主题曲 plays itself.
+    val trailers = rememberDetailTrailers(component, displayTitle)
     DetailThemeSong(component)
     var organizationSheetOpen by remember { mutableStateOf(false) }
     var sourceListOpen by remember { mutableStateOf(false) }
@@ -688,7 +689,7 @@ fun DetailScreen(component: DetailComponent) {
                                                 episodeRowActions.downloads,
                                                 accept = component.store::accept,
                                                 onTogglePlayed = togglePlayed,
-                                            ) { downloadRange = OfflineBatchMode.Current }
+                                            ) { downloadRange = OfflineBatchMode.Current } + listOfNotNull(trailers.key)
                                         AnimatedColorContent(detailPlayColorState) { detailPlayColor ->
                                             DetailActionDock(
                                                 accent = detailPlayColor,
@@ -1371,6 +1372,7 @@ fun DetailScreen(component: DetailComponent) {
                     },
                     accent = detailAccent,
                 )
+                DetailTrailerHost(trailers, detailAccent)
             }
         }
     }

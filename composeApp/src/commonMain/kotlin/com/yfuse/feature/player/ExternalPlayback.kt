@@ -145,6 +145,27 @@ internal val PlayerMediaItem.isExternalPlayback: Boolean
     get() = serverId == null && id.startsWith(EXTERNAL_PLAYBACK_ID_PREFIX)
 
 /**
+ * A 预告片 file from a library, queued as an outside entry.
+ *
+ * Its address already carries what the server needs to hand the file over, and nothing else about
+ * the entry names that server: so, like any [externalPlaybackItem], it reports playback to no
+ * server and scrobbles nothing to Trakt, and the title it belongs to keeps its own progress. Its id
+ * says it is a trailer as well, which keeps it out of 观看历史 — see [isTrailerPlayback].
+ */
+fun trailerPlaybackItem(
+    url: String,
+    title: String,
+): PlayerMediaItem =
+    externalPlaybackItem(url = url, title = title)
+        .copy(id = TRAILER_PLAYBACK_ID_PREFIX + UUID.randomUUID())
+
+/** True for an entry built by [trailerPlaybackItem]: an outside entry that is a title's trailer. */
+internal val PlayerMediaItem.isTrailerPlayback: Boolean
+    get() = isExternalPlayback && id.startsWith(TRAILER_PLAYBACK_ID_PREFIX)
+
+private const val TRAILER_PLAYBACK_ID_PREFIX = EXTERNAL_PLAYBACK_ID_PREFIX + "trailer-"
+
+/**
  * The first usable name among [candidates], in the order given; the fallback when none is.
  * Control characters are dropped and the length is bounded: every candidate came from outside.
  */
