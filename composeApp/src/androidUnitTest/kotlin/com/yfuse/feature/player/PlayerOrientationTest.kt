@@ -1,8 +1,10 @@
 package com.yfuse.feature.player
 
+import android.content.pm.ActivityInfo
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class PlayerOrientationTest {
@@ -29,5 +31,22 @@ class PlayerOrientationTest {
         assertFalse(turnedToward(180, targets, withinDegrees = 20))
         assertTrue(turnedToward(355, listOf(0), withinDegrees = 20))
         assertFalse(turnedToward(335, listOf(0), withinDegrees = 20))
+    }
+
+    @Test
+    fun a_tall_picture_turns_a_phone_player_upright_and_a_wide_one_turns_it_back() {
+        val landscape = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        val portrait = ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+        assertEquals(portrait, phonePlayerOrientation(videoWidth = 1080, videoHeight = 1920, current = landscape))
+        assertEquals(landscape, phonePlayerOrientation(videoWidth = 1920, videoHeight = 1080, current = portrait))
+        assertEquals(landscape, phonePlayerOrientation(videoWidth = 1080, videoHeight = 1080, current = portrait))
+    }
+
+    @Test
+    fun a_pinned_or_tablet_player_and_an_unknown_picture_are_left_alone() {
+        // 旋转锁 pins whatever the screen shows; a tablet already follows the hand.
+        assertNull(phonePlayerOrientation(1080, 1920, current = ActivityInfo.SCREEN_ORIENTATION_LOCKED))
+        assertNull(phonePlayerOrientation(1080, 1920, current = ActivityInfo.SCREEN_ORIENTATION_FULL_USER))
+        assertNull(phonePlayerOrientation(0, 0, current = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE))
     }
 }

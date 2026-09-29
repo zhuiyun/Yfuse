@@ -48,6 +48,33 @@ internal fun turnedToward(
     withinDegrees: Int,
 ): Boolean = targets.any { target -> abs(orientation - target).let { minOf(it, 360 - it) } <= withinDegrees }
 
+/**
+ * 竖屏视频: the orientation a phone's player asks for once the picture's size is known, or null to
+ * leave [current] alone.
+ *
+ * A picture taller than it is wide turns the player upright, following the phone either way up,
+ * and a wide or square one turns it back to landscape; a portrait clip letterboxed into landscape
+ * used to fill a third of the screen. Only an orientation the player chose itself is changed: 旋转锁
+ * (LOCKED) pins whatever the screen shows, and a tablet's FULL_USER already follows the hand.
+ */
+internal fun phonePlayerOrientation(
+    videoWidth: Int,
+    videoHeight: Int,
+    current: Int,
+): Int? {
+    if (videoWidth <= 0 || videoHeight <= 0) return null
+    if (current != ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE &&
+        current != ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+    ) {
+        return null
+    }
+    return if (videoHeight > videoWidth) {
+        ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+    } else {
+        ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+    }
+}
+
 // End of pure.
 
 private tailrec fun Context.findActivity(): Activity? =
