@@ -2,8 +2,9 @@ name: Baseline profile
 
 # Records the app's baseline profile with macrobenchmark's BaselineProfileGenerator on a KVM
 # emulator and publishes it as an artifact. CI never commits it: a person downloads the artifact
-# and commits baseline-prof.txt as composeApp/src/main/baseline-prof.txt, which AGP compiles into
-# every release APK (assets/dexopt/) for androidx.profileinstaller to install.
+# and commits baseline-prof.txt as composeApp/src/androidMain/baseline-prof.txt (beside the main
+# manifest, where AGP reads it), which AGP compiles into every release APK (assets/dexopt/) for
+# androidx.profileinstaller to install.
 #
 # Journeys over server content skip on this emulator (the benchmark app has no signed-in server),
 # so this profile covers cold start, 首页, tab navigation and 浮起菜单. A run of
@@ -115,7 +116,7 @@ jobs:
               "## Baseline profile",
               f"{counts['baseline_rules']} baseline rules, {counts['startup_rules']} startup rules.",
               "Commit `baseline-prof.txt` from this run's `baseline-profile-*` artifact as "
-              "`composeApp/src/main/baseline-prof.txt`.",
+              "`composeApp/src/androidMain/baseline-prof.txt`.",
           ]
           print("\n".join(lines))
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:

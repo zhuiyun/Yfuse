@@ -1015,8 +1015,9 @@ android {
 
     sourceSets {
 
-        // The main source set keeps its default root, so AGP compiles src/main/baseline-prof.txt
-        // (from the Baseline profile workflow) into non-debuggable APKs for ProfileInstaller.
+        // AGP reads baseline-prof.txt from beside the main manifest, so the Baseline profile
+        // workflow's rules live in src/androidMain/ (not src/main/, where AGP never looked) and are
+        // compiled into non-debuggable APKs for ProfileInstaller.
         getByName("main") {
             manifest.srcFile("src/androidMain/AndroidManifest.xml")
             assets.directories += "src/androidMain/assets"
