@@ -24,17 +24,23 @@ import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.LayoutCoordinates
-import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.findRootCoordinates
 import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.semantics
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.TimeSource
 
 /** How long a still press waits before it sinks further, hinting that holding will do something. */
 private const val LIFT_SINK_DELAY_MS = 150L
+
+/** How long after the lifting finger's last move its speed still counts: VelocityTracker's own horizon. */
+private val LiftFlingFresh = 100.milliseconds
 
 /** How far the sink goes on top of [pressable]'s own 0.97: together about 0.93. */
 private const val LIFT_SINK_SCALE = 0.96f
@@ -107,6 +113,33 @@ fun Modifier.liftable(
     DisposableEffect(Unit) {
         onDispose { current[0]?.sourceDetached() }
     }
+    val sharedMedia = LocalSharedMediaTransitionController.current
+    val latestSharedMedia by rememberUpdatedState(sharedMedia)
+    // The lifting finger's speed, followed only while its card is up: a card let go of on the
+    // move opens along the way the finger was going (一镜到底). Only the finger that has just
+    // come up counts — 打开 tapped later, on a menu left up, sets off from rest.
+    val fling = remember { VelocityTracker() }
+    val flingAt = remember { arrayOfNulls<TimeSource.Monotonic.ValueTimeMark>(1) }
+
+    /**
+     * What opening the title does from this lift. A poster that begins its artwork morph when it
+     * opens has the card carry the page open instead (see LiftExpansion.kt): the morph would fly
+     * a second copy out of the empty cell the card left. A button's menu, 静息 and 减弱动态效果
+     * open as they always have, and the card fades.
+     */
+    fun opener(anchored: Boolean): (() -> Unit)? {
+        val open = latestOpen ?: return null
+        val shared = latestSharedMedia
+        if (anchored || latestStill || shared == null) return open
+        return {
+            val key = shared.openFromCard(open)
+            if (key != null) {
+                val fresh = flingAt[0]?.let { it.elapsedNow() < LiftFlingFresh } == true
+                val velocity = if (fresh) fling.calculateVelocity().let { Offset(it.x, it.y) } else Offset.Zero
+                current[0]?.expandInto(key, velocity)
+            }
+        }
+    }
 
     fun lift(finger: Offset?): LiftSession? {
         val self = own.coordinates?.takeIf { it.isAttached } ?: return null
@@ -115,9 +148,11 @@ fun Modifier.liftable(
         val session =
             host.lift(
                 menu = built,
-                source = art.boundsInRoot(),
+                // Unclipped: a poster half under the top bar or a rail's edge lifts from all of
+                // itself, not from the sliver its scrolling parents let through.
+                source = art.findRootCoordinates().localBoundingBoxOf(art, clipBounds = false),
                 finger = finger,
-                onOpen = latestOpen,
+                onOpen = opener(built.anchored),
                 onSettled = {
                     lifted = false
                     current[0] = null
@@ -141,6 +176,22 @@ fun Modifier.liftable(
         }.semantics {
             onLongClick(label = "更多操作") { lift(finger = null) != null }
             customActions = latestMenu().actions.accessibilityActions()
+        }.pointerInput(Unit) {
+            // Only watches, ahead of the detector below, so the finger's last move before it
+            // comes up is counted when that detector opens the title.
+            awaitEachGesture {
+                val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                fling.resetTracking()
+                while (true) {
+                    val change =
+                        awaitPointerEvent(PointerEventPass.Initial).changes.firstOrNull { it.id == down.id } ?: break
+                    if (current[0] != null) {
+                        fling.addPosition(change.uptimeMillis, change.position)
+                        flingAt[0] = TimeSource.Monotonic.markNow()
+                    }
+                    if (!change.pressed) break
+                }
+            }
         }.pointerInput(host) {
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false)

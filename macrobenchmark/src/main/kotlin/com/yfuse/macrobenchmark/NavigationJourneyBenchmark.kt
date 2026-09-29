@@ -43,9 +43,9 @@ internal fun MacrobenchmarkScope.navigateSearchJourney() {
             "Production search field did not appear",
             device.wait(Until.hasObject(By.desc("搜索电影、剧集、演员")), 10_000),
         )
-        device.wait(Until.findObject(By.desc("我的")), 10_000)?.click() ?: error("Profile tab missing")
+        device.wait(Until.findObject(dockTab("我的")), 10_000)?.click() ?: error("Profile tab missing")
         assertTrue("Search route stayed visible", device.wait(Until.gone(By.desc("搜索电影、剧集、演员")), 10_000))
-        device.wait(Until.findObject(By.desc("首页")), 10_000)?.click() ?: error("Home tab missing")
+        device.wait(Until.findObject(dockTab("首页")), 10_000)?.click() ?: error("Home tab missing")
         device.waitForIdle()
     }
 }

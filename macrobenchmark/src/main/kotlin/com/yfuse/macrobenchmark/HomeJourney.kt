@@ -3,6 +3,7 @@ package com.yfuse.macrobenchmark
 import android.content.Intent
 import androidx.benchmark.macro.MacrobenchmarkScope
 import androidx.test.uiautomator.By
+import androidx.test.uiautomator.BySelector
 import androidx.test.uiautomator.Until
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -10,10 +11,18 @@ import org.junit.Assert.assertTrue
 internal const val TARGET_PACKAGE = BuildConfig.TARGET_PACKAGE
 private const val READY_TIMEOUT_MS = 15_000L
 
+/**
+ * A tab of the production dock. Each tab merges its caption into one clickable node, so the label is
+ * that node's text; the glyph stopped repeating it as a content description, which is what these
+ * journeys used to look for, and the dock could no longer be found. Clickable, so a page title with
+ * the same words is never mistaken for the tab.
+ */
+internal fun dockTab(label: String): BySelector = By.text(label).clickable(true)
+
 internal fun MacrobenchmarkScope.startProductionApp() {
     check(TARGET_PACKAGE.endsWith(".benchmark"))
     startActivityAndWait(Intent().setClassName(TARGET_PACKAGE, "com.yfuse.MainActivity"))
-    assertTrue("Production navigation never appeared", device.wait(Until.hasObject(By.desc("首页")), READY_TIMEOUT_MS))
+    assertTrue("Production navigation never appeared", device.wait(Until.hasObject(dockTab("首页")), READY_TIMEOUT_MS))
 }
 
 internal fun MacrobenchmarkScope.startHomeFixture() {
