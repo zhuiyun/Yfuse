@@ -52,50 +52,62 @@ concurrency:
   group: android-production-publish
   cancel-in-progress: false
 
+env:
+  # Fixed compatibility origin used by already-installed HTTP-only clients.
+  LEGACY_UPDATE_BASE_URL: http://47.112.219.60/yfuse
+
+# A step can read every secret its job references (with sudo it can read the runner's memory),
+# so each production secret is referenced only by the job that uses it, and the build tooling
+# never shares a runner with a signing or deployment key:
+#   request - UPDATE_MANIFEST_SIGNING_KEY, only to derive the public key the APK embeds
+#   build   - TMDB_TOKEN, which is compiled into the APK
+#   sign    - the release keystore and its passwords
+#   deploy  - UPDATE_MANIFEST_SIGNING_KEY to sign the manifests, and the deployment SSH key
+# The gates and smoke jobs hold no secret.
+# Every job that reads a production secret or variable keeps the production environment.
 jobs:
-  publish:
-    name: Build, sign, and publish
+  request:
+    name: Resolve release request
     runs-on: ubuntu-24.04
-    timeout-minutes: 300
+    timeout-minutes: 15
     environment:
       name: production
+    permissions:
+      contents: read
+    outputs:
+      publish: ${{ steps.request.outputs.publish }}
+      version_code: ${{ steps.request.outputs.version_code }}
+      version_name: ${{ steps.request.outputs.version_name }}
+      release_notes: ${{ steps.request.outputs.release_notes }}
+      confirm_mdk_distribution_rights: ${{ steps.request.outputs.confirm_mdk_distribution_rights }}
+      update_base_url: ${{ steps.request.outputs.update_base_url }}
+      deploy_host: ${{ steps.request.outputs.deploy_host }}
+      deploy_user: ${{ steps.request.outputs.deploy_user }}
+      deploy_port: ${{ steps.request.outputs.deploy_port }}
+      deploy_remote_dir: ${{ steps.request.outputs.deploy_remote_dir }}
+      update_manifest_public_key: ${{ steps.request.outputs.update_manifest_public_key }}
     env:
       VERSION_CODE: ${{ inputs.version_code }}
       VERSION_NAME: ${{ inputs.version_name }}
       RELEASE_NOTES: ${{ inputs.release_notes }}
       # Overwritten below for a push-triggered run (Resolve automatic release request), which has
       # no workflow_dispatch inputs and instead reads the repository confirmation or a matching
-      # package-only approval. Gradle's own verifyProductionMdkRights task fails the build if this is not
-      # exactly "true" for a production-signed, MDK-included package (the default here).
+      # package-only approval. The full (MDK-included) package is refused unless this is exactly
+      # "true": here before anything is built, and again by the sign job before production
+      # signing, since Gradle's verifyProductionMdkRights no longer sees the release keystore.
       CONFIRM_MDK_DISTRIBUTION_RIGHTS: ${{ inputs.confirm_mdk_distribution_rights }}
       # Fail closed until the request is resolved. Artifact-only pushes and manual runs with
       # publish off save the signed APK while every deployment step remains skipped.
       PUBLISH_UPDATE: 'false'
-      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-      TMDB_TOKEN: ${{ secrets.TMDB_TOKEN }}
-      # Optional Ed25519 private key (PEM) for signed manifests and the public key embedded in APKs.
-      UPDATE_MANIFEST_SIGNING_KEY: ${{ secrets.UPDATE_MANIFEST_SIGNING_KEY }}
-      # Public certificate fingerprint pinned from the currently published APK.
-      # Changing this requires an explicit signing-key migration.
-      EXPECTED_ANDROID_CERT_SHA256: 373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84
-      DEPLOY_SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
-      DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
       DEPLOY_HOST: ${{ vars.DEPLOY_HOST || '47.112.219.60' }}
       DEPLOY_USER: ${{ vars.DEPLOY_USER || 'yfuse-deploy' }}
       DEPLOY_PORT: ${{ vars.DEPLOY_PORT || '22' }}
       DEPLOY_REMOTE_DIR: ${{ vars.DEPLOY_REMOTE_DIR || '/srv/yfuse-update/yfuse' }}
-      # Fixed compatibility origin used by already-installed HTTP-only clients.
-      LEGACY_UPDATE_BASE_URL: http://47.112.219.60/yfuse
       UPDATE_BASE_URL: ${{ vars.UPDATE_BASE_URL || 'https://47.112.219.60/yfuse' }}
       WATCH_BASE_URL: ${{ vars.WATCH_BASE_URL || 'https://47.112.219.60' }}
       # The v6 server must land first and continue accepting authenticated v5 clients.
       EXPECTED_WATCH_PROTOCOL: "6"
       EXPECTED_WATCH_MIN_PROTOCOL: "5"
-      # Keep enough headroom for native player updates without allowing silent APK bloat.
-      APK_SIZE_BUDGET_BYTES: "30000000"
 
     steps:
       - name: Check out source
@@ -176,21 +188,8 @@ jobs:
             exit 1
           fi
 
-          required_secrets=(
-            ANDROID_KEYSTORE_BASE64
-            ANDROID_KEYSTORE_PASSWORD
-            ANDROID_KEY_ALIAS
-            ANDROID_KEY_PASSWORD
-            TMDB_TOKEN
-            DEPLOY_SSH_PRIVATE_KEY
-            DEPLOY_KNOWN_HOSTS
-          )
-          for secret_name in "${required_secrets[@]}"; do
-            if [[ -z "${!secret_name:-}" ]]; then
-              echo "::error::Missing production secret: $secret_name"
-              exit 1
-            fi
-          done
+          # Each production secret is checked by the job that uses it (build, sign, deploy), so
+          # this job never references the keystore, the TMDB token or the deployment SSH key.
 
           if [[ ! "$DEPLOY_HOST" =~ ^[A-Za-z0-9.-]+$ ]]; then
             echo "::error::DEPLOY_HOST contains unsupported characters"
@@ -226,29 +225,6 @@ jobs:
           normalized_watch_url="${WATCH_BASE_URL%/}"
           echo "UPDATE_BASE_URL=$normalized_update_url" >> "$GITHUB_ENV"
           echo "WATCH_BASE_URL=$normalized_watch_url" >> "$GITHUB_ENV"
-
-      - name: Require green Android quality gates on this commit
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          # Editing version.properties starts this workflow and the quality gates at the same
-          # time. Production signing waits for the gates to finish and refuses a red commit.
-          for attempt in $(seq 1 90); do
-            run="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow quality-gates-v2.yml --commit "$GITHUB_SHA" --limit 1 --json status,conclusion --jq '.[0] // empty')"
-            status="$(jq -r '.status // "missing"' <<<"${run:-null}")"
-            conclusion="$(jq -r '.conclusion // ""' <<<"${run:-null}")"
-            if [[ "$status" == "completed" ]]; then
-              [[ "$conclusion" == "success" ]] || { echo "::error::Android quality gates for $GITHUB_SHA concluded '$conclusion'"; exit 1; }
-              echo "Android quality gates passed for $GITHUB_SHA"
-              exit 0
-            fi
-            echo "quality gates for $GITHUB_SHA: ${status} (attempt $attempt)"
-            sleep 30
-          done
-          echo "::error::Android quality gates for $GITHUB_SHA did not finish in time"
-          exit 1
 
       - name: Verify watch server protocol
         if: env.PUBLISH_UPDATE == 'true'
@@ -316,6 +292,140 @@ jobs:
             fi
           fi
 
+      - name: Configure verified update-manifest public key
+        shell: bash
+        env:
+          # Optional Ed25519 private key (PEM) for signed manifests. This job only derives the
+          # public key the APK embeds; the deploy job signs the manifests with the same secret.
+          UPDATE_MANIFEST_SIGNING_KEY: ${{ secrets.UPDATE_MANIFEST_SIGNING_KEY }}
+          YFUSE_UPDATE_MANIFEST_PUBLIC_KEY: ${{ vars.YFUSE_UPDATE_MANIFEST_PUBLIC_KEY }}
+        run: |
+          set -euo pipefail
+          pinned="$(sed -n 's/^yfuse\.updateManifestPublicKey=//p' gradle.properties | tr -d '[:space:]')"
+          configured="${YFUSE_UPDATE_MANIFEST_PUBLIC_KEY:-}"
+          if [[ -n "$pinned" && -n "$configured" && "$pinned" != "$configured" ]]; then
+            echo '::error::Configured update public key does not match the pinned key'
+            exit 1
+          fi
+          public_key="${pinned:-$configured}"
+          if [[ -n "${UPDATE_MANIFEST_SIGNING_KEY:-}" ]]; then
+            derived="$(printf '%s\n' "$UPDATE_MANIFEST_SIGNING_KEY" | openssl pkey -pubout -outform DER | base64 -w0)"
+            if [[ -n "$public_key" && "$public_key" != "$derived" ]]; then
+              echo '::error::Update signing key does not match the configured public key'
+              exit 1
+            fi
+            public_key="$derived"
+          fi
+          if [[ -z "$public_key" ]]; then
+            echo '::notice::No update-manifest public key configured; continuing with standard APK verification'
+            exit 0
+          fi
+          if [[ -z "${UPDATE_MANIFEST_SIGNING_KEY:-}" ]]; then
+            echo '::error::A configured update-manifest public key needs its matching private signing key when publishing; otherwise pinned clients cannot accept the update'
+            exit 1
+          fi
+          if [[ ! "$public_key" =~ ^MCowBQYDK2VwAyEA[A-Za-z0-9+/]{43}=$ ]]; then
+            echo '::error::Configured update-manifest public key must be valid Ed25519'
+            exit 1
+          fi
+          printf '%s' "$public_key" | base64 --decode | openssl pkey -pubin -inform DER -noout >/dev/null
+          printf 'YFUSE_UPDATE_MANIFEST_PUBLIC_KEY=%s\n' "$public_key" >> "$GITHUB_ENV"
+
+      - name: Hand the verified request to the release jobs
+        id: request
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Gradle's verifyReleaseSigning refused a CI production-signed build without an
+          # update-manifest public key unless it was package-only. Gradle no longer sees the
+          # release keystore, so the same rule applies here, before anything is built.
+          if [[ -z "${YFUSE_UPDATE_MANIFEST_PUBLIC_KEY:-}" ]]; then
+            if [[ "$PUBLISH_UPDATE" == "true" ]]; then
+              echo '::error::CI refuses to publish a production-signed release without an update-manifest public key; configure UPDATE_MANIFEST_SIGNING_KEY'
+              exit 1
+            fi
+            echo '::warning::Production signing WITHOUT an update-manifest public key: this package accepts unsigned update manifests from the update host'
+          fi
+
+          # Every value except the notes was validated above and fits on one line.
+          notes_delimiter="release_notes_$(openssl rand -hex 16)"
+          {
+            echo "publish=$PUBLISH_UPDATE"
+            echo "version_code=$VERSION_CODE"
+            echo "version_name=$VERSION_NAME"
+            echo "confirm_mdk_distribution_rights=$CONFIRM_MDK_DISTRIBUTION_RIGHTS"
+            echo "update_base_url=$UPDATE_BASE_URL"
+            echo "deploy_host=$DEPLOY_HOST"
+            echo "deploy_user=$DEPLOY_USER"
+            echo "deploy_port=$DEPLOY_PORT"
+            echo "deploy_remote_dir=$DEPLOY_REMOTE_DIR"
+            echo "update_manifest_public_key=${YFUSE_UPDATE_MANIFEST_PUBLIC_KEY:-}"
+            echo "release_notes<<$notes_delimiter"
+            printf '%s\n' "$RELEASE_NOTES"
+            echo "$notes_delimiter"
+          } >> "$GITHUB_OUTPUT"
+
+  gates:
+    name: Require green Android quality gates
+    needs: request
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    # The same commit's quality gates run the unit, protocol and server tests, Android lint and
+    # ktlint, so the release jobs no longer repeat them. Signing waits for this job; the build,
+    # which holds no signing or deployment secret, runs alongside it.
+    permissions:
+      actions: read
+
+    steps:
+      - name: Require green Android quality gates on this commit
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Editing version.properties starts this workflow and the quality gates at the same
+          # time. Production signing waits for the gates to finish and refuses a red commit.
+          for attempt in $(seq 1 90); do
+            run="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow quality-gates-v2.yml --commit "$GITHUB_SHA" --limit 1 --json status,conclusion --jq '.[0] // empty')"
+            status="$(jq -r '.status // "missing"' <<<"${run:-null}")"
+            conclusion="$(jq -r '.conclusion // ""' <<<"${run:-null}")"
+            if [[ "$status" == "completed" ]]; then
+              [[ "$conclusion" == "success" ]] || { echo "::error::Android quality gates for $GITHUB_SHA concluded '$conclusion'"; exit 1; }
+              echo "Android quality gates passed for $GITHUB_SHA"
+              exit 0
+            fi
+            echo "quality gates for $GITHUB_SHA: ${status} (attempt $attempt)"
+            sleep 30
+          done
+          echo "::error::Android quality gates for $GITHUB_SHA did not finish in time"
+          exit 1
+
+  build:
+    name: Build release APK without production signing
+    needs: request
+    runs-on: ubuntu-24.04
+    # Cold pinned native dependency bootstrap can take as long as the dedicated native build.
+    timeout-minutes: 300
+    environment:
+      name: production
+    permissions:
+      contents: read
+    outputs:
+      artifact: ${{ steps.built.outputs.artifact }}
+      sha256: ${{ steps.built.outputs.sha256 }}
+    env:
+      VERSION_CODE: ${{ needs.request.outputs.version_code }}
+      VERSION_NAME: ${{ needs.request.outputs.version_name }}
+      CONFIRM_MDK_DISTRIBUTION_RIGHTS: ${{ needs.request.outputs.confirm_mdk_distribution_rights }}
+      PUBLISH_UPDATE: ${{ needs.request.outputs.publish }}
+      # Derived and validated by the request job; Gradle embeds it in the APK.
+      YFUSE_UPDATE_MANIFEST_PUBLIC_KEY: ${{ needs.request.outputs.update_manifest_public_key }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
       - name: Set up Java
         uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
@@ -366,37 +476,201 @@ jobs:
       - name: Build and install current YCore runtime
         uses: ./.github/actions/build-current-ycore
 
-      - name: Configure release signing
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p signing
-          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > signing/yfuse-release.jks
-          chmod 600 signing/yfuse-release.jks
-          {
-            printf 'storeFile=signing/yfuse-release.jks\n'
-            printf 'storePassword=%s\n' "$ANDROID_KEYSTORE_PASSWORD"
-            printf 'keyAlias=%s\n' "$ANDROID_KEY_ALIAS"
-            printf 'keyPassword=%s\n' "$ANDROID_KEY_PASSWORD"
-          } > keystore.properties
-          chmod 600 keystore.properties
-
       - name: Configure app services
         shell: bash
+        env:
+          TMDB_TOKEN: ${{ secrets.TMDB_TOKEN }}
         run: |
           set -euo pipefail
+          if [[ -z "${TMDB_TOKEN:-}" ]]; then
+            echo "::error::Missing production secret: TMDB_TOKEN"
+            exit 1
+          fi
           printf 'tmdb.token=%s\n' "$TMDB_TOKEN" > local.properties
           chmod 600 local.properties
 
-      - name: Verify configured keystore certificate
+      - name: Resolve with committed dependency locks
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew \
+            :composeApp:dependencies :phoneShared:dependencies :tvApp:dependencies :tvShared:dependencies \
+            :mdkAndroid:dependencies \
+            :watchTogetherProtocol:dependencies \
+            :watchTogetherServer:dependencies \
+            --no-daemon >/dev/null
+          git diff --exit-code -- '**/gradle.lockfile' settings-gradle.lockfile
+
+      - name: Build release APK without production signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          package_only=true
+          [[ "$PUBLISH_UPDATE" != "true" ]] || package_only=false
+          # Gradle signs every release package it assembles, and this job never holds the
+          # release keystore. -PallowDebugSigning is the non-distributable mode the quality
+          # gates build: a throwaway debug signature that the sign job replaces. Gradle then
+          # skips its production-signing checks; the request and sign jobs enforce them.
+          ./gradlew :composeApp:assembleRelease \
+            -PyfuseVersionCode="$VERSION_CODE" \
+            -PyfuseVersionName="$VERSION_NAME" \
+            -PconfirmMdkDistributionRights="$CONFIRM_MDK_DISTRIBUTION_RIGHTS" \
+            -PyfusePackageOnly="$package_only" \
+            -PallowDebugSigning=true \
+            -Pkotlin.incremental=false \
+            --no-daemon
+
+      - name: Verify release build did not mutate version metadata
+        run: git diff --exit-code -- version.properties
+
+      - name: Verify release APK contents
+        id: built
         shell: bash
         run: |
           set -euo pipefail
 
+          apk="composeApp/build/outputs/apk/release/composeApp-release.apk"
+          metadata="composeApp/build/outputs/apk/release/output-metadata.json"
+          test -f "$apk"
+          test -f "$metadata"
+
+          actual_version_code="$(jq -r '.elements[0].versionCode' "$metadata")"
+          actual_version_name="$(jq -r '.elements[0].versionName' "$metadata")"
+          [[ "$actual_version_code" == "$VERSION_CODE" ]]
+          [[ "$actual_version_name" == "$VERSION_NAME" ]]
+
+          aapt="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
+          test -x "$aapt"
+          badging="$("$aapt" dump badging "$apk")"
+          grep -Fq "package: name='com.yfuse'" <<<"$badging"
+          grep -Fq "versionCode='$VERSION_CODE'" <<<"$badging"
+          grep -Fq "versionName='$VERSION_NAME'" <<<"$badging"
+          receiver_id="$(awk -F= '$1 == "yfuseCastReceiverApplicationId" { print $2 }' gradle.properties)"
+          [[ "$receiver_id" == "E9107559" ]]
+          dex_dir="$(mktemp -d)"
+          unzip -qq "$apk" 'classes*.dex' -d "$dex_dir"
+          if ! strings "$dex_dir"/classes*.dex | grep -F "$receiver_id" >/dev/null; then
+            echo "::error::Release APK does not contain the configured Cast receiver application ID"
+            exit 1
+          fi
+
+          # Signing replaces only the signature; the sign job refuses any other bytes.
+          apk_sha256="$(sha256sum "$apk" | awk '{print $1}')"
+          {
+            echo "artifact=android-release-build-$GITHUB_RUN_ATTEMPT"
+            echo "path=$apk"
+            echo "sha256=$apk_sha256"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Keep the release APK for signing
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ${{ steps.built.outputs.artifact }}
+          path: ${{ steps.built.outputs.path }}
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  sign:
+    name: Sign release APK with the production key
+    needs: [request, gates, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment:
+      name: production
+    # Nothing here calls the GitHub API; artifacts of this run move with the runtime token.
+    permissions: {}
+    outputs:
+      artifact: ${{ steps.apk.outputs.artifact }}
+      sha256: ${{ steps.apk.outputs.sha256 }}
+      size: ${{ steps.apk.outputs.size }}
+    env:
+      VERSION_CODE: ${{ needs.request.outputs.version_code }}
+      VERSION_NAME: ${{ needs.request.outputs.version_name }}
+      CONFIRM_MDK_DISTRIBUTION_RIGHTS: ${{ needs.request.outputs.confirm_mdk_distribution_rights }}
+      # Public certificate fingerprint pinned from the currently published APK.
+      # Changing this requires an explicit signing-key migration.
+      EXPECTED_ANDROID_CERT_SHA256: 373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84
+      # Keep enough headroom for native player updates without allowing silent APK bloat.
+      APK_SIZE_BUDGET_BYTES: "30000000"
+
+    steps:
+      - name: Set up Java for keytool and apksigner
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Download release APK for signing
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: ${{ needs.build.outputs.artifact }}
+          path: build/release
+
+      - name: Confirm the APK is the one the build job verified
+        id: release
+        shell: bash
+        env:
+          BUILT_SHA256: ${{ needs.build.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+          apk="build/release/composeApp-release.apk"
+          test -f "$apk"
+          actual_sha256="$(sha256sum "$apk" | awk '{print $1}')"
+          if [[ ! "$BUILT_SHA256" =~ ^[0-9a-f]{64}$ || "$actual_sha256" != "$BUILT_SHA256" ]]; then
+            echo "::error::Downloaded APK $actual_sha256 is not the one the build job verified (${BUILT_SHA256:-missing})"
+            exit 1
+          fi
+          echo "path=$apk" >> "$GITHUB_OUTPUT"
+
+      - name: Sign release APK
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          RELEASE_APK: ${{ steps.release.outputs.path }}
+        run: |
+          set -euo pipefail
+
+          # Gradle's verifyProductionMdkRights guarded production signing inside the build; the
+          # production signature is applied here now, so the confirmation is required here too.
+          if [[ "$CONFIRM_MDK_DISTRIBUTION_RIGHTS" != "true" ]]; then
+            echo "::error::MDK distribution rights need the release owner's confirmation before signing this full package"
+            exit 1
+          fi
+          required_secrets=(
+            ANDROID_KEYSTORE_BASE64
+            ANDROID_KEYSTORE_PASSWORD
+            ANDROID_KEY_ALIAS
+            ANDROID_KEY_PASSWORD
+          )
+          for secret_name in "${required_secrets[@]}"; do
+            if [[ -z "${!secret_name:-}" ]]; then
+              echo "::error::Missing production secret: $secret_name"
+              exit 1
+            fi
+          done
+
+          apksigner="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          zipalign="$(find "$ANDROID_HOME/build-tools" -type f -name zipalign | sort -V | tail -n 1)"
+          test -x "$apksigner"
+          test -x "$zipalign"
+
+          # The keystore exists only during this step, outside the workspace, and is removed on
+          # every exit. Passwords reach keytool and apksigner through the environment, never
+          # through their command lines.
+          umask 077
+          signing_dir="$(mktemp -d "$RUNNER_TEMP/yfuse-signing.XXXXXX")"
+          trap 'rm -rf -- "$signing_dir"' EXIT
+          keystore="$signing_dir/yfuse-release.jks"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$keystore"
+
           configured_cert="$(
             keytool -list -v \
-              -keystore signing/yfuse-release.jks \
-              -storepass "$ANDROID_KEYSTORE_PASSWORD" \
+              -keystore "$keystore" \
+              -storepass:env ANDROID_KEYSTORE_PASSWORD \
               -alias "$ANDROID_KEY_ALIAS" |
               sed -n 's/^[[:space:]]*SHA256: //p' |
               head -n 1 |
@@ -412,95 +686,25 @@ jobs:
             exit 1
           fi
 
-      - name: Run unit tests
-        shell: bash
-        run: |
-          set -euo pipefail
-          ./gradlew \
-            :phoneShared:testAndroidHostTest \
-            :composeApp:verifyDesignSystemUsage \
-            :watchTogetherProtocol:jvmTest \
-            :watchTogetherServer:test \
-            -Pkotlin.incremental=false \
-            --no-daemon
-
-      - name: Run Android lint
-        shell: bash
-        run: |
-          set -euo pipefail
-          ./gradlew :composeApp:lintDebug --no-daemon
-
-      - name: Reject new ktlint violations
-        shell: bash
-        run: |
-          set -euo pipefail
-          ./gradlew ktlintCheck --no-daemon
-
-      - name: Resolve with committed dependency locks
-        shell: bash
-        run: |
-          set -euo pipefail
-          ./gradlew \
-            :composeApp:dependencies :phoneShared:dependencies :tvApp:dependencies :tvShared:dependencies \
-            :mdkAndroid:dependencies \
-            :watchTogetherProtocol:dependencies \
-            :watchTogetherServer:dependencies \
-            --no-daemon >/dev/null
-          git diff --exit-code -- '**/gradle.lockfile' settings-gradle.lockfile
-
-      - name: Configure verified update-manifest public key
-        shell: bash
-        env:
-          UPDATE_MANIFEST_SIGNING_KEY: ${{ secrets.UPDATE_MANIFEST_SIGNING_KEY }}
-          YFUSE_UPDATE_MANIFEST_PUBLIC_KEY: ${{ vars.YFUSE_UPDATE_MANIFEST_PUBLIC_KEY }}
-        run: |
-          set -euo pipefail
-          pinned="$(sed -n 's/^yfuse\.updateManifestPublicKey=//p' gradle.properties | tr -d '[:space:]')"
-          configured="${YFUSE_UPDATE_MANIFEST_PUBLIC_KEY:-}"
-          if [[ -n "$pinned" && -n "$configured" && "$pinned" != "$configured" ]]; then
-            echo '::error::Configured update public key does not match the pinned key'
-            exit 1
-          fi
-          public_key="${pinned:-$configured}"
-          if [[ -n "${UPDATE_MANIFEST_SIGNING_KEY:-}" ]]; then
-            derived="$(printf '%s\n' "$UPDATE_MANIFEST_SIGNING_KEY" | openssl pkey -pubout -outform DER | base64 -w0)"
-            if [[ -n "$public_key" && "$public_key" != "$derived" ]]; then
-              echo '::error::Update signing key does not match the configured public key'
-              exit 1
-            fi
-            public_key="$derived"
-          fi
-          if [[ -z "$public_key" ]]; then
-            echo '::notice::No update-manifest public key configured; continuing with standard APK verification'
-            exit 0
-          fi
-          if [[ -z "${UPDATE_MANIFEST_SIGNING_KEY:-}" ]]; then
-            echo '::error::A configured update-manifest public key needs its matching private signing key when publishing; otherwise pinned clients cannot accept the update'
-            exit 1
-          fi
-          if [[ ! "$public_key" =~ ^MCowBQYDK2VwAyEA[A-Za-z0-9+/]{43}=$ ]]; then
-            echo '::error::Configured update-manifest public key must be valid Ed25519'
-            exit 1
-          fi
-          printf '%s' "$public_key" | base64 --decode | openssl pkey -pubin -inform DER -noout >/dev/null
-          printf 'YFUSE_UPDATE_MANIFEST_PUBLIC_KEY=%s\n' "$public_key" >> "$GITHUB_ENV"
-
-      - name: Build signed release APK
-        shell: bash
-        run: |
-          set -euo pipefail
-          package_only=true
-          [[ "$PUBLISH_UPDATE" != "true" ]] || package_only=false
-          ./gradlew :composeApp:assembleRelease \
-            -PyfuseVersionCode="$VERSION_CODE" \
-            -PyfuseVersionName="$VERSION_NAME" \
-            -PconfirmMdkDistributionRights="$CONFIRM_MDK_DISTRIBUTION_RIGHTS" \
-            -PyfusePackageOnly="$package_only" \
-            -Pkotlin.incremental=false \
-            --no-daemon
-
-      - name: Verify release build did not mutate version metadata
-        run: git diff --exit-code -- version.properties
+          # apksigner drops the build's throwaway debug signature and applies the production one
+          # with the schemes every Gradle-signed Yfuse APK has carried: APK Signature Scheme v2
+          # only (minSdk 26 needs no v1 JAR signature; v3 and v4 were never enabled).
+          aligned="$signing_dir/aligned.apk"
+          "$zipalign" -p -f 4 "$RELEASE_APK" "$aligned"
+          mkdir -p build/signed
+          "$apksigner" sign \
+            --ks "$keystore" \
+            --ks-key-alias "$ANDROID_KEY_ALIAS" \
+            --ks-pass env:ANDROID_KEYSTORE_PASSWORD \
+            --key-pass env:ANDROID_KEY_PASSWORD \
+            --v1-signing-enabled false \
+            --v2-signing-enabled true \
+            --v3-signing-enabled false \
+            --v4-signing-enabled false \
+            --out build/signed/composeApp-release.apk \
+            "$aligned"
+          rm -rf -- "$signing_dir"
+          trap - EXIT
 
       - name: Verify APK metadata and signing certificate
         id: apk
@@ -508,15 +712,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          apk="composeApp/build/outputs/apk/release/composeApp-release.apk"
-          metadata="composeApp/build/outputs/apk/release/output-metadata.json"
+          apk="build/signed/composeApp-release.apk"
           test -f "$apk"
-          test -f "$metadata"
-
-          actual_version_code="$(jq -r '.elements[0].versionCode' "$metadata")"
-          actual_version_name="$(jq -r '.elements[0].versionName' "$metadata")"
-          [[ "$actual_version_code" == "$VERSION_CODE" ]]
-          [[ "$actual_version_name" == "$VERSION_NAME" ]]
 
           apksigner="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
           zipalign="$(find "$ANDROID_HOME/build-tools" -type f -name zipalign | sort -V | tail -n 1)"
@@ -530,27 +727,30 @@ jobs:
           grep -Fq "package: name='com.yfuse'" <<<"$badging"
           grep -Fq "versionCode='$VERSION_CODE'" <<<"$badging"
           grep -Fq "versionName='$VERSION_NAME'" <<<"$badging"
-          receiver_id="$(awk -F= '$1 == "yfuseCastReceiverApplicationId" { print $2 }' gradle.properties)"
-          [[ "$receiver_id" == "E9107559" ]]
-          dex_dir="$(mktemp -d)"
-          unzip -qq "$apk" 'classes*.dex' -d "$dex_dir"
-          if ! strings "$dex_dir"/classes*.dex | grep -F "$receiver_id" >/dev/null; then
-            echo "::error::Release APK does not contain the configured Cast receiver application ID"
-            exit 1
-          fi
           expected_cert="$(
             tr -d ':[:space:]' <<<"$EXPECTED_ANDROID_CERT_SHA256" |
               tr '[:upper:]' '[:lower:]'
           )"
-          normalized_signer_output="$(
-            tr -d ':[:space:]' <<<"$signer_output" |
+          signer_cert="$(
+            sed -n 's/^Signer #1 certificate SHA-256 digest: //p' <<<"$signer_output" |
               tr '[:upper:]' '[:lower:]'
           )"
-          if [[ "$normalized_signer_output" != *"$expected_cert"* ]]; then
+          if [[ "$signer_cert" != "$expected_cert" ]] ||
+            ! grep -Fxq 'Number of signers: 1' <<<"$signer_output"; then
             echo "::error::APK signing certificate does not match the pinned production certificate"
             printf '%s\n' "$signer_output"
             exit 1
           fi
+          for scheme in \
+            'Verified using v1 scheme (JAR signing): false' \
+            'Verified using v2 scheme (APK Signature Scheme v2): true' \
+            'Verified using v3 scheme (APK Signature Scheme v3): false'; do
+            if ! grep -Fxq "$scheme" <<<"$signer_output"; then
+              echo "::error::Signed APK does not report '$scheme'"
+              printf '%s\n' "$signer_output"
+              exit 1
+            fi
+          done
 
           apk_sha256="$(sha256sum "$apk" | awk '{print $1}')"
           apk_size="$(stat -c '%s' "$apk")"
@@ -558,18 +758,96 @@ jobs:
             echo "::error::Release APK is $apk_size bytes; budget is $APK_SIZE_BUDGET_BYTES bytes"
             exit 1
           fi
-          apk_file_name="Yfuse-${actual_version_code}-${actual_version_name}.apk"
           {
+            echo "artifact=android-release-signed-$GITHUB_RUN_ATTEMPT"
             echo "path=$apk"
             echo "sha256=$apk_sha256"
             echo "size=$apk_size"
-            echo "version_name=$actual_version_name"
-            echo "file_name=$apk_file_name"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Keep the signed APK for the smoke test and deployment
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ${{ steps.apk.outputs.artifact }}
+          path: ${{ steps.apk.outputs.path }}
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  smoke:
+    name: Signed APK startup smoke
+    needs: [request, sign]
+    # Holds no secret: installs and drives the exact signed APK on Android 35, 36 and 37 before
+    # the deploy job may save it as the package or publish it.
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/android-cloud-ui.yml
+    with:
+      apk_artifact: ${{ needs.sign.outputs.artifact }}
+      apk_sha256: ${{ needs.sign.outputs.sha256 }}
+      version_code: ${{ needs.request.outputs.version_code }}
+      version_name: ${{ needs.request.outputs.version_name }}
+
+  deploy:
+    name: Sign update manifests and publish
+    needs: [request, sign, smoke]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment:
+      name: production
+    # Nothing here calls the GitHub API; artifacts of this run move with the runtime token.
+    permissions: {}
+    env:
+      VERSION_CODE: ${{ needs.request.outputs.version_code }}
+      VERSION_NAME: ${{ needs.request.outputs.version_name }}
+      RELEASE_NOTES: ${{ needs.request.outputs.release_notes }}
+      # Resolved by the request job; anything but 'true' keeps every deployment step skipped.
+      PUBLISH_UPDATE: ${{ needs.request.outputs.publish }}
+      # The public key the build job embedded; the manifest signing key must still match it.
+      EMBEDDED_UPDATE_MANIFEST_PUBLIC_KEY: ${{ needs.request.outputs.update_manifest_public_key }}
+      DEPLOY_HOST: ${{ needs.request.outputs.deploy_host }}
+      DEPLOY_USER: ${{ needs.request.outputs.deploy_user }}
+      DEPLOY_PORT: ${{ needs.request.outputs.deploy_port }}
+      DEPLOY_REMOTE_DIR: ${{ needs.request.outputs.deploy_remote_dir }}
+      UPDATE_BASE_URL: ${{ needs.request.outputs.update_base_url }}
+
+    steps:
+      - name: Download signed release APK
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: ${{ needs.sign.outputs.artifact }}
+          path: build/signed
+
+      - name: Confirm the APK is the one that was signed and smoke-tested
+        id: apk
+        shell: bash
+        env:
+          SIGNED_SHA256: ${{ needs.sign.outputs.sha256 }}
+          SIGNED_SIZE: ${{ needs.sign.outputs.size }}
+        run: |
+          set -euo pipefail
+          apk="build/signed/composeApp-release.apk"
+          test -f "$apk"
+          actual_sha256="$(sha256sum "$apk" | awk '{print $1}')"
+          actual_size="$(stat -c '%s' "$apk")"
+          if [[ ! "$SIGNED_SHA256" =~ ^[0-9a-f]{64}$ || "$actual_sha256" != "$SIGNED_SHA256" ||
+            "$actual_size" != "$SIGNED_SIZE" ]]; then
+            echo "::error::Downloaded APK $actual_sha256 ($actual_size bytes) is not the one the sign job verified"
+            exit 1
+          fi
+          {
+            echo "path=$apk"
+            echo "sha256=$actual_sha256"
+            echo "size=$actual_size"
+            echo "version_name=$VERSION_NAME"
+            echo "file_name=Yfuse-${VERSION_CODE}-${VERSION_NAME}.apk"
           } >> "$GITHUB_OUTPUT"
 
       - name: Create update package
         shell: bash
         env:
+          UPDATE_MANIFEST_SIGNING_KEY: ${{ secrets.UPDATE_MANIFEST_SIGNING_KEY }}
           APK_PATH: ${{ steps.apk.outputs.path }}
           APK_SHA256: ${{ steps.apk.outputs.sha256 }}
           APK_SIZE: ${{ steps.apk.outputs.size }}
@@ -609,6 +887,13 @@ jobs:
 
           # Manifest signatures are optional; APK signatures and hashes are always verified.
           if [[ -n "${UPDATE_MANIFEST_SIGNING_KEY:-}" ]]; then
+            # The request job derived the public key embedded in this APK from this same secret.
+            # A key that changed since would sign manifests the pinned clients reject.
+            signing_public_key="$(printf '%s\n' "$UPDATE_MANIFEST_SIGNING_KEY" | openssl pkey -pubout -outform DER | base64 -w0)"
+            if [[ "$signing_public_key" != "${EMBEDDED_UPDATE_MANIFEST_PUBLIC_KEY:-}" ]]; then
+              echo '::error::Update signing key does not match the public key embedded in the APK'
+              exit 1
+            fi
             # Sign every field that decides what gets installed. The payload layout mirrors
             # UpdateManifest.signedPayload() in the app: change both or neither.
             umask 077
@@ -633,6 +918,9 @@ jobs:
             trap - EXIT
             jq -e '.signature | type == "string" and length > 0' build/update/update.json >/dev/null
             jq -e '.signature | type == "string" and length > 0' build/update/update-v2.json >/dev/null
+          elif [[ -n "${EMBEDDED_UPDATE_MANIFEST_PUBLIC_KEY:-}" ]]; then
+            echo '::error::The APK pins an update-manifest public key but the signing key is missing; pinned clients cannot accept the update'
+            exit 1
           else
             echo '::notice::No update-manifest signing key configured; publishing standard update manifests'
           fi
@@ -664,8 +952,17 @@ jobs:
       - name: Configure pinned SSH host
         if: env.PUBLISH_UPDATE == 'true'
         shell: bash
+        env:
+          DEPLOY_SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
         run: |
           set -euo pipefail
+          for secret_name in DEPLOY_SSH_PRIVATE_KEY DEPLOY_KNOWN_HOSTS; do
+            if [[ -z "${!secret_name:-}" ]]; then
+              echo "::error::Missing production secret: $secret_name"
+              exit 1
+            fi
+          done
           install -d -m 700 "$HOME/.ssh"
           printf '%s\n' "$DEPLOY_SSH_PRIVATE_KEY" > "$HOME/.ssh/id_deploy"
           known_hosts_source="$HOME/.ssh/known_hosts.source"

@@ -98,7 +98,7 @@ class PublishPackageOnlyTest(unittest.TestCase):
         self.assertIn("continue-on-error: ${{ env.PUBLISH_UPDATE == 'true' }}", block)
 
     def test_gradle_is_told_when_the_package_is_not_published(self):
-        build = script(step("publish-android.yml", "Build signed release APK"))
+        build = script(step("publish-android.yml", "Build release APK without production signing"))
         for publish, package_only in (("true", "false"), ("false", "true")):
             with self.subTest(publish=publish):
                 result, _ = run_with_fake("gradlew", 'printf "%s\\n" "$@"\n', build.replace("./gradlew", "gradlew"), {
@@ -107,6 +107,9 @@ class PublishPackageOnlyTest(unittest.TestCase):
                 })
                 self.assertEqual(0, result.returncode, result.stderr)
                 self.assertIn("-PyfusePackageOnly=" + package_only, result.stdout.splitlines())
+                # The build job never holds the release keystore; the sign job replaces this
+                # throwaway signature with the production one.
+                self.assertIn("-PallowDebugSigning=true", result.stdout.splitlines())
 
     def test_a_release_is_created_only_after_a_successful_upload(self):
         release = (WORKFLOWS / "release.yml").read_text()
@@ -118,10 +121,14 @@ class PublishPackageOnlyTest(unittest.TestCase):
             steps = [{"name": "Save release artifact", "conclusion": "success"}]
             if conclusion:
                 steps.append({"name": "Publish update atomically", "conclusion": conclusion})
+            # The publishing run has several jobs; the upload step lives in the last one.
+            jobs = [{"name": "Sign release APK with the production key",
+                     "steps": [{"name": "Verify APK metadata and signing certificate", "conclusion": "success"}]},
+                    {"name": "Sign update manifests and publish", "steps": steps}]
             with self.subTest(conclusion=conclusion):
                 result, output = run_with_fake("gh", fake_gh, check, {
                     "RUN_ID": "1", "GITHUB_REPOSITORY": "owner/repo",
-                    "RUN_JOBS": json.dumps({"jobs": [{"name": "Build, sign, and publish", "steps": steps}]}),
+                    "RUN_JOBS": json.dumps({"jobs": jobs}),
                 })
                 self.assertEqual(0, result.returncode, result.stderr)
                 self.assertEqual("published=" + published + "\n", output)
