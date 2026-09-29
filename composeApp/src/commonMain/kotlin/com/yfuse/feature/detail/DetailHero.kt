@@ -82,10 +82,14 @@ import com.yfuse.core.designsystem.cssLinearGradient
 import com.yfuse.core.designsystem.fadeIntoPage
 import com.yfuse.core.designsystem.heroTopScrim
 import com.yfuse.core.designsystem.isSharedMediaArtworkActive
+import com.yfuse.core.designsystem.liftExpansionTarget
 import com.yfuse.core.designsystem.liftable
 import com.yfuse.core.designsystem.liquidGlass
+import com.yfuse.core.designsystem.oneTakeArrival
 import com.yfuse.core.designsystem.playerArtworkSource
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.rememberLiftExpansion
+import com.yfuse.core.designsystem.rememberOneTakeArrival
 import com.yfuse.core.designsystem.sharedMediaArtwork
 import com.yfuse.core.designsystem.solidGlass
 import com.yfuse.core.designsystem.touchTarget
@@ -232,7 +236,10 @@ internal fun Hero(
     // means not even the first frame is drawn at 1.08.
     val still = LocalAccessibilityOptions.current.reduceMotion || calmMotion()
     val sharedEntrance = isSharedMediaArtworkActive(sharedKey)
-    var entered by remember(animationKey) { mutableStateOf(sharedEntrance || still) }
+    // 一镜到底: a lifted card is growing into this hero (LiftExpansion.kt). The hero stays out of
+    // sight under it until it hands over, and then is simply there at rest, the card's own size.
+    val expansion = rememberLiftExpansion(sharedKey)
+    var entered by remember(animationKey) { mutableStateOf(sharedEntrance || still || expansion != null) }
     LaunchedEffect(animationKey) { entered = true }
     val entrance by animateFloatAsState(
         targetValue = if (entered) 1f else 0f,
@@ -243,6 +250,7 @@ internal fun Hero(
             ),
         label = "heroEntrance",
     )
+    val heldByCard = expansion != null && !expansion.landed && !expansion.gaveUp
     Box(
         Modifier
             .fillMaxWidth()
@@ -277,7 +285,7 @@ internal fun Hero(
         // Clip only the artwork plane. The outer hero may still grow for pull-down overscroll,
         // while its 1.08 entrance can no longer bleed below the physical hero edge without
         // the scrim and flash through the sheet's transparent gradient start.
-        Box(Modifier.fillMaxSize().clipToBounds()) {
+        Box(Modifier.fillMaxSize().clipToBounds().liftExpansionTarget(expansion)) {
             FallbackImage(
                 urls = urls,
                 contentDescription = title,
@@ -285,7 +293,13 @@ internal fun Hero(
                 // so a network/disk result does not arrive as a hard cut or add a second scale.
                 progressive = true,
                 alphaOnly = true,
-                onResolvedUrl = onResolvedUrl,
+                // Under a card that is about to hand over, a picture arrives whole: fading in, it
+                // would still be half there when the card lifts off it.
+                revealDurationMillis = if (heldByCard) 0 else Motion.POSTER_FADE,
+                onResolvedUrl = { url ->
+                    expansion?.heroReady = true
+                    onResolvedUrl(url)
+                },
                 modifier =
                     Modifier
                         .sharedMediaArtwork(sharedKey)
@@ -519,6 +533,10 @@ internal fun TitleBlock(
     statuses: List<DetailStatus> = emptyList(),
     onStatusClick: () -> Unit = {},
 ) {
+    // 一镜到底: opened by a lifted card, the words rise into place one row after another once the
+    // card has handed the artwork over (LiftExpansion.kt). Opened any other way they are there.
+    val arrival = rememberOneTakeArrival(detail.id)
+    var row = 0
     Column(
         modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.Start,
@@ -530,6 +548,7 @@ internal fun TitleBlock(
             textAlign = TextAlign.Start,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.oneTakeArrival(arrival, row++),
         )
         val facts =
             listOfNotNull(
@@ -544,11 +563,13 @@ internal fun TitleBlock(
                 color = ArtworkInkSub,
                 textAlign = TextAlign.Start,
                 maxLines = 1,
+                modifier = Modifier.oneTakeArrival(arrival, row++),
             )
         }
         if (detail.communityRating != null || detail.officialRating != null) {
             Spacer(Modifier.height(9.dp))
             Row(
+                Modifier.oneTakeArrival(arrival, row++),
                 horizontalArrangement = Arrangement.spacedBy(7.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -560,7 +581,13 @@ internal fun TitleBlock(
         }
         detail.genres.take(2).joinToString(" · ").takeIf { it.isNotBlank() }?.let { genre ->
             Spacer(Modifier.height(8.dp))
-            Text(genre, style = AppTypography.body.medium, color = ArtworkInkFaint, maxLines = 1)
+            Text(
+                genre,
+                style = AppTypography.body.medium,
+                color = ArtworkInkFaint,
+                maxLines = 1,
+                modifier = Modifier.oneTakeArrival(arrival, row++),
+            )
         }
         // Only what this copy actually carries. A page that always claims Dolby says
         // nothing; here the badge is the answer to "is this the good file", which on a
@@ -569,13 +596,13 @@ internal fun TitleBlock(
         val dolbyAtmos = version?.hasDolbyAtmos == true
         if (dolbyVision || dolbyAtmos) {
             Spacer(Modifier.height(12.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(22.dp)) {
+            Row(Modifier.oneTakeArrival(arrival, row++), horizontalArrangement = Arrangement.spacedBy(22.dp)) {
                 if (dolbyVision) DolbyBadge("VISION", ArtworkInk)
                 if (dolbyAtmos) DolbyBadge("ATMOS", ArtworkInk)
             }
         }
         // Its 48dp touch target is its spacing: the chips sit centred in it, a gap either side.
-        if (statuses.isNotEmpty()) DetailStatusRow(statuses, onStatusClick)
+        if (statuses.isNotEmpty()) DetailStatusRow(statuses, onStatusClick, Modifier.oneTakeArrival(arrival, row))
     }
 }
 
@@ -618,9 +645,10 @@ internal fun detailStatuses(
 private fun DetailStatusRow(
     statuses: List<DetailStatus>,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     FlowRow(
-        Modifier
+        modifier
             .pressable(
                 focusShape = AppShapes.chip,
                 onClickLabel = "打开更多操作",
