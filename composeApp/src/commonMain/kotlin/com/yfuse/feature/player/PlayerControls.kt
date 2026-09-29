@@ -194,7 +194,7 @@ internal fun PlayerControls(
     playback: State<PlaybackState>,
     // The queue, as the strip and the title bar both read it.
     episodes: List<EpisodeCard>,
-    filled: Boolean,
+    scaleMode: VideoScaleMode,
     onBack: () -> Unit,
     onEnterPictureInPicture: (() -> Unit)?,
     onPlayPause: () -> Unit,
@@ -240,7 +240,7 @@ internal fun PlayerControls(
     gestures: PlayerGestureSettings = PlayerGestureSettings(),
     sleepTimer: SleepTimerState = SleepTimerState(),
     sleepTimerActions: SleepTimerActions = SleepTimerActions(),
-    onToggleFill: () -> Unit,
+    onToggleFill: (stretch: Boolean) -> Unit,
     /** 捏合填充 and the F key: 裁剪填满 (true) or 适应 (false), remembered for the series like the button. */
     onSetFill: (Boolean) -> Unit = {},
     trickplay: TrickplayStoryboard? = null,
@@ -432,7 +432,7 @@ internal fun PlayerControls(
     val latestCasting by rememberUpdatedState(castingDeviceId != null)
     val latestOnSpeedBoost by rememberUpdatedState(onSpeedBoost)
     val latestGestures by rememberUpdatedState(gestures)
-    val latestFilled by rememberUpdatedState(filled)
+    val latestFilled by rememberUpdatedState(scaleMode != VideoScaleMode.Fit)
     val latestOnSetFill by rememberUpdatedState(onSetFill)
     val remoteChromeState = remoteChrome?.state?.collectAsState()?.value
     LaunchedEffect(remoteChromeState?.seekTargetMs, remoteChromeState?.seeking) {
@@ -1549,14 +1549,14 @@ internal fun PlayerControls(
                     RefinedTopBar(
                         title = episodes.getOrNull(state.currentIndex)?.title.orEmpty(),
                         subtitle = readout,
-                        filled = filled,
+                        scaleMode = scaleMode,
                         dolbyVision = dolbyVision,
                         dolbyAtmos = dolbyAtmos,
                         onBack = onBack,
                         onEnterPictureInPicture = onEnterPictureInPicture,
-                        onToggleFill = {
+                        onToggleFill = { stretch ->
                             poke()
-                            onToggleFill()
+                            onToggleFill(stretch)
                         },
                         onOpenCast = { openSettingsPanel(SettingsPanelKind.Cast) },
                         onOpenMore = { openSettingsPanel(SettingsPanelKind.More) },
@@ -1664,6 +1664,7 @@ internal fun PlayerControls(
                             skipSettingsAvailable = skip.seriesName != null,
                             onOpenSkipSettings = { openSettingsPanel(SettingsPanelKind.Skip) },
                             danmakuEnabled = danmaku.enabled,
+                            onToggleDanmaku = danmakuActions.onToggle,
                             onOpenDanmaku = { openSettingsPanel(SettingsPanelKind.Danmaku) },
                             // 进度条跟随作品取色: the series poster, or the episode still without one.
                             artworkUrl = episodes.getOrNull(state.currentIndex)?.let { it.posterUrl ?: it.stillUrl },

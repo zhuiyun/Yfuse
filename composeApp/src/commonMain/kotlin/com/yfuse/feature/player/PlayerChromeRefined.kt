@@ -130,12 +130,13 @@ import com.yfuse.core.designsystem.ThemeText as Text
 internal fun RefinedTopBar(
     title: String,
     subtitle: String,
-    filled: Boolean,
+    scaleMode: VideoScaleMode,
     dolbyVision: Boolean,
     dolbyAtmos: Boolean,
     onBack: () -> Unit,
     onEnterPictureInPicture: (() -> Unit)?,
-    onToggleFill: () -> Unit,
+    /** A tap on 画面 (false) or a held press, which asks for 拉伸填满 (true). */
+    onToggleFill: (stretch: Boolean) -> Unit,
     onOpenCast: () -> Unit,
     onOpenMore: () -> Unit,
     watchConnected: Boolean,
@@ -280,14 +281,17 @@ internal fun RefinedTopBar(
                 )
             }
             // One key with two readings, so the glyph dissolves into the other one inside the key,
-            // which keeps its size and, once pressed, a keyboard's or a screen reader's focus.
+            // which keeps its size and, once pressed, a keyboard's or a screen reader's focus. It
+            // names the mode it is in: 拉伸填满 used to be read out as 填充.
             CircleControl(
-                icon = if (filled) AppIcons.AspectFill else AppIcons.AspectFit,
-                description = if (filled) "画面比例：填充" else "画面比例：适应",
+                icon = if (scaleMode == VideoScaleMode.Fit) AppIcons.AspectFit else AppIcons.AspectFill,
+                description = "画面比例：${scaleMode.label}",
                 size = 28.dp,
                 iconSize = 12.dp,
                 crossfadeIcon = true,
-                onClick = onToggleFill,
+                onClick = { onToggleFill(false) },
+                onLongClick = { onToggleFill(true) },
+                onLongClickLabel = if (scaleMode == VideoScaleMode.Stretch) "恢复适应" else "拉伸填满",
             )
             extras.rotationLock?.let { lock ->
                 // 旋转锁 changes its glyph in place the way 画面比例 beside it does.
@@ -345,6 +349,9 @@ internal fun RefinedBottomBar(
     skipSettingsAvailable: Boolean,
     onOpenSkipSettings: () -> Unit,
     danmakuEnabled: Boolean,
+    /** A tap on 弹幕: comments on or off where they are. */
+    onToggleDanmaku: () -> Unit,
+    /** A held 弹幕: the panel, for what shows and where it comes from. */
     onOpenDanmaku: () -> Unit,
     artworkUrl: String?,
     artworkIdentity: Any?,
@@ -390,6 +397,7 @@ internal fun RefinedBottomBar(
         skipSettingsAvailable = skipSettingsAvailable,
         onOpenSkipSettings = onOpenSkipSettings,
         danmakuEnabled = danmakuEnabled,
+        onToggleDanmaku = onToggleDanmaku,
         onOpenDanmaku = onOpenDanmaku,
         artworkUrl = artworkUrl,
         artworkIdentity = stableArtworkIdentity,
@@ -426,6 +434,9 @@ private fun RefinedBottomBarContent(
     skipSettingsAvailable: Boolean,
     onOpenSkipSettings: () -> Unit,
     danmakuEnabled: Boolean,
+    /** A tap on 弹幕: comments on or off where they are. */
+    onToggleDanmaku: () -> Unit,
+    /** A held 弹幕: the panel, for what shows and where it comes from. */
     onOpenDanmaku: () -> Unit,
     artworkUrl: String?,
     artworkIdentity: Any?,
@@ -728,13 +739,17 @@ private fun RefinedBottomBarContent(
             ) {
                 CircleControl(AppIcons.Subtitle, "字幕", 26.dp, 12.dp, onClick = onOpenSubtitles)
                 CircleControl(AppIcons.AudioTrack, "音轨", 26.dp, 12.dp, onClick = onOpenAudio)
+                // 弹幕 is switched far more often than it is set up, so a tap switches it and the
+                // panel waits behind a held press.
                 CircleControl(
                     icon = AppIcons.Danmaku,
                     description = if (danmakuEnabled) "弹幕，已开启" else "弹幕，已关闭",
                     size = 26.dp,
                     iconSize = 12.dp,
                     active = danmakuEnabled,
-                    onClick = onOpenDanmaku,
+                    onClick = onToggleDanmaku,
+                    onLongClick = onOpenDanmaku,
+                    onLongClickLabel = "弹幕设置",
                 )
                 RefinedSpeedControl(speed, onOpenSpeed)
                 // Which of these three exist is decided by the item, and the item changes under

@@ -2988,7 +2988,7 @@ internal fun PlayerRoot(
                         bookmarks = bookmarkBinding.first,
                         bookmarkActions = bookmarkBinding.second,
                         episodes = remember(activeItems) { activeItems.toEpisodeCards() },
-                        filled = scaleMode != VideoScaleMode.Fit,
+                        scaleMode = scaleMode,
                         ambientLight = ambient.light.takeIf { ambient.enabled },
                         ambientLightEnabled = ambient.enabled,
                         onToggleAmbientLight = { playbackPreferences.setAmbientLight(!ambient.enabled) },
@@ -3594,8 +3594,8 @@ internal fun PlayerRoot(
                                     sleepTimerRevision++
                                 },
                             ),
-                        onToggleFill = {
-                            scaleMode = scaleMode.next()
+                        onToggleFill = { stretch ->
+                            scaleMode = scaleMode.toggled(stretch)
                             backendExtensions.setVideoScaleMode(scaleMode)
                             rememberSeriesPlayback { remembered ->
                                 remembered.copy(aspectMode = scaleMode.name)

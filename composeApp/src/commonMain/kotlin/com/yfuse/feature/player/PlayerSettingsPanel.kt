@@ -256,6 +256,20 @@ internal fun SettingsPanel(
                                         },
                                 )
                             }
+                            // 同步 right under the track it moves: a line out of step is the thing
+                            // people open this panel to fix, and it used to sit below the dual layouts.
+                            if (subtitleControls.offsetAvailable) {
+                                OffsetStepper(
+                                    label = "字幕同步",
+                                    valueMs = subtitleControls.offsetMs,
+                                    fineStepMs = SUBTITLE_OFFSET_FINE_STEP_MS,
+                                    coarseStepMs = SUBTITLE_OFFSET_COARSE_STEP_MS,
+                                    limitMs = SUBTITLE_OFFSET_LIMIT_MS,
+                                    stepLabel = ::subtitleOffsetStepLabel,
+                                    valueLabel = ::subtitleOffsetLabel,
+                                    onChange = subtitleActions.onOffset,
+                                )
+                            }
                             GroupLabel("副字幕")
                             subtitleControls.dualLayoutNote?.let { UnsupportedSubtitleControl(it) }
                             if (subtitleControls.secondarySupported) {
@@ -293,19 +307,8 @@ internal fun SettingsPanel(
                                     color = Color.White.copy(alpha = 0.68f),
                                 )
                             }
-                            if (subtitleControls.offsetAvailable) {
-                                OffsetStepper(
-                                    label = "字幕时间偏移",
-                                    valueMs = subtitleControls.offsetMs,
-                                    fineStepMs = SUBTITLE_OFFSET_FINE_STEP_MS,
-                                    coarseStepMs = SUBTITLE_OFFSET_COARSE_STEP_MS,
-                                    limitMs = SUBTITLE_OFFSET_LIMIT_MS,
-                                    stepLabel = ::subtitleOffsetStepLabel,
-                                    valueLabel = ::subtitleOffsetLabel,
-                                    onChange = subtitleActions.onOffset,
-                                )
-                            } else {
-                                GroupLabel("字幕时间偏移")
+                            if (!subtitleControls.offsetAvailable) {
+                                GroupLabel("字幕同步")
                                 UnsupportedSubtitleControl(subtitleControls.unavailableReason)
                             }
                             if (
@@ -313,7 +316,7 @@ internal fun SettingsPanel(
                                 subtitleControls.secondaryTrackId != null
                             ) {
                                 OffsetStepper(
-                                    label = "副字幕时间偏移",
+                                    label = "副字幕同步",
                                     valueMs = subtitleControls.secondaryOffsetMs,
                                     fineStepMs = SUBTITLE_OFFSET_FINE_STEP_MS,
                                     coarseStepMs = SUBTITLE_OFFSET_COARSE_STEP_MS,
