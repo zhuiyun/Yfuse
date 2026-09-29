@@ -41,6 +41,10 @@ import com.yfuse.core.data.TmdbHomeCache
 import com.yfuse.core.data.TmdbRepository
 import com.yfuse.core.data.UserAgentPreferences
 import com.yfuse.core.data.WatchTogetherPreferences
+import com.yfuse.core.filesource.FileSourceClient
+import com.yfuse.core.filesource.FileSourceProgressStore
+import com.yfuse.core.filesource.FileSourceRegistry
+import com.yfuse.core.filesource.createFileSourceClient
 import com.yfuse.core.network.LanDiscovery
 import com.yfuse.core.network.createDanmakuClient
 import com.yfuse.core.network.createEmbyClient
@@ -118,6 +122,17 @@ fun appModule(
             persistDispatcher = Dispatchers.Default,
         )
     }
+    // 文件来源: a store of its own rather than entries in ServerRegistry, so nothing that speaks the
+    // Emby API is ever handed a WebDAV share. Its passwords get their own Keystore namespace.
+    single {
+        val persistedSettings = get<Settings>()
+        FileSourceRegistry(
+            settings = persistedSettings,
+            secureStore = createSecureStore(settings = persistedSettings, namespace = "file-source-credentials"),
+        )
+    }
+    single { FileSourceProgressStore(get()) }
+    single<FileSourceClient> { createFileSourceClient() }
     single { ThemePreferences(get()) }
     single { TipsPreferences(get()) }
     single { LibraryGridColumnsPreferences(get()) }
