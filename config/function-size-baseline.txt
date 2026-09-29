@@ -2,4 +2,4 @@
 # Lower a ceiling after a split; raise one only with a reason in the commit.
 composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidAdaptiveCore2YPlayer.kt::runLoop 1831
 composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerRoot.kt::PlayerRoot 3734
-composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerControls.kt::PlayerControls 2165
+composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerControls.kt::PlayerControls 2052
