@@ -27,7 +27,8 @@ import kotlin.math.sqrt
  * behind the retreating capsule; the magnifier comes into focus last.
  *
  * Collapsed under a scroll, the dock is one key, 搜索 included: 搜索 first flows back into the
- * capsule's end — the two bridge before they touch — and the capsule then contracts to the key.
+ * capsule's end — the two bridge before they touch, and the magnifier stays sharp until the capsule
+ * has it — with the tabs still up, and only then does the capsule contract to the key.
  * Expanding again, the key spreads back across the row with 搜索 inside it and lets it go exactly as
  * it did on arrival. A move overtaken by the opposite one runs back the way it came.
  *
@@ -81,8 +82,10 @@ internal class DockLiquidFrame(
     val dropRadius: Float,
     /** k between the capsule and the drop. */
     val blend: Float,
-    /** 搜索's magnifier: 0 blurred and gone, 1 in focus. */
+    /** How much of 搜索's magnifier shows: 0 gone, 1 all of it. */
     val glyph: Float,
+    /** Its focus: 0 blurred and small, 1 sharp. It comes into focus as a split lands; it never blurs going back in. */
+    val glyphFocus: Float,
     /** How far the four tabs spread from the capsule's left end: the whole row, or the capsule's right edge. */
     val tabSpan: Float,
     /** The capsule's right edge. */
@@ -133,6 +136,7 @@ internal fun dockSplitFrame(
         dropRadius = dropRadius,
         blend = metrics.viscosity * LiquidMotion.splitViscosity(ms),
         glyph = smooth(110f, 300f, ms),
+        glyphFocus = smooth(110f, 300f, ms),
         tabSpan = capsuleEnd + radius,
         capsuleRight = capsuleEnd + radius,
         dropShift = dropCenter - metrics.searchCenter,
@@ -150,14 +154,22 @@ internal fun dockGatherFrame(
     metrics: DockLiquidMetrics,
 ): DockLiquidFrame {
     val sweep = capsuleSweep(ms, DOCK_GATHER_MS)
-    return tuckedFrame(lerp(metrics.capsuleStart, metrics.capsuleFull, sweep), tuck = sweep, metrics)
+    // The tabs arrive spread across the row and are uncovered as the capsule sweeps out.
+    return tuckedFrame(
+        lerp(metrics.capsuleStart, metrics.capsuleFull, sweep),
+        tuck = sweep,
+        tabSpan = metrics.width,
+        glyphFocus = 0f,
+        metrics = metrics,
+    )
 }
 
 /**
  * 搜索 flowing back into the capsule, [ms] into a collapse — the split run the other way: the
- * capsule's end reaches out to 搜索's far edge on the capsule's spring while 搜索 shrinks and backs
- * into it, the two bridged by k before they touch; the magnifier goes first, over 110 ms. It ends on
- * exactly the first frame of [dockContractFrame].
+ * capsule's end reaches out to 搜索's far edge while 搜索 shrinks and backs into it, the two bridged
+ * by k before they touch. The magnifier rides 搜索 in, sharp, and fades only as the capsule takes it,
+ * so what is being taken in stays legible; the tabs hold still. It ends on exactly the first frame
+ * of [dockContractFrame].
  */
 internal fun dockMergeFrame(
     ms: Float,
@@ -182,9 +194,10 @@ internal fun dockMergeFrame(
                 metrics.viscosity * smooth(0f, 40f, ms) * (1f - smooth(MERGE_BLEND_OUT, DOCK_MERGE_MS.toFloat(), ms)),
                 dockFlushBlend(capsuleEnd, dropCenter, dropRadius, radius),
             ),
-        glyph = 1f - smooth(0f, 110f, ms),
-        // The four cells spread with the capsule's end, as they closed up behind it in the split.
-        tabSpan = capsuleEnd + radius,
+        glyph = 1f - smooth(MERGE_GLYPH_FADE_FROM, MERGE_GLYPH_FADE_TO, ms),
+        glyphFocus = 1f,
+        // The tabs hold still: spreading, the last one would slide under the magnifier going in.
+        tabSpan = metrics.capsuleRest + radius,
         capsuleRight = capsuleEnd + radius,
         dropShift = dropCenter - metrics.searchCenter,
         dropScale = dropRadius / radius,
@@ -232,7 +245,14 @@ internal fun dockContractFrame(
     metrics: DockLiquidMetrics,
 ): DockLiquidFrame {
     val sweep = capsuleSweep(ms, DOCK_CONTRACT_MS)
-    return tuckedFrame(lerp(metrics.capsuleFull, metrics.capsuleStart, sweep), tuck = 1f - sweep, metrics)
+    // The tabs stay where they were, fading and cut off by the contracting edge.
+    return tuckedFrame(
+        lerp(metrics.capsuleFull, metrics.capsuleStart, sweep),
+        tuck = 1f - sweep,
+        tabSpan = metrics.capsuleRest + metrics.radius,
+        glyphFocus = 1f,
+        metrics = metrics,
+    )
 }
 
 /**
@@ -242,6 +262,8 @@ internal fun dockContractFrame(
 private fun tuckedFrame(
     capsuleEnd: Float,
     tuck: Float,
+    tabSpan: Float,
+    glyphFocus: Float,
     metrics: DockLiquidMetrics,
 ): DockLiquidFrame {
     val radius = metrics.radius
@@ -253,8 +275,8 @@ private fun tuckedFrame(
         // Inside the capsule any k would only swell its end.
         blend = 0f,
         glyph = 0f,
-        // The tabs lie across the whole row, uncovered or covered as the capsule's end sweeps.
-        tabSpan = metrics.width,
+        glyphFocus = glyphFocus,
+        tabSpan = tabSpan,
         capsuleRight = capsuleEnd + radius,
         dropShift = dropCenter - metrics.searchCenter,
         dropScale = DROP_TUCK,
@@ -280,8 +302,16 @@ private fun capsuleSweep(
 @Stable
 internal class DockLiquid(
     armed: DockLiquidMove?,
+    collapsed: Boolean,
 ) {
     val clock = LiquidClock(armed)
+
+    /**
+     * Whether the row shows the collapsed key rather than the tabs. Collapsing, it turns only once
+     * 搜索 is inside the capsule, so the tabs are still there to be merged with; expanding, it turns
+     * at once, and the tabs are uncovered as the capsule sweeps out.
+     */
+    var keyShown: Boolean by mutableStateOf(collapsed)
 
     /** The row, as last laid out; null until it has been. */
     var metrics: DockLiquidMetrics? by mutableStateOf(null)
@@ -298,6 +328,14 @@ internal class DockLiquid(
         val metrics = metrics ?: return null
         return dockLiquidFrame(move, clock.elapsed, metrics)
     }
+
+    /** Collapses from [fromMs] into the move: 搜索 flows in with the tabs up, then the capsule contracts. */
+    suspend fun collapse(fromMs: Float = 0f) {
+        clock.arm(DockLiquidMove.Collapse, atMs = fromMs)
+        if (fromMs < DOCK_MERGE_MS) clock.runTo(DOCK_MERGE_MS.toFloat(), holdLastFrame = true)
+        keyShown = true
+        clock.runTo(DockLiquidMove.Collapse.durationMs.toFloat())
+    }
 }
 
 /** The dock is already moving when the split starts: it rises for 60 ms as one capsule first. */
@@ -308,8 +346,8 @@ internal const val DOCK_SPLIT_MS = 560
 
 internal const val DOCK_GATHER_MS = 240
 
-/** 搜索 flowing back in, before the capsule contracts. */
-internal const val DOCK_MERGE_MS = 240
+/** 搜索 flowing back in, before the capsule contracts: long enough to see the bridge and the swallow. */
+internal const val DOCK_MERGE_MS = 320
 
 /** The capsule's spring is within a tenth of a dp of the key by now, so landing it here shows no seam. */
 internal const val DOCK_CONTRACT_MS = 360
@@ -319,6 +357,10 @@ private const val CAPSULE_HZ = 3.02f
 
 /** k lets go over the merge's last 60 ms. */
 private const val MERGE_BLEND_OUT = DOCK_MERGE_MS - 60f
+
+/** The magnifier fades from halfway in, as 搜索 sinks into the capsule, and is gone just before it contracts. */
+private const val MERGE_GLYPH_FADE_FROM = DOCK_MERGE_MS * 0.5f
+private const val MERGE_GLYPH_FADE_TO = DOCK_MERGE_MS - 40f
 
 /** How small 搜索's drop is while it is inside the capsule, and how far inside it sits. */
 private const val DROP_TUCK = 0.55f
