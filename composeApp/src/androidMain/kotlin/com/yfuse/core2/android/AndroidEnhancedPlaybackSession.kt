@@ -492,8 +492,11 @@ internal class AndroidEnhancedPlaybackSession(
                                         hdrStaticMetadata = effectiveVideo.hdrStaticMetadata,
                                     ),
                             ).also {
-                                check(it.isReady) { "Vulkan swapchain/ImageReader output is unavailable" }
+                                // Owned before the readiness check: the output already runs a frame
+                                // thread and an ImageReader, and the catch below closes it on this
+                                // or any later open failure instead of leaving it to the next open.
                                 gpuVideoOutput = it
+                                check(it.isReady) { "Vulkan swapchain/ImageReader output is unavailable" }
                             }.decoderSurface
                         } else {
                             error("GpuEnhanced requires Android 9 HardwareBuffer")
@@ -586,6 +589,9 @@ internal class AndroidEnhancedPlaybackSession(
             runCatching(audioDecoder::release)
             runCatching(encodedAudioRenderer::release)
             runCatching(softwareVideoRenderer::release)
+            // After the decoder that feeds it, in the same order as close().
+            runCatching { gpuVideoOutput?.close() }
+            gpuVideoOutput = null
             runCatching { softwareDecoder?.release() }
             softwareDecoder = null
             runCatching(demuxReadAhead::close)
