@@ -1,5 +1,6 @@
 package com.yfuse.feature.player
 
+import com.yfuse.core.filesource.fileSourceItemId
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -36,11 +37,26 @@ class PlaybackReportingTargetTest {
         assertEquals(PlaybackReportingTarget.Disabled, playbackReportingTarget(null))
     }
 
+    @Test
+    fun a_file_source_entry_is_never_reported_to_the_default_server() {
+        val id = fileSourceItemId("fs0123456789abcdef01234567", listOf("电影", "Dune.mkv"))
+
+        assertEquals(
+            PlaybackReportingTarget.Disabled,
+            playbackReportingTarget(item(url = "https://nas.local:5244/dav/Dune.mkv", id = id)),
+        )
+        assertEquals(
+            PlaybackReportingTarget.Disabled,
+            playbackReportingTarget(item(url = "smb://nas/Media/Dune.mkv", id = id)),
+        )
+    }
+
     private fun item(
         url: String,
         serverId: String? = null,
+        id: String = "item-1",
     ) = PlayerMediaItem(
-        id = "item-1",
+        id = id,
         url = url,
         transcodeUrl = url,
         title = "Movie",

@@ -17,6 +17,7 @@ import com.yfuse.core.playback.cachedLocalPlaybackDiscKind
 import com.yfuse.core.playback.detectPlaybackDiscKind
 import com.yfuse.core2.android.AndroidCore2TrialFactory
 import com.yfuse.core2.android.core2NativeBaselineBlockReason
+import com.yfuse.feature.filesource.isFileSourcePlayback
 import kotlinx.coroutines.CoroutineScope
 import com.yfuse.core.platform.AppBuildConfig as BuildConfig
 
@@ -80,11 +81,15 @@ internal fun createVideoEngine(
             decoderMode,
             capabilitySignature,
         )
+    // 文件来源 files are smb:// or WebDAV addresses whose login travels in memory beside them. Only
+    // YCore's transports read either, so such a queue takes YCore whichever engine is chosen.
+    val fileSourceQueue = items.any { it.isFileSourcePlayback }
     val yCoreAllowed =
         !remoteYCoreBlocked &&
             !yCoreDemuxBlocked &&
             (
                 packagedNativeOnly ||
+                    fileSourceQueue ||
                     shouldUseCore2Trial(
                         enabled = core2TrialEnabled,
                         engineSelection = engineSelection,
@@ -158,6 +163,15 @@ internal fun createVideoEngine(
                 startPositionMs = startPositionMs,
             )
         }
+    }
+    if (fileSourceQueue) {
+        // Exo, mpv and MDK would open the address without its login, or not open smb:// at all.
+        return MissingNativeCapabilityVideoEngine(
+            message = "WebDAV / SMB 文件需要 YCore 内核播放，YCore 当前不可用",
+            startIndex = startIndex,
+            itemCount = items.size,
+            startPositionMs = startPositionMs,
+        )
     }
     if (resolvedNativeOnly) {
         return MissingNativeCapabilityVideoEngine(
