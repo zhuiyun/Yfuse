@@ -44,3 +44,32 @@ internal fun mapAdaptivePresentationState(
         secondarySubtitleCues = subtitles(state.secondarySubtitleCues),
     )
 }
+
+/**
+ * Carries one output evidence generation through every child a player republishes.
+ *
+ * outputEvidenceGeneration is monotonic for the playback session, and a newer value is how a
+ * consumer recognises output from after a seek or a rebuild. Each child counts from its own start,
+ * so republished as-is every rebuild went back to zero, and a child that reset as often as the one
+ * before it (a seek back into a Period opens, seeks and resumes exactly as the seek forward did)
+ * never showed its picture under a generation newer than the one before the seek. A child's count
+ * now continues after everything the player published before that child.
+ */
+internal class ChildOutputEvidenceSequence {
+    private var child: Any? = null
+    private var base = 0L
+
+    /** [state] of [child] renumbered to follow [published], the player's state before this one. */
+    fun continued(
+        child: Any,
+        state: YPlayerState,
+        published: YPlayerState,
+    ): YPlayerState {
+        if (this.child !== child) {
+            this.child = child
+            base = published.diagnostics.outputEvidenceGeneration.let { if (it == Long.MAX_VALUE) it else it + 1L }
+        }
+        val generation = state.diagnostics.outputEvidenceGeneration.coerceIn(0L, Long.MAX_VALUE - base)
+        return state.copy(diagnostics = state.diagnostics.copy(outputEvidenceGeneration = base + generation))
+    }
+}
