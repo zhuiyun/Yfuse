@@ -2554,77 +2554,77 @@ internal fun PlayerRoot(
                             ?: deviceCapabilities.videoSupport(activeProbe.source.videoRequirements),
                     dolbyVisionRuntime = dolbyVisionRuntime,
                 )
-            val backendFallbackEligible = failureKind.allowsBackendFallback
-            val nextEngine =
-                recoveryPlan.engineOrder
-                    .firstOrNull { backendFallbackEligible && it !in triedEngines }
-            if (nextEngine != null) {
-                AppLog.info(
-                    category = "player",
-                    event = "engine_fallback",
-                    message = "Playback exhausted its streams; trying another engine",
-                    attributes =
-                        mapOf(
-                            "from" to kind.name,
-                            "to" to nextEngine.name,
-                            "itemIndex" to state.currentIndex.toString(),
-                            "failureKind" to failureKind.name,
-                            "plannedPath" to recoveryPlan.renderPath.name,
-                        ),
-                )
-                enginesTried = triedEngines + nextEngine
-                switchEngine(nextEngine)
-                return@LaunchedEffect
-            }
+            when (
+                val step =
+                    nextPlaybackRecoveryStep(
+                        engineOrder = recoveryPlan.engineOrder,
+                        enginesTried = triedEngines,
+                        backendFallbackEligible = failureKind.allowsBackendFallback,
+                        nextVersionId = currentItem?.nextFallbackVersionId(versionsTried),
+                        serverCandidates = serverFallbackPlans[state.currentIndex].orEmpty(),
+                        serversTried = serversTried,
+                    )
+            ) {
+                is PlaybackRecoveryStep.Engine -> {
+                    AppLog.info(
+                        category = "player",
+                        event = "engine_fallback",
+                        message = "Playback exhausted its streams; trying another engine",
+                        attributes =
+                            mapOf(
+                                "from" to kind.name,
+                                "to" to step.engine.name,
+                                "itemIndex" to state.currentIndex.toString(),
+                                "failureKind" to failureKind.name,
+                                "plannedPath" to recoveryPlan.renderPath.name,
+                            ),
+                    )
+                    enginesTried = triedEngines + step.engine
+                    switchEngine(step.engine)
+                }
 
-            val nextVersion =
-                currentItem
-                    ?.nextFallbackVersionId(versionsTried)
-                    ?.takeIf { backendFallbackEligible }
-            if (nextVersion != null) {
-                AppLog.info(
-                    category = "player",
-                    event = "version_fallback",
-                    message = "Playback exhausted every engine; trying another media version",
-                    attributes =
-                        mapOf(
-                            "itemIndex" to state.currentIndex.toString(),
-                            "failedVersionId" to currentItem.versionId.orEmpty(),
-                            "nextVersionId" to nextVersion,
-                        ),
-                )
-                selectVersion(nextVersion, automaticRecovery = true)
-                return@LaunchedEffect
-            }
+                is PlaybackRecoveryStep.Version -> {
+                    AppLog.info(
+                        category = "player",
+                        event = "version_fallback",
+                        message = "Playback exhausted every engine; trying another media version",
+                        attributes =
+                            mapOf(
+                                "itemIndex" to state.currentIndex.toString(),
+                                "failedVersionId" to currentItem?.versionId.orEmpty(),
+                                "nextVersionId" to step.versionId,
+                            ),
+                    )
+                    selectVersion(step.versionId, automaticRecovery = true)
+                }
 
-            val plan = serverFallbackPlans[state.currentIndex].orEmpty()
-            val nextServer =
-                plan.firstOrNull { candidate ->
-                    candidate.serverId != null && candidate.serverId !in serversTried
-                } ?: return@LaunchedEffect
-            val failedServerId = currentItem?.serverId
-            val targetServerId = nextServer.serverId ?: return@LaunchedEffect
-            capturePlaybackHandover()
-            player.pause()
-            val positionMs = player.currentPositionMs()
-            serversTried = serversTried + targetServerId
-            versionChoices = versionChoices - (currentItem?.id ?: "")
-            serverChoices = serverChoices + (state.currentIndex to nextServer)
-            resume = resume.copy(itemIndex = state.currentIndex, positionMs = positionMs)
-            engineGeneration++
-            AppLog.warning(
-                category = "player",
-                event = "playback_server_failover",
-                message = "Playback exhausted local engines and versions; switched to another server",
-                attributes =
-                    mapOf(
-                        "itemIndex" to state.currentIndex.toString(),
-                        "fromServerId" to failedServerId.orEmpty(),
-                        "toServerId" to targetServerId,
-                        "positionMs" to positionMs.toString(),
-                    ),
-            )
-            Toast.makeText(context, "当前线路播放失败，已切换服务器", Toast.LENGTH_SHORT).show()
+                is PlaybackRecoveryStep.Server -> {
+                    val failedServerId = currentItem?.serverId
+                    capturePlaybackHandover()
+                    player.pause()
+                    val positionMs = player.currentPositionMs()
+                    serversTried = serversTried + step.serverId
+                    versionChoices = versionChoices - (currentItem?.id ?: "")
+                    serverChoices = serverChoices + (state.currentIndex to step.candidate)
+                    resume = resume.copy(itemIndex = state.currentIndex, positionMs = positionMs)
+                    engineGeneration++
+                    AppLog.warning(
+                        category = "player",
+                        event = "playback_server_failover",
+                        message = "Playback exhausted local engines and versions; switched to another server",
+                        attributes =
+                            mapOf(
+                                "itemIndex" to state.currentIndex.toString(),
+                                "fromServerId" to failedServerId.orEmpty(),
+                                "toServerId" to step.serverId,
+                                "positionMs" to positionMs.toString(),
+                            ),
+                    )
+                    Toast.makeText(context, "当前线路播放失败，已切换服务器", Toast.LENGTH_SHORT).show()
+                }
+
+                PlaybackRecoveryStep.Exhausted -> Unit
+            }
         }
         // Held as State and read where the level is drawn. Destructured to a Float here, every
         // pointer sample of a volume/brightness drag invalidated this whole runtime scope.
@@ -2801,1098 +2801,1109 @@ internal fun PlayerRoot(
                 ?.takeUnless { inPictureInPicture }
                 ?.let { tabletopSplit(it.first, it.last, containerHeightPx) }
         val density = LocalDensity.current
-        Box(
-            Modifier
-                .fillMaxSize()
-                .background(Color.Black)
-                .onGloballyPositioned { coordinates ->
-                    containerHeightPx = coordinates.size.height
-                    val bounds = coordinates.boundsInWindow()
-                    onVideoBounds(
-                        Rect(
-                            bounds.left.roundToInt(),
-                            bounds.top.roundToInt(),
-                            bounds.right.roundToInt(),
-                            bounds.bottom.roundToInt(),
-                        ),
-                    )
-                    ambient.onContainerSize(coordinates.size)
-                },
-        ) {
-            // 片尾接管: whichever engine draws, its surface moves the same way; the controls decide when.
-            val pictureModifier =
+        // The surface and everything drawn over it are a composable lambda of their own, so they
+        // compile to a method of their own. As the inline Box's content they were part of this
+        // runtime-content lambda, a ~3,000-line method that R8 9.1 once mis-optimised into an
+        // Android 17 VerifyError before the app could start (see proguard-rules.pro).
+        val playerSurface: @Composable () -> Unit = {
+            Box(
                 Modifier
-                    .then(
-                        if (tabletop == null) {
-                            Modifier.fillMaxSize()
-                        } else {
-                            Modifier.fillMaxWidth().height(with(density) { tabletop.pictureBottomPx.toDp() })
-                        },
-                    ).creditsTakeoverPicture(
-                        active = creditsTakeover && !inPictureInPicture,
-                        immediate = inPictureInPicture,
-                    )
-            when (engine) {
-                is YPlayerVideoEngineAdapter ->
-                    Core2Surface(
-                        engine = engine,
-                        protectedContent =
-                            currentItem?.let { item ->
-                                item.drmConfiguration != null || item.activeVersion?.drmConfiguration != null
-                            } == true,
-                        scaleMode = scaleMode,
-                        videoWidth =
-                            state.diagnostics.videoWidth.takeIf { it > 0 }
-                                ?: currentItem?.activeVersion?.sourceWidth
-                                ?: 0,
-                        videoHeight =
-                            state.videoHeight.takeIf { it > 0 }
-                                ?: currentItem?.activeVersion?.sourceHeight
-                                ?: 0,
-                        subtitleOffsetMs = presentationSubtitleControls.offsetMs,
-                        subtitleScale = presentationSubtitleControls.scale,
-                        secondarySubtitleScale = presentationSubtitleControls.secondaryScale,
-                        subtitleBrightness = presentationSubtitleControls.brightness,
-                        subtitlePosition = presentationSubtitleControls.position,
-                        subtitleAppearance = presentationSubtitleControls.appearance,
-                        modifier = pictureModifier,
-                        visible = !inPictureInPicture,
-                        ambientSampler = ambient.sampler,
-                        ambientLayer = ambientLayer,
-                    )
-                is MdkVideoEngine ->
-                    MdkSurface(
-                        engine,
-                        pictureModifier,
-                        ambientSampler = ambient.sampler,
-                        ambientLayer = ambientLayer,
-                    )
-                is MpvVideoEngine ->
-                    MpvSurface(
-                        engine,
-                        pictureModifier,
-                        ambientSampler = ambient.sampler,
-                        ambientLayer = ambientLayer,
-                        subtitlesInsidePicture = ambient.enabled,
-                        subtitleControls = presentationSubtitleControls,
-                    )
-                is ExoVideoEngine ->
-                    ExoSurface(
-                        engine = engine,
-                        scaleMode = scaleMode,
-                        subtitleScale = presentationSubtitleControls.scale,
-                        secondarySubtitleScale = presentationSubtitleControls.secondaryScale,
-                        subtitleBrightness = presentationSubtitleControls.brightness,
-                        subtitlePosition = presentationSubtitleControls.position,
-                        subtitleAppearance = presentationSubtitleControls.appearance,
-                        modifier = pictureModifier,
-                        ambientSampler = ambient.sampler,
-                        ambientLayer = ambientLayer,
-                    )
-            }
-
-            // Placed outside the timeline scope so the chip's anchor is not rebuilt per tick.
-            val statusChipModifier =
-                Modifier.align(androidx.compose.ui.Alignment.TopCenter).padding(top = 68.dp)
-            PlaybackTimelineContent(livePlayback) { state ->
-                val pictureReady = state.diagnostics.effectiveVideoReadiness == PlaybackOutputReadiness.Rendering
-                // Sound with no picture to wait for: ready the moment it is heard, for the
-                // continuity overlay and the entrance's stand-in alike.
-                val audioOnly =
-                    state.diagnostics.effectiveAudioReadiness == PlaybackOutputReadiness.Rendering &&
-                        state.videoHeight <= 0 &&
-                        currentItem?.activeVersion?.sourceVideoCodec.isNullOrBlank()
-                PlaybackContinuityOverlay(
-                    artworkUrls = continuityArtwork,
-                    title = currentItem?.title.orEmpty(),
-                    visible =
-                        transition?.coversPicture() != true &&
-                            currentItem != null &&
-                            state.error == null &&
-                            !state.ended &&
-                            !audioOnly &&
-                            !pictureReady,
-                    message = continuityMessage,
-                    modifier = Modifier.fillMaxSize(),
-                )
-                PlayerTransitionLayer(
-                    state = transition,
-                    ready = state.error != null || pictureReady || audioOnly,
-                    inPictureInPicture = inPictureInPicture,
-                    aspectRatio = transitionAspectRatio(scaleMode, state),
-                    layer = PlayerTransitionLayerKind.Entrance,
-                )
-                PlaybackStatusChip(
-                    visible = pictureReady && (state.buffering || networkRecovery.pending),
-                    message = statusChipMessage,
-                    modifier = statusChipModifier,
-                )
-
-                if (danmaku.enabled && danmaku.visibleComments.isNotEmpty()) {
-                    // Entering 画中画 used to cut the comment layer out between two frames, which
-                    // reads as the picture glitching rather than as the window changing shape.
-                    AnimatedVisibility(
-                        visible = !inPictureInPicture,
-                        enter = fadeIn(Motion.tween(pictureInPictureFadeMs)),
-                        exit = fadeOut(Motion.tween(pictureInPictureFadeMs)),
-                    ) {
-                        DanmakuOverlay(
-                            comments = danmaku.visibleComments,
-                            positionMs = state.positionMs,
-                            playing = state.playing && !state.buffering,
-                            playbackRate = state.speed,
-                            displayArea = danmaku.displayArea,
-                            fontSize = danmaku.fontSize,
-                            speed = danmaku.speed,
-                            opacity = danmaku.opacity,
-                            picker = danmakuPicker,
+                    .fillMaxSize()
+                    .background(Color.Black)
+                    .onGloballyPositioned { coordinates ->
+                        containerHeightPx = coordinates.size.height
+                        val bounds = coordinates.boundsInWindow()
+                        onVideoBounds(
+                            Rect(
+                                bounds.left.roundToInt(),
+                                bounds.top.roundToInt(),
+                                bounds.right.roundToInt(),
+                                bounds.bottom.roundToInt(),
+                            ),
                         )
+                        ambient.onContainerSize(coordinates.size)
+                    },
+            ) {
+                // 片尾接管: whichever engine draws, its surface moves the same way; the controls decide when.
+                val pictureModifier =
+                    Modifier
+                        .then(
+                            if (tabletop == null) {
+                                Modifier.fillMaxSize()
+                            } else {
+                                Modifier.fillMaxWidth().height(with(density) { tabletop.pictureBottomPx.toDp() })
+                            },
+                        ).creditsTakeoverPicture(
+                            active = creditsTakeover && !inPictureInPicture,
+                            immediate = inPictureInPicture,
+                        )
+                when (engine) {
+                    is YPlayerVideoEngineAdapter ->
+                        Core2Surface(
+                            engine = engine,
+                            protectedContent =
+                                currentItem?.let { item ->
+                                    item.drmConfiguration != null || item.activeVersion?.drmConfiguration != null
+                                } == true,
+                            scaleMode = scaleMode,
+                            videoWidth =
+                                state.diagnostics.videoWidth.takeIf { it > 0 }
+                                    ?: currentItem?.activeVersion?.sourceWidth
+                                    ?: 0,
+                            videoHeight =
+                                state.videoHeight.takeIf { it > 0 }
+                                    ?: currentItem?.activeVersion?.sourceHeight
+                                    ?: 0,
+                            subtitleOffsetMs = presentationSubtitleControls.offsetMs,
+                            subtitleScale = presentationSubtitleControls.scale,
+                            secondarySubtitleScale = presentationSubtitleControls.secondaryScale,
+                            subtitleBrightness = presentationSubtitleControls.brightness,
+                            subtitlePosition = presentationSubtitleControls.position,
+                            subtitleAppearance = presentationSubtitleControls.appearance,
+                            modifier = pictureModifier,
+                            visible = !inPictureInPicture,
+                            ambientSampler = ambient.sampler,
+                            ambientLayer = ambientLayer,
+                        )
+                    is MdkVideoEngine ->
+                        MdkSurface(
+                            engine,
+                            pictureModifier,
+                            ambientSampler = ambient.sampler,
+                            ambientLayer = ambientLayer,
+                        )
+                    is MpvVideoEngine ->
+                        MpvSurface(
+                            engine,
+                            pictureModifier,
+                            ambientSampler = ambient.sampler,
+                            ambientLayer = ambientLayer,
+                            subtitlesInsidePicture = ambient.enabled,
+                            subtitleControls = presentationSubtitleControls,
+                        )
+                    is ExoVideoEngine ->
+                        ExoSurface(
+                            engine = engine,
+                            scaleMode = scaleMode,
+                            subtitleScale = presentationSubtitleControls.scale,
+                            secondarySubtitleScale = presentationSubtitleControls.secondaryScale,
+                            subtitleBrightness = presentationSubtitleControls.brightness,
+                            subtitlePosition = presentationSubtitleControls.position,
+                            subtitleAppearance = presentationSubtitleControls.appearance,
+                            modifier = pictureModifier,
+                            ambientSampler = ambient.sampler,
+                            ambientLayer = ambientLayer,
+                        )
+                }
+
+                // Placed outside the timeline scope so the chip's anchor is not rebuilt per tick.
+                val statusChipModifier =
+                    Modifier.align(androidx.compose.ui.Alignment.TopCenter).padding(top = 68.dp)
+                PlaybackTimelineContent(livePlayback) { state ->
+                    val pictureReady = state.diagnostics.effectiveVideoReadiness == PlaybackOutputReadiness.Rendering
+                    // Sound with no picture to wait for: ready the moment it is heard, for the
+                    // continuity overlay and the entrance's stand-in alike.
+                    val audioOnly =
+                        state.diagnostics.effectiveAudioReadiness == PlaybackOutputReadiness.Rendering &&
+                            state.videoHeight <= 0 &&
+                            currentItem?.activeVersion?.sourceVideoCodec.isNullOrBlank()
+                    PlaybackContinuityOverlay(
+                        artworkUrls = continuityArtwork,
+                        title = currentItem?.title.orEmpty(),
+                        visible =
+                            transition?.coversPicture() != true &&
+                                currentItem != null &&
+                                state.error == null &&
+                                !state.ended &&
+                                !audioOnly &&
+                                !pictureReady,
+                        message = continuityMessage,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                    PlayerTransitionLayer(
+                        state = transition,
+                        ready = state.error != null || pictureReady || audioOnly,
+                        inPictureInPicture = inPictureInPicture,
+                        aspectRatio = transitionAspectRatio(scaleMode, state),
+                        layer = PlayerTransitionLayerKind.Entrance,
+                    )
+                    PlaybackStatusChip(
+                        visible = pictureReady && (state.buffering || networkRecovery.pending),
+                        message = statusChipMessage,
+                        modifier = statusChipModifier,
+                    )
+
+                    if (danmaku.enabled && danmaku.visibleComments.isNotEmpty()) {
+                        // Entering 画中画 used to cut the comment layer out between two frames, which
+                        // reads as the picture glitching rather than as the window changing shape.
+                        AnimatedVisibility(
+                            visible = !inPictureInPicture,
+                            enter = fadeIn(Motion.tween(pictureInPictureFadeMs)),
+                            exit = fadeOut(Motion.tween(pictureInPictureFadeMs)),
+                        ) {
+                            DanmakuOverlay(
+                                comments = danmaku.visibleComments,
+                                positionMs = state.positionMs,
+                                playing = state.playing && !state.buffering,
+                                playbackRate = state.speed,
+                                displayArea = danmaku.displayArea,
+                                fontSize = danmaku.fontSize,
+                                speed = danmaku.speed,
+                                opacity = danmaku.opacity,
+                                picker = danmakuPicker,
+                            )
+                        }
                     }
                 }
-            }
 
-            // A player that arrived on a transition leaves on it too, whichever way the viewer
-            // closes it, and the back gesture drives the first part of the way out as it moves.
-            // Registered before the chrome so a drawer or a disc menu composed later still takes
-            // the gesture first.
-            PlatformPredictiveBackHandler(
-                enabled = transition != null && !transition.disabled && !inPictureInPicture,
-                onProgress = { transition?.onBackProgress(it) },
-                onBack = onBack,
-                onCancel = { transition?.onBackCancel() },
-            )
-
-            AnimatedVisibility(
-                visible = !inPictureInPicture,
-                modifier =
-                    if (tabletop == null) {
-                        Modifier
-                    } else {
-                        Modifier.fillMaxSize().padding(top = with(density) { tabletop.controlsTopPx.toDp() })
-                    },
-                enter = fadeIn(Motion.tween(pictureInPictureFadeMs)),
-                exit = ExitTransition.None,
-            ) {
-                PlayerControls(
-                    systemGestureTopPx =
-                        maxOf(
-                            WindowInsets.statusBarsIgnoringVisibility.getTop(LocalDensity.current),
-                            WindowInsets.systemGestures.getTop(LocalDensity.current),
-                        ).toFloat(),
-                    playback = livePlayback,
-                    bookmarks = bookmarkBinding.first,
-                    bookmarkActions = bookmarkBinding.second,
-                    episodes = remember(activeItems) { activeItems.toEpisodeCards() },
-                    filled = scaleMode != VideoScaleMode.Fit,
-                    ambientLight = ambient.light.takeIf { ambient.enabled },
-                    ambientLightEnabled = ambient.enabled,
-                    onToggleAmbientLight = { playbackPreferences.setAmbientLight(!ambient.enabled) },
-                    onAmbientChromeVisibleChange = ambient.onChromeVisible,
-                    resumedFromMs = initialResumeNoticeMs,
+                // A player that arrived on a transition leaves on it too, whichever way the viewer
+                // closes it, and the back gesture drives the first part of the way out as it moves.
+                // Registered before the chrome so a drawer or a disc menu composed later still takes
+                // the gesture first.
+                PlatformPredictiveBackHandler(
+                    enabled = transition != null && !transition.disabled && !inPictureInPicture,
+                    onProgress = { transition?.onBackProgress(it) },
                     onBack = onBack,
-                    onEnterPictureInPicture = onEnterPictureInPicture,
-                    onPlayPause = {
-                        if (castState.hasActiveSession) {
-                            scope.launch {
-                                if (
-                                    castState.status == CastPlaybackStatus.Playing ||
-                                    castState.status == CastPlaybackStatus.Buffering ||
-                                    (
-                                        castState.status == CastPlaybackStatus.Error &&
-                                            castState.lastRemoteWasPlaying
-                                    )
-                                ) {
-                                    castManager.pause()
-                                } else {
-                                    castManager.resume()
-                                }
-                            }
+                    onCancel = { transition?.onBackCancel() },
+                )
+
+                AnimatedVisibility(
+                    visible = !inPictureInPicture,
+                    modifier =
+                        if (tabletop == null) {
+                            Modifier
                         } else {
-                            playbackGate.togglePlayPause()
-                        }
-                    },
-                    onRetry = {
-                        sourceSwitchCoordinator.invalidate()
-                        val deviceId = castState.activeDeviceId
-                        if (castState.hasActiveSession && deviceId != null) {
-                            scope.launch { loadCastItem(deviceId, state.currentIndex, livePlayback.value.positionMs) }
-                        } else {
-                            playbackGate.retry()
-                        }
-                    },
-                    onExternalPlayer =
-                        currentItem?.takeUnless { core2NativeOnlyActive }?.let { item ->
-                            {
-                                val mediaUrl =
-                                    if (state.transcoding) {
-                                        item.transcodeUrl.ifBlank { item.fallbackTranscodeUrl }
+                            Modifier.fillMaxSize().padding(top = with(density) { tabletop.controlsTopPx.toDp() })
+                        },
+                    enter = fadeIn(Motion.tween(pictureInPictureFadeMs)),
+                    exit = ExitTransition.None,
+                ) {
+                    PlayerControls(
+                        systemGestureTopPx =
+                            maxOf(
+                                WindowInsets.statusBarsIgnoringVisibility.getTop(LocalDensity.current),
+                                WindowInsets.systemGestures.getTop(LocalDensity.current),
+                            ).toFloat(),
+                        playback = livePlayback,
+                        bookmarks = bookmarkBinding.first,
+                        bookmarkActions = bookmarkBinding.second,
+                        episodes = remember(activeItems) { activeItems.toEpisodeCards() },
+                        filled = scaleMode != VideoScaleMode.Fit,
+                        ambientLight = ambient.light.takeIf { ambient.enabled },
+                        ambientLightEnabled = ambient.enabled,
+                        onToggleAmbientLight = { playbackPreferences.setAmbientLight(!ambient.enabled) },
+                        onAmbientChromeVisibleChange = ambient.onChromeVisible,
+                        resumedFromMs = initialResumeNoticeMs,
+                        onBack = onBack,
+                        onEnterPictureInPicture = onEnterPictureInPicture,
+                        onPlayPause = {
+                            if (castState.hasActiveSession) {
+                                scope.launch {
+                                    if (
+                                        castState.status == CastPlaybackStatus.Playing ||
+                                        castState.status == CastPlaybackStatus.Buffering ||
+                                        (
+                                            castState.status == CastPlaybackStatus.Error &&
+                                                castState.lastRemoteWasPlaying
+                                        )
+                                    ) {
+                                        castManager.pause()
                                     } else {
-                                        item.url
+                                        castManager.resume()
                                     }
-                                val handoverHeaders =
-                                    customUserAgent
-                                        .takeIf { it.isNotBlank() }
-                                        ?.let {
-                                            mapOf(
-                                                "User-Agent" to it,
-                                            )
-                                        }.orEmpty()
-                                if (!openExternalPlayer(
-                                        context = context,
-                                        mediaUrl = mediaUrl,
-                                        title = item.title,
-                                        positionMs = livePlayback.value.positionMs,
-                                        headers = handoverHeaders,
-                                    )
-                                ) {
-                                    Toast
-                                        .makeText(context, "未找到可处理此视频的外部播放器", Toast.LENGTH_SHORT)
-                                        .show()
                                 }
+                            } else {
+                                playbackGate.togglePlayPause()
                             }
                         },
-                    onSeek = { positionMs ->
-                        seekRequests.trySend(positionMs.coerceAtLeast(0L))
-                    },
-                    onSelectItem = { index ->
-                        sourceSwitchCoordinator.invalidate()
-                        if (sleepTimerOption == SleepTimerOption.EndOfEpisode) {
-                            sleepTimerEndIndex = index
-                            sleepTimerEndSessionRevision =
-                                castState.sessionRevision.takeIf { castState.hasActiveSession }
-                            sleepTimerArmedItemReachedEnd = false
-                        }
-                        val deviceId = castState.activeDeviceId
-                        if (castState.hasActiveSession && deviceId != null) {
-                            scope.launch { loadCastItem(deviceId, index, 0L) }
-                        } else {
-                            playbackGate.selectItem(index)
-                        }
-                    },
-                    onPreviousItem = {
-                        sourceSwitchCoordinator.invalidate()
-                        val previous = state.currentIndex - 1
-                        if (sleepTimerOption == SleepTimerOption.EndOfEpisode && previous in activeItems.indices) {
-                            sleepTimerEndIndex = previous
-                            sleepTimerEndSessionRevision =
-                                castState.sessionRevision.takeIf { castState.hasActiveSession }
-                            sleepTimerArmedItemReachedEnd = false
-                        }
-                        val deviceId = castState.activeDeviceId
-                        if (castState.hasActiveSession && deviceId != null && previous in activeItems.indices) {
-                            scope.launch {
-                                if (!castManager.queuePrevious()) loadCastItem(deviceId, previous, 0L)
+                        onRetry = {
+                            sourceSwitchCoordinator.invalidate()
+                            val deviceId = castState.activeDeviceId
+                            if (castState.hasActiveSession && deviceId != null) {
+                                scope.launch {
+                                    loadCastItem(deviceId, state.currentIndex, livePlayback.value.positionMs)
+                                }
+                            } else {
+                                playbackGate.retry()
                             }
-                            true
-                        } else {
-                            playbackGate.selectPrevious()
-                        }
-                    },
-                    onDismissNextUp = { nextUpDismissedItemId = activeItems.getOrNull(state.currentIndex)?.id },
-                    onCreditsTakeover = { creditsTakeover = it },
-                    autoNext = autoNext,
-                    onNextItem = {
-                        sourceSwitchCoordinator.invalidate()
-                        val next = state.currentIndex + 1
-                        if (sleepTimerOption == SleepTimerOption.EndOfEpisode && next in activeItems.indices) {
-                            sleepTimerEndIndex = next
-                            sleepTimerEndSessionRevision =
-                                castState.sessionRevision.takeIf { castState.hasActiveSession }
-                            sleepTimerArmedItemReachedEnd = false
-                        }
-                        val deviceId = castState.activeDeviceId
-                        if (castState.hasActiveSession && deviceId != null && next in activeItems.indices) {
-                            scope.launch {
-                                if (!castManager.queueNext()) loadCastItem(deviceId, next, 0L)
-                            }
-                            true
-                        } else {
-                            playbackGate.selectNext()
-                        }
-                    },
-                    onRefreshEpisodes = onRefreshEpisodes,
-                    onSelectAudio = { id ->
-                        val selectedTrack = state.audioTracks.firstOrNull { it.id == id }
-                        selectedTrack?.let { track ->
-                            handoverItemId = currentItem?.id
-                            audioRestore = state.audioTracks.restorePreferenceFor(track)
-                            rememberSeriesPlayback { remembered ->
-                                remembered.copy(audio = track.toRememberedPlaybackTrack())
-                            }
-                        }
-                        if (castState.hasActiveSession && selectedTrack != null) {
-                            scope.launch {
-                                castManager.selectTrack(
-                                    kind = CastTrackKind.Audio,
-                                    language = selectedTrack.language,
-                                    label = selectedTrack.label,
-                                )
-                            }
-                        } else {
-                            player.selectTrack(YTrackType.Audio, id)
-                        }
-                    },
-                    audioControls =
-                        audioControls.copy(
-                            measuredAvOffsetMs = state.diagnostics.avSyncOffsetMs,
-                            available =
-                                backendExtensions.supportsAudioDelay ||
-                                    (
-                                        sessionEngineSelection == PlaybackEngineSelection.Auto &&
-                                            !core2NativeOnlyActive
-                                    ),
-                            enhancementAvailable =
-                                backendExtensions.supportsAudioEnhancement ||
-                                    (
-                                        sessionEngineSelection == PlaybackEngineSelection.Auto &&
-                                            !core2NativeOnlyActive
-                                    ),
-                            unavailableReason =
-                                if (
-                                    kind == PlayerEngine.Mpv ||
-                                    sessionEngineSelection == PlaybackEngineSelection.Auto
-                                ) {
-                                    null
-                                } else {
-                                    "当前锁定模式不支持音频延迟，请在高级设置中改回自动选择。"
-                                },
-                        ),
-                    audioActions =
-                        AudioControlActions(
-                            onDelay = {
-                                audioControls = audioControls.copy(delayMs = it)
-                                audioOutputDelayPreferences.write(lastVerifiedAudioRoute, it)
-                                rememberSeriesPlayback { remembered -> remembered.copy(audioDelayMs = it) }
-                            },
-                            onAutoSync = {
-                                livePlayback.value.diagnostics.avSyncOffsetMs?.let { measured ->
-                                    val corrected =
-                                        calibratedAudioDelayMs(audioControls.delayMs, measured)
-                                    audioControls = audioControls.copy(delayMs = corrected)
-                                    audioOutputDelayPreferences.write(lastVerifiedAudioRoute, corrected)
-                                    rememberSeriesPlayback { remembered ->
-                                        remembered.copy(audioDelayMs = corrected)
+                        },
+                        onExternalPlayer =
+                            currentItem?.takeUnless { core2NativeOnlyActive }?.let { item ->
+                                {
+                                    val mediaUrl =
+                                        if (state.transcoding) {
+                                            item.transcodeUrl.ifBlank { item.fallbackTranscodeUrl }
+                                        } else {
+                                            item.url
+                                        }
+                                    val handoverHeaders =
+                                        customUserAgent
+                                            .takeIf { it.isNotBlank() }
+                                            ?.let {
+                                                mapOf(
+                                                    "User-Agent" to it,
+                                                )
+                                            }.orEmpty()
+                                    if (!openExternalPlayer(
+                                            context = context,
+                                            mediaUrl = mediaUrl,
+                                            title = item.title,
+                                            positionMs = livePlayback.value.positionMs,
+                                            headers = handoverHeaders,
+                                        )
+                                    ) {
+                                        Toast
+                                            .makeText(context, "未找到可处理此视频的外部播放器", Toast.LENGTH_SHORT)
+                                            .show()
                                     }
-                                    Toast
-                                        .makeText(context, "已校准音画同步：$corrected ms", Toast.LENGTH_SHORT)
-                                        .show()
                                 }
                             },
-                            onEnhancement = {
-                                audioControls = audioControls.copy(enhancement = it)
-                                rememberSeriesPlayback { remembered ->
-                                    remembered.copy(audioEnhancement = it.name)
+                        onSeek = { positionMs ->
+                            seekRequests.trySend(positionMs.coerceAtLeast(0L))
+                        },
+                        onSelectItem = { index ->
+                            sourceSwitchCoordinator.invalidate()
+                            if (sleepTimerOption == SleepTimerOption.EndOfEpisode) {
+                                sleepTimerEndIndex = index
+                                sleepTimerEndSessionRevision =
+                                    castState.sessionRevision.takeIf { castState.hasActiveSession }
+                                sleepTimerArmedItemReachedEnd = false
+                            }
+                            val deviceId = castState.activeDeviceId
+                            if (castState.hasActiveSession && deviceId != null) {
+                                scope.launch { loadCastItem(deviceId, index, 0L) }
+                            } else {
+                                playbackGate.selectItem(index)
+                            }
+                        },
+                        onPreviousItem = {
+                            sourceSwitchCoordinator.invalidate()
+                            val previous = state.currentIndex - 1
+                            if (sleepTimerOption == SleepTimerOption.EndOfEpisode && previous in activeItems.indices) {
+                                sleepTimerEndIndex = previous
+                                sleepTimerEndSessionRevision =
+                                    castState.sessionRevision.takeIf { castState.hasActiveSession }
+                                sleepTimerArmedItemReachedEnd = false
+                            }
+                            val deviceId = castState.activeDeviceId
+                            if (castState.hasActiveSession && deviceId != null && previous in activeItems.indices) {
+                                scope.launch {
+                                    if (!castManager.queuePrevious()) loadCastItem(deviceId, previous, 0L)
                                 }
-                            },
-                        ),
-                    onSelectSubtitle = { id ->
-                        // An explicit pick ends any 没听清 replay subtitle; the pick is what stays.
-                        subtitlePeek = null
-                        val track = state.subtitleTracks.firstOrNull { it.id == id }
-                        if (castState.hasActiveSession) {
-                            // The receiver applies it; the memory and the restore state are ours,
-                            // so a hand-back to the phone lands on the same subtitle.
-                            handoverItemId = currentItem?.id
-                            subtitleRestore = track?.let { state.subtitleTracks.restorePreferenceFor(it) }
-                            restoreSubtitlesOff = id == EngineTrack.OFF
-                            rememberSeriesPlayback { remembered ->
-                                remembered.copy(
-                                    primarySubtitlesOff = id == EngineTrack.OFF,
-                                    primarySubtitle = track?.toRememberedPlaybackTrack(),
-                                )
+                                true
+                            } else {
+                                playbackGate.selectPrevious()
                             }
-                            scope.launch {
-                                castManager.selectTrack(
-                                    kind = CastTrackKind.Subtitle,
-                                    language = track?.language,
-                                    label = track?.label.orEmpty(),
-                                    enabled = id != EngineTrack.OFF,
-                                )
+                        },
+                        onDismissNextUp = { nextUpDismissedItemId = activeItems.getOrNull(state.currentIndex)?.id },
+                        onCreditsTakeover = { creditsTakeover = it },
+                        autoNext = autoNext,
+                        onNextItem = {
+                            sourceSwitchCoordinator.invalidate()
+                            val next = state.currentIndex + 1
+                            if (sleepTimerOption == SleepTimerOption.EndOfEpisode && next in activeItems.indices) {
+                                sleepTimerEndIndex = next
+                                sleepTimerEndSessionRevision =
+                                    castState.sessionRevision.takeIf { castState.hasActiveSession }
+                                sleepTimerArmedItemReachedEnd = false
                             }
-                            return@PlayerControls
-                        }
-                        if (id == EngineTrack.OFF) {
-                            handoverItemId = currentItem?.id
-                            subtitleRestore = null
-                            restoreSubtitlesOff = true
-                            player.selectTrack(YTrackType.Subtitle, id)
-                            rememberSeriesPlayback { remembered ->
-                                remembered.copy(
-                                    primarySubtitlesOff = true,
-                                    primarySubtitle = null,
-                                )
+                            val deviceId = castState.activeDeviceId
+                            if (castState.hasActiveSession && deviceId != null && next in activeItems.indices) {
+                                scope.launch {
+                                    if (!castManager.queueNext()) loadCastItem(deviceId, next, 0L)
+                                }
+                                true
+                            } else {
+                                playbackGate.selectNext()
                             }
-                        } else if (
-                            track?.requiresStyledRenderer == true &&
-                            kind != PlayerEngine.Mpv &&
-                            sessionEngineSelection == PlaybackEngineSelection.Auto &&
-                            !core2NativeOnlyActive
-                        ) {
-                            pendingSubtitleLanguage = track.language ?: track.label
-                            switchEngine(PlayerEngine.Mpv)
-                            handoverItemId = currentItem?.id
-                            subtitleRestore = state.subtitleTracks.restorePreferenceFor(track)
-                            restoreSubtitlesOff = false
-                            if (secondarySubtitleTrackId == id) {
-                                secondarySubtitleTrackId = null
-                                secondarySubtitleRestore = null
-                            }
-                            rememberSeriesPlayback { remembered ->
-                                remembered.copy(
-                                    primarySubtitlesOff = false,
-                                    primarySubtitle = track.toRememberedPlaybackTrack(),
-                                    secondarySubtitle =
-                                        remembered.secondarySubtitle.takeUnless {
-                                            it == track.toRememberedPlaybackTrack()
-                                        },
-                                )
-                            }
-                        } else {
-                            track?.let {
+                        },
+                        onRefreshEpisodes = onRefreshEpisodes,
+                        onSelectAudio = { id ->
+                            val selectedTrack = state.audioTracks.firstOrNull { it.id == id }
+                            selectedTrack?.let { track ->
                                 handoverItemId = currentItem?.id
-                                subtitleRestore = state.subtitleTracks.restorePreferenceFor(it)
+                                audioRestore = state.audioTracks.restorePreferenceFor(track)
+                                rememberSeriesPlayback { remembered ->
+                                    remembered.copy(audio = track.toRememberedPlaybackTrack())
+                                }
+                            }
+                            if (castState.hasActiveSession && selectedTrack != null) {
+                                scope.launch {
+                                    castManager.selectTrack(
+                                        kind = CastTrackKind.Audio,
+                                        language = selectedTrack.language,
+                                        label = selectedTrack.label,
+                                    )
+                                }
+                            } else {
+                                player.selectTrack(YTrackType.Audio, id)
+                            }
+                        },
+                        audioControls =
+                            audioControls.copy(
+                                measuredAvOffsetMs = state.diagnostics.avSyncOffsetMs,
+                                available =
+                                    backendExtensions.supportsAudioDelay ||
+                                        (
+                                            sessionEngineSelection == PlaybackEngineSelection.Auto &&
+                                                !core2NativeOnlyActive
+                                        ),
+                                enhancementAvailable =
+                                    backendExtensions.supportsAudioEnhancement ||
+                                        (
+                                            sessionEngineSelection == PlaybackEngineSelection.Auto &&
+                                                !core2NativeOnlyActive
+                                        ),
+                                unavailableReason =
+                                    if (
+                                        kind == PlayerEngine.Mpv ||
+                                        sessionEngineSelection == PlaybackEngineSelection.Auto
+                                    ) {
+                                        null
+                                    } else {
+                                        "当前锁定模式不支持音频延迟，请在高级设置中改回自动选择。"
+                                    },
+                            ),
+                        audioActions =
+                            AudioControlActions(
+                                onDelay = {
+                                    audioControls = audioControls.copy(delayMs = it)
+                                    audioOutputDelayPreferences.write(lastVerifiedAudioRoute, it)
+                                    rememberSeriesPlayback { remembered -> remembered.copy(audioDelayMs = it) }
+                                },
+                                onAutoSync = {
+                                    livePlayback.value.diagnostics.avSyncOffsetMs?.let { measured ->
+                                        val corrected =
+                                            calibratedAudioDelayMs(audioControls.delayMs, measured)
+                                        audioControls = audioControls.copy(delayMs = corrected)
+                                        audioOutputDelayPreferences.write(lastVerifiedAudioRoute, corrected)
+                                        rememberSeriesPlayback { remembered ->
+                                            remembered.copy(audioDelayMs = corrected)
+                                        }
+                                        Toast
+                                            .makeText(context, "已校准音画同步：$corrected ms", Toast.LENGTH_SHORT)
+                                            .show()
+                                    }
+                                },
+                                onEnhancement = {
+                                    audioControls = audioControls.copy(enhancement = it)
+                                    rememberSeriesPlayback { remembered ->
+                                        remembered.copy(audioEnhancement = it.name)
+                                    }
+                                },
+                            ),
+                        onSelectSubtitle = { id ->
+                            // An explicit pick ends any 没听清 replay subtitle; the pick is what stays.
+                            subtitlePeek = null
+                            val track = state.subtitleTracks.firstOrNull { it.id == id }
+                            if (castState.hasActiveSession) {
+                                // The receiver applies it; the memory and the restore state are ours,
+                                // so a hand-back to the phone lands on the same subtitle.
+                                handoverItemId = currentItem?.id
+                                subtitleRestore = track?.let { state.subtitleTracks.restorePreferenceFor(it) }
+                                restoreSubtitlesOff = id == EngineTrack.OFF
+                                rememberSeriesPlayback { remembered ->
+                                    remembered.copy(
+                                        primarySubtitlesOff = id == EngineTrack.OFF,
+                                        primarySubtitle = track?.toRememberedPlaybackTrack(),
+                                    )
+                                }
+                                scope.launch {
+                                    castManager.selectTrack(
+                                        kind = CastTrackKind.Subtitle,
+                                        language = track?.language,
+                                        label = track?.label.orEmpty(),
+                                        enabled = id != EngineTrack.OFF,
+                                    )
+                                }
+                                return@PlayerControls
+                            }
+                            if (id == EngineTrack.OFF) {
+                                handoverItemId = currentItem?.id
+                                subtitleRestore = null
+                                restoreSubtitlesOff = true
+                                player.selectTrack(YTrackType.Subtitle, id)
+                                rememberSeriesPlayback { remembered ->
+                                    remembered.copy(
+                                        primarySubtitlesOff = true,
+                                        primarySubtitle = null,
+                                    )
+                                }
+                            } else if (
+                                track?.requiresStyledRenderer == true &&
+                                kind != PlayerEngine.Mpv &&
+                                sessionEngineSelection == PlaybackEngineSelection.Auto &&
+                                !core2NativeOnlyActive
+                            ) {
+                                pendingSubtitleLanguage = track.language ?: track.label
+                                switchEngine(PlayerEngine.Mpv)
+                                handoverItemId = currentItem?.id
+                                subtitleRestore = state.subtitleTracks.restorePreferenceFor(track)
                                 restoreSubtitlesOff = false
                                 if (secondarySubtitleTrackId == id) {
-                                    backendExtensions.selectSecondarySubtitleTrack(EngineTrack.OFF)
                                     secondarySubtitleTrackId = null
                                     secondarySubtitleRestore = null
                                 }
                                 rememberSeriesPlayback { remembered ->
                                     remembered.copy(
                                         primarySubtitlesOff = false,
-                                        primarySubtitle = it.toRememberedPlaybackTrack(),
+                                        primarySubtitle = track.toRememberedPlaybackTrack(),
                                         secondarySubtitle =
-                                            remembered.secondarySubtitle.takeUnless { secondary ->
-                                                secondary == it.toRememberedPlaybackTrack()
+                                            remembered.secondarySubtitle.takeUnless {
+                                                it == track.toRememberedPlaybackTrack()
                                             },
                                     )
                                 }
-                            }
-                            player.selectTrack(YTrackType.Subtitle, id)
-                        }
-                    },
-                    // 没听清: straight to the engine and nowhere else — no series memory, no preference
-                    // and no restore state, which is what the handover and the next item read.
-                    onPeekSubtitle = { peek ->
-                        if (!castState.hasActiveSession) {
-                            subtitlePeek = peek
-                            player.selectTrack(YTrackType.Subtitle, peek.trackId)
-                        }
-                    },
-                    onEndSubtitlePeek = { restoreTrackId ->
-                        // A handover since the peek began has already carried the viewer's choice
-                        // across; the old engine's track ids mean nothing to the new one.
-                        val peeking = subtitlePeek != null
-                        subtitlePeek = null
-                        if (peeking && restoreTrackId != null && !castState.hasActiveSession) {
-                            player.selectTrack(YTrackType.Subtitle, restoreTrackId)
-                        }
-                    },
-                    subtitleControls =
-                        subtitleControls.copy(
-                            secondaryTrackId = secondarySubtitleTrackId,
-                            independentScaleAvailable =
-                                engine is YPlayerVideoEngineAdapter ||
-                                    engine is ExoVideoEngine ||
-                                    (
-                                        engine is MpvVideoEngine &&
-                                            mpvCanStackSubtitles(
-                                                state.subtitleTracks,
-                                                state.subtitleTracks
-                                                    .firstOrNull {
-                                                        it.selected
-                                                    }?.id,
-                                                secondarySubtitleTrackId,
-                                            )
-                                    ),
-                            dualLayoutNote =
-                                when (engine) {
-                                    is MpvVideoEngine -> "文本双字幕在底部排列；图片字幕保留原排版，可切换 YCore 或 Exo 调整。"
-                                    is MdkVideoEngine -> "此内核保留字幕原排版；底部双字幕与独立字号请切换 YCore 或 Exo。"
-                                    else -> null
-                                },
-                            secondarySupported = backendExtensions.supportsSecondarySubtitleTrack,
-                            secondaryOffsetAvailable = backendExtensions.supportsSecondarySubtitleOffset,
-                            secondaryUnavailableReason =
-                                if (backendExtensions.supportsSecondarySubtitleTrack) {
-                                    null
-                                } else {
-                                    "当前播放管线仅支持单字幕；切换至 Exo、MPV 或 MDK 可启用副字幕。"
-                                },
-                            offsetAvailable =
-                                backendExtensions.supportsSubtitleOffset ||
-                                    (
-                                        sessionEngineSelection == PlaybackEngineSelection.Auto &&
-                                            !core2NativeOnlyActive
-                                    ),
-                            scaleAvailable =
-                                backendExtensions.supportsSubtitleScale ||
-                                    (
-                                        sessionEngineSelection == PlaybackEngineSelection.Auto &&
-                                            !core2NativeOnlyActive
-                                    ),
-                            brightnessAvailable =
-                                backendExtensions.supportsSubtitleBrightness ||
-                                    (
-                                        sessionEngineSelection == PlaybackEngineSelection.Auto &&
-                                            !core2NativeOnlyActive
-                                    ),
-                            positionAvailable =
-                                backendExtensions.supportsSubtitlePosition ||
-                                    (
-                                        sessionEngineSelection == PlaybackEngineSelection.Auto &&
-                                            !core2NativeOnlyActive
-                                    ),
-                            appearanceAvailable =
-                                backendExtensions.supportsSubtitleAppearance ||
-                                    (
-                                        sessionEngineSelection == PlaybackEngineSelection.Auto &&
-                                            !core2NativeOnlyActive
-                                    ),
-                            unavailableReason =
-                                if (
-                                    sessionEngineSelection == PlaybackEngineSelection.Auto &&
-                                    !core2NativeOnlyActive
-                                ) {
-                                    "调整后将自动切换到支持该功能的播放内核。"
-                                } else if (core2NativeOnlyActive) {
-                                    "YCore Native 纯内核模式不允许兼容内核接管此项调节。"
-                                } else {
-                                    "当前锁定内核不支持此项调节，请在播放内核中选择自动或 MPV。"
-                                },
-                        ),
-                    subtitleActions =
-                        SubtitleControlActions(
-                            onSecondaryScale = { value ->
-                                subtitleControls = subtitleControls.copy(secondaryScale = value.coerceIn(0.6f, 1.8f))
-                                rememberSeriesPlayback {
-                                    it.copy(
-                                        secondarySubtitleScale = subtitleControls.secondaryScale,
-                                    )
-                                }
-                            },
-                            onSwap = {
-                                val primary = state.subtitleTracks.firstOrNull { it.selected }
-                                val secondary = state.subtitleTracks.firstOrNull { it.id == secondarySubtitleTrackId }
-                                if (primary != null && secondary != null) applySubtitlePair(secondary, primary)
-                            },
-                            onLanguagePair = { pair ->
-                                val selected = selectDualSubtitleLanguagePair(state.subtitleTracks, pair)
-                                if (selected == null) {
-                                    Toast.makeText(context, "当前视频缺少该语言组合的字幕", Toast.LENGTH_SHORT).show()
-                                } else {
-                                    applySubtitlePair(selected.first, selected.second)
-                                }
-                            },
-                            onOffset = {
-                                subtitleControls = subtitleControls.copy(offsetMs = it)
-                                rememberSeriesPlayback { remembered ->
-                                    remembered.copy(subtitleOffsetMs = it)
-                                }
-                            },
-                            onScale = {
-                                subtitleControls =
-                                    subtitleControls.copy(
-                                        scale = it,
-                                        stylePreset = SubtitleStylePreset.Custom,
-                                    )
-                                rememberSeriesPlayback { remembered ->
-                                    remembered.copy(
-                                        subtitleScale = it,
-                                        subtitleStylePreset = SubtitleStylePreset.Custom.name,
-                                    )
-                                }
-                            },
-                            onBrightness = {
-                                subtitleControls =
-                                    subtitleControls.copy(
-                                        brightness = it,
-                                        stylePreset = SubtitleStylePreset.Custom,
-                                    )
-                                rememberSeriesPlayback { remembered ->
-                                    remembered.copy(
-                                        subtitleBrightness = it,
-                                        subtitleStylePreset = SubtitleStylePreset.Custom.name,
-                                    )
-                                }
-                            },
-                            onPosition = {
-                                subtitleControls =
-                                    subtitleControls.copy(
-                                        position = it,
-                                        stylePreset = SubtitleStylePreset.Custom,
-                                    )
-                                rememberSeriesPlayback { remembered ->
-                                    remembered.copy(
-                                        subtitlePosition = it,
-                                        subtitleStylePreset = SubtitleStylePreset.Custom.name,
-                                    )
-                                }
-                            },
-                            onStylePreset = { preset ->
-                                subtitleControls =
-                                    subtitleControls.copy(
-                                        scale = preset.scale,
-                                        brightness = preset.brightness,
-                                        position = preset.position,
-                                        appearance = preset.appearance,
-                                        stylePreset = preset,
-                                    )
-                                rememberSeriesPlayback { remembered ->
-                                    remembered.copy(
-                                        subtitleScale = preset.scale,
-                                        subtitleBrightness = preset.brightness,
-                                        subtitlePosition = preset.position,
-                                        subtitleTextColorArgb = preset.appearance.textColorArgb,
-                                        subtitleBackgroundColorArgb = preset.appearance.backgroundColorArgb,
-                                        subtitleOutlineColorArgb = preset.appearance.outlineColorArgb,
-                                        subtitleOutlineWidth = preset.appearance.outlineWidth,
-                                        subtitleStylePreset = preset.name,
-                                    )
-                                }
-                            },
-                            onTextColor = { color ->
-                                val appearance = subtitleControls.appearance.copy(textColorArgb = color)
-                                subtitleControls =
-                                    subtitleControls.copy(
-                                        appearance = appearance,
-                                        stylePreset = SubtitleStylePreset.Custom,
-                                    )
-                                rememberSeriesPlayback { remembered ->
-                                    remembered.copy(
-                                        subtitleTextColorArgb = color,
-                                        subtitleStylePreset = SubtitleStylePreset.Custom.name,
-                                    )
-                                }
-                            },
-                            onBackgroundColor = { color ->
-                                val appearance = subtitleControls.appearance.copy(backgroundColorArgb = color)
-                                subtitleControls =
-                                    subtitleControls.copy(
-                                        appearance = appearance,
-                                        stylePreset = SubtitleStylePreset.Custom,
-                                    )
-                                rememberSeriesPlayback { remembered ->
-                                    remembered.copy(
-                                        subtitleBackgroundColorArgb = color,
-                                        subtitleStylePreset = SubtitleStylePreset.Custom.name,
-                                    )
-                                }
-                            },
-                            onOutlineColor = { color ->
-                                val appearance = subtitleControls.appearance.copy(outlineColorArgb = color)
-                                subtitleControls =
-                                    subtitleControls.copy(
-                                        appearance = appearance,
-                                        stylePreset = SubtitleStylePreset.Custom,
-                                    )
-                                rememberSeriesPlayback { remembered ->
-                                    remembered.copy(
-                                        subtitleOutlineColorArgb = color,
-                                        subtitleStylePreset = SubtitleStylePreset.Custom.name,
-                                    )
-                                }
-                            },
-                            onOutlineWidth = { width ->
-                                val appearance = subtitleControls.appearance.copy(outlineWidth = width)
-                                subtitleControls =
-                                    subtitleControls.copy(
-                                        appearance = appearance,
-                                        stylePreset = SubtitleStylePreset.Custom,
-                                    )
-                                rememberSeriesPlayback { remembered ->
-                                    remembered.copy(
-                                        subtitleOutlineWidth = width,
-                                        subtitleStylePreset = SubtitleStylePreset.Custom.name,
-                                    )
-                                }
-                            },
-                            onSecondaryOffset = { offset ->
-                                if (backendExtensions.setSecondarySubtitleOffsetMs(offset)) {
-                                    subtitleControls = subtitleControls.copy(secondaryOffsetMs = offset)
-                                    rememberSeriesPlayback { it.copy(secondarySubtitleOffsetMs = offset) }
-                                }
-                            },
-                            onSecondaryTrack = secondary@{ id ->
-                                if (id == EngineTrack.OFF) {
-                                    backendExtensions.selectSecondarySubtitleTrack(EngineTrack.OFF)
-                                    secondarySubtitleTrackId = null
-                                    secondarySubtitleRestore = null
-                                    rememberSeriesPlayback { remembered ->
-                                        remembered.copy(secondarySubtitle = null)
-                                    }
-                                    return@secondary
-                                }
-                                val track =
-                                    state.subtitleTracks.firstOrNull { it.id == id }
-                                        ?: return@secondary
-                                if (track.selected) {
-                                    Toast
-                                        .makeText(context, "主字幕和副字幕不能选择同一轨", Toast.LENGTH_SHORT)
-                                        .show()
-                                    return@secondary
-                                }
-                                if (!backendExtensions.selectSecondarySubtitleTrack(id)) {
-                                    Toast
-                                        .makeText(context, "当前播放器内核不支持副字幕", Toast.LENGTH_SHORT)
-                                        .show()
-                                    return@secondary
-                                }
-                                handoverItemId = currentItem?.id
-                                secondarySubtitleTrackId = id
-                                secondarySubtitleRestore = state.subtitleTracks.restorePreferenceFor(track)
-                                rememberSeriesPlayback { remembered ->
-                                    remembered.copy(secondarySubtitle = track.toRememberedPlaybackTrack())
-                                }
-                            },
-                        ),
-                    remoteSubtitles = remoteSubtitles,
-                    remoteSubtitleActions = remoteSubtitleActions,
-                    onSpeed = { newSpeed ->
-                        requestedPlaybackSpeed = newSpeed
-                        playbackGate.setSpeed(newSpeed)
-                        rememberSeriesPlayback { remembered -> remembered.copy(speed = newSpeed) }
-                    },
-                    gestures = gestureSettings,
-                    onSpeedBoost = { boost ->
-                        if (boost != null) {
-                            if (speedBoost == null) {
-                                // Judged on the play intent, not on frames: a stream that is
-                                // buffering towards playback is not paused.
-                                speedBoostResumedPlayback = !player.playbackRequested && playbackGate.play()
-                            }
-                            speedBoost = boost
-                        } else if (speedBoost != null) {
-                            speedBoost = null
-                            if (speedBoostResumedPlayback && player.playbackRequested && !playbackGate.locked) {
-                                playbackGate.pause()
-                            }
-                            speedBoostResumedPlayback = false
-                        }
-                    },
-                    sleepTimer = SleepTimerState(sleepTimerOption),
-                    sleepTimerActions =
-                        SleepTimerActions(
-                            onSelect = { option ->
-                                sleepTimerOption = option
-                                sleepTimerEndIndex =
-                                    state.currentIndex.takeIf { option == SleepTimerOption.EndOfEpisode }
-                                sleepTimerEndSessionRevision =
-                                    castState.sessionRevision.takeIf {
-                                        option == SleepTimerOption.EndOfEpisode && castState.hasActiveSession
-                                    }
-                                sleepTimerArmedItemReachedEnd = false
-                                sleepTimerRevision++
-                            },
-                        ),
-                    onToggleFill = {
-                        scaleMode = scaleMode.next()
-                        backendExtensions.setVideoScaleMode(scaleMode)
-                        rememberSeriesPlayback { remembered ->
-                            remembered.copy(aspectMode = scaleMode.name)
-                        }
-                        Toast.makeText(context, "画面：${scaleMode.label}", Toast.LENGTH_SHORT).show()
-                    },
-                    // 捏合填充 and F: the same state and series memory as the 画面 button, set to a mode
-                    // rather than cycled. The controls' HUD says which, so no toast.
-                    onSetFill = { fill ->
-                        val mode = if (fill) VideoScaleMode.Fill else VideoScaleMode.Fit
-                        if (scaleMode != mode) {
-                            scaleMode = mode
-                            backendExtensions.setVideoScaleMode(mode)
-                            rememberSeriesPlayback { remembered ->
-                                remembered.copy(aspectMode = mode.name)
-                            }
-                        }
-                    },
-                    trickplay = currentTrickplay,
-                    // Readers, not values: read here, every step of a volume or brightness drag
-                    // recomposed the whole control surface.
-                    volume = { castState.volume?.takeIf { castState.hasActiveSession } ?: volumeLevel.value },
-                    onVolume = { requestedVolume ->
-                        if (castState.hasActiveSession) {
-                            scope.launch { castManager.setVolume(requestedVolume) }
-                        } else {
-                            setVolume(requestedVolume)
-                        }
-                    },
-                    volumeKeyPresses = volumeKeyPresses.collectAsState().value,
-                    brightness = { brightnessLevel.value },
-                    onBrightness = { setBrightness(it) },
-                    engineOptions =
-                        packagedEngineStrategies().map { selection ->
-                            val label =
-                                selection.lockedEngine?.let { "本视频使用 ${it.label}" }
-                                    ?: "本视频跟随 YCore 智能策略"
-                            label to (selection == sessionEngineSelection)
-                        },
-                    onSelectEngine = { index ->
-                        packagedEngineStrategies().getOrNull(index)?.let { selection ->
-                            selectEngineStrategy(selection)
-                            Toast
-                                .makeText(context, "仅覆盖当前视频；全局播放策略未更改", Toast.LENGTH_SHORT)
-                                .show()
-                        }
-                    },
-                    // Manual escape hatch when the picture is black but audio plays. Offered on
-                    // every engine now — it used to be ExoPlayer-only, which left the native
-                    // engines with no way out of a file the device can't decode.
-                    transcodeLabel =
-                        "转码播放".takeIf {
-                            !core2NativeOnlyActive &&
-                                currentItem?.let { item ->
-                                    item.transcodeUrl.isNotBlank() || item.fallbackTranscodeUrl.isNotBlank()
-                                } == true
-                        },
-                    transcodeActive = state.transcoding,
-                    onTranscode = {
-                        if (!core2NativeOnlyActive && !state.transcoding) {
-                            backendExtensions.switchToTranscode("用户手动选择服务器转码")
-                        }
-                    },
-                    onResetAdaptiveLearning = {
-                        failureMemory.clear()
-                        performanceMemory.clear()
-                        Toast
-                            .makeText(context, "YCore 学习数据已重置", Toast.LENGTH_SHORT)
-                            .show()
-                    },
-                    // A disc jump changes nothing the eye can read — the picture keeps playing and
-                    // the settings row is behind the finger. Name the destination the way the
-                    // aspect-ratio toggle names its mode, so the press is answered at all.
-                    onNextDiscTitle = {
-                        val disc = state.discNavigation
-                        if (disc.titleCount > 1) {
-                            val next = (disc.selectedTitleIndex + 1) % disc.titleCount
-                            if (backendExtensions.selectDiscTitle(next)) {
-                                Toast
-                                    .makeText(context, discTitleToast(disc, next), Toast.LENGTH_SHORT)
-                                    .show()
-                            }
-                        }
-                    },
-                    onNextDiscChapter = {
-                        val disc = state.discNavigation
-                        if (disc.chapterCount > 1) {
-                            val next = (disc.selectedChapterIndex + 1) % disc.chapterCount
-                            if (backendExtensions.selectDiscChapter(next)) {
-                                Toast
-                                    .makeText(context, discChapterToast(disc, next), Toast.LENGTH_SHORT)
-                                    .show()
-                            }
-                        }
-                    },
-                    onShowDiscMenu = {
-                        backendExtensions.showDiscMenu()
-                    },
-                    castDevices = castState.devices.map { it.id to it.name },
-                    castingDeviceId = castState.activeDeviceId,
-                    castDiscovering = castState.discovering,
-                    castError = castState.error,
-                    castStatus =
-                        castState.activeDevice?.let {
-                            "${it.name} · ${castState.status.label}"
-                        },
-                    // Connecting or live, as the app's status capsule counts it. A first load that failed
-                    // keeps its device with an error and no termination; that is not a cast in progress.
-                    castActive = castState.hasActiveSession || castState.status == CastPlaybackStatus.Connecting,
-                    castPositionSource = {
-                        liveCastState.value.activeDevice?.let {
-                            if (!liveCastState.value.positionConfirmed) {
-                                "等待接收端确认"
                             } else {
-                                buildString {
-                                    append(formatDlnaTime(liveCastState.value.positionMs))
-                                    if (liveCastState.value.durationMs > 0L) {
-                                        append(" / ")
-                                        append(formatDlnaTime(liveCastState.value.durationMs))
+                                track?.let {
+                                    handoverItemId = currentItem?.id
+                                    subtitleRestore = state.subtitleTracks.restorePreferenceFor(it)
+                                    restoreSubtitlesOff = false
+                                    if (secondarySubtitleTrackId == id) {
+                                        backendExtensions.selectSecondarySubtitleTrack(EngineTrack.OFF)
+                                        secondarySubtitleTrackId = null
+                                        secondarySubtitleRestore = null
+                                    }
+                                    rememberSeriesPlayback { remembered ->
+                                        remembered.copy(
+                                            primarySubtitlesOff = false,
+                                            primarySubtitle = it.toRememberedPlaybackTrack(),
+                                            secondarySubtitle =
+                                                remembered.secondarySubtitle.takeUnless { secondary ->
+                                                    secondary == it.toRememberedPlaybackTrack()
+                                                },
+                                        )
+                                    }
+                                }
+                                player.selectTrack(YTrackType.Subtitle, id)
+                            }
+                        },
+                        // 没听清: straight to the engine and nowhere else — no series memory, no preference
+                        // and no restore state, which is what the handover and the next item read.
+                        onPeekSubtitle = { peek ->
+                            if (!castState.hasActiveSession) {
+                                subtitlePeek = peek
+                                player.selectTrack(YTrackType.Subtitle, peek.trackId)
+                            }
+                        },
+                        onEndSubtitlePeek = { restoreTrackId ->
+                            // A handover since the peek began has already carried the viewer's choice
+                            // across; the old engine's track ids mean nothing to the new one.
+                            val peeking = subtitlePeek != null
+                            subtitlePeek = null
+                            if (peeking && restoreTrackId != null && !castState.hasActiveSession) {
+                                player.selectTrack(YTrackType.Subtitle, restoreTrackId)
+                            }
+                        },
+                        subtitleControls =
+                            subtitleControls.copy(
+                                secondaryTrackId = secondarySubtitleTrackId,
+                                independentScaleAvailable =
+                                    engine is YPlayerVideoEngineAdapter ||
+                                        engine is ExoVideoEngine ||
+                                        (
+                                            engine is MpvVideoEngine &&
+                                                mpvCanStackSubtitles(
+                                                    state.subtitleTracks,
+                                                    state.subtitleTracks
+                                                        .firstOrNull {
+                                                            it.selected
+                                                        }?.id,
+                                                    secondarySubtitleTrackId,
+                                                )
+                                        ),
+                                dualLayoutNote =
+                                    when (engine) {
+                                        is MpvVideoEngine -> "文本双字幕在底部排列；图片字幕保留原排版，可切换 YCore 或 Exo 调整。"
+                                        is MdkVideoEngine -> "此内核保留字幕原排版；底部双字幕与独立字号请切换 YCore 或 Exo。"
+                                        else -> null
+                                    },
+                                secondarySupported = backendExtensions.supportsSecondarySubtitleTrack,
+                                secondaryOffsetAvailable = backendExtensions.supportsSecondarySubtitleOffset,
+                                secondaryUnavailableReason =
+                                    if (backendExtensions.supportsSecondarySubtitleTrack) {
+                                        null
+                                    } else {
+                                        "当前播放管线仅支持单字幕；切换至 Exo、MPV 或 MDK 可启用副字幕。"
+                                    },
+                                offsetAvailable =
+                                    backendExtensions.supportsSubtitleOffset ||
+                                        (
+                                            sessionEngineSelection == PlaybackEngineSelection.Auto &&
+                                                !core2NativeOnlyActive
+                                        ),
+                                scaleAvailable =
+                                    backendExtensions.supportsSubtitleScale ||
+                                        (
+                                            sessionEngineSelection == PlaybackEngineSelection.Auto &&
+                                                !core2NativeOnlyActive
+                                        ),
+                                brightnessAvailable =
+                                    backendExtensions.supportsSubtitleBrightness ||
+                                        (
+                                            sessionEngineSelection == PlaybackEngineSelection.Auto &&
+                                                !core2NativeOnlyActive
+                                        ),
+                                positionAvailable =
+                                    backendExtensions.supportsSubtitlePosition ||
+                                        (
+                                            sessionEngineSelection == PlaybackEngineSelection.Auto &&
+                                                !core2NativeOnlyActive
+                                        ),
+                                appearanceAvailable =
+                                    backendExtensions.supportsSubtitleAppearance ||
+                                        (
+                                            sessionEngineSelection == PlaybackEngineSelection.Auto &&
+                                                !core2NativeOnlyActive
+                                        ),
+                                unavailableReason =
+                                    if (
+                                        sessionEngineSelection == PlaybackEngineSelection.Auto &&
+                                        !core2NativeOnlyActive
+                                    ) {
+                                        "调整后将自动切换到支持该功能的播放内核。"
+                                    } else if (core2NativeOnlyActive) {
+                                        "YCore Native 纯内核模式不允许兼容内核接管此项调节。"
+                                    } else {
+                                        "当前锁定内核不支持此项调节，请在播放内核中选择自动或 MPV。"
+                                    },
+                            ),
+                        subtitleActions =
+                            SubtitleControlActions(
+                                onSecondaryScale = { value ->
+                                    subtitleControls =
+                                        subtitleControls.copy(secondaryScale = value.coerceIn(0.6f, 1.8f))
+                                    rememberSeriesPlayback {
+                                        it.copy(
+                                            secondarySubtitleScale = subtitleControls.secondaryScale,
+                                        )
+                                    }
+                                },
+                                onSwap = {
+                                    val primary = state.subtitleTracks.firstOrNull { it.selected }
+                                    val secondary =
+                                        state.subtitleTracks.firstOrNull { it.id == secondarySubtitleTrackId }
+                                    if (primary != null && secondary != null) applySubtitlePair(secondary, primary)
+                                },
+                                onLanguagePair = { pair ->
+                                    val selected = selectDualSubtitleLanguagePair(state.subtitleTracks, pair)
+                                    if (selected == null) {
+                                        Toast.makeText(context, "当前视频缺少该语言组合的字幕", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        applySubtitlePair(selected.first, selected.second)
+                                    }
+                                },
+                                onOffset = {
+                                    subtitleControls = subtitleControls.copy(offsetMs = it)
+                                    rememberSeriesPlayback { remembered ->
+                                        remembered.copy(subtitleOffsetMs = it)
+                                    }
+                                },
+                                onScale = {
+                                    subtitleControls =
+                                        subtitleControls.copy(
+                                            scale = it,
+                                            stylePreset = SubtitleStylePreset.Custom,
+                                        )
+                                    rememberSeriesPlayback { remembered ->
+                                        remembered.copy(
+                                            subtitleScale = it,
+                                            subtitleStylePreset = SubtitleStylePreset.Custom.name,
+                                        )
+                                    }
+                                },
+                                onBrightness = {
+                                    subtitleControls =
+                                        subtitleControls.copy(
+                                            brightness = it,
+                                            stylePreset = SubtitleStylePreset.Custom,
+                                        )
+                                    rememberSeriesPlayback { remembered ->
+                                        remembered.copy(
+                                            subtitleBrightness = it,
+                                            subtitleStylePreset = SubtitleStylePreset.Custom.name,
+                                        )
+                                    }
+                                },
+                                onPosition = {
+                                    subtitleControls =
+                                        subtitleControls.copy(
+                                            position = it,
+                                            stylePreset = SubtitleStylePreset.Custom,
+                                        )
+                                    rememberSeriesPlayback { remembered ->
+                                        remembered.copy(
+                                            subtitlePosition = it,
+                                            subtitleStylePreset = SubtitleStylePreset.Custom.name,
+                                        )
+                                    }
+                                },
+                                onStylePreset = { preset ->
+                                    subtitleControls =
+                                        subtitleControls.copy(
+                                            scale = preset.scale,
+                                            brightness = preset.brightness,
+                                            position = preset.position,
+                                            appearance = preset.appearance,
+                                            stylePreset = preset,
+                                        )
+                                    rememberSeriesPlayback { remembered ->
+                                        remembered.copy(
+                                            subtitleScale = preset.scale,
+                                            subtitleBrightness = preset.brightness,
+                                            subtitlePosition = preset.position,
+                                            subtitleTextColorArgb = preset.appearance.textColorArgb,
+                                            subtitleBackgroundColorArgb = preset.appearance.backgroundColorArgb,
+                                            subtitleOutlineColorArgb = preset.appearance.outlineColorArgb,
+                                            subtitleOutlineWidth = preset.appearance.outlineWidth,
+                                            subtitleStylePreset = preset.name,
+                                        )
+                                    }
+                                },
+                                onTextColor = { color ->
+                                    val appearance = subtitleControls.appearance.copy(textColorArgb = color)
+                                    subtitleControls =
+                                        subtitleControls.copy(
+                                            appearance = appearance,
+                                            stylePreset = SubtitleStylePreset.Custom,
+                                        )
+                                    rememberSeriesPlayback { remembered ->
+                                        remembered.copy(
+                                            subtitleTextColorArgb = color,
+                                            subtitleStylePreset = SubtitleStylePreset.Custom.name,
+                                        )
+                                    }
+                                },
+                                onBackgroundColor = { color ->
+                                    val appearance = subtitleControls.appearance.copy(backgroundColorArgb = color)
+                                    subtitleControls =
+                                        subtitleControls.copy(
+                                            appearance = appearance,
+                                            stylePreset = SubtitleStylePreset.Custom,
+                                        )
+                                    rememberSeriesPlayback { remembered ->
+                                        remembered.copy(
+                                            subtitleBackgroundColorArgb = color,
+                                            subtitleStylePreset = SubtitleStylePreset.Custom.name,
+                                        )
+                                    }
+                                },
+                                onOutlineColor = { color ->
+                                    val appearance = subtitleControls.appearance.copy(outlineColorArgb = color)
+                                    subtitleControls =
+                                        subtitleControls.copy(
+                                            appearance = appearance,
+                                            stylePreset = SubtitleStylePreset.Custom,
+                                        )
+                                    rememberSeriesPlayback { remembered ->
+                                        remembered.copy(
+                                            subtitleOutlineColorArgb = color,
+                                            subtitleStylePreset = SubtitleStylePreset.Custom.name,
+                                        )
+                                    }
+                                },
+                                onOutlineWidth = { width ->
+                                    val appearance = subtitleControls.appearance.copy(outlineWidth = width)
+                                    subtitleControls =
+                                        subtitleControls.copy(
+                                            appearance = appearance,
+                                            stylePreset = SubtitleStylePreset.Custom,
+                                        )
+                                    rememberSeriesPlayback { remembered ->
+                                        remembered.copy(
+                                            subtitleOutlineWidth = width,
+                                            subtitleStylePreset = SubtitleStylePreset.Custom.name,
+                                        )
+                                    }
+                                },
+                                onSecondaryOffset = { offset ->
+                                    if (backendExtensions.setSecondarySubtitleOffsetMs(offset)) {
+                                        subtitleControls = subtitleControls.copy(secondaryOffsetMs = offset)
+                                        rememberSeriesPlayback { it.copy(secondarySubtitleOffsetMs = offset) }
+                                    }
+                                },
+                                onSecondaryTrack = secondary@{ id ->
+                                    if (id == EngineTrack.OFF) {
+                                        backendExtensions.selectSecondarySubtitleTrack(EngineTrack.OFF)
+                                        secondarySubtitleTrackId = null
+                                        secondarySubtitleRestore = null
+                                        rememberSeriesPlayback { remembered ->
+                                            remembered.copy(secondarySubtitle = null)
+                                        }
+                                        return@secondary
+                                    }
+                                    val track =
+                                        state.subtitleTracks.firstOrNull { it.id == id }
+                                            ?: return@secondary
+                                    if (track.selected) {
+                                        Toast
+                                            .makeText(context, "主字幕和副字幕不能选择同一轨", Toast.LENGTH_SHORT)
+                                            .show()
+                                        return@secondary
+                                    }
+                                    if (!backendExtensions.selectSecondarySubtitleTrack(id)) {
+                                        Toast
+                                            .makeText(context, "当前播放器内核不支持副字幕", Toast.LENGTH_SHORT)
+                                            .show()
+                                        return@secondary
+                                    }
+                                    handoverItemId = currentItem?.id
+                                    secondarySubtitleTrackId = id
+                                    secondarySubtitleRestore = state.subtitleTracks.restorePreferenceFor(track)
+                                    rememberSeriesPlayback { remembered ->
+                                        remembered.copy(secondarySubtitle = track.toRememberedPlaybackTrack())
+                                    }
+                                },
+                            ),
+                        remoteSubtitles = remoteSubtitles,
+                        remoteSubtitleActions = remoteSubtitleActions,
+                        onSpeed = { newSpeed ->
+                            requestedPlaybackSpeed = newSpeed
+                            playbackGate.setSpeed(newSpeed)
+                            rememberSeriesPlayback { remembered -> remembered.copy(speed = newSpeed) }
+                        },
+                        gestures = gestureSettings,
+                        onSpeedBoost = { boost ->
+                            if (boost != null) {
+                                if (speedBoost == null) {
+                                    // Judged on the play intent, not on frames: a stream that is
+                                    // buffering towards playback is not paused.
+                                    speedBoostResumedPlayback = !player.playbackRequested && playbackGate.play()
+                                }
+                                speedBoost = boost
+                            } else if (speedBoost != null) {
+                                speedBoost = null
+                                if (speedBoostResumedPlayback && player.playbackRequested && !playbackGate.locked) {
+                                    playbackGate.pause()
+                                }
+                                speedBoostResumedPlayback = false
+                            }
+                        },
+                        sleepTimer = SleepTimerState(sleepTimerOption),
+                        sleepTimerActions =
+                            SleepTimerActions(
+                                onSelect = { option ->
+                                    sleepTimerOption = option
+                                    sleepTimerEndIndex =
+                                        state.currentIndex.takeIf { option == SleepTimerOption.EndOfEpisode }
+                                    sleepTimerEndSessionRevision =
+                                        castState.sessionRevision.takeIf {
+                                            option == SleepTimerOption.EndOfEpisode && castState.hasActiveSession
+                                        }
+                                    sleepTimerArmedItemReachedEnd = false
+                                    sleepTimerRevision++
+                                },
+                            ),
+                        onToggleFill = {
+                            scaleMode = scaleMode.next()
+                            backendExtensions.setVideoScaleMode(scaleMode)
+                            rememberSeriesPlayback { remembered ->
+                                remembered.copy(aspectMode = scaleMode.name)
+                            }
+                            Toast.makeText(context, "画面：${scaleMode.label}", Toast.LENGTH_SHORT).show()
+                        },
+                        // 捏合填充 and F: the same state and series memory as the 画面 button, set to a mode
+                        // rather than cycled. The controls' HUD says which, so no toast.
+                        onSetFill = { fill ->
+                            val mode = if (fill) VideoScaleMode.Fill else VideoScaleMode.Fit
+                            if (scaleMode != mode) {
+                                scaleMode = mode
+                                backendExtensions.setVideoScaleMode(mode)
+                                rememberSeriesPlayback { remembered ->
+                                    remembered.copy(aspectMode = mode.name)
+                                }
+                            }
+                        },
+                        trickplay = currentTrickplay,
+                        // Readers, not values: read here, every step of a volume or brightness drag
+                        // recomposed the whole control surface.
+                        volume = { castState.volume?.takeIf { castState.hasActiveSession } ?: volumeLevel.value },
+                        onVolume = { requestedVolume ->
+                            if (castState.hasActiveSession) {
+                                scope.launch { castManager.setVolume(requestedVolume) }
+                            } else {
+                                setVolume(requestedVolume)
+                            }
+                        },
+                        volumeKeyPresses = volumeKeyPresses.collectAsState().value,
+                        brightness = { brightnessLevel.value },
+                        onBrightness = { setBrightness(it) },
+                        engineOptions =
+                            packagedEngineStrategies().map { selection ->
+                                val label =
+                                    selection.lockedEngine?.let { "本视频使用 ${it.label}" }
+                                        ?: "本视频跟随 YCore 智能策略"
+                                label to (selection == sessionEngineSelection)
+                            },
+                        onSelectEngine = { index ->
+                            packagedEngineStrategies().getOrNull(index)?.let { selection ->
+                                selectEngineStrategy(selection)
+                                Toast
+                                    .makeText(context, "仅覆盖当前视频；全局播放策略未更改", Toast.LENGTH_SHORT)
+                                    .show()
+                            }
+                        },
+                        // Manual escape hatch when the picture is black but audio plays. Offered on
+                        // every engine now — it used to be ExoPlayer-only, which left the native
+                        // engines with no way out of a file the device can't decode.
+                        transcodeLabel =
+                            "转码播放".takeIf {
+                                !core2NativeOnlyActive &&
+                                    currentItem?.let { item ->
+                                        item.transcodeUrl.isNotBlank() || item.fallbackTranscodeUrl.isNotBlank()
+                                    } == true
+                            },
+                        transcodeActive = state.transcoding,
+                        onTranscode = {
+                            if (!core2NativeOnlyActive && !state.transcoding) {
+                                backendExtensions.switchToTranscode("用户手动选择服务器转码")
+                            }
+                        },
+                        onResetAdaptiveLearning = {
+                            failureMemory.clear()
+                            performanceMemory.clear()
+                            Toast
+                                .makeText(context, "YCore 学习数据已重置", Toast.LENGTH_SHORT)
+                                .show()
+                        },
+                        // A disc jump changes nothing the eye can read — the picture keeps playing and
+                        // the settings row is behind the finger. Name the destination the way the
+                        // aspect-ratio toggle names its mode, so the press is answered at all.
+                        onNextDiscTitle = {
+                            val disc = state.discNavigation
+                            if (disc.titleCount > 1) {
+                                val next = (disc.selectedTitleIndex + 1) % disc.titleCount
+                                if (backendExtensions.selectDiscTitle(next)) {
+                                    Toast
+                                        .makeText(context, discTitleToast(disc, next), Toast.LENGTH_SHORT)
+                                        .show()
+                                }
+                            }
+                        },
+                        onNextDiscChapter = {
+                            val disc = state.discNavigation
+                            if (disc.chapterCount > 1) {
+                                val next = (disc.selectedChapterIndex + 1) % disc.chapterCount
+                                if (backendExtensions.selectDiscChapter(next)) {
+                                    Toast
+                                        .makeText(context, discChapterToast(disc, next), Toast.LENGTH_SHORT)
+                                        .show()
+                                }
+                            }
+                        },
+                        onShowDiscMenu = {
+                            backendExtensions.showDiscMenu()
+                        },
+                        castDevices = castState.devices.map { it.id to it.name },
+                        castingDeviceId = castState.activeDeviceId,
+                        castDiscovering = castState.discovering,
+                        castError = castState.error,
+                        castStatus =
+                            castState.activeDevice?.let {
+                                "${it.name} · ${castState.status.label}"
+                            },
+                        // Connecting or live, as the app's status capsule counts it. A first load that failed
+                        // keeps its device with an error and no termination; that is not a cast in progress.
+                        castActive = castState.hasActiveSession || castState.status == CastPlaybackStatus.Connecting,
+                        castPositionSource = {
+                            liveCastState.value.activeDevice?.let {
+                                if (!liveCastState.value.positionConfirmed) {
+                                    "等待接收端确认"
+                                } else {
+                                    buildString {
+                                        append(formatDlnaTime(liveCastState.value.positionMs))
+                                        if (liveCastState.value.durationMs > 0L) {
+                                            append(" / ")
+                                            append(formatDlnaTime(liveCastState.value.durationMs))
+                                        }
                                     }
                                 }
                             }
-                        }
-                    },
-                    castCapabilities =
-                        castState.activeDevice?.let {
-                            val capabilities = castState.capabilities
-                            "播放 ${capabilities.playPause.label} · " +
-                                "跳转 ${capabilities.seek.label} · " +
-                                "音量 ${capabilities.volume.label} · " +
-                                "轨道 ${capabilities.trackSelection.label} · " +
-                                "队列 ${capabilities.queue.label} · " +
-                                "DV ${capabilities.dolbyVision.label} · " +
-                                "Atmos ${capabilities.dolbyAtmos.label}"
                         },
-                    onDiscoverCast = requestCastDiscovery,
-                    onCastTo = { deviceId ->
-                        val item = activeItems.getOrNull(state.currentIndex) ?: return@PlayerControls
-                        scope.launch {
-                            if (loadCastItem(deviceId, state.currentIndex, livePlayback.value.positionMs)) {
-                                quickCast.noteCast(deviceId)
-                            }
-                        }
-                    },
-                    onStopCast = {
-                        scope.launch {
-                            val handoffPosition =
-                                if (castState.positionConfirmed) {
-                                    liveCastState.value.positionMs
-                                } else {
-                                    liveLocalState.value.positionMs
+                        castCapabilities =
+                            castState.activeDevice?.let {
+                                val capabilities = castState.capabilities
+                                "播放 ${capabilities.playPause.label} · " +
+                                    "跳转 ${capabilities.seek.label} · " +
+                                    "音量 ${capabilities.volume.label} · " +
+                                    "轨道 ${capabilities.trackSelection.label} · " +
+                                    "队列 ${capabilities.queue.label} · " +
+                                    "DV ${capabilities.dolbyVision.label} · " +
+                                    "Atmos ${capabilities.dolbyAtmos.label}"
+                            },
+                        onDiscoverCast = requestCastDiscovery,
+                        onCastTo = { deviceId ->
+                            val item = activeItems.getOrNull(state.currentIndex) ?: return@PlayerControls
+                            scope.launch {
+                                if (loadCastItem(deviceId, state.currentIndex, livePlayback.value.positionMs)) {
+                                    quickCast.noteCast(deviceId)
                                 }
-                            val resumeLocally = castState.lastRemoteWasPlaying
-                            if (castManager.stop()) {
-                                player.seekTo(handoffPosition)
-                                if (resumeLocally) player.play() else player.pause()
                             }
-                        }
-                    },
-                    danmaku = danmaku.panelState,
-                    danmakuActions = danmaku.actions,
-                    danmakuHeat = danmaku.heat,
-                    // Only worth naming when there is more than one server to be on. On a
-                    // single-server install it is a constant, and a constant on a line meant
-                    // for live facts is noise.
-                    sourceLabel =
-                        currentItem
-                            ?.serverId
-                            ?.takeIf { serverNames.size > 1 }
-                            ?.let(serverNames::get),
-                    sourceOptions = sourceOptions,
-                    selectedSourceId = currentItem?.serverId,
-                    onSelectSource = ::selectServer,
-                    containerLabel = currentItem?.activeVersion?.container,
-                    dolbyVision =
-                        !state.transcoding &&
-                            state.diagnostics.hasActiveDolbyVisionOutput(),
-                    dolbyAtmos =
-                        !state.transcoding &&
-                            state.diagnostics.hasActiveDolbyAtmosOutput(),
-                    versions =
-                        currentItem?.versions.orEmpty().map { version ->
-                            version.id to
-                                listOfNotNull(
-                                    version.label,
-                                    version.detail.takeIf { it.isNotBlank() },
-                                ).joinToString(" · ")
                         },
-                    selectedVersionId = currentItem?.versionId,
-                    onSelectVersion = { versionId -> selectVersion(versionId) },
-                    skip = skip.state,
-                    skipActions = skip.actions,
-                    chapters = currentItem?.chapters.orEmpty(),
-                    watch =
-                        WatchRoomState(
-                            available = watchAvailable,
-                            endpoint = watchEndpoint,
-                            connecting = watchState.connecting,
-                            connected = watchState.connected,
-                            reconnecting = watchState.reconnecting,
-                            roomCode = watchState.roomCode,
-                            isHost = watchState.isHost,
-                            canControl = watchState.canControl,
-                            controlMode = watchState.controlMode,
-                            participantCount = watchState.participantCount,
-                            participants = watchState.participants,
-                            chatMessages = watchState.chatMessages,
-                            chatError = watchState.chatError,
-                            reactions = watchState.reactions,
-                            chatPreviewEnabled = watchChatPreview,
-                            chatDanmakuEnabled = watchChatDanmaku,
-                            error = watchState.error ?: watchState.syncWarning,
-                            controlRequested = watchState.controlRequested,
-                            controlRequesterName = watchState.controlRequest?.name,
-                        ),
-                    watchActions =
-                        WatchRoomActions(
-                            onCreate = { endpoint ->
-                                currentItem?.let { item ->
-                                    watchTogether.createRoom(endpoint, item.watchKey)
+                        onStopCast = {
+                            scope.launch {
+                                val handoffPosition =
+                                    if (castState.positionConfirmed) {
+                                        liveCastState.value.positionMs
+                                    } else {
+                                        liveLocalState.value.positionMs
+                                    }
+                                val resumeLocally = castState.lastRemoteWasPlaying
+                                if (castManager.stop()) {
+                                    player.seekTo(handoffPosition)
+                                    if (resumeLocally) player.play() else player.pause()
                                 }
+                            }
+                        },
+                        danmaku = danmaku.panelState,
+                        danmakuActions = danmaku.actions,
+                        danmakuHeat = danmaku.heat,
+                        // Only worth naming when there is more than one server to be on. On a
+                        // single-server install it is a constant, and a constant on a line meant
+                        // for live facts is noise.
+                        sourceLabel =
+                            currentItem
+                                ?.serverId
+                                ?.takeIf { serverNames.size > 1 }
+                                ?.let(serverNames::get),
+                        sourceOptions = sourceOptions,
+                        selectedSourceId = currentItem?.serverId,
+                        onSelectSource = ::selectServer,
+                        containerLabel = currentItem?.activeVersion?.container,
+                        dolbyVision =
+                            !state.transcoding &&
+                                state.diagnostics.hasActiveDolbyVisionOutput(),
+                        dolbyAtmos =
+                            !state.transcoding &&
+                                state.diagnostics.hasActiveDolbyAtmosOutput(),
+                        versions =
+                            currentItem?.versions.orEmpty().map { version ->
+                                version.id to
+                                    listOfNotNull(
+                                        version.label,
+                                        version.detail.takeIf { it.isNotBlank() },
+                                    ).joinToString(" · ")
                             },
-                            onJoin = { endpoint, roomCode ->
-                                currentItem?.let { item ->
-                                    watchTogether.joinRoom(endpoint, roomCode, item.watchKey)
-                                }
-                            },
-                            onLeave = watchTogether::leave,
-                            onRequestControl = watchTogether::requestControl,
-                            onGrantControl = {
-                                watchState.controlRequest?.let { watchTogether.grantControl(it.clientId) }
-                            },
-                            onDenyControl = {
-                                watchState.controlRequest?.let { watchTogether.denyControl(it.clientId) }
-                            },
-                            onSendChat = watchTogether::sendChat,
-                            onRetryChat = watchTogether::retryChat,
-                            onClearChatError = watchTogether::clearChatError,
-                            onSetControlMode = watchTogether::setControlMode,
-                            onSetModerator = watchTogether::setModerator,
-                            onKickParticipant = watchTogether::kickParticipant,
-                            onToggleChatDanmaku = {
-                                watchTogetherPreferences.setChatDanmakuEnabled(!watchChatDanmaku)
-                            },
-                            onReact = { watchTogether.sendReaction(it) },
-                            onReactionFinished = watchTogether::clearReaction,
-                        ),
-                    remoteChrome = remoteChrome,
-                    hardwareKeyboard = hardwareKeyboardAttached(),
-                    extras = chromeExtras,
-                    wakeRequests = controlsWakeRequests,
-                    // Held back while a transition carries the picture in, and gone first on the way out.
-                    modifier =
-                        Modifier
-                            .graphicsLayer { alpha = transition?.chromeAlpha() ?: 1f }
-                            .danmakuPressWatch(danmakuPicker),
-                )
-            }
-
-            // Over the chrome: 点弹幕's menu, and whatever a held 聊天 or 投屏 key has open.
-            if (!inPictureInPicture) {
-                if (danmaku.enabled) {
-                    DanmakuPickLayer(
-                        picker = danmakuPicker,
-                        onBlock = danmaku.onBlock,
-                        onUnblock = danmaku.onUnblock,
+                        selectedVersionId = currentItem?.versionId,
+                        onSelectVersion = { versionId -> selectVersion(versionId) },
+                        skip = skip.state,
+                        skipActions = skip.actions,
+                        chapters = currentItem?.chapters.orEmpty(),
+                        watch =
+                            WatchRoomState(
+                                available = watchAvailable,
+                                endpoint = watchEndpoint,
+                                connecting = watchState.connecting,
+                                connected = watchState.connected,
+                                reconnecting = watchState.reconnecting,
+                                roomCode = watchState.roomCode,
+                                isHost = watchState.isHost,
+                                canControl = watchState.canControl,
+                                controlMode = watchState.controlMode,
+                                participantCount = watchState.participantCount,
+                                participants = watchState.participants,
+                                chatMessages = watchState.chatMessages,
+                                chatError = watchState.chatError,
+                                reactions = watchState.reactions,
+                                chatPreviewEnabled = watchChatPreview,
+                                chatDanmakuEnabled = watchChatDanmaku,
+                                error = watchState.error ?: watchState.syncWarning,
+                                controlRequested = watchState.controlRequested,
+                                controlRequesterName = watchState.controlRequest?.name,
+                            ),
+                        watchActions =
+                            WatchRoomActions(
+                                onCreate = { endpoint ->
+                                    currentItem?.let { item ->
+                                        watchTogether.createRoom(endpoint, item.watchKey)
+                                    }
+                                },
+                                onJoin = { endpoint, roomCode ->
+                                    currentItem?.let { item ->
+                                        watchTogether.joinRoom(endpoint, roomCode, item.watchKey)
+                                    }
+                                },
+                                onLeave = watchTogether::leave,
+                                onRequestControl = watchTogether::requestControl,
+                                onGrantControl = {
+                                    watchState.controlRequest?.let { watchTogether.grantControl(it.clientId) }
+                                },
+                                onDenyControl = {
+                                    watchState.controlRequest?.let { watchTogether.denyControl(it.clientId) }
+                                },
+                                onSendChat = watchTogether::sendChat,
+                                onRetryChat = watchTogether::retryChat,
+                                onClearChatError = watchTogether::clearChatError,
+                                onSetControlMode = watchTogether::setControlMode,
+                                onSetModerator = watchTogether::setModerator,
+                                onKickParticipant = watchTogether::kickParticipant,
+                                onToggleChatDanmaku = {
+                                    watchTogetherPreferences.setChatDanmakuEnabled(!watchChatDanmaku)
+                                },
+                                onReact = { watchTogether.sendReaction(it) },
+                                onReactionFinished = watchTogether::clearReaction,
+                            ),
+                        remoteChrome = remoteChrome,
+                        hardwareKeyboard = hardwareKeyboardAttached(),
+                        extras = chromeExtras,
+                        wakeRequests = controlsWakeRequests,
+                        // Held back while a transition carries the picture in, and gone first on the way out.
+                        modifier =
+                            Modifier
+                                .graphicsLayer { alpha = transition?.chromeAlpha() ?: 1f }
+                                .danmakuPressWatch(danmakuPicker),
                     )
                 }
-                PlayerQuickPickLayer(chromeExtras)
-            }
 
-            PlayerFrameRateOverlay(
-                playback = livePlayback,
-                preferences = playbackPreferences,
-                visible = !inPictureInPicture && !oledPauseProtectionActive,
-                modifier =
-                    Modifier
-                        .align(androidx.compose.ui.Alignment.TopEnd)
-                        .safeDrawingPadding()
-                        .padding(top = 56.dp, end = 12.dp),
-            )
+                // Over the chrome: 点弹幕's menu, and whatever a held 聊天 or 投屏 key has open.
+                if (!inPictureInPicture) {
+                    if (danmaku.enabled) {
+                        DanmakuPickLayer(
+                            picker = danmakuPicker,
+                            onBlock = danmaku.onBlock,
+                            onUnblock = danmaku.onUnblock,
+                        )
+                    }
+                    PlayerQuickPickLayer(chromeExtras)
+                }
 
-            // Folded into the overlay's own visibility rather than an `if`, so leaving the
-            // screensaver for 画中画 fades out instead of vanishing between two frames.
-            OledPauseProtectionOverlay(
-                visible = oledPauseProtectionActive && !inPictureInPicture,
-                onDismiss = {
-                    oledPauseProtectionActive = false
-                    controlsWakeRequests++
-                },
-                modifier = Modifier.fillMaxSize(),
-            )
-
-            // The way out draws last so it covers the chrome and the paused frame; the way in
-            // stays under the chrome above so the back button is reachable while the picture is
-            // still being prepared.
-            PlaybackTimelineContent(livePlayback) { state ->
-                PlayerTransitionLayer(
-                    state = transition,
-                    ready = true,
-                    inPictureInPicture = inPictureInPicture,
-                    aspectRatio = transitionAspectRatio(scaleMode, state),
-                    layer = PlayerTransitionLayerKind.Exit,
+                PlayerFrameRateOverlay(
+                    playback = livePlayback,
+                    preferences = playbackPreferences,
+                    visible = !inPictureInPicture && !oledPauseProtectionActive,
+                    modifier =
+                        Modifier
+                            .align(androidx.compose.ui.Alignment.TopEnd)
+                            .safeDrawingPadding()
+                            .padding(top = 56.dp, end = 12.dp),
                 )
+
+                // Folded into the overlay's own visibility rather than an `if`, so leaving the
+                // screensaver for 画中画 fades out instead of vanishing between two frames.
+                OledPauseProtectionOverlay(
+                    visible = oledPauseProtectionActive && !inPictureInPicture,
+                    onDismiss = {
+                        oledPauseProtectionActive = false
+                        controlsWakeRequests++
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                )
+
+                // The way out draws last so it covers the chrome and the paused frame; the way in
+                // stays under the chrome above so the back button is reachable while the picture is
+                // still being prepared.
+                PlaybackTimelineContent(livePlayback) { state ->
+                    PlayerTransitionLayer(
+                        state = transition,
+                        ready = true,
+                        inPictureInPicture = inPictureInPicture,
+                        aspectRatio = transitionAspectRatio(scaleMode, state),
+                        layer = PlayerTransitionLayerKind.Exit,
+                    )
+                }
             }
         }
+        playerSurface()
     }
 }
 
