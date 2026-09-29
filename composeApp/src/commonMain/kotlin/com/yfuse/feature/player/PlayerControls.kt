@@ -7,12 +7,9 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.border
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
@@ -59,9 +56,7 @@ import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.BackOverlay
 import com.yfuse.core.designsystem.ContextualTip
-import com.yfuse.core.designsystem.DarkPalette
 import com.yfuse.core.designsystem.DragAxis
-import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalHaptics
@@ -69,7 +64,6 @@ import com.yfuse.core.designsystem.LocalTips
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.PlatformBackHandler
 import com.yfuse.core.designsystem.Tips
-import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.rememberScreenReaderActive
 import com.yfuse.core.model.PlaybackChapter
 import com.yfuse.tv.player.TvPlayerChromeBridge
@@ -1671,6 +1665,9 @@ internal fun PlayerControls(
                             onOpenSkipSettings = { openSettingsPanel(SettingsPanelKind.Skip) },
                             danmakuEnabled = danmaku.enabled,
                             onOpenDanmaku = { openSettingsPanel(SettingsPanelKind.Danmaku) },
+                            // 进度条跟随作品取色: the series poster, or the episode still without one.
+                            artworkUrl = episodes.getOrNull(state.currentIndex)?.let { it.posterUrl ?: it.stillUrl },
+                            artworkIdentity = state.currentIndex,
                             ambientLight = ambientLight,
                             danmakuHeat = danmakuHeat,
                             onSeekBackwardLongPress = { rewindMissedLine() },
@@ -2110,44 +2107,16 @@ internal fun PlayerControls(
                     )
                 }
 
-                // Standing explanation for why the transport is dimmed. Also the only place the
-                // reconnect state surfaces during playback — the room stays live and controls stay
-                // in place, so a dropped socket reads as "catching up", not as the room vanishing.
                 ChromeVisibility(
                     visible = watch.connected && visible,
                     edge = ChromeEdge.Top,
                     modifier = Modifier.align(Alignment.TopCenter).padding(top = 74.dp),
                 ) {
-                    val roomNote =
-                        when {
-                            watch.reconnecting -> "一起看 · 重连中… · 聊天"
-                            !watch.isHost -> "一起看 · 房主控制播放 · 聊天"
-                            else -> "一起看 · 你是房主 · ${watch.participantCount} 人 · 聊天"
-                        }
-                    Text(
-                        roomNote,
-                        style = AppTypography.caption.medium,
-                        color =
-                            if (watch.reconnecting) {
-                                DarkPalette.onErrorContainer
-                            } else {
-                                Color.White.copy(
-                                    alpha = 0.92f,
-                                )
-                            },
-                        modifier =
-                            Modifier
-                                .glass(
-                                    shape = GlassShapes.chip,
-                                    fill =
-                                        if (watch.reconnecting) {
-                                            DarkPalette.errorContainer
-                                        } else {
-                                            Color.Black.copy(alpha = 0.52f)
-                                        },
-                                    border = Color.White.copy(alpha = 0.24f),
-                                ).noRippleClickable(::openWatchChat)
-                                .padding(horizontal = 14.dp, vertical = 7.dp),
+                    WatchRoomNote(
+                        reconnecting = watch.reconnecting,
+                        isHost = watch.isHost,
+                        participantCount = watch.participantCount,
+                        onOpenChat = ::openWatchChat,
                     )
                 }
 
@@ -2250,52 +2219,28 @@ internal fun PlayerControls(
                     visible = showEndedKeys,
                     modifier = Modifier.align(Alignment.Center),
                 ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-                        if (state.hasNext) {
-                            CircleControl(
-                                icon = AppIcons.Next,
-                                description = "下一集",
-                                size = CenterKeySize,
-                                iconSize = CenterKeyIconSize,
-                                enabled = !watchLocked,
-                                filled = true,
-                                onClick = {
-                                    poke()
-                                    onNextItem()
-                                },
-                            )
-                        }
-                        CircleControl(
-                            icon = AppIcons.Refresh,
-                            description = "重播",
-                            size = CenterKeySize,
-                            iconSize = CenterKeyIconSize,
-                            enabled = !watchLocked,
-                            filled = !state.hasNext,
-                            onClick = {
-                                if (playback.value.ended) {
-                                    // Back to the first frame, and playing again: the engine reports
-                                    // the ended item as paused, so the seek alone would leave it
-                                    // standing on frame one.
-                                    latestOnSeek(0L)
-                                    if (!playback.value.playing) onPlayPause()
-                                } else {
-                                    // Parked on the last frame instead of ended: resuming would run
-                                    // into the next item before the seek landed, so the item is
-                                    // started again from the top.
-                                    onSelectItem(state.currentIndex)
-                                }
-                                poke()
-                            },
-                        )
-                        CircleControl(
-                            icon = AppIcons.Close,
-                            description = "返回",
-                            size = CenterKeySize,
-                            iconSize = CenterKeyIconSize,
-                            onClick = onBack,
-                        )
-                    }
+                    PlayerEndedKeys(
+                        hasNext = state.hasNext,
+                        enabled = !watchLocked,
+                        onNext = {
+                            poke()
+                            onNextItem()
+                        },
+                        onReplay = {
+                            if (playback.value.ended) {
+                                // Back to the first frame, and playing again: the engine reports the
+                                // ended item as paused, so the seek alone would leave it on frame one.
+                                latestOnSeek(0L)
+                                if (!playback.value.playing) onPlayPause()
+                            } else {
+                                // Parked on the last frame instead of ended: resuming would run into
+                                // the next item before the seek landed, so it starts again from the top.
+                                onSelectItem(state.currentIndex)
+                            }
+                            poke()
+                        },
+                        onBack = onBack,
+                    )
                 }
 
                 // Taught once, while the controls are up over something that can play faster.
