@@ -118,8 +118,17 @@ jobs:
             echo "::error::ktlint found new violations; the remaining gates still run, and this job fails at the end"
           fi
           echo "KTLINT_STATUS=$ktlint_status" >> "$GITHUB_ENV"
+      # :phoneShared and :tvShared each compile the whole shared tree, and side by side they outgrew
+      # the 4 GB Kotlin daemon (OutOfMemoryError in :phoneShared:compileAndroidMain). Compiling in
+      # this one-shot Gradle process gives both the room, and hands the memory back when the step
+      # ends instead of leaving an idle daemon holding it through the lint and R8 steps.
       - name: Compile and run unit tests
-        run: ./gradlew :composeApp:compileDebugKotlin :tvApp:compileDebugKotlin :phoneShared:testAndroidHostTest :tvShared:testAndroidHostTest --no-daemon
+        run: >-
+          ./gradlew :composeApp:compileDebugKotlin :tvApp:compileDebugKotlin
+          :phoneShared:testAndroidHostTest :tvShared:testAndroidHostTest
+          -Pkotlin.compiler.execution.strategy=in-process
+          "-Dorg.gradle.jvmargs=-Xmx8g -Dfile.encoding=UTF-8"
+          --no-daemon
       # The instrumented tests (24 classes, 56 tests under composeApp/src/androidInstrumentedTest)
       # run on an emulator in the `instrumented` job; compiling them here as well reports a break
       # next to the other compile signals.
@@ -191,8 +200,9 @@ jobs:
           path: build/lint-baselines/
           if-no-files-found: error
           retention-days: 30
+      # R8 runs inside the Gradle daemon; the TV gate gives its release build the same room.
       - name: Build R8 release package
-        run: ./gradlew :composeApp:assembleRelease -PallowDebugSigning=true --no-daemon
+        run: ./gradlew :composeApp:assembleRelease -PallowDebugSigning=true "-Dorg.gradle.jvmargs=-Xmx6g -Dfile.encoding=UTF-8" --no-daemon
       - name: Verify release package and size budget
         shell: bash
         run: |
