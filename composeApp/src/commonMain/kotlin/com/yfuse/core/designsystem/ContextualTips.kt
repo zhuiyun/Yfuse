@@ -142,11 +142,23 @@ fun ContextualTip(
         delay(timeout)
         tips.dismiss(id)
     }
+    // 减少动画 and 静息 keep the tip's fade and drop its rise, as the handoff banner does.
+    val still = LocalAccessibilityOptions.current.reduceMotion || calmMotion()
     AnimatedVisibility(
         visible = shown && latestActive,
         modifier = modifier,
-        enter = fadeIn(Motion.tween(Motion.STANDARD)) + slideInVertically(Motion.tween(Motion.STANDARD)) { it / 3 },
-        exit = fadeOut(Motion.tween(Motion.QUICK)) + slideOutVertically(Motion.tween(Motion.QUICK)) { it / 3 },
+        enter =
+            if (still) {
+                fadeIn(Motion.tween(Motion.REDUCED_FADE))
+            } else {
+                fadeIn(Motion.tween(Motion.STANDARD)) + slideInVertically(Motion.tween(Motion.STANDARD)) { it / 3 }
+            },
+        exit =
+            if (still) {
+                fadeOut(Motion.tween(Motion.QUICK))
+            } else {
+                fadeOut(Motion.tween(Motion.QUICK)) + slideOutVertically(Motion.tween(Motion.QUICK)) { it / 3 }
+            },
     ) {
         val palette = LocalPalette.current
         Row(
