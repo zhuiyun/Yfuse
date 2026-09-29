@@ -3,6 +3,7 @@ package com.yfuse.di
 import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.arkivanov.mvikotlin.main.store.DefaultStoreFactory
 import com.russhwolf.settings.Settings
+import com.yfuse.core.account.ACCOUNT_BASE_URL
 import com.yfuse.core.account.AccountAccessTokenSource
 import com.yfuse.core.account.AccountApi
 import com.yfuse.core.account.AccountRepository
@@ -50,6 +51,7 @@ import com.yfuse.core.filesource.TmdbTitleMatcher
 import com.yfuse.core.filesource.createFileSourceClient
 import com.yfuse.core.filesource.createFileSourceLibraryStorage
 import com.yfuse.core.network.LanDiscovery
+import com.yfuse.core.network.TmdbAccountAccess
 import com.yfuse.core.network.createDanmakuClient
 import com.yfuse.core.network.createEmbyClient
 import com.yfuse.core.network.createLanDiscovery
@@ -350,8 +352,21 @@ fun appModule(
         )
     }
     // Own client (different host + bearer auth); qualified so the unqualified HttpClient
-    // binding stays the Emby one.
-    single(named("tmdb-http")) { createTmdbClient() } onClose { it?.close() }
+    // binding stays the Emby one. A signed-in account reads TMDB through the account server's
+    // proxy with its own session, the same token source 一起看 and Trakt use.
+    single(named("tmdb-http")) {
+        val tokens = get<AccountAccessTokenSource>()
+        val proxy = "$ACCOUNT_BASE_URL/api/v1/tmdb"
+        createTmdbClient(
+            account =
+                TmdbAccountAccess(
+                    proxyBase = proxy,
+                    sessionAvailable = tokens.sessionAvailable,
+                    accessToken = { tokens.validAccessTokenFor(proxy) },
+                    refreshAccessToken = { tokens.refreshAccessTokenFor(proxy) },
+                ),
+        )
+    } onClose { it?.close() }
     single { TmdbRepository(get(named("tmdb-http"))) }
     single { CalendarIdentityResolver(get(), get()) }
     single<StoreFactory> { DefaultStoreFactory() }

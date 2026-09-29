@@ -2,15 +2,20 @@ package com.yfuse.core.network
 
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.HttpClientEngine
+import io.ktor.client.plugins.HttpSend
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.compression.ContentEncoding
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.defaultRequest
+import io.ktor.client.plugins.plugin
 import io.ktor.client.request.header
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.json.Json
 
-/** TMDB read-access token, supplied per platform (Android: BuildConfig). */
+/**
+ * TMDB read-access token built into this package, supplied per platform (Android: BuildConfig);
+ * empty when the build was made without one. Only the signed-out path still needs it.
+ */
 expect fun tmdbToken(): String
 
 /**
@@ -32,10 +37,24 @@ const val TMDB_BASE = "https://api.themoviedb.org/3"
 private const val TMDB_REQUEST_TIMEOUT_MS = 20_000L
 private const val TMDB_CONNECT_TIMEOUT_MS = 12_000L
 
-/** Client for TMDB; authenticates with the v4 read token. */
-fun createTmdbClient(engine: HttpClientEngine = tmdbHttpEngine()): HttpClient =
+/**
+ * Client for TMDB. Callers keep addressing [TMDB_BASE]; [TmdbRequestRouter] decides per request.
+ *
+ * With a Yfuse account session a request goes through the account server's proxy under the
+ * account's bearer, so the TMDB token never has to ship in the APK. Without one it goes direct with
+ * the built-in token, and with neither it fails the way an unreachable TMDB does.
+ */
+fun createTmdbClient(
+    engine: HttpClientEngine = tmdbHttpEngine(),
+    account: TmdbAccountAccess? = null,
+    builtInToken: () -> String = ::tmdbToken,
+    nowEpochMs: () -> Long = { System.currentTimeMillis() },
+): HttpClient =
     HttpClient(engine) {
         expectSuccess = true
+        // The account's bearer must never follow a redirect off the account server, and TMDB's API
+        // does not redirect: a 3xx fails like any other error answer.
+        followRedirects = false
         install(ContentEncoding) { gzip() }
         install(HttpTimeout) {
             requestTimeoutMillis = TMDB_REQUEST_TIMEOUT_MS
@@ -51,9 +70,11 @@ fun createTmdbClient(engine: HttpClientEngine = tmdbHttpEngine()): HttpClient =
             )
         }
         defaultRequest {
-            header("Authorization", "Bearer ${tmdbToken()}")
             header("Accept", "application/json")
         }
+    }.also { client ->
+        val router = TmdbRequestRouter(builtInToken, account, nowEpochMs)
+        client.plugin(HttpSend).intercept { request -> router.send(request) { execute(it) } }
     }
 
 /** TMDB image CDN. */
