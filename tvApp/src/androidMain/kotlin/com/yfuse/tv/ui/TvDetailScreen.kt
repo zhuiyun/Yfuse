@@ -37,6 +37,7 @@ import coil3.compose.AsyncImage
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.data.rankServerSources
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.LiftMenu
 import com.yfuse.core.designsystem.contentHandoff
 import com.yfuse.core.model.Episode
 import com.yfuse.core.model.MediaDetail
@@ -49,6 +50,10 @@ import com.yfuse.feature.detail.DetailComponent
 import com.yfuse.feature.detail.DetailIntent
 import com.yfuse.feature.detail.bestSourcesFirst
 import com.yfuse.feature.detail.describing
+import com.yfuse.feature.detail.episodeLiftMenu
+import com.yfuse.feature.detail.episodeStillUrl
+import com.yfuse.feature.detail.relatedLiftMenu
+import com.yfuse.feature.detail.rememberEpisodeRowActions
 import com.yfuse.feature.personal.PersonalMediaActions
 import com.yfuse.tv.focus.FocusCandidate
 import com.yfuse.tv.focus.FocusContext
@@ -139,6 +144,17 @@ internal fun TvDetailScreen(
                     DownloadStatus.Paused -> "已暂停"
                     else -> "下载中"
                 }
+            val seasonServer = state.playServer ?: server
+            // What an episode card's 长按面板 does: the phone's own 单集 rows, over the same store.
+            val episodeActions = rememberEpisodeRowActions(component, seasonServer.id)
+            val selectEpisode: (Episode) -> Unit = { episode ->
+                store.accept(
+                    DetailIntent.SelectEpisode(
+                        episodeId = episode.id,
+                        startPositionTicks = episode.resumePositionTicks ?: 0L,
+                    ),
+                )
+            }
             LazyColumn(
                 modifier = Modifier.fillMaxSize().then(arrival),
                 contentPadding = PaddingValues(bottom = TvSafeVertical + 38.dp),
@@ -229,18 +245,30 @@ internal fun TvDetailScreen(
                             detail = detail,
                             episodes = state.episodes,
                             selectedEpisodeId = state.selectedEpisodeId,
-                            serverId = (state.playServer ?: server).id,
-                            profileId = (state.playServer ?: server).userId,
-                            baseUrl = (state.playServer ?: server).baseUrl,
-                            accessToken = (state.playServer ?: server).accessToken,
+                            serverId = seasonServer.id,
+                            profileId = seasonServer.userId,
+                            baseUrl = seasonServer.baseUrl,
+                            accessToken = seasonServer.accessToken,
                             focusMemory = focusMemory,
-                            onEpisode = { episode ->
-                                store.accept(
-                                    DetailIntent.SelectEpisode(
-                                        episodeId = episode.id,
-                                        startPositionTicks = episode.resumePositionTicks ?: 0L,
-                                    ),
-                                )
+                            onEpisode = selectEpisode,
+                            quickActions = { episode ->
+                                // 播放, the watched rows, 下载 and 从这里开始多选 — whose 管理进度 is the
+                                // television's own sheet. No 查看详情: the card's press picks the episode.
+                                episodeLiftMenu(
+                                    episode = episode,
+                                    episodes = state.episodes,
+                                    artworkUrl =
+                                        episodeStillUrl(seasonServer.baseUrl, seasonServer.accessToken, episode),
+                                    downloaded = episodeActions.downloads.containsKey(episode.id),
+                                    onOpen = { selectEpisode(episode) },
+                                    onPlay = { episodeActions.play(episode, selectEpisode) },
+                                    onMark = episodeActions::mark,
+                                    onDownload = { episodeActions.download(listOf(episode)) },
+                                    onSelectFrom = {
+                                        episodeActions.startSelection(episode)
+                                        sheet = TvDetailSheet.EpisodeProgress
+                                    },
+                                ).withoutOpening()
                             },
                         )
                     }
@@ -362,7 +390,22 @@ internal fun TvDetailScreen(
                             sectionKey = "detail:${detail.id}:related",
                             items =
                                 state.related.map { related ->
-                                    related.toRelatedCard(server) {
+                                    related.toRelatedCard(
+                                        server = server,
+                                        // The phone's 相关推荐 menu, less 分享: nothing to share to here.
+                                        quickActions = {
+                                            component.relatedLiftMenu(
+                                                serverId = server.id,
+                                                listed = related,
+                                                backdropUrl =
+                                                    EmbyImages.backdrop(
+                                                        server.baseUrl,
+                                                        related,
+                                                        accessToken = server.accessToken,
+                                                    ),
+                                            )
+                                        },
+                                    ) {
                                         component.onOpenRelated(server.id, related.id)
                                     }
                                 },
@@ -661,6 +704,8 @@ private fun TvEpisodeRow(
     accessToken: String,
     focusMemory: TvUiFocusMemory,
     onEpisode: (Episode) -> Unit,
+    /** The 长按面板 of one episode's card — see [TvQuickActionsPanel]. */
+    quickActions: (Episode) -> LiftMenu,
 ) {
     val episodeScope = "detail:${detail.id}:episodes"
     val rowState = focusMemory.rowState(episodeScope)
@@ -734,6 +779,7 @@ private fun TvEpisodeRow(
                                 artworkShape = TvArtworkShape.Landscape,
                                 selected = episode.id == selectedEpisodeId,
                                 selectable = true,
+                                quickActions = { quickActions(episode) },
                                 onClick = { onEpisode(episode) },
                             ),
                         focusScope = episodeScope,
@@ -754,6 +800,7 @@ private fun TvEpisodeRow(
 
 private fun MediaItem.toRelatedCard(
     server: com.yfuse.core.model.SavedServer,
+    quickActions: (() -> LiftMenu)?,
     onClick: () -> Unit,
 ): TvMediaCardModel =
     TvMediaCardModel(
@@ -764,5 +811,6 @@ private fun MediaItem.toRelatedCard(
         serverId = server.id,
         profileId = server.userId,
         badge = communityRating?.let { "%.1f".format(it) },
+        quickActions = quickActions,
         onClick = onClick,
     )

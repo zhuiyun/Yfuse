@@ -106,7 +106,6 @@ import com.yfuse.tv.focus.FocusRestorePolicy
 import com.yfuse.tv.focus.FocusRestoreRequest
 import com.yfuse.tv.focus.FocusTargetId
 import com.yfuse.tv.focus.InMemoryFocusRepository
-import com.yfuse.tv.focus.RemoteIntent
 import com.yfuse.tv.focus.TvFocusRequesterRegistry
 import com.yfuse.tv.focus.requestFocusWhenAttached
 import com.yfuse.tv.focus.tvFocusScope
@@ -457,7 +456,8 @@ internal fun TvFocusableSurface(
                     false
                 }
             }.tvRemoteKeyHandler { intent ->
-                if (intent is RemoteIntent.OpenContextMenu && onContextMenu != null) {
+                // Holding 确定, or 菜单 — see [opensTvQuickActions].
+                if (intent.opensTvQuickActions() && onContextMenu != null) {
                     onContextMenu()
                     true
                 } else {
