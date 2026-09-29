@@ -32,6 +32,15 @@ import org.koin.core.context.GlobalContext
 private const val ACTION_STOP_CAST = "com.yfuse.player.STOP_CAST"
 
 /**
+ * The cast's 实况通知 has an id of its own, beside [PlayerActivity.NOTIFICATION_ID] (2407) rather
+ * than in its place. That id is the media notification and the playback service's foreground
+ * notification; a MediaStyle notification cannot be promoted to a live update, and replacing it
+ * took the lock screen's and quick settings' media card — and 上一集 / 下一集 — away for as long as
+ * the cast ran.
+ */
+private const val CAST_LIVE_NOTIFICATION_ID = 2409
+
+/**
  * How far a cast has to move before its live update is redrawn. The time left runs on the
  * notification's own countdown in between, so the bar only needs to keep roughly up.
  */
@@ -49,6 +58,7 @@ internal class PlayerNotificationController(
     private var lastSegments: List<PlaybackSegment> = emptyList()
     private var lastChapterStarts: List<Long> = emptyList()
     private var castRefresh: Job? = null
+    private var castLivePosted = false
     private var stopReceiverRegistered = false
     private val stopCastReceiver =
         object : BroadcastReceiver() {
@@ -59,6 +69,12 @@ internal class PlayerNotificationController(
                 if (intent.action == ACTION_STOP_CAST) stopCasting()
             }
         }
+
+    init {
+        // A player that closed normally took its live update down in [cancel]. One still posted
+        // now was left by a process that died mid-cast, and would go on counting down by itself.
+        runCatching { manager.cancel(CAST_LIVE_NOTIFICATION_ID) }
+    }
 
     fun createChannel() {
         manager.createNotificationChannel(
@@ -81,6 +97,8 @@ internal class PlayerNotificationController(
             stopReceiverRegistered = false
         }
         manager.cancel(PlayerActivity.NOTIFICATION_ID)
+        manager.cancel(CAST_LIVE_NOTIFICATION_ID)
+        castLivePosted = false
     }
 
     /**
@@ -98,18 +116,36 @@ internal class PlayerNotificationController(
         lastTitles = titles
         lastSegments = segments
         lastChapterStarts = chapterStartsMs
-        if (Build.VERSION.SDK_INT >= 36) {
-            val cast = castManager?.state?.value
-            if (cast != null && cast.hasActiveSession) {
-                registerStopReceiver()
-                val live = castLiveUpdate(state, titles, segments, chapterStartsMs, cast)
-                runCatching { manager.notify(PlayerActivity.NOTIFICATION_ID, live) }
-                followCast()
-                return
-            }
-            castRefresh?.cancel()
-            castRefresh = null
+        val cast = castManager?.state?.value?.takeIf { it.hasActiveSession }
+        // The media notification stays up through a cast: it is the system media card and the
+        // playback service's foreground notification. [state] already follows the receiver then.
+        runCatching { manager.notify(PlayerActivity.NOTIFICATION_ID, transportNotification(state, titles, cast)) }
+        if (Build.VERSION.SDK_INT >= 36 && cast != null) {
+            registerStopReceiver()
+            val live = castLiveUpdate(state, titles, segments, chapterStartsMs, cast)
+            runCatching { manager.notify(CAST_LIVE_NOTIFICATION_ID, live) }
+            castLivePosted = true
+            followCast()
+        } else {
+            endCastLiveUpdate()
         }
+    }
+
+    /** No cast, or no live updates before Android 16: the cast's live update and its refresh go. */
+    private fun endCastLiveUpdate() {
+        castRefresh?.cancel()
+        castRefresh = null
+        if (castLivePosted) {
+            castLivePosted = false
+            runCatching { manager.cancel(CAST_LIVE_NOTIFICATION_ID) }
+        }
+    }
+
+    private fun transportNotification(
+        state: PlaybackState,
+        titles: List<String>,
+        cast: CastState?,
+    ): Notification {
         val title = titles.getOrNull(state.currentIndex).orEmpty().ifBlank { "Yfuse" }
         val contentIntent = openPlayerIntent()
         val previousIntent = mediaPendingIntent(PlayerActivity.ACTION_PREVIOUS, 1)
@@ -119,59 +155,54 @@ internal class PlayerNotificationController(
             if (state.playing) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play
         val playPauseLabel = if (state.playing) "暂停" else "播放"
 
-        val notification =
-            Notification
-                .Builder(activity, PlayerActivity.NOTIFICATION_CHANNEL)
-                .setSmallIcon(playPauseIcon)
-                .setContentTitle(title)
-                .setContentText(
-                    when {
-                        state.error != null -> "播放失败，可返回播放器重试"
-                        state.ended -> "播放完成"
-                        state.buffering -> "正在缓冲"
-                        state.playing -> "正在播放"
-                        else -> "已暂停"
-                    },
-                ).setContentIntent(contentIntent)
-                .setOnlyAlertOnce(true)
-                .setOngoing(state.playing)
-                .setVisibility(Notification.VISIBILITY_PUBLIC)
-                .setCategory(Notification.CATEGORY_TRANSPORT)
-                .addAction(
-                    Notification.Action
-                        .Builder(
-                            Icon.createWithResource(activity, android.R.drawable.ic_media_previous),
-                            "上一集",
-                            previousIntent,
-                        ).build(),
-                ).addAction(
-                    Notification.Action
-                        .Builder(
-                            Icon.createWithResource(activity, playPauseIcon),
-                            playPauseLabel,
-                            playPauseIntent,
-                        ).build(),
-                ).addAction(
-                    Notification.Action
-                        .Builder(
-                            Icon.createWithResource(activity, android.R.drawable.ic_media_next),
-                            "下一集",
-                            nextIntent,
-                        ).build(),
-                ).setStyle(
-                    Notification
-                        .MediaStyle()
-                        .setMediaSession(mediaSession().sessionToken)
-                        .setShowActionsInCompactView(0, 1, 2),
-                ).build()
-
-        runCatching { manager.notify(PlayerActivity.NOTIFICATION_ID, notification) }
+        return Notification
+            .Builder(activity, PlayerActivity.NOTIFICATION_CHANNEL)
+            .setSmallIcon(playPauseIcon)
+            .setContentTitle(title)
+            .setContentText(
+                transportStatusText(
+                    state = state,
+                    casting = cast != null,
+                    castDevice = cast?.activeDevice?.name,
+                ),
+            ).setContentIntent(contentIntent)
+            .setOnlyAlertOnce(true)
+            .setOngoing(state.playing)
+            .setVisibility(Notification.VISIBILITY_PUBLIC)
+            .setCategory(Notification.CATEGORY_TRANSPORT)
+            .addAction(
+                Notification.Action
+                    .Builder(
+                        Icon.createWithResource(activity, android.R.drawable.ic_media_previous),
+                        "上一集",
+                        previousIntent,
+                    ).build(),
+            ).addAction(
+                Notification.Action
+                    .Builder(
+                        Icon.createWithResource(activity, playPauseIcon),
+                        playPauseLabel,
+                        playPauseIntent,
+                    ).build(),
+            ).addAction(
+                Notification.Action
+                    .Builder(
+                        Icon.createWithResource(activity, android.R.drawable.ic_media_next),
+                        "下一集",
+                        nextIntent,
+                    ).build(),
+            ).setStyle(
+                Notification
+                    .MediaStyle()
+                    .setMediaSession(mediaSession().sessionToken)
+                    .setShowActionsInCompactView(0, 1, 2),
+            ).build()
     }
 
     /**
      * 实况通知 while casting: the title's bar with its chapter points, the time left counting down in
-     * the status bar chip, and 暂停 / 停止投屏. It takes the transport notification's place rather
-     * than sitting beside it: the phone plays nothing while the television does.
+     * the status bar chip, and 暂停 / 停止投屏. It sits beside the media notification, under
+     * [CAST_LIVE_NOTIFICATION_ID], and leaves when the cast does.
      */
     @RequiresApi(36)
     private fun castLiveUpdate(
@@ -323,4 +354,26 @@ internal class PlayerNotificationController(
             Intent(action).setPackage(activity.packageName),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
+}
+
+/**
+ * The media notification's second line. While casting, [state] already follows the receiver, and
+ * the line also says where the film is playing — on the lock screen that is the only sign of it.
+ */
+internal fun transportStatusText(
+    state: PlaybackState,
+    casting: Boolean,
+    castDevice: String?,
+): String {
+    val status =
+        when {
+            state.error != null -> "播放失败，可返回播放器重试"
+            state.ended -> "播放完成"
+            state.buffering -> "正在缓冲"
+            state.playing -> "正在播放"
+            else -> "已暂停"
+        }
+    if (!casting) return status
+    val target = castDevice?.trim()?.takeIf(String::isNotEmpty)?.let { "投屏到 $it" } ?: "正在投屏"
+    return "$status · $target"
 }
