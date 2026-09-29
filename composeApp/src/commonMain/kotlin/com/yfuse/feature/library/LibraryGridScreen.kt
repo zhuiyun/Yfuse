@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -33,6 +34,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
@@ -43,13 +45,13 @@ import com.yfuse.core.designsystem.ActionToast
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
-import com.yfuse.core.designsystem.CaptionedPoster
 import com.yfuse.core.designsystem.ContextualTip
 import com.yfuse.core.designsystem.DialogPresence
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.ItemAction
+import com.yfuse.core.designsystem.LiftAnchor
 import com.yfuse.core.designsystem.LiftMenu
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
@@ -76,6 +78,8 @@ import com.yfuse.core.designsystem.Tips
 import com.yfuse.core.designsystem.YfChip
 import com.yfuse.core.designsystem.calmMotion
 import com.yfuse.core.designsystem.glass
+import com.yfuse.core.designsystem.liftAnchor
+import com.yfuse.core.designsystem.liftable
 import com.yfuse.core.designsystem.motionAwareScrollToItem
 import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.motionItems
@@ -83,6 +87,7 @@ import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberDelayedBusy
 import com.yfuse.core.designsystem.rememberScreenReaderActive
+import com.yfuse.core.designsystem.sharedMediaOnClick
 import com.yfuse.core.designsystem.skeletonSweep
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.designsystem.waitingPulse
@@ -416,14 +421,18 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                                 horizontalArrangement = Arrangement.spacedBy(GridSpacing),
                                 verticalArrangement = Arrangement.spacedBy(12.dp),
                                 modifier =
-                                    Modifier.fillMaxSize().graphicsLayer {
-                                        alpha = gridAlpha.value
-                                        // A pinch draws the laid-out grid at the size in between two counts.
-                                        val scale = gridDensity.scale()
-                                        scaleX = scale
-                                        scaleY = scale
-                                        transformOrigin = gridDensity.transformOrigin(size.width, size.height)
-                                    },
+                                    Modifier
+                                        .fillMaxSize()
+                                        .graphicsLayer {
+                                            alpha = gridAlpha.value
+                                            // A pinch draws the laid-out grid at the size in between two counts.
+                                            val scale = gridDensity.scale()
+                                            scaleX = scale
+                                            scaleY = scale
+                                            transformOrigin = gridDensity.transformOrigin(size.width, size.height)
+                                        }
+                                        // Inside the pinch's scale: where every poster is measured from.
+                                        .onPlaced { gridDensity.reflow.grid = it },
                             ) {
                                 if (state.directoryKind != null) {
                                     motionItems(
@@ -438,31 +447,27 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                                                 maxHeight = 450,
                                                 accessToken = accessToken,
                                             )
-                                        if (titles) {
-                                            CaptionedPoster(
-                                                url = url,
-                                                title = container.title,
-                                                year = container.itemCount?.let { "$it 项" },
-                                                progress = null,
-                                                onClick = { component.onOpenContainer(container) },
-                                                modifier = Modifier,
-                                            )
-                                        } else {
-                                            Poster(
-                                                url = url,
-                                                contentDescription = container.title,
-                                                onClick = { component.onOpenContainer(container) },
-                                                modifier = Modifier.fillMaxWidth().aspectRatio(POSTER_RATIO),
-                                            )
-                                        }
+                                        GridTile(
+                                            url = url,
+                                            title = container.title,
+                                            caption = container.itemCount?.let { "$it 项" },
+                                            titles = titles,
+                                            onClick = { component.onOpenContainer(container) },
+                                            modifier =
+                                                Modifier.gridReflowItem(
+                                                    gridDensity,
+                                                    "${container.serverId}-${container.kind}-${container.id}",
+                                                ),
+                                        )
                                     }
                                 } else {
                                     motionItems(state.items, key = { it.id }) { item ->
                                         Box(
                                             // Appended pages fade in where they land rather than
                                             // appearing mid-scroll, and a sort change cross-dissolves
-                                            // instead of swapping the grid between two frames.
-                                            modifier = Modifier,
+                                            // instead of swapping the grid between two frames. A pinch
+                                            // flows each poster from its old place to its new one.
+                                            modifier = Modifier.gridReflowItem(gridDensity, item.id),
                                         ) {
                                             val lift = {
                                                 gridLiftMenu(
@@ -474,32 +479,20 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                                                     onIntent = component.store::accept,
                                                 )
                                             }
-                                            if (titles) {
-                                                PosterCard(
-                                                    baseUrl = baseUrl,
-                                                    accessToken = accessToken,
-                                                    serverId = component.serverId,
-                                                    item = item,
-                                                    showProgress = false,
-                                                    onClick = { component.onOpenItem(item.id) },
-                                                    liftMenu = lift,
-                                                )
-                                            } else {
-                                                // Five across: the poster alone, its title left to the
-                                                // screen reader and the lifted card.
-                                                Poster(
-                                                    url = EmbyImages.poster(baseUrl, item, accessToken = accessToken),
-                                                    contentDescription = item.title,
-                                                    onClick = { component.onOpenItem(item.id) },
-                                                    liftMenu = lift,
-                                                    sharedTransitionKey =
-                                                        MediaSharedElementKey(
-                                                            component.serverId,
-                                                            item.id,
-                                                        ),
-                                                    modifier = Modifier.fillMaxWidth().aspectRatio(POSTER_RATIO),
-                                                )
-                                            }
+                                            GridTile(
+                                                url = EmbyImages.poster(baseUrl, item, accessToken = accessToken),
+                                                title = item.title,
+                                                caption = item.year?.toString(),
+                                                titles = titles,
+                                                rating = item.communityRating,
+                                                onClick = { component.onOpenItem(item.id) },
+                                                liftMenu = lift,
+                                                sharedTransitionKey =
+                                                    MediaSharedElementKey(
+                                                        component.serverId,
+                                                        item.id,
+                                                    ),
+                                            )
                                             if (state.containerKind != null) {
                                                 Box(
                                                     Modifier
@@ -896,6 +889,76 @@ private fun EmptyGridHint(
                 onAction = onBack,
             )
         else -> PageHint("暂无内容", modifier = modifier, actionLabel = "返回", onAction = onBack)
+    }
+}
+
+/**
+ * One grid tile at every density: the poster and, while a row has room for words, the title and
+ * [caption] under it. It is the same composable at five across as at two — swapping to a bare
+ * [Poster] there rebuilt every visible tile in the frame a pinch crossed four and a half, and each
+ * blinked while its picture came back. As on [com.yfuse.core.designsystem.CaptionedPoster], the
+ * whole tile takes the press, caption and all, and it is the artwork that lifts.
+ */
+@Composable
+private fun GridTile(
+    url: String?,
+    title: String,
+    caption: String?,
+    titles: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    rating: Double? = null,
+    liftMenu: (() -> LiftMenu)? = null,
+    sharedTransitionKey: MediaSharedElementKey? = null,
+) {
+    val palette = LocalPalette.current
+    val open = sharedMediaOnClick(sharedTransitionKey, onClick)
+    val lift = liftMenu?.let { build -> { build().withArtwork(listOfNotNull(url)) } }
+    val artwork = remember { LiftAnchor() }
+    Column(
+        modifier
+            .fillMaxWidth()
+            .liftable(menu = lift, anchor = artwork, onOpen = open)
+            // Five across the poster alone takes the press, and leans with it as a poster does.
+            .pressable(tilt = !titles, onClick = open),
+    ) {
+        Poster(
+            url = url,
+            // Under a 60 dp poster the score badge would cover what little of it there is.
+            rating = rating.takeIf { titles },
+            contentDescription = title,
+            sharedTransitionKey = sharedTransitionKey,
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(POSTER_RATIO)
+                    .liftAnchor(artwork.takeIf { lift != null }),
+        )
+        if (titles) {
+            Spacer(Modifier.height(7.dp))
+            Text(
+                text = title,
+                style = AppTypography.body.strong,
+                color = palette.text,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(2.dp))
+            if (caption != null) {
+                Text(
+                    text = caption,
+                    style = AppTypography.caption.regular,
+                    color = palette.sub2,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            } else {
+                // The caption's own line box, so tiles align whether or not they have one.
+                Spacer(Modifier.height(15.dp))
+            }
+        }
     }
 }
 
