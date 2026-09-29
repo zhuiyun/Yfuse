@@ -68,6 +68,8 @@ internal fun TvTmdbInfoScreen(
         item(key = "tmdb-info:hero:${item.mediaType}:${item.id}") {
             Box(
                 Modifier
+                    // Whole while focus is on 播放, 追剧 or 返回 — see TvFocusPivot.
+                    .tvKeepWholeInView()
                     .fillMaxWidth()
                     .height(455.dp)
                     .clip(RoundedCornerShape(bottomStart = 20.dp, bottomEnd = 20.dp))

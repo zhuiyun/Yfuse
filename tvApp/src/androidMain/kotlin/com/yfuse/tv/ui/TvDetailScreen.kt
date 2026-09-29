@@ -449,7 +449,15 @@ private fun TvDetailHero(
     serverId: String,
     profileId: String,
 ) {
-    Box(Modifier.fillMaxWidth().height(475.dp).background(TvPlaceholder)) {
+    // Kept whole while focus is anywhere in it: 播放 pivoted on its own would push the title and
+    // 返回 off the top on arrival.
+    Box(
+        Modifier
+            .tvKeepWholeInView()
+            .fillMaxWidth()
+            .height(475.dp)
+            .background(TvPlaceholder),
+    ) {
         AsyncImage(
             model = rememberTvImage(heroUrl),
             // Silent: the title is written over it, and the backdrop read it a second time.
@@ -687,49 +695,52 @@ private fun TvEpisodeRow(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text("剧集", color = TvOnSurface, fontSize = TvType.section, fontWeight = FontWeight.Bold)
-        LazyRow(
-            state = rowState,
-            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 9.dp),
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            itemsIndexed(episodes, key = { _, episode -> "episode:$serverId:${detail.id}:${episode.id}" }) {
-                    index,
-                    episode,
-                ->
-                TvMediaCard(
-                    model =
-                        TvMediaCardModel(
-                            stableId = "server:$serverId:episode:${episode.id}",
-                            title = episode.indexNumber?.let { "第 $it 集 · ${episode.name}" } ?: episode.name,
-                            subtitle =
-                                listOfNotNull(
-                                    episode.runtimeMinutes?.let { "$it 分钟" },
-                                    when {
-                                        episode.played -> "已看"
-                                        (episode.playedPercentage ?: 0.0) > 0.0 -> "继续观看"
-                                        else -> null
-                                    },
-                                ).joinToString(" · "),
-                            imageUrl =
-                                EmbyImages.primary(
-                                    baseUrl,
-                                    episode.id,
-                                    episode.primaryTag,
-                                    maxHeight = 300,
-                                    accessToken = accessToken,
-                                ),
-                            serverId = serverId,
-                            profileId = profileId,
-                            progress = episode.playedPercentage?.div(100.0)?.toFloat(),
-                            artworkShape = TvArtworkShape.Landscape,
-                            selected = episode.id == selectedEpisodeId,
-                            selectable = true,
-                            onClick = { onEpisode(episode) },
-                        ),
-                    focusScope = episodeScope,
-                    focusMemory = focusMemory,
-                    fallbackIndex = index,
-                )
+        // A card row like the shelves: the focused episode rests a third of the way in.
+        ProvideTvRowPivot {
+            LazyRow(
+                state = rowState,
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 9.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                itemsIndexed(episodes, key = { _, episode -> "episode:$serverId:${detail.id}:${episode.id}" }) {
+                        index,
+                        episode,
+                    ->
+                    TvMediaCard(
+                        model =
+                            TvMediaCardModel(
+                                stableId = "server:$serverId:episode:${episode.id}",
+                                title = episode.indexNumber?.let { "第 $it 集 · ${episode.name}" } ?: episode.name,
+                                subtitle =
+                                    listOfNotNull(
+                                        episode.runtimeMinutes?.let { "$it 分钟" },
+                                        when {
+                                            episode.played -> "已看"
+                                            (episode.playedPercentage ?: 0.0) > 0.0 -> "继续观看"
+                                            else -> null
+                                        },
+                                    ).joinToString(" · "),
+                                imageUrl =
+                                    EmbyImages.primary(
+                                        baseUrl,
+                                        episode.id,
+                                        episode.primaryTag,
+                                        maxHeight = 300,
+                                        accessToken = accessToken,
+                                    ),
+                                serverId = serverId,
+                                profileId = profileId,
+                                progress = episode.playedPercentage?.div(100.0)?.toFloat(),
+                                artworkShape = TvArtworkShape.Landscape,
+                                selected = episode.id == selectedEpisodeId,
+                                selectable = true,
+                                onClick = { onEpisode(episode) },
+                            ),
+                        focusScope = episodeScope,
+                        focusMemory = focusMemory,
+                        fallbackIndex = index,
+                    )
+                }
             }
         }
         Text(

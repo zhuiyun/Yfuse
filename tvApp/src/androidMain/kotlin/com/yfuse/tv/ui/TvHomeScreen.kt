@@ -302,6 +302,8 @@ private fun TvHomeHero(
 ) {
     Box(
         modifier
+            // Whole while focus is on 播放 or 详情, so the page stays at its top — see TvFocusPivot.
+            .tvKeepWholeInView()
             .fillMaxWidth()
             .height(390.dp)
             .padding(horizontal = 8.dp)
