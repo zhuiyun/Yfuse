@@ -17,6 +17,8 @@
 # (VerifyError: register contains a reference where an integer is required).
 # Keep this generated file class and its methods out of that optimization.
 -keep class com.yfuse.feature.player.PlayerRootKt { *; }
+# The split-out parts of PlayerRoot (PlayerRoot*.kt) keep the same protection until a release without these rules passes the Android 17 startup smoke.
+-keep class com.yfuse.feature.player.PlayerRoot*Kt { *; }
 
 # ---- Diagnostics ----
 # Failure logs record exception class names (native_direct_failed exceptiontype and similar).

@@ -115,7 +115,6 @@ import kotlin.math.roundToInt
 import com.yfuse.core.platform.AppBuildConfig as BuildConfig
 
 private const val RESUME_NOTICE_MIN_MS = 30_000L
-private const val END_OF_EPISODE_ARM_WINDOW_MS = 2_000L
 private const val MAX_NATIVE_ONLY_RECOVERY_ATTEMPTS = 2
 private const val MAX_LONG_BUFFER_RECOVERY_ATTEMPTS = 2
 
@@ -322,11 +321,7 @@ internal fun PlayerRoot(
     // 片尾接管: the controls decide when the credits take the picture into its corner; the surface follows.
     var creditsTakeover by remember { mutableStateOf(false) }
     val audioOutputDelayPreferences = remember(context) { AudioOutputDelayPreferences(context) }
-    var sleepTimerOption by remember { mutableStateOf(SleepTimerOption.Off) }
-    var sleepTimerEndIndex by remember { mutableStateOf<Int?>(null) }
-    var sleepTimerEndSessionRevision by remember { mutableStateOf<Long?>(null) }
-    var sleepTimerArmedItemReachedEnd by remember { mutableStateOf(false) }
-    var sleepTimerRevision by remember { mutableIntStateOf(0) }
+    val sleepTimer = remember { PlayerSleepTimer() }
     val playbackSinkCache =
         remember {
             mutableMapOf<PlaybackReportingTarget, PlaybackEventSink?>()
@@ -840,7 +835,8 @@ internal fun PlayerRoot(
         }
         val castManager = remember { GlobalContext.get().get<CastManager>() }
         val liveCastState = castManager.state.collectAsState()
-        val castState by remember(liveCastState) { derivedStateOf { liveCastState.value.copy(positionMs = 0L) } }
+        val castStateSource = remember(liveCastState) { derivedStateOf { liveCastState.value.copy(positionMs = 0L) } }
+        val castState by castStateSource
         // The controls' proposed seeks, merged latest-wins before a receiver or the room sees them.
         LaunchedEffect(gestures, castManager, playbackGate) {
             gestures.deliverSeeks { positionMs ->
@@ -1090,10 +1086,7 @@ internal fun PlayerRoot(
         fun pauseForSleepTimer(message: String) {
             latestPlayerForSleep.pause()
             val pauseCast = latestCastStateForSleep.hasActiveSession
-            sleepTimerOption = SleepTimerOption.Off
-            sleepTimerEndIndex = null
-            sleepTimerEndSessionRevision = null
-            sleepTimerArmedItemReachedEnd = false
+            sleepTimer.finish()
             if (pauseCast) scope.launch { castManager.pause() }
             Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
         }
@@ -1102,62 +1095,20 @@ internal fun PlayerRoot(
         // still advanced ten seconds later, which is the opposite of what 取消 promised.
         var nextUpDismissedItemId by remember { mutableStateOf<String?>(null) }
         val currentQueueItemId = activeItems.getOrNull(state.currentIndex)?.id
-        LaunchedEffect(backendExtensions, sleepTimerOption, nextUpDismissedItemId, currentQueueItemId) {
+        LaunchedEffect(backendExtensions, sleepTimer.option, nextUpDismissedItemId, currentQueueItemId) {
             backendExtensions.setPauseAtEndOfCurrentItem(
-                sleepTimerOption == SleepTimerOption.EndOfEpisode ||
+                sleepTimer.option == SleepTimerOption.EndOfEpisode ||
                     (nextUpDismissedItemId != null && nextUpDismissedItemId == currentQueueItemId),
             )
         }
-        val sleepTimerPlaying by rememberUpdatedState(state.playing)
-        LaunchedEffect(sleepTimerOption, sleepTimerRevision) {
-            val durationMs = sleepTimerOption.durationMs ?: return@LaunchedEffect
-            // Counts playback, not wall-clock: a pause to answer the door must not use up the timer.
-            var remainingMs = durationMs
-            while (remainingMs > 0L) {
-                if (!sleepTimerPlaying) {
-                    delay(SLEEP_TIMER_PAUSED_POLL_MS)
-                    continue
-                }
-                val step = minOf(SLEEP_TIMER_TICK_MS, remainingMs)
-                delay(step)
-                remainingMs -= step
-            }
-            pauseForSleepTimer("睡眠定时已到，播放已暂停")
-        }
-        LaunchedEffect(sleepTimerOption, sleepTimerEndIndex, liveLocalState) {
-            snapshotFlow { liveLocalState.value }.collect { current ->
-                if (sleepTimerOption == SleepTimerOption.EndOfEpisode &&
-                    sleepTimerEndIndex == current.currentIndex &&
-                    current.durationMs > 0L &&
-                    current.remainingMs <= END_OF_EPISODE_ARM_WINDOW_MS
-                ) {
-                    sleepTimerArmedItemReachedEnd = true
-                }
-            }
-        }
-        LaunchedEffect(
-            sleepTimerOption,
-            sleepTimerEndIndex,
-            sleepTimerArmedItemReachedEnd,
-            localState.currentIndex,
-            localState.ended,
-            localState.playing,
-        ) {
-            if (sleepTimerOption != SleepTimerOption.EndOfEpisode || castState.hasActiveSession) {
-                return@LaunchedEffect
-            }
-            if (
-                shouldCompleteLocalEndOfEpisodeTimer(
-                    armedIndex = sleepTimerEndIndex,
-                    currentIndex = localState.currentIndex,
-                    ended = localState.ended,
-                    playing = localState.playing,
-                    armedItemReachedEnd = sleepTimerArmedItemReachedEnd,
-                )
-            ) {
-                pauseForSleepTimer("本集已结束，播放已暂停")
-            }
-        }
+        PlayerSleepTimerEffects(
+            sleepTimer = sleepTimer,
+            playing = state.playing,
+            localState = localState,
+            liveLocalState = liveLocalState,
+            castState = castStateSource,
+            pauseForSleepTimer = ::pauseForSleepTimer,
+        )
 
         LaunchedEffect(castState.sessionRevision, castState.termination) {
             val decision =
@@ -2569,11 +2520,7 @@ internal fun PlayerRoot(
                 player.selectItem(index)
             }
             player.pause()
-            if (sleepTimerOption == SleepTimerOption.EndOfEpisode) {
-                sleepTimerEndIndex = index
-                sleepTimerEndSessionRevision = castManager.state.value.sessionRevision
-                sleepTimerArmedItemReachedEnd = false
-            }
+            sleepTimer.follow(index, castManager.state.value.sessionRevision)
             return true
         }
         BindCastQueue(castState, player, activeItems, localState.currentIndex)
@@ -2613,15 +2560,15 @@ internal fun PlayerRoot(
             castState.sessionRevision,
             localState.currentIndex,
             autoNext,
-            sleepTimerOption,
-            sleepTimerEndIndex,
-            sleepTimerEndSessionRevision,
+            sleepTimer.option,
+            sleepTimer.endIndex,
+            sleepTimer.endSessionRevision,
         ) {
             if (
-                sleepTimerOption == SleepTimerOption.EndOfEpisode &&
+                sleepTimer.option == SleepTimerOption.EndOfEpisode &&
                 shouldCompleteCastEndOfEpisodeTimer(
-                    armedIndex = sleepTimerEndIndex,
-                    armedSessionRevision = sleepTimerEndSessionRevision,
+                    armedIndex = sleepTimer.endIndex,
+                    armedSessionRevision = sleepTimer.endSessionRevision,
                     currentIndex = localState.currentIndex,
                     currentSessionRevision = castState.sessionRevision,
                     castEnded = castState.status == CastPlaybackStatus.Ended,
@@ -2987,12 +2934,7 @@ internal fun PlayerRoot(
                         onSeek = gestures::seek,
                         onSelectItem = { index ->
                             sourceSwitchCoordinator.invalidate()
-                            if (sleepTimerOption == SleepTimerOption.EndOfEpisode) {
-                                sleepTimerEndIndex = index
-                                sleepTimerEndSessionRevision =
-                                    castState.sessionRevision.takeIf { castState.hasActiveSession }
-                                sleepTimerArmedItemReachedEnd = false
-                            }
+                            sleepTimer.follow(index, castState.sessionRevision.takeIf { castState.hasActiveSession })
                             val deviceId = castState.activeDeviceId
                             if (castState.hasActiveSession && deviceId != null) {
                                 scope.launch { loadCastItem(deviceId, index, 0L) }
@@ -3003,11 +2945,11 @@ internal fun PlayerRoot(
                         onPreviousItem = {
                             sourceSwitchCoordinator.invalidate()
                             val previous = state.currentIndex - 1
-                            if (sleepTimerOption == SleepTimerOption.EndOfEpisode && previous in activeItems.indices) {
-                                sleepTimerEndIndex = previous
-                                sleepTimerEndSessionRevision =
-                                    castState.sessionRevision.takeIf { castState.hasActiveSession }
-                                sleepTimerArmedItemReachedEnd = false
+                            if (previous in activeItems.indices) {
+                                sleepTimer.follow(
+                                    previous,
+                                    castState.sessionRevision.takeIf { castState.hasActiveSession },
+                                )
                             }
                             val deviceId = castState.activeDeviceId
                             if (castState.hasActiveSession && deviceId != null && previous in activeItems.indices) {
@@ -3025,11 +2967,8 @@ internal fun PlayerRoot(
                         onNextItem = {
                             sourceSwitchCoordinator.invalidate()
                             val next = state.currentIndex + 1
-                            if (sleepTimerOption == SleepTimerOption.EndOfEpisode && next in activeItems.indices) {
-                                sleepTimerEndIndex = next
-                                sleepTimerEndSessionRevision =
-                                    castState.sessionRevision.takeIf { castState.hasActiveSession }
-                                sleepTimerArmedItemReachedEnd = false
+                            if (next in activeItems.indices) {
+                                sleepTimer.follow(next, castState.sessionRevision.takeIf { castState.hasActiveSession })
                             }
                             val deviceId = castState.activeDeviceId
                             if (castState.hasActiveSession && deviceId != null && next in activeItems.indices) {
@@ -3500,19 +3439,16 @@ internal fun PlayerRoot(
                                 locked = { playbackGate.locked },
                             )
                         },
-                        sleepTimer = SleepTimerState(sleepTimerOption),
+                        sleepTimer = SleepTimerState(sleepTimer.option),
                         sleepTimerActions =
                             SleepTimerActions(
                                 onSelect = { option ->
-                                    sleepTimerOption = option
-                                    sleepTimerEndIndex =
-                                        state.currentIndex.takeIf { option == SleepTimerOption.EndOfEpisode }
-                                    sleepTimerEndSessionRevision =
-                                        castState.sessionRevision.takeIf {
-                                            option == SleepTimerOption.EndOfEpisode && castState.hasActiveSession
-                                        }
-                                    sleepTimerArmedItemReachedEnd = false
-                                    sleepTimerRevision++
+                                    sleepTimer.select(
+                                        option = option,
+                                        currentIndex = state.currentIndex,
+                                        castSessionRevision =
+                                            castState.sessionRevision.takeIf { castState.hasActiveSession },
+                                    )
                                 },
                             ),
                         onToggleFill = { stretch ->
@@ -3919,6 +3855,3 @@ internal fun core2NativeOnlyFailureToast(kind: PlaybackFailureKind?): String =
         PlaybackFailureKind.Authorization -> "片源授权已失效，请刷新播放地址后重试"
         else -> "YCore Native 播放失败，纯内核模式未切换兼容内核"
     }
-
-private const val SLEEP_TIMER_TICK_MS = 1_000L
-private const val SLEEP_TIMER_PAUSED_POLL_MS = 500L

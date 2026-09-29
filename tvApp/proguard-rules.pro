@@ -12,6 +12,8 @@
 # unrelated class, and on Android 17 that DEX fails verification before the app starts. The TV
 # package compiles the same PlayerRoot with the same R8.
 -keep class com.yfuse.feature.player.PlayerRootKt { *; }
+# The split-out parts of PlayerRoot (PlayerRoot*.kt) keep the same protection until a release without these rules passes the Android 17 startup smoke.
+-keep class com.yfuse.feature.player.PlayerRoot*Kt { *; }
 
 # Failure logs record exception class names; keep them readable in exported diagnostics.
 -keepnames class * extends java.lang.Throwable
