@@ -20,6 +20,13 @@ data class AccountRateLimitPolicy(
     val passwordChangeWindowMs: Long = 15 * 60_000L,
     val inviteIssueAttemptsPerWindow: Int = 10,
     val inviteIssueWindowMs: Long = 60_000L,
+    /**
+     * TMDB reads bypass the app's HTTP cache (every /api response is no-store), so a cold start
+     * plus the calendar is about eighty of them. Per IP this leaves room for a household's devices;
+     * the proxy applies its own, lower, per-account budget after authentication.
+     */
+    val tmdbProxyAttemptsPerWindow: Int = 600,
+    val tmdbProxyWindowMs: Long = 60_000L,
     /** Counts IP/bucket pairs, so one IP using multiple buckets occupies multiple entries. */
     val maxTrackedEntries: Int = 10_000,
     val cleanupIntervalMs: Long = 10_000L,
@@ -41,6 +48,8 @@ data class AccountRateLimitPolicy(
         require(passwordChangeWindowMs > 0L)
         require(inviteIssueAttemptsPerWindow > 0)
         require(inviteIssueWindowMs > 0L)
+        require(tmdbProxyAttemptsPerWindow > 0)
+        require(tmdbProxyWindowMs > 0L)
         require(maxTrackedEntries > 0)
         require(cleanupIntervalMs > 0L)
     }
@@ -81,6 +90,7 @@ class AccountRateLimiter(
                     AccountRateLimitBucket.SyncWrite -> policy.syncWriteAttemptsPerWindow
                     AccountRateLimitBucket.PasswordChange -> policy.passwordChangeAttemptsPerWindow
                     AccountRateLimitBucket.InviteIssue -> policy.inviteIssueAttemptsPerWindow
+                    AccountRateLimitBucket.TmdbProxy -> policy.tmdbProxyAttemptsPerWindow
                 }
             val windowMs =
                 when (bucket) {
@@ -95,6 +105,7 @@ class AccountRateLimiter(
                     -> policy.syncWindowMs
                     AccountRateLimitBucket.PasswordChange -> policy.passwordChangeWindowMs
                     AccountRateLimitBucket.InviteIssue -> policy.inviteIssueWindowMs
+                    AccountRateLimitBucket.TmdbProxy -> policy.tmdbProxyWindowMs
                 }
             val existing = entries[key]
             if (existing != null) {
@@ -228,6 +239,7 @@ internal enum class AccountRateLimitBucket {
     SyncWrite,
     PasswordChange,
     InviteIssue,
+    TmdbProxy,
 }
 
 internal sealed interface RateLimitDecision {
