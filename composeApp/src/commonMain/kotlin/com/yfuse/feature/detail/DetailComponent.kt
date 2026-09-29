@@ -24,6 +24,7 @@ import com.yfuse.core.data.libraryAiringSchedule
 import com.yfuse.core.data.smartFailoverServerIds
 import com.yfuse.core.model.CalendarDay
 import com.yfuse.core.model.MediaDetail
+import com.yfuse.core.model.Person
 import com.yfuse.core.model.capabilities
 import com.yfuse.core.network.currentPlaybackNetworkClass
 import com.yfuse.core.offline.OfflineBatchItem
@@ -152,6 +153,18 @@ class DetailComponent(
     /** A genre or a name on this page, handed to the search tab as a query. */
     fun searchFor(query: String) {
         dependencies.searchRequests.submit(query)
+    }
+
+    /**
+     * 演员页 for a face in this page's cast, as the server that lists them knows them. A credit
+     * without an id of its own — nothing to read a record or a filmography by — searches the name.
+     */
+    fun openPerson(person: Person) {
+        if (person.id.isBlank()) {
+            searchFor(person.name)
+        } else {
+            dependencies.searchRequests.openPerson(store.state.server?.id ?: serverId, person)
+        }
     }
 
     private val delegateStore =

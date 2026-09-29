@@ -371,9 +371,8 @@ internal fun TvDetailScreen(
                                             ),
                                         serverId = server.id,
                                         profileId = server.userId,
-                                        // The libraries are the only filmography available, so a
-                                        // face opens a search for that name.
-                                        onClick = { component.searchFor(person.name) },
+                                        // 演员页: who they are, their titles here, and TMDB's others.
+                                        onClick = { component.openPerson(person) },
                                     )
                                 },
                             focusMemory = focusMemory,

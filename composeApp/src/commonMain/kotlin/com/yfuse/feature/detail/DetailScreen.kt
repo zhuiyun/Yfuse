@@ -886,7 +886,7 @@ fun DetailScreen(component: DetailComponent) {
                                             accessToken = accessToken,
                                             people = detail.people,
                                             modifier = Modifier.padding(top = Dimens.sectionGap),
-                                            onPersonClick = { component.searchFor(it.name) },
+                                            onPersonClick = component::openPerson,
                                         )
                                     }
                                 }
