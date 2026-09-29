@@ -146,6 +146,17 @@ internal class AndroidAdaptiveCore2YPlayer(
     val sourceFacts = routeEvaluator.sourceFacts.asStateFlow()
     override val playbackRequested: Boolean get() = mutableState.value.playbackRequested
 
+    /** Advanced only by the child-state collector, on the router dispatcher. */
+    private val childOutputEvidence = ChildOutputEvidenceSequence()
+
+    /** A child's state as this player publishes it: on the whole title, continuing its output generation. */
+    private fun presentedChildState(
+        child: YPlayer,
+        state: YPlayerState,
+        target: YAdaptivePlaybackTarget?,
+    ): YPlayerState =
+        childOutputEvidence.continued(child, mapAdaptivePresentationState(state, target), mutableState.value)
+
     /**
      * Every router coroutine - the command loop, the child-state collector and the monitors - runs
      * one at a time on this view of Default. The loop and the collector both mutate the recovery
@@ -1466,7 +1477,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                         }
                         if (localChildState.diagnostics.videoOutputVerified) verifiedRouteSuspicion.onVideoOutput()
                         if (activeChild !== next) return@collect
-                        val reportedChildState = mapAdaptivePresentationState(localChildState, attachedTarget)
+                        val reportedChildState = presentedChildState(next, localChildState, attachedTarget)
                         val nextPeriodPosition =
                             attachedTarget?.periodEndGlobalMs?.takeIf { endMs ->
                                 localChildState.phase == YPlaybackPhase.Ended &&
