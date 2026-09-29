@@ -41,6 +41,10 @@ sealed interface PhoneRemoteState {
  * sends it keys and text. Keys go one per press. Text goes whole, once typing pauses for
  * [textDebounceMs], and again after every reconnect, so the television always ends up showing
  * exactly the phone's field whatever was lost on the way.
+ *
+ * The phone names itself as it joins — [identity], this install unless a test says otherwise — so
+ * the television can ask about it by name before anything it sends is let through, and remember it
+ * when told to. A phone that cannot say who it is still joins, as one the relay names for it.
  */
 class PhoneRemoteClient(
     private val accessToken: suspend () -> String?,
@@ -50,7 +54,9 @@ class PhoneRemoteClient(
     private val textDebounceMs: Long = REMOTE_TEXT_DEBOUNCE_MS,
     private val retryDelayMs: (Int) -> Long = ::backoffDelayMs,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+    identity: () -> RemotePhoneIdentity? = ::localRemotePhoneIdentity,
 ) {
+    private val me by lazy { runCatching(identity).getOrNull() }
     private val _state = MutableStateFlow<PhoneRemoteState>(PhoneRemoteState.Idle)
     val state: StateFlow<PhoneRemoteState> = _state.asStateFlow()
     private val keys = Channel<RemoteControlKey>(capacity = KEY_BUFFER)
@@ -121,8 +127,17 @@ class PhoneRemoteClient(
     ) {
         val relay = url ?: throw RemoteControlRefusedException("手机遥控服务地址无效", supported = false)
         val token = accessToken() ?: throw AccountRequiredForWatchException()
+        val self = me
         connector.connect(relay, token) { channel ->
-            channel.send(WatchWireMessage(type = "remoteJoin", remoteSessionId = target))
+            channel.send(
+                WatchWireMessage(
+                    type = "remoteJoin",
+                    remoteSessionId = target,
+                    // An id the relay would refuse would cost the whole join; better unnamed than that.
+                    remoteDeviceId = self?.deviceId?.takeIf(WatchProtocol::isStableRemoteDeviceId),
+                    name = self?.name,
+                ),
+            )
             coroutineScope {
                 var sending: Job? = null
                 try {

@@ -62,6 +62,42 @@ class RemoteControlProtocolTest {
     }
 
     @Test
+    fun pairing_is_a_capability_and_releasing_a_phone_is_the_televisions_message() {
+        assertTrue(WatchProtocol.CAPABILITY_REMOTE_PAIRING in WatchProtocol.SERVER_CAPABILITIES)
+        assertTrue("remoteRelease" in WatchProtocol.REMOTE_CLIENT_MESSAGE_TYPES)
+        assertTrue("remoteRelease" in WatchProtocol.CLIENT_MESSAGE_TYPES)
+    }
+
+    @Test
+    fun a_phone_names_itself_with_a_bounded_id_and_the_relays_stand_in_is_never_trusted() {
+        assertTrue(WatchProtocol.isStableRemoteDeviceId("5f0c1d2e3a4b5c6d7e8f901a2b3c4d5e"))
+        val madeUp = WatchProtocol.REMOTE_EPHEMERAL_DEVICE_PREFIX + "2b1f8c3e-5d4a-4c1b-9a77-0e6f5d4c3b2a"
+        // Passed on to the television like any other, so its keys can be told apart ...
+        assertTrue(WatchProtocol.isValidRemoteDeviceId(madeUp))
+        // ... but it lasts one connection: a phone may not claim it, nor a television keep it.
+        assertFalse(WatchProtocol.isStableRemoteDeviceId(madeUp))
+        assertFalse(WatchProtocol.isValidRemoteDeviceId(null))
+        assertFalse(WatchProtocol.isValidRemoteDeviceId(""))
+        assertFalse(WatchProtocol.isValidRemoteDeviceId("has space"))
+        assertFalse(WatchProtocol.isValidRemoteDeviceId("x".repeat(WatchProtocol.MAX_REMOTE_DEVICE_ID_BYTES + 1)))
+        assertFalse(WatchProtocol.isStableRemoteDeviceId(null))
+    }
+
+    @Test
+    fun a_phones_id_travels_only_where_it_is_set() {
+        val join =
+            json.decodeFromString(
+                WatchWireMessage.serializer(),
+                """{"type":"remoteJoin","remoteSessionId":"tv","remoteDeviceId":"phone-a","name":"小米 14"}""",
+            )
+        assertEquals("phone-a", join.remoteDeviceId)
+        assertEquals("小米 14", join.name)
+        val key = json.decodeFromString(WatchWireMessage.serializer(), """{"type":"remoteKey","remoteKey":"up"}""")
+        assertNull(key.remoteDeviceId)
+        assertFalse("remoteDeviceId" in json.encodeToString(WatchWireMessage.serializer(), key))
+    }
+
+    @Test
     fun remote_fields_are_optional_on_the_wire() {
         val key = json.decodeFromString(WatchWireMessage.serializer(), """{"type":"remoteKey","remoteKey":"up"}""")
         assertEquals("up", key.remoteKey)
