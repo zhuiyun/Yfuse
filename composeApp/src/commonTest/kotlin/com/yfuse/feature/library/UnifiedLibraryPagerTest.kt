@@ -1,5 +1,6 @@
 package com.yfuse.feature.library
 
+import com.yfuse.core.data.CrossServerMediaHit
 import com.yfuse.core.model.LibraryPage
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.MediaLibrary
@@ -30,6 +31,67 @@ class UnifiedLibraryPagerTest {
         null,
         providerIds = mapOf("Tmdb" to tmdb),
     )
+
+    @Test
+    fun titles_in_hand_show_at_once_and_join_a_servers_copy_of_the_same_film() =
+        runTest {
+            val share = CrossServerMediaHit("filesource:fs1", "NAS", movie("movie:603", tmdb = "603"))
+            val pager =
+                UnifiedLibraryPager(
+                    libraries = { Result.success(listOf(MediaLibrary("movies", "Movies", "movies"))) },
+                    page = {
+                            _,
+                            _,
+                            offset,
+                            _,
+                            _,
+                        ->
+                        Result.success(LibraryPage(listOf(movie("a-1", tmdb = "603")), 1, offset))
+                    },
+                    extraHits = { listOf(share) },
+                )
+
+            pager.reset(listOf(server("a")), UnifiedLibraryQuery())
+            assertEquals(
+                listOf(listOf("NAS")),
+                pager.state.value.groups.map { group ->
+                    group.copies.map { it.serverName }
+                },
+            )
+
+            pager.loadMore()
+            val group =
+                pager.state.value.groups
+                    .single()
+            assertEquals(setOf("a", "NAS"), group.copies.map { it.serverName }.toSet())
+        }
+
+    @Test
+    fun a_finished_scan_replaces_the_titles_in_hand_without_reading_a_server_again() =
+        runTest {
+            var shareTitles = listOf(CrossServerMediaHit("filesource:fs1", "NAS", movie("movie:1", tmdb = "1")))
+            var libraryReads = 0
+            val pager =
+                UnifiedLibraryPager(
+                    libraries = {
+                        libraryReads++
+                        Result.success(emptyList())
+                    },
+                    page = { _, _, offset, _, _ -> Result.success(LibraryPage(emptyList(), 0, offset)) },
+                    extraHits = { shareTitles },
+                )
+            pager.reset(listOf(server("a")), UnifiedLibraryQuery())
+
+            shareTitles = listOf(CrossServerMediaHit("filesource:fs1", "NAS", movie("movie:2", tmdb = "2")))
+            pager.refreshExtras()
+
+            assertEquals(
+                listOf("movie:2"),
+                pager.state.value.groups
+                    .map { it.recommended.item.id },
+            )
+            assertEquals(1, libraryReads)
+        }
 
     @Test
     fun deduplication_keeps_sources_and_advances_raw_offsets() =
