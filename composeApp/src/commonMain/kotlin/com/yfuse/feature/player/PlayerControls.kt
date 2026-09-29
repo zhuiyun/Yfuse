@@ -91,8 +91,11 @@ private const val AUTO_HIDE_MS = 5_000L
 private const val CHAT_PREVIEW_MS = 4_000L
 private const val GESTURE_HUD_MS = 1_600L
 
-/** How long the lock and 长按解锁 stay on the picture after locking or after a touch on it. */
+/** How long the lock and its key stay on the picture after locking or after a touch on it. */
 private const val LOCKED_CONTROLS_MS = 3_000L
+
+/** How long 回到 stays offered after a held scan lets go. */
+private const val SCAN_UNDO_MS = 3_000L
 
 /** How long 跳过片头 / 跳过片尾 stays up on its own once playback enters the segment. */
 private const val MANUAL_SKIP_STANDALONE_MS = 6_000L
@@ -384,6 +387,10 @@ internal fun PlayerControls(
     var seekBurstMs by remember { mutableLongStateOf(0L) }
     var seekBurstMark by remember { mutableStateOf<TimeSource.Monotonic.ValueTimeMark?>(null) }
     var holdSeekTarget by remember { mutableLongStateOf(0L) }
+    // Where the current scan set out from, and — for a few seconds after it lets go — the 回到 offer
+    // back to it: a hold that ran further than meant costs one tap, not a hunt along the rail.
+    var holdScanOriginMs by remember { mutableLongStateOf(0L) }
+    var scanUndoMs by remember { mutableStateOf<Long?>(null) }
     // 长按扫描换挡: the held side's gear, followed by the pointer observer and the ticking loop.
     val holdScan = remember { HoldScanGears() }
     // Where a sideways swipe across the picture would land, for the card over the HUD; null otherwise.
@@ -483,23 +490,29 @@ internal fun PlayerControls(
         visible = true
     }
 
-    /** Starts 长按中间 at 2×; false when it may not, having said why where there is a reason. */
+    /** Why a hold may not speed playback up at this moment; null when it may. */
+    fun currentSpeedBoostRefusal(): SpeedBoostRefusal? =
+        speedBoostRefusal(
+            panelOpen =
+                watchChatOpen ||
+                    danmakuSendOpen ||
+                    danmakuSearchOpen ||
+                    quickPopup != null ||
+                    settingsPanelKind != null ||
+                    drawerOpen,
+            watchGuest = latestWatchLocked,
+            watchRoom = latestWatchConnected,
+            casting = latestCasting,
+            durationMs = latestDuration,
+            finished = state.ended || state.error != null,
+        )
+
+    /**
+     * Starts 临时倍速 at 2× for a held middle — or a held side, unless 两侧长按 · 扫描 — false when it
+     * may not, having said why where there is a reason.
+     */
     fun startSpeedBoost(originX: Float): Boolean {
-        val refusal =
-            speedBoostRefusal(
-                panelOpen =
-                    watchChatOpen ||
-                        danmakuSendOpen ||
-                        danmakuSearchOpen ||
-                        quickPopup != null ||
-                        settingsPanelKind != null ||
-                        drawerOpen,
-                watchGuest = latestWatchLocked,
-                watchRoom = latestWatchConnected,
-                casting = latestCasting,
-                durationMs = latestDuration,
-                finished = state.ended || state.error != null,
-            )
+        val refusal = currentSpeedBoostRefusal()
         if (refusal != null) {
             refusal.message?.let { message ->
                 gestureHud = message
@@ -664,6 +677,15 @@ internal fun PlayerControls(
         watchDialogOpen = false
         drawerOpen = true
         poke()
+    }
+
+    /** 锁定, from the left-edge key or from 更多: whatever was open closes under the lock. */
+    fun lockScreen() {
+        settingsPanelKind = null
+        quickPopup = null
+        drawerOpen = false
+        locked = true
+        visible = true
     }
 
     // Also stable for the life of the panel, and for the same reason: read through the
@@ -984,6 +1006,20 @@ internal fun PlayerControls(
     LaunchedEffect(wakeRequests) {
         if (wakeRequests > 0) poke()
     }
+    // The 回到 offer lasts a few seconds (longer under 操作时长), then the scan stands.
+    LaunchedEffect(scanUndoMs, accessibilityManager) {
+        if (scanUndoMs == null) return@LaunchedEffect
+        val timeout =
+            accessibilityManager?.calculateRecommendedTimeoutMillis(
+                originalTimeoutMillis = SCAN_UNDO_MS,
+                containsIcons = false,
+                containsText = true,
+                containsControls = true,
+            ) ?: SCAN_UNDO_MS
+        if (timeout == Long.MAX_VALUE) return@LaunchedEffect
+        delay(timeout)
+        scanUndoMs = null
+    }
     // A segment's skip offer is only good while playback is inside it, and making the viewer summon
     // the controls first spent a good part of that. Entering one raises the pill on its own for a
     // few seconds; after that it comes and goes with the controls like every other key.
@@ -1144,6 +1180,7 @@ internal fun PlayerControls(
                             tryAwaitRelease()
                             if (holdSeekDirection != 0) {
                                 holdSeekDirection = 0
+                                scanUndoMs = holdScanOriginMs.takeIf { it != holdSeekTarget }
                                 poke()
                             }
                             // 长按中间 goes back to how it found things, and leaves the chrome
@@ -1200,6 +1237,12 @@ internal fun PlayerControls(
                                     gestureHud = "$verb ${seekBurstMs / 1_000L} 秒"
                                 }
                                 when {
+                                    // 双击 · 全屏暂停: the whole picture is one play/pause key, as in
+                                    // the domestic apps whose double tap never seeks.
+                                    latestGestures.doubleTapPausesAnywhere -> {
+                                        latestOnPlayPause()
+                                        gestureHud = if (state.playing) "暂停" else "播放"
+                                    }
                                     offset.x < size.width / 3f -> burstSeek(-1)
                                     offset.x > size.width * 2f / 3f -> burstSeek(1)
                                     else -> {
@@ -1229,29 +1272,37 @@ internal fun PlayerControls(
                                     offset.x > size.width * 2f / 3f -> 1
                                     else -> 0
                                 }
-                            // 中间长按 · 关闭 in 播放设置 leaves the held middle to do nothing, as it once did.
-                            if (
-                                direction == 0 &&
-                                latestGestures.centerHoldSpeedBoost &&
-                                startSpeedBoost(offset.x)
-                            ) {
-                                return@detectTapGestures
-                            }
-                            when {
-                                direction == 0 -> Unit
-                                latestWatchLocked -> {
-                                    gestureHud = "房主控制播放"
-                                    haptics.play(HapticSignal.Reject)
-                                }
-                                latestDuration <= 0L -> Unit
-                                else -> {
-                                    holdSeekTarget = latestPosition
-                                    holdScan.start(offset.x)
-                                    holdSeekDirection = direction
-                                    // A hold that has taken hold — the same signal a long
-                                    // press gets everywhere else in the app.
-                                    haptics.play(HapticSignal.Confirm)
-                                }
+                            // 中间长按 and 两侧长按 in 播放设置 decide; 中间长按 · 关闭 leaves the held
+                            // middle to do nothing, as it once did.
+                            val action =
+                                pictureHoldAction(
+                                    direction = direction,
+                                    centerHoldSpeedBoost = latestGestures.centerHoldSpeedBoost,
+                                    sideHoldScans = latestGestures.sideHoldScans,
+                                    boostRefusal = currentSpeedBoostRefusal(),
+                                )
+                            when (action) {
+                                PictureHoldAction.SpeedBoost ->
+                                    if (startSpeedBoost(offset.x)) return@detectTapGestures
+                                PictureHoldAction.Nothing -> Unit
+                                PictureHoldAction.Scan ->
+                                    when {
+                                        latestWatchLocked -> {
+                                            gestureHud = "房主控制播放"
+                                            haptics.play(HapticSignal.Reject)
+                                        }
+                                        latestDuration <= 0L -> Unit
+                                        else -> {
+                                            holdSeekTarget = latestPosition
+                                            holdScanOriginMs = latestPosition
+                                            scanUndoMs = null
+                                            holdScan.start(offset.x)
+                                            holdSeekDirection = direction
+                                            // A hold that has taken hold — the same signal a long
+                                            // press gets everywhere else in the app.
+                                            haptics.play(HapticSignal.Confirm)
+                                        }
+                                    }
                             }
                             poke()
                         },
@@ -1423,10 +1474,13 @@ internal fun PlayerControls(
                 message =
                     when {
                         !lockedExplained -> "屏幕已锁定"
+                        remoteChrome != null -> "屏幕已锁定，按返回键解锁"
                         screenReaderActive -> "屏幕已锁定，请先解锁"
-                        else -> "屏幕已锁定，长按解锁"
+                        gestures.unlockByLongPress -> "屏幕已锁定，长按左侧锁键解锁"
+                        else -> "屏幕已锁定，点按左侧锁键解锁"
                     },
                 screenReaderActive = screenReaderActive,
+                unlockByLongPress = gestures.unlockByLongPress,
                 onReveal = { revealLock(explain = false) },
                 onRefuse = ::refuseWhileLocked,
                 onUnlock = {
@@ -1595,6 +1649,38 @@ internal fun PlayerControls(
                     }
                 }
 
+                // 锁定 without the trip into 更多: the left edge's key, up with the rest of the chrome.
+                // Touch screens only — a remote sends no stray touches for a lock to keep out.
+                if (remoteChrome == null) {
+                    ChromeVisibility(
+                        visible = visible,
+                        modifier = Modifier.align(Alignment.CenterStart).padding(start = LockKeyEdgePadding),
+                    ) {
+                        PlayerLockKey(locked = false, onClick = ::lockScreen)
+                    }
+                }
+
+                // 回到 12:34: a scan that ran past its mark is one tap from where it set out.
+                val lastScanUndo = remember { arrayOf("") }
+                scanUndoMs?.let { lastScanUndo[0] = "回到 ${it.asClock()}" }
+                ChromeVisibility(
+                    visible = scanUndoMs != null,
+                    edge = ChromeEdge.Bottom,
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 120.dp),
+                ) {
+                    SkipPill(
+                        label = lastScanUndo[0],
+                        onClick = {
+                            scanUndoMs?.let { origin ->
+                                scanUndoMs = null
+                                latestOnSeek(origin)
+                                gestureHud = "已回到 ${origin.asClock()}"
+                                poke()
+                            }
+                        },
+                    )
+                }
+
                 // Auto-skip is a small floating status chip. It is intentionally outside BottomBar's
                 // Column so the progress rail never moves when the countdown appears or disappears.
                 val lastAutoSkip = remember { arrayOf("", "") }
@@ -1753,11 +1839,7 @@ internal fun PlayerControls(
                             onDiscoverCast = onDiscoverCast,
                             onCastTo = onCastTo,
                             onStopCast = onStopCast,
-                            onLock = {
-                                settingsPanelKind = null
-                                locked = true
-                                visible = true
-                            },
+                            onLock = ::lockScreen,
                             onOpenGestureHelp = {
                                 settingsPanelKind = null
                                 gestureHelpOpen = true
@@ -2169,10 +2251,15 @@ internal fun PlayerControls(
                 // Taught once, while the controls are up over something that can play faster.
                 ContextualTip(
                     id = Tips.PLAYER_CENTER_HOLD,
-                    text = "长按画面中间可以临时加速，按住左右滑动换挡",
+                    text =
+                        if (gestures.sideHoldScans) {
+                            "长按画面中间可以临时加速，按住左右滑动换挡"
+                        } else {
+                            "长按画面可以临时加速，按住左右滑动换挡"
+                        },
                     active =
                         visible &&
-                            gestures.centerHoldSpeedBoost &&
+                            (gestures.centerHoldSpeedBoost || !gestures.sideHoldScans) &&
                             state.durationMs > 0L &&
                             !watch.connected &&
                             castingDeviceId == null,

@@ -945,22 +945,57 @@ private const val SEEK_STEP_MS = 10_000L
 /** Slack around a control's ring, so a small ring still has a thumb-sized target. */
 private val ControlTouchPadding = 7.dp
 
+/** From the left edge, where the left thumb rests on a phone held sideways. */
+internal val LockKeyEdgePadding = 16.dp
+
+/** A 34dp ring; with the shared touch padding the target is 48dp. */
+private val LockKeyRingSize = 34.dp
+
+private val LockKeyIconSize = 16.dp
+
 /**
- * Lock screen — a 52px circle over `屏幕已锁定` at `gap:14px`, with the
- * `长按解锁` pill at `right:22px; bottom:40px`.
+ * 锁定 on the left edge, halfway down: the key other Chinese players keep there, one tap from the
+ * picture instead of 更多 → 播放设置's eleventh row. It stays in the same spot once locked
+ * ([LockedOverlay]), so the thumb that locked the screen is the one that opens it.
+ */
+@Composable
+internal fun PlayerLockKey(
+    locked: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    onLongClick: (() -> Unit)? = null,
+) {
+    CircleControl(
+        icon = if (locked) AppIcons.Lock else AppIcons.Unlock,
+        description = if (locked) "解锁屏幕" else "锁定屏幕",
+        size = LockKeyRingSize,
+        iconSize = LockKeyIconSize,
+        active = locked,
+        onClick = onClick,
+        onLongClick = onLongClick,
+        onLongClickLabel = "解锁屏幕".takeIf { onLongClick != null },
+        modifier = modifier,
+    )
+}
+
+/**
+ * Lock screen — a 52px circle over `屏幕已锁定` at `gap:14px`, with the lock key back on the left
+ * edge where it was pressed.
  *
  * The lock refuses the whole picture, not only the drag. A catcher under the lock's own chrome
  * takes every touch before the gesture layer beneath it can read one as a double tap or a hold: a
- * tap brings the circle and the pill back for a moment ([controlsVisible]), a double tap or a hold
- * is refused ([onRefuse]). Unlocking takes a long press, so the pocket or the child the lock is
- * there for cannot undo it with a stray tap — except under a screen reader, whose double tap is
- * the only press it has.
+ * tap brings the circle and the key back for a moment ([controlsVisible]), a double tap or a hold
+ * is refused ([onRefuse]). The key opens with a tap — a stray one only brings it up, so it takes
+ * two deliberate taps — or, with 解锁方式 · 长按 ([unlockByLongPress]), only under a held press, for
+ * the child the lock is there for. A screen reader's double tap always opens it: it is the only
+ * press that reader has.
  */
 @Composable
 internal fun LockedOverlay(
     controlsVisible: Boolean,
     message: String,
     screenReaderActive: Boolean,
+    unlockByLongPress: Boolean,
     onReveal: () -> Unit,
     onRefuse: () -> Unit,
     onUnlock: () -> Unit,
@@ -1006,27 +1041,13 @@ internal fun LockedOverlay(
         }
         ChromeVisibility(
             visible = controlsVisible,
-            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 22.dp, bottom = 40.dp),
+            modifier = Modifier.align(Alignment.CenterStart).padding(start = LockKeyEdgePadding),
         ) {
-            Text(
-                if (screenReaderActive) "解锁" else "长按解锁",
-                style = AppTypography.body.medium,
-                color = Color.White,
-                modifier =
-                    Modifier
-                        .glass(
-                            shape = AppShapes.pill,
-                            fill = Color.White.copy(alpha = 0.10f),
-                            border = Color.White.copy(alpha = 0.28f),
-                        ).pressable(
-                            onClickLabel = "解锁".takeIf { screenReaderActive },
-                            onLongClick = onUnlock,
-                            onLongClickLabel = "解锁",
-                            // A tap is the stray touch the lock is there to survive, so it only
-                            // says how to unlock — unless it is a screen reader's double tap.
-                            onClick = if (screenReaderActive) onUnlock else onRefuse,
-                        ).touchTarget()
-                        .padding(horizontal = 18.dp, vertical = 9.dp),
+            PlayerLockKey(
+                locked = true,
+                // With 长按 chosen, a tap only says how to unlock — unless it is a screen reader's.
+                onClick = if (unlockByLongPress && !screenReaderActive) onRefuse else onUnlock,
+                onLongClick = onUnlock,
             )
         }
     }

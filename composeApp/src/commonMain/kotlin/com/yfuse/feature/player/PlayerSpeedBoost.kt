@@ -104,6 +104,32 @@ internal enum class SpeedBoostRefusal(
     NothingToPlay(null),
 }
 
+/** What a long press on one third of the picture starts. */
+internal enum class PictureHoldAction { SpeedBoost, Scan, Nothing }
+
+/**
+ * The held third's answer under 中间长按 and 两侧长按: [direction] is -1 for the left third, 0 for
+ * the middle and 1 for the right.
+ *
+ * A held side plays faster by default, the habit every other Chinese player teaches; 两侧长按 ·
+ * 扫描 runs it along the timeline instead. Where the rate is not this device's to change — a cast,
+ * or a room whose rate everyone shares — a held side still has somewhere useful to go, so it scans
+ * rather than being refused; the middle has no such second meaning and says why instead.
+ */
+internal fun pictureHoldAction(
+    direction: Int,
+    centerHoldSpeedBoost: Boolean,
+    sideHoldScans: Boolean,
+    boostRefusal: SpeedBoostRefusal?,
+): PictureHoldAction =
+    when {
+        direction == 0 -> if (centerHoldSpeedBoost) PictureHoldAction.SpeedBoost else PictureHoldAction.Nothing
+        sideHoldScans -> PictureHoldAction.Scan
+        boostRefusal == SpeedBoostRefusal.Casting || boostRefusal == SpeedBoostRefusal.WatchRoom ->
+            PictureHoldAction.Scan
+        else -> PictureHoldAction.SpeedBoost
+    }
+
 internal fun speedBoostRefusal(
     panelOpen: Boolean,
     watchGuest: Boolean,

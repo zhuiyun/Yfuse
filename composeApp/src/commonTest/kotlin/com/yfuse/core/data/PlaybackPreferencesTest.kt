@@ -48,6 +48,23 @@ class PlaybackPreferencesTest {
     }
 
     @Test
+    fun hold_double_tap_and_unlock_choices_survive_restart() {
+        val settings = MapSettings()
+        PlaybackPreferences(settings).setGestureSettings(
+            PlayerGestureSettings(
+                sideHoldScans = true,
+                doubleTapPausesAnywhere = true,
+                unlockByLongPress = true,
+            ),
+        )
+
+        val restored = PlaybackPreferences(settings).gestureSettings.value
+        assertTrue(restored.sideHoldScans)
+        assertTrue(restored.doubleTapPausesAnywhere)
+        assertTrue(restored.unlockByLongPress)
+    }
+
+    @Test
     fun source_preheat_defaults_to_wifi_and_mobile_and_survives_restart() {
         val settings = MapSettings()
         val preferences = PlaybackPreferences(settings)

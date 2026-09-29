@@ -34,6 +34,25 @@ class PlayerGestureHelpTest {
     }
 
     @Test
+    fun held_sides_and_the_lock_key_follow_their_settings() {
+        val defaults = pictureGestureHelpRows(PlayerGestureSettings())
+        assertTrue(defaults.row("长按左侧 / 右侧")!!.startsWith("临时 2 倍速"))
+        assertTrue(defaults.row("左侧锁键")!!.contains("点按"))
+
+        val scanning =
+            pictureGestureHelpRows(PlayerGestureSettings(sideHoldScans = true, unlockByLongPress = true))
+        assertTrue(scanning.row("长按左侧 / 右侧")!!.startsWith("连续快退 / 快进"))
+        assertTrue(scanning.row("左侧锁键")!!.contains("长按锁键解锁"))
+    }
+
+    @Test
+    fun a_double_tap_that_only_pauses_is_described_as_one_gesture() {
+        val rows = pictureGestureHelpRows(PlayerGestureSettings(doubleTapPausesAnywhere = true))
+        assertEquals(null, rows.row("双击左侧 / 右侧"))
+        assertEquals("播放或暂停；也可使用底部播放按钮", rows.row("双击画面"))
+    }
+
+    @Test
     fun keyboard_rows_share_the_double_tap_step() {
         val rows = keyboardHelpRows(PlayerGestureSettings(doubleTapSeekSeconds = 15))
         assertEquals("快退 / 快进 15 秒，与双击步长相同", rows.row("J / L"))
