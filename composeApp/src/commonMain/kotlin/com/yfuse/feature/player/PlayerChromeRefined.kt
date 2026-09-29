@@ -279,32 +279,19 @@ internal fun RefinedTopBar(
                     onClick = enter,
                 )
             }
-            // One key with two readings, so the glyph dissolves into the other one. The key keeps
-            // its size through the swap, which is the whole reason there is no size transform.
-            AnimatedContent(
-                targetState = filled,
-                contentKey = { it },
-                transitionSpec = { barSwapTransform(reduceMotion) },
-                label = "player-aspect-mode",
-            ) { fill ->
-                CircleControl(
-                    icon = if (fill) AppIcons.AspectFill else AppIcons.AspectFit,
-                    description = if (fill) "画面比例：填充" else "画面比例：适应",
-                    size = 28.dp,
-                    iconSize = 12.dp,
-                    onClick = onToggleFill,
-                )
-            }
+            // One key with two readings, so the glyph dissolves into the other one inside the key,
+            // which keeps its size and, once pressed, a keyboard's or a screen reader's focus.
+            CircleControl(
+                icon = if (filled) AppIcons.AspectFill else AppIcons.AspectFit,
+                description = if (filled) "画面比例：填充" else "画面比例：适应",
+                size = 28.dp,
+                iconSize = 12.dp,
+                crossfadeIcon = true,
+                onClick = onToggleFill,
+            )
             extras.rotationLock?.let { lock ->
-                // 旋转锁 swaps its glyph the way 画面比例 beside it does.
-                AnimatedContent(
-                    targetState = lock.locked,
-                    contentKey = { it },
-                    transitionSpec = { barSwapTransform(reduceMotion) },
-                    label = "player-rotation-lock",
-                ) { locked ->
-                    RotationLockKey(lock, locked, onKeyActivity)
-                }
+                // 旋转锁 changes its glyph in place the way 画面比例 beside it does.
+                RotationLockKey(lock, lock.locked, onKeyActivity)
             }
             // 按住拖送: held, the key drops its recent devices underneath; tapped, it opens 投屏 as before.
             CircleControl(

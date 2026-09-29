@@ -1,18 +1,14 @@
 package com.yfuse.feature.player
 
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.snap
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -58,6 +54,7 @@ import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -67,6 +64,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
@@ -324,48 +322,31 @@ internal fun TransportRow(
         )
         // Buffering never takes the key away: a stalled film can still be paused, and a spoken
         // cursor resting on the key does not lose it. The stall is a ring round the key instead.
+        // Nor does pressing it: the glyph turns into the other one inside the same key, so focus
+        // stays put and a screen reader hears the new state rather than nothing.
         Box(Modifier.size(TransportKeySize + ControlTouchPadding * 2), contentAlignment = Alignment.Center) {
-            AnimatedContent(
-                targetState = showsPause,
-                transitionSpec = {
-                    val swap =
-                        if (reduceMotion) {
-                            fadeIn(snap()) togetherWith fadeOut(snap())
-                        } else {
-                            (
-                                fadeIn(Motion.tween(Motion.QUICK)) +
-                                    scaleIn(
-                                        animationSpec = Motion.settle(),
-                                        initialScale = ICON_SWAP_SCALE_IN,
-                                    )
-                            ) togetherWith
-                                (
-                                    fadeOut(Motion.tween(Motion.QUICK)) +
-                                        scaleOut(
-                                            Motion.tween(Motion.QUICK),
-                                            targetScale = ICON_SWAP_SCALE_OUT,
-                                        )
-                                )
-                        }
-                    swap using Motion.sizeTransform(reduceMotion)
+            CircleControl(
+                if (showsPause) AppIcons.Pause else AppIcons.Play,
+                if (showsPause) "暂停" else "播放",
+                TransportKeySize,
+                TransportIconSize,
+                enabled = !locked,
+                onClick = {
+                    // Nothing will report the answer until the stall ends; the key gives it now.
+                    if (state.buffering) settledPlaying = !showsPause
+                    onPlayPause()
                 },
-                contentAlignment = Alignment.Center,
-                label = "transport-state",
-            ) { pause ->
-                CircleControl(
-                    if (pause) AppIcons.Pause else AppIcons.Play,
-                    if (pause) "暂停" else "播放",
-                    TransportKeySize,
-                    TransportIconSize,
-                    enabled = !locked,
-                    onClick = {
-                        // Nothing will report the answer until the stall ends; the key gives it now.
-                        if (state.buffering) settledPlaying = !pause
-                        onPlayPause()
+                modifier =
+                    playKeyModifier.semantics {
+                        stateDescription =
+                            when {
+                                bufferingIndicatorVisible -> "缓冲中"
+                                showsPause -> "正在播放"
+                                else -> "已暂停"
+                            }
                     },
-                    modifier = playKeyModifier.semantics { if (bufferingIndicatorVisible) stateDescription = "缓冲中" },
-                )
-            }
+                glyph = rememberPlayPauseGlyph(showsPause),
+            )
             // Drawn over the key but never hit: a tap on the ring is a tap on the key. Qualified,
             // because inside this Box the Row's `RowScope.AnimatedVisibility` would be chosen and
             // the layout-scope DSL rule forbids reaching it from here.
@@ -854,6 +835,14 @@ internal fun CircleControl(
     onLongClick: (() -> Unit)? = null,
     /** What a screen reader calls [onLongClick]. */
     onLongClickLabel: String? = null,
+    /** Drawn in place of [icon], for a glyph that changes shape inside the key. */
+    glyph: Painter? = null,
+    /**
+     * A new [icon] dissolves into the key instead of arriving at once. A key whose glyph says its
+     * state changes glyph in place rather than being swapped for its twin: the swap took focus with
+     * it on every press.
+     */
+    crossfadeIcon: Boolean = false,
 ) {
     val interactions = remember { MutableInteractionSource() }
     // The ring is what you see; the touch target is bigger than the ring. Sizing them
@@ -907,12 +896,28 @@ internal fun CircleControl(
                 ),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(
-                icon,
-                contentDescription = description,
-                tint = if (filled) PlayerTokens.onPlay else Color.White,
-                modifier = Modifier.size(iconSize),
-            )
+            val tint = if (filled) PlayerTokens.onPlay else Color.White
+            when {
+                glyph != null -> {
+                    Icon(glyph, contentDescription = description, tint = tint, modifier = Modifier.size(iconSize))
+                }
+                crossfadeIcon -> {
+                    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+                    // The name belongs to the key, not to either glyph, so a screen reader never
+                    // hears both halves of the dissolve.
+                    Crossfade(
+                        targetState = icon,
+                        modifier = Modifier.size(iconSize).semantics { contentDescription = description },
+                        animationSpec = Motion.tween(if (reduceMotion) 0 else Motion.QUICK),
+                        label = "circle-control-glyph",
+                    ) { shown ->
+                        Icon(shown, contentDescription = null, tint = tint, modifier = Modifier.size(iconSize))
+                    }
+                }
+                else -> {
+                    Icon(icon, contentDescription = description, tint = tint, modifier = Modifier.size(iconSize))
+                }
+            }
         }
     }
 }
