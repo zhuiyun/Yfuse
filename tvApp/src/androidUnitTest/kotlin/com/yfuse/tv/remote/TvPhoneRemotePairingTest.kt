@@ -1,8 +1,11 @@
 package com.yfuse.tv.remote
 
 import com.yfuse.tv.ui.tvPhoneRemoteQuestion
+import com.yfuse.tv.ui.tvPhoneRemoteStatus
+import com.yfuse.tv.ui.tvPhoneRemoteSummary
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 
 class TvPhoneRemotePairingTest {
     @Test
@@ -38,5 +41,15 @@ class TvPhoneRemotePairingTest {
         assertEquals("允许「小米 14」遥控这台电视？", tvPhoneRemoteQuestion("小米 14"))
         assertEquals("允许一部手机遥控这台电视？", tvPhoneRemoteQuestion(null))
         assertEquals("允许一部手机遥控这台电视？", tvPhoneRemoteQuestion(" "))
+    }
+
+    @Test
+    fun the_mark_shows_only_while_a_phone_is_in_and_settings_say_when_it_is_off() {
+        assertNull(tvPhoneRemoteStatus(0))
+        assertEquals("手机遥控中", tvPhoneRemoteStatus(1))
+        assertEquals("2 部手机遥控中", tvPhoneRemoteStatus(2))
+        assertEquals("已关闭", tvPhoneRemoteSummary(enabled = false, connected = 0))
+        assertEquals("", tvPhoneRemoteSummary(enabled = true, connected = 0))
+        assertEquals("1 部已连接", tvPhoneRemoteSummary(enabled = true, connected = 1))
     }
 }

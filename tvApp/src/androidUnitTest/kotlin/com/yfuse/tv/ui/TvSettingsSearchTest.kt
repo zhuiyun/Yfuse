@@ -54,6 +54,13 @@ class TvSettingsSearchTest {
     }
 
     @Test
+    fun `phone remote is found by what the viewer would call it`() {
+        assertTrue(TvSettingsPage.PhoneRemote in searchTvSettings("手机"))
+        assertEquals(listOf(TvSettingsPage.PhoneRemote), searchTvSettings("遥控"))
+        assertEquals(listOf(TvSettingsPage.PhoneRemote), searchTvSettings("信任"))
+    }
+
+    @Test
     fun `matching ignores case for latin keywords`() {
         assertEquals(
             searchTvSettings("YCORE"),

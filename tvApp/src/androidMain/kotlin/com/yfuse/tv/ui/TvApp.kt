@@ -279,8 +279,16 @@ fun TvRoot(component: RootComponent) {
                     }
                 }
             }
-            // 手机遥控's question about a phone that has just connected, over whichever page shows.
-            TvPhoneRemote.current?.let { remote -> TvPhoneRemotePromptHost(remote, focusMemory) }
+            TvPhoneRemote.current?.let { remote ->
+                // 手机遥控中 · 断开 while a phone is in, and the question about one that has just
+                // connected, over whichever page shows.
+                TvPhoneRemoteIndicator(
+                    remote = remote,
+                    focusMemory = focusMemory,
+                    modifier = Modifier.align(Alignment.TopEnd).padding(top = TvSafeVertical, end = TvSafeHorizontal),
+                )
+                TvPhoneRemotePromptHost(remote, focusMemory)
+            }
         }
     }
 }

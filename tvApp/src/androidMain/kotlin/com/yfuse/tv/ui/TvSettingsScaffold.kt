@@ -42,6 +42,7 @@ internal enum class TvSettingsPage(
     Family("家庭资料", "新建资料、家长 PIN 与关联服务器用户"),
     SyncStatus("同步状态", "个人数据合并、播放进度与冲突恢复"),
     Handoff("设备接力", "把当前观看转到另一台在线设备"),
+    PhoneRemote("手机遥控", "用同一账号的手机遥控这台电视"),
     Trakt("Trakt", "授权、导入观看历史与想看、播放上报"),
     Account("账号与同步", "登录、加密同步与云端数据"),
     AccountSessions("设备会话", "在其他设备上的登录状态"),

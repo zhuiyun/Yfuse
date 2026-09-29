@@ -131,6 +131,12 @@ private fun TvSettingsPageContent(
                 firstRowRequester = pageRequester,
                 onBack = { onOpen(TvSettingsPage.Root) },
             )
+        TvSettingsPage.PhoneRemote ->
+            TvPhoneRemoteSettingsPage(
+                focusMemory = focusMemory,
+                navigationRequester = navigationRequester,
+                firstRowRequester = pageRequester,
+            )
         TvSettingsPage.Account ->
             TvAccountSettingsPage(
                 component = component,
@@ -229,6 +235,7 @@ private fun TvSettingsRootPage(
     val danmakuEnabled by component.danmakuPreferences.enabled.collectAsState()
     val downloads by component.offlineMedia.items.collectAsState()
     val downloadCount = downloads.size
+    val phoneRemoteSummary = rememberTvPhoneRemoteSummary()
     val scope = "settings"
     var query by rememberSaveable { mutableStateOf("") }
 
@@ -303,16 +310,27 @@ private fun TvSettingsRootPage(
             TvSettingsPage.Family,
             TvSettingsPage.SyncStatus,
             TvSettingsPage.Handoff,
+            TvSettingsPage.PhoneRemote,
             TvSettingsPage.Trakt,
         ).forEach { target ->
             item(key = "settings-product:${target.name}") {
                 TvSettingRow(
                     title = target.title,
-                    value = if (target == TvSettingsPage.Family) personal.activeProfile.name else "",
+                    value =
+                        when (target) {
+                            TvSettingsPage.Family -> personal.activeProfile.name
+                            TvSettingsPage.PhoneRemote -> phoneRemoteSummary
+                            else -> ""
+                        },
                     stableId = "settings:product:${target.name}",
                     focusMemory = focusMemory,
                     onClick = { onOpen(target) },
-                    icon = if (target == TvSettingsPage.Personal) AppIcons.Heart else AppIcons.User,
+                    icon =
+                        when (target) {
+                            TvSettingsPage.Personal -> AppIcons.Heart
+                            TvSettingsPage.PhoneRemote -> AppIcons.Cast
+                            else -> AppIcons.User
+                        },
                     focusScope = scope,
                     subtitle = target.subtitle,
                     focusRequester = contentRequester.takeIf { target == TvSettingsPage.Personal },
@@ -539,6 +557,7 @@ private val tvSettingsKeywords: Map<TvSettingsPage, String> =
         TvSettingsPage.Family to "家庭 用户 儿童 资料 新建 家长 PIN 隔离",
         TvSettingsPage.SyncStatus to "同步 状态 重试 合并 冲突 恢复",
         TvSettingsPage.Handoff to "接力 设备 手机 平板 电视 转移",
+        TvSettingsPage.PhoneRemote to "手机 遥控 遥控器 允许 信任 断开 配对",
         TvSettingsPage.Trakt to "trakt 历史 想看 授权 导入 上报",
         TvSettingsPage.Account to "登录 注册 同步 云端 密码 会话",
         TvSettingsPage.AccountSessions to "设备 退出 撤销 登录记录",

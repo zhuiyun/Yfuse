@@ -42,6 +42,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import org.koin.core.Koin
@@ -60,6 +61,9 @@ import java.lang.ref.WeakReference
  * itself, and the player through a layer this class lays over it. Until the answer nothing that
  * phone sends counts, and while any phone waits no phone is heard at all, so one already let in
  * cannot answer the question for another.
+ *
+ * While a phone is in, the shell shows 手机遥控中 · 断开 at its top right and the player shows 手机遥控中
+ * (TvPhoneRemoteIndicator). 设置 → 手机遥控 turns it off altogether and forgets trusted phones.
  */
 internal class TvPhoneRemote private constructor(
     private val application: Application,
@@ -310,13 +314,29 @@ internal class TvPhoneRemote private constructor(
         // Read on the main thread, where replay and the screens run.
         scope.launch { host.phones.collect { _phones.value = it } }
         scope.launch { host.events.collect { replay(it) } }
+        // Hosting follows the app's foreground and the television's own 手机遥控 switch: switched
+        // off, the relay tells every phone its television left, and phones stop listing it.
+        val foreground = MutableStateFlow(false)
+        scope.launch {
+            combine(foreground, preferences.enabled) { front, on -> front && on }
+                .collect { host.setActive(it) }
+        }
         ProcessLifecycleOwner.get().lifecycle.addObserver(
             object : DefaultLifecycleObserver {
-                override fun onStart(owner: LifecycleOwner) = host.setActive(true)
+                override fun onStart(owner: LifecycleOwner) {
+                    foreground.value = true
+                }
 
-                override fun onStop(owner: LifecycleOwner) = host.setActive(false)
+                override fun onStop(owner: LifecycleOwner) {
+                    foreground.value = false
+                }
             },
         )
+    }
+
+    /** 断开: lets every phone go. One trusted for good is let in again if it reconnects. */
+    fun disconnectAll() {
+        host?.releaseAll()
     }
 
     companion object {
