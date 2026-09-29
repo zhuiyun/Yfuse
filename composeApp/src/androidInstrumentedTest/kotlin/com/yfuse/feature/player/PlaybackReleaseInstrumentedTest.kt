@@ -15,6 +15,7 @@ import com.yfuse.BuildConfig
 import com.yfuse.core.logging.DiagnosticLogStore
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.playback.PlaybackOptimizationMode
+import com.yfuse.core2.android.AndroidSerializedPlayerRelease
 import com.yfuse.core2.android.GeneratedAvcAacTestMedia
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -22,6 +23,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.json.JSONArray
 import org.json.JSONObject
@@ -136,35 +138,34 @@ class PlaybackReleaseInstrumentedTest {
                         System.nanoTime() - started
                     }
                 report.put("releaseMs", elapsedNs / 1_000_000.0)
+                // Join the teardown as PlaybackEngineRetirements does before it starts a replacement.
+                // mpv runs `stop` and `mpv_terminate_destroy` on its own thread after release()
+                // returns (MpvVideoEngine.release), under a trace of its own; until that thread is
+                // done its records are not all written, and a later read would catch half of them.
+                val joinStarted = System.nanoTime()
+                withContext(Dispatchers.Main) { (active as AndroidSerializedPlayerRelease).releaseAndJoin() }
+                report.put("joinMs", (System.nanoTime() - joinStarted) / 1_000_000.0)
                 val first = exportedReleaseEntries()
                 report.put("releaseRecords", JSONArray(first))
-                assertEquals(
-                    "Release must enter its teardown exactly once",
-                    1,
-                    first.count {
-                        it.optString("event") ==
-                            "release_started"
-                    },
-                )
-                val finished = first.filter { it.optString("event") == "release_finished" }
-                assertEquals("Release must finish exactly once", 1, finished.size)
-                val attributes = finished.single().getJSONObject("attributes")
-                assertEquals(backend.name, attributes.getString("engine"))
+                val traces = first.groupBy { it.optJSONObject("attributes")?.optString("engine").orEmpty() }
+                val attributes = assertTracedOnce(traces[backend.name].orEmpty(), "Release")
                 // DiagnosticLogStore normalizes every exported attribute key to lowercase.
                 assertEquals("true", attributes.getString("mainthread"))
-                assertEquals("true", attributes.getString("completed"))
-                assertFalse("Backend swallowed a teardown exception: $attributes", attributes.has("failedstages"))
+                val nativeAttributes =
+                    backend.nativeTrace?.let { name ->
+                        assertTracedOnce(traces[name].orEmpty(), "Native teardown").also {
+                            // Blocking native calls are the reason this part has a thread of its own.
+                            assertEquals("Native teardown ran on the main thread", "false", it.getString("mainthread"))
+                        }
+                    }
                 assertTrue(
                     "Actual backend destruction was not measured",
-                    attributes.has(
-                        if (backend ==
-                            Backend.Exo
-                        ) {
-                            "playerms"
-                        } else {
-                            "nativedestroyms"
-                        },
-                    ),
+                    (nativeAttributes ?: attributes).has(backend.destroyStage),
+                )
+                assertEquals(
+                    "Release was traced by an unexpected owner",
+                    setOfNotNull(backend.name, backend.nativeTrace),
+                    traces.keys,
                 )
 
                 // Clearing deduplication is essential: two identical log entries inside five seconds
@@ -175,7 +176,10 @@ class PlaybackReleaseInstrumentedTest {
                 report.put("repeatedReleaseRecords", JSONArray(repeated))
                 assertTrue("Second release entered teardown again", repeated.isEmpty())
                 report.put("status", "passed")
-                Log.i("YfuseReleaseTest", "$caseName releaseMs=${report.getDouble("releaseMs")} stages=$attributes")
+                Log.i(
+                    "YfuseReleaseTest",
+                    "$caseName releaseMs=${report.getDouble("releaseMs")} stages=$attributes native=$nativeAttributes",
+                )
             } catch (error: Throwable) {
                 failure = error
                 report.put("status", "failed")
@@ -208,6 +212,24 @@ class PlaybackReleaseInstrumentedTest {
                 if (failure == null) cleanupFailure?.let { throw it }
             }
         }
+
+    /** One started/finished pair of a trace that completed without swallowing a failed stage. */
+    private fun assertTracedOnce(
+        entries: List<JSONObject>,
+        teardown: String,
+    ): JSONObject {
+        assertEquals(
+            "$teardown must enter its teardown exactly once",
+            1,
+            entries.count { it.optString("event") == "release_started" },
+        )
+        val finished = entries.filter { it.optString("event") == "release_finished" }
+        assertEquals("$teardown must finish exactly once", 1, finished.size)
+        val attributes = finished.single().getJSONObject("attributes")
+        assertEquals("true", attributes.getString("completed"))
+        assertFalse("$teardown swallowed a teardown exception: $attributes", attributes.has("failedstages"))
+        return attributes
+    }
 
     private fun createEngine(
         backend: Backend,
@@ -291,5 +313,16 @@ class PlaybackReleaseInstrumentedTest {
         }
     }
 
-    private enum class Backend { Exo, Mpv, Mdk }
+    /**
+     * [destroyStage] is the exported stage that times the backend's own destruction; [nativeTrace]
+     * names the trace of the part a backend finishes on a thread of its own after release() returns.
+     */
+    private enum class Backend(
+        val destroyStage: String,
+        val nativeTrace: String? = null,
+    ) {
+        Exo("playerms"),
+        Mpv("nativedestroyms", nativeTrace = "Mpv.native"),
+        Mdk("nativedestroyms"),
+    }
 }

@@ -10,6 +10,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
 import com.yfuse.core.logging.AppLog
+import com.yfuse.core.logging.diagnosticOrigin
 import com.yfuse.core.logging.diagnosticRootCause
 import com.yfuse.core.logging.diagnosticTypeName
 import com.yfuse.core.logging.playbackDiagnosticTrace
@@ -2326,23 +2327,17 @@ internal class AndroidAdaptiveCore2YPlayer(
                         }
                     }
                 } catch (failure: Throwable) {
+                    // Throwable on purpose, like the engine workers under this router (NativeDirect
+                    // hands every failure to fail()). This scope has no exception handler, so an Error
+                    // escaping here would end the app rather than one route, and such Errors do occur
+                    // on this path: R8 output failing verification when a class first loads (1.0.91
+                    // shipped one), a native artifact missing a JNI entry point, an allocation sized
+                    // from a malformed file. Cancellation still propagates.
                     if (failure is CancellationException) throw failure
                     if (released) break
                     if (failure is AndroidProbeAbortedException && failure.reason == "superseded") continue
                     val probeTimedOut = failure is AndroidProbeAbortedException
-                    if (failure is AndroidProbeAbortedException) {
-                        AppLog.warning(
-                            category = "player.core2",
-                            event = "startup_probe_aborted",
-                            message = "YCore stopped source preparation within its shared deadline",
-                            attributes =
-                                mapOf(
-                                    "reason" to failure.reason,
-                                    "generation" to probes.generation().toString(),
-                                    "keptFailureCategory" to keptRouteFailure?.category?.name.orEmpty(),
-                                ),
-                        )
-                    }
+                    logRouterFailure(failure, command, keptRouteFailure)
                     // The timeout text is only the fallback: a route that failed concretely
                     // before this start ran out of time is what the user is told about.
                     publishUnavailable(
@@ -2371,6 +2366,45 @@ internal class AndroidAdaptiveCore2YPlayer(
                 videoHandoff.close()
             }
         }
+    }
+
+    /**
+     * A failure the router caught, logged here because the state it publishes cannot carry it: a
+     * probe out of its shared deadline as a warning, anything else as an error with its stack, since
+     * [core2RouterFailureReason] keeps only the type name and that cannot be traced to a line.
+     */
+    private fun logRouterFailure(
+        failure: Throwable,
+        command: Command,
+        keptRouteFailure: YCoreRouteFailure?,
+    ) {
+        if (failure is AndroidProbeAbortedException) {
+            AppLog.warning(
+                category = "player.core2",
+                event = "startup_probe_aborted",
+                message = "YCore stopped source preparation within its shared deadline",
+                attributes =
+                    mapOf(
+                        "reason" to failure.reason,
+                        "generation" to probes.generation().toString(),
+                        "keptFailureCategory" to keptRouteFailure?.category?.name.orEmpty(),
+                    ),
+            )
+            return
+        }
+        val root = failure.diagnosticRootCause()
+        AppLog.error(
+            category = "player.core2",
+            event = "router_command_failed",
+            message = "YCore router failed while handling a command",
+            throwable = failure,
+            attributes =
+                mapOf(
+                    "command" to command.javaClass.simpleName,
+                    "exceptionType" to root.diagnosticTypeName(),
+                    "origin" to root.diagnosticOrigin(),
+                ),
+        )
     }
 
     private sealed interface Command {

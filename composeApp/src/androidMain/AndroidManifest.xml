@@ -165,6 +165,43 @@
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|density|uiMode"
             android:theme="@style/Theme.Yfuse.Player"
             tools:ignore="LockedOrientationActivity" />
+        <!--
+          打开方式 → Yfuse. PlayerActivity stays unexported: its launch is an in-process token.
+          This trampoline takes only a video address (content://, file://, http(s)://) or a
+          shared http(s) link, hands the player a server-less entry and finishes without drawing;
+          the code checks every intent itself, since an explicit one bypasses these filters.
+          It is deliberately not BROWSABLE, so a web page cannot start playback on its own.
+          An empty task affinity keeps it out of Yfuse's task when a sender asks for a new one.
+        -->
+        <activity
+            android:name="com.yfuse.feature.player.ExternalPlaybackActivity"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:label="Yfuse 播放"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.NoDisplay">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:mimeType="video/*" />
+            </intent-filter>
+            <!-- Lint expects an http(s) VIEW filter to be BROWSABLE; this one must not be (above). -->
+            <intent-filter tools:ignore="AppLinkUrlError">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="http" />
+                <data android:scheme="https" />
+                <data android:mimeType="video/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
         <activity
             android:name="com.yfuse.feature.profile.QrScannerActivity"
             android:exported="false"

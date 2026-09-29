@@ -8,12 +8,26 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.positionChange
+import com.yfuse.core.designsystem.DragAxis
+import com.yfuse.core.designsystem.resolveDragAxis
 
 /** Only the original DOWN matters: crossing the top later must not steal an app gesture. */
 internal fun allowsPlayerDrag(
     originY: Float,
     systemTopPx: Float,
 ): Boolean = originY.isFinite() && systemTopPx.isFinite() && originY >= systemTopPx.coerceAtLeast(0f)
+
+/**
+ * The axis a drag across the picture keeps for its whole length: decided on its first move, which
+ * [detectPlayerDragGestures] only reports once the finger is past touch slop, and never asked again.
+ * Choosing afresh from the running totals on every move let a volume or brightness drag whose
+ * thumb drifted sideways turn into a seek on release; the list rows and 跟手返回 lock the same way.
+ */
+internal fun lockedPlayerDragAxis(
+    locked: DragAxis,
+    totalX: Float,
+    totalY: Float,
+): DragAxis = if (locked != DragAxis.Undecided) locked else resolveDragAxis(totalX, totalY, slop = 0f)
 
 /**
  * Leave the complete top-origin stream untouched for Android's notification shade. Checking

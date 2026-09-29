@@ -112,7 +112,7 @@ fun PersonalCenterScreen(
         )
         // Once a list has records to swipe; the first swipe retires it.
         ContextualTip(
-            id = Tips.SWIPE_ROW,
+            id = Tips.SWIPE_ROW_HISTORY,
             text = "向左滑动记录可以移除，5 秒内可撤销",
             active = removals.swipeable,
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = Dimens.sectionGap),
@@ -729,6 +729,7 @@ private fun PersonalEntryCard(
 ) {
     SwipeActionsRow(
         modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),
+        tipId = Tips.SWIPE_ROW_HISTORY,
         trailing =
             ItemAction(
                 label = "移除",

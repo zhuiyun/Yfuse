@@ -113,6 +113,7 @@ class UpdateManifestKeyTest(unittest.TestCase):
         self.assertIn('if [[ -n "${UPDATE_MANIFEST_SIGNING_KEY:-}" ]]', signing)
         env = dict(os.environ)
         env.pop("UPDATE_MANIFEST_SIGNING_KEY", None)
+        env.pop("EMBEDDED_UPDATE_MANIFEST_PUBLIC_KEY", None)
         with tempfile.TemporaryDirectory(prefix="yfuse-unsigned-manifest-") as directory:
             work = Path(directory)
             output = work / "build" / "update"
@@ -132,6 +133,70 @@ class UpdateManifestKeyTest(unittest.TestCase):
                 actual = (output / name).read_text()
                 self.assertEqual(original, actual)
                 self.assertNotIn("signature", json.loads(actual))
+
+    def run_manifest_signing(self, **values):
+        # The deploy job signs the manifests in a different job than the one that derived the
+        # public key the APK embeds; run its signing section with a chosen key pairing.
+        _, script = self.workflow_step(WORKFLOWS[0], "Create update package")
+        signing = script[script.index("# Manifest signatures are optional;"):]
+        signing = signing.split("\n\njq -e \\\n", 1)[0]
+        env = {key: value for key, value in os.environ.items()
+               if key not in ("UPDATE_MANIFEST_SIGNING_KEY", "EMBEDDED_UPDATE_MANIFEST_PUBLIC_KEY")}
+        env.update(values)
+        directory = tempfile.TemporaryDirectory(prefix="yfuse-signed-manifest-")
+        self.addCleanup(directory.cleanup)
+        work = Path(directory.name)
+        output = work / "build" / "update"
+        output.mkdir(parents=True)
+        manifests = {}
+        for name, origin in (("update.json", "http://legacy.example"),
+                             ("update-v2.json", "https://update.example")):
+            content = json.dumps(dict(versionCode=42, versionName="1.2.3",
+                                      apkUrl=origin + "/Yfuse-42-1.2.3.apk",
+                                      sha256="a" * 64, size=123, notes="Update notes\nSecond line"))
+            (output / name).write_text(content)
+            manifests[name] = content
+        result = subprocess.run(["bash", "-c", self.bash_script("set -euo pipefail\n" + signing)],
+                                cwd=work, env=env, capture_output=True, text=True)
+        return result, work, manifests
+
+    def test_manifests_are_signed_by_the_key_whose_public_half_the_apk_embeds(self):
+        import base64
+        result, work, _ = self.run_manifest_signing(UPDATE_MANIFEST_SIGNING_KEY=self.private.decode(),
+                                                    EMBEDDED_UPDATE_MANIFEST_PUBLIC_KEY=self.public)
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertNotIn("PRIVATE KEY", result.stdout + result.stderr)
+        public_pem = work / "public.pem"
+        public_pem.write_bytes(subprocess.check_output(["openssl", "pkey", "-pubout"], input=self.private))
+        for name in ("update.json", "update-v2.json"):
+            with self.subTest(manifest=name):
+                manifest = json.loads((work / "build" / "update" / name).read_text())
+                # The same newline-joined fields UpdateManifest.signedPayload() verifies in the app.
+                payload = work / (name + ".payload")
+                payload.write_text("\n".join(str(manifest[key]) for key in
+                                             ("versionCode", "versionName", "apkUrl", "sha256", "size", "notes")))
+                signature = work / (name + ".sig")
+                signature.write_bytes(base64.b64decode(manifest["signature"]))
+                verified = subprocess.run(["openssl", "pkeyutl", "-verify", "-pubin", "-inkey", str(public_pem),
+                                           "-rawin", "-in", str(payload), "-sigfile", str(signature)],
+                                          capture_output=True, text=True)
+                self.assertEqual(0, verified.returncode, verified.stdout + verified.stderr)
+
+    def test_a_changed_or_missing_signing_key_never_signs_for_a_pinned_apk(self):
+        other = subprocess.check_output(["openssl", "genpkey", "-algorithm", "Ed25519"]).decode()
+        for values, message in (
+            ({"UPDATE_MANIFEST_SIGNING_KEY": other, "EMBEDDED_UPDATE_MANIFEST_PUBLIC_KEY": self.public},
+             "does not match the public key embedded in the APK"),
+            ({"UPDATE_MANIFEST_SIGNING_KEY": self.private.decode()},
+             "does not match the public key embedded in the APK"),
+            ({"EMBEDDED_UPDATE_MANIFEST_PUBLIC_KEY": self.public}, "pinned clients cannot accept the update"),
+        ):
+            with self.subTest(case=tuple(values)):
+                result, work, manifests = self.run_manifest_signing(**values)
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn(message, result.stdout)
+                for name, original in manifests.items():
+                    self.assertEqual(original, (work / "build" / "update" / name).read_text())
 
     def test_changed_workflow_shell_steps_are_syntactically_valid(self):
         steps = [(name, KEY_STEP) for name in WORKFLOWS]

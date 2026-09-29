@@ -45,8 +45,35 @@ val sharedComposeSourceRoot =
         .toAbsolutePath()
         .normalize()
 
+/**
+ * Compose stability, configured once for every module that compiles composables.
+ *
+ * config/compose-stability.conf names the immutable library types composables may treat as
+ * stable; the file itself says what may and may not go in it. Compiler reports and metrics
+ * (build/compose-compiler/ in each module: `*-classes.txt` for class stability, `*-composables.txt`
+ * for skippability) are opt-in with `-PyfuseComposeReports=true`: writing them changes every
+ * Compose compile's arguments, so ordinary and CI builds keep their cache hits.
+ */
+val composeStabilityConfiguration = layout.projectDirectory.file("config/compose-stability.conf")
+val composeReportsRequested =
+    providers
+        .gradleProperty("yfuseComposeReports")
+        .orNull
+        ?.trim()
+        ?.lowercase() in setOf("", "true")
+
 subprojects {
     apply(plugin = "org.jlleitschuh.gradle.ktlint")
+
+    plugins.withId("org.jetbrains.kotlin.plugin.compose") {
+        extensions.configure<org.jetbrains.kotlin.compose.compiler.gradle.ComposeCompilerGradlePluginExtension> {
+            stabilityConfigurationFiles.add(composeStabilityConfiguration)
+            if (composeReportsRequested) {
+                reportsDestination.set(layout.buildDirectory.dir("compose-compiler/reports"))
+                metricsDestination.set(layout.buildDirectory.dir("compose-compiler/metrics"))
+            }
+        }
+    }
 
     configurations.configureEach {
         resolutionStrategy.eachDependency {

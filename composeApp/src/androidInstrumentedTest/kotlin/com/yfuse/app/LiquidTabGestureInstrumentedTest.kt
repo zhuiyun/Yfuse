@@ -14,14 +14,13 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.dp
-import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import com.yfuse.MainActivity
 import com.yfuse.app.RootComponent.Tab
 import com.yfuse.core.designsystem.LocalPulseSweepEnabled
 import com.yfuse.core.designsystem.YfuseTheme
 import com.yfuse.core.designsystem.rememberBackdropState
+import com.yfuse.launchMainActivityForInput
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -38,7 +37,9 @@ class LiquidTabGestureInstrumentedTest {
         val selections = AtomicInteger()
         val bounds = AtomicReference(Rect.Zero)
         val instrumentation = InstrumentationRegistry.getInstrumentation()
-        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+        // The tab bar below can be laid out before MainActivity's window is on screen, and the
+        // first drag was once injected into the window still in front of it.
+        launchMainActivityForInput().use { scenario ->
             scenario.onActivity { activity ->
                 activity.setContent {
                     YfuseTheme(dark = false) {

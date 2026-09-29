@@ -13,6 +13,7 @@ import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.yfuse.app.AppDependencies
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
+import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.SavedServer
 import com.yfuse.feature.detail.DetailComponent
 import com.yfuse.feature.player.PlayerComponent
@@ -147,6 +148,29 @@ class LibraryComponent(
         }
     }
 
+    /**
+     * 播放记录's tap: straight into the player from where the title was left — or from its start,
+     * for 从头播放 — as 首页's 继续观看 does, instead of through 详情. A series has no place of its own
+     * to resume, so it still goes through 详情's autoplay, which picks its episode.
+     */
+    private fun resumeHistoryItem(
+        item: MediaItem,
+        fromStart: Boolean,
+    ) {
+        val serverId = registry.defaultServer?.id
+        if (item.type == "Series") {
+            navigation.pushToFront(Config.Detail(serverId = serverId, itemId = item.id, autoPlay = true))
+            return
+        }
+        openPlayer(
+            Config.Player(
+                serverId = serverId,
+                itemId = item.id,
+                startPositionTicks = if (fromStart) 0L else item.resumePositionTicks ?: 0L,
+            ),
+        )
+    }
+
     private fun child(
         config: Config,
         context: ComponentContext,
@@ -179,6 +203,7 @@ class LibraryComponent(
                                 ),
                             )
                         },
+                        onResumeItem = ::resumeHistoryItem,
                     ),
                 )
             is Config.Grid -> {

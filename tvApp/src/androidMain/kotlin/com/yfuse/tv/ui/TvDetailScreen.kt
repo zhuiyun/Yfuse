@@ -37,10 +37,12 @@ import coil3.compose.AsyncImage
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.data.rankServerSources
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.LiftMenu
 import com.yfuse.core.designsystem.contentHandoff
 import com.yfuse.core.model.Episode
 import com.yfuse.core.model.MediaDetail
 import com.yfuse.core.model.MediaItem
+import com.yfuse.core.model.MediaTrailer
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.network.currentPlaybackNetworkClass
 import com.yfuse.core.offline.DownloadStatus
@@ -49,6 +51,13 @@ import com.yfuse.feature.detail.DetailComponent
 import com.yfuse.feature.detail.DetailIntent
 import com.yfuse.feature.detail.bestSourcesFirst
 import com.yfuse.feature.detail.describing
+import com.yfuse.feature.detail.episodeLiftMenu
+import com.yfuse.feature.detail.episodeStillUrl
+import com.yfuse.feature.detail.relatedLiftMenu
+import com.yfuse.feature.detail.rememberEpisodeRowActions
+import com.yfuse.feature.extras.DetailThemeSong
+import com.yfuse.feature.extras.TrailerLaunchEffect
+import com.yfuse.feature.extras.rememberTrailerLauncher
 import com.yfuse.feature.personal.PersonalMediaActions
 import com.yfuse.tv.focus.FocusCandidate
 import com.yfuse.tv.focus.FocusContext
@@ -66,6 +75,12 @@ internal fun TvDetailScreen(
     val playRequester = remember { FocusRequester() }
     val secondaryNavigationRequester = remember { FocusRequester() }
     var sheet by remember(component.itemId) { mutableStateOf<TvDetailSheet?>(null) }
+    // 预告片 under the hero's keys and in its preview; 主题曲 plays itself, as on the phone.
+    val trailers by component.trailers.collectAsState()
+    val trailerLauncher = rememberTrailerLauncher()
+    TrailerLaunchEffect(trailerLauncher)
+    TvTrailerNoticeTimeout(trailerLauncher)
+    DetailThemeSong(component)
     if (detail != null && server != null) {
         // One route per title, so returning from a related title restores this page's own focus.
         val route = tvDetailRoute(detail.id)
@@ -139,6 +154,17 @@ internal fun TvDetailScreen(
                     DownloadStatus.Paused -> "已暂停"
                     else -> "下载中"
                 }
+            val seasonServer = state.playServer ?: server
+            // What an episode card's 长按面板 does: the phone's own 单集 rows, over the same store.
+            val episodeActions = rememberEpisodeRowActions(component, seasonServer.id)
+            val selectEpisode: (Episode) -> Unit = { episode ->
+                store.accept(
+                    DetailIntent.SelectEpisode(
+                        episodeId = episode.id,
+                        startPositionTicks = episode.resumePositionTicks ?: 0L,
+                    ),
+                )
+            }
             LazyColumn(
                 modifier = Modifier.fillMaxSize().then(arrival),
                 contentPadding = PaddingValues(bottom = TvSafeVertical + 38.dp),
@@ -152,8 +178,14 @@ internal fun TvDetailScreen(
                         resumeTicks = state.playPositionTicks,
                         busy = state.resolvingPlay || state.selectionLoading,
                         onBack = component.onBack,
-                        onPlay = { store.accept(DetailIntent.Play) },
-                        onPlayFromStart = { store.accept(DetailIntent.PlayFromStart) },
+                        onPlay = {
+                            stopTrailerPreview()
+                            store.accept(DetailIntent.Play)
+                        },
+                        onPlayFromStart = {
+                            stopTrailerPreview()
+                            store.accept(DetailIntent.PlayFromStart)
+                        },
                         onToggleFavorite = { store.accept(DetailIntent.ToggleFavorite) },
                         onTogglePlayed = { store.accept(DetailIntent.TogglePlayed) },
                         watchLater = state.watchLater,
@@ -164,6 +196,16 @@ internal fun TvDetailScreen(
                         downloadEnabled =
                             state.playTarget != null && state.playServer != null && !state.selectionLoading,
                         onDownload = { sheet = TvDetailSheet.Download },
+                        trailers = trailers,
+                        onOpenTrailers = {
+                            val only = trailers.singleOrNull()
+                            if (only != null) {
+                                trailerLauncher.openOnTv(only, detail.title)
+                            } else {
+                                sheet = TvDetailSheet.Trailers
+                            }
+                        },
+                        trailerNotice = trailerLauncher.problem,
                         focusMemory = focusMemory,
                         playRequester = playRequester,
                         serverId = server.id,
@@ -229,18 +271,30 @@ internal fun TvDetailScreen(
                             detail = detail,
                             episodes = state.episodes,
                             selectedEpisodeId = state.selectedEpisodeId,
-                            serverId = (state.playServer ?: server).id,
-                            profileId = (state.playServer ?: server).userId,
-                            baseUrl = (state.playServer ?: server).baseUrl,
-                            accessToken = (state.playServer ?: server).accessToken,
+                            serverId = seasonServer.id,
+                            profileId = seasonServer.userId,
+                            baseUrl = seasonServer.baseUrl,
+                            accessToken = seasonServer.accessToken,
                             focusMemory = focusMemory,
-                            onEpisode = { episode ->
-                                store.accept(
-                                    DetailIntent.SelectEpisode(
-                                        episodeId = episode.id,
-                                        startPositionTicks = episode.resumePositionTicks ?: 0L,
-                                    ),
-                                )
+                            onEpisode = selectEpisode,
+                            quickActions = { episode ->
+                                // 播放, the watched rows, 下载 and 从这里开始多选 — whose 管理进度 is the
+                                // television's own sheet. No 查看详情: the card's press picks the episode.
+                                episodeLiftMenu(
+                                    episode = episode,
+                                    episodes = state.episodes,
+                                    artworkUrl =
+                                        episodeStillUrl(seasonServer.baseUrl, seasonServer.accessToken, episode),
+                                    downloaded = episodeActions.downloads.containsKey(episode.id),
+                                    onOpen = { selectEpisode(episode) },
+                                    onPlay = { episodeActions.play(episode, selectEpisode) },
+                                    onMark = episodeActions::mark,
+                                    onDownload = { episodeActions.download(listOf(episode)) },
+                                    onSelectFrom = {
+                                        episodeActions.startSelection(episode)
+                                        sheet = TvDetailSheet.EpisodeProgress
+                                    },
+                                ).withoutOpening()
                             },
                         )
                     }
@@ -343,9 +397,8 @@ internal fun TvDetailScreen(
                                             ),
                                         serverId = server.id,
                                         profileId = server.userId,
-                                        // The libraries are the only filmography available, so a
-                                        // face opens a search for that name.
-                                        onClick = { component.searchFor(person.name) },
+                                        // 演员页: who they are, their titles here, and TMDB's others.
+                                        onClick = { component.openPerson(person) },
                                     )
                                 },
                             focusMemory = focusMemory,
@@ -362,7 +415,22 @@ internal fun TvDetailScreen(
                             sectionKey = "detail:${detail.id}:related",
                             items =
                                 state.related.map { related ->
-                                    related.toRelatedCard(server) {
+                                    related.toRelatedCard(
+                                        server = server,
+                                        // The phone's 相关推荐 menu, less 分享: nothing to share to here.
+                                        quickActions = {
+                                            component.relatedLiftMenu(
+                                                serverId = server.id,
+                                                listed = related,
+                                                backdropUrl =
+                                                    EmbyImages.backdrop(
+                                                        server.baseUrl,
+                                                        related,
+                                                        accessToken = server.accessToken,
+                                                    ),
+                                            )
+                                        },
+                                    ) {
                                         component.onOpenRelated(server.id, related.id)
                                     }
                                 },
@@ -420,6 +488,17 @@ internal fun TvDetailScreen(
                         focusMemory = focusMemory,
                         onDismiss = { sheet = null },
                     )
+                TvDetailSheet.Trailers ->
+                    TvTrailerListDialog(
+                        title = detail.title,
+                        trailers = trailers,
+                        focusMemory = focusMemory,
+                        onOpen = { trailer ->
+                            sheet = null
+                            trailerLauncher.openOnTv(trailer, detail.title)
+                        },
+                        onDismiss = { sheet = null },
+                    )
             }
         }
     }
@@ -444,17 +523,39 @@ private fun TvDetailHero(
     downloadEnabled: Boolean,
     onDownload: () -> Unit,
     onOpenMore: () -> Unit,
+    trailers: List<MediaTrailer>,
+    onOpenTrailers: () -> Unit,
+    /** Why the last trailer link did not open; see TvTrailerNoticeTimeout. */
+    trailerNotice: String?,
     focusMemory: TvUiFocusMemory,
     playRequester: FocusRequester,
     serverId: String,
     profileId: String,
 ) {
-    Box(Modifier.fillMaxWidth().height(475.dp).background(TvPlaceholder)) {
+    var heroFocused by remember { mutableStateOf(false) }
+    val preview = trailers.firstNotNullOfOrNull { it as? MediaTrailer.Local }
+    // Kept whole while focus is anywhere in it: 播放 pivoted on its own would push the title and
+    // 返回 off the top on arrival.
+    Box(
+        Modifier
+            .tvKeepWholeInView()
+            .fillMaxWidth()
+            .height(475.dp)
+            .background(TvPlaceholder)
+            .onFocusChanged { heroFocused = it.hasFocus },
+    ) {
         AsyncImage(
             model = rememberTvImage(heroUrl),
             // Silent: the title is written over it, and the backdrop read it a second time.
             contentDescription = null,
             contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize(),
+        )
+        TvHeroTrailerPreview(
+            previewKey = preview?.let { "detail:$serverId:${detail.id}" },
+            focused = heroFocused,
+            lookup = { preview },
+            suspended = busy,
             modifier = Modifier.fillMaxSize(),
         )
         Box(
@@ -625,6 +726,20 @@ private fun TvDetailHero(
                         )
                     }
                 }
+                if (trailers.isNotEmpty()) {
+                    item(key = "trailer") {
+                        TvActionButton(
+                            label = "预告片",
+                            stableId = "detail:${detail.id}:trailer",
+                            focusScope = "detail:${detail.id}:hero",
+                            focusMemory = focusMemory,
+                            onClick = onOpenTrailers,
+                            icon = AppIcons.Movie,
+                            serverId = serverId,
+                            profileId = profileId,
+                        )
+                    }
+                }
                 item(key = "more") {
                     TvActionButton(
                         label = "更多",
@@ -637,6 +752,10 @@ private fun TvDetailHero(
                         profileId = profileId,
                     )
                 }
+            }
+            trailerNotice?.let { notice ->
+                Spacer(Modifier.height(8.dp))
+                Text(notice, color = TvOnSurfaceMuted, fontSize = TvType.caption)
             }
         }
     }
@@ -653,6 +772,8 @@ private fun TvEpisodeRow(
     accessToken: String,
     focusMemory: TvUiFocusMemory,
     onEpisode: (Episode) -> Unit,
+    /** The 长按面板 of one episode's card — see [TvQuickActionsPanel]. */
+    quickActions: (Episode) -> LiftMenu,
 ) {
     val episodeScope = "detail:${detail.id}:episodes"
     val rowState = focusMemory.rowState(episodeScope)
@@ -687,49 +808,53 @@ private fun TvEpisodeRow(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text("剧集", color = TvOnSurface, fontSize = TvType.section, fontWeight = FontWeight.Bold)
-        LazyRow(
-            state = rowState,
-            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 9.dp),
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            itemsIndexed(episodes, key = { _, episode -> "episode:$serverId:${detail.id}:${episode.id}" }) {
-                    index,
-                    episode,
-                ->
-                TvMediaCard(
-                    model =
-                        TvMediaCardModel(
-                            stableId = "server:$serverId:episode:${episode.id}",
-                            title = episode.indexNumber?.let { "第 $it 集 · ${episode.name}" } ?: episode.name,
-                            subtitle =
-                                listOfNotNull(
-                                    episode.runtimeMinutes?.let { "$it 分钟" },
-                                    when {
-                                        episode.played -> "已看"
-                                        (episode.playedPercentage ?: 0.0) > 0.0 -> "继续观看"
-                                        else -> null
-                                    },
-                                ).joinToString(" · "),
-                            imageUrl =
-                                EmbyImages.primary(
-                                    baseUrl,
-                                    episode.id,
-                                    episode.primaryTag,
-                                    maxHeight = 300,
-                                    accessToken = accessToken,
-                                ),
-                            serverId = serverId,
-                            profileId = profileId,
-                            progress = episode.playedPercentage?.div(100.0)?.toFloat(),
-                            artworkShape = TvArtworkShape.Landscape,
-                            selected = episode.id == selectedEpisodeId,
-                            selectable = true,
-                            onClick = { onEpisode(episode) },
-                        ),
-                    focusScope = episodeScope,
-                    focusMemory = focusMemory,
-                    fallbackIndex = index,
-                )
+        // A card row like the shelves: the focused episode rests a third of the way in.
+        ProvideTvRowPivot {
+            LazyRow(
+                state = rowState,
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 9.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                itemsIndexed(episodes, key = { _, episode -> "episode:$serverId:${detail.id}:${episode.id}" }) {
+                        index,
+                        episode,
+                    ->
+                    TvMediaCard(
+                        model =
+                            TvMediaCardModel(
+                                stableId = "server:$serverId:episode:${episode.id}",
+                                title = episode.indexNumber?.let { "第 $it 集 · ${episode.name}" } ?: episode.name,
+                                subtitle =
+                                    listOfNotNull(
+                                        episode.runtimeMinutes?.let { "$it 分钟" },
+                                        when {
+                                            episode.played -> "已看"
+                                            (episode.playedPercentage ?: 0.0) > 0.0 -> "继续观看"
+                                            else -> null
+                                        },
+                                    ).joinToString(" · "),
+                                imageUrl =
+                                    EmbyImages.primary(
+                                        baseUrl,
+                                        episode.id,
+                                        episode.primaryTag,
+                                        maxHeight = 300,
+                                        accessToken = accessToken,
+                                    ),
+                                serverId = serverId,
+                                profileId = profileId,
+                                progress = episode.playedPercentage?.div(100.0)?.toFloat(),
+                                artworkShape = TvArtworkShape.Landscape,
+                                selected = episode.id == selectedEpisodeId,
+                                selectable = true,
+                                quickActions = { quickActions(episode) },
+                                onClick = { onEpisode(episode) },
+                            ),
+                        focusScope = episodeScope,
+                        focusMemory = focusMemory,
+                        fallbackIndex = index,
+                    )
+                }
             }
         }
         Text(
@@ -743,6 +868,7 @@ private fun TvEpisodeRow(
 
 private fun MediaItem.toRelatedCard(
     server: com.yfuse.core.model.SavedServer,
+    quickActions: (() -> LiftMenu)?,
     onClick: () -> Unit,
 ): TvMediaCardModel =
     TvMediaCardModel(
@@ -753,5 +879,6 @@ private fun MediaItem.toRelatedCard(
         serverId = server.id,
         profileId = server.userId,
         badge = communityRating?.let { "%.1f".format(it) },
+        quickActions = quickActions,
         onClick = onClick,
     )

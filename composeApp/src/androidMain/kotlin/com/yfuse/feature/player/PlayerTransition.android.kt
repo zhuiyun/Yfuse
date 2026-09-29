@@ -176,7 +176,11 @@ internal class PlayerTransitionState(
      * stand-in: a picture still not ready once the stand-in has landed is then no longer waited
      * for, and the overlay — the one surface that can say the network is why — takes over.
      */
-    fun tick(handsOverLate: Boolean) {
+    fun tick(
+        handsOverLate: Boolean,
+        /** Since the previous frame, on the frame clock: 8 ms apart on a 120 Hz panel, 16 on 60 Hz. */
+        frameMs: Float,
+    ) {
         now = launch.elapsedMs()
         if (lag == null) lag = handoffPlayerLag(timing, now)
         if (style == PlayerTransitionStyle.Curtain && gateAt == null) {
@@ -192,7 +196,10 @@ internal class PlayerTransitionState(
             lateAt = playerTime
         }
         if (!backActive && !closing && backProgress > 0f) {
-            backProgress = (backProgress - FRAME_MS / BACK_CANCEL_MS).coerceAtLeast(0f)
+            // A cancelled back gesture eases home over BACK_CANCEL_MS of real time. A fixed 16 ms a
+            // frame ran it twice as fast on a 120 Hz panel.
+            val step = frameMs.coerceIn(0f, BACK_CANCEL_MS) / BACK_CANCEL_MS
+            backProgress = (backProgress - step).coerceAtLeast(0f)
         }
         if (!settled && entered()) settled = true
         if (exitTime >= timing.exitFinish && !finished) finish()
@@ -365,9 +372,12 @@ internal fun PlayerTransitionLayer(
         // player's own entrance has the continuity overlay.
         val handsOverLate = layer == PlayerTransitionLayerKind.Entrance
         LaunchedEffect(state, state.closing, state.backActive) {
+            var lastFrame = -1L
             while (true) {
-                withFrameMillis { }
-                state.tick(handsOverLate)
+                val frame = withFrameMillis { it }
+                // The first frame of a restarted loop has no interval behind it yet.
+                state.tick(handsOverLate, frameMs = if (lastFrame < 0L) 0f else (frame - lastFrame).toFloat())
+                lastFrame = frame
                 if (!state.needsFrames()) break
             }
         }
@@ -1077,7 +1087,6 @@ private val GLASS_BASE = Color(0xFF0B0809)
 private val GLASS_CLEAR = Color(0xFF121620)
 private val SATURATE_FIELD = ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(1.35f) })
 
-private const val FRAME_MS = 16f
 private const val BACK_CANCEL_MS = 220f
 private const val GESTURE_REACH = 0.85f
 private const val SNAPSHOT_TIMEOUT_MS = 160L

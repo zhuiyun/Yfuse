@@ -114,12 +114,14 @@ import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.util.PosterCardSharer
 import com.yfuse.core.util.rememberPosterCardSharer
 import com.yfuse.feature.detail.DetailScreen
+import com.yfuse.feature.home.TmdbInfoScreen
 import com.yfuse.feature.library.favoriteLiftAction
 import com.yfuse.feature.library.liftRemainingLabel
 import com.yfuse.feature.library.mediaItemLiftMenu
 import com.yfuse.feature.library.playedLiftAction
 import com.yfuse.feature.library.posterShareCard
 import com.yfuse.feature.library.shareLiftAction
+import com.yfuse.feature.person.PersonScreen
 import com.yfuse.feature.player.PlayerScreen
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
@@ -128,6 +130,17 @@ import com.yfuse.core.designsystem.ThemeText as Text
 fun SearchScreen(component: SearchComponent) {
     val focusRequest by component.focusRequest.subscribeAsState()
     val stack by component.stack.subscribeAsState()
+    // I-18. The tab is composed afresh each time it is switched to — the dock's 搜索 key, most
+    // often. Arriving on a page with nothing searched is arriving to type, so the field takes
+    // focus as it already did from the launcher's shortcut. A search already on the page, a query
+    // or a playlist that came along with the switch, or a detail page on top keeps what is shown.
+    LaunchedEffect(Unit) {
+        val home = stack.active.instance as? SearchComponent.Child.Home ?: return@LaunchedEffect
+        val state = home.component.store.state
+        if (state.query.isEmpty() && !state.hasSearched && !state.loading && state.person == null) {
+            component.requestFocus()
+        }
+    }
     OfficialNavDisplay(
         backStack = stack.items,
         onBack = component::navigateBack,
@@ -145,6 +158,8 @@ fun SearchScreen(component: SearchComponent) {
                 )
             is SearchComponent.Child.Detail -> DetailScreen(instance.component)
             is SearchComponent.Child.Player -> PlayerScreen(instance.component)
+            is SearchComponent.Child.Person -> PersonScreen(instance.component)
+            is SearchComponent.Child.Info -> TmdbInfoScreen(instance.component)
         }
     }
 }
@@ -601,14 +616,16 @@ private fun SearchFilterSheet(
         }
         SearchFilterLabel("年份")
         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            item {
+            // Keyed by year, not position: a new year is prepended, which would otherwise shift
+            // every chip's identity and move the row's scroll anchor to a different year.
+            item(key = "year-any", contentType = "year-choice") {
                 SearchFilterChoice(
                     label = "不限",
                     selected = state.year == null,
                     onClick = { onIntent(SearchIntent.SetYear(null)) },
                 )
             }
-            items(state.yearOptions) { year ->
+            items(state.yearOptions, key = { year -> "year-$year" }, contentType = { "year-choice" }) { year ->
                 SearchFilterChoice(
                     label = year.toString(),
                     selected = state.year == year,

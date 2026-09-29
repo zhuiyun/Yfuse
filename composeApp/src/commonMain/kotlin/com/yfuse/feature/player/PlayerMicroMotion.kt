@@ -7,13 +7,6 @@ package com.yfuse.feature.player
  */
 internal const val BUFFERING_INDICATOR_DELAY_MS = 250L
 
-/**
- * A glyph swapping on a key (播放 ↔ 暂停) grows in from this and shrinks away to [ICON_SWAP_SCALE_OUT]:
- * far enough to read as the key changing its answer, near enough not to read as a new key.
- */
-internal const val ICON_SWAP_SCALE_IN = 0.82f
-internal const val ICON_SWAP_SCALE_OUT = 0.88f
-
 /** The gesture HUD is a whole pill of text, so it travels less than a glyph does. */
 internal const val HUD_SCALE_IN = 0.88f
 internal const val HUD_SCALE_OUT = 0.92f

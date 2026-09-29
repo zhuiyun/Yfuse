@@ -148,7 +148,7 @@ internal fun NextUpCard(
                     onClickLabel = "立即播放下一集",
                     onClick = onPlayNow,
                 ).touchTarget()
-                .size(38.dp),
+                .size(chromeKeySize(38.dp)),
             contentAlignment = Alignment.Center,
         ) {
             Canvas(Modifier.fillMaxSize()) {

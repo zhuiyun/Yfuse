@@ -100,4 +100,99 @@ class PlayerSpeedBoostTest {
             durationMs = durationMs,
             finished = finished,
         )
+
+    @Test
+    fun aHeldSideSpeedsUpByDefaultAndScansWhenChosen() {
+        assertEquals(
+            PictureHoldAction.SpeedBoost,
+            pictureHoldAction(
+                direction = 1,
+                centerHoldSpeedBoost = true,
+                sideHoldScans = false,
+                boostRefusal = null,
+            ),
+        )
+        assertEquals(
+            PictureHoldAction.SpeedBoost,
+            pictureHoldAction(
+                direction = -1,
+                centerHoldSpeedBoost = true,
+                sideHoldScans = false,
+                boostRefusal = null,
+            ),
+        )
+        assertEquals(
+            PictureHoldAction.Scan,
+            pictureHoldAction(
+                direction = 1,
+                centerHoldSpeedBoost = true,
+                sideHoldScans = true,
+                boostRefusal = null,
+            ),
+        )
+    }
+
+    @Test
+    fun aSideScansWhereTheRateIsNotThisDevicesToChange() {
+        // A cast or a shared room keeps its rate; the side still has a way through the timeline.
+        assertEquals(
+            PictureHoldAction.Scan,
+            pictureHoldAction(
+                direction = 1,
+                centerHoldSpeedBoost = true,
+                sideHoldScans = false,
+                boostRefusal = SpeedBoostRefusal.Casting,
+            ),
+        )
+        assertEquals(
+            PictureHoldAction.Scan,
+            pictureHoldAction(
+                direction = -1,
+                centerHoldSpeedBoost = true,
+                sideHoldScans = false,
+                boostRefusal = SpeedBoostRefusal.WatchRoom,
+            ),
+        )
+        // Other refusals are the boost's to explain, so the side does not quietly scan instead.
+        assertEquals(
+            PictureHoldAction.SpeedBoost,
+            pictureHoldAction(
+                direction = 1,
+                centerHoldSpeedBoost = true,
+                sideHoldScans = false,
+                boostRefusal = SpeedBoostRefusal.WatchGuest,
+            ),
+        )
+    }
+
+    @Test
+    fun theMiddleFollowsItsOwnSettingOnly() {
+        assertEquals(
+            PictureHoldAction.SpeedBoost,
+            pictureHoldAction(
+                direction = 0,
+                centerHoldSpeedBoost = true,
+                sideHoldScans = true,
+                boostRefusal = null,
+            ),
+        )
+        assertEquals(
+            PictureHoldAction.Nothing,
+            pictureHoldAction(
+                direction = 0,
+                centerHoldSpeedBoost = false,
+                sideHoldScans = false,
+                boostRefusal = null,
+            ),
+        )
+        assertEquals(
+            PictureHoldAction.SpeedBoost,
+            pictureHoldAction(
+                direction = 0,
+                centerHoldSpeedBoost = true,
+                sideHoldScans = false,
+                boostRefusal = SpeedBoostRefusal.Casting,
+            ),
+        )
+    }
 }

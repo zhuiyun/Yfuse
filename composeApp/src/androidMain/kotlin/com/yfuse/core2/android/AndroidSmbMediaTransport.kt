@@ -86,7 +86,8 @@ internal class AndroidSmbMediaTransport : YMediaTransport {
     }
 }
 
-private fun smbProperties(): Properties =
+/** Shared with the 文件来源 browser, so a share that lists is one this transport can open. */
+internal fun smbProperties(): Properties =
     Properties().apply {
         setProperty("jcifs.smb.client.minVersion", "SMB202")
         setProperty("jcifs.smb.client.maxVersion", "SMB311")

@@ -20,6 +20,7 @@ import com.yfuse.core.sync.WatchTogetherClient
 import com.yfuse.core.util.componentScope
 import com.yfuse.feature.home.HomeTabComponent
 import com.yfuse.feature.library.LibraryComponent
+import com.yfuse.feature.person.PersonPageRequest
 import com.yfuse.feature.profile.ProfileTabComponent
 import com.yfuse.feature.search.SearchComponent
 import com.yfuse.feature.servers.ServersTabComponent
@@ -135,6 +136,12 @@ class RootComponent(
             onOpenLibrary = { selectTab(Tab.Browse) },
         )
 
+    /**
+     * The tab whose detail page opened the 演员页 now on 搜索's stack — where Back from that page
+     * goes. Null once it has, or once the viewer has gone to another tab themselves.
+     */
+    private var personPageOrigin: Tab? = null
+
     val search =
         SearchComponent(
             componentContext = childContext(key = "search"),
@@ -144,6 +151,8 @@ class RootComponent(
             history = searchHistory,
             dependencies = dependencies,
             onOpenServerSettings = { selectTab(Tab.Servers) },
+            tmdb = tmdb,
+            onPersonPageLeft = ::returnFromPersonPage,
         )
 
     val profile =
@@ -185,6 +194,30 @@ class RootComponent(
         scope.launch {
             dependencies.searchRequests.requests.collect { query -> openSearch(query) }
         }
+        scope.launch {
+            dependencies.searchRequests.people.collect(::openPersonPage)
+        }
+    }
+
+    /**
+     * 演员页 lives on 搜索's stack — the one tab every other can send a viewer to — and Back from it
+     * returns to the tab that asked, onto the detail page the cast row was on.
+     */
+    private fun openPersonPage(request: PersonPageRequest) {
+        val origin = _activeTab.value
+        val fromOtherTab = origin != Tab.Search
+        // Pushed before the switch, so 搜索 arrives already showing the page rather than its root.
+        search.openPerson(request, fromOtherTab)
+        if (fromOtherTab) {
+            selectTab(Tab.Search)
+            personPageOrigin = origin
+        }
+    }
+
+    private fun returnFromPersonPage() {
+        val origin = personPageOrigin ?: return
+        personPageOrigin = null
+        selectTab(origin)
     }
 
     fun resetPersonalRoutes() {
@@ -201,6 +234,8 @@ class RootComponent(
             _tabReselected.value = null
         }
         if (tab != Tab.Browse) LaunchWaveGate.disarm()
+        // Going somewhere else by hand ends the 演员页 round trip; Back there later stays in 搜索.
+        if (tab != Tab.Search) personPageOrigin = null
         _activeTab.value = tab
     }
 

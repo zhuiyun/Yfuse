@@ -236,7 +236,16 @@ enum class VideoScaleMode(
     Stretch("拉伸填满"),
     ;
 
-    fun next(): VideoScaleMode = entries[(ordinal + 1) % entries.size]
+    /**
+     * The 画面 key. A tap moves between 适应 and 裁剪填满 only: 拉伸填满 distorts the picture, so it
+     * is never one stray tap away. A held press ([stretch]) asks for it by name, and gives it back.
+     */
+    fun toggled(stretch: Boolean): VideoScaleMode =
+        when {
+            stretch -> if (this == Stretch) Fit else Stretch
+            this == Fit -> Fill
+            else -> Fit
+        }
 }
 
 /** Engine-neutral audio post-processing. Unsupported backends must report false, not imitate it. */

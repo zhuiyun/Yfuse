@@ -2,6 +2,8 @@ package com.yfuse.core.designsystem
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.runtime.Stable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
@@ -10,10 +12,13 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.drawscope.inset
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -93,6 +98,115 @@ fun Modifier.navigationGlass(
         }
 }
 
+/**
+ * [navigationGlass] painted along a liquid outline, for the frames in which the dock's two panes
+ * are one body — while 搜索 grows out of the capsule.
+ *
+ * Every layer the resting panes draw is drawn here, piece by piece, each sized to its own piece
+ * exactly as each pane is sized to itself: so when the pieces come to rest on the panes' own
+ * shapes the hand-over back to [navigationGlass] cannot be seen. The one layer missing is the
+ * refraction at the rim, which is keyed to a rectangle.
+ */
+@Stable
+internal class LiquidNavigationGlass internal constructor(
+    private val liquid: Boolean,
+    internal val blur: PathBackdropBlur?,
+    private val ink: NavigationGlassInk,
+    private val pearlStart: Color,
+    private val pearlEnd: Color,
+    private val plateFill: Color,
+    private val plateBorder: Color?,
+    private val palette: Palette,
+    private val reduceTransparency: Boolean,
+    private val frosted: Boolean,
+) {
+    /** Paints the glass for [paths]: the lift and the blurred page under the whole outline, then each piece. */
+    fun DrawScope.drawGlass(paths: LiquidPaths) {
+        if (paths.pieces.isEmpty()) return
+        drawPathShadow(paths.outline, if (liquid) ink.shadow else Shadows.tabBar)
+        blur?.run { drawBlurred(paths.outline) }
+        paths.pieces.forEach { piece ->
+            val box = piece.bounds
+            inset(box.left, box.top, size.width - box.right, size.height - box.bottom) {
+                if (liquid) drawLiquidPane(piece.path) else drawPlatePane(piece.path)
+            }
+        }
+    }
+
+    private fun DrawScope.drawLiquidPane(outline: Path) {
+        drawPath(outline, Brush.verticalGradient(0f to ink.tintTop, 1f to ink.tintBottom))
+        drawPath(
+            outline,
+            Brush.linearGradient(
+                0f to pearlStart,
+                0.5f to Color.Transparent,
+                1f to pearlEnd,
+                start = Offset.Zero,
+                end = Offset(size.width, size.height),
+            ),
+        )
+        drawPath(
+            outline,
+            Brush.radialGradient(
+                0f to Color.White.copy(alpha = ink.sheenAlpha),
+                1f to Color.Transparent,
+                center = Offset(size.width * 0.28f, 0f),
+                radius = (size.width * 0.65f).coerceAtLeast(1f),
+            ),
+        )
+        val rim =
+            cssLinearGradient(
+                135f,
+                0f to Color.White.copy(alpha = ink.rimNear),
+                0.38f to Color.White.copy(alpha = ink.rimSide),
+                0.68f to Color.White.copy(alpha = ink.rimSide),
+                1f to Color.White.copy(alpha = ink.rimFar),
+            )
+        // Clipped to the outline, as the pane is, so the doubled stroke leaves exactly the token.
+        clipPath(outline) { drawPath(outline, rim, style = Stroke(NavigationGlassRim.toPx() * 2f)) }
+    }
+
+    private fun DrawScope.drawPlatePane(outline: Path) {
+        drawPath(outline, glassPlateSurface(plateFill, palette, reduceTransparency, frosted))
+        val edge = plateBorder ?: return
+        clipPath(outline) { drawPath(outline, edge, style = Stroke(Dimens.hairline.toPx() * 2f)) }
+    }
+}
+
+/**
+ * The material for [LiquidNavigationGlass] over [backdrop], resolved the way [navigationGlass]
+ * resolves it: the liquid lens where the platform can blur and the user has not asked otherwise,
+ * the tab bar's plate everywhere else.
+ */
+@Composable
+internal fun rememberLiquidNavigationGlass(backdrop: BackdropState): LiquidNavigationGlass {
+    val palette = LocalPalette.current
+    val accent = LocalAccentColors.current.accent
+    val reduceTransparency = LocalAccessibilityOptions.current.reduceTransparency
+    val frosted = frostedGlass()
+    val liquid = liquidNavigationGlass()
+    val blur =
+        rememberPathBackdropBlur(
+            backdrop,
+            radius = if (liquid) NavigationGlassBlurRadius else defaultBackdropRadius(),
+            saturation = if (liquid) NAVIGATION_GLASS_SATURATION else defaultBackdropSaturation(),
+        )
+    return remember(palette, accent, reduceTransparency, frosted, liquid, blur) {
+        LiquidNavigationGlass(
+            liquid = liquid,
+            blur = blur,
+            ink = if (palette.isDark) NavigationGlassInk.Dark else NavigationGlassInk.Light,
+            pearlStart = lerp(palette.pearlRose, accent, 0.18f).copy(alpha = 0.035f),
+            pearlEnd = lerp(palette.pearlBlue, accent, 0.18f).copy(alpha = 0.045f),
+            plateFill = palette.glassStrong,
+            plateBorder = glassPlateBorder(palette.tabbarBorder, palette, reduceTransparency, frosted),
+            palette = palette,
+            reduceTransparency = reduceTransparency,
+            frosted = frosted,
+        )
+    }
+}
+
 internal fun useLiquidNavigationMaterial(
     reduceTransparency: Boolean,
     frosted: Boolean,
@@ -106,7 +220,7 @@ fun liquidNavigationGlass(): Boolean =
     useLiquidNavigationMaterial(
         reduceTransparency = LocalAccessibilityOptions.current.reduceTransparency,
         frosted = frostedGlass(),
-        blurSupported = supportsBackdropBlur,
+        blurSupported = backdropBlurAvailable(),
     )
 
 /**

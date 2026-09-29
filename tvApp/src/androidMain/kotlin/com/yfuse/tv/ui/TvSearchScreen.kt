@@ -48,10 +48,16 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.ItemAction
+import com.yfuse.core.designsystem.LiftMenu
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.contentHandoff
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.network.EmbyImages
+import com.yfuse.feature.library.favoriteLiftAction
+import com.yfuse.feature.library.liftRemainingLabel
+import com.yfuse.feature.library.mediaItemLiftMenu
+import com.yfuse.feature.library.playedLiftAction
 import com.yfuse.feature.search.SearchHomeComponent
 import com.yfuse.feature.search.SearchIntent
 import com.yfuse.feature.search.SearchType
@@ -461,5 +467,59 @@ private fun TvSearchResult.toTvCard(component: SearchHomeComponent): TvMediaCard
         serverId = serverId,
         progress = item.playedPercentage?.div(100.0)?.toFloat(),
         badge = item.communityRating?.let { "%.1f".format(it) },
+        quickActions = { tvQuickActions(component) },
         onClick = { component.onOpenItem(serverId, item.id) },
     )
+
+/**
+ * 长按面板 on a result: the phone's 浮起菜单 for it (SearchScreen's `searchLiftMenu`), less 分享 — a
+ * television has nothing to share to — and less 在…打开, since the television lists each server's
+ * copy as a card of its own. Results are a snapshot: the flags go through the component, which
+ * remembers what was changed here since the search ran, so the panel offers 取消收藏 once the title
+ * is a favourite. A series resolves its episode in 详情, which the card opens; it has no 播放 here.
+ */
+private fun TvSearchResult.tvQuickActions(component: SearchHomeComponent): LiftMenu {
+    val listed = item
+    val current = component.flags.current(serverId, listed)
+    val resumeTicks = current.resumePositionTicks?.takeIf { it > 0L && !current.played }
+    val play =
+        if (current.type == "Series") {
+            emptyList()
+        } else {
+            listOfNotNull(
+                ItemAction(
+                    label = if (resumeTicks != null) "继续播放" else "播放",
+                    icon = AppIcons.Play,
+                    detail = current.liftRemainingLabel(),
+                    leavesPage = true,
+                    onSelect = { component.onPlayItem(serverId, current.id, resumeTicks ?: 0L) },
+                ),
+                resumeTicks?.let {
+                    ItemAction(
+                        label = "从头播放",
+                        icon = AppIcons.Refresh,
+                        leavesPage = true,
+                        onSelect = { component.onPlayItem(serverId, current.id, 0L) },
+                    )
+                },
+            )
+        }
+    return mediaItemLiftMenu(
+        item = current,
+        backdropUrl =
+            EmbyImages.backdrop(
+                component.serverBaseUrl(serverId),
+                current,
+                accessToken = component.serverAccessToken(serverId),
+            ),
+        onOpen = { component.onOpenItem(serverId, current.id) },
+        actions =
+            listOf(
+                play,
+                listOf(
+                    playedLiftAction(current.played) { component.flags.setPlayed(serverId, listed, it) },
+                    favoriteLiftAction(current.isFavorite) { component.flags.setFavorite(serverId, listed, it) },
+                ),
+            ),
+    )
+}

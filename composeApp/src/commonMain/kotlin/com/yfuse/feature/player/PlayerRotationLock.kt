@@ -28,6 +28,7 @@ internal fun RotationLockKey(
         size = 28.dp,
         iconSize = 12.dp,
         active = locked,
+        crossfadeIcon = true,
         onClick = {
             haptics.play(if (lock.locked) HapticSignal.ToggleOff else HapticSignal.ToggleOn)
             lock.onToggle()

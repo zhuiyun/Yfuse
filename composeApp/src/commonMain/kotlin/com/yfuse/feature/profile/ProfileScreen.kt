@@ -98,6 +98,7 @@ import com.yfuse.core.designsystem.platformAnimationsDisabled
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.designsystem.windowWidthTier
+import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.StartupTab
 import com.yfuse.core.offline.OfflineIndexStatus
@@ -107,6 +108,8 @@ import com.yfuse.core.playback.PlaybackEngineSelection
 import com.yfuse.core.playback.PlaybackOptimizationMode
 import com.yfuse.feature.player.PlayerLauncher
 import com.yfuse.feature.player.PlayerMediaItem
+import com.yfuse.feature.player.externalPlaybackItem
+import com.yfuse.feature.player.externalStreamTitle
 import kotlinx.coroutines.launch
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
@@ -288,6 +291,7 @@ fun ProfileScreen(component: ProfileComponent) {
     val pulseSweep by prefs.pulseSweep.collectAsState()
     val motionTheme by prefs.motionTheme.collectAsState()
     val libraryCarousel by prefs.libraryCarousel.collectAsState()
+    val navCollapseOnScroll by prefs.navCollapseOnScroll.collectAsState()
     val particleLight by prefs.particleLight.collectAsState()
     val decoder by prefs.decoder.collectAsState()
     val autoNext by prefs.autoNext.collectAsState()
@@ -308,6 +312,7 @@ fun ProfileScreen(component: ProfileComponent) {
     val mediaVersionPreference by component.playbackPreferences.mediaVersionPreference.collectAsState()
     val engineSelection by component.playbackPreferences.engineSelection.collectAsState()
     val smartCrossServerSource by component.playbackPreferences.smartCrossServerSource.collectAsState()
+    val detailThemeSong by component.playbackPreferences.detailThemeSong.collectAsState()
     val anonymousQoeSharing by component.playbackPreferences.anonymousQoeSharing.collectAsState()
     val progressSyncEnabled by component.dependencies.serverSyncManager.syncProgress
         .collectAsState()
@@ -328,6 +333,9 @@ fun ProfileScreen(component: ProfileComponent) {
     val offlineIndexStatus by component.offlineMedia.indexStatus.collectAsState()
     val accountState by component.account.state.collectAsState()
     val watchAvailable = accountState.canUseWatchTogether()
+    // A child profile plays only what its servers allow. The player refuses an outside address
+    // for it anyway; 打开链接 says so up front instead.
+    val personalPolicy by component.personal.policy.collectAsState()
 
     var sheet by remember { mutableStateOf<Sheet?>(null) }
     var confirmClearCache by remember { mutableStateOf(false) }
@@ -341,6 +349,8 @@ fun ProfileScreen(component: ProfileComponent) {
     var pageStack by rememberSaveable { mutableStateOf<List<String>>(emptyList()) }
     var settingsQuery by rememberSaveable { mutableStateOf("") }
     var offlineToPlay by remember { mutableStateOf<OfflineMedia?>(null) }
+    var openLinkDialog by remember { mutableStateOf(false) }
+    var linkToPlay by remember { mutableStateOf<PlayerMediaItem?>(null) }
     val palette = LocalPalette.current
     val mainListState = rememberLazyListState()
     val rootBottomContentInset = floatingNavigationContentInset()
@@ -417,6 +427,7 @@ fun ProfileScreen(component: ProfileComponent) {
                         optimizationMode = optimizationMode,
                         mediaVersionPreference = mediaVersionPreference,
                         autoNext = autoNext,
+                        detailThemeSong = detailThemeSong,
                         smartCrossServerSource = smartCrossServerSource,
                         progressSyncEnabled = progressSyncEnabled,
                         anonymousQoeSharing = anonymousQoeSharing,
@@ -432,6 +443,7 @@ fun ProfileScreen(component: ProfileComponent) {
                         onMediaVersionPreference = { sheet = Sheet.MediaVersionPreference },
                         onOpenAdvanced = { openPage(ProfilePage.AdvancedPlayback) },
                         onAutoNext = prefs::setAutoNext,
+                        onDetailThemeSong = component.playbackPreferences::setDetailThemeSong,
                         onSmartCrossServerSource = component.playbackPreferences::setSmartCrossServerSource,
                         onProgressSync = component.dependencies.serverSyncManager::setProgress,
                         onAnonymousQoeSharing = component.playbackPreferences::setAnonymousQoeSharing,
@@ -503,6 +515,8 @@ fun ProfileScreen(component: ProfileComponent) {
                     AppearanceSettingsScreen(
                         libraryCarousel = libraryCarousel,
                         onLibraryCarousel = prefs::setLibraryCarousel,
+                        navCollapseOnScroll = navCollapseOnScroll,
+                        onNavCollapseOnScroll = prefs::setNavCollapseOnScroll,
                         onBack = ::closePage,
                         brandSummary =
                             if (splashAnimation) {
@@ -617,7 +631,10 @@ fun ProfileScreen(component: ProfileComponent) {
                             contentPadding = PaddingValues(top = Dimens.contentTop, bottom = rootBottomContentInset),
                             verticalArrangement = Arrangement.spacedBy(18.dp),
                         ) {
-                            motionItem(key = "settings-search") {
+                            // Every root item carries a stable key: the search results item above the
+                            // sections comes and goes, and index keys would shift every section after it,
+                            // dropping their state and replaying animateItem and skeleton arrival.
+                            motionItem(key = "settings-search", contentType = "settings-search") {
                                 YfFormField(
                                     value = settingsQuery,
                                     onValueChange = { settingsQuery = it.take(60) },
@@ -626,7 +643,7 @@ fun ProfileScreen(component: ProfileComponent) {
                                 )
                             }
                             if (settingsQuery.isNotBlank()) {
-                                motionItem(key = "settings-search-results") {
+                                motionItem(key = "settings-search-results", contentType = "settings-search-results") {
                                     SettingsSearchResults(
                                         query = settingsQuery,
                                         onOpen = ::openPage,
@@ -634,7 +651,7 @@ fun ProfileScreen(component: ProfileComponent) {
                                     )
                                 }
                             }
-                            motionItem {
+                            motionItem(key = "servers-and-account", contentType = "settings-section") {
                                 Section(title = "服务器与账号") {
                                     SettingsCard {
                                         SettingRow(
@@ -670,7 +687,7 @@ fun ProfileScreen(component: ProfileComponent) {
                                 }
                             }
 
-                            motionItem(key = "personal-settings") {
+                            motionItem(key = "personal-settings", contentType = "personal-settings") {
                                 PersonalSettingsSection(
                                     personal = component.personal,
                                     onOpenContent = { openPage(ProfilePage.Personal) },
@@ -680,7 +697,7 @@ fun ProfileScreen(component: ProfileComponent) {
                                 )
                             }
 
-                            motionItem {
+                            motionItem(key = "appearance", contentType = "settings-section") {
                                 Section(title = "外观与主题") {
                                     SettingsCard {
                                         SettingSegmentRow(
@@ -713,7 +730,7 @@ fun ProfileScreen(component: ProfileComponent) {
                                 }
                             }
 
-                            motionItem {
+                            motionItem(key = "playback", contentType = "settings-section") {
                                 Section(title = "播放") {
                                     SettingsCard {
                                         SettingRow(
@@ -746,11 +763,21 @@ fun ProfileScreen(component: ProfileComponent) {
                                             icon = AppIcons.Chat,
                                             iconTint = SettingTint.watchTogether,
                                         )
+                                        SettingsDivider()
+                                        SettingRow(
+                                            "打开链接",
+                                            if (personalPolicy.child) "儿童资料不可用" else "粘贴 http(s) 视频地址直接播放",
+                                            embedded = true,
+                                            onClick = { openLinkDialog = true },
+                                            icon = AppIcons.PlaybackSource,
+                                            iconTint = SettingTint.playback,
+                                            enabled = !personalPolicy.child,
+                                        )
                                     }
                                 }
                             }
 
-                            motionItem {
+                            motionItem(key = "subtitles-and-danmaku", contentType = "settings-section") {
                                 Section(title = "字幕与弹幕") {
                                     SettingsCard {
                                         SettingRow(
@@ -769,7 +796,7 @@ fun ProfileScreen(component: ProfileComponent) {
                                 }
                             }
 
-                            motionItem {
+                            motionItem(key = "downloads", contentType = "settings-section") {
                                 Section(title = "下载") {
                                     SettingsCard {
                                         DownloadRow(
@@ -786,7 +813,7 @@ fun ProfileScreen(component: ProfileComponent) {
                                 }
                             }
 
-                            motionItem {
+                            motionItem(key = "sync-and-data", contentType = "settings-section") {
                                 Section(title = "同步与数据") {
                                     SettingsCard {
                                         SettingRow("同步状态与恢复", "个人内容 · 播放进度 · 服务器状态", embedded = true, onClick = {
@@ -805,7 +832,7 @@ fun ProfileScreen(component: ProfileComponent) {
                                 }
                             }
 
-                            motionItem {
+                            motionItem(key = "about", contentType = "settings-about") {
                                 Section(title = "关于") {
                                     AppUpdateTools()
                                     AppVersionFooter()
@@ -831,7 +858,21 @@ fun ProfileScreen(component: ProfileComponent) {
                                 .statesForServer(offline.serverId)
                         com.yfuse.core.offline
                             .offlineStartPositionMs(offline, states)
-                    }.getOrDefault(0L)
+                    }.getOrElse { failure ->
+                        // The server's progress is already in these records (the startup pull seeds
+                        // it into this store), and every other view of it, the repository's details
+                        // and the sync manager's start position included, reads the same store. So
+                        // there is nothing else to fall back to without the network; start from the
+                        // beginning as before, but no longer silently.
+                        AppLog.warning(
+                            category = "offline",
+                            event = "resume_position_unavailable",
+                            message = "Resume point for a download could not be read; starting from the beginning",
+                            throwable = failure,
+                            attributes = mapOf("itemId" to offline.itemId),
+                        )
+                        0L
+                    }
                 }
             PlayerLauncher(
                 items =
@@ -849,6 +890,26 @@ fun ProfileScreen(component: ProfileComponent) {
                 startIndex = 0,
                 startPositionMs = startPositionMs,
                 onLaunched = { offlineToPlay = null },
+            )
+        }
+
+        // 打开链接: the entry has no server behind it, so nothing library-side is added to the
+        // request. A failed launch leaves it set; the next address replaces it and launches again.
+        linkToPlay?.let { item ->
+            PlayerLauncher(
+                items = listOf(item),
+                startIndex = 0,
+                startPositionMs = 0L,
+                onLaunched = { linkToPlay = null },
+            )
+        }
+        if (openLinkDialog) {
+            OpenStreamLinkDialog(
+                onOpen = { url ->
+                    openLinkDialog = false
+                    linkToPlay = externalPlaybackItem(url = url, title = externalStreamTitle(url))
+                },
+                onDismiss = { openLinkDialog = false },
             )
         }
 

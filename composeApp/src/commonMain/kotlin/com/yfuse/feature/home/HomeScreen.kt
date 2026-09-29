@@ -119,6 +119,8 @@ import com.yfuse.core.designsystem.heroDurationLabel
 import com.yfuse.core.designsystem.heroMediaTypeLabel
 import com.yfuse.core.designsystem.heroScrollCollapse
 import com.yfuse.core.designsystem.heroTopScrim
+import com.yfuse.core.designsystem.liftable
+import com.yfuse.core.designsystem.liftedCardOpen
 import com.yfuse.core.designsystem.lightFeedback
 import com.yfuse.core.designsystem.liveStatus
 import com.yfuse.core.designsystem.livingPosterFrame
@@ -330,6 +332,16 @@ internal fun HomeContentBody(
     // A library shelf opened out by its 全部. Held by kind, and its entries read live, so a card
     // marked watched from inside the page leaves it as it leaves the shelf.
     var expandedShelf by remember { mutableStateOf<HomeLibraryShelf?>(null) }
+    // Whether that page is in 编辑's 多选: its own 编辑, or the shelf's, which opens it that way.
+    var editingShelf by remember { mutableStateOf(false) }
+
+    fun openShelf(
+        shelf: HomeLibraryShelf,
+        editing: Boolean = false,
+    ) {
+        editingShelf = editing
+        expandedShelf = shelf
+    }
     val upNext = remember(state.nextUp, state.resume) { homeNextUpShelf(state.nextUp, state.resume) }
 
     fun shelfEntries(shelf: HomeLibraryShelf): List<HomeResumeEntry> =
@@ -343,6 +355,12 @@ internal fun HomeContentBody(
         // TMDB shelf's 全部.
         expandedShelf = null
         onIntent(HomeIntent.OpenResume(entry))
+    }
+    // A 继续观看 or 下一集 card picks up where it was left on a tap, as every player app's does;
+    // its page is one lift away — 查看详情, or letting go on the lifted card.
+    val playEntry: (HomeResumeEntry) -> Unit = { entry ->
+        expandedShelf = null
+        onIntent(HomeIntent.PlayEntry(entry))
     }
     val openShelfEmptied = expandedShelf?.let { shelfEntries(it).isEmpty() } == true
     LaunchedEffect(openShelfEmptied) {
@@ -565,12 +583,16 @@ internal fun HomeContentBody(
                                     motionItem(key = "continue-watching") {
                                         ContinueWatching(
                                             items = state.resume,
-                                            onSeeAll = { expandedShelf = HomeLibraryShelf.ContinueWatching },
-                                            onClick = openEntry,
+                                            onSeeAll = { openShelf(HomeLibraryShelf.ContinueWatching) },
+                                            onEdit = { openShelf(HomeLibraryShelf.ContinueWatching, editing = true) },
+                                            onPlay = playEntry,
+                                            onOpen = openEntry,
                                             liftMenu = { entry ->
                                                 entry.homeLiftMenu(
                                                     onIntent,
                                                     inResume = true,
+                                                    playsOnTap = true,
+                                                    undoWatched = true,
                                                     onShare = { sharer.sharePosterCard(entry.shareCard()) },
                                                 )
                                             },
@@ -585,11 +607,14 @@ internal fun HomeContentBody(
                                         ContinueWatching(
                                             title = HomeLibraryShelf.NextUp.title,
                                             items = upNext,
-                                            onSeeAll = { expandedShelf = HomeLibraryShelf.NextUp },
-                                            onClick = openEntry,
+                                            onSeeAll = { openShelf(HomeLibraryShelf.NextUp) },
+                                            onPlay = playEntry,
+                                            onOpen = openEntry,
                                             liftMenu = { entry ->
                                                 entry.homeLiftMenu(
                                                     onIntent,
+                                                    playsOnTap = true,
+                                                    undoWatched = true,
                                                     onShare = { sharer.sharePosterCard(entry.shareCard()) },
                                                 )
                                             },
@@ -604,11 +629,12 @@ internal fun HomeContentBody(
                                         LibraryMediaShelf(
                                             title = "我的收藏",
                                             items = state.favorites,
-                                            onSeeAll = { expandedShelf = HomeLibraryShelf.Favorites },
+                                            onSeeAll = { openShelf(HomeLibraryShelf.Favorites) },
                                             onClick = openEntry,
                                             liftMenu = { entry ->
                                                 entry.homeLiftMenu(
                                                     onIntent,
+                                                    undoWatched = true,
                                                     onShare = { sharer.sharePosterCard(entry.shareCard()) },
                                                 )
                                             },
@@ -702,17 +728,6 @@ internal fun HomeContentBody(
             }
         }
 
-        // Floats over the page rather than sitting in it: as a list item this pushed the
-        // whole feed down and then let it snap back, and it never cleared itself.
-        ActionToast(
-            message = state.actionMessage,
-            onDismiss = { onIntent(HomeIntent.DismissMessage) },
-            action =
-                state.resumeUndoKey?.let { key ->
-                    ToastAction("撤销") { onIntent(HomeIntent.UndoRemoveFromResume(key)) }
-                },
-        )
-
         // Once there are posters to hold. Retires on its own the first time one is lifted.
         ContextualTip(
             id = Tips.LIFT,
@@ -758,7 +773,8 @@ internal fun HomeContentBody(
                         total = if (shelf == HomeLibraryShelf.Favorites) state.favoritesTotal else entries.size,
                     ),
                 entries = entries,
-                onOpen = openEntry,
+                // The whole shelf does what its cards do on the home page.
+                onOpen = if (shelf.playsOnTap) playEntry else openEntry,
                 liftMenu = { entry ->
                     entry.homeLiftMenu(
                         onIntent = { intent ->
@@ -766,23 +782,52 @@ internal fun HomeContentBody(
                             if (intent is HomeIntent.PlayEntry || intent is HomeIntent.OpenResume) expandedShelf = null
                         },
                         inResume = shelf == HomeLibraryShelf.ContinueWatching,
+                        playsOnTap = shelf.playsOnTap,
+                        undoWatched = true,
                         onShare = { sharer.sharePosterCard(entry.shareCard()) },
                     )
                 },
                 onDismiss = { expandedShelf = null },
+                editing = editingShelf,
+                onEditingChange = { editingShelf = it },
+                // 编辑 on 继续观看 (I-21): what the lift does to one card, done to every ticked one.
+                selectionActions =
+                    { selection: List<HomeResumeEntry> ->
+                        resumeSelectionActions(selection) { intent ->
+                            onIntent(intent)
+                            // The cards have gone, and the toast offering them back takes the bar's place.
+                            editingShelf = false
+                        }
+                    }.takeIf { shelf == HomeLibraryShelf.ContinueWatching },
             )
         }
+
+        // Floats over the page rather than sitting in it: as a list item this pushed the
+        // whole feed down and then let it snap back, and it never cleared itself. Drawn over the
+        // 全部 pages too, whose 移除 and 标记为已看 it holds for 撤销 as it does the shelves'.
+        ActionToast(
+            message = state.actionMessage,
+            onDismiss = { onIntent(HomeIntent.DismissMessage) },
+            action =
+                state.resumeUndoKey?.let { key ->
+                    ToastAction("撤销") { onIntent(HomeIntent.UndoResumeChange(key)) }
+                },
+        )
     }
 }
 
-/** The library-backed shelves whose 全部 opens a [LibraryRowPage]; titles and badges as on the shelf. */
+/**
+ * The library-backed shelves whose 全部 opens a [LibraryRowPage]; titles and badges as on the shelf.
+ * [playsOnTap] for the two whose cards resume on a tap rather than open the title.
+ */
 private enum class HomeLibraryShelf(
     val title: String,
     val source: String,
+    val playsOnTap: Boolean,
 ) {
-    ContinueWatching("继续观看", "Emby"),
-    NextUp("下一集", "Emby"),
-    Favorites("我的收藏", "媒体库"),
+    ContinueWatching("继续观看", "Emby", playsOnTap = true),
+    NextUp("下一集", "Emby", playsOnTap = true),
+    Favorites("我的收藏", "媒体库", playsOnTap = false),
 }
 
 /**
@@ -1418,13 +1463,18 @@ private fun HomeSourceBadge(source: String) {
 private fun ContinueWatching(
     items: List<HomeResumeEntry>,
     onSeeAll: () -> Unit,
-    onClick: (HomeResumeEntry) -> Unit,
+    /** A tap: play from where it was left. */
+    onPlay: (HomeResumeEntry) -> Unit,
+    /** Letting go on the lifted card: the title's page. */
+    onOpen: (HomeResumeEntry) -> Unit,
     liftMenu: (HomeResumeEntry) -> LiftMenu,
     /** 下一集 is the same rail of stills; only its title, and what each card announces, differ. */
     title: String = "继续观看",
+    /** The header's 编辑: 全部, already selecting; null for a shelf 编辑 has nothing for. */
+    onEdit: (() -> Unit)? = null,
 ) {
     Column {
-        HomeShelfHeader(title = title, source = "Emby", onSeeAll = onSeeAll)
+        HomeShelfHeader(title = title, source = "Emby", onSeeAll = onSeeAll, onEdit = onEdit)
         LazyRow(
             contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
             horizontalArrangement = Arrangement.spacedBy(11.dp),
@@ -1433,7 +1483,8 @@ private fun ContinueWatching(
                 ContinueWatchingCard(
                     entry = entry,
                     shelfTitle = title,
-                    onClick = { onClick(entry) },
+                    onPlay = { onPlay(entry) },
+                    onOpen = { onOpen(entry) },
                     liftMenu = { liftMenu(entry) },
                 )
             }
@@ -1445,46 +1496,71 @@ private fun ContinueWatching(
 private fun ContinueWatchingCard(
     entry: HomeResumeEntry,
     shelfTitle: String,
-    onClick: () -> Unit,
+    onPlay: () -> Unit,
+    onOpen: () -> Unit,
     liftMenu: () -> LiftMenu,
 ) {
     val palette = LocalPalette.current
     val item = entry.item
+    val backdropUrl =
+        EmbyImages.backdrop(
+            entry.server.baseUrl,
+            item,
+            maxWidth = 480,
+            accessToken = entry.server.accessToken,
+        )
+    val posterUrl =
+        EmbyImages.poster(
+            entry.server.baseUrl,
+            item,
+            accessToken = entry.server.accessToken,
+        )
+    // The still is where the player comes out of on a tap — the handoff 详情's play key starts, which
+    // this shelf used to leave to a plain window fade — and where a page opened from its lift is
+    // pulled back into. The tap therefore sits on the card rather than in [Poster], whose own click
+    // would start the morph into 详情.
+    val artworkKey = remember(entry.server.id, item.id) { MediaSharedElementKey(entry.server.id, item.id) }
+    val resume = playerArtworkOnClick(artworkKey, onPlay)
+    val open = liftedCardOpen(artworkKey, onOpen)
+    val artworkUrls = remember(backdropUrl, posterUrl) { listOfNotNull(backdropUrl, posterUrl).distinct() }
+    val resumable = (item.resumePositionTicks ?: 0L) > 0L
     Column(modifier = Modifier.width(MediaSizing.landscapeCardWidth)) {
-        Poster(
-            url =
-                EmbyImages.backdrop(
-                    entry.server.baseUrl,
-                    item,
-                    maxWidth = 480,
-                    accessToken = entry.server.accessToken,
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(MediaSizing.landscapeCardHeight)
+                // Outside the press, so the lift can take the stream over from the click; see [liftable].
+                .liftable(menu = { liftMenu().withArtwork(artworkUrls) }, onOpen = open)
+                .pressable(
+                    tilt = true,
+                    focusShape = AppShapes.card,
+                    onClickLabel = if (resumable) "继续播放" else "播放",
+                    onClick = resume,
                 ),
-            fallbackUrl =
-                EmbyImages.poster(
-                    entry.server.baseUrl,
-                    item,
-                    accessToken = entry.server.accessToken,
-                ),
-            rating = item.communityRating,
-            progress = item.playedPercentage?.let { (it / 100.0).toFloat() },
-            contentDescription = "$shelfTitle ${item.title}${item.subtitle?.let { "，$it" }.orEmpty()}",
-            onClick = onClick,
-            liftMenu = liftMenu,
-            sharedTransitionKey = MediaSharedElementKey(entry.server.id, item.id),
-            modifier = Modifier.fillMaxWidth().height(MediaSizing.landscapeCardHeight),
         ) {
-            resumePositionLabel(item.resumePositionTicks)?.let { position ->
-                Text(
-                    text = "看到 $position",
-                    style = AppTypography.caption.strong.copy(shadow = HeroTextShadow),
-                    color = Color.White,
-                    modifier =
-                        Modifier
-                            .align(Alignment.BottomStart)
-                            .padding(start = 9.dp, bottom = 9.dp)
-                            .background(Color.Black.copy(alpha = 0.48f), AppShapes.chip)
-                            .padding(horizontal = 7.dp, vertical = 3.dp),
-                )
+            Poster(
+                url = backdropUrl,
+                fallbackUrl = posterUrl,
+                rating = item.communityRating,
+                progress = item.playedPercentage?.let { (it / 100.0).toFloat() },
+                blurHash = if (backdropUrl != null) item.backdropBlurHash else item.posterBlurHash,
+                contentDescription = "$shelfTitle ${item.title}${item.subtitle?.let { "，$it" }.orEmpty()}",
+                sharedTransitionKey = artworkKey,
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                resumePositionLabel(item.resumePositionTicks)?.let { position ->
+                    Text(
+                        text = "看到 $position",
+                        style = AppTypography.caption.strong.copy(shadow = HeroTextShadow),
+                        color = Color.White,
+                        modifier =
+                            Modifier
+                                .align(Alignment.BottomStart)
+                                .padding(start = 9.dp, bottom = 9.dp)
+                                .background(Color.Black.copy(alpha = 0.48f), AppShapes.chip)
+                                .padding(horizontal = 7.dp, vertical = 3.dp),
+                    )
+                }
             }
         }
         Spacer(Modifier.height(7.dp))
@@ -1550,6 +1626,7 @@ private fun LibraryMediaShelf(
                             item,
                             accessToken = entry.server.accessToken,
                         ),
+                    blurHash = item.posterBlurHash,
                     title = item.title,
                     rating = item.communityRating,
                     year =
@@ -1578,6 +1655,8 @@ private fun HomeShelfHeader(
     source: String,
     onSeeAll: () -> Unit,
     onSeeAllLabel: String? = null,
+    /** 编辑 beside 全部, for a shelf whose cards can be taken off it several at a time. */
+    onEdit: (() -> Unit)? = null,
 ) {
     val palette = LocalPalette.current
     val editShelves = LocalHomeShelfEdit.current
@@ -1614,21 +1693,37 @@ private fun HomeShelfHeader(
             Text(title, style = AppTypography.section.strong, color = palette.text)
             HomeSourceBadge(source)
         }
-        Row(
-            Modifier
-                .pressable(onClickLabel = onSeeAllLabel, onClick = onSeeAll)
-                .touchTarget()
-                .padding(horizontal = 10.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(3.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("全部", style = AppTypography.caption.medium, color = palette.sub2)
-            Icon(
-                AppIcons.ChevronRight,
-                contentDescription = null,
-                tint = palette.hint,
-                modifier = Modifier.size(11.dp),
-            )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            // Taking cards off 继续观看 was one held card at a time, with nothing on screen to say
+            // it could be done at all. The word is 全部's size and ink, so the shelf reads the same.
+            if (onEdit != null) {
+                Text(
+                    "编辑",
+                    style = AppTypography.caption.medium,
+                    color = palette.sub2,
+                    modifier =
+                        Modifier
+                            .pressable(onClickLabel = "编辑$title", onClick = onEdit)
+                            .touchTarget()
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                )
+            }
+            Row(
+                Modifier
+                    .pressable(onClickLabel = onSeeAllLabel, onClick = onSeeAll)
+                    .touchTarget()
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(3.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("全部", style = AppTypography.caption.medium, color = palette.sub2)
+                Icon(
+                    AppIcons.ChevronRight,
+                    contentDescription = null,
+                    tint = palette.hint,
+                    modifier = Modifier.size(11.dp),
+                )
+            }
         }
     }
 }

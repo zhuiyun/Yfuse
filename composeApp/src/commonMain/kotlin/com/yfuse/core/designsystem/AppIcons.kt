@@ -662,6 +662,16 @@ object AppIcons {
         }.andDots(12f to 5.8f)
             .build()
 
+    /** 手势与快捷键 — a touch and the two rings it sends out. */
+    val Gesture =
+        strokeVector("gesture") {
+            moveTo(7.5f, 15f)
+            arcToRelative(4.5f, 4.5f, 0f, isMoreThanHalf = false, isPositiveArc = true, 9f, 0f)
+            moveTo(4f, 15f)
+            arcToRelative(8f, 8f, 0f, isMoreThanHalf = false, isPositiveArc = true, 16f, 0f)
+        }.andDots(12f to 15f)
+            .build()
+
     // ------------------------------------------------- state glyphs (收藏 / 稍后 / 评分)
 
     /** 收藏 — outline; [HeartFilled] is the same contour filled. */
@@ -705,6 +715,25 @@ object AppIcons {
             moveTo(8.2f, 2.9f)
             lineTo(12f, 6.6f)
             lineTo(15.8f, 2.9f)
+        }.build()
+
+    /**
+     * 文件夹 — a folder and its tab, for 文件来源. No flap line across the front: at the 14dp a
+     * browser row draws it, that line and the top edge merge into one heavy bar.
+     */
+    val Folder =
+        strokeVector("folder") {
+            moveTo(3.2f, 7.1f)
+            arcToRelative(1.9f, 1.9f, 0f, isMoreThanHalf = false, isPositiveArc = true, 1.9f, -1.9f)
+            horizontalLineTo(9.2f)
+            lineTo(11.1f, 7.4f)
+            horizontalLineTo(18.9f)
+            arcToRelative(1.9f, 1.9f, 0f, isMoreThanHalf = false, isPositiveArc = true, 1.9f, 1.9f)
+            verticalLineTo(16.9f)
+            arcToRelative(1.9f, 1.9f, 0f, isMoreThanHalf = false, isPositiveArc = true, -1.9f, 1.9f)
+            horizontalLineTo(5.1f)
+            arcToRelative(1.9f, 1.9f, 0f, isMoreThanHalf = false, isPositiveArc = true, -1.9f, -1.9f)
+            close()
         }.build()
 
     // ------------------------------------------------------------ navigation

@@ -56,8 +56,9 @@ def center(node):
 
 
 class Session:
-    def __init__(self, output, expected, source_run):
+    def __init__(self, output, expected, source_run, expected_api=None):
         self.expected = expected
+        self.expected_api = expected_api
         self.output = output
         self.serial = ""
         self.cases = []
@@ -127,6 +128,11 @@ class Session:
         (self.output / "device-properties.txt").write_text(properties)
         result = {key: self.adb("shell", "getprop", key) for key in
                   ["ro.build.version.sdk", "ro.product.cpu.abilist", "ro.dalvik.vm.native.bridge"]}
+        # A release gate names each API level it covers; a mislabelled system image must not
+        # stand in for one (Android 17 images carry a minor version, android-37.0).
+        if self.expected_api is not None and result["ro.build.version.sdk"] != str(self.expected_api):
+            raise EnvironmentBlocked(f"Emulator reports API {result['ro.build.version.sdk'] or 'unknown'}; "
+                                     f"this check requires API {self.expected_api}")
         if "arm64-v8a" not in result["ro.product.cpu.abilist"].split(","):
             raise EnvironmentBlocked("System image does not advertise ARM64 ABI translation")
         self.original = {key: self.adb("shell", "settings", "get", "system", key) for key in
@@ -317,17 +323,25 @@ class Session:
             self.adb("shell", *args, check=False)
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--apk-directory", type=Path, required=True)
-    parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--soak-seconds", type=int, default=120)
-    parser.add_argument("--layout-probe", action="store_true")
-    parser.add_argument("--source-run", type=int, required=True)
-    args = parser.parse_args()
-    if not 0 <= args.soak_seconds <= 600:
-        parser.error("soak-seconds must be between 0 and 600")
-    args.output.mkdir(parents=True, exist_ok=True)
+def expected_release(parser, args):
+    """Identity the APK under test must have.
+
+    A release gate runs before any update manifest exists and may package a manually requested
+    version, so it passes the signed APK's SHA-256 and version explicitly. Otherwise the
+    checked-out release metadata and the package run's update.json supply them.
+    """
+    pinned = (args.expected_sha256, args.expected_version_code, args.expected_version_name)
+    if any(pinned):
+        if not all(pinned):
+            parser.error("--expected-sha256, --expected-version-code and --expected-version-name go together")
+        if not re.fullmatch(r"[a-f0-9]{64}", args.expected_sha256):
+            parser.error("--expected-sha256 must be 64 lowercase hexadecimal digits")
+        if not re.fullmatch(r"[1-9][0-9]*", args.expected_version_code):
+            parser.error("--expected-version-code must be a positive integer")
+        if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", args.expected_version_name):
+            parser.error("--expected-version-name must use numeric major.minor.patch format")
+        return {"versionCode": int(args.expected_version_code), "versionName": args.expected_version_name,
+                "sha256": args.expected_sha256}
     from release_metadata import read_release
     expected = read_release(Path(__file__).resolve().parents[1])
     manifests = list(args.apk_directory.rglob("update.json"))
@@ -339,7 +353,27 @@ def main():
     if not re.fullmatch(r"[a-f0-9]{64}", manifest.get("sha256", "")):
         parser.error("The update manifest must supply the APK SHA-256")
     expected["sha256"] = manifest["sha256"]
-    session = Session(args.output, expected, args.source_run)
+    return expected
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--apk-directory", type=Path, required=True)
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--soak-seconds", type=int, default=120)
+    parser.add_argument("--layout-probe", action="store_true")
+    parser.add_argument("--source-run", type=int, required=True)
+    # An empty value means "not given", so a workflow can pass these on every run.
+    parser.add_argument("--expected-sha256", default="", help="SHA-256 of the signed APK under release")
+    parser.add_argument("--expected-version-code", default="", help="versionCode that APK must declare")
+    parser.add_argument("--expected-version-name", default="", help="versionName that APK must declare")
+    parser.add_argument("--expected-api", type=int, help="API level the booted emulator must report")
+    args = parser.parse_args()
+    if not 0 <= args.soak_seconds <= 600:
+        parser.error("soak-seconds must be between 0 and 600")
+    args.output.mkdir(parents=True, exist_ok=True)
+    expected = expected_release(parser, args)
+    session = Session(args.output, expected, args.source_run, args.expected_api)
     code = 0
     try:
         session.case("APK identity, hash and signature", lambda: session.verify_apk(args.apk_directory))

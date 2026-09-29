@@ -44,9 +44,9 @@ import com.yfuse.core.designsystem.ThemeText as Text
  * and when the rest ends at the current speed.
  *
  * Quiet on purpose: a slow fade, no movement, no live region. While it is up, the first touch
- * anywhere on the picture and Back only put it away — they do not also bring up the chrome or leave
- * the player — and the 继续播放 key, drawn above it, still resumes. Under 减弱动态效果 and 静息 the
- * fade is short and plain.
+ * anywhere on the picture and Back go to [onDismiss] and nowhere else — neither leaves the player —
+ * and the 继续播放 key, drawn above it, still resumes. Under 减弱动态效果 and 静息 the fade is short
+ * and plain.
  *
  * [modifier] places the card; the touch catcher covers the whole parent.
  */
