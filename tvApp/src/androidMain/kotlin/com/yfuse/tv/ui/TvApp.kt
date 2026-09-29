@@ -18,14 +18,17 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.SaveableStateHolder
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
@@ -34,6 +37,7 @@ import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
@@ -170,20 +174,31 @@ fun TvRoot(component: RootComponent) {
             RootComponent.Tab.Profile -> profileStack.active.instance is ProfileTabComponent.Child.Home
         }
 
-    // Back walks the hierarchy: out of a sub-screen, then to Home, and only from Home's root
-    // out of the app — the television quality checklist's expectation, and every other TV
-    // client's behaviour.
-    BackHandler(enabled = !atRoot || activeTab != RootComponent.Tab.Home) {
-        if (atRoot) {
-            component.selectTab(RootComponent.Tab.Home)
-            return@BackHandler
-        }
-        when (activeTab) {
-            RootComponent.Tab.Home -> component.home.navigateBack()
-            RootComponent.Tab.Browse -> component.browse.navigateBack()
-            RootComponent.Tab.Search -> component.search.navigateBack()
-            RootComponent.Tab.Profile -> component.profile.navigateBack()
-            RootComponent.Tab.Servers -> Unit
+    // Whether focus is on the rail — kept by the rail itself, and false while it is not there.
+    var railFocused by remember { mutableStateOf(false) }
+
+    // Back walks the hierarchy: out of a sub-screen; from a tab's page to its entry on the rail;
+    // from the rail to Home; and only from the rail on Home out of the app — the television
+    // quality checklist's expectation, and Google TV's. It used to leave from anywhere on Home's
+    // page, so a viewer halfway down a shelf who pressed Back to get their bearings lost the app.
+    // With nothing left to walk the handler stands down, and the system's own back — with its
+    // predictive back-to-home preview — takes the app away.
+    BackHandler(enabled = !atRoot || !railFocused || activeTab != RootComponent.Tab.Home) {
+        when {
+            !atRoot ->
+                when (activeTab) {
+                    RootComponent.Tab.Home -> component.home.navigateBack()
+                    RootComponent.Tab.Browse -> component.browse.navigateBack()
+                    RootComponent.Tab.Search -> component.search.navigateBack()
+                    RootComponent.Tab.Profile -> component.profile.navigateBack()
+                    RootComponent.Tab.Servers -> Unit
+                }
+            !railFocused -> runCatching { navRequesters.getValue(activeTab).requestFocus() }
+            else -> {
+                component.selectTab(RootComponent.Tab.Home)
+                // Onto 首页 as well, so the Back that leaves starts where it says it will.
+                runCatching { navRequesters.getValue(RootComponent.Tab.Home).requestFocus() }
+            }
         }
     }
 
@@ -244,6 +259,7 @@ fun TvRoot(component: RootComponent) {
                             navRequesters = navRequesters,
                             contentRequesters = contentRequesters,
                             pageStates = pageStates,
+                            onRailFocus = { railFocused = it },
                         )
                     }
                 }
@@ -261,6 +277,7 @@ private fun TvRoutePage(
     navRequesters: Map<RootComponent.Tab, FocusRequester>,
     contentRequesters: Map<RootComponent.Tab, FocusRequester>,
     pageStates: SaveableStateHolder,
+    onRailFocus: (Boolean) -> Unit,
 ) {
     when (shown) {
         TvPage.Root ->
@@ -271,6 +288,7 @@ private fun TvRoutePage(
                     contentRequesters = contentRequesters,
                     focusMemory = focusMemory,
                     onSelected = component::selectTab,
+                    onRailFocus = onRailFocus,
                 )
                 Box(
                     Modifier
@@ -330,11 +348,18 @@ private fun TvNavigationRail(
     contentRequesters: Map<RootComponent.Tab, FocusRequester>,
     focusMemory: TvUiFocusMemory,
     onSelected: (RootComponent.Tab) -> Unit,
+    /** Whether focus is on the rail, for Back — see TvRoot; false again once the rail is gone. */
+    onRailFocus: (Boolean) -> Unit,
 ) {
+    val latestOnRailFocus by rememberUpdatedState(onRailFocus)
+    DisposableEffect(Unit) {
+        onDispose { latestOnRailFocus(false) }
+    }
     Column(
         Modifier
             .width(TvRailWidth)
             .fillMaxHeight()
+            .onFocusChanged { latestOnRailFocus(it.hasFocus) }
             .padding(start = TvSafeHorizontal, top = TvSafeVertical, bottom = TvSafeVertical),
         verticalArrangement = Arrangement.Center,
     ) {
