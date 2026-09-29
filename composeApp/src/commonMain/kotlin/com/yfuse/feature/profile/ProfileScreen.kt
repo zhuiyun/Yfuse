@@ -107,6 +107,8 @@ import com.yfuse.core.playback.PlaybackEngineSelection
 import com.yfuse.core.playback.PlaybackOptimizationMode
 import com.yfuse.feature.player.PlayerLauncher
 import com.yfuse.feature.player.PlayerMediaItem
+import com.yfuse.feature.player.externalPlaybackItem
+import com.yfuse.feature.player.externalStreamTitle
 import kotlinx.coroutines.launch
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
@@ -328,6 +330,9 @@ fun ProfileScreen(component: ProfileComponent) {
     val offlineIndexStatus by component.offlineMedia.indexStatus.collectAsState()
     val accountState by component.account.state.collectAsState()
     val watchAvailable = accountState.canUseWatchTogether()
+    // A child profile plays only what its servers allow. The player refuses an outside address
+    // for it anyway; 打开链接 says so up front instead.
+    val personalPolicy by component.personal.policy.collectAsState()
 
     var sheet by remember { mutableStateOf<Sheet?>(null) }
     var confirmClearCache by remember { mutableStateOf(false) }
@@ -341,6 +346,8 @@ fun ProfileScreen(component: ProfileComponent) {
     var pageStack by rememberSaveable { mutableStateOf<List<String>>(emptyList()) }
     var settingsQuery by rememberSaveable { mutableStateOf("") }
     var offlineToPlay by remember { mutableStateOf<OfflineMedia?>(null) }
+    var openLinkDialog by remember { mutableStateOf(false) }
+    var linkToPlay by remember { mutableStateOf<PlayerMediaItem?>(null) }
     val palette = LocalPalette.current
     val mainListState = rememberLazyListState()
     val rootBottomContentInset = floatingNavigationContentInset()
@@ -746,6 +753,16 @@ fun ProfileScreen(component: ProfileComponent) {
                                             icon = AppIcons.Chat,
                                             iconTint = SettingTint.watchTogether,
                                         )
+                                        SettingsDivider()
+                                        SettingRow(
+                                            "打开链接",
+                                            if (personalPolicy.child) "儿童资料不可用" else "粘贴 http(s) 视频地址直接播放",
+                                            embedded = true,
+                                            onClick = { openLinkDialog = true },
+                                            icon = AppIcons.PlaybackSource,
+                                            iconTint = SettingTint.playback,
+                                            enabled = !personalPolicy.child,
+                                        )
                                     }
                                 }
                             }
@@ -849,6 +866,26 @@ fun ProfileScreen(component: ProfileComponent) {
                 startIndex = 0,
                 startPositionMs = startPositionMs,
                 onLaunched = { offlineToPlay = null },
+            )
+        }
+
+        // 打开链接: the entry has no server behind it, so nothing library-side is added to the
+        // request. A failed launch leaves it set; the next address replaces it and launches again.
+        linkToPlay?.let { item ->
+            PlayerLauncher(
+                items = listOf(item),
+                startIndex = 0,
+                startPositionMs = 0L,
+                onLaunched = { linkToPlay = null },
+            )
+        }
+        if (openLinkDialog) {
+            OpenStreamLinkDialog(
+                onOpen = { url ->
+                    openLinkDialog = false
+                    linkToPlay = externalPlaybackItem(url = url, title = externalStreamTitle(url))
+                },
+                onDismiss = { openLinkDialog = false },
             )
         }
 

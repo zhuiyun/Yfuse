@@ -5,6 +5,7 @@
 -keep class com.yfuse.YfuseApp { *; }
 -keep class com.yfuse.MainActivity { *; }
 -keep class com.yfuse.feature.player.PlayerActivity { *; }
+-keep class com.yfuse.feature.player.ExternalPlaybackActivity { *; }
 -keep class com.yfuse.feature.profile.QrScannerActivity { *; }
 -keep class com.yfuse.core.offline.OfflineDownloadService { *; }
 -keep class com.yfuse.update.UpdateDownloadService { *; }

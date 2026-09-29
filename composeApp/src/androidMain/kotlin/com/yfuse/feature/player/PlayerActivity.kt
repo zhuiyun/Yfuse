@@ -777,11 +777,15 @@ class PlayerActivity : ComponentActivity() {
             runCatching {
                 val registry = koin.get<ServerRegistry>()
                 val coordinator = koin.get<PlaybackReportingCoordinator>()
+                // An address opened from outside the libraries belongs to no server. The legacy
+                // default-server fallback for server-less web entries must not adopt it.
+                val externalLaunch = launchRequest.items.any { it.isExternalPlayback }
                 val resolver: (PlaybackReportingTarget) -> PlaybackEventSink? = { target ->
                     when (target) {
                         is PlaybackReportingTarget.SavedServer ->
                             target.id.takeIf { registry.serverById(it) != null }
-                        PlaybackReportingTarget.DefaultServer -> registry.defaultServer?.id
+                        PlaybackReportingTarget.DefaultServer ->
+                            registry.defaultServer?.id?.takeUnless { externalLaunch }
                         PlaybackReportingTarget.Disabled -> null
                     }?.let(coordinator::sinkFor)
                 }
