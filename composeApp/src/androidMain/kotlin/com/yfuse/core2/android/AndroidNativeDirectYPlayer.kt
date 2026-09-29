@@ -2489,7 +2489,8 @@ internal class AndroidNativeDirectYPlayer(
                                     .hasExactDolbyAtmosPassthrough(coreFormat.codec),
                         )
                         audioRendererConfigured = true
-                    } catch (_: Exception) {
+                    } catch (failure: Exception) {
+                        logPassthroughFallback("configure", failure)
                         rejectedPassthroughTracks += requireNotNull(audioTrackIndex)
                         switchPassthroughToPcm(countFailure = true)
                     }
@@ -2554,7 +2555,8 @@ internal class AndroidNativeDirectYPlayer(
                         if (written == 0) audioBackpressureCount++
                         return YCodecQueueResult.TryAgain
                     }
-                } catch (_: Exception) {
+                } catch (failure: Exception) {
+                    logPassthroughFallback("write", failure)
                     val resumeUs = currentPositionUs()
                     rejectedPassthroughTracks += requireNotNull(audioTrackIndex)
                     switchPassthroughToPcm(countFailure = true)
@@ -2586,7 +2588,8 @@ internal class AndroidNativeDirectYPlayer(
                         maxOf(lastQueuedPresentationUs, pending.presentationTimeUs)
                     true
                 }
-            } catch (_: Exception) {
+            } catch (failure: Exception) {
+                logPassthroughFallback("pending_write", failure)
                 val resumeUs = currentPositionUs()
                 audioTrackIndex?.let(rejectedPassthroughTracks::add)
                 pendingEncodedAudioInput = null
@@ -2614,6 +2617,30 @@ internal class AndroidNativeDirectYPlayer(
                         ),
                 )
             }
+        }
+
+        /**
+         * A refused passthrough sink is recoverable, so playback carries on as PCM. Diagnostics
+         * used to show only "原码不可用"; the refusal itself is what explains the downgrade.
+         */
+        private fun logPassthroughFallback(
+            stage: String,
+            failure: Exception,
+        ) {
+            val format = audioTrackFormat
+            AppLog.warning(
+                category = "player.core2",
+                event = "native_direct_passthrough_pcm_fallback",
+                message = "NativeDirect audio passthrough failed; continuing as PCM",
+                throwable = failure,
+                attributes =
+                    mapOf(
+                        "stage" to stage,
+                        "codec" to (format?.codec?.name ?: "unknown"),
+                        "channelCount" to (format?.channelCount?.toString() ?: "unknown"),
+                        "sampleRate" to (format?.sampleRate?.toString() ?: "unknown"),
+                    ),
+            )
         }
 
         private fun switchPassthroughToPcm(countFailure: Boolean) {
