@@ -20,7 +20,6 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -99,7 +98,10 @@ class AndroidAdaptiveProxyTransitionTest {
                 val opening = async(Dispatchers.Default) { proxy.resolvePlaybackTarget(root, 0L) }
                 assertTrue(upstream.blockedOpen.await(2L, TimeUnit.SECONDS))
                 withTimeout(2_000L) { opening.cancelAndJoin() }
-                assertTrue(upstream.closedTransports.get() > 0)
+                // The proxy closes the upstream exchange on its IO cleanup scope (cancelling never
+                // waits for workers), so the close can land just after the caller has joined. Wait
+                // for it instead of reading a counter at the instant of the join.
+                assertTrue(upstream.blockedClosed.await(2L, TimeUnit.SECONDS))
                 assertNull(proxy.pollPlaybackTransition(root, 0L))
                 assertNotNull(proxy.resolvePlaybackTarget(root, 0L))
                 assertEquals(2, upstream.requests.count { URI(it.uri).path == "/master.m3u8" })
@@ -271,7 +273,9 @@ class AndroidAdaptiveProxyTransitionTest {
         val blockedOpen = CountDownLatch(1)
         val unblock = CountDownLatch(1)
         val alternateRead = CountDownLatch(1)
-        val closedTransports = AtomicInteger()
+
+        /** Released when the blocked request's transport is closed, whichever thread closes it. */
+        val blockedClosed = CountDownLatch(1)
         val requests = CopyOnWriteArrayList<YMediaTransportRequest>()
 
         /**
@@ -317,9 +321,11 @@ class AndroidAdaptiveProxyTransitionTest {
                 }
 
                 override suspend fun close() {
-                    closedTransports.incrementAndGet()
                     if (path.endsWith(".m4s")) firstSegmentClosed.countDown()
-                    if (path == blockedPath) unblock.countDown()
+                    if (path == blockedPath) {
+                        blockedClosed.countDown()
+                        unblock.countDown()
+                    }
                 }
             }
     }
