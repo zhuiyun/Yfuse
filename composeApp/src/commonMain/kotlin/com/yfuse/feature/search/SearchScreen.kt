@@ -114,12 +114,14 @@ import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.util.PosterCardSharer
 import com.yfuse.core.util.rememberPosterCardSharer
 import com.yfuse.feature.detail.DetailScreen
+import com.yfuse.feature.home.TmdbInfoScreen
 import com.yfuse.feature.library.favoriteLiftAction
 import com.yfuse.feature.library.liftRemainingLabel
 import com.yfuse.feature.library.mediaItemLiftMenu
 import com.yfuse.feature.library.playedLiftAction
 import com.yfuse.feature.library.posterShareCard
 import com.yfuse.feature.library.shareLiftAction
+import com.yfuse.feature.person.PersonScreen
 import com.yfuse.feature.player.PlayerScreen
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
@@ -156,6 +158,8 @@ fun SearchScreen(component: SearchComponent) {
                 )
             is SearchComponent.Child.Detail -> DetailScreen(instance.component)
             is SearchComponent.Child.Player -> PlayerScreen(instance.component)
+            is SearchComponent.Child.Person -> PersonScreen(instance.component)
+            is SearchComponent.Child.Info -> TmdbInfoScreen(instance.component)
         }
     }
 }

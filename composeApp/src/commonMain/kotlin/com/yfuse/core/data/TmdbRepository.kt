@@ -8,6 +8,7 @@ import com.yfuse.core.model.TmdbDetail
 import com.yfuse.core.model.TmdbHome
 import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.model.TmdbPerson
+import com.yfuse.core.model.TmdbPersonDetail
 import com.yfuse.core.model.TmdbRow
 import com.yfuse.core.model.TmdbRowTitles
 import com.yfuse.core.network.EmbyError
@@ -187,6 +188,20 @@ class TmdbRepository(
      * TMDB's rate limit is not what ends the scan.
      */
     private val lookupRequests = Semaphore(LOOKUP_REQUEST_CONCURRENCY)
+
+    private val people = TmdbPeopleService(client)
+
+    /** One person's record with every credit, for 演员页's biography and 其他作品. */
+    suspend fun person(
+        personId: Int,
+        language: String = "zh-CN",
+    ): Result<TmdbPersonDetail> = people.person(personId, language)
+
+    /** People TMDB files under [query], most relevant first. */
+    suspend fun searchPeople(
+        query: String,
+        language: String = "zh-CN",
+    ): Result<List<TmdbPerson>> = people.search(query, language)
 
     suspend fun home(language: String = "zh-CN"): Result<TmdbHome> = refreshHome(language).map { it.content }
 

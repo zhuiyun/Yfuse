@@ -312,6 +312,7 @@ fun ProfileScreen(component: ProfileComponent) {
     val mediaVersionPreference by component.playbackPreferences.mediaVersionPreference.collectAsState()
     val engineSelection by component.playbackPreferences.engineSelection.collectAsState()
     val smartCrossServerSource by component.playbackPreferences.smartCrossServerSource.collectAsState()
+    val detailThemeSong by component.playbackPreferences.detailThemeSong.collectAsState()
     val anonymousQoeSharing by component.playbackPreferences.anonymousQoeSharing.collectAsState()
     val progressSyncEnabled by component.dependencies.serverSyncManager.syncProgress
         .collectAsState()
@@ -426,6 +427,7 @@ fun ProfileScreen(component: ProfileComponent) {
                         optimizationMode = optimizationMode,
                         mediaVersionPreference = mediaVersionPreference,
                         autoNext = autoNext,
+                        detailThemeSong = detailThemeSong,
                         smartCrossServerSource = smartCrossServerSource,
                         progressSyncEnabled = progressSyncEnabled,
                         anonymousQoeSharing = anonymousQoeSharing,
@@ -441,6 +443,7 @@ fun ProfileScreen(component: ProfileComponent) {
                         onMediaVersionPreference = { sheet = Sheet.MediaVersionPreference },
                         onOpenAdvanced = { openPage(ProfilePage.AdvancedPlayback) },
                         onAutoNext = prefs::setAutoNext,
+                        onDetailThemeSong = component.playbackPreferences::setDetailThemeSong,
                         onSmartCrossServerSource = component.playbackPreferences::setSmartCrossServerSource,
                         onProgressSync = component.dependencies.serverSyncManager::setProgress,
                         onAnonymousQoeSharing = component.playbackPreferences::setAnonymousQoeSharing,

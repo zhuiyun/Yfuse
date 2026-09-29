@@ -42,6 +42,7 @@ import com.yfuse.core.designsystem.contentHandoff
 import com.yfuse.core.model.Episode
 import com.yfuse.core.model.MediaDetail
 import com.yfuse.core.model.MediaItem
+import com.yfuse.core.model.MediaTrailer
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.network.currentPlaybackNetworkClass
 import com.yfuse.core.offline.DownloadStatus
@@ -54,6 +55,9 @@ import com.yfuse.feature.detail.episodeLiftMenu
 import com.yfuse.feature.detail.episodeStillUrl
 import com.yfuse.feature.detail.relatedLiftMenu
 import com.yfuse.feature.detail.rememberEpisodeRowActions
+import com.yfuse.feature.extras.DetailThemeSong
+import com.yfuse.feature.extras.TrailerLaunchEffect
+import com.yfuse.feature.extras.rememberTrailerLauncher
 import com.yfuse.feature.personal.PersonalMediaActions
 import com.yfuse.tv.focus.FocusCandidate
 import com.yfuse.tv.focus.FocusContext
@@ -71,6 +75,12 @@ internal fun TvDetailScreen(
     val playRequester = remember { FocusRequester() }
     val secondaryNavigationRequester = remember { FocusRequester() }
     var sheet by remember(component.itemId) { mutableStateOf<TvDetailSheet?>(null) }
+    // 预告片 under the hero's keys and in its preview; 主题曲 plays itself, as on the phone.
+    val trailers by component.trailers.collectAsState()
+    val trailerLauncher = rememberTrailerLauncher()
+    TrailerLaunchEffect(trailerLauncher)
+    TvTrailerNoticeTimeout(trailerLauncher)
+    DetailThemeSong(component)
     if (detail != null && server != null) {
         // One route per title, so returning from a related title restores this page's own focus.
         val route = tvDetailRoute(detail.id)
@@ -168,8 +178,14 @@ internal fun TvDetailScreen(
                         resumeTicks = state.playPositionTicks,
                         busy = state.resolvingPlay || state.selectionLoading,
                         onBack = component.onBack,
-                        onPlay = { store.accept(DetailIntent.Play) },
-                        onPlayFromStart = { store.accept(DetailIntent.PlayFromStart) },
+                        onPlay = {
+                            stopTrailerPreview()
+                            store.accept(DetailIntent.Play)
+                        },
+                        onPlayFromStart = {
+                            stopTrailerPreview()
+                            store.accept(DetailIntent.PlayFromStart)
+                        },
                         onToggleFavorite = { store.accept(DetailIntent.ToggleFavorite) },
                         onTogglePlayed = { store.accept(DetailIntent.TogglePlayed) },
                         watchLater = state.watchLater,
@@ -180,6 +196,16 @@ internal fun TvDetailScreen(
                         downloadEnabled =
                             state.playTarget != null && state.playServer != null && !state.selectionLoading,
                         onDownload = { sheet = TvDetailSheet.Download },
+                        trailers = trailers,
+                        onOpenTrailers = {
+                            val only = trailers.singleOrNull()
+                            if (only != null) {
+                                trailerLauncher.openOnTv(only, detail.title)
+                            } else {
+                                sheet = TvDetailSheet.Trailers
+                            }
+                        },
+                        trailerNotice = trailerLauncher.problem,
                         focusMemory = focusMemory,
                         playRequester = playRequester,
                         serverId = server.id,
@@ -371,9 +397,8 @@ internal fun TvDetailScreen(
                                             ),
                                         serverId = server.id,
                                         profileId = server.userId,
-                                        // The libraries are the only filmography available, so a
-                                        // face opens a search for that name.
-                                        onClick = { component.searchFor(person.name) },
+                                        // 演员页: who they are, their titles here, and TMDB's others.
+                                        onClick = { component.openPerson(person) },
                                     )
                                 },
                             focusMemory = focusMemory,
@@ -463,6 +488,17 @@ internal fun TvDetailScreen(
                         focusMemory = focusMemory,
                         onDismiss = { sheet = null },
                     )
+                TvDetailSheet.Trailers ->
+                    TvTrailerListDialog(
+                        title = detail.title,
+                        trailers = trailers,
+                        focusMemory = focusMemory,
+                        onOpen = { trailer ->
+                            sheet = null
+                            trailerLauncher.openOnTv(trailer, detail.title)
+                        },
+                        onDismiss = { sheet = null },
+                    )
             }
         }
     }
@@ -487,11 +523,17 @@ private fun TvDetailHero(
     downloadEnabled: Boolean,
     onDownload: () -> Unit,
     onOpenMore: () -> Unit,
+    trailers: List<MediaTrailer>,
+    onOpenTrailers: () -> Unit,
+    /** Why the last trailer link did not open; see TvTrailerNoticeTimeout. */
+    trailerNotice: String?,
     focusMemory: TvUiFocusMemory,
     playRequester: FocusRequester,
     serverId: String,
     profileId: String,
 ) {
+    var heroFocused by remember { mutableStateOf(false) }
+    val preview = trailers.firstNotNullOfOrNull { it as? MediaTrailer.Local }
     // Kept whole while focus is anywhere in it: 播放 pivoted on its own would push the title and
     // 返回 off the top on arrival.
     Box(
@@ -499,13 +541,21 @@ private fun TvDetailHero(
             .tvKeepWholeInView()
             .fillMaxWidth()
             .height(475.dp)
-            .background(TvPlaceholder),
+            .background(TvPlaceholder)
+            .onFocusChanged { heroFocused = it.hasFocus },
     ) {
         AsyncImage(
             model = rememberTvImage(heroUrl),
             // Silent: the title is written over it, and the backdrop read it a second time.
             contentDescription = null,
             contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize(),
+        )
+        TvHeroTrailerPreview(
+            previewKey = preview?.let { "detail:$serverId:${detail.id}" },
+            focused = heroFocused,
+            lookup = { preview },
+            suspended = busy,
             modifier = Modifier.fillMaxSize(),
         )
         Box(
@@ -676,6 +726,20 @@ private fun TvDetailHero(
                         )
                     }
                 }
+                if (trailers.isNotEmpty()) {
+                    item(key = "trailer") {
+                        TvActionButton(
+                            label = "预告片",
+                            stableId = "detail:${detail.id}:trailer",
+                            focusScope = "detail:${detail.id}:hero",
+                            focusMemory = focusMemory,
+                            onClick = onOpenTrailers,
+                            icon = AppIcons.Movie,
+                            serverId = serverId,
+                            profileId = profileId,
+                        )
+                    }
+                }
                 item(key = "more") {
                     TvActionButton(
                         label = "更多",
@@ -688,6 +752,10 @@ private fun TvDetailHero(
                         profileId = profileId,
                     )
                 }
+            }
+            trailerNotice?.let { notice ->
+                Spacer(Modifier.height(8.dp))
+                Text(notice, color = TvOnSurfaceMuted, fontSize = TvType.caption)
             }
         }
     }

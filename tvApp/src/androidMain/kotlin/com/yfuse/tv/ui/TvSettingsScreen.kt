@@ -230,6 +230,7 @@ private fun TvSettingsRootPage(
     val reduceMotion by component.themePreferences.reduceMotion.collectAsState()
     val dialogAnimation by component.themePreferences.dialogAnimation.collectAsState()
     val autoNext by component.themePreferences.autoNext.collectAsState()
+    val detailThemeSong by component.playbackPreferences.detailThemeSong.collectAsState()
     val account by component.account.state.collectAsState()
     val personal by component.personal.state.collectAsState()
     val danmakuEnabled by component.danmakuPreferences.enabled.collectAsState()
@@ -401,6 +402,19 @@ private fun TvSettingsRootPage(
                 onToggle = component.themePreferences::setAutoNext,
                 icon = AppIcons.Next,
                 focusScope = scope,
+                navigationRequester = navigationRequester,
+            )
+        }
+        item(key = "settings-detail-theme-song") {
+            TvToggleRow(
+                title = "详情页主题曲",
+                checked = detailThemeSong,
+                stableId = "settings:detail-theme-song",
+                focusMemory = focusMemory,
+                onToggle = component.playbackPreferences::setDetailThemeSong,
+                icon = AppIcons.Volume,
+                focusScope = scope,
+                subtitle = "服务器有主题曲时，在详情页轻声播放",
                 navigationRequester = navigationRequester,
             )
         }

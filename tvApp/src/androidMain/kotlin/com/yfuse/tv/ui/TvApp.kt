@@ -615,6 +615,9 @@ private fun TvPushedPage(
         is LibraryComponent.Child.Player -> PlayerScreen(child.component)
         is SearchComponent.Child.Detail -> TvDetailScreen(child.component, focusMemory)
         is SearchComponent.Child.Player -> PlayerScreen(child.component)
+        // 演员页 and the TMDB page of one of its 其他作品; see RootComponent.openPersonPage.
+        is SearchComponent.Child.Person -> TvPersonScreen(child.component, focusMemory)
+        is SearchComponent.Child.Info -> TvTmdbInfoScreen(child.component, focusMemory)
     }
 }
 

@@ -38,7 +38,7 @@ import com.yfuse.tv.focus.tvFocusScope
 import kotlinx.coroutines.launch
 
 /** Which secondary sheet the detail screen currently shows. */
-internal enum class TvDetailSheet { More, Organization, AiringCalendar, EpisodeProgress, Download }
+internal enum class TvDetailSheet { More, Organization, AiringCalendar, EpisodeProgress, Download, Trailers }
 
 /**
  * The remaining actions from the phone's 更多 sheet.

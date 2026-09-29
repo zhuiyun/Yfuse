@@ -24,6 +24,10 @@ import com.yfuse.core.data.libraryAiringSchedule
 import com.yfuse.core.data.smartFailoverServerIds
 import com.yfuse.core.model.CalendarDay
 import com.yfuse.core.model.MediaDetail
+import com.yfuse.core.model.MediaTrailer
+import com.yfuse.core.model.Person
+import com.yfuse.core.model.SavedServer
+import com.yfuse.core.model.ThemeSong
 import com.yfuse.core.model.capabilities
 import com.yfuse.core.network.currentPlaybackNetworkClass
 import com.yfuse.core.offline.OfflineBatchItem
@@ -46,9 +50,15 @@ import com.yfuse.feature.player.PreparedPlayerStore
 import com.yfuse.feature.player.RecentCastTargets
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.stateIn
 import org.koin.core.context.GlobalContext
 
 class DetailComponent(
@@ -154,6 +164,24 @@ class DetailComponent(
         dependencies.searchRequests.submit(query)
     }
 
+    /**
+     * 演员页 for a face in this page's cast, as the server that lists them knows them. A credit
+     * without an id of its own — nothing to read a record or a filmography by — searches the name.
+     */
+    fun openPerson(person: Person) {
+        if (person.id.isBlank()) {
+            searchFor(person.name)
+        } else {
+            dependencies.searchRequests.openPerson(store.state.server?.id ?: serverId, person)
+        }
+    }
+
+    /** 主题曲 for [itemId]; an episode's or a season's comes from its show. */
+    internal suspend fun themeSongs(
+        server: SavedServer,
+        itemId: String,
+    ): List<ThemeSong> = repo.themeSongs(server, itemId)
+
     private val delegateStore =
         DetailStoreFactory(
             storeFactory,
@@ -196,6 +224,21 @@ class DetailComponent(
                 delegateStore.accept(intent)
             }
         }
+
+    /**
+     * 预告片 for this page's title, read once its detail is known and kept while the page lives — the
+     * key under 播放 and the television's hero preview both read it. Empty while nothing has loaded,
+     * and for an episode, whose trailer would only be its show's.
+     */
+    internal val trailers: StateFlow<List<MediaTrailer>> =
+        delegateStore.states
+            .map { state ->
+                val server = state.server
+                val detail = state.detail?.takeUnless { it.type.equals("Episode", ignoreCase = true) }
+                if (server != null && detail != null) server to detail.id else null
+            }.distinctUntilChangedBy { subject -> subject?.let { (server, id) -> server.id to id } }
+            .mapLatest { subject -> subject?.let { (server, id) -> repo.trailers(server, id) }.orEmpty() }
+            .stateIn(componentScope(lifecycle), SharingStarted.Lazily, emptyList())
 
     /**
      * Plays on [request]'s television what 播放 would open here, without this phone's player: the

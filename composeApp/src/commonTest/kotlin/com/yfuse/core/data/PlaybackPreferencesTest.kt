@@ -100,6 +100,17 @@ class PlaybackPreferencesTest {
     }
 
     @Test
+    fun detail_theme_song_defaults_off_and_persists_on() {
+        val settings = MapSettings()
+        val first = PlaybackPreferences(settings)
+
+        assertFalse(first.detailThemeSong.value)
+        first.setDetailThemeSong(true)
+
+        assertTrue(PlaybackPreferences(settings).detailThemeSong.value)
+    }
+
+    @Test
     fun playback_output_preferences_default_off_and_persist() {
         val settings = MapSettings()
         val first = PlaybackPreferences(settings)
