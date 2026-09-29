@@ -28,6 +28,11 @@ data class WatchWireMessage(
     val moderator: Boolean? = null,
     val participantCount: Int? = null,
     val participants: List<WatchWireParticipant>? = null,
+    /**
+     * 一起看: whether a member is ready to play. 手机遥控, under
+     * [WatchProtocol.CAPABILITY_REMOTE_PAIRING]: false on `remoteJoined` when the television asks
+     * before it takes this phone's keys, and the phone waits for `remoteAdmitted`.
+     */
     val ready: Boolean? = null,
     val buffering: Boolean? = null,
     val mediaAvailable: Boolean? = null,
@@ -157,6 +162,12 @@ object WatchProtocol {
      * ([WatchWireMessage.remoteDeviceId]), and can let one go with `remoteRelease` — which is how it
      * asks before a phone it does not know may press anything. A relay without it tells the
      * television only that some phone is on.
+     *
+     * A television that asks also says so as it hosts, with this capability among the
+     * [WatchWireMessage.capabilities] of its `remoteHost`. Each phone that joins it is then answered
+     * with [WatchWireMessage.ready] false, and waits: the television's `remoteAdmit` for that phone
+     * reaches that phone alone, as `remoteAdmitted`. A television that says nothing — one from before
+     * it asked — is joined as before, and a phone on a relay without this never waits at all.
      */
     const val CAPABILITY_REMOTE_PAIRING = "remotePairing"
 
@@ -200,6 +211,10 @@ object WatchProtocol {
     const val MAX_REMOTE_SESSION_ID_BYTES = 128
     const val MAX_REMOTE_DEVICE_ID_BYTES = 128
 
+    /** What a television may say it does as it hosts: a handful of capability names, no more. */
+    const val MAX_DECLARED_CAPABILITIES = 8
+    const val MAX_DECLARED_CAPABILITY_CHARS = 64
+
     /**
      * Starts the id the relay makes up for a phone that named none — an app from before
      * [CAPABILITY_REMOTE_PAIRING]. It lasts that one connection, so a television never trusts it
@@ -230,6 +245,7 @@ object WatchProtocol {
     private val mediaKeyRegex =
         Regex("[A-Za-z][A-Za-z0-9_-]{0,31}:[A-Za-z0-9][A-Za-z0-9._-]*(?:/s[0-9]{1,4}e[0-9]{1,5})?")
     private val capabilityRegex = Regex("[A-Za-z0-9_-]{$CAPABILITY_LENGTH}")
+    private val capabilityNameRegex = Regex("[A-Za-z][A-Za-z0-9]{0,${MAX_DECLARED_CAPABILITY_CHARS - 1}}")
     private val playlistEntryIdRegex = Regex("[A-Za-z0-9][A-Za-z0-9._:-]{0,63}")
 
     /**
@@ -239,9 +255,11 @@ object WatchProtocol {
      * `remoteConnected` / `remoteDisconnected` as phones come and go, and tells a phone
      * `remoteDisconnected` when its television leaves. Under [CAPABILITY_REMOTE_PAIRING] the
      * television also sends `remoteRelease` to let one phone go, which then hears
-     * `remoteDisconnected` too. Such a socket never joins a room.
+     * `remoteDisconnected` too, and `remoteAdmit` to let one in, which then hears `remoteAdmitted`.
+     * Such a socket never joins a room.
      */
-    val REMOTE_CLIENT_MESSAGE_TYPES = setOf("remoteHost", "remoteJoin", "remoteKey", "remoteText", "remoteRelease")
+    val REMOTE_CLIENT_MESSAGE_TYPES =
+        setOf("remoteHost", "remoteJoin", "remoteKey", "remoteText", "remoteRelease", "remoteAdmit")
 
     val CLIENT_MESSAGE_TYPES =
         setOf(
@@ -380,6 +398,16 @@ object WatchProtocol {
      */
     fun isStableRemoteDeviceId(value: String?): Boolean =
         isValidRemoteDeviceId(value) && !value.orEmpty().startsWith(REMOTE_EPHEMERAL_DEVICE_PREFIX)
+
+    /**
+     * What a television may list as it hosts ([CAPABILITY_REMOTE_PAIRING] says it asks before a
+     * phone may press anything): a few names of the relay's own shape. One the relay does not know
+     * is passed over rather than refused, so a later television can say more to an older relay.
+     */
+    fun isValidDeclaredCapabilities(value: List<String>?): Boolean =
+        value != null &&
+            value.size <= MAX_DECLARED_CAPABILITIES &&
+            value.all { capabilityNameRegex.matches(it) }
 
     /**
      * The phone's whole field, so a lost or repeated message cannot garble what the television

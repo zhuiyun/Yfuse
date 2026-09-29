@@ -68,12 +68,16 @@ internal sealed interface RemoteAdmission<out S> {
         val phones: Int,
     ) : RemoteAdmission<S>
 
-    /** [fresh] is false when the phone was already on this television. */
+    /**
+     * [fresh] is false when the phone was already on this television. [waiting] is true while its
+     * television, one that asks before a phone may press anything, has not let it in.
+     */
     data class Joined<S>(
         val host: S,
         val phones: Int,
         val fresh: Boolean,
         val phone: RemotePhone,
+        val waiting: Boolean = false,
     ) : RemoteAdmission<S>
 
     /** One key or text from [phone], for its television, [host]. */
@@ -86,6 +90,11 @@ internal sealed interface RemoteAdmission<out S> {
     data class Released<S>(
         val phones: List<S>,
         val remaining: Int,
+    ) : RemoteAdmission<S>
+
+    /** A television let [phones] in: each of them, and no other, is told. */
+    data class Admitted<S>(
+        val phones: List<S>,
     ) : RemoteAdmission<S>
 
     data class Refused(
@@ -112,7 +121,8 @@ internal sealed interface RemoteDeparture<out S> {
  * that session id. Every lookup is keyed by the joining socket's own account, so a television of
  * another account is never found: it reads exactly like one that is not online. Input only ever
  * goes from phones to their television, named with the phone it came from, and only a television
- * lets one of its phones go — which is how it refuses one it has not agreed to.
+ * lets one of its phones go — which is how it refuses one it has not agreed to — or in, which the
+ * phone is told so that it stops waiting.
  *
  * Generic over the socket so the bookkeeping is testable without a network.
  */
@@ -129,6 +139,8 @@ internal class RemoteControlRelay<S : Any>(
 
     private class Host<S>(
         val socket: S,
+        /** It asks before a phone may press anything, and says when it lets one in. */
+        val asks: Boolean,
     ) {
         val controllers = LinkedHashSet<S>()
     }
@@ -138,6 +150,9 @@ internal class RemoteControlRelay<S : Any>(
         val phone: RemotePhone,
     ) {
         val recentInputsAtMs = ArrayDeque<Long>()
+
+        /** Its television said it may press keys; only one that [Host.asks] says so. */
+        var admitted = false
     }
 
     private val hosts = mutableMapOf<HostKey, Host<S>>()
@@ -154,11 +169,13 @@ internal class RemoteControlRelay<S : Any>(
         sessionId: String,
     ): Int = hosts[HostKey(userId, sessionId)]?.controllers?.size ?: 0
 
+    /** [asks] is what the television said as it hosted: it asks before a phone may press anything. */
     @Synchronized
     fun host(
         userId: String,
         sessionId: String,
         socket: S,
+        asks: Boolean = false,
     ): RemoteAdmission<S> {
         if (socket in controllers) return RemoteAdmission.Refused(RemoteRefusal.WrongRole)
         val key = HostKey(userId, sessionId)
@@ -166,7 +183,7 @@ internal class RemoteControlRelay<S : Any>(
         if (existing == null && hosts.size >= maxHosts) return RemoteAdmission.Refused(RemoteRefusal.Full)
         // A television that reconnects keeps its phones: they follow the session, not the socket.
         val replaced = existing?.socket?.takeIf { it != socket }
-        val host = Host(socket)
+        val host = Host(socket, asks)
         existing?.let { host.controllers.addAll(it.controllers) }
         replaced?.let(hostedBy::remove)
         hosts[key] = host
@@ -192,12 +209,24 @@ internal class RemoteControlRelay<S : Any>(
             hosts[key]?.takeIf { targetSessionId != ownSessionId }
                 ?: return RemoteAdmission.Refused(RemoteRefusal.Unavailable)
         if (previous != null) {
-            return RemoteAdmission.Joined(host.socket, host.controllers.size, fresh = false, phone = previous.phone)
+            return RemoteAdmission.Joined(
+                host.socket,
+                host.controllers.size,
+                fresh = false,
+                phone = previous.phone,
+                waiting = host.asks && !previous.admitted,
+            )
         }
         if (host.controllers.size >= maxControllersPerHost) return RemoteAdmission.Refused(RemoteRefusal.Busy)
         host.controllers += socket
         controllers[socket] = Controller(key, phone)
-        return RemoteAdmission.Joined(host.socket, host.controllers.size, fresh = true, phone = phone)
+        return RemoteAdmission.Joined(
+            host.socket,
+            host.controllers.size,
+            fresh = true,
+            phone = phone,
+            waiting = host.asks,
+        )
     }
 
     /** Admits one key or text from [socket], a phone, and names the television it goes to. */
@@ -232,6 +261,26 @@ internal class RemoteControlRelay<S : Any>(
             controllers.remove(phone)
         }
         return RemoteAdmission.Released(leaving, host.controllers.size)
+    }
+
+    /**
+     * The television on [socket] lets every one of its phones named [deviceId] in. As for
+     * [release], only the socket a television hosts on may: a phone cannot let itself in.
+     */
+    @Synchronized
+    fun admit(
+        socket: S,
+        deviceId: String,
+    ): RemoteAdmission<S> {
+        val key = hostedBy[socket] ?: return RemoteAdmission.Refused(RemoteRefusal.WrongRole)
+        val host = hosts[key]?.takeIf { it.socket == socket } ?: return RemoteAdmission.Refused(RemoteRefusal.WrongRole)
+        val entering =
+            host.controllers.filter { phone ->
+                val controller = controllers[phone]?.takeIf { it.phone.deviceId == deviceId }
+                controller?.admitted = true
+                controller != null
+            }
+        return RemoteAdmission.Admitted(entering)
     }
 
     /** Forgets [socket] and says who has to hear that it went. */
@@ -271,16 +320,20 @@ internal suspend fun RemoteControlRelay<WebSocketSession>.handle(
             message.mediaKey != null
     when (message.type) {
         "remoteHost" -> {
+            // What the television says it does; it may say nothing, as one from before did.
+            val declared = message.capabilities
             if (
                 strayRoomFields ||
                 message.remoteSessionId != null ||
                 message.remoteKey != null ||
                 message.remoteDeviceId != null ||
-                message.text != null
+                message.text != null ||
+                (declared != null && !WatchProtocol.isValidDeclaredCapabilities(declared))
             ) {
                 return socket.refuse(RemoteRefusal.WrongRole)
             }
-            when (val admission = host(account.userId, account.sessionId, socket)) {
+            val asks = WatchProtocol.CAPABILITY_REMOTE_PAIRING in declared.orEmpty()
+            when (val admission = host(account.userId, account.sessionId, socket, asks)) {
                 is RemoteAdmission.Hosted -> {
                     admission.replaced?.let { stale ->
                         withTimeoutOrNull(REMOTE_SEND_TIMEOUT_MS) {
@@ -326,6 +379,8 @@ internal suspend fun RemoteControlRelay<WebSocketSession>.handle(
                             type = "remoteJoined",
                             capabilities = WatchProtocol.SERVER_CAPABILITIES,
                             participantCount = admission.phones,
+                            // Said before the television hears of the phone, so it cannot be let in first.
+                            ready = false.takeIf { admission.waiting },
                         ),
                     )
                     if (admission.fresh) {
@@ -415,6 +470,27 @@ internal suspend fun RemoteControlRelay<WebSocketSession>.handle(
                         )
                     }
                 }
+                is RemoteAdmission.Refused -> socket.refuse(admission.reason)
+                else -> Unit
+            }
+        }
+        "remoteAdmit" -> {
+            val deviceId = message.remoteDeviceId?.takeIf(WatchProtocol::isValidRemoteDeviceId)
+            if (
+                deviceId == null ||
+                strayRoomFields ||
+                message.remoteSessionId != null ||
+                message.remoteKey != null ||
+                message.text != null ||
+                message.errorCode != null ||
+                message.capabilities != null
+            ) {
+                return socket.refuse(RemoteRefusal.WrongRole)
+            }
+            when (val admission = admit(socket, deviceId)) {
+                // Only the phone let in hears it; the television already knows, and the others wait on.
+                is RemoteAdmission.Admitted ->
+                    admission.phones.forEach { phone -> phone.deliver(WatchWireMessage(type = "remoteAdmitted")) }
                 is RemoteAdmission.Refused -> socket.refuse(admission.reason)
                 else -> Unit
             }

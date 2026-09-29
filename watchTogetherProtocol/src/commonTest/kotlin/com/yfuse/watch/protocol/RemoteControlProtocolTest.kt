@@ -69,6 +69,35 @@ class RemoteControlProtocolTest {
     }
 
     @Test
+    fun letting_a_phone_in_is_the_televisions_message_and_what_it_says_it_does_is_bounded() {
+        assertTrue("remoteAdmit" in WatchProtocol.REMOTE_CLIENT_MESSAGE_TYPES)
+        assertTrue("remoteAdmit" in WatchProtocol.CLIENT_MESSAGE_TYPES)
+        assertTrue(WatchProtocol.isValidDeclaredCapabilities(listOf(WatchProtocol.CAPABILITY_REMOTE_PAIRING)))
+        // A name this relay does not know yet is passed over, not refused.
+        assertTrue(WatchProtocol.isValidDeclaredCapabilities(listOf("remotePairing", "somethingLater")))
+        assertTrue(WatchProtocol.isValidDeclaredCapabilities(emptyList()))
+        assertFalse(WatchProtocol.isValidDeclaredCapabilities(null))
+        assertFalse(WatchProtocol.isValidDeclaredCapabilities(listOf("remote pairing")))
+        assertFalse(WatchProtocol.isValidDeclaredCapabilities(listOf("")))
+        assertFalse(WatchProtocol.isValidDeclaredCapabilities(listOf("2fast")))
+        val tooLong = "a".repeat(WatchProtocol.MAX_DECLARED_CAPABILITY_CHARS + 1)
+        assertFalse(WatchProtocol.isValidDeclaredCapabilities(listOf(tooLong)))
+        assertFalse(
+            WatchProtocol.isValidDeclaredCapabilities(List(WatchProtocol.MAX_DECLARED_CAPABILITIES + 1) { "cap$it" }),
+        )
+    }
+
+    @Test
+    fun a_phone_that_must_wait_is_told_so_on_joining_and_an_older_relay_says_nothing() {
+        val waiting =
+            json.decodeFromString(WatchWireMessage.serializer(), """{"type":"remoteJoined","ready":false}""")
+        assertEquals(false, waiting.ready)
+        val older = json.decodeFromString(WatchWireMessage.serializer(), """{"type":"remoteJoined"}""")
+        assertNull(older.ready)
+        assertFalse("ready" in json.encodeToString(WatchWireMessage.serializer(), older))
+    }
+
+    @Test
     fun a_phone_names_itself_with_a_bounded_id_and_the_relays_stand_in_is_never_trusted() {
         assertTrue(WatchProtocol.isStableRemoteDeviceId("5f0c1d2e3a4b5c6d7e8f901a2b3c4d5e"))
         val madeUp = WatchProtocol.REMOTE_EPHEMERAL_DEVICE_PREFIX + "2b1f8c3e-5d4a-4c1b-9a77-0e6f5d4c3b2a"
